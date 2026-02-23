@@ -21,6 +21,8 @@ export function registerRunCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const isPlain = parentOpts.plain as boolean | undefined;
+      const fileFilter = parentOpts.file as string | undefined;
+      const noCache = parentOpts.cache === false;
 
       const renderer = createRenderer({
         plain: isPlain,
@@ -28,6 +30,16 @@ export function registerRunCommand(program: Command): void {
       });
 
       let lockPath: string | undefined;
+      let interrupted = false;
+      let filesReviewed = 0;
+      let totalFindings = 0;
+      let totalFiles = 0;
+
+      // SIGINT handler for graceful shutdown
+      const onSigint = () => {
+        interrupted = true;
+      };
+      process.on('SIGINT', onSigint);
 
       try {
         // Phase 1: SCAN
@@ -45,20 +57,43 @@ export function registerRunCommand(program: Command): void {
         console.log(`  est. time    ~${estimate.estimatedMinutes} min (sequential)`);
         console.log('');
 
+        if (interrupted) {
+          console.log(`interrupted — 0/${estimate.files} files reviewed | 0 findings`);
+          return;
+        }
+
         // Phase 3: REVIEW
         lockPath = acquireLock(projectRoot);
         const pm = new ProgressManager(projectRoot);
-        const pending = pm.getPendingFiles();
+
+        // --no-cache: reset CACHED files to PENDING
+        if (noCache) {
+          const progress = pm.getProgress();
+          for (const [, fp] of Object.entries(progress.files)) {
+            if (fp.status === 'CACHED') {
+              pm.updateFileStatus(fp.file, 'PENDING');
+            }
+          }
+        }
+
+        let pending = pm.getPendingFiles();
+
+        // --file <glob>: filter pending files by glob pattern
+        if (fileFilter) {
+          pending = pending.filter((fp) => matchGlob(fp.file, fileFilter));
+        }
 
         if (pending.length === 0) {
           console.log('anatoly — review');
           console.log('  No pending files to review.');
           console.log('');
         } else {
-          const total = pending.length;
-          renderer.start(total);
+          totalFiles = pending.length;
+          renderer.start(totalFiles);
 
           for (let i = 0; i < pending.length; i++) {
+            if (interrupted) break;
+
             const fileProgress = pending[i];
             const filePath = fileProgress.file;
             const allTasks = loadTasks(projectRoot);
@@ -66,23 +101,24 @@ export function registerRunCommand(program: Command): void {
 
             if (!task) continue;
 
-            renderer.updateProgress(i + 1, total, filePath);
+            renderer.updateProgress(i + 1, totalFiles, filePath);
             pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
             try {
               const result = await reviewFile(projectRoot, task, config);
               writeReviewOutput(projectRoot, result.review);
               pm.updateFileStatus(filePath, 'DONE');
+              filesReviewed++;
 
               // Count findings and update counters
               const outputName = toOutputName(filePath) + '.rev.md';
               let findingsSummary: string | undefined;
 
               for (const s of result.review.symbols) {
-                if (s.utility === 'DEAD') renderer.incrementCounter('dead');
-                if (s.duplication === 'DUPLICATE') renderer.incrementCounter('duplicate');
-                if (s.overengineering === 'OVER') renderer.incrementCounter('overengineering');
-                if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') renderer.incrementCounter('error');
+                if (s.utility === 'DEAD') { renderer.incrementCounter('dead'); totalFindings++; }
+                if (s.duplication === 'DUPLICATE') { renderer.incrementCounter('duplicate'); totalFindings++; }
+                if (s.overengineering === 'OVER') { renderer.incrementCounter('overengineering'); totalFindings++; }
+                if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') { renderer.incrementCounter('error'); totalFindings++; }
               }
 
               // Build findings summary for result line
@@ -103,6 +139,14 @@ export function registerRunCommand(program: Command): void {
           renderer.stop();
         }
 
+        // Handle interrupt after review loop
+        if (interrupted) {
+          console.log(`interrupted — ${filesReviewed}/${totalFiles} files reviewed | ${totalFindings} findings`);
+          releaseLock(lockPath);
+          lockPath = undefined;
+          return;
+        }
+
         releaseLock(lockPath);
         lockPath = undefined;
 
@@ -119,12 +163,12 @@ export function registerRunCommand(program: Command): void {
         const { reportPath, data } = generateReport(projectRoot, errorFiles);
 
         // Compute stats
-        const totalFindings = data.findingFiles.length;
+        const reportFindings = data.findingFiles.length;
         const reviewed = data.totalFiles;
         const clean = data.cleanFiles.length;
 
         renderer.showCompletion(
-          { reviewed, findings: totalFindings, clean },
+          { reviewed, findings: reportFindings, clean },
           {
             report: reportPath,
             reviews: resolve(projectRoot, '.anatoly', 'reviews') + '/',
@@ -146,6 +190,48 @@ export function registerRunCommand(program: Command): void {
         const message = error instanceof AnatolyError ? error.message : String(error);
         console.error(`anatoly — error: ${message}`);
         process.exitCode = 2;
+      } finally {
+        process.removeListener('SIGINT', onSigint);
       }
     });
+}
+
+/**
+ * Simple glob matching for --file filter.
+ * Supports * (any chars except /), ** (any chars including /), ? (single char).
+ */
+export function matchGlob(filePath: string, pattern: string): boolean {
+  // Convert glob pattern to regex
+  let regex = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const c = pattern[i];
+    if (c === '*' && pattern[i + 1] === '*') {
+      regex += '.*';
+      i += 2;
+      if (pattern[i] === '/') i++; // skip trailing slash after **
+    } else if (c === '*') {
+      regex += '[^/]*';
+      i++;
+    } else if (c === '?') {
+      regex += '[^/]';
+      i++;
+    } else if (c === '{') {
+      regex += '(';
+      i++;
+    } else if (c === '}') {
+      regex += ')';
+      i++;
+    } else if (c === ',') {
+      regex += '|';
+      i++;
+    } else if ('.+^$|()[]\\'.includes(c)) {
+      regex += '\\' + c;
+      i++;
+    } else {
+      regex += c;
+      i++;
+    }
+  }
+  return new RegExp(`^${regex}$`).test(filePath);
 }
