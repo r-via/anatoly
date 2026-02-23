@@ -8,6 +8,7 @@ import type { Config } from '../schemas/config.js';
 import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
+import { getGitTrackedFiles } from '../utils/git.js';
 
 const esmRequire = createRequire(import.meta.url);
 
@@ -158,6 +159,7 @@ export async function parseFile(
 
 /**
  * Collect all TypeScript files matching the config patterns.
+ * Filters out files ignored by .gitignore when inside a git repo.
  */
 export async function collectFiles(
   projectRoot: string,
@@ -174,8 +176,14 @@ export async function collectFiles(
     }
   }
 
+  // Filter out .gitignore'd files
+  const tracked = getGitTrackedFiles(projectRoot);
+  const filtered = tracked
+    ? files.filter((f) => tracked.has(f))
+    : files;
+
   // Deduplicate and sort for deterministic output
-  return [...new Set(files)].sort();
+  return [...new Set(filtered)].sort();
 }
 
 /**
