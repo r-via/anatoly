@@ -6,3 +6,5 @@ export { reviewFile, parseReviewResponse, tryParseReview, formatRetryFeedback } 
 export type { ReviewResult } from './reviewer.js';
 export { ProgressManager } from './progress-manager.js';
 export { writeReviewOutput, renderReviewMarkdown } from './review-writer.js';
+export { loadReviews, computeGlobalVerdict, aggregateReviews, renderReport, generateReport } from './reporter.js';
+export type { ReportData } from './reporter.js';
