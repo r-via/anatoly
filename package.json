@@ -1,0 +1,64 @@
+{
+  "name": "anatoly",
+  "version": "0.1.0",
+  "description": "Deep Audit Agent for TypeScript codebases",
+  "type": "module",
+  "bin": {
+    "anatoly": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/r-via/anatoly.git"
+  },
+  "keywords": [
+    "typescript",
+    "audit",
+    "code-review",
+    "ast",
+    "claude",
+    "agent"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/r-via/anatoly/issues"
+  },
+  "homepage": "https://github.com/r-via/anatoly#readme",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.50",
+    "chalk": "^5.6.2",
+    "chokidar": "^5.0.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.3",
+    "js-yaml": "^4.1.1",
+    "log-update": "^7.1.0",
+    "ora": "^9.3.0",
+    "tiktoken": "^1.0.22",
+    "web-tree-sitter": "^0.26.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.19.11",
+    "eslint": "^9.39.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^4.0.18"
+  }
+}

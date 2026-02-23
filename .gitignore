@@ -1,2 +1,7 @@
 .ralph/logs/
 _bmad-output/
+node_modules/
+dist/
+.anatoly/
+coverage/
+*.tsbuildinfo
