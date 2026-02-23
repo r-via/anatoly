@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKMessage, SDKResultSuccess, SDKAssistantMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKMessage, SDKResultSuccess, SDKResultError, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Config } from '../schemas/config.js';
@@ -303,24 +303,64 @@ function extractJson(text: string): string | null {
 }
 
 /**
+ * Extract text content from an SDK message content array or string.
+ */
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+
+  const parts: string[] = [];
+  for (const block of content) {
+    if (typeof block === 'string') {
+      parts.push(block);
+    } else if (block && typeof block === 'object' && 'type' in block) {
+      if (block.type === 'text' && 'text' in block) {
+        parts.push(block.text as string);
+      } else if (block.type === 'tool_use' && 'name' in block) {
+        const input = 'input' in block ? JSON.stringify(block.input, null, 2) : '';
+        parts.push(`**Tool use:** \`${block.name}\`\n\`\`\`json\n${input}\n\`\`\``);
+      } else if (block.type === 'tool_result' && 'content' in block) {
+        const resultContent = typeof block.content === 'string'
+          ? block.content
+          : extractTextContent(block.content);
+        parts.push(`**Tool result:**\n${resultContent}`);
+      }
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
  * Format an SDK message for the transcript log.
  */
 function formatMessage(message: SDKMessage): string {
   switch (message.type) {
     case 'assistant': {
-      const assistantMsg = message as SDKAssistantMessage;
-      const content = assistantMsg.message.content;
-      const textParts = Array.isArray(content)
-        ? content
-            .filter((c): c is { type: 'text'; text: string } => 'type' in c && c.type === 'text')
-            .map((c) => c.text)
-            .join('\n')
-        : String(content);
-      return `## Assistant\n\n${textParts}\n`;
+      const msg = message as SDKAssistantMessage;
+      const text = extractTextContent(msg.message.content);
+      return `## Assistant\n\n${text}\n`;
     }
-    case 'result':
-      return `## Result\n\nSubtype: ${message.subtype}\n`;
+    case 'user': {
+      const msg = message as SDKUserMessage;
+      const text = extractTextContent(msg.message.content);
+      return `## User\n\n${text}\n`;
+    }
+    case 'system': {
+      const msg = message as SDKSystemMessage;
+      if (msg.subtype === 'init') {
+        return `## System (init)\n\n**Model:** ${msg.model}\n**Tools:** ${msg.tools.join(', ')}\n**CWD:** ${msg.cwd}\n`;
+      }
+      return `## System (${msg.subtype})\n`;
+    }
+    case 'result': {
+      if (message.subtype === 'success') {
+        const msg = message as SDKResultSuccess;
+        return `## Result (success)\n\n**Turns:** ${msg.num_turns} | **Cost:** $${msg.total_cost_usd.toFixed(4)} | **Duration:** ${(msg.duration_ms / 1000).toFixed(1)}s\n`;
+      }
+      const msg = message as SDKResultError;
+      return `## Result (${msg.subtype})\n\n**Errors:** ${msg.errors?.join(', ') ?? 'unknown'}\n`;
+    }
     default:
-      return `## ${message.type}\n\n(message logged)\n`;
+      return `## ${message.type}\n\n${JSON.stringify(message, null, 2)}\n`;
   }
 }
