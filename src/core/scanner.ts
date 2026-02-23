@@ -1,11 +1,11 @@
-import { readFileSync, mkdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { resolve, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { glob } from 'node:fs/promises';
 import { Parser, Language } from 'web-tree-sitter';
 import type { Node as TSNode } from 'web-tree-sitter';
 import type { Config } from '../schemas/config.js';
-import type { Task, SymbolInfo, SymbolKind } from '../schemas/task.js';
+import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 
@@ -178,6 +178,102 @@ export async function collectFiles(
   return [...new Set(files)].sort();
 }
 
+/**
+ * Istanbul coverage JSON per-file entry.
+ * Keys in `s`, `f`, `b` are string indices; values are hit counts.
+ */
+interface IstanbulFileCoverage {
+  path: string;
+  statementMap: Record<string, unknown>;
+  s: Record<string, number>;
+  fnMap: Record<string, unknown>;
+  f: Record<string, number>;
+  branchMap: Record<string, unknown>;
+  b: Record<string, number[]>;
+}
+
+type IstanbulCoverageMap = Record<string, IstanbulFileCoverage>;
+
+/**
+ * Load Istanbul/Vitest/Jest coverage-final.json and return a map
+ * from relative file paths to CoverageData.
+ * Returns null if coverage is disabled, file is missing, or unreadable.
+ */
+export function loadCoverage(
+  projectRoot: string,
+  config: Config,
+): Map<string, CoverageData> | null {
+  if (!config.coverage.enabled) return null;
+
+  const coveragePath = resolve(projectRoot, config.coverage.report_path);
+  if (!existsSync(coveragePath)) return null;
+
+  let raw: IstanbulCoverageMap;
+  try {
+    raw = JSON.parse(readFileSync(coveragePath, 'utf-8')) as IstanbulCoverageMap;
+  } catch {
+    return null;
+  }
+
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+
+  const coverageMap = new Map<string, CoverageData>();
+
+  for (const [key, entry] of Object.entries(raw)) {
+    // Normalize path to be relative to projectRoot
+    const filePath = entry.path ?? key;
+    const relPath = filePath.startsWith('/')
+      ? relative(projectRoot, filePath)
+      : filePath;
+
+    const statementsTotal = Object.keys(entry.s ?? {}).length;
+    const statementsCovered = Object.values(entry.s ?? {}).filter(
+      (v) => v > 0,
+    ).length;
+
+    const functionsTotal = Object.keys(entry.f ?? {}).length;
+    const functionsCovered = Object.values(entry.f ?? {}).filter(
+      (v) => v > 0,
+    ).length;
+
+    const branchEntries = Object.values(entry.b ?? {});
+    const branchesTotal = branchEntries.reduce(
+      (sum, arr) => sum + arr.length,
+      0,
+    );
+    const branchesCovered = branchEntries.reduce(
+      (sum, arr) => sum + arr.filter((v) => v > 0).length,
+      0,
+    );
+
+    // Lines: count unique line numbers from statementMap
+    const lineSet = new Set<number>();
+    const coveredLineSet = new Set<number>();
+    for (const [stmtKey, loc] of Object.entries(entry.statementMap ?? {})) {
+      const locObj = loc as { start: { line: number }; end: { line: number } };
+      for (let l = locObj.start.line; l <= locObj.end.line; l++) {
+        lineSet.add(l);
+        if ((entry.s[stmtKey] ?? 0) > 0) {
+          coveredLineSet.add(l);
+        }
+      }
+    }
+
+    coverageMap.set(relPath, {
+      statements_total: statementsTotal,
+      statements_covered: statementsCovered,
+      branches_total: branchesTotal,
+      branches_covered: branchesCovered,
+      functions_total: functionsTotal,
+      functions_covered: functionsCovered,
+      lines_total: lineSet.size,
+      lines_covered: coveredLineSet.size,
+    });
+  }
+
+  return coverageMap;
+}
+
 export interface ScanResult {
   filesScanned: number;
   filesCached: number;
@@ -209,6 +305,7 @@ export async function scanProject(
   };
 
   const files = await collectFiles(projectRoot, config);
+  const coverageMap = loadCoverage(projectRoot, config);
   let filesCached = 0;
   let filesNew = 0;
 
@@ -244,6 +341,12 @@ export async function scanProject(
       symbols,
       scanned_at: now,
     };
+
+    // Attach coverage data if available
+    const fileCoverage = coverageMap?.get(relPath);
+    if (fileCoverage) {
+      task.coverage = fileCoverage;
+    }
 
     const taskFileName = `${toOutputName(relPath)}.task.json`;
     atomicWriteJson(join(tasksDir, taskFileName), task);

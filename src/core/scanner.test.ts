@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseFile, scanProject } from './scanner.js';
+import { parseFile, scanProject, loadCoverage } from './scanner.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigSchema } from '../schemas/config.js';
 
@@ -191,5 +191,182 @@ describe('scanProject', () => {
     const result = await scanProject(tempDir, config);
     expect(result.filesNew).toBe(1); // index.ts changed
     expect(result.filesCached).toBe(1); // utils.ts unchanged
+  });
+});
+
+describe('loadCoverage', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-cov-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function makeConfig(overrides: Partial<{ enabled: boolean; report_path: string }> = {}): Config {
+    return ConfigSchema.parse({
+      coverage: {
+        enabled: overrides.enabled ?? true,
+        report_path: overrides.report_path ?? 'coverage/coverage-final.json',
+      },
+    });
+  }
+
+  it('should return null when coverage is disabled', () => {
+    const config = makeConfig({ enabled: false });
+    const result = loadCoverage(tempDir, config);
+    expect(result).toBeNull();
+  });
+
+  it('should return null when coverage file is missing', () => {
+    const config = makeConfig();
+    const result = loadCoverage(tempDir, config);
+    expect(result).toBeNull();
+  });
+
+  it('should return null for invalid JSON', () => {
+    mkdirSync(join(tempDir, 'coverage'), { recursive: true });
+    writeFileSync(join(tempDir, 'coverage', 'coverage-final.json'), 'not json');
+    const config = makeConfig();
+    const result = loadCoverage(tempDir, config);
+    expect(result).toBeNull();
+  });
+
+  it('should parse Istanbul coverage format', () => {
+    mkdirSync(join(tempDir, 'coverage'), { recursive: true });
+    const istanbul = {
+      'src/index.ts': {
+        path: join(tempDir, 'src/index.ts'),
+        statementMap: {
+          '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 30 } },
+          '1': { start: { line: 2, column: 0 }, end: { line: 2, column: 20 } },
+        },
+        s: { '0': 5, '1': 0 },
+        fnMap: {
+          '0': { name: 'main', decl: { start: { line: 1 }, end: { line: 1 } } },
+        },
+        f: { '0': 5 },
+        branchMap: {
+          '0': { type: 'if', locations: [{}, {}] },
+        },
+        b: { '0': [3, 2] },
+      },
+    };
+    writeFileSync(
+      join(tempDir, 'coverage', 'coverage-final.json'),
+      JSON.stringify(istanbul),
+    );
+
+    const config = makeConfig();
+    const result = loadCoverage(tempDir, config);
+    expect(result).not.toBeNull();
+
+    const cov = result!.get('src/index.ts');
+    expect(cov).toBeDefined();
+    expect(cov!.statements_total).toBe(2);
+    expect(cov!.statements_covered).toBe(1);
+    expect(cov!.functions_total).toBe(1);
+    expect(cov!.functions_covered).toBe(1);
+    expect(cov!.branches_total).toBe(2);
+    expect(cov!.branches_covered).toBe(2); // both [3, 2] > 0
+    expect(cov!.lines_total).toBe(2);
+    expect(cov!.lines_covered).toBe(1);
+  });
+
+  it('should normalize absolute paths to relative', () => {
+    mkdirSync(join(tempDir, 'coverage'), { recursive: true });
+    const istanbul = {
+      [join(tempDir, 'src/utils.ts')]: {
+        path: join(tempDir, 'src/utils.ts'),
+        statementMap: {
+          '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 10 } },
+        },
+        s: { '0': 1 },
+        fnMap: {},
+        f: {},
+        branchMap: {},
+        b: {},
+      },
+    };
+    writeFileSync(
+      join(tempDir, 'coverage', 'coverage-final.json'),
+      JSON.stringify(istanbul),
+    );
+
+    const config = makeConfig();
+    const result = loadCoverage(tempDir, config);
+    expect(result).not.toBeNull();
+    expect(result!.has('src/utils.ts')).toBe(true);
+  });
+
+  it('should inject coverage into task.json during scan', async () => {
+    mkdirSync(join(tempDir, 'src'), { recursive: true });
+    mkdirSync(join(tempDir, 'coverage'), { recursive: true });
+
+    writeFileSync(
+      join(tempDir, 'src', 'index.ts'),
+      `export function main() { return 1; }\n`,
+    );
+
+    const istanbul = {
+      'src/index.ts': {
+        path: 'src/index.ts',
+        statementMap: {
+          '0': { start: { line: 1, column: 0 }, end: { line: 1, column: 36 } },
+        },
+        s: { '0': 10 },
+        fnMap: { '0': { name: 'main' } },
+        f: { '0': 10 },
+        branchMap: {},
+        b: {},
+      },
+    };
+    writeFileSync(
+      join(tempDir, 'coverage', 'coverage-final.json'),
+      JSON.stringify(istanbul),
+    );
+
+    const config = ConfigSchema.parse({
+      scan: { include: ['src/**/*.ts'], exclude: [] },
+      coverage: { enabled: true, report_path: 'coverage/coverage-final.json' },
+    });
+
+    await scanProject(tempDir, config);
+
+    const taskFile = readFileSync(
+      join(tempDir, '.anatoly', 'tasks', 'src-index.task.json'),
+      'utf-8',
+    );
+    const task = JSON.parse(taskFile);
+    expect(task.coverage).toBeDefined();
+    expect(task.coverage.statements_total).toBe(1);
+    expect(task.coverage.statements_covered).toBe(1);
+    expect(task.coverage.functions_total).toBe(1);
+    expect(task.coverage.functions_covered).toBe(1);
+  });
+
+  it('should not include coverage when disabled', async () => {
+    mkdirSync(join(tempDir, 'src'), { recursive: true });
+
+    writeFileSync(
+      join(tempDir, 'src', 'index.ts'),
+      `export function main() { return 1; }\n`,
+    );
+
+    const config = ConfigSchema.parse({
+      scan: { include: ['src/**/*.ts'], exclude: [] },
+      coverage: { enabled: false },
+    });
+
+    await scanProject(tempDir, config);
+
+    const taskFile = readFileSync(
+      join(tempDir, '.anatoly', 'tasks', 'src-index.task.json'),
+      'utf-8',
+    );
+    const task = JSON.parse(taskFile);
+    expect(task.coverage).toBeUndefined();
   });
 });
