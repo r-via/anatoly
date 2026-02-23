@@ -5,3 +5,4 @@ export type { EstimateResult } from './estimator.js';
 export { reviewFile, parseReviewResponse, tryParseReview, formatRetryFeedback } from './reviewer.js';
 export type { ReviewResult } from './reviewer.js';
 export { ProgressManager } from './progress-manager.js';
+export { writeReviewOutput, renderReviewMarkdown } from './review-writer.js';
