@@ -20,12 +20,12 @@ export class ProgressManager {
   }
 
   /**
-   * Get all files that need to be reviewed (status PENDING or ERROR).
-   * Files with DONE, CACHED, IN_PROGRESS, or TIMEOUT are skipped.
+   * Get all files that need to be reviewed.
+   * Includes PENDING, ERROR, and IN_PROGRESS (stale from a previous interrupted run).
    */
   getPendingFiles(): FileProgress[] {
     return Object.values(this.progress.files).filter(
-      (f) => f.status === 'PENDING' || f.status === 'ERROR',
+      (f) => f.status === 'PENDING' || f.status === 'ERROR' || f.status === 'IN_PROGRESS',
     );
   }
 
