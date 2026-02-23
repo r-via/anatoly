@@ -47,6 +47,7 @@
     "log-update": "^7.1.0",
     "ora": "^9.3.0",
     "tiktoken": "^1.0.22",
+    "tree-sitter-typescript": "^0.23.2",
     "web-tree-sitter": "^0.26.5",
     "zod": "^4.3.6"
   },
