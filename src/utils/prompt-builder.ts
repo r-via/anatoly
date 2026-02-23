@@ -95,6 +95,8 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
       "id": 1,
       "description": "What to fix or improve",
       "severity": "high | medium | low",
+      "effort": "trivial | small | large",
+      "category": "quickwin | refactor | hygiene",
       "target_symbol": "symbolName",
       "target_lines": "L10-L20"
     }
@@ -107,6 +109,20 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
 }
 \`\`\`
 
+## Guardrails
+
+- Files under 20 lines: do NOT mark as overengineering: "OVER". Short files are inherently lean.
+- tests: "NONE" alone does NOT justify verdict NEEDS_REFACTOR. Only flag tests in actions if the symbol has complex logic (branches, error handling, state mutations).
+- Barrel exports (re-export files) and type-only files: tests: "NONE" is expected. Do NOT create an action for "add tests" on these.
+- confidence MUST be > 0. If you cannot verify a claim, set confidence to at least 50 and explain in the detail field what you could not verify and why.
+- When creating actions, set effort and category:
+  - effort: "trivial" (< 10 min, e.g. delete dead code, fix an import), "small" (< 1h, e.g. extract function, resolve duplication), "large" (> 1h, e.g. restructure module, split a file)
+  - category: "quickwin" (high impact + trivial/small effort), "refactor" (structural change), "hygiene" (tests, docs, naming — nice to have)
+- Do NOT create an action for every tests: "NONE". Only create test actions when:
+  - The symbol has >= 3 branches or complex error handling
+  - The symbol mutates external state
+  - The symbol is a critical path (used in > 5 files)
+
 ## Important
 
 - Review ALL symbols listed above — do not skip any.
@@ -114,8 +130,8 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
 - Use Grep to verify utility claims (USED vs DEAD).
 - The \`detail\` field must be at least 10 characters and explain your reasoning.
 - \`verdict\` should be CRITICAL if any symbol has correction: "ERROR".
-- \`verdict\` should be NEEDS_REFACTOR if any symbol has issues but no errors.
-- \`verdict\` should be CLEAN if all symbols are healthy.
+- \`verdict\` should be NEEDS_REFACTOR if any symbol has issues (correction, utility, duplication, or overengineering) but no errors. tests: "NONE" alone is NOT an issue.
+- \`verdict\` should be CLEAN if all symbols are healthy (tests: "NONE" alone counts as healthy).
 - Output ONLY the JSON object. No preamble, no markdown fences.`;
 }
 

@@ -29,10 +29,15 @@ export const SymbolReviewSchema = z.object({
   duplicate_target: DuplicateTargetSchema.optional(),
 });
 
+export const EffortSchema = z.enum(['trivial', 'small', 'large']);
+export const CategorySchema = z.enum(['quickwin', 'refactor', 'hygiene']);
+
 export const ActionSchema = z.object({
   id: z.int().min(1),
   description: z.string().min(1),
   severity: SeveritySchema,
+  effort: EffortSchema.default('small'),
+  category: CategorySchema.default('refactor'),
   target_symbol: z.string().nullable(),
   target_lines: z.string().nullable(),
 });
@@ -58,6 +63,8 @@ export const ReviewFileSchema = z.object({
 
 export type Verdict = z.infer<typeof VerdictSchema>;
 export type Severity = z.infer<typeof SeveritySchema>;
+export type Effort = z.infer<typeof EffortSchema>;
+export type Category = z.infer<typeof CategorySchema>;
 export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
 export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
 export type Action = z.infer<typeof ActionSchema>;

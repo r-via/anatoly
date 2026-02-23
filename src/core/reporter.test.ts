@@ -6,6 +6,7 @@ import type { ReviewFile } from '../schemas/review.js';
 import {
   loadReviews,
   computeGlobalVerdict,
+  computeFileVerdict,
   aggregateReviews,
   renderReport,
   generateReport,
@@ -42,29 +43,63 @@ function makeSymbol(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe('computeFileVerdict', () => {
+  it('should return CLEAN for review with no symbols', () => {
+    expect(computeFileVerdict(makeReview())).toBe('CLEAN');
+  });
+
+  it('should return CLEAN when only issue is tests: NONE', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ tests: 'NONE', confidence: 90 })],
+    });
+    expect(computeFileVerdict(review)).toBe('CLEAN');
+  });
+
+  it('should return NEEDS_REFACTOR for dead code with confidence >= 60', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+    });
+    expect(computeFileVerdict(review)).toBe('NEEDS_REFACTOR');
+  });
+
+  it('should return CLEAN for dead code with confidence < 60', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ utility: 'DEAD', confidence: 40 })],
+    });
+    expect(computeFileVerdict(review)).toBe('CLEAN');
+  });
+
+  it('should return CRITICAL for any ERROR regardless of confidence', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ correction: 'ERROR', confidence: 10 })],
+    });
+    expect(computeFileVerdict(review)).toBe('CRITICAL');
+  });
+});
+
 describe('computeGlobalVerdict', () => {
   it('should return CLEAN for empty reviews', () => {
     expect(computeGlobalVerdict([])).toBe('CLEAN');
   });
 
-  it('should return CLEAN when all reviews are CLEAN', () => {
-    const reviews = [makeReview({ verdict: 'CLEAN' }), makeReview({ verdict: 'CLEAN' })];
+  it('should return CLEAN when all reviews have no actionable issues', () => {
+    const reviews = [makeReview(), makeReview()];
     expect(computeGlobalVerdict(reviews)).toBe('CLEAN');
   });
 
-  it('should return CRITICAL if any review is CRITICAL', () => {
+  it('should return CRITICAL if any review has ERROR symbols', () => {
     const reviews = [
-      makeReview({ verdict: 'CLEAN' }),
-      makeReview({ verdict: 'CRITICAL' }),
-      makeReview({ verdict: 'NEEDS_REFACTOR' }),
+      makeReview(),
+      makeReview({ symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
+      makeReview({ symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     ];
     expect(computeGlobalVerdict(reviews)).toBe('CRITICAL');
   });
 
-  it('should return NEEDS_REFACTOR if worst is NEEDS_REFACTOR', () => {
+  it('should return NEEDS_REFACTOR if worst is actionable issue with confidence >= 60', () => {
     const reviews = [
-      makeReview({ verdict: 'CLEAN' }),
-      makeReview({ verdict: 'NEEDS_REFACTOR' }),
+      makeReview(),
+      makeReview({ symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     ];
     expect(computeGlobalVerdict(reviews)).toBe('NEEDS_REFACTOR');
   });
@@ -91,7 +126,7 @@ describe('aggregateReviews', () => {
       makeReview({
         file: 'src/foo.ts',
         actions: [
-          { id: 1, description: 'Remove dead code', severity: 'high' as const, target_symbol: 'fn', target_lines: '1-5' },
+          { id: 1, description: 'Remove dead code', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, target_symbol: 'fn', target_lines: '1-5' },
         ],
       }),
     ];
@@ -99,17 +134,34 @@ describe('aggregateReviews', () => {
     expect(data.actions).toHaveLength(1);
     expect(data.actions[0].file).toBe('src/foo.ts');
     expect(data.actions[0].severity).toBe('high');
+    expect(data.actions[0].effort).toBe('trivial');
+    expect(data.actions[0].category).toBe('quickwin');
   });
 
-  it('should separate clean and finding files', () => {
+  it('should separate clean and finding files based on computeFileVerdict', () => {
     const reviews = [
-      makeReview({ file: 'a.ts', verdict: 'CLEAN' }),
-      makeReview({ file: 'b.ts', verdict: 'NEEDS_REFACTOR' }),
-      makeReview({ file: 'c.ts', verdict: 'CRITICAL' }),
+      makeReview({ file: 'a.ts' }),
+      makeReview({ file: 'b.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+      makeReview({ file: 'c.ts', symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
     ];
     const data = aggregateReviews(reviews);
     expect(data.cleanFiles).toHaveLength(1);
     expect(data.findingFiles).toHaveLength(2);
+  });
+
+  it('should skip symbols with confidence < 30 from counts', () => {
+    const reviews = [
+      makeReview({
+        verdict: 'NEEDS_REFACTOR',
+        symbols: [
+          makeSymbol({ utility: 'DEAD', confidence: 90 }),
+          makeSymbol({ name: 'veryLowConf', utility: 'DEAD', confidence: 20 }),
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    expect(data.counts.dead.high).toBe(1);
+    expect(data.counts.dead.medium).toBe(0); // confidence 20 filtered out
   });
 
   it('should include error files passed in', () => {
@@ -159,17 +211,22 @@ describe('renderReport', () => {
     expect(md).toContain('`broken.ts`');
   });
 
-  it('should render actions section', () => {
+  it('should render actions by category', () => {
     const data = aggregateReviews([
       makeReview({
         file: 'a.ts',
-        actions: [{ id: 1, description: 'Fix it', severity: 'high' as const, target_symbol: 'fn', target_lines: null }],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, target_symbol: 'fn', target_lines: null },
+          { id: 2, description: 'Add unit tests', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
+        ],
       }),
     ]);
     const md = renderReport(data);
-    expect(md).toContain('## Recommended Actions');
-    expect(md).toContain('**[high]**');
-    expect(md).toContain('`a.ts`');
+    expect(md).toContain('## Quick Wins');
+    expect(md).toContain('**[high · trivial]**');
+    expect(md).toContain('## Hygiene');
+    expect(md).toContain('**[low · small]**');
+    expect(md).not.toContain('## Recommended Actions');
   });
 
   it('should include metadata section', () => {
