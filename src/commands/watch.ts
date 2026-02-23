@@ -9,6 +9,7 @@ import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '..
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
+import { isGitIgnored } from '../utils/git.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 
@@ -134,6 +135,9 @@ export function registerWatchCommand(program: Command): void {
       const onFileChange = (filePath: string) => {
         // Normalize to relative path
         const relPath = relative(projectRoot, resolve(projectRoot, filePath));
+
+        // Skip files ignored by .gitignore
+        if (isGitIgnored(projectRoot, relPath)) return;
 
         // Deduplicate: don't add if already queued
         if (!queue.includes(relPath)) {
