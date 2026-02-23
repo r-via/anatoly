@@ -1,1 +1,2 @@
-// Barrel export for utils
+export { AnatolyError, ERROR_CODES } from './errors.js';
+export type { ErrorCode } from './errors.js';
