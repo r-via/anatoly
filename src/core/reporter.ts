@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
-import type { ReviewFile, Verdict, Action, SymbolReview } from '../schemas/review.js';
+import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
 import { toOutputName } from '../utils/cache.js';
 
 export interface ReportData {
@@ -49,20 +49,50 @@ export function loadReviews(projectRoot: string): ReviewFile[] {
 }
 
 /**
+ * Determine if a symbol has an actionable issue (excluding tests-only).
+ */
+function hasActionableIssue(s: SymbolReview): boolean {
+  return (
+    s.correction === 'NEEDS_FIX' ||
+    s.correction === 'ERROR' ||
+    s.utility === 'DEAD' ||
+    s.duplication === 'DUPLICATE' ||
+    s.overengineering === 'OVER'
+  );
+}
+
+/**
+ * Recompute file verdict from symbols — standardizes the LLM's verdict.
+ * tests: NONE alone never triggers NEEDS_REFACTOR.
+ * Low-confidence findings (< 60) are ignored for verdict purposes.
+ */
+export function computeFileVerdict(review: ReviewFile): Verdict {
+  const symbols = review.symbols;
+
+  if (symbols.some((s) => s.correction === 'ERROR')) return 'CRITICAL';
+
+  const hasConfirmedIssue = symbols.some(
+    (s) => s.confidence >= 60 && hasActionableIssue(s),
+  );
+
+  return hasConfirmedIssue ? 'NEEDS_REFACTOR' : 'CLEAN';
+}
+
+/**
  * Compute the global verdict from all file verdicts.
- * - All CLEAN → CLEAN
- * - Any CRITICAL → CRITICAL
- * - Otherwise → NEEDS_REFACTOR
+ * Uses computeFileVerdict to recompute each file's verdict.
  */
 export function computeGlobalVerdict(reviews: ReviewFile[]): Verdict {
   if (reviews.length === 0) return 'CLEAN';
-  if (reviews.some((r) => r.verdict === 'CRITICAL')) return 'CRITICAL';
-  if (reviews.some((r) => r.verdict === 'NEEDS_REFACTOR')) return 'NEEDS_REFACTOR';
+  const verdicts = reviews.map((r) => computeFileVerdict(r));
+  if (verdicts.includes('CRITICAL')) return 'CRITICAL';
+  if (verdicts.includes('NEEDS_REFACTOR')) return 'NEEDS_REFACTOR';
   return 'CLEAN';
 }
 
 /**
  * Classify a symbol finding into a severity level based on the axes.
+ * tests: NONE/WEAK is hygiene, not a severity finding.
  */
 function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
   if (s.correction === 'ERROR') return 'high';
@@ -74,7 +104,6 @@ function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
   if (s.duplication === 'DUPLICATE') return 'medium';
   if (s.overengineering === 'OVER') return 'medium';
   if (s.utility === 'LOW_VALUE') return 'low';
-  if (s.tests === 'NONE' || s.tests === 'WEAK') return 'low';
   return 'low';
 }
 
@@ -93,6 +122,7 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
 
   for (const review of reviews) {
     for (const s of review.symbols) {
+      if (s.confidence < 30) continue; // Skip unreliable findings
       const sev = symbolSeverity(s);
       if (s.utility === 'DEAD') counts.dead[sev]++;
       if (s.duplication === 'DUPLICATE') counts.duplicate[sev]++;
@@ -108,8 +138,9 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
   const sevOrder = { high: 0, medium: 1, low: 2 };
   allActions.sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
 
-  const cleanFiles = reviews.filter((r) => r.verdict === 'CLEAN');
-  const findingFiles = reviews.filter((r) => r.verdict !== 'CLEAN');
+  // Use computeFileVerdict for consistent verdict classification
+  const cleanFiles = reviews.filter((r) => computeFileVerdict(r) === 'CLEAN');
+  const findingFiles = reviews.filter((r) => computeFileVerdict(r) !== 'CLEAN');
 
   return {
     reviews,
@@ -121,6 +152,13 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
     counts,
     actions: allActions,
   };
+}
+
+function renderAction(lines: string[], a: Action & { file: string }): void {
+  const effort = a.effort ?? 'small';
+  const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
+  const loc = a.target_lines ? ` [${a.target_lines}]` : '';
+  lines.push(`- **[${a.severity} · ${effort}]** \`${a.file}\`: ${a.description}${target}${loc}`);
 }
 
 /**
@@ -185,33 +223,61 @@ export function renderReport(data: ReportData): string {
     });
 
     for (const review of sorted) {
-      const dead = review.symbols.filter((s) => s.utility === 'DEAD').length;
-      const dup = review.symbols.filter((s) => s.duplication === 'DUPLICATE').length;
-      const over = review.symbols.filter((s) => s.overengineering === 'OVER').length;
-      const errors = review.symbols.filter(
+      const reliable = review.symbols.filter((s) => s.confidence >= 30);
+      const dead = reliable.filter((s) => s.utility === 'DEAD').length;
+      const dup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
+      const over = reliable.filter((s) => s.overengineering === 'OVER').length;
+      const errors = reliable.filter(
         (s) => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR',
       ).length;
       const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
       const outputName = toOutputName(review.file);
       const link = `[details](./reviews/${outputName}.rev.md)`;
 
+      const fileVerdict = computeFileVerdict(review);
       lines.push(
-        `| \`${review.file}\` | ${review.verdict} | ${dead} | ${dup} | ${over} | ${errors} | ${maxConf}% | ${link} |`,
+        `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${maxConf}% | ${link} |`,
       );
     }
     lines.push('');
   }
 
-  // Actions
+  // Actions by category
   if (data.actions.length > 0) {
-    lines.push('## Recommended Actions');
-    lines.push('');
+    const byCategory: Record<Category, Array<Action & { file: string }>> = {
+      quickwin: [],
+      refactor: [],
+      hygiene: [],
+    };
     for (const a of data.actions) {
-      const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
-      const loc = a.target_lines ? ` [${a.target_lines}]` : '';
-      lines.push(`- **[${a.severity}]** \`${a.file}\`: ${a.description}${target}${loc}`);
+      const cat = a.category ?? 'refactor';
+      byCategory[cat].push(a);
     }
-    lines.push('');
+
+    if (byCategory.quickwin.length > 0) {
+      lines.push('## Quick Wins');
+      lines.push('');
+      lines.push('> High-impact, low-effort changes. Do these first.');
+      lines.push('');
+      for (const a of byCategory.quickwin) renderAction(lines, a);
+      lines.push('');
+    }
+
+    if (byCategory.refactor.length > 0) {
+      lines.push('## Refactors');
+      lines.push('');
+      for (const a of byCategory.refactor) renderAction(lines, a);
+      lines.push('');
+    }
+
+    if (byCategory.hygiene.length > 0) {
+      lines.push('## Hygiene');
+      lines.push('');
+      lines.push('> Nice-to-have improvements. Lower priority.');
+      lines.push('');
+      for (const a of byCategory.hygiene) renderAction(lines, a);
+      lines.push('');
+    }
   }
 
   // Clean files
@@ -234,6 +300,24 @@ export function renderReport(data: ReportData): string {
     lines.push('');
   }
 
+  // Low-confidence findings
+  const lowConfFindings = data.reviews.filter((r) =>
+    r.symbols.some((s) => s.confidence < 30 && hasActionableIssue(s)),
+  );
+  if (lowConfFindings.length > 0) {
+    lines.push('## Low-Confidence Findings (filtered)');
+    lines.push('');
+    lines.push('> These findings had confidence < 30% and were excluded from counts and verdicts.');
+    lines.push('');
+    for (const r of lowConfFindings) {
+      const lowSymbols = r.symbols.filter((s) => s.confidence < 30 && hasActionableIssue(s));
+      for (const s of lowSymbols) {
+        lines.push(`- \`${r.file}\`: **${s.name}** — ${s.detail} (confidence: ${s.confidence}%)`);
+      }
+    }
+    lines.push('');
+  }
+
   // Metadata
   lines.push('## Metadata');
   lines.push('');
@@ -242,7 +326,9 @@ export function renderReport(data: ReportData): string {
   lines.push('');
   lines.push('### Methodology');
   lines.push('');
-  lines.push('Each symbol (function, class, type, constant, etc.) extracted via AST parsing is evaluated by an LLM agent against 5 axes:');
+  lines.push('**Pipeline:** AST parsing (web-tree-sitter) → symbol extraction → per-file LLM review (Claude Agent SDK) → programmatic aggregation into this report.');
+  lines.push('');
+  lines.push('Each symbol (function, class, type, constant, etc.) is extracted via static AST parsing, then reviewed by an LLM agent (Claude) that has tool access (Grep, Read, Glob) to investigate the codebase. The agent evaluates each symbol against 5 axes:');
   lines.push('');
   lines.push('| Axis | Column | Values | Method |');
   lines.push('|------|--------|--------|--------|');
@@ -252,11 +338,13 @@ export function renderReport(data: ReportData): string {
   lines.push('| Over-engineering | Over Engineered | LEAN / OVER / ACCEPTABLE | Agent assesses whether abstractions, generics, or patterns are justified by actual usage. Unnecessary complexity = OVER. |');
   lines.push('| Tests | — | GOOD / WEAK / NONE | Agent checks test coverage data (when available) and inspects test files to evaluate quality and completeness. |');
   lines.push('');
-  lines.push('**Confidence** (0–100%) reflects how much tool-verified evidence supports the assessment. 100% = fully verified with Grep/Read; <70% = uncertain, needs investigation.');
+  lines.push('**Confidence** (0–100%) reflects how much tool-verified evidence supports the agent\'s assessment. 100% = fully verified with Grep/Read; <70% = uncertain, needs investigation.');
   lines.push('');
-  lines.push('**Severity** is derived from axis values and confidence: high = confirmed issues (confidence ≥80%), medium = likely issues, low = minor concerns or missing tests.');
+  lines.push('**Severity** is computed programmatically from axis values and confidence: high = confirmed issues (confidence ≥80%), medium = likely issues, low = minor concerns. Test gaps are classified as hygiene, not severity findings.');
   lines.push('');
-  lines.push('**Verdict** per file: CRITICAL (any ERROR), NEEDS_REFACTOR (any issues), CLEAN (all healthy). Global verdict is the worst across all files.');
+  lines.push('**Verdict** per file: CRITICAL (any ERROR), NEEDS_REFACTOR (actionable issues with confidence ≥60%), CLEAN (all healthy — tests: NONE alone does not trigger NEEDS_REFACTOR). Findings with confidence <30% are filtered from counts and shown separately. Global verdict is the worst across all files.');
+  lines.push('');
+  lines.push('**Actions** are categorized: Quick Wins (high impact, low effort), Refactors (structural changes), Hygiene (nice-to-have). Each action includes an effort estimate: trivial (<10 min), small (<1h), large (>1h).');
   lines.push('');
 
   return lines.join('\n');

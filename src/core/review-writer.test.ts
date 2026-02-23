@@ -50,6 +50,8 @@ const sampleReview: ReviewFile = {
       id: 1,
       description: 'Remove dead code unusedHelper',
       severity: 'medium',
+      effort: 'trivial',
+      category: 'quickwin',
       target_symbol: 'unusedHelper',
       target_lines: 'L7-L12',
     },
