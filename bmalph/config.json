@@ -1,0 +1,9 @@
+{
+  "name": "anatoly",
+  "description": "",
+  "createdAt": "2026-02-23T14:44:05.057Z",
+  "platform": "claude-code",
+  "upstreamVersions": {
+    "bmadCommit": "aa573bdb"
+  }
+}
