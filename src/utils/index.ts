@@ -5,3 +5,4 @@ export { computeFileHash, computeHash, toOutputName, atomicWriteJson, readProgre
 export { detectMonorepo } from './monorepo.js';
 export type { MonorepoInfo } from './monorepo.js';
 export { buildSystemPrompt, buildUserPrompt } from './prompt-builder.js';
+export { acquireLock, releaseLock } from './lock.js';
