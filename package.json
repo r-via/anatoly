@@ -1,5 +1,5 @@
 {
-  "name": "anatoly",
+  "name": "@r-via/anatoly",
   "version": "0.1.0",
   "description": "Deep Audit Agent for TypeScript codebases",
   "type": "module",
