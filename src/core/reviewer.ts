@@ -14,12 +14,20 @@ export interface ReviewResult {
   review: ReviewFile;
   transcript: string;
   costUsd: number;
+  retries: number;
+}
+
+interface QueryResult {
+  resultText: string;
+  costUsd: number;
+  sessionId: string;
 }
 
 /**
  * Review a single file using the Claude Agent SDK.
  * Builds the system prompt, invokes the agent, streams the transcript,
- * and returns the validated ReviewFile result.
+ * validates the response with Zod, and retries up to max_retries times
+ * if validation fails (sending ZodError feedback to the agent).
  */
 export async function reviewFile(
   projectRoot: string,
@@ -36,7 +44,6 @@ export async function reviewFile(
   const transcriptPath = join(logsDir, `${toOutputName(task.file)}.transcript.md`);
   const transcriptLines: string[] = [];
 
-  // Append to transcript file
   const appendTranscript = (line: string): void => {
     transcriptLines.push(line);
     appendFileSync(transcriptPath, line + '\n');
@@ -54,44 +61,75 @@ export async function reviewFile(
   const timeoutMs = config.llm.timeout_per_file * 1000;
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
 
-  let resultText = '';
-  let costUsd = 0;
+  const maxRetries = config.llm.max_retries;
+  let totalCostUsd = 0;
+  let retries = 0;
 
   try {
-    const q = query({
+    // Initial query
+    const initial = await runQuery({
       prompt: userPrompt,
-      options: {
-        systemPrompt,
-        model: config.llm.model,
-        cwd: projectRoot,
-        tools: ['Read', 'Grep', 'Glob'],
-        allowedTools: ['Read', 'Grep', 'Glob'],
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        abortController,
-        maxTurns: 25,
-        persistSession: false,
-      },
+      systemPrompt,
+      model: config.llm.model,
+      projectRoot,
+      abortController,
+      appendTranscript,
     });
+    totalCostUsd += initial.costUsd;
 
-    for await (const message of q) {
-      appendTranscript(formatMessage(message));
+    // Validate + retry loop
+    let resultText = initial.resultText;
+    let sessionId = initial.sessionId;
 
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          const successMsg = message as SDKResultSuccess;
-          resultText = successMsg.result;
-          costUsd = successMsg.total_cost_usd;
-        } else {
-          const errorMsg = message;
-          throw new AnatolyError(
-            `Agent error for ${task.file}: ${(errorMsg as { errors: string[] }).errors?.join(', ') ?? 'unknown error'}`,
-            ERROR_CODES.LLM_API_ERROR,
-            true,
-          );
-        }
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const validation = tryParseReview(resultText, task.file);
+
+      if (validation.success) {
+        return {
+          review: validation.data,
+          transcript: transcriptLines.join('\n'),
+          costUsd: totalCostUsd,
+          retries: attempt - 1,
+        };
       }
+
+      // Last attempt — throw the error
+      if (attempt === maxRetries) {
+        throw new AnatolyError(
+          `Zod validation failed after ${maxRetries} attempts for ${task.file}: ${validation.error}`,
+          ERROR_CODES.ZOD_VALIDATION_FAILED,
+          true,
+        );
+      }
+
+      // Send Zod error feedback and retry
+      retries++;
+      const feedback = formatRetryFeedback(validation.error, attempt, maxRetries);
+      appendTranscript(`## Retry ${attempt}/${maxRetries}`);
+      appendTranscript('');
+      appendTranscript(`**Validation error:** ${validation.error}`);
+      appendTranscript('');
+
+      const retry = await runQuery({
+        prompt: feedback,
+        model: config.llm.model,
+        projectRoot,
+        abortController,
+        appendTranscript,
+        resumeSessionId: sessionId,
+      });
+
+      resultText = retry.resultText;
+      sessionId = retry.sessionId;
+      totalCostUsd += retry.costUsd;
     }
+
+    // Should not reach here, but guard against it
+    throw new AnatolyError(
+      `Review exhausted all retries for ${task.file}`,
+      ERROR_CODES.ZOD_VALIDATION_FAILED,
+      true,
+    );
   } catch (error) {
     if (error instanceof AnatolyError) throw error;
 
@@ -111,56 +149,137 @@ export async function reviewFile(
   } finally {
     clearTimeout(timeoutId);
   }
+}
 
-  // Parse and validate the response
-  const review = parseReviewResponse(resultText, task.file);
-
-  return {
-    review,
-    transcript: transcriptLines.join('\n'),
-    costUsd,
-  };
+interface RunQueryParams {
+  prompt: string;
+  systemPrompt?: string;
+  model: string;
+  projectRoot: string;
+  abortController: AbortController;
+  appendTranscript: (line: string) => void;
+  resumeSessionId?: string;
 }
 
 /**
- * Extract JSON from agent response text and validate against ReviewFileSchema.
- * The agent may include markdown fences or extra text around the JSON.
+ * Run a single Agent SDK query and return the result text.
+ * Supports both initial queries (with systemPrompt) and resume queries.
  */
-export function parseReviewResponse(responseText: string, filePath: string): ReviewFile {
+async function runQuery(params: RunQueryParams): Promise<QueryResult> {
+  const { prompt, systemPrompt, model, projectRoot, abortController, appendTranscript, resumeSessionId } = params;
+
+  const q = query({
+    prompt,
+    options: {
+      ...(systemPrompt ? { systemPrompt } : {}),
+      model,
+      cwd: projectRoot,
+      tools: ['Read', 'Grep', 'Glob'],
+      allowedTools: ['Read', 'Grep', 'Glob'],
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      abortController,
+      maxTurns: 25,
+      persistSession: true,
+      ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+    },
+  });
+
+  let resultText = '';
+  let costUsd = 0;
+  let sessionId = '';
+
+  for await (const message of q) {
+    appendTranscript(formatMessage(message));
+    sessionId = 'session_id' in message ? (message.session_id as string) : sessionId;
+
+    if (message.type === 'result') {
+      if (message.subtype === 'success') {
+        const successMsg = message as SDKResultSuccess;
+        resultText = successMsg.result;
+        costUsd = successMsg.total_cost_usd;
+        sessionId = successMsg.session_id;
+      } else {
+        const errorMsg = message as { errors: string[] };
+        throw new AnatolyError(
+          `Agent error: ${errorMsg.errors?.join(', ') ?? 'unknown'}`,
+          ERROR_CODES.LLM_API_ERROR,
+          true,
+        );
+      }
+    }
+  }
+
+  return { resultText, costUsd, sessionId };
+}
+
+/**
+ * Try to parse and validate a review response.
+ * Returns either the validated data or an error string (never throws).
+ */
+export function tryParseReview(
+  responseText: string,
+  filePath: string,
+): { success: true; data: ReviewFile } | { success: false; error: string } {
   const jsonStr = extractJson(responseText);
 
   if (!jsonStr) {
-    throw new AnatolyError(
-      `No valid JSON found in agent response for ${filePath}`,
-      ERROR_CODES.ZOD_VALIDATION_FAILED,
-      true,
-    );
+    return { success: false, error: `No valid JSON found in response for ${filePath}` };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
-    throw new AnatolyError(
-      `Invalid JSON in agent response for ${filePath}`,
-      ERROR_CODES.ZOD_VALIDATION_FAILED,
-      true,
-    );
+    return { success: false, error: `Invalid JSON syntax in response for ${filePath}` };
   }
 
   const result = ReviewFileSchema.safeParse(parsed);
   if (!result.success) {
-    const issues = result.error.issues
+    const formatted = result.error.issues
       .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ');
-    throw new AnatolyError(
-      `Zod validation failed for ${filePath}: ${issues}`,
-      ERROR_CODES.ZOD_VALIDATION_FAILED,
-      true,
-    );
+      .join('\n  ');
+    return { success: false, error: formatted };
   }
 
-  return result.data;
+  return { success: true, data: result.data };
+}
+
+/**
+ * Extract JSON from agent response text and validate against ReviewFileSchema.
+ * Throws AnatolyError on failure.
+ */
+export function parseReviewResponse(responseText: string, filePath: string): ReviewFile {
+  const result = tryParseReview(responseText, filePath);
+  if (result.success) return result.data;
+
+  throw new AnatolyError(
+    `Zod validation failed for ${filePath}: ${result.error}`,
+    ERROR_CODES.ZOD_VALIDATION_FAILED,
+    true,
+  );
+}
+
+/**
+ * Format Zod validation error into a feedback prompt for the agent.
+ */
+export function formatRetryFeedback(
+  validationError: string,
+  attempt: number,
+  maxRetries: number,
+): string {
+  return `Your previous response failed Zod validation (attempt ${attempt}/${maxRetries}).
+
+**Validation errors:**
+  ${validationError}
+
+Please fix these issues and output the corrected JSON object. Remember:
+- Output ONLY the JSON object (no markdown fences, no explanation outside JSON)
+- All required fields must be present
+- Enum values must match exactly (e.g., "OK", "NEEDS_FIX", "ERROR" for correction)
+- confidence must be an integer 0-100
+- detail must be at least 10 characters
+- Review ALL symbols from the original file`;
 }
 
 /**
