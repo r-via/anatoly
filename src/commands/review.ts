@@ -22,6 +22,13 @@ export function registerReviewCommand(program: Command): void {
       const lockPath = acquireLock(projectRoot);
       let filesReviewed = 0;
       let filesErrored = 0;
+      let interrupted = false;
+
+      // SIGINT handler for graceful shutdown
+      const onSigint = () => {
+        interrupted = true;
+      };
+      process.on('SIGINT', onSigint);
 
       try {
         // Auto-scan if no tasks exist
@@ -42,12 +49,15 @@ export function registerReviewCommand(program: Command): void {
           return;
         }
 
+        const total = pending.length;
         console.log('anatoly — review');
-        console.log(`  pending   ${pending.length}`);
+        console.log(`  pending   ${total}`);
         console.log(`  total     ${pm.totalFiles()}`);
         console.log('');
 
         for (const fileProgress of pending) {
+          if (interrupted) break;
+
           const filePath = fileProgress.file;
           console.log(`  reviewing ${filePath}...`);
 
@@ -84,15 +94,21 @@ export function registerReviewCommand(program: Command): void {
           }
         }
 
-        console.log('');
-        console.log('anatoly — review complete');
-        console.log(`  reviewed  ${filesReviewed}`);
-        console.log(`  errors    ${filesErrored}`);
+        if (interrupted) {
+          console.log('');
+          console.log(`interrupted — ${filesReviewed}/${total} files reviewed`);
+        } else {
+          console.log('');
+          console.log('anatoly — review complete');
+          console.log(`  reviewed  ${filesReviewed}`);
+          console.log(`  errors    ${filesErrored}`);
 
-        const summary = pm.getSummary();
-        console.log(`  done      ${summary.DONE}`);
-        console.log(`  cached    ${summary.CACHED}`);
+          const summary = pm.getSummary();
+          console.log(`  done      ${summary.DONE}`);
+          console.log(`  cached    ${summary.CACHED}`);
+        }
       } finally {
+        process.removeListener('SIGINT', onSigint);
         releaseLock(lockPath);
       }
     });
