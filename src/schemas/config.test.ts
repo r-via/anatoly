@@ -1,0 +1,48 @@
+import { describe, it, expect } from 'vitest';
+import { ConfigSchema } from './config.js';
+
+describe('ConfigSchema', () => {
+  it('should apply all defaults when given empty object', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.project.monorepo).toBe(false);
+    expect(config.scan.include).toEqual(['src/**/*.ts', 'src/**/*.tsx']);
+    expect(config.scan.exclude).toContain('node_modules/**');
+    expect(config.coverage.enabled).toBe(true);
+    expect(config.llm.timeout_per_file).toBe(180);
+    expect(config.llm.max_retries).toBe(3);
+  });
+
+  it('should accept a fully specified config', () => {
+    const input = {
+      project: { name: 'my-project', monorepo: true },
+      scan: {
+        include: ['packages/*/src/**/*.ts'],
+        exclude: ['node_modules/**'],
+      },
+      coverage: {
+        enabled: false,
+        command: 'npx jest --coverage',
+        report_path: 'coverage/lcov.json',
+      },
+      llm: {
+        model: 'claude-opus-4-20250514',
+        agentic_tools: true,
+        timeout_per_file: 300,
+        max_retries: 5,
+      },
+    };
+    const result = ConfigSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project.name).toBe('my-project');
+      expect(result.data.llm.timeout_per_file).toBe(300);
+    }
+  });
+
+  it('should reject invalid timeout_per_file', () => {
+    const result = ConfigSchema.safeParse({
+      llm: { timeout_per_file: 0 },
+    });
+    expect(result.success).toBe(false);
+  });
+});

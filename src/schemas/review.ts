@@ -1,0 +1,65 @@
+import { z } from 'zod';
+
+export const VerdictSchema = z.enum(['CLEAN', 'NEEDS_REFACTOR', 'CRITICAL']);
+
+export const SeveritySchema = z.enum(['high', 'medium', 'low']);
+
+export const DuplicateTargetSchema = z.object({
+  file: z.string(),
+  symbol: z.string(),
+  similarity: z.string(),
+});
+
+export const SymbolReviewSchema = z.object({
+  name: z.string(),
+  kind: z.enum(['function', 'class', 'method', 'type', 'constant', 'variable', 'enum', 'hook']),
+  exported: z.boolean(),
+  line_start: z.int().min(1),
+  line_end: z.int().min(1),
+
+  correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
+  overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE']),
+  utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
+  duplication: z.enum(['UNIQUE', 'DUPLICATE']),
+  tests: z.enum(['GOOD', 'WEAK', 'NONE']),
+
+  confidence: z.int().min(0).max(100),
+
+  detail: z.string().min(10),
+  duplicate_target: DuplicateTargetSchema.optional(),
+});
+
+export const ActionSchema = z.object({
+  id: z.int().min(1),
+  description: z.string().min(1),
+  severity: SeveritySchema,
+  target_symbol: z.string().nullable(),
+  target_lines: z.string().nullable(),
+});
+
+export const FileLevelSchema = z.object({
+  unused_imports: z.array(z.string()).default([]),
+  circular_dependencies: z.array(z.string()).default([]),
+  general_notes: z.string().default(''),
+});
+
+export const ReviewFileSchema = z.object({
+  version: z.literal(1),
+  file: z.string(),
+  is_generated: z.boolean().default(false),
+  skip_reason: z.string().optional(),
+
+  verdict: VerdictSchema,
+  symbols: z.array(SymbolReviewSchema),
+  actions: z.array(ActionSchema).default([]),
+
+  file_level: FileLevelSchema,
+});
+
+export type Verdict = z.infer<typeof VerdictSchema>;
+export type Severity = z.infer<typeof SeveritySchema>;
+export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
+export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
+export type Action = z.infer<typeof ActionSchema>;
+export type FileLevel = z.infer<typeof FileLevelSchema>;
+export type ReviewFile = z.infer<typeof ReviewFileSchema>;
