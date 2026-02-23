@@ -1,4 +1,6 @@
-.ralph/logs/
+.ralph/
+.claude/
+_bmad/
 _bmad-output/
 node_modules/
 dist/
