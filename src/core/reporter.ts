@@ -170,8 +170,8 @@ export function renderReport(data: ReportData): string {
   if (data.findingFiles.length > 0) {
     lines.push('## Findings');
     lines.push('');
-    lines.push('| File | Verdict | Dead | Dup | Over | Errors | Confidence | Details |');
-    lines.push('|------|---------|------|-----|------|--------|------------|---------|');
+    lines.push('| File | Verdict | Dead Code | Duplicate | Over Engineered | Errors | Confidence | Details |');
+    lines.push('|------|---------|-----------|-----------|-----------------|--------|------------|---------|');
 
     // Sort: CRITICAL first, then NEEDS_REFACTOR
     const sorted = [...data.findingFiles].sort((a, b) => {
@@ -239,6 +239,24 @@ export function renderReport(data: ReportData): string {
   lines.push('');
   lines.push(`- **Generated:** ${new Date().toISOString()}`);
   lines.push(`- **Version:** 1`);
+  lines.push('');
+  lines.push('### Methodology');
+  lines.push('');
+  lines.push('Each symbol (function, class, type, constant, etc.) extracted via AST parsing is evaluated by an LLM agent against 5 axes:');
+  lines.push('');
+  lines.push('| Axis | Column | Values | Method |');
+  lines.push('|------|--------|--------|--------|');
+  lines.push('| Correction | Errors | OK / NEEDS_FIX / ERROR | Agent reads the source code and identifies bugs, logic errors, type mismatches, and incorrect behavior. |');
+  lines.push('| Utility | Dead Code | USED / DEAD / LOW_VALUE | Agent uses Grep to search the entire project for imports and usages of each exported symbol. Zero matches = DEAD. |');
+  lines.push('| Duplication | Duplicate | UNIQUE / DUPLICATE | Agent reads candidate files and compares implementations. Near-identical logic (>80% similarity) = DUPLICATE, with the target file and symbol recorded. |');
+  lines.push('| Over-engineering | Over Engineered | LEAN / OVER / ACCEPTABLE | Agent assesses whether abstractions, generics, or patterns are justified by actual usage. Unnecessary complexity = OVER. |');
+  lines.push('| Tests | — | GOOD / WEAK / NONE | Agent checks test coverage data (when available) and inspects test files to evaluate quality and completeness. |');
+  lines.push('');
+  lines.push('**Confidence** (0–100%) reflects how much tool-verified evidence supports the assessment. 100% = fully verified with Grep/Read; <70% = uncertain, needs investigation.');
+  lines.push('');
+  lines.push('**Severity** is derived from axis values and confidence: high = confirmed issues (confidence ≥80%), medium = likely issues, low = minor concerns or missing tests.');
+  lines.push('');
+  lines.push('**Verdict** per file: CRITICAL (any ERROR), NEEDS_REFACTOR (any issues), CLEAN (all healthy). Global verdict is the worst across all files.');
   lines.push('');
 
   return lines.join('\n');
