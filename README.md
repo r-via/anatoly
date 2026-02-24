@@ -6,76 +6,132 @@
 
 *"Can I clean here ?"*
 
-**Deep Audit Agent for TypeScript codebases**
-
-*Burn your daily context to deep clean your code.*
+**The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
+
+```bash
+npx anatoly run   # one command, full codebase audit
+```
 
 ---
 
 ## What is Anatoly?
 
-Anatoly sends every TypeScript/TSX file in your project through a Claude AI agent for rigorous, evidence-based code review. The agent has full read access to the codebase during review — it can grep, read files, and search — and produces structured, Zod-validated audit reports.
+Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report, the kind of deep review that would take a senior developer days, done in minutes.
 
-It enters your codebase, finds the dead code, the duplicated, the superfluous and the over-engineered... and delivers a surgical audit report that only an LLM agent can produce.
+This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. For every file it reviews, it can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions across file boundaries, and cross-reference exports, imports, and test coverage, then it must **prove** each finding with evidence before reporting it.
 
-**Core philosophy:** High token cost is acceptable to achieve zero false positives. Anatoly never modifies source code — it only diagnoses.
+The result: dead code found with zero false positives. Hidden duplication surfaced across file boundaries. Over-engineered abstractions called out with concrete proof. Missing test coverage quantified per symbol.
+
+**One command. Full codebase. Evidence-backed findings. No code modified.**
 
 ## The Problem
 
-TypeScript codebases accumulate technical debt fast — especially when AI-assisted coding tools generate large volumes of code. Dead code, hidden duplication, over-engineered abstractions, and missing test coverage silently degrade maintainability. Traditional linters catch syntax issues but miss architectural rot. Manual code review doesn't scale.
+TypeScript codebases accumulate technical debt fast, especially when AI-assisted coding tools generate large volumes of code. Dead code, hidden duplication, over-engineered abstractions, and missing test coverage silently degrade maintainability.
+
+Traditional linters catch syntax issues but miss architectural rot. Manual code review doesn't scale. And no existing tool can answer *"is this function actually used anywhere?"* with certainty, because that requires understanding the whole project, not just one file.
 
 ## How Anatoly Solves It
 
-Anatoly is an **agentic CLI** that parses your codebase with tree-sitter AST analysis, then runs a Claude agent on each file with full codebase context. The agent must **prove** every finding (grep for usage, read target files to confirm duplication) before reporting it. Results are Zod-validated and aggregated into an actionable audit report.
+Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** powered by Claude Agent SDK. The pipeline works in five phases:
+
+1. **Scan**, Parses every file with tree-sitter to extract symbols (functions, classes, types, hooks, constants) with line ranges and export status
+2. **Estimate**, Counts tokens locally with tiktoken so you know the cost before any API call
+3. **Index**, Builds a semantic RAG index (local embeddings + LanceDB) to detect cross-file duplication invisible to grep
+4. **Review**, Launches a Claude agent per file with read-only tools (Glob, Grep, Read, findSimilarFunctions). The agent must **prove** every finding before reporting it
+5. **Report**, Aggregates all Zod-validated reviews into an actionable audit report with severity rankings
+
+### Self-correction loop
+
+The review phase includes an **agent ↔ schema feedback loop**. When the agent produces its JSON output, Anatoly validates it against a strict Zod schema. If validation fails, the exact Zod errors are sent back to the agent **within the same session**, preserving the full investigation context. The agent corrects its output and resubmits, up to `max_retries` times (default: 3).
+
+### Claude Code autocorrection hook
+
+Anatoly can plug directly into Claude Code as a **PostToolUse + Stop hook**, creating a real-time audit loop while Claude Code writes your code:
+
+1. **Every time Claude Code edits a file**, the `post-edit` hook fires, Anatoly spawns a background review for that file (debounced, SHA-checked, non-blocking)
+2. **When Claude Code finishes its task**, the `stop` hook fires, Anatoly waits for pending reviews, collects all findings above `min_confidence`, and **injects them back into Claude Code's context** as `additionalContext`
+3. **Claude Code sees the audit findings** and self-corrects, fixing dead code, removing duplication, simplifying over-engineered abstractions, before the user ever sees the result
+
+The result is an **autonomous write → audit → fix loop**: Claude Code writes, Anatoly audits in real-time, Claude Code fixes. Anti-loop protection (`stop_count` cap) prevents runaway iterations.
+
+```bash
+npx anatoly hook init   # generates .claude/settings.json hooks
+```
+
+Every finding is backed by evidence. Every review is schema-validated. The agent never guesses,it investigates.
 
 ## Key Features
 
-- **AST-driven scanning** — Uses web-tree-sitter (WASM) to extract every function, class, type, enum, constant, and hook with line ranges and export status
-- **Evidence-based review** — The Claude agent must grep/read to prove DEAD, DUPLICATE, or OVER findings — no guessing
-- **5-axis analysis** — Every symbol evaluated on: correction, overengineering, utility, duplication, and test coverage
-- **Zod-validated output** — Machine-readable `.rev.json` + human-readable `.rev.md` per file, all schema-validated
-- **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
-- **Token estimation** — Local tiktoken estimation before any API call (no surprise bills)
-- **RAG semantic duplication** — Local embeddings (Xenova/all-MiniLM-L6-v2) + LanceDB vector store detect cross-file semantic duplications invisible to grep
-- **Run-scoped outputs** — Each run is stored in `.anatoly/runs/<timestamp>/` with a `latest` symlink; old runs auto-purged via `output.max_runs`
-- **Watch mode** — Daemon that re-reviews changed files automatically
-- **Parallel reviews** — `--concurrency N` runs up to 10 reviews simultaneously with rate limiting and multi-file renderer
-- **CI-friendly** — Exit codes: `0` (clean), `1` (findings), `2` (error); `--yes` flag for non-interactive destructive commands
-- **Coverage integration** — Parses Istanbul/Vitest/Jest coverage data to enrich reviews
-- **Crash-resilient** — Atomic state writes, lock files, and interrupted-run recovery
-- **Actionable errors** — Every error includes a recovery hint (`error: <message>\n  → <next step>`)
-- **Accessibility** — Respects `$NO_COLOR` env var; `--plain` mode for pipes/CI; `--open` to launch report in default app
+- **AST-driven scanning**,Uses web-tree-sitter (WASM) to extract every function, class, type, enum, constant, and hook with line ranges and export status
+- **Evidence-based review**,The Claude agent must grep/read to prove DEAD, DUPLICATE, or OVER findings,no guessing
+- **5-axis analysis**,Every symbol evaluated on: correction, overengineering, utility, duplication, and test coverage
+- **Zod-validated output**,Machine-readable `.rev.json` + human-readable `.rev.md` per file, all schema-validated
+- **Smart caching**,SHA-256 per file; unchanged files skip review at zero API cost
+- **Token estimation**,Local tiktoken estimation before any API call (no surprise bills)
+- **RAG semantic duplication**,Local embeddings (Xenova/all-MiniLM-L6-v2) + LanceDB vector store detect cross-file semantic duplications invisible to grep
+- **Run-scoped outputs**,Each run is stored in `.anatoly/runs/<timestamp>/` with a `latest` symlink; old runs auto-purged via `output.max_runs`
+- **Watch mode**,Daemon that re-reviews changed files automatically
+- **Parallel reviews**,`--concurrency N` runs up to 10 reviews simultaneously with rate limiting and multi-file renderer
+- **CI-friendly**,Exit codes: `0` (clean), `1` (findings), `2` (error); `--yes` flag for non-interactive destructive commands
+- **Coverage integration**,Parses Istanbul/Vitest/Jest coverage data to enrich reviews
+- **Crash-resilient**,Atomic state writes, lock files, and interrupted-run recovery
+- **Actionable errors**,Every error includes a recovery hint (`error: <message>\n  → <next step>`)
+- **Accessibility**,Respects `$NO_COLOR` env var; `--plain` mode for pipes/CI; `--open` to launch report in default app
 
 ## Target Audience
 
-Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js — especially those producing large amounts of AI-generated code with tools like Claude Code, Cursor, or Windsurf. Designed for projects from 20 to 1,000+ TypeScript files.
+Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js,especially those producing large amounts of AI-generated code with tools like Claude Code, Cursor, or Windsurf. Designed for projects from 20 to 1,000+ TypeScript files.
 
 ---
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      CLI (Commander.js)                       │
-│  run | scan | estimate | review | report | watch | rag-status │
-└──────────────┬───────────────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────────────┐
-│                       Core Pipeline                           │
-│                                                               │
-│  Scanner ──► Estimator ──► [RAG Index] ──► Reviewer ──► Reporter │
-│  (AST+SHA)   (tiktoken)   (Haiku+Xenova)  (Agent SDK)  (aggregate)│
-└───────────────────────────────────────────────────────────────┘
-               │
-┌──────────────▼───────────────────────────────────────────────┐
-│                    .anatoly/ (output)                          │
-│  cache/ tasks/ rag/lancedb/ runs/<runId>/{reviews,logs,report} │
-└───────────────────────────────────────────────────────────────┘
-```
+```mermaid
+flowchart TD
+    CLI["CLI (Commander.js)<br/>run | scan | estimate | review | report | watch | hook"]
 
-The pipeline phases run in order: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs Claude Agent SDK sessions per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Reviews can run in parallel with `--concurrency N` (up to 10 workers). Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
+    subgraph Pipeline["Core Pipeline"]
+        direction LR
+        Scanner["Scanner<br/><small>tree-sitter AST + SHA-256</small>"]
+        Estimator["Estimator<br/><small>tiktoken (local)</small>"]
+        Indexer["RAG Indexer<br/><small>Haiku + Xenova embeddings</small>"]
+        Reviewer["Reviewer<br/><small>Claude Agent SDK</small>"]
+        Reporter["Reporter<br/><small>aggregate → report.md</small>"]
+
+        Scanner --> Estimator --> Indexer --> Reviewer --> Reporter
+    end
+
+    subgraph ReviewLoop["Review Loop (per file, ×N concurrent)"]
+        Agent["Claude Agent<br/><small>read-only tools</small>"]
+        Tools["Glob | Grep | Read<br/>findSimilarFunctions"]
+        Zod["Zod Validation"]
+        Agent <--> Tools
+        Agent --> Zod
+        Zod -- "errors → retry<br/>same session" --> Agent
+    end
+
+    subgraph Hook["Claude Code Hook (optional)"]
+        direction LR
+        PostEdit["PostToolUse<br/><small>post-edit → background review</small>"]
+        Stop["Stop<br/><small>collect findings → additionalContext</small>"]
+        PostEdit --> Stop
+    end
+
+    subgraph Output[".anatoly/"]
+        Cache["cache/ + tasks/"]
+        RAG["rag/lancedb/"]
+        Runs["runs/&lt;timestamp&gt;/<br/><small>reviews/ logs/ report.md</small>"]
+    end
+
+    CLI --> Pipeline
+    Reviewer --> ReviewLoop
+    Indexer --> RAG
+    Reporter --> Runs
+    Scanner --> Cache
+    Hook --> Reviewer
+```
 
 ## Tech Stack
 
@@ -238,7 +294,7 @@ npx anatoly rag-status --json      # Output as JSON (for scripting)
 
 Each reviewed file produces two outputs:
 
-**`.rev.json`** — Machine-readable, Zod-validated:
+**`.rev.json`**,Machine-readable, Zod-validated:
 
 | Axis | Values |
 |------|--------|
@@ -249,7 +305,7 @@ Each reviewed file produces two outputs:
 | `tests` | `GOOD` / `WEAK` / `NONE` |
 | `confidence` | 0–100 |
 
-**`report.md`** — Aggregated report with:
+**`report.md`**,Aggregated report with:
 - Executive summary and global verdict (`CLEAN` / `NEEDS_REFACTOR` / `CRITICAL`)
 - Findings table sorted by severity
 - Recommended actions
@@ -257,7 +313,7 @@ Each reviewed file produces two outputs:
 
 ## Configuration
 
-Create a `.anatoly.yml` at the project root (optional — sensible defaults apply):
+Create a `.anatoly.yml` at the project root (optional,sensible defaults apply):
 
 ```yaml
 project:
