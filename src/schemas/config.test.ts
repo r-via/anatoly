@@ -45,4 +45,30 @@ describe('ConfigSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('should default min_confidence to 70', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.min_confidence).toBe(70);
+  });
+
+  it('should accept custom min_confidence', () => {
+    const config = ConfigSchema.parse({
+      llm: { min_confidence: 80 },
+    });
+    expect(config.llm.min_confidence).toBe(80);
+  });
+
+  it('should reject min_confidence below 0', () => {
+    const result = ConfigSchema.safeParse({
+      llm: { min_confidence: -1 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject min_confidence above 100', () => {
+    const result = ConfigSchema.safeParse({
+      llm: { min_confidence: 101 },
+    });
+    expect(result.success).toBe(false);
+  });
 });

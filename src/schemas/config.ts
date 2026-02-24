@@ -28,6 +28,7 @@ export const LlmConfigSchema = z.object({
   timeout_per_file: z.int().min(1).default(180),
   max_retries: z.int().min(1).max(10).default(3),
   concurrency: z.int().min(1).max(10).default(4),
+  min_confidence: z.int().min(0).max(100).default(70),
 });
 
 export const RagConfigSchema = z.object({
@@ -58,6 +59,7 @@ export const ConfigSchema = z.object({
     timeout_per_file: 180,
     max_retries: 3,
     concurrency: 4,
+    min_confidence: 70,
   }),
   rag: RagConfigSchema.default({
     enabled: true,

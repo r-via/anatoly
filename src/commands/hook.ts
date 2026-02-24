@@ -1,13 +1,13 @@
 import type { Command } from 'commander';
 import { resolve, relative, extname } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
-import { computeFileHash, toOutputName, atomicWriteJson } from '../utils/cache.js';
+import { computeFileHash, toOutputName } from '../utils/cache.js';
 import { isLockActive } from '../utils/lock.js';
 import type { ReviewFile } from '../schemas/review.js';
-import type { HookState, HookReview } from '../utils/hook-state.js';
-import { loadHookState, saveHookState, initHookState, isProcessRunning } from '../utils/hook-state.js';
+import { loadHookState, saveHookState, isProcessRunning } from '../utils/hook-state.js';
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
@@ -152,7 +152,7 @@ export function registerHookCommand(program: Command): void {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
-      const minConfidence = (config.llm as Record<string, unknown>).min_confidence as number | undefined ?? 70;
+      const minConfidence = config.llm.min_confidence;
 
       const state = loadHookState(projectRoot);
 
@@ -265,6 +265,78 @@ export function registerHookCommand(program: Command): void {
       });
       process.stdout.write(output);
       process.exit(0);
+    });
+
+  // --- hook init ---
+  hookCmd
+    .command('init')
+    .description('Generate Claude Code hooks configuration for autocorrection loop')
+    .action(() => {
+      const projectRoot = resolve('.');
+      const settingsDir = resolve(projectRoot, '.claude');
+      const settingsPath = resolve(settingsDir, 'settings.json');
+
+      const hooksConfig = {
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: 'Edit|Write',
+              command: 'npx anatoly hook post-edit',
+              async: true,
+            },
+          ],
+          Stop: [
+            {
+              command: 'npx anatoly hook stop',
+              timeout: 180,
+            },
+          ],
+        },
+      };
+
+      // Check if settings.json already exists
+      if (existsSync(settingsPath)) {
+        try {
+          const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+          if (existing.hooks) {
+            console.log(`${chalk.yellow('warning')}: .claude/settings.json already has hooks configured.`);
+            console.log('  To avoid overwriting, merge manually:');
+            console.log('');
+            console.log(JSON.stringify(hooksConfig, null, 2));
+            return;
+          }
+
+          // Merge hooks into existing settings
+          const merged = { ...existing, ...hooksConfig };
+          mkdirSync(settingsDir, { recursive: true });
+          writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
+          console.log(`${chalk.green('done')}: hooks added to .claude/settings.json`);
+        } catch {
+          // Corrupted settings — write fresh
+          mkdirSync(settingsDir, { recursive: true });
+          writeFileSync(settingsPath, JSON.stringify(hooksConfig, null, 2) + '\n');
+          console.log(`${chalk.green('done')}: .claude/settings.json created`);
+        }
+      } else {
+        mkdirSync(settingsDir, { recursive: true });
+        writeFileSync(settingsPath, JSON.stringify(hooksConfig, null, 2) + '\n');
+        console.log(`${chalk.green('done')}: .claude/settings.json created`);
+      }
+
+      console.log('');
+      console.log('Claude Code Integration');
+      console.log('');
+      console.log('  How it works:');
+      console.log('  1. PostToolUse hook triggers after each Edit/Write');
+      console.log('     Launches background review for the edited file');
+      console.log('  2. Stop hook triggers when Claude Code finishes its task');
+      console.log('     Collects findings and injects them for autocorrection');
+      console.log('');
+      console.log('  Configuration (.anatoly.yml):');
+      console.log('    llm:');
+      console.log('      min_confidence: 70   # Only report findings >= this confidence');
+      console.log('');
+      console.log('  Disable: remove the hooks section from .claude/settings.json');
     });
 }
 
