@@ -13,6 +13,7 @@ import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 
 declare const PKG_VERSION: string;
 const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
@@ -21,7 +22,8 @@ export function registerRunCommand(program: Command): void {
   program
     .command('run')
     .description('Execute full audit pipeline: scan → estimate → review → report')
-    .action(async () => {
+    .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
+    .action(async (cmdOpts: { runId?: string }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
@@ -30,6 +32,15 @@ export function registerRunCommand(program: Command): void {
       const noCache = parentOpts.cache === false;
       const enableRag = (parentOpts.enableRag as boolean | undefined) || config.rag.enabled;
       const rebuildRag = parentOpts.rebuildRag as boolean | undefined;
+
+      // Resolve run ID and create run-scoped output directory
+      const runId = cmdOpts.runId ?? generateRunId();
+      if (cmdOpts.runId && !isValidRunId(cmdOpts.runId)) {
+        console.error(`anatoly — error: invalid --run-id "${cmdOpts.runId}" (use alphanumeric, dashes, underscores)`);
+        process.exitCode = 2;
+        return;
+      }
+      const runDir = createRunDir(projectRoot, runId);
 
       const renderer = createRenderer({
         plain: isPlain,
@@ -147,9 +158,9 @@ export function registerRunCommand(program: Command): void {
 
             try {
               activeAbort = new AbortController();
-              const result = await reviewFile(projectRoot, task, config, promptOptions, activeAbort);
+              const result = await reviewFile(projectRoot, task, config, promptOptions, activeAbort, runDir);
               activeAbort = undefined;
-              writeReviewOutput(projectRoot, result.review);
+              writeReviewOutput(projectRoot, result.review, runDir);
               pm.updateFileStatus(filePath, 'DONE');
               filesReviewed++;
 
@@ -204,19 +215,25 @@ export function registerRunCommand(program: Command): void {
           }
         }
 
-        const { reportPath, data } = generateReport(projectRoot, errorFiles);
+        const { reportPath, data } = generateReport(projectRoot, errorFiles, runDir);
+
+        // Purge old runs if max_runs is configured
+        if (config.output?.max_runs) {
+          purgeRuns(projectRoot, config.output.max_runs);
+        }
 
         // Compute stats
         const reportFindings = data.findingFiles.length;
         const reviewed = data.totalFiles;
         const clean = data.cleanFiles.length;
 
+        console.log(`  run       ${runId}`);
         renderer.showCompletion(
           { reviewed, findings: reportFindings, clean },
           {
             report: reportPath,
-            reviews: resolve(projectRoot, '.anatoly', 'reviews') + '/',
-            logs: resolve(projectRoot, '.anatoly', 'logs') + '/',
+            reviews: resolve(runDir, 'reviews') + '/',
+            logs: resolve(runDir, 'logs') + '/',
           },
         );
 

@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, SDKResultSuccess, SDKResultError, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
@@ -37,12 +37,12 @@ export async function reviewFile(
   config: Config,
   promptOptions: PromptOptions = {},
   externalAbort?: AbortController,
+  runDir?: string,
 ): Promise<ReviewResult> {
   const systemPrompt = buildSystemPrompt(task, promptOptions);
   const userPrompt = buildUserPrompt(task, promptOptions);
 
-  const anatolyDir = resolve(projectRoot, '.anatoly');
-  const logsDir = join(anatolyDir, 'logs');
+  const logsDir = runDir ? join(runDir, 'logs') : join(projectRoot, '.anatoly', 'logs');
   mkdirSync(logsDir, { recursive: true });
 
   const transcriptPath = join(logsDir, `${toOutputName(task.file)}.transcript.md`);
@@ -50,7 +50,6 @@ export async function reviewFile(
 
   const appendTranscript = (line: string): void => {
     transcriptLines.push(line);
-    appendFileSync(transcriptPath, line + '\n');
   };
 
   appendTranscript(`# Transcript: ${task.file}`);
@@ -179,6 +178,10 @@ export async function reviewFile(
     clearTimeout(timeoutId);
     if (externalAbort) {
       externalAbort.signal.removeEventListener('abort', onExternalAbort);
+    }
+    // Flush transcript to disk (single write instead of per-line append)
+    if (transcriptLines.length > 0) {
+      writeFileSync(transcriptPath, transcriptLines.join('\n') + '\n');
     }
   }
 }

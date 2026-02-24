@@ -21,10 +21,11 @@ export interface ReportData {
 }
 
 /**
- * Load all .rev.json files from .anatoly/reviews/ and parse them.
+ * Load all .rev.json files from a reviews directory.
+ * When runDir is provided, reads from the run-scoped reviews directory.
  */
-export function loadReviews(projectRoot: string): ReviewFile[] {
-  const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
+export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] {
+  const reviewsDir = runDir ? join(runDir, 'reviews') : resolve(projectRoot, '.anatoly', 'reviews');
   let entries: string[];
   try {
     entries = readdirSync(reviewsDir);
@@ -352,17 +353,21 @@ export function renderReport(data: ReportData): string {
 
 /**
  * Generate the full report: load reviews, aggregate, write report.md.
+ * When runDir is provided, reads reviews from and writes report to the run directory.
  * Returns the path to the generated report and the report data.
  */
 export function generateReport(
   projectRoot: string,
   errorFiles?: string[],
+  runDir?: string,
 ): { reportPath: string; data: ReportData } {
-  const reviews = loadReviews(projectRoot);
+  const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
   const markdown = renderReport(data);
 
-  const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
+  const reportPath = runDir
+    ? join(runDir, 'report.md')
+    : resolve(projectRoot, '.anatoly', 'report.md');
   writeFileSync(reportPath, markdown);
 
   return { reportPath, data };

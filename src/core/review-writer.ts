@@ -1,18 +1,19 @@
-import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ReviewFile } from '../schemas/review.js';
 import { atomicWriteJson, toOutputName } from '../utils/cache.js';
-import { writeFileSync } from 'node:fs';
 
 /**
  * Write both .rev.json and .rev.md for a completed review.
+ * When runDir is provided, writes into the run-scoped reviews directory.
  * Returns the paths to both files.
  */
 export function writeReviewOutput(
   projectRoot: string,
   review: ReviewFile,
+  runDir?: string,
 ): { jsonPath: string; mdPath: string } {
-  const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
+  const reviewsDir = runDir ? join(runDir, 'reviews') : join(projectRoot, '.anatoly', 'reviews');
   mkdirSync(reviewsDir, { recursive: true });
 
   const baseName = toOutputName(review.file);

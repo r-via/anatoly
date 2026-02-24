@@ -12,7 +12,7 @@ describe('CLI program', () => {
     expect(program.version()).toBe('0.2.0');
   });
 
-  it('should register all 9 subcommands', () => {
+  it('should register all subcommands', () => {
     const commandNames = program.commands.map((cmd) => cmd.name());
     expect(commandNames).toEqual(
       expect.arrayContaining([
@@ -24,10 +24,12 @@ describe('CLI program', () => {
         'watch',
         'status',
         'clean-logs',
+        'clean-runs',
         'reset',
+        'rag-status',
       ]),
     );
-    expect(commandNames).toHaveLength(9);
+    expect(commandNames).toHaveLength(11);
   });
 
   it('should register all global options', () => {
