@@ -3,6 +3,7 @@ import { rmSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { confirm, isInteractive } from '../utils/confirm.js';
+import { VectorStore } from '../rag/vector-store.js';
 
 /**
  * Count items that will be deleted during reset, for the confirmation summary.
@@ -31,6 +32,12 @@ function countResetItems(anatolyDir: string): { dirs: string[]; files: string[];
     }
   }
 
+  // Check RAG directory
+  const ragDir = resolve(anatolyDir, 'rag');
+  if (existsSync(ragDir)) {
+    dirs.push('rag');
+  }
+
   for (const file of ['progress.json', 'report.md', 'anatoly.lock']) {
     if (existsSync(resolve(anatolyDir, file))) {
       files.push(file);
@@ -43,7 +50,7 @@ function countResetItems(anatolyDir: string): { dirs: string[]; files: string[];
 export function registerResetCommand(program: Command): void {
   program
     .command('reset')
-    .description('Clear all cache, reviews, logs, tasks, and report')
+    .description('Clear all cache, reviews, logs, tasks, report, and RAG index')
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
     .action(async (opts: { yes?: boolean }) => {
       const projectRoot = process.cwd();
@@ -99,6 +106,20 @@ export function registerResetCommand(program: Command): void {
           rmSync(dirPath, { recursive: true, force: true });
           cleaned++;
         }
+      }
+
+      // Clean RAG: drop LanceDB table via API, then remove directory
+      const ragDir = resolve(anatolyDir, 'rag');
+      if (existsSync(ragDir)) {
+        try {
+          const store = new VectorStore(projectRoot);
+          await store.init();
+          await store.rebuild();
+        } catch {
+          // LanceDB cleanup failed — fall through to rmSync
+        }
+        rmSync(ragDir, { recursive: true, force: true });
+        cleaned++;
       }
 
       // Remove progress.json

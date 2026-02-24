@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
+import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -27,6 +28,8 @@ export function registerReviewCommand(program: Command): void {
       // SIGINT handler for graceful shutdown
       const onSigint = () => {
         interrupted = true;
+        console.log('');
+        console.log(`${chalk.yellow.bold('⚠ shutting down…')} finishing current file then stopping`);
       };
       process.on('SIGINT', onSigint);
 

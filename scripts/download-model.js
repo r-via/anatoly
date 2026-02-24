@@ -1,6 +1,6 @@
 /**
  * Pre-downloads the ONNX embedding model at install time.
- * This avoids a surprise download on first `anatoly run --enable-rag`.
+ * This avoids a surprise download on first `anatoly run`.
  *
  * If the download fails (e.g. no network), the model will be
  * downloaded lazily on first use instead.

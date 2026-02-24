@@ -164,7 +164,7 @@ function formatCoverage(cov: CoverageData): string {
 
 /**
  * Build the RAG-specific prompt section.
- * Appended to the system prompt when --enable-rag is active.
+ * Appended to the system prompt when RAG is active.
  */
 function buildRagPromptSection(task: Task): string {
   return `

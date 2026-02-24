@@ -75,7 +75,7 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js —
 └───────────────────────────────────────────────────────────────┘
 ```
 
-The pipeline phases run in order: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** (optional, with `--enable-rag`) generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs Claude Agent SDK sessions per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Reviews can run in parallel with `--concurrency N` (up to 10 workers). Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
+The pipeline phases run in order: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs Claude Agent SDK sessions per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Reviews can run in parallel with `--concurrency N` (up to 10 workers). Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
 
 ## Tech Stack
 
@@ -187,14 +187,14 @@ npm install -g anatoly
 anatoly run
 ```
 
-The `run` command executes the full pipeline: **scan** → **estimate** → **[index]** → **review** → **report**. The index phase runs only when `--enable-rag` is set.
+The `run` command executes the full pipeline: **scan** → **estimate** → **index** → **review** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it.
 
 ## Usage
 
 ### Commands
 
 ```bash
-npx anatoly run            # Full pipeline: scan → estimate → [index] → review → report
+npx anatoly run            # Full pipeline: scan → estimate → index → review → report
 npx anatoly watch          # Daemon mode: re-review on file change
 npx anatoly scan           # Parse AST + compute SHA-256 hashes
 npx anatoly estimate       # Estimate token cost (local, no API calls)
@@ -220,8 +220,8 @@ npx anatoly reset --yes    # Skip confirmation (for CI/scripts)
 --no-color           Disable colors only (also respects $NO_COLOR env var)
 --open               Open report in default app after generation
 --run-id <id>        Custom run ID (default: YYYY-MM-DD_HHmmss)
---concurrency <n>    Number of concurrent reviews, 1-10 (default: 1)
---enable-rag         Enable semantic RAG cross-file duplication detection
+--concurrency <n>    Number of concurrent reviews, 1-10 (default: 4)
+--no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
 ```
 
@@ -284,10 +284,10 @@ llm:
   agentic_tools: true
   timeout_per_file: 180
   max_retries: 3
-  concurrency: 1            # parallel reviews (1-10, or use --concurrency flag)
+  concurrency: 4            # parallel reviews (1-10, or use --concurrency flag)
 
 rag:
-  enabled: false    # opt-in via --enable-rag or here
+  enabled: true     # disable with --no-rag or set to false
 
 output:
   max_runs: 10      # optional: purge old runs beyond this limit

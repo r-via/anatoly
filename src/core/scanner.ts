@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, join, relative } from 'node:path';
 import { createRequire } from 'node:module';
-import { glob } from 'node:fs/promises';
+import { glob } from 'tinyglobby';
 import { Parser, Language } from 'web-tree-sitter';
 import type { Node as TSNode } from 'web-tree-sitter';
 import type { Config } from '../schemas/config.js';
@@ -167,14 +167,11 @@ export async function collectFiles(
 ): Promise<string[]> {
   const files: string[] = [];
 
-  for (const pattern of config.scan.include) {
-    for await (const entry of glob(pattern, {
-      cwd: projectRoot,
-      exclude: config.scan.exclude,
-    })) {
-      files.push(entry as string);
-    }
-  }
+  const matched = await glob(config.scan.include, {
+    cwd: projectRoot,
+    ignore: config.scan.exclude,
+  });
+  files.push(...matched);
 
   // Filter out .gitignore'd files
   const tracked = getGitTrackedFiles(projectRoot);

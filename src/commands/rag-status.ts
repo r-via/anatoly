@@ -18,7 +18,7 @@ export function registerRagStatusCommand(program: Command): void {
 
       if (stats.totalCards === 0) {
         console.log('anatoly — rag-status');
-        console.log('  No cards indexed. Run `anatoly run --enable-rag` first.');
+        console.log('  No cards indexed. Run `anatoly run` first.');
         return;
       }
 

@@ -52,4 +52,15 @@ describe('reset logic', () => {
 
     expect(existsSync(join(anatolyDir, 'anatoly.lock'))).toBe(false);
   });
+
+  it('should remove rag directory and its contents', () => {
+    const ragDir = join(anatolyDir, 'rag');
+    mkdirSync(join(ragDir, 'lancedb'), { recursive: true });
+    writeFileSync(join(ragDir, 'cache.json'), '{"entries":{}}');
+    writeFileSync(join(ragDir, 'lancedb', 'data.lance'), 'mock');
+
+    rmSync(ragDir, { recursive: true, force: true });
+
+    expect(existsSync(ragDir)).toBe(false);
+  });
 });

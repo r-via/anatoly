@@ -24,12 +24,16 @@ export function registerEstimateCommand(program: Command): void {
       }
 
       const result = estimateProject(projectRoot);
+      const concurrency = config.llm.concurrency;
 
       console.log('anatoly — estimate');
       console.log('');
       console.log(`  files        ${result.files}`);
       console.log(`  symbols      ${result.symbols}`);
       console.log(`  est. tokens  ${formatTokenCount(result.inputTokens)} input / ${formatTokenCount(result.outputTokens)} output`);
-      console.log(`  est. time    ~${result.estimatedMinutes} min (sequential)`);
+      const timeLabel = concurrency > 1
+        ? `~${Math.ceil(result.estimatedMinutes / concurrency)} min (×${concurrency})`
+        : `~${result.estimatedMinutes} min (sequential)`;
+      console.log(`  est. time    ${timeLabel}`);
     });
 }

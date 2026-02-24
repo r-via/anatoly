@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
+import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -34,12 +35,12 @@ export function registerRunCommand(program: Command): void {
       const isPlain = parentOpts.plain as boolean | undefined;
       const fileFilter = parentOpts.file as string | undefined;
       const noCache = parentOpts.cache === false;
-      const enableRag = (parentOpts.enableRag as boolean | undefined) || config.rag.enabled;
+      const enableRag = parentOpts.rag !== false && config.rag.enabled;
       const rebuildRag = parentOpts.rebuildRag as boolean | undefined;
       const shouldOpen = parentOpts.open as boolean | undefined;
       const verbose = parentOpts.verbose as boolean | undefined;
 
-      // Resolve concurrency: CLI flag > config > default 1
+      // Resolve concurrency: CLI flag > config > default 4
       const cliConcurrency = parentOpts.concurrency as number | undefined;
       const concurrency = cliConcurrency ?? config.llm.concurrency;
 
@@ -76,7 +77,7 @@ export function registerRunCommand(program: Command): void {
       // SIGINT handler: first Ctrl+C → graceful shutdown, second → force exit
       const onSigint = () => {
         if (interrupted) {
-          console.log('\nforce exit');
+          console.log(`\n${chalk.red.bold('force exit')}`);
           if (lockPath) releaseLock(lockPath);
           process.exit(1);
         }
@@ -85,11 +86,23 @@ export function registerRunCommand(program: Command): void {
         for (const ac of activeAborts) {
           ac.abort();
         }
-        console.log('\ninterrupting… press Ctrl+C again to force exit');
+        renderer.stop();
+        console.log('');
+        console.log(`${chalk.yellow.bold('⚠ shutting down…')} press Ctrl+C again to force exit`);
       };
       process.on('SIGINT', onSigint);
 
       try {
+        // Display launch parameters
+        console.log(chalk.bold(`anatoly v${pkgVersion}`));
+        console.log(`  model        ${config.llm.model}`);
+        console.log(`  concurrency  ${concurrency}`);
+        console.log(`  rag          ${enableRag ? 'on' : 'off'}`);
+        console.log(`  cache        ${noCache ? 'off' : 'on'}`);
+        if (fileFilter) console.log(`  file filter  ${fileFilter}`);
+        console.log(`  run id       ${runId}`);
+        console.log('');
+
         // Phase 1: SCAN
         const scanResult = await scanProject(projectRoot, config);
         console.log(`anatoly — scan`);

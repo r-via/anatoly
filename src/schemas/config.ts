@@ -26,11 +26,11 @@ export const LlmConfigSchema = z.object({
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(180),
   max_retries: z.int().min(1).max(10).default(3),
-  concurrency: z.int().min(1).max(10).default(1),
+  concurrency: z.int().min(1).max(10).default(4),
 });
 
 export const RagConfigSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
 });
 
 export const OutputConfigSchema = z.object({
@@ -55,10 +55,10 @@ export const ConfigSchema = z.object({
     agentic_tools: true,
     timeout_per_file: 180,
     max_retries: 3,
-    concurrency: 1,
+    concurrency: 4,
   }),
   rag: RagConfigSchema.default({
-    enabled: false,
+    enabled: true,
   }),
   output: OutputConfigSchema.default({}),
 });

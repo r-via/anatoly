@@ -157,7 +157,7 @@ export function registerWatchCommand(program: Command): void {
       // Graceful shutdown
       const onSigint = () => {
         console.log('');
-        console.log(chalk.bold('anatoly — watch stopped'));
+        console.log(`${chalk.yellow.bold('⚠ shutting down…')} closing watcher`);
         watcher.close();
         process.exit(0);
       };
