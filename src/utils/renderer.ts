@@ -18,7 +18,7 @@ export interface Counters {
 export interface Renderer {
   /** Show header and begin rendering. */
   start(total: number): void;
-  /** Update fixed zone with current file being reviewed. */
+  /** Update fixed zone with current file being reviewed (single-file mode). */
   updateProgress(current: number, total: number, currentFile: string): void;
   /** Append a completed file result to the flow zone. */
   addResult(filename: string, verdict: Verdict, findings?: string): void;
@@ -28,6 +28,10 @@ export interface Renderer {
   showCompletion(stats: { reviewed: number; findings: number; clean: number }, paths: { report: string; reviews: string; logs: string }): void;
   /** Stop the renderer (cleanup spinners, etc). */
   stop(): void;
+  /** Set a worker slot to show a file being reviewed (multi-file mode). */
+  updateWorkerSlot(workerIndex: number, filePath: string): void;
+  /** Clear a worker slot when it finishes (multi-file mode). */
+  clearWorkerSlot(workerIndex: number): void;
 }
 
 /**
@@ -152,6 +156,14 @@ function createPlainRenderer(version: string): Renderer {
     stop() {
       // No-op in plain mode
     },
+
+    updateWorkerSlot(_workerIndex: number, _filePath: string) {
+      // No-op in plain mode — updateProgress handles single-file display
+    },
+
+    clearWorkerSlot(_workerIndex: number) {
+      // No-op in plain mode
+    },
   };
 }
 
@@ -163,14 +175,22 @@ function createInteractiveRenderer(version: string): Renderer {
   let currentProgress = 0;
   let currentFile = '';
 
+  // Multi-file worker slots: workerIndex → filePath (null = idle)
+  const workerSlots = new Map<number, string>();
+
   function renderFixedZone(): string {
     const lines: string[] = [];
     lines.push(chalk.bold(`anatoly v${version}`));
     lines.push('');
 
-    if (currentFile) {
-      const spinnerFrame = spinner?.isSpinning ? (spinner as unknown as { frame: () => string }).frame?.() ?? '⠋' : '⠋';
-      // Use a simple indicator since ora's frame isn't easily accessible
+    // Multi-file mode: show worker slots
+    if (workerSlots.size > 0) {
+      const sortedSlots = [...workerSlots.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [idx, filePath] of sortedSlots) {
+        lines.push(`  [${idx + 1}] reviewing ${chalk.cyan(filePath)}`);
+      }
+    } else if (currentFile) {
+      // Single-file fallback
       lines.push(`  ⠋ reviewing ${chalk.cyan(currentFile)}`);
     }
 
@@ -235,6 +255,16 @@ function createInteractiveRenderer(version: string): Renderer {
         spinner = null;
       }
       logUpdate.clear();
+    },
+
+    updateWorkerSlot(workerIndex: number, filePath: string) {
+      workerSlots.set(workerIndex, filePath);
+      render();
+    },
+
+    clearWorkerSlot(workerIndex: number) {
+      workerSlots.delete(workerIndex);
+      render();
     },
   };
 }

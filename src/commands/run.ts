@@ -191,9 +191,10 @@ export function registerRunCommand(program: Command): void {
             items: reviewItems,
             concurrency,
             isInterrupted: () => interrupted,
-            handler: async (item) => {
+            handler: async (item, workerIndex) => {
               const { filePath, task } = item;
 
+              renderer.updateWorkerSlot(workerIndex, filePath);
               renderer.updateProgress(completedCount + 1, totalFiles, filePath);
               pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
@@ -272,6 +273,7 @@ export function registerRunCommand(program: Command): void {
                 if (hint) console.log(`    → ${hint}`);
               } finally {
                 activeAborts.delete(currentAbort);
+                renderer.clearWorkerSlot(workerIndex);
               }
             },
           });
