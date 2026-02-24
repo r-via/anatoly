@@ -55,7 +55,7 @@ export function buildProgressBar(current: number, total: number, width: number =
 /**
  * Format a counter row: dead N  dup N  over N  err N
  */
-export function formatCounterRow(counters: Counters, useColor: boolean = true): string {
+function formatCounterRow(counters: Counters, useColor: boolean = true): string {
   const fmt = (label: string, value: number, color: (s: string) => string): string => {
     const v = String(value);
     if (!useColor) return `${label} ${v}`;
@@ -73,7 +73,7 @@ export function formatCounterRow(counters: Counters, useColor: boolean = true): 
 /**
  * Format a file result line: ✓ filename  VERDICT
  */
-export function formatResultLine(filename: string, verdict: Verdict, findings?: string, useColor: boolean = true): string {
+function formatResultLine(filename: string, verdict: Verdict, findings?: string, useColor: boolean = true): string {
   const mark = useColor ? chalk.green('✓') : 'OK';
   const name = useColor ? chalk.dim(filename) : filename;
   const suffix = findings ? ` ${findings}` : '';
@@ -119,7 +119,7 @@ export function verdictColor(verdict: string): string {
 /**
  * Truncate a file path to fit within maxLen characters.
  */
-export function truncatePath(filePath: string, maxLen: number): string {
+function truncatePath(filePath: string, maxLen: number): string {
   if (filePath.length <= maxLen) return filePath;
   const parts = filePath.split('/');
   if (parts.length <= 2) return '...' + filePath.slice(filePath.length - maxLen + 3);
