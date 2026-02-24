@@ -1,10 +1,15 @@
 import type { Task, CoverageData } from '../schemas/task.js';
 
+export interface PromptOptions {
+  ragEnabled?: boolean;
+  ragHasData?: boolean;
+}
+
 /**
  * Build the system prompt for the Anatoly code review agent.
  * The prompt instructs Claude to review a single file against the 5 axes.
  */
-export function buildSystemPrompt(task: Task): string {
+export function buildSystemPrompt(task: Task, options: PromptOptions = {}): string {
   const symbolList = task.symbols
     .map(
       (s) =>
@@ -132,7 +137,7 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
 - \`verdict\` should be CRITICAL if any symbol has correction: "ERROR".
 - \`verdict\` should be NEEDS_REFACTOR if any symbol has issues (correction, utility, duplication, or overengineering) but no errors. tests: "NONE" alone is NOT an issue.
 - \`verdict\` should be CLEAN if all symbols are healthy (tests: "NONE" alone counts as healthy).
-- Output ONLY the JSON object. No preamble, no markdown fences.`;
+- Output ONLY the JSON object. No preamble, no markdown fences.${options.ragEnabled ? buildRagPromptSection(task, options.ragHasData) : ''}`;
 }
 
 function formatCoverage(cov: CoverageData): string {
@@ -157,8 +162,64 @@ function formatCoverage(cov: CoverageData): string {
 }
 
 /**
+ * Build the RAG-specific prompt section.
+ * Appended to the system prompt when --enable-rag is active.
+ */
+function buildRagPromptSection(task: Task, ragHasData?: boolean): string {
+  const functionSymbols = task.symbols.filter(
+    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+  );
+
+  const duplicationInstruction = ragHasData
+    ? `
+
+## RAG — Semantic Duplication (REPLACES grep-based duplication detection)
+
+You have access to the \`findSimilarFunctions\` tool which searches the indexed codebase for semantically similar functions.
+**You MUST use this tool for each function/method/hook** before concluding on the \`duplication\` axis. Do NOT use Grep for duplication detection when RAG is available.
+- If the tool returns results with score >= 0.85, mark as duplication: "DUPLICATE" and set duplicate_target accordingly.
+- If score is between 0.78 and 0.85, mention it in the detail field but keep duplication: "UNIQUE" unless the code is clearly duplicated.
+- If no results, mark as duplication: "UNIQUE".`
+    : `
+
+## RAG — Note
+
+The semantic similarity index is not yet populated (first run). Use the standard grep-based approach for duplication detection on this run.`;
+
+  const cardInstruction = functionSymbols.length > 0
+    ? `
+
+## FunctionCards (additional output)
+
+For each function, method, or hook in this file, also produce a FunctionCard in the \`function_cards\` array of your JSON output:
+
+\`\`\`json
+"function_cards": [
+  {
+    "name": "functionName",
+    "summary": "Concise conceptual summary, max 400 chars",
+    "keyConcepts": ["keyword1", "keyword2", "keyword3"],
+    "behavioralProfile": "pure | sideEffectful | async | memoized | stateful | utility"
+  }
+]
+\`\`\`
+
+- **summary**: 1-2 sentences describing WHAT the function does conceptually (not implementation details).
+- **keyConcepts**: 3-6 keywords describing behavior, domain, and purpose.
+- **behavioralProfile**: pure (no side effects), sideEffectful (I/O, mutations), async (returns Promise), memoized (cached), stateful (maintains state), utility (helper/transformer).
+- Produce one card per function/method/hook: ${functionSymbols.map((s) => s.name).join(', ')}.`
+    : '';
+
+  return duplicationInstruction + cardInstruction;
+}
+
+/**
  * Build the user prompt (the initial question sent to the agent).
  */
-export function buildUserPrompt(task: Task): string {
-  return `Review the file \`${task.file}\` according to the 5 evaluation axes. Read the file first, then investigate each symbol. Output a single JSON object conforming to the schema.`;
+export function buildUserPrompt(task: Task, options: PromptOptions = {}): string {
+  const base = `Review the file \`${task.file}\` according to the 5 evaluation axes. Read the file first, then investigate each symbol. Output a single JSON object conforming to the schema.`;
+  if (options.ragEnabled) {
+    return base + ' Include the function_cards array for all functions/methods/hooks.';
+  }
+  return base;
 }

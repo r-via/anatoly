@@ -1,6 +1,6 @@
 {
   "name": "@r-via/anatoly",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Deep Audit Agent for TypeScript codebases",
   "type": "module",
   "bin": {
@@ -10,14 +10,16 @@
     "node": ">=20.19"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "scripts/"
   ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsup",
     "test": "vitest run",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/download-model.js"
   },
   "repository": {
     "type": "git",
@@ -39,6 +41,8 @@
   "homepage": "https://github.com/r-via/anatoly#readme",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.52",
+    "@lancedb/lancedb": "^0.26.2",
+    "@xenova/transformers": "^2.17.2",
     "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
     "cli-table3": "^0.6.5",

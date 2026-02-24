@@ -28,6 +28,10 @@ export const LlmConfigSchema = z.object({
   max_retries: z.int().min(1).max(10).default(3),
 });
 
+export const RagConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+});
+
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({
     monorepo: false,
@@ -47,10 +51,14 @@ export const ConfigSchema = z.object({
     timeout_per_file: 180,
     max_retries: 3,
   }),
+  rag: RagConfigSchema.default({
+    enabled: false,
+  }),
 });
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 export type ScanConfig = z.infer<typeof ScanConfigSchema>;
 export type CoverageConfig = z.infer<typeof CoverageConfigSchema>;
 export type LlmConfig = z.infer<typeof LlmConfigSchema>;
+export type RagConfig = z.infer<typeof RagConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

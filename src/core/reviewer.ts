@@ -6,7 +6,7 @@ import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import { buildSystemPrompt, buildUserPrompt } from '../utils/prompt-builder.js';
+import { buildSystemPrompt, buildUserPrompt, type PromptOptions } from '../utils/prompt-builder.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 
@@ -33,9 +33,10 @@ export async function reviewFile(
   projectRoot: string,
   task: Task,
   config: Config,
+  promptOptions: PromptOptions = {},
 ): Promise<ReviewResult> {
-  const systemPrompt = buildSystemPrompt(task);
-  const userPrompt = buildUserPrompt(task);
+  const systemPrompt = buildSystemPrompt(task, promptOptions);
+  const userPrompt = buildUserPrompt(task, promptOptions);
 
   const anatolyDir = resolve(projectRoot, '.anatoly');
   const logsDir = join(anatolyDir, 'logs');

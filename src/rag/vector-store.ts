@@ -1,0 +1,198 @@
+import { connect, type Connection, type Table } from '@lancedb/lancedb';
+import { resolve, join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { EMBEDDING_DIM } from './embeddings.js';
+import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
+
+const TABLE_NAME = 'function_cards';
+
+interface VectorRow {
+  [key: string]: unknown;
+  id: string;
+  filePath: string;
+  name: string;
+  summary: string;
+  keyConcepts: string;       // JSON-serialized string[]
+  signature: string;
+  behavioralProfile: string;
+  complexityScore: number;
+  calledInternals: string;   // JSON-serialized string[]
+  lastIndexed: string;
+  vector: number[];
+}
+
+export class VectorStore {
+  private dbPath: string;
+  private db: Connection | null = null;
+  private table: Table | null = null;
+
+  constructor(projectRoot: string) {
+    this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+  }
+
+  async init(): Promise<void> {
+    mkdirSync(this.dbPath, { recursive: true });
+    this.db = await connect(this.dbPath);
+
+    const tableNames = await this.db.tableNames();
+    if (tableNames.includes(TABLE_NAME)) {
+      this.table = await this.db.openTable(TABLE_NAME);
+    }
+  }
+
+  /**
+   * Upsert FunctionCards with their embedding vectors into the store.
+   */
+  async upsert(cards: FunctionCard[], embeddings: number[][]): Promise<void> {
+    if (cards.length === 0) return;
+    if (!this.db) throw new Error('VectorStore not initialized');
+
+    const rows: VectorRow[] = cards.map((card, i) => ({
+      id: card.id,
+      filePath: card.filePath,
+      name: card.name,
+      summary: card.summary,
+      keyConcepts: JSON.stringify(card.keyConcepts),
+      signature: card.signature,
+      behavioralProfile: card.behavioralProfile,
+      complexityScore: card.complexityScore,
+      calledInternals: JSON.stringify(card.calledInternals),
+      lastIndexed: card.lastIndexed,
+      vector: embeddings[i],
+    }));
+
+    if (!this.table) {
+      // Create table with first batch
+      this.table = await this.db.createTable(TABLE_NAME, rows);
+      return;
+    }
+
+    // Delete existing rows with matching IDs, then add new ones
+    const ids = cards.map((c) => c.id);
+    try {
+      await this.table.delete(`id IN (${ids.map((id) => `'${id}'`).join(', ')})`);
+    } catch {
+      // Table might be empty or IDs don't exist — that's fine
+    }
+    await this.table.add(rows);
+  }
+
+  /**
+   * Search for similar functions by embedding vector.
+   */
+  async search(
+    queryEmbedding: number[],
+    limit: number = 8,
+    minScore: number = 0.78,
+  ): Promise<SimilarityResult[]> {
+    if (!this.table) return [];
+
+    const results = await this.table
+      .search(queryEmbedding)
+      .limit(limit)
+      .toArray();
+
+    return results
+      .filter((row) => {
+        // LanceDB returns _distance (L2); convert to cosine similarity
+        const score = 1 - (row._distance ?? 0) / 2;
+        return score >= minScore;
+      })
+      .map((row) => ({
+        card: rowToCard(row),
+        score: 1 - (row._distance ?? 0) / 2,
+      }));
+  }
+
+  /**
+   * Search by function ID: find the card, then search by its embedding.
+   */
+  async searchById(
+    functionId: string,
+    limit: number = 8,
+    minScore: number = 0.78,
+  ): Promise<SimilarityResult[]> {
+    if (!this.table) return [];
+
+    const matches = await this.table
+      .search(undefined as any)
+      .filter(`id = '${functionId}'`)
+      .limit(1)
+      .toArray();
+
+    if (matches.length === 0) return [];
+
+    const embedding = matches[0].vector as number[];
+    const results = await this.search(embedding, limit + 1, minScore);
+
+    // Exclude the query function itself
+    return results.filter((r) => r.card.id !== functionId);
+  }
+
+  /**
+   * Delete all cards for a given file path.
+   */
+  async deleteByFile(filePath: string): Promise<void> {
+    if (!this.table) return;
+    try {
+      await this.table.delete(`filePath = '${filePath}'`);
+    } catch {
+      // File might not have any cards — that's fine
+    }
+  }
+
+  /**
+   * Drop and recreate the table (for --rebuild-rag).
+   */
+  async rebuild(): Promise<void> {
+    if (!this.db) throw new Error('VectorStore not initialized');
+    try {
+      await this.db.dropTable(TABLE_NAME);
+    } catch {
+      // Table might not exist
+    }
+    this.table = null;
+  }
+
+  /**
+   * Get stats about the index.
+   */
+  async stats(): Promise<RagStats> {
+    if (!this.table) {
+      return { totalCards: 0, totalFiles: 0, lastIndexed: null };
+    }
+
+    const rows = await this.table
+      .search(undefined as any)
+      .limit(100_000)
+      .select(['filePath', 'lastIndexed'])
+      .toArray();
+
+    const files = new Set(rows.map((r) => r.filePath as string));
+    const lastIndexed = rows.reduce((max, r) => {
+      const d = r.lastIndexed as string;
+      return d > max ? d : max;
+    }, '');
+
+    return {
+      totalCards: rows.length,
+      totalFiles: files.size,
+      lastIndexed: lastIndexed || null,
+    };
+  }
+}
+
+function rowToCard(row: Record<string, unknown>): FunctionCard {
+  return {
+    id: row.id as string,
+    filePath: row.filePath as string,
+    name: row.name as string,
+    signature: row.signature as string,
+    summary: row.summary as string,
+    keyConcepts: JSON.parse(row.keyConcepts as string),
+    behavioralProfile: row.behavioralProfile as FunctionCard['behavioralProfile'],
+    complexityScore: row.complexityScore as number,
+    calledInternals: JSON.parse(row.calledInternals as string),
+    lastIndexed: row.lastIndexed as string,
+  };
+}
