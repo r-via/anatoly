@@ -84,18 +84,6 @@ export function renderReviewMarkdown(review: ReviewFile): string {
     lines.push('');
   }
 
-  // FunctionCards (RAG)
-  if (review.function_cards && review.function_cards.length > 0) {
-    lines.push('## FunctionCards (RAG)');
-    lines.push('');
-    lines.push('| Function | Profile | Concepts |');
-    lines.push('|----------|---------|----------|');
-    for (const card of review.function_cards) {
-      lines.push(`| ${card.name} | ${card.behavioralProfile} | ${card.keyConcepts.join(', ')} |`);
-    }
-    lines.push('');
-  }
-
   // File-level notes
   const fl = review.file_level;
   const hasFileLevel =

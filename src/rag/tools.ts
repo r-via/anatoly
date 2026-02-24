@@ -4,35 +4,6 @@ import type { VectorStore } from './vector-store.js';
 import type { SimilarityResult } from './types.js';
 
 /**
- * Tool definition for findSimilarFunctions (legacy format, kept for reference).
- * The SDK registration now uses createRagMcpServer() instead.
- */
-export const findSimilarFunctionsTool = {
-  name: 'findSimilarFunctions',
-  description:
-    'Search for semantically similar functions across the entire indexed codebase. ' +
-    'Use this tool before concluding on the duplication axis for any function.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      functionId: {
-        type: 'string' as const,
-        description: 'The ID of the function to find similar matches for',
-      },
-      maxResults: {
-        type: 'number' as const,
-        description: 'Maximum number of results to return (default: 8)',
-      },
-      minScore: {
-        type: 'number' as const,
-        description: 'Minimum similarity score threshold (default: 0.78)',
-      },
-    },
-    required: ['functionId'] as const,
-  },
-};
-
-/**
  * Create an SDK MCP server that exposes the findSimilarFunctions tool.
  * The returned config can be passed to the Agent SDK query via mcpServers.
  */

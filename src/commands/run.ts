@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -12,7 +11,7 @@ import { generateReport } from '../core/reporter.js';
 import { createRenderer } from '../utils/renderer.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
-import { VectorStore, buildFunctionCards, indexCards, generateFunctionCards } from '../rag/index.js';
+import { indexProject } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 
 declare const PKG_VERSION: string;
@@ -42,6 +41,7 @@ export function registerRunCommand(program: Command): void {
       let filesReviewed = 0;
       let totalFindings = 0;
       let totalFiles = 0;
+      let activeAbort: AbortController | undefined;
 
       // SIGINT handler: first Ctrl+C → graceful shutdown, second → force exit
       const onSigint = () => {
@@ -51,6 +51,7 @@ export function registerRunCommand(program: Command): void {
           process.exit(1);
         }
         interrupted = true;
+        if (activeAbort) activeAbort.abort();
         console.log('\ninterrupting… press Ctrl+C again to force exit');
       };
       process.on('SIGINT', onSigint);
@@ -80,61 +81,31 @@ export function registerRunCommand(program: Command): void {
         lockPath = acquireLock(projectRoot);
         const pm = new ProgressManager(projectRoot);
 
-        let vectorStore: VectorStore | undefined;
+        let promptOptions: PromptOptions = { ragEnabled: enableRag };
 
         if (enableRag) {
-          vectorStore = new VectorStore(projectRoot);
-          await vectorStore.init();
-          if (rebuildRag) {
-            await vectorStore.rebuild();
-          }
-
-          const allTasks = loadTasks(projectRoot);
-          const tasksWithFunctions = allTasks.filter((t) =>
-            t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
-          );
-
           console.log('anatoly — rag index (haiku)');
-          let cardsIndexed = 0;
-          let filesIndexed = 0;
+          const ragResult = await indexProject({
+            projectRoot,
+            tasks: loadTasks(projectRoot),
+            rebuild: rebuildRag,
+            onLog: (msg) => console.log(`  ${msg}`),
+            isInterrupted: () => interrupted,
+          });
 
-          for (let i = 0; i < tasksWithFunctions.length; i++) {
-            if (interrupted) break;
-            const task = tasksWithFunctions[i];
-            console.log(`  [${i + 1}/${tasksWithFunctions.length}] ${task.file}`);
-
-            try {
-              const llmCards = await generateFunctionCards(projectRoot, task);
-              if (llmCards.length > 0) {
-                const absPath = resolve(projectRoot, task.file);
-                const source = readFileSync(absPath, 'utf-8');
-                const cards = buildFunctionCards(task, source, llmCards);
-                const indexed = await indexCards(projectRoot, vectorStore, cards, task.hash);
-                cardsIndexed += indexed;
-                if (indexed > 0) filesIndexed++;
-              }
-            } catch {
-              // Card generation failed for this file — continue
-            }
-          }
-
-          const stats = await vectorStore.stats();
-          console.log(`  cards indexed  ${cardsIndexed} new / ${stats.totalCards} total`);
-          console.log(`  files          ${filesIndexed} new / ${stats.totalFiles} total`);
+          console.log(`  cards indexed  ${ragResult.cardsIndexed} new / ${ragResult.totalCards} total`);
+          console.log(`  files          ${ragResult.filesIndexed} new / ${ragResult.totalFiles} total`);
           console.log('');
 
           if (interrupted) {
-            console.log(`interrupted — rag indexing incomplete`);
+            console.log('interrupted — rag indexing incomplete');
             releaseLock(lockPath);
             lockPath = undefined;
             return;
           }
-        }
 
-        const promptOptions: PromptOptions = {
-          ragEnabled: enableRag,
-          vectorStore,
-        };
+          promptOptions = { ragEnabled: true, vectorStore: ragResult.vectorStore };
+        }
 
         // --no-cache: reset CACHED files to PENDING
         if (noCache) {
@@ -175,7 +146,9 @@ export function registerRunCommand(program: Command): void {
             pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
             try {
-              const result = await reviewFile(projectRoot, task, config, promptOptions);
+              activeAbort = new AbortController();
+              const result = await reviewFile(projectRoot, task, config, promptOptions, activeAbort);
+              activeAbort = undefined;
               writeReviewOutput(projectRoot, result.review);
               pm.updateFileStatus(filePath, 'DONE');
               filesReviewed++;
@@ -199,6 +172,7 @@ export function registerRunCommand(program: Command): void {
 
               renderer.addResult(outputName, result.review.verdict, findingsSummary);
             } catch (error) {
+              activeAbort = undefined;
               const message = error instanceof AnatolyError ? error.message : String(error);
               const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
               pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);

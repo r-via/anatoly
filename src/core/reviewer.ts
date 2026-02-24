@@ -9,6 +9,7 @@ import { ReviewFileSchema } from '../schemas/review.js';
 import { buildSystemPrompt, buildUserPrompt, type PromptOptions } from '../utils/prompt-builder.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
+import { extractJson } from '../utils/extract-json.js';
 import { createRagMcpServer } from '../rag/index.js';
 
 export interface ReviewResult {
@@ -35,6 +36,7 @@ export async function reviewFile(
   task: Task,
   config: Config,
   promptOptions: PromptOptions = {},
+  externalAbort?: AbortController,
 ): Promise<ReviewResult> {
   const systemPrompt = buildSystemPrompt(task, promptOptions);
   const userPrompt = buildUserPrompt(task, promptOptions);
@@ -62,6 +64,16 @@ export async function reviewFile(
   const abortController = new AbortController();
   const timeoutMs = config.llm.timeout_per_file * 1000;
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
+
+  // Link external abort (e.g. SIGINT) to internal controller
+  const onExternalAbort = () => abortController.abort();
+  if (externalAbort) {
+    if (externalAbort.signal.aborted) {
+      abortController.abort();
+    } else {
+      externalAbort.signal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
 
   // Set up RAG MCP server when RAG is enabled
   const mcpServers: Record<string, McpServerConfig> | undefined =
@@ -143,6 +155,14 @@ export async function reviewFile(
     if (error instanceof AnatolyError) throw error;
 
     if (abortController.signal.aborted) {
+      // Distinguish SIGINT abort from timeout abort
+      if (externalAbort?.signal.aborted) {
+        throw new AnatolyError(
+          `Review interrupted for ${task.file}`,
+          ERROR_CODES.LLM_API_ERROR,
+          true,
+        );
+      }
       throw new AnatolyError(
         `Review timed out after ${config.llm.timeout_per_file}s for ${task.file}`,
         ERROR_CODES.LLM_TIMEOUT,
@@ -157,6 +177,9 @@ export async function reviewFile(
     );
   } finally {
     clearTimeout(timeoutId);
+    if (externalAbort) {
+      externalAbort.signal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
@@ -293,25 +316,6 @@ Please fix these issues and output the corrected JSON object. Remember:
 - Review ALL symbols from the original file`;
 }
 
-/**
- * Extract JSON object from a string that may contain markdown fences or surrounding text.
- */
-function extractJson(text: string): string | null {
-  // Try extracting from markdown code fences first
-  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
-  }
-
-  // Try to find a JSON object directly (first { to last })
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    return text.slice(start, end + 1);
-  }
-
-  return null;
-}
 
 /**
  * Extract text content from an SDK message content array or string.

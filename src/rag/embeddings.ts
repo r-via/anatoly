@@ -4,6 +4,15 @@ export const EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
 export const EMBEDDING_DIM = 384;
 
 let embedder: any = null;
+let onLog: (message: string) => void = () => {};
+
+/**
+ * Set the log callback for embedding operations.
+ * Called during model loading to report progress.
+ */
+export function setEmbeddingLogger(logger: (message: string) => void): void {
+  onLog = logger;
+}
 
 /**
  * Lazily initialize the embedding pipeline (singleton).
@@ -11,10 +20,10 @@ let embedder: any = null;
  */
 async function getEmbedder(): Promise<any> {
   if (embedder) return embedder;
-  console.log(`anatoly — loading embedding model ${EMBEDDING_MODEL}...`);
+  onLog(`loading embedding model ${EMBEDDING_MODEL}...`);
   const { pipeline } = await import('@xenova/transformers');
   embedder = await pipeline('feature-extraction', EMBEDDING_MODEL);
-  console.log('anatoly — embedding model ready');
+  onLog('embedding model ready');
   return embedder;
 }
 
@@ -26,17 +35,6 @@ export async function embed(text: string): Promise<number[]> {
   const model = await getEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data as Float32Array);
-}
-
-/**
- * Generate embeddings for multiple texts in sequence.
- */
-export async function embedBatch(texts: string[]): Promise<number[][]> {
-  const results: number[][] = [];
-  for (const text of texts) {
-    results.push(await embed(text));
-  }
-  return results;
 }
 
 /**

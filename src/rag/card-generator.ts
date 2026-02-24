@@ -6,6 +6,7 @@ import type { Task } from '../schemas/task.js';
 import type { FunctionCardLLMOutput } from './types.js';
 import { FunctionCardLLMOutputSchema } from './types.js';
 import { z } from 'zod';
+import { extractJson } from '../utils/extract-json.js';
 
 const CARD_MODEL = 'claude-haiku-4-5-20251001';
 
@@ -88,13 +89,3 @@ ${source}
   }
 }
 
-function extractJson(text: string): string | null {
-  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (fenceMatch) return fenceMatch[1].trim();
-
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) return text.slice(start, end + 1);
-
-  return null;
-}

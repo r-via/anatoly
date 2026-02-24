@@ -6,6 +6,7 @@ export { detectMonorepo } from './monorepo.js';
 export type { MonorepoInfo } from './monorepo.js';
 export { buildSystemPrompt, buildUserPrompt } from './prompt-builder.js';
 export { acquireLock, releaseLock } from './lock.js';
+export { extractJson } from './extract-json.js';
 export { getGitTrackedFiles, isGitIgnored } from './git.js';
 export { createRenderer, buildProgressBar, formatCounterRow, formatResultLine, truncatePath } from './renderer.js';
 export type { Renderer, RendererOptions, Counters } from './renderer.js';
