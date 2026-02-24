@@ -210,7 +210,6 @@ export function registerRunCommand(program: Command): void {
               const { filePath, task } = item;
 
               renderer.updateWorkerSlot(workerIndex, filePath);
-              renderer.updateProgress(completedCount + 1, totalFiles, filePath);
               pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
               let currentAbort = new AbortController();
@@ -238,7 +237,7 @@ export function registerRunCommand(program: Command): void {
                     isInterrupted: () => interrupted,
                     onRetry: (attempt, delayMs) => {
                       const delaySec = (delayMs / 1000).toFixed(0);
-                      console.log(`  rate limited — retrying ${filePath} in ${delaySec}s (attempt ${attempt}/5)`);
+                      renderer.log(`  rate limited — retrying ${filePath} in ${delaySec}s (attempt ${attempt}/5)`);
                     },
                   },
                 );
@@ -249,6 +248,7 @@ export function registerRunCommand(program: Command): void {
                 pm.updateFileStatus(filePath, 'DONE');
                 filesReviewed++;
                 completedCount++;
+                renderer.updateProgress(completedCount, totalFiles, filePath);
 
                 // Count findings and update counters
                 const outputName = toOutputName(filePath) + '.rev.md';
@@ -274,19 +274,20 @@ export function registerRunCommand(program: Command): void {
                   const elapsed = (elapsedMs / 1000).toFixed(1);
                   const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
                   const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
-                  console.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
+                  renderer.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
                 }
               } catch (error) {
                 const message = error instanceof AnatolyError ? error.message : String(error);
                 const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
                 pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
                 completedCount++;
+                renderer.updateProgress(completedCount, totalFiles, filePath);
                 renderer.incrementCounter('error');
 
                 if (error instanceof AnatolyError) {
-                  console.log(`  [${errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error'}] ${error.formatForDisplay()}`);
+                  renderer.log(`  [${errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error'}] ${error.formatForDisplay()}`);
                 } else {
-                  console.log(`  [error] error: ${String(error)}`);
+                  renderer.log(`  [error] error: ${String(error)}`);
                 }
               } finally {
                 activeAborts.delete(currentAbort);

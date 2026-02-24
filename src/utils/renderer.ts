@@ -32,6 +32,8 @@ export interface Renderer {
   updateWorkerSlot(workerIndex: number, filePath: string): void;
   /** Clear a worker slot when it finishes (multi-file mode). */
   clearWorkerSlot(workerIndex: number): void;
+  /** Log a message without breaking the progress display. */
+  log(message: string): void;
 }
 
 /**
@@ -180,6 +182,10 @@ function createPlainRenderer(version: string): Renderer {
     clearWorkerSlot(_workerIndex: number) {
       // No-op in plain mode
     },
+
+    log(message: string) {
+      console.log(message);
+    },
   };
 }
 
@@ -280,6 +286,12 @@ function createInteractiveRenderer(version: string): Renderer {
 
     clearWorkerSlot(workerIndex: number) {
       workerSlots.delete(workerIndex);
+      render();
+    },
+
+    log(message: string) {
+      logUpdate.clear();
+      console.log(message);
       render();
     },
   };
