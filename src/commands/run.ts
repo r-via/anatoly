@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
+import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
@@ -11,17 +12,16 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport } from '../core/reporter.js';
-import { createRenderer, type Renderer } from '../utils/renderer.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
-import { indexProject } from '../rag/index.js';
+import { indexProject, type RagIndexResult } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
-import { runWorkerPool } from '../core/worker-pool.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
+import { verdictColor } from '../utils/format.js';
 
 interface RunContext {
   projectRoot: string;
@@ -29,7 +29,7 @@ interface RunContext {
   runId: string;
   runDir: string;
   concurrency: number;
-  renderer: Renderer;
+  plain: boolean;
   verbose?: boolean;
   fileFilter?: string;
   noCache: boolean;
@@ -70,17 +70,15 @@ export function registerRunCommand(program: Command): void {
         return;
       }
 
+      const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
+
       const ctx: RunContext = {
         projectRoot,
         config,
         runId,
         runDir: createRunDir(projectRoot, runId),
         concurrency,
-        renderer: createRenderer({
-          plain: parentOpts.plain as boolean | undefined,
-          version: pkgVersion,
-          concurrency,
-        }),
+        plain,
         verbose: parentOpts.verbose as boolean | undefined,
         fileFilter: parentOpts.file as string | undefined,
         noCache: parentOpts.cache === false,
@@ -102,9 +100,6 @@ export function registerRunCommand(program: Command): void {
         }
         ctx.interrupted = true;
         for (const ac of ctx.activeAborts) ac.abort();
-        ctx.renderer.stop();
-        console.log('');
-        console.log(`${chalk.yellow.bold('⚠ shutting down…')} press Ctrl+C again to force exit`);
       };
       process.on('SIGINT', onSigint);
 
@@ -135,7 +130,6 @@ export function registerRunCommand(program: Command): void {
         ctx.lockPath = undefined;
         runReportPhase(ctx);
       } catch (error) {
-        ctx.renderer.stop();
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         if (error instanceof AnatolyError) {
           console.error(`anatoly — ${error.formatForDisplay()}`);
@@ -187,29 +181,38 @@ function runEstimatePhase(ctx: RunContext): { files: number } {
 }
 
 async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
-  let promptOptions: PromptOptions = { ragEnabled: ctx.enableRag };
+  const promptOptions: PromptOptions = { ragEnabled: ctx.enableRag };
 
   if (!ctx.enableRag) return promptOptions;
 
   const ragTasks = loadTasks(ctx.projectRoot);
-  ctx.renderer.start(ragTasks.length);
-  ctx.renderer.log('anatoly — rag index (haiku)');
+  let ragResult: RagIndexResult | undefined;
 
-  const ragResult = await indexProject({
-    projectRoot: ctx.projectRoot,
-    tasks: ragTasks,
-    indexModel: ctx.config.llm.index_model,
-    rebuild: ctx.rebuildRag,
-    concurrency: ctx.concurrency,
-    onLog: (msg) => ctx.renderer.log(`  ${msg}`),
-    onProgress: (current, total) => ctx.renderer.updateProgress(current, total, 'indexing'),
-    isInterrupted: () => ctx.interrupted,
+  const ragRunner = new Listr([{
+    title: `RAG index (haiku) — 0/${ragTasks.length}`,
+    task: async (_c: unknown, listrTask: { title: string; output: string }) => {
+      ragResult = await indexProject({
+        projectRoot: ctx.projectRoot,
+        tasks: ragTasks,
+        indexModel: ctx.config.llm.index_model,
+        rebuild: ctx.rebuildRag,
+        concurrency: ctx.concurrency,
+        onLog: (msg) => { listrTask.output = msg; },
+        onProgress: (current, total) => {
+          listrTask.title = `RAG index (haiku) — ${current}/${total}`;
+        },
+        isInterrupted: () => ctx.interrupted,
+      });
+
+      listrTask.title = `RAG index — ${ragResult.cardsIndexed} new / ${ragResult.totalCards} cards, ${ragResult.filesIndexed} new / ${ragResult.totalFiles} files`;
+    },
+    rendererOptions: { outputBar: 1 as const },
+  }], {
+    renderer: ctx.plain ? 'simple' : 'default',
+    fallbackRenderer: 'simple',
   });
 
-  ctx.renderer.stop();
-  console.log(`  cards indexed  ${ragResult.cardsIndexed} new / ${ragResult.totalCards} total`);
-  console.log(`  files          ${ragResult.filesIndexed} new / ${ragResult.totalFiles} total`);
-  console.log('');
+  await ragRunner.run();
 
   if (ctx.interrupted) {
     console.log('interrupted — rag indexing incomplete');
@@ -217,7 +220,10 @@ async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
     return promptOptions;
   }
 
-  return { ragEnabled: true, vectorStore: ragResult.vectorStore };
+  if (ragResult) {
+    return { ragEnabled: true, vectorStore: ragResult.vectorStore };
+  }
+  return promptOptions;
 }
 
 async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Promise<void> {
@@ -253,16 +259,19 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
     .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file) }))
     .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
 
-  ctx.renderer.start(ctx.totalFiles);
+  // Shared atomic counter for completed files
   let completedCount = 0;
 
-  await runWorkerPool({
-    items: reviewItems,
-    concurrency: ctx.concurrency,
-    isInterrupted: () => ctx.interrupted,
-    handler: async (item, workerIndex) => {
+  // Build listr2 task list — one task per file
+  const fileTasks = reviewItems.map((item, idx) => ({
+    title: `[${idx + 1}/${ctx.totalFiles}] ${item.filePath}`,
+    task: async (_c: unknown, listrTask: { title: string; output: string }) => {
+      if (ctx.interrupted) {
+        listrTask.title = `[${idx + 1}/${ctx.totalFiles}] ${item.filePath} — skipped`;
+        return;
+      }
+
       const { filePath, task } = item;
-      ctx.renderer.updateWorkerSlot(workerIndex, filePath);
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
       let currentAbort = new AbortController();
@@ -289,7 +298,7 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
             isInterrupted: () => ctx.interrupted,
             onRetry: (attempt, delayMs) => {
               const delaySec = (delayMs / 1000).toFixed(0);
-              ctx.renderer.log(`  rate limited — retrying ${filePath} in ${delaySec}s (attempt ${attempt}/5)`);
+              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
             },
           },
         );
@@ -299,53 +308,56 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
         pm.updateFileStatus(filePath, 'DONE');
         ctx.filesReviewed++;
         completedCount++;
-        ctx.renderer.updateProgress(completedCount, ctx.totalFiles, `reviewing ${filePath}`);
 
-        const outputName = toOutputName(filePath) + '.rev.md';
-        let findingsSummary: string | undefined;
-
+        // Count findings
         for (const s of result.review.symbols) {
-          if (s.utility === 'DEAD') { ctx.renderer.incrementCounter('dead'); ctx.totalFindings++; }
-          if (s.duplication === 'DUPLICATE') { ctx.renderer.incrementCounter('duplicate'); ctx.totalFindings++; }
-          if (s.overengineering === 'OVER') { ctx.renderer.incrementCounter('overengineering'); ctx.totalFindings++; }
-          if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') { ctx.renderer.incrementCounter('error'); ctx.totalFindings++; }
+          if (s.utility === 'DEAD') ctx.totalFindings++;
+          if (s.duplication === 'DUPLICATE') ctx.totalFindings++;
+          if (s.overengineering === 'OVER') ctx.totalFindings++;
+          if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') ctx.totalFindings++;
         }
 
-        const dead = result.review.symbols.filter((s) => s.utility === 'DEAD').length;
-        const dup = result.review.symbols.filter((s) => s.duplication === 'DUPLICATE').length;
-        if (dead > 0) findingsSummary = `DEAD:${dead}`;
-        else if (dup > 0) findingsSummary = `DUP:${dup}`;
-
-        ctx.renderer.addResult(outputName, result.review.verdict, findingsSummary);
+        const outputName = toOutputName(filePath);
+        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${outputName} — ${verdictColor(result.review.verdict)}`;
 
         if (ctx.verbose) {
           const elapsed = (elapsedMs / 1000).toFixed(1);
           const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
           const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
-          ctx.renderer.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
+          listrTask.output = `${elapsed}s  ${cost}${retryInfo}`;
         }
       } catch (error) {
+        if (ctx.interrupted) return;
+
         const message = error instanceof AnatolyError ? error.message : String(error);
         const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
         pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
         completedCount++;
-        ctx.renderer.updateProgress(completedCount, ctx.totalFiles, `reviewing ${filePath}`);
-        ctx.renderer.incrementCounter('error');
 
-        if (error instanceof AnatolyError) {
-          ctx.renderer.log(`  [${errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error'}] ${error.formatForDisplay()}`);
-        } else {
-          ctx.renderer.log(`  [error] error: ${String(error)}`);
-        }
+        const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
+        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${chalk.red(label)}`;
+        throw error;
       } finally {
         ctx.activeAborts.delete(currentAbort);
-        ctx.renderer.clearWorkerSlot(workerIndex);
       }
+    },
+    rendererOptions: { persistentOutput: ctx.verbose as boolean | undefined },
+  }));
+
+  const reviewRunner = new Listr(fileTasks, {
+    concurrent: ctx.concurrency,
+    exitOnError: false,
+    renderer: ctx.plain ? 'simple' : 'default',
+    fallbackRenderer: 'simple',
+    rendererOptions: {
+      collapseSubtasks: false,
+      collapseErrors: false,
+      showErrorMessage: false,
     },
   });
 
+  await reviewRunner.run();
   await pm.flush();
-  ctx.renderer.stop();
 }
 
 function runReportPhase(ctx: RunContext): void {
@@ -362,11 +374,13 @@ function runReportPhase(ctx: RunContext): void {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
   }
 
-  console.log(`  run       ${ctx.runId}`);
-  ctx.renderer.showCompletion(
-    { reviewed: data.totalFiles, findings: data.findingFiles.length, clean: data.cleanFiles.length },
-    { report: reportPath, reviews: resolve(ctx.runDir, 'reviews') + '/', logs: resolve(ctx.runDir, 'logs') + '/' },
-  );
+  console.log('');
+  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean`);
+  console.log('');
+  console.log(`  run          ${ctx.runId}`);
+  console.log(`  report       ${chalk.cyan(reportPath)}`);
+  console.log(`  reviews      ${chalk.cyan(resolve(ctx.runDir, 'reviews') + '/')}`);
+  console.log(`  transcripts  ${chalk.cyan(resolve(ctx.runDir, 'logs') + '/')}`);
 
   if (ctx.shouldOpen) openFile(reportPath);
 
