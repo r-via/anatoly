@@ -1,5 +1,4 @@
 import { Command } from 'commander';
-import { createRequire } from 'node:module';
 import {
   registerScanCommand,
   registerEstimateCommand,
@@ -12,8 +11,8 @@ import {
   registerResetCommand,
 } from './commands/index.js';
 
-const require = createRequire(import.meta.url);
-const { version: pkgVersion } = require('../package.json') as { version: string };
+declare const PKG_VERSION: string;
+const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
 
 export function createProgram(): Command {
   const program = new Command()

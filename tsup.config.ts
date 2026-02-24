@@ -15,6 +15,9 @@ export default defineConfig({
   clean: true,
   splitting: false,
   external,
+  define: {
+    PKG_VERSION: JSON.stringify(pkg.version),
+  },
   banner: {
     js: '#!/usr/bin/env node',
   },

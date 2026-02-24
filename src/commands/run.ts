@@ -1,7 +1,6 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -18,8 +17,8 @@ import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 
-const require = createRequire(import.meta.url);
-const { version: pkgVersion } = require('../../package.json') as { version: string };
+declare const PKG_VERSION: string;
+const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
 
 export function registerRunCommand(program: Command): void {
   program
