@@ -235,6 +235,16 @@ function distanceToCosineSimilarity(distance: number): number {
   return 1 - distance / 2;
 }
 
+function safeParseJsonArray(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function rowToCard(row: Record<string, unknown>): FunctionCard {
   return {
     id: row.id as string,
@@ -242,10 +252,10 @@ function rowToCard(row: Record<string, unknown>): FunctionCard {
     name: row.name as string,
     signature: row.signature as string,
     summary: row.summary as string,
-    keyConcepts: JSON.parse(row.keyConcepts as string),
+    keyConcepts: safeParseJsonArray(row.keyConcepts),
     behavioralProfile: row.behavioralProfile as FunctionCard['behavioralProfile'],
     complexityScore: row.complexityScore as number,
-    calledInternals: JSON.parse(row.calledInternals as string),
+    calledInternals: safeParseJsonArray(row.calledInternals),
     lastIndexed: row.lastIndexed as string,
   };
 }
