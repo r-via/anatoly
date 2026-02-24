@@ -1,11 +1,11 @@
 import chalk from 'chalk';
-import {
-  cursorSavePosition,
-  cursorRestorePosition,
-  cursorHide,
-  cursorShow,
-} from 'ansi-escapes';
 import type { Verdict } from '../schemas/review.js';
+
+// Inline ANSI escape sequences (replaces ansi-escapes dependency)
+const cursorSavePosition = '\x1b7';
+const cursorRestorePosition = '\x1b8';
+const cursorHide = '\x1b[?25l';
+const cursorShow = '\x1b[?25h';
 import {
   type Counters,
   buildProgressBar,
