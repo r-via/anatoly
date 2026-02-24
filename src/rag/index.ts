@@ -3,4 +3,5 @@ export type { FunctionCard, FunctionCardLLMOutput, SimilarityResult, RagStats } 
 export { embed, embedBatch, buildEmbedText, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
 export { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
 export { buildFunctionCards, indexCards, buildFunctionId, extractSignature, computeComplexity, extractCalledInternals } from './indexer.js';
+export { generateFunctionCards } from './card-generator.js';
 export { findSimilarFunctionsTool, handleFindSimilarFunctions, createRagMcpServer } from './tools.js';

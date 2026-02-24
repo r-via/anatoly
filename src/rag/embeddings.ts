@@ -11,8 +11,10 @@ let embedder: any = null;
  */
 async function getEmbedder(): Promise<any> {
   if (embedder) return embedder;
+  console.log(`anatoly — loading embedding model ${EMBEDDING_MODEL}...`);
   const { pipeline } = await import('@xenova/transformers');
   embedder = await pipeline('feature-extraction', EMBEDDING_MODEL);
+  console.log('anatoly — embedding model ready');
   return embedder;
 }
 

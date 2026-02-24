@@ -12,9 +12,7 @@ import { generateReport } from '../core/reporter.js';
 import { createRenderer } from '../utils/renderer.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
-import { VectorStore, buildFunctionCards, indexCards } from '../rag/index.js';
-import type { Task } from '../schemas/task.js';
-import type { ReviewFile } from '../schemas/review.js';
+import { VectorStore, buildFunctionCards, indexCards, generateFunctionCards } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 
 declare const PKG_VERSION: string;
@@ -72,14 +70,11 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
-        // Phase 3: REVIEW
+        // Phase 3: RAG INDEX (Haiku)
         lockPath = acquireLock(projectRoot);
         const pm = new ProgressManager(projectRoot);
 
-        // RAG setup
         let vectorStore: VectorStore | undefined;
-        let ragHasData = false;
-        const reviewedCards: Array<{ task: Task; review: ReviewFile }> = [];
 
         if (enableRag) {
           vectorStore = new VectorStore(projectRoot);
@@ -87,17 +82,51 @@ export function registerRunCommand(program: Command): void {
           if (rebuildRag) {
             await vectorStore.rebuild();
           }
+
+          const allTasks = loadTasks(projectRoot);
+          const tasksWithFunctions = allTasks.filter((t) =>
+            t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+          );
+
+          console.log('anatoly — rag index (haiku)');
+          let cardsIndexed = 0;
+          let filesIndexed = 0;
+
+          for (let i = 0; i < tasksWithFunctions.length; i++) {
+            if (interrupted) break;
+            const task = tasksWithFunctions[i];
+            console.log(`  [${i + 1}/${tasksWithFunctions.length}] ${task.file}`);
+
+            try {
+              const llmCards = await generateFunctionCards(projectRoot, task);
+              if (llmCards.length > 0) {
+                const absPath = resolve(projectRoot, task.file);
+                const source = readFileSync(absPath, 'utf-8');
+                const cards = buildFunctionCards(task, source, llmCards);
+                const indexed = await indexCards(projectRoot, vectorStore, cards, task.hash);
+                cardsIndexed += indexed;
+                if (indexed > 0) filesIndexed++;
+              }
+            } catch {
+              // Card generation failed for this file — continue
+            }
+          }
+
           const stats = await vectorStore.stats();
-          ragHasData = stats.totalCards > 0;
-          console.log(`anatoly — rag`);
-          console.log(`  enabled    true`);
-          console.log(`  indexed    ${stats.totalCards} cards / ${stats.totalFiles} files`);
+          console.log(`  cards indexed  ${cardsIndexed} new / ${stats.totalCards} total`);
+          console.log(`  files          ${filesIndexed} new / ${stats.totalFiles} total`);
           console.log('');
+
+          if (interrupted) {
+            console.log(`interrupted — rag indexing incomplete`);
+            releaseLock(lockPath);
+            lockPath = undefined;
+            return;
+          }
         }
 
         const promptOptions: PromptOptions = {
           ragEnabled: enableRag,
-          ragHasData,
           vectorStore,
         };
 
@@ -145,11 +174,6 @@ export function registerRunCommand(program: Command): void {
               pm.updateFileStatus(filePath, 'DONE');
               filesReviewed++;
 
-              // Collect FunctionCards for RAG indexing
-              if (enableRag && result.review.function_cards) {
-                reviewedCards.push({ task, review: result.review });
-              }
-
               // Count findings and update counters
               const outputName = toOutputName(filePath) + '.rev.md';
               let findingsSummary: string | undefined;
@@ -189,27 +213,6 @@ export function registerRunCommand(program: Command): void {
 
         releaseLock(lockPath);
         lockPath = undefined;
-
-        // Phase 4: INDEX (RAG)
-        if (enableRag && vectorStore && reviewedCards.length > 0) {
-          let totalIndexed = 0;
-          for (const { task: reviewTask, review } of reviewedCards) {
-            if (!review.function_cards || review.function_cards.length === 0) continue;
-            const absPath = resolve(projectRoot, reviewTask.file);
-            let source: string;
-            try {
-              source = readFileSync(absPath, 'utf-8');
-            } catch {
-              continue;
-            }
-            const cards = buildFunctionCards(reviewTask, source, review.function_cards);
-            const indexed = await indexCards(projectRoot, vectorStore, cards, reviewTask.hash);
-            totalIndexed += indexed;
-          }
-          console.log('anatoly — index (rag)');
-          console.log(`  cards indexed  ${totalIndexed}`);
-          console.log('');
-        }
 
         // Phase 5: REPORT
         const progressForReport = new ProgressManager(projectRoot);

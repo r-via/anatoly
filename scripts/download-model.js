@@ -11,9 +11,11 @@ async function main() {
     return;
   }
   try {
-    const { pipeline } = await import('@xenova/transformers');
+    console.log('anatoly: downloading embedding model all-MiniLM-L6-v2...');
+    const { pipeline, env } = await import('@xenova/transformers');
+    const cacheDir = env.cacheDir || '~/.cache/huggingface';
     await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-    console.log('anatoly: embedding model all-MiniLM-L6-v2 downloaded');
+    console.log(`anatoly: model ready (cache: ${cacheDir})`);
   } catch (e) {
     console.warn(
       'anatoly: could not pre-download embedding model (will download on first use):',

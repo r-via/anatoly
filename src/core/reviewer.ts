@@ -63,9 +63,9 @@ export async function reviewFile(
   const timeoutMs = config.llm.timeout_per_file * 1000;
   const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
 
-  // Set up RAG MCP server when RAG is enabled and has indexed data
+  // Set up RAG MCP server when RAG is enabled
   const mcpServers: Record<string, McpServerConfig> | undefined =
-    promptOptions.ragEnabled && promptOptions.ragHasData && promptOptions.vectorStore
+    promptOptions.ragEnabled && promptOptions.vectorStore
       ? { 'anatoly-rag': createRagMcpServer(promptOptions.vectorStore) }
       : undefined;
 
