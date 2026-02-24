@@ -12,13 +12,46 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
+/**
+ * Default recovery hints per error code.
+ * Each hint is a short, actionable next step for the user.
+ */
+const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
+  LOCK_EXISTS: 'run `anatoly reset` to remove the stale lock',
+  CONFIG_INVALID: 'check .anatoly.yml syntax and refer to documentation',
+  CONFIG_NOT_FOUND: 'create a .anatoly.yml or run without --config',
+  LLM_TIMEOUT: 'try again — the file may be too large; consider splitting it',
+  LLM_API_ERROR: 'check your ANTHROPIC_API_KEY and network connectivity',
+  ZOD_VALIDATION_FAILED: 'run with --verbose for detailed validation output',
+  TREE_SITTER_PARSE_ERROR: 'ensure the file is valid TypeScript',
+  WRITE_ERROR: 'check disk space and file permissions',
+  FILE_NOT_FOUND: 'verify the file path exists and is not gitignored',
+};
+
 export class AnatolyError extends Error {
+  public readonly hint: string;
+
   constructor(
     message: string,
     public readonly code: ErrorCode,
     public readonly recoverable: boolean,
+    hint?: string,
   ) {
     super(message);
     this.name = 'AnatolyError';
+    this.hint = hint ?? DEFAULT_HINTS[code] ?? '';
+  }
+
+  /**
+   * Format the error for terminal display:
+   *   error: <message>
+   *     → <recovery step>
+   */
+  formatForDisplay(): string {
+    const lines = [`error: ${this.message}`];
+    if (this.hint) {
+      lines.push(`  → ${this.hint}`);
+    }
+    return lines.join('\n');
   }
 }

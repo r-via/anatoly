@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { generateReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { openFile } from '../utils/open.js';
 
 export function registerReportCommand(program: Command): void {
   program
@@ -13,6 +14,8 @@ export function registerReportCommand(program: Command): void {
     .option('--run <id>', 'generate report from a specific run (default: latest)')
     .action((cmdOpts: { run?: string }) => {
       const projectRoot = process.cwd();
+      const parentOpts = program.opts();
+      const shouldOpen = parentOpts.open as boolean | undefined;
 
       // Resolve run directory
       const runDir = resolveRunDir(projectRoot, cmdOpts.run);
@@ -33,6 +36,7 @@ export function registerReportCommand(program: Command): void {
 
         const { reportPath, data } = generateReport(projectRoot, errorFiles, runDir);
         printReportSummary(data, reportPath, resolve(runDir, 'reviews') + '/');
+        if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/
         const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
@@ -54,6 +58,7 @@ export function registerReportCommand(program: Command): void {
 
         const { reportPath, data } = generateReport(projectRoot, errorFiles);
         printReportSummary(data, reportPath, resolve(projectRoot, '.anatoly', 'reviews') + '/');
+        if (shouldOpen) openFile(reportPath);
       }
     });
 }

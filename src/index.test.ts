@@ -42,6 +42,7 @@ describe('CLI program', () => {
         '--file',
         '--plain',
         '--no-color',
+        '--open',
       ]),
     );
   });

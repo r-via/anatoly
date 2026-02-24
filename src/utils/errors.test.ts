@@ -39,4 +39,42 @@ describe('AnatolyError', () => {
       WRITE_ERROR: 'WRITE_ERROR',
     });
   });
+
+  it('should use default hint when no custom hint provided', () => {
+    const err = new AnatolyError('lock exists', ERROR_CODES.LOCK_EXISTS, false);
+    expect(err.hint).toBe('run `anatoly reset` to remove the stale lock');
+  });
+
+  it('should use custom hint when provided', () => {
+    const err = new AnatolyError(
+      'lock exists',
+      ERROR_CODES.LOCK_EXISTS,
+      false,
+      'custom recovery step',
+    );
+    expect(err.hint).toBe('custom recovery step');
+  });
+
+  it('should format error for display with hint', () => {
+    const err = new AnatolyError(
+      'Another instance is running',
+      ERROR_CODES.LOCK_EXISTS,
+      false,
+      'run `anatoly reset`',
+    );
+    expect(err.formatForDisplay()).toBe(
+      'error: Another instance is running\n  → run `anatoly reset`',
+    );
+  });
+
+  it('should format error for display without hint', () => {
+    const err = new AnatolyError(
+      'Something failed',
+      ERROR_CODES.FILE_NOT_FOUND,
+      false,
+    );
+    // FILE_NOT_FOUND has a default hint
+    expect(err.formatForDisplay()).toContain('error: Something failed');
+    expect(err.formatForDisplay()).toContain('→');
+  });
 });

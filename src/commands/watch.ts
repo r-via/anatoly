@@ -117,6 +117,9 @@ export function registerWatchCommand(program: Command): void {
           atomicWriteJson(progressPath, progress);
 
           console.log(`  ${chalk.red('error')} ${relPath}: ${message}`);
+          if (error instanceof AnatolyError && error.hint) {
+            console.log(`    → ${error.hint}`);
+          }
         }
       };
 

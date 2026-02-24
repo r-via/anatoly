@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
+import { buildProgressBar } from '../utils/renderer.js';
+import { listRuns, resolveRunDir } from '../utils/run-id.js';
 
 export function registerStatusCommand(program: Command): void {
   program
@@ -22,20 +24,32 @@ export function registerStatusCommand(program: Command): void {
       const pm = new ProgressManager(projectRoot);
       const summary = pm.getSummary();
       const total = pm.totalFiles();
+      const completed = summary.DONE + summary.CACHED;
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
       console.log(chalk.bold('anatoly — status'));
       console.log('');
-      console.log(`  total       ${total}`);
-      console.log(`  pending     ${summary.PENDING}`);
-      console.log(`  in_progress ${summary.IN_PROGRESS}`);
-      console.log(`  done        ${summary.DONE}`);
-      console.log(`  cached      ${summary.CACHED}`);
-      console.log(`  error       ${summary.ERROR}`);
-      console.log(`  timeout     ${summary.TIMEOUT}`);
+
+      // Visual progress bar
+      const bar = buildProgressBar(completed, total, 30);
+      console.log(`  progress    ${bar} ${pct}% (${completed}/${total})`);
       console.log('');
 
-      // Load reviews for findings summary
-      const reviews = loadReviews(projectRoot);
+      console.log(`  total       ${total}`);
+      console.log(`  pending     ${summary.PENDING}`);
+      if (summary.IN_PROGRESS > 0) console.log(`  in_progress ${summary.IN_PROGRESS}`);
+      console.log(`  done        ${summary.DONE}`);
+      console.log(`  cached      ${summary.CACHED}`);
+      if (summary.ERROR > 0) console.log(`  error       ${chalk.red(String(summary.ERROR))}`);
+      if (summary.TIMEOUT > 0) console.log(`  timeout     ${chalk.yellow(String(summary.TIMEOUT))}`);
+      console.log('');
+
+      // Load reviews for findings summary — try run-scoped first, then legacy
+      const latestRunDir = resolveRunDir(projectRoot);
+      const reviews = latestRunDir
+        ? loadReviews(projectRoot, latestRunDir)
+        : loadReviews(projectRoot);
+
       if (reviews.length > 0) {
         const globalVerdict = computeGlobalVerdict(reviews);
         let deadCount = 0;
@@ -62,11 +76,28 @@ export function registerStatusCommand(program: Command): void {
         console.log('');
       }
 
-      const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
-      if (existsSync(reportPath)) {
-        console.log(`  report      ${chalk.cyan(reportPath)}`);
+      // Show latest run info
+      const runs = listRuns(projectRoot);
+      if (runs.length > 0) {
+        const latest = runs[runs.length - 1];
+        console.log(`  latest run  ${chalk.dim(latest)}`);
       }
-      console.log(`  reviews     ${chalk.cyan(resolve(projectRoot, '.anatoly', 'reviews') + '/')}`);
+
+      // Show report/reviews paths
+      const latestDir = resolveRunDir(projectRoot);
+      if (latestDir) {
+        const reportInRun = resolve(latestDir, 'report.md');
+        if (existsSync(reportInRun)) {
+          console.log(`  report      ${chalk.cyan(reportInRun)}`);
+        }
+        console.log(`  reviews     ${chalk.cyan(resolve(latestDir, 'reviews') + '/')}`);
+      } else {
+        const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
+        if (existsSync(reportPath)) {
+          console.log(`  report      ${chalk.cyan(reportPath)}`);
+        }
+        console.log(`  reviews     ${chalk.cyan(resolve(projectRoot, '.anatoly', 'reviews') + '/')}`);
+      }
     });
 }
 

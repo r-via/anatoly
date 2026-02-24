@@ -14,6 +14,7 @@ import { AnatolyError } from '../utils/errors.js';
 import { indexProject } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
+import { openFile } from '../utils/open.js';
 
 declare const PKG_VERSION: string;
 const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
@@ -32,6 +33,8 @@ export function registerRunCommand(program: Command): void {
       const noCache = parentOpts.cache === false;
       const enableRag = (parentOpts.enableRag as boolean | undefined) || config.rag.enabled;
       const rebuildRag = parentOpts.rebuildRag as boolean | undefined;
+      const shouldOpen = parentOpts.open as boolean | undefined;
+      const verbose = parentOpts.verbose as boolean | undefined;
 
       // Resolve run ID and create run-scoped output directory
       const runId = cmdOpts.runId ?? generateRunId();
@@ -72,6 +75,10 @@ export function registerRunCommand(program: Command): void {
         const scanResult = await scanProject(projectRoot, config);
         console.log(`anatoly — scan`);
         console.log(`  files     ${scanResult.filesScanned}`);
+        if (verbose) {
+          console.log(`  new       ${scanResult.filesNew}`);
+          console.log(`  cached    ${scanResult.filesCached}`);
+        }
         console.log('');
 
         // Phase 2: ESTIMATE
@@ -158,7 +165,9 @@ export function registerRunCommand(program: Command): void {
 
             try {
               activeAbort = new AbortController();
+              const startTime = Date.now();
               const result = await reviewFile(projectRoot, task, config, promptOptions, activeAbort, runDir);
+              const elapsedMs = Date.now() - startTime;
               activeAbort = undefined;
               writeReviewOutput(projectRoot, result.review, runDir);
               pm.updateFileStatus(filePath, 'DONE');
@@ -182,6 +191,14 @@ export function registerRunCommand(program: Command): void {
               else if (dup > 0) findingsSummary = `DUP:${dup}`;
 
               renderer.addResult(outputName, result.review.verdict, findingsSummary);
+
+              // Verbose output: cost, time, retries per file
+              if (verbose) {
+                const elapsed = (elapsedMs / 1000).toFixed(1);
+                const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
+                const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
+                console.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
+              }
             } catch (error) {
               activeAbort = undefined;
               const message = error instanceof AnatolyError ? error.message : String(error);
@@ -237,6 +254,11 @@ export function registerRunCommand(program: Command): void {
           },
         );
 
+        // Open report if --open flag is set
+        if (shouldOpen) {
+          openFile(reportPath);
+        }
+
         // Exit codes: 0 = clean, 1 = findings, 2 = error
         if (data.globalVerdict === 'CLEAN') {
           process.exitCode = 0;
@@ -248,8 +270,11 @@ export function registerRunCommand(program: Command): void {
         if (lockPath) {
           releaseLock(lockPath);
         }
-        const message = error instanceof AnatolyError ? error.message : String(error);
-        console.error(`anatoly — error: ${message}`);
+        if (error instanceof AnatolyError) {
+          console.error(`anatoly — ${error.formatForDisplay()}`);
+        } else {
+          console.error(`anatoly — error: ${String(error)}`);
+        }
         process.exitCode = 2;
       } finally {
         process.removeListener('SIGINT', onSigint);

@@ -27,7 +27,8 @@ export function createProgram(): Command {
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--no-color', 'disable chalk colors')
     .option('--enable-rag', 'enable semantic RAG cross-file analysis')
-    .option('--rebuild-rag', 'force full RAG re-indexation');
+    .option('--rebuild-rag', 'force full RAG re-indexation')
+    .option('--open', 'open report in default app after generation');
 
   registerScanCommand(program);
   registerEstimateCommand(program);

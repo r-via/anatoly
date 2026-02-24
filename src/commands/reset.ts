@@ -1,13 +1,51 @@
 import type { Command } from 'commander';
-import { rmSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { rmSync, existsSync, readdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import chalk from 'chalk';
+import { confirm, isInteractive } from '../utils/confirm.js';
+
+/**
+ * Count items that will be deleted during reset, for the confirmation summary.
+ */
+function countResetItems(anatolyDir: string): { dirs: string[]; files: string[]; total: number } {
+  const dirs: string[] = [];
+  const files: string[] = [];
+
+  for (const dir of ['tasks', 'reviews', 'logs', 'cache']) {
+    const dirPath = resolve(anatolyDir, dir);
+    if (existsSync(dirPath)) {
+      dirs.push(dir);
+    }
+  }
+
+  // Check runs directory
+  const runsDir = resolve(anatolyDir, 'runs');
+  if (existsSync(runsDir)) {
+    try {
+      const runEntries = readdirSync(runsDir).filter((e) => e !== 'latest');
+      if (runEntries.length > 0) {
+        dirs.push(`runs (${runEntries.length} run(s))`);
+      }
+    } catch {
+      // ignore read errors
+    }
+  }
+
+  for (const file of ['progress.json', 'report.md', 'anatoly.lock']) {
+    if (existsSync(resolve(anatolyDir, file))) {
+      files.push(file);
+    }
+  }
+
+  return { dirs, files, total: dirs.length + files.length };
+}
 
 export function registerResetCommand(program: Command): void {
   program
     .command('reset')
     .description('Clear all cache, reviews, logs, tasks, and report')
-    .action(() => {
+    .option('--yes', 'skip confirmation prompt (for CI/scripts)')
+    .action(async (opts: { yes?: boolean }) => {
       const projectRoot = process.cwd();
       const anatolyDir = resolve(projectRoot, '.anatoly');
 
@@ -17,10 +55,45 @@ export function registerResetCommand(program: Command): void {
         return;
       }
 
-      const dirs = ['tasks', 'reviews', 'logs', 'cache'];
+      const { dirs, files, total } = countResetItems(anatolyDir);
+
+      if (total === 0) {
+        console.log('anatoly — reset');
+        console.log('  Nothing to clean.');
+        return;
+      }
+
+      // Show summary of what will be deleted
+      console.log('anatoly — reset');
+      console.log('');
+      console.log('  The following will be deleted:');
+      for (const d of dirs) {
+        console.log(`    ${chalk.red('×')} .anatoly/${d}/`);
+      }
+      for (const f of files) {
+        console.log(`    ${chalk.red('×')} .anatoly/${f}`);
+      }
+      console.log('');
+
+      // Confirmation gate
+      if (!opts.yes) {
+        if (!isInteractive()) {
+          console.log(`  ${chalk.red('error')}: reset requires confirmation in non-interactive mode`);
+          console.log(`    → use ${chalk.bold('--yes')} to skip confirmation`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const confirmed = await confirm('  Proceed with reset?');
+        if (!confirmed) {
+          console.log('  reset cancelled.');
+          return;
+        }
+      }
+
       let cleaned = 0;
 
-      for (const dir of dirs) {
+      for (const dir of ['tasks', 'reviews', 'logs', 'cache', 'runs']) {
         const dirPath = resolve(anatolyDir, dir);
         if (existsSync(dirPath)) {
           rmSync(dirPath, { recursive: true, force: true });
@@ -49,7 +122,6 @@ export function registerResetCommand(program: Command): void {
         cleaned++;
       }
 
-      console.log('anatoly — reset');
       console.log(`  cleared ${chalk.bold(String(cleaned))} item(s) from .anatoly/`);
     });
 }

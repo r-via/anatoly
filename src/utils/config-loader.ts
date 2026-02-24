@@ -31,6 +31,7 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
       `Invalid YAML in ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
       ERROR_CODES.CONFIG_INVALID,
       false,
+      `check YAML syntax in ${filePath} — indentation must use spaces, not tabs`,
     );
   }
 
@@ -44,10 +45,12 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
     const issues = result.error.issues
       .map((i) => `  ${i.path.join('.')}: ${i.message}`)
       .join('\n');
+    const firstKey = result.error.issues[0]?.path.join('.') ?? 'unknown';
     throw new AnatolyError(
       `Invalid configuration in ${filePath}:\n${issues}`,
       ERROR_CODES.CONFIG_INVALID,
       false,
+      `fix the \`${firstKey}\` key in ${filePath} — see documentation for valid values`,
     );
   }
 

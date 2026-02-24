@@ -3,6 +3,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { listRuns } from '../utils/run-id.js';
+import { confirm, isInteractive } from '../utils/confirm.js';
 
 export function registerCleanLogsCommand(program: Command): void {
   // Keep legacy command name for backwards compatibility
@@ -10,8 +11,9 @@ export function registerCleanLogsCommand(program: Command): void {
     .command('clean-logs')
     .description('Delete all runs from .anatoly/runs/')
     .option('--keep <n>', 'keep the N most recent runs', parseInt)
-    .action((opts: { keep?: number }) => {
-      cleanRuns(opts.keep);
+    .option('--yes', 'skip confirmation prompt (for CI/scripts)')
+    .action(async (opts: { keep?: number; yes?: boolean }) => {
+      await cleanRuns(opts.keep, opts.yes);
     });
 
   // New alias
@@ -19,12 +21,13 @@ export function registerCleanLogsCommand(program: Command): void {
     .command('clean-runs')
     .description('Delete all runs from .anatoly/runs/')
     .option('--keep <n>', 'keep the N most recent runs', parseInt)
-    .action((opts: { keep?: number }) => {
-      cleanRuns(opts.keep);
+    .option('--yes', 'skip confirmation prompt (for CI/scripts)')
+    .action(async (opts: { keep?: number; yes?: boolean }) => {
+      await cleanRuns(opts.keep, opts.yes);
     });
 }
 
-function cleanRuns(keep?: number): void {
+async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
   const projectRoot = process.cwd();
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
 
@@ -51,6 +54,29 @@ function cleanRuns(keep?: number): void {
     console.log('anatoly — clean-runs');
     console.log(`  Nothing to delete (${runs.length} run(s), keeping ${toKeep}).`);
     return;
+  }
+
+  // Confirmation when deleting all runs (--keep 0 or no --keep)
+  if (toKeep === 0) {
+    console.log('anatoly — clean-runs');
+    console.log('');
+    console.log(`  Will delete ${chalk.bold(String(toDelete.length))} run(s) from .anatoly/runs/`);
+    console.log('');
+
+    if (!yes) {
+      if (!isInteractive()) {
+        console.log(`  ${chalk.red('error')}: clean-runs requires confirmation in non-interactive mode`);
+        console.log(`    → use ${chalk.bold('--yes')} to skip confirmation`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const confirmed = await confirm('  Proceed?');
+      if (!confirmed) {
+        console.log('  clean-runs cancelled.');
+        return;
+      }
+    }
   }
 
   for (const runId of toDelete) {
