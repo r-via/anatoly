@@ -84,13 +84,12 @@ export function registerStatusCommand(program: Command): void {
       }
 
       // Show report/reviews paths
-      const latestDir = resolveRunDir(projectRoot);
-      if (latestDir) {
-        const reportInRun = resolve(latestDir, 'report.md');
+      if (latestRunDir) {
+        const reportInRun = resolve(latestRunDir, 'report.md');
         if (existsSync(reportInRun)) {
           console.log(`  report      ${chalk.cyan(reportInRun)}`);
         }
-        console.log(`  reviews     ${chalk.cyan(resolve(latestDir, 'reviews') + '/')}`);
+        console.log(`  reviews     ${chalk.cyan(resolve(latestRunDir, 'reviews') + '/')}`);
       } else {
         const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
         if (existsSync(reportPath)) {

@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { rmSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { confirm, isInteractive } from '../utils/confirm.js';
 
@@ -44,7 +44,7 @@ export function registerResetCommand(program: Command): void {
   program
     .command('reset')
     .description('Clear all cache, reviews, logs, tasks, and report')
-    .option('--yes', 'skip confirmation prompt (for CI/scripts)')
+    .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
     .action(async (opts: { yes?: boolean }) => {
       const projectRoot = process.cwd();
       const anatolyDir = resolve(projectRoot, '.anatoly');

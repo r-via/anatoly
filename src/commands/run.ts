@@ -203,8 +203,13 @@ export function registerRunCommand(program: Command): void {
               activeAbort = undefined;
               const message = error instanceof AnatolyError ? error.message : String(error);
               const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+              const hint = error instanceof AnatolyError ? error.hint : '';
               pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
               renderer.incrementCounter('error');
+
+              const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
+              console.log(`  [${label}] ${filePath}: ${message}`);
+              if (hint) console.log(`    → ${hint}`);
             }
           }
 

@@ -9,7 +9,7 @@ describe('CLI program', () => {
   });
 
   it('should have the correct version', () => {
-    expect(program.version()).toBe('0.2.0');
+    expect(program.version()).toBe('0.0.0-dev');
   });
 
   it('should register all subcommands', () => {

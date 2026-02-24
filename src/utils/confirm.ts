@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 export async function confirm(message: string): Promise<boolean> {
   const rl = createInterface({
     input: process.stdin,
-    output: process.stderr,
+    output: process.stdout,
   });
 
   return new Promise<boolean>((resolve) => {
