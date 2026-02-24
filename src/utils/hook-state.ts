@@ -11,7 +11,6 @@ export interface HookReview {
 
 export interface HookState {
   session_id: string;
-  stop_count: number;
   reviews: Record<string, HookReview>;
 }
 
@@ -32,7 +31,6 @@ function generateSessionId(): string {
 export function initHookState(): HookState {
   return {
     session_id: generateSessionId(),
-    stop_count: 0,
     reviews: {},
   };
 }

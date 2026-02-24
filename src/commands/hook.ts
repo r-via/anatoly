@@ -154,18 +154,22 @@ export function registerHookCommand(program: Command): void {
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const minConfidence = config.llm.min_confidence;
 
-      const state = loadHookState(projectRoot);
+      // Read stdin JSON from Claude Code to check stop_hook_active
+      const stdinData = await readStdin();
+      let stopHookActive = false;
+      try {
+        const payload = JSON.parse(stdinData) as Record<string, unknown>;
+        stopHookActive = payload.stop_hook_active === true;
+      } catch {
+        // No valid JSON — proceed normally
+      }
 
-      // Anti-loop protection: check stop_count
-      const maxStopIterations = 3;
-      state.stop_count = (state.stop_count ?? 0) + 1;
-      saveHookState(projectRoot, state);
-
-      if (state.stop_count > maxStopIterations) {
-        // Too many stop iterations — exit silently, log on stderr
-        process.stderr.write(`anatoly hook stop: max iterations (${maxStopIterations}) reached, skipping\n`);
+      // Anti-loop protection: if Claude Code signals this is a re-entry, skip
+      if (stopHookActive) {
         process.exit(0);
       }
+
+      const state = loadHookState(projectRoot);
 
       // Wait for running reviews to complete (timeout 120s)
       const timeoutMs = 120_000;
@@ -236,13 +240,14 @@ export function registerHookCommand(program: Command): void {
         process.exit(0);
       }
 
-      // Format findings as additionalContext for Claude Code
+      // Format findings as reason for Claude Code Stop hook protocol
       const contextLines: string[] = [];
-      contextLines.push('## Anatoly Review Findings\n');
-      contextLines.push('The following issues were detected by Anatoly\'s deep audit:\n');
+      contextLines.push('Anatoly Review Findings:');
+      contextLines.push('The following issues were detected by Anatoly\'s deep audit:');
+      contextLines.push('');
 
       for (const finding of findings) {
-        contextLines.push(`### ${finding.file} (${finding.verdict})\n`);
+        contextLines.push(`${finding.file} (${finding.verdict}):`);
         for (const s of finding.symbols) {
           const issues: string[] = [];
           if (s.correction !== 'OK') issues.push(`correction: ${s.correction}`);
@@ -251,17 +256,19 @@ export function registerHookCommand(program: Command): void {
           if (s.duplication === 'DUPLICATE') issues.push(`duplication: DUPLICATE${s.duplicate_target ? ` (${s.duplicate_target.file}:${s.duplicate_target.symbol})` : ''}`);
           if (s.overengineering === 'OVER') issues.push('overengineering: OVER');
 
-          contextLines.push(`- **${s.name}** (L${s.line_start}–L${s.line_end}, confidence: ${s.confidence}%): ${issues.join(', ')}`);
+          contextLines.push(`- ${s.name} (L${s.line_start}–L${s.line_end}, confidence: ${s.confidence}%): ${issues.join(', ')}`);
           contextLines.push(`  ${s.detail}`);
         }
         contextLines.push('');
       }
 
-      contextLines.push('Please fix these issues before completing your task.\n');
+      contextLines.push('Please fix these issues before completing your task.');
 
       // Output as JSON for Claude Code Stop hook protocol
+      // Use decision: "block" + reason to prevent Claude from stopping and inject findings
       const output = JSON.stringify({
-        additionalContext: contextLines.join('\n'),
+        decision: 'block',
+        reason: contextLines.join('\n'),
       });
       process.stdout.write(output);
       process.exit(0);
@@ -281,14 +288,24 @@ export function registerHookCommand(program: Command): void {
           PostToolUse: [
             {
               matcher: 'Edit|Write',
-              command: 'npx anatoly hook post-edit',
-              async: true,
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'npx anatoly hook post-edit',
+                  async: true,
+                },
+              ],
             },
           ],
           Stop: [
             {
-              command: 'npx anatoly hook stop',
-              timeout: 180,
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'npx anatoly hook stop',
+                  timeout: 180,
+                },
+              ],
             },
           ],
         },

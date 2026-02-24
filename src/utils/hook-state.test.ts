@@ -16,10 +16,9 @@ describe('hook-state', () => {
   });
 
   describe('initHookState', () => {
-    it('creates a fresh state with session_id, stop_count 0, empty reviews', () => {
+    it('creates a fresh state with session_id and empty reviews', () => {
       const state = initHookState();
       expect(state.session_id).toMatch(/^hook-\d+-[a-z0-9]+$/);
-      expect(state.stop_count).toBe(0);
       expect(state.reviews).toEqual({});
     });
   });
@@ -28,7 +27,6 @@ describe('hook-state', () => {
     it('returns fresh state when no file exists', () => {
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBeTruthy();
-      expect(state.stop_count).toBe(0);
       expect(state.reviews).toEqual({});
     });
 
@@ -42,7 +40,6 @@ describe('hook-state', () => {
     it('loads valid state from disk', () => {
       const savedState = {
         session_id: 'hook-123-abc',
-        stop_count: 2,
         reviews: {
           'src/foo.ts': {
             pid: 99999999, // Non-existent PID
@@ -55,14 +52,12 @@ describe('hook-state', () => {
       writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), JSON.stringify(savedState));
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBe('hook-123-abc');
-      expect(state.stop_count).toBe(2);
       expect(state.reviews['src/foo.ts'].status).toBe('done');
     });
 
     it('marks running reviews with dead PIDs as error (orphan detection)', () => {
       const savedState = {
         session_id: 'hook-123-abc',
-        stop_count: 0,
         reviews: {
           'src/bar.ts': {
             pid: 99999999, // Non-existent PID
@@ -78,7 +73,7 @@ describe('hook-state', () => {
     });
 
     it('returns fresh state when session_id is missing', () => {
-      const savedState = { stop_count: 0, reviews: {} };
+      const savedState = { reviews: {} };
       writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), JSON.stringify(savedState));
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBeTruthy();

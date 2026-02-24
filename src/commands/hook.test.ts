@@ -63,21 +63,32 @@ describe('extractFilePath', () => {
 });
 
 describe('hook init template', () => {
-  it('generates correct hooks JSON structure', () => {
+  it('generates correct hooks JSON structure per Claude Code spec', () => {
     // Validate the template structure matches Claude Code hook protocol
+    // Events contain matcher groups, each with a nested hooks array
     const hooksConfig = {
       hooks: {
         PostToolUse: [
           {
             matcher: 'Edit|Write',
-            command: 'npx anatoly hook post-edit',
-            async: true,
+            hooks: [
+              {
+                type: 'command',
+                command: 'npx anatoly hook post-edit',
+                async: true,
+              },
+            ],
           },
         ],
         Stop: [
           {
-            command: 'npx anatoly hook stop',
-            timeout: 180,
+            hooks: [
+              {
+                type: 'command',
+                command: 'npx anatoly hook stop',
+                timeout: 180,
+              },
+            ],
           },
         ],
       },
@@ -85,8 +96,11 @@ describe('hook init template', () => {
 
     expect(hooksConfig.hooks.PostToolUse).toHaveLength(1);
     expect(hooksConfig.hooks.PostToolUse[0].matcher).toBe('Edit|Write');
-    expect(hooksConfig.hooks.PostToolUse[0].async).toBe(true);
+    expect(hooksConfig.hooks.PostToolUse[0].hooks).toHaveLength(1);
+    expect(hooksConfig.hooks.PostToolUse[0].hooks[0].type).toBe('command');
+    expect(hooksConfig.hooks.PostToolUse[0].hooks[0].async).toBe(true);
     expect(hooksConfig.hooks.Stop).toHaveLength(1);
-    expect(hooksConfig.hooks.Stop[0].timeout).toBe(180);
+    expect(hooksConfig.hooks.Stop[0].hooks[0].type).toBe('command');
+    expect(hooksConfig.hooks.Stop[0].hooks[0].timeout).toBe(180);
   });
 });

@@ -50,11 +50,11 @@ The review phase includes an **agent ↔ schema feedback loop**. When the agent 
 
 Anatoly can plug directly into Claude Code as a **PostToolUse + Stop hook**, creating a real-time audit loop while Claude Code writes your code:
 
-1. **Every time Claude Code edits a file**, the `post-edit` hook fires, Anatoly spawns a background review for that file (debounced, SHA-checked, non-blocking)
-2. **When Claude Code finishes its task**, the `stop` hook fires, Anatoly waits for pending reviews, collects all findings above `min_confidence`, and **injects them back into Claude Code's context** as `additionalContext`
+1. **Every time Claude Code edits a file**, the `PostToolUse` hook fires, Anatoly spawns a background review for that file (debounced, SHA-checked, non-blocking)
+2. **When Claude Code finishes its task**, the `Stop` hook fires, Anatoly waits for pending reviews, collects all findings above `min_confidence`, and **blocks the stop with the findings as the reason**, forcing Claude Code to address them
 3. **Claude Code sees the audit findings** and self-corrects, fixing dead code, removing duplication, simplifying over-engineered abstractions, before the user ever sees the result
 
-The result is an **autonomous write → audit → fix loop**: Claude Code writes, Anatoly audits in real-time, Claude Code fixes. Anti-loop protection (`stop_count` cap) prevents runaway iterations.
+The result is an **autonomous write → audit → fix loop**: Claude Code writes, Anatoly audits in real-time, Claude Code fixes. Anti-loop protection via Claude Code's native `stop_hook_active` flag prevents runaway iterations.
 
 ```bash
 npx anatoly hook init   # generates .claude/settings.json hooks
