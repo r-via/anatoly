@@ -1,10 +1,11 @@
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
+import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
 import { generateFunctionCards } from './card-generator.js';
-import { buildFunctionCards, indexCards } from './indexer.js';
-import { setEmbeddingLogger } from './embeddings.js';
+import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache, indexCards } from './indexer.js';
+import { embed, setEmbeddingLogger } from './embeddings.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
@@ -21,6 +22,48 @@ export interface RagIndexResult {
   filesIndexed: number;
   totalCards: number;
   totalFiles: number;
+}
+
+/**
+ * Result of processing a single file for indexing.
+ * Contains cards and pre-computed embeddings — does NOT touch VectorStore or cache.
+ */
+export interface IndexedFileResult {
+  task: Task;
+  cards: FunctionCard[];
+  embeddings: number[][];
+}
+
+/**
+ * Process a single file for RAG indexing: Haiku LLM call + build cards + embed.
+ * Returns cards and embeddings without touching VectorStore or cache.
+ * This is the pure, parallelizable unit of work.
+ */
+export async function processFileForIndex(
+  projectRoot: string,
+  task: Task,
+  indexModel: string,
+  cache: { entries: Record<string, string> },
+): Promise<IndexedFileResult> {
+  const llmCards = await generateFunctionCards(projectRoot, task, indexModel);
+  if (llmCards.length === 0) {
+    return { task, cards: [], embeddings: [] };
+  }
+
+  const absPath = resolve(projectRoot, task.file);
+  const source = readFileSync(absPath, 'utf-8');
+  const cards = buildFunctionCards(task, source, llmCards);
+
+  // Filter to only cards that need re-indexing
+  const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
+  if (toIndex.length === 0) {
+    return { task, cards: [], embeddings: [] };
+  }
+
+  // Generate embeddings for cards that need indexing
+  const embeddings = await embedCards(toIndex);
+
+  return { task, cards: toIndex, embeddings };
 }
 
 /**
@@ -41,12 +84,18 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     await store.rebuild();
   }
 
+  // Pre-warm embedding model before processing files
+  await embed('');
+
+  // Pre-load cache for the entire indexing run
+  const cache = loadRagCache(projectRoot);
+
   const tasksWithFunctions = tasks.filter((t) =>
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
-  let cardsIndexed = 0;
-  let filesIndexed = 0;
+  // Accumulate results from all files
+  const results: IndexedFileResult[] = [];
 
   for (let i = 0; i < tasksWithFunctions.length; i++) {
     if (isInterrupted()) break;
@@ -54,18 +103,33 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     onLog(`[${i + 1}/${tasksWithFunctions.length}] ${task.file}`);
 
     try {
-      const llmCards = await generateFunctionCards(projectRoot, task, indexModel);
-      if (llmCards.length > 0) {
-        const absPath = resolve(projectRoot, task.file);
-        const source = readFileSync(absPath, 'utf-8');
-        const cards = buildFunctionCards(task, source, llmCards);
-        const indexed = await indexCards(projectRoot, store, cards, task.hash);
-        cardsIndexed += indexed;
-        if (indexed > 0) filesIndexed++;
+      const result = await processFileForIndex(projectRoot, task, indexModel, cache);
+      if (result.cards.length > 0) {
+        results.push(result);
       }
     } catch {
       // Card generation failed for this file — continue
     }
+  }
+
+  // Batch upsert all accumulated results sequentially
+  let cardsIndexed = 0;
+  let filesIndexed = 0;
+
+  for (const result of results) {
+    await store.upsert(result.cards, result.embeddings);
+    cardsIndexed += result.cards.length;
+    filesIndexed++;
+
+    // Update cache entries for this file's cards
+    for (const card of result.cards) {
+      cache.entries[card.id] = result.task.hash;
+    }
+  }
+
+  // Single atomic cache write for all results
+  if (results.length > 0) {
+    saveRagCache(projectRoot, cache);
   }
 
   const stats = await store.stats();

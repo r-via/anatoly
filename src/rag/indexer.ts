@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard, FunctionCardLLMOutput } from './types.js';
@@ -7,7 +7,7 @@ import { embed, buildEmbedText } from './embeddings.js';
 import { VectorStore } from './vector-store.js';
 import { atomicWriteJson } from '../utils/cache.js';
 
-interface RagCache {
+export interface RagCache {
   /** Map of functionId → file hash at time of indexing */
   entries: Record<string, string>;
 }
@@ -143,33 +143,79 @@ export function buildFunctionCards(
 }
 
 /**
+ * Pure function: check if a card needs re-indexing by comparing its cached hash
+ * against the current file hash.
+ */
+export function needsReindex(cache: RagCache, card: FunctionCard, fileHash: string): boolean {
+  return cache.entries[card.id] !== fileHash;
+}
+
+/**
+ * Generate embeddings for a list of cards.
+ * Returns embedding vectors in the same order as the input cards.
+ */
+export async function embedCards(cards: FunctionCard[]): Promise<number[][]> {
+  const embeddings: number[][] = [];
+  for (const card of cards) {
+    const text = buildEmbedText(card);
+    embeddings.push(await embed(text));
+  }
+  return embeddings;
+}
+
+/**
+ * Load the RAG cache from disk.
+ * Returns a fresh empty cache if file doesn't exist or is corrupted.
+ */
+export function loadRagCache(projectRoot: string): RagCache {
+  const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
+  if (!existsSync(cachePath)) {
+    return { entries: {} };
+  }
+  try {
+    return JSON.parse(readFileSync(cachePath, 'utf-8')) as RagCache;
+  } catch {
+    return { entries: {} };
+  }
+}
+
+/**
+ * Save the RAG cache to disk atomically.
+ */
+export function saveRagCache(projectRoot: string, cache: RagCache): void {
+  const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
+  atomicWriteJson(cachePath, cache);
+}
+
+/**
  * Index FunctionCards into the vector store.
  * Handles incremental updates: only re-embeds cards whose file hash changed.
+ *
+ * When `preComputedEmbeddings` is provided, uses those instead of generating new ones.
+ * The embeddings array must correspond 1:1 with the cards that need indexing.
  */
 export async function indexCards(
   projectRoot: string,
   store: VectorStore,
   cards: FunctionCard[],
   fileHash: string,
+  preComputedEmbeddings?: number[][],
 ): Promise<number> {
   if (cards.length === 0) return 0;
 
-  const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
-  const cache = loadRagCache(cachePath);
+  const cache = loadRagCache(projectRoot);
 
   // Check which cards need re-indexing
-  const toIndex = cards.filter((card) => {
-    const cached = cache.entries[card.id];
-    return cached !== fileHash;
-  });
+  const toIndex = cards.filter((card) => needsReindex(cache, card, fileHash));
 
   if (toIndex.length === 0) return 0;
 
-  // Generate embeddings
-  const embeddings: number[][] = [];
-  for (const card of toIndex) {
-    const text = buildEmbedText(card);
-    embeddings.push(await embed(text));
+  // Use pre-computed embeddings or generate new ones
+  let embeddings: number[][];
+  if (preComputedEmbeddings) {
+    embeddings = preComputedEmbeddings;
+  } else {
+    embeddings = await embedCards(toIndex);
   }
 
   // Upsert into vector store
@@ -179,18 +225,7 @@ export async function indexCards(
   for (const card of toIndex) {
     cache.entries[card.id] = fileHash;
   }
-  atomicWriteJson(cachePath, cache);
+  saveRagCache(projectRoot, cache);
 
   return toIndex.length;
-}
-
-function loadRagCache(cachePath: string): RagCache {
-  if (!existsSync(cachePath)) {
-    return { entries: {} };
-  }
-  try {
-    return JSON.parse(readFileSync(cachePath, 'utf-8')) as RagCache;
-  } catch {
-    return { entries: {} };
-  }
 }

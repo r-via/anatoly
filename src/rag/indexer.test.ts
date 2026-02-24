@@ -5,7 +5,9 @@ import {
   computeComplexity,
   extractCalledInternals,
   buildFunctionCards,
+  needsReindex,
 } from './indexer.js';
+import type { RagCache } from './indexer.js';
 import type { SymbolInfo, Task } from '../schemas/task.js';
 import type { FunctionCardLLMOutput } from './types.js';
 
@@ -214,5 +216,35 @@ export function calc() { return MAX; }`;
     const cards = buildFunctionCards(task, source, llmCards);
     expect(cards).toHaveLength(1);
     expect(cards[0].name).toBe('calc');
+  });
+});
+
+describe('needsReindex', () => {
+  const card = {
+    id: 'abc123def4567890',
+    filePath: 'src/foo.ts',
+    name: 'test',
+    signature: 'function test()',
+    summary: 'Test function',
+    keyConcepts: ['test'],
+    behavioralProfile: 'pure' as const,
+    complexityScore: 1,
+    calledInternals: [],
+    lastIndexed: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('returns true when card is not in cache', () => {
+    const cache: RagCache = { entries: {} };
+    expect(needsReindex(cache, card, 'hash123')).toBe(true);
+  });
+
+  it('returns true when file hash has changed', () => {
+    const cache: RagCache = { entries: { 'abc123def4567890': 'old_hash' } };
+    expect(needsReindex(cache, card, 'new_hash')).toBe(true);
+  });
+
+  it('returns false when file hash matches cache', () => {
+    const cache: RagCache = { entries: { 'abc123def4567890': 'same_hash' } };
+    expect(needsReindex(cache, card, 'same_hash')).toBe(false);
   });
 });
