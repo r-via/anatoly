@@ -47,7 +47,7 @@ export function computeComplexity(source: string, symbol: SymbolInfo): number {
 
   let complexity = 1; // base path
   const patterns = [
-    /\bif\s*\(/g,
+    /(?<!else\s)\bif\s*\(/g,  // standalone if (excludes else if)
     /\belse\s+if\s*\(/g,
     /\bcase\s+/g,
     /&&/g,

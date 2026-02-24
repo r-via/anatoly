@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -13,7 +14,12 @@ import { createRenderer } from '../utils/renderer.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
 import { VectorStore, buildFunctionCards, indexCards } from '../rag/index.js';
+import type { Task } from '../schemas/task.js';
+import type { ReviewFile } from '../schemas/review.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
+
+const require = createRequire(import.meta.url);
+const { version: pkgVersion } = require('../../package.json') as { version: string };
 
 export function registerRunCommand(program: Command): void {
   program
@@ -31,7 +37,7 @@ export function registerRunCommand(program: Command): void {
 
       const renderer = createRenderer({
         plain: isPlain,
-        version: '0.2.0',
+        version: pkgVersion,
       });
 
       let lockPath: string | undefined;
@@ -74,7 +80,7 @@ export function registerRunCommand(program: Command): void {
         // RAG setup
         let vectorStore: VectorStore | undefined;
         let ragHasData = false;
-        const reviewedCards: Array<{ task: import('../schemas/task.js').Task; review: import('../schemas/review.js').ReviewFile }> = [];
+        const reviewedCards: Array<{ task: Task; review: ReviewFile }> = [];
 
         if (enableRag) {
           vectorStore = new VectorStore(projectRoot);
@@ -93,6 +99,7 @@ export function registerRunCommand(program: Command): void {
         const promptOptions: PromptOptions = {
           ragEnabled: enableRag,
           ragHasData,
+          vectorStore,
         };
 
         // --no-cache: reset CACHED files to PENDING

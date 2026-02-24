@@ -6,6 +6,10 @@
  * downloaded lazily on first use instead.
  */
 async function main() {
+  if (process.env.ANATOLY_SKIP_DOWNLOAD === '1') {
+    console.log('anatoly: skipping model download (ANATOLY_SKIP_DOWNLOAD=1)');
+    return;
+  }
   try {
     const { pipeline } = await import('@xenova/transformers');
     await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');

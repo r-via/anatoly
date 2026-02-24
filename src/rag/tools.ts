@@ -1,9 +1,11 @@
+import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
 import type { VectorStore } from './vector-store.js';
 import type { SimilarityResult } from './types.js';
 
 /**
- * Tool definition for findSimilarFunctions.
- * Registered with the Claude Agent SDK when RAG is enabled.
+ * Tool definition for findSimilarFunctions (legacy format, kept for reference).
+ * The SDK registration now uses createRagMcpServer() instead.
  */
 export const findSimilarFunctionsTool = {
   name: 'findSimilarFunctions',
@@ -29,6 +31,28 @@ export const findSimilarFunctionsTool = {
     required: ['functionId'] as const,
   },
 };
+
+/**
+ * Create an SDK MCP server that exposes the findSimilarFunctions tool.
+ * The returned config can be passed to the Agent SDK query via mcpServers.
+ */
+export function createRagMcpServer(store: VectorStore) {
+  return createSdkMcpServer({
+    name: 'anatoly-rag',
+    version: '1.0.0',
+    tools: [
+      tool(
+        'findSimilarFunctions',
+        'Search for semantically similar functions across the entire indexed codebase. Use this tool before concluding on the duplication axis for any function.',
+        { functionId: z.string(), maxResults: z.number().optional(), minScore: z.number().optional() },
+        async (args) => {
+          const text = await handleFindSimilarFunctions(store, args);
+          return { content: [{ type: 'text' as const, text }] };
+        },
+      ),
+    ],
+  });
+}
 
 /**
  * Handle a findSimilarFunctions tool call.

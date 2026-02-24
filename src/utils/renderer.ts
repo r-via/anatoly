@@ -110,7 +110,7 @@ export function truncatePath(filePath: string, maxLen: number): string {
  */
 export function createRenderer(options: RendererOptions = {}): Renderer {
   const isPlain = options.plain ?? !process.stdout.isTTY;
-  const version = options.version ?? '0.1.0';
+  const version = options.version ?? 'unknown';
 
   if (isPlain) {
     return createPlainRenderer(version);

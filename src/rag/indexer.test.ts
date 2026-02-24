@@ -94,6 +94,25 @@ describe('computeComplexity', () => {
     const score = computeComplexity(source, symbol);
     expect(score).toBeGreaterThanOrEqual(2);
   });
+
+  it('does not double-count else if', () => {
+    const source = `function classify(x: number) {
+  if (x > 100) {
+    return 'huge';
+  } else if (x > 50) {
+    return 'large';
+  } else if (x > 10) {
+    return 'medium';
+  } else if (x > 0) {
+    return 'small';
+  }
+  return 'zero';
+}`;
+    const symbol: SymbolInfo = { name: 'classify', kind: 'function', exported: false, line_start: 1, line_end: 12 };
+    const score = computeComplexity(source, symbol);
+    // 1 (base) + 1 (if) + 3 (else if) = 5 raw → maps to scale 2
+    expect(score).toBe(2);
+  });
 });
 
 describe('extractCalledInternals', () => {

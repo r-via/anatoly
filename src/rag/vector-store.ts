@@ -1,10 +1,28 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { EMBEDDING_DIM } from './embeddings.js';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 
 const TABLE_NAME = 'function_cards';
+
+/**
+ * Validate that an ID is a 16-char hex string (as produced by buildFunctionId).
+ * Throws if the ID doesn't match, preventing injection via filter predicates.
+ */
+export function sanitizeId(id: string): string {
+  if (!/^[a-f0-9]{16}$/.test(id)) {
+    throw new Error(`Invalid function ID: expected 16-char hex string, got "${id}"`);
+  }
+  return id;
+}
+
+/**
+ * Escape single quotes in file paths for LanceDB filter strings.
+ * Prevents injection via filePath values in SQL-like WHERE clauses.
+ */
+export function sanitizeFilePath(path: string): string {
+  return path.replace(/'/g, "''");
+}
 
 interface VectorRow {
   [key: string]: unknown;
@@ -68,7 +86,7 @@ export class VectorStore {
     }
 
     // Delete existing rows with matching IDs, then add new ones
-    const ids = cards.map((c) => c.id);
+    const ids = cards.map((c) => sanitizeId(c.id));
     try {
       await this.table.delete(`id IN (${ids.map((id) => `'${id}'`).join(', ')})`);
     } catch {
@@ -94,13 +112,12 @@ export class VectorStore {
 
     return results
       .filter((row) => {
-        // LanceDB returns _distance (L2); convert to cosine similarity
-        const score = 1 - (row._distance ?? 0) / 2;
+        const score = distanceToCosineSimilarity(row._distance ?? 0);
         return score >= minScore;
       })
       .map((row) => ({
         card: rowToCard(row),
-        score: 1 - (row._distance ?? 0) / 2,
+        score: distanceToCosineSimilarity(row._distance ?? 0),
       }));
   }
 
@@ -114,9 +131,10 @@ export class VectorStore {
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
 
+    const safeId = sanitizeId(functionId);
     const matches = await this.table
-      .search(undefined as any)
-      .filter(`id = '${functionId}'`)
+      .query()
+      .where(`id = '${safeId}'`)
       .limit(1)
       .toArray();
 
@@ -135,7 +153,7 @@ export class VectorStore {
   async deleteByFile(filePath: string): Promise<void> {
     if (!this.table) return;
     try {
-      await this.table.delete(`filePath = '${filePath}'`);
+      await this.table.delete(`filePath = '${sanitizeFilePath(filePath)}'`);
     } catch {
       // File might not have any cards — that's fine
     }
@@ -162,9 +180,11 @@ export class VectorStore {
       return { totalCards: 0, totalFiles: 0, lastIndexed: null };
     }
 
+    const totalCards = await this.table.countRows();
+
+    // Fetch only filePath and lastIndexed for aggregation
     const rows = await this.table
-      .search(undefined as any)
-      .limit(100_000)
+      .query()
       .select(['filePath', 'lastIndexed'])
       .toArray();
 
@@ -175,11 +195,23 @@ export class VectorStore {
     }, '');
 
     return {
-      totalCards: rows.length,
+      totalCards,
       totalFiles: files.size,
       lastIndexed: lastIndexed || null,
     };
   }
+}
+
+/**
+ * Convert LanceDB L2 distance to cosine similarity.
+ *
+ * LanceDB default metric is L2 (euclidean). The `_distance` field contains the
+ * **squared** L2 distance (L2²). For normalized vectors (as produced by
+ * all-MiniLM-L6-v2), the relationship is:
+ *   cosine_similarity = 1 - L2² / 2
+ */
+function distanceToCosineSimilarity(distance: number): number {
+  return 1 - distance / 2;
 }
 
 function rowToCard(row: Record<string, unknown>): FunctionCard {

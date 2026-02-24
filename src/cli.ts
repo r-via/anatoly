@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { createRequire } from 'node:module';
 import {
   registerScanCommand,
   registerEstimateCommand,
@@ -11,10 +12,13 @@ import {
   registerResetCommand,
 } from './commands/index.js';
 
+const require = createRequire(import.meta.url);
+const { version: pkgVersion } = require('../package.json') as { version: string };
+
 export function createProgram(): Command {
   const program = new Command()
     .name('anatoly')
-    .version('0.1.0')
+    .version(pkgVersion)
     .description('Deep Audit Agent for TypeScript codebases')
     .option('--config <path>', 'path to .anatoly.yml config file')
     .option('--verbose', 'show detailed operation logs')

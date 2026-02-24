@@ -1,8 +1,10 @@
 import type { Task, CoverageData } from '../schemas/task.js';
+import type { VectorStore } from '../rag/vector-store.js';
 
 export interface PromptOptions {
   ragEnabled?: boolean;
   ragHasData?: boolean;
+  vectorStore?: VectorStore;
 }
 
 /**
