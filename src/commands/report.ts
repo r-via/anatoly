@@ -6,7 +6,7 @@ import { generateReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
-import { verdictColor } from '../utils/renderer.js';
+import { verdictColor } from '../utils/format.js';
 
 export function registerReportCommand(program: Command): void {
   program

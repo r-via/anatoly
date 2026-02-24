@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
-import { buildProgressBar, verdictColor } from '../utils/renderer.js';
+import { buildProgressBar, verdictColor } from '../utils/format.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
 
 export function registerStatusCommand(program: Command): void {
