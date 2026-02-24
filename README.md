@@ -38,6 +38,8 @@ Anatoly is an **agentic CLI** that parses your codebase with tree-sitter AST ana
 - **Zod-validated output** — Machine-readable `.rev.json` + human-readable `.rev.md` per file, all schema-validated
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
 - **Token estimation** — Local tiktoken estimation before any API call (no surprise bills)
+- **RAG semantic duplication** — Local embeddings (Xenova/all-MiniLM-L6-v2) + LanceDB vector store detect cross-file semantic duplications invisible to grep
+- **Run-scoped outputs** — Each run is stored in `.anatoly/runs/<timestamp>/` with a `latest` symlink; old runs auto-purged via `output.max_runs`
 - **Watch mode** — Daemon that re-reviews changed files automatically
 - **CI-friendly** — Exit codes: `0` (clean), `1` (findings), `2` (error)
 - **Coverage integration** — Parses Istanbul/Vitest/Jest coverage data to enrich reviews
@@ -52,25 +54,25 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js —
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                   CLI (Commander.js)             │
-│  run | scan | estimate | review | report | watch │
-└─────────────┬───────────────────────────────────┘
-              │
-┌─────────────▼───────────────────────────────────┐
-│                  Core Pipeline                   │
-│                                                  │
-│  Scanner ──► Estimator ──► Reviewer ──► Reporter │
-│  (AST+SHA)   (tiktoken)   (Agent SDK)  (aggregate)│
-└──────────────────────────────────────────────────┘
-              │
-┌─────────────▼───────────────────────────────────┐
-│              .anatoly/ (output)                  │
-│  cache/ tasks/ reviews/ logs/ report.md          │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      CLI (Commander.js)                       │
+│  run | scan | estimate | review | report | watch | rag-status │
+└──────────────┬───────────────────────────────────────────────┘
+               │
+┌──────────────▼───────────────────────────────────────────────┐
+│                       Core Pipeline                           │
+│                                                               │
+│  Scanner ──► Estimator ──► [RAG Index] ──► Reviewer ──► Reporter │
+│  (AST+SHA)   (tiktoken)   (Haiku+Xenova)  (Agent SDK)  (aggregate)│
+└───────────────────────────────────────────────────────────────┘
+               │
+┌──────────────▼───────────────────────────────────────────────┐
+│                    .anatoly/ (output)                          │
+│  cache/ tasks/ rag/lancedb/ runs/<runId>/{reviews,logs,report} │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-The pipeline is strictly sequential per run: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **review** runs one Claude Agent SDK session per file (read-only tools: Glob, Grep, Read), and **report** aggregates all `.rev.json` files into a final `report.md`.
+The pipeline is strictly sequential per run: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** (optional, with `--enable-rag`) generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs one Claude Agent SDK session per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
 
 ## Tech Stack
 
@@ -88,6 +90,8 @@ The pipeline is strictly sequential per run: **scan** parses AST and computes ha
 | Tokens | tiktoken (local) |
 | Watcher | chokidar v5 |
 | Terminal | ora + log-update + chalk |
+| Embeddings | Xenova/all-MiniLM-L6-v2 (384 dim, local) |
+| Vector Store | LanceDB (embedded, zero-server) |
 
 ## Project Structure
 
@@ -96,14 +100,15 @@ src/
 ├── index.ts              # Entry point
 ├── cli.ts                # Command registration + global flags
 ├── commands/             # One file per CLI command (thin wrappers)
-│   ├── run.ts            # Orchestrates: scan → estimate → review → report
+│   ├── run.ts            # Orchestrates: scan → estimate → [index] → review → report
 │   ├── watch.ts          # File watcher daemon
 │   ├── scan.ts           # Parse AST + compute hashes
 │   ├── estimate.ts       # Token estimation
 │   ├── review.ts         # Run Claude agent reviews
 │   ├── report.ts         # Aggregate → report.md
 │   ├── status.ts         # Show progress
-│   ├── clean-logs.ts     # Delete transcripts
+│   ├── rag-status.ts     # Inspect RAG index + function cards
+│   ├── clean-logs.ts     # Delete old runs (alias: clean-runs)
 │   └── reset.ts          # Wipe all state
 ├── core/                 # Business logic
 │   ├── scanner.ts        # AST + SHA-256 + coverage
@@ -117,12 +122,23 @@ src/
 │   ├── task.ts           # AST task schema
 │   ├── config.ts         # Config file schema
 │   └── progress.ts       # Progress state schema
+├── rag/                  # Semantic RAG module
+│   ├── types.ts          # FunctionCard schema + types
+│   ├── embeddings.ts     # Xenova/all-MiniLM-L6-v2 (local)
+│   ├── vector-store.ts   # LanceDB wrapper
+│   ├── indexer.ts        # Incremental indexing + AST extraction
+│   ├── card-generator.ts # FunctionCard generation via Haiku
+│   ├── orchestrator.ts   # Index pipeline orchestration
+│   ├── tools.ts          # findSimilarFunctions MCP server
+│   └── index.ts          # Barrel export
 └── utils/                # Cross-cutting utilities
     ├── cache.ts           # SHA-256 + atomic writes
     ├── config-loader.ts   # YAML → typed Config
     ├── lock.ts            # PID-based lock file
     ├── prompt-builder.ts  # Agent prompt construction
     ├── renderer.ts        # Terminal rendering (TTY/plain)
+    ├── run-id.ts          # Run ID generation + symlink + purge
+    ├── extract-json.ts    # JSON extraction from agent responses
     └── git.ts             # .gitignore filtering
 ```
 
@@ -130,12 +146,18 @@ Runtime output directory:
 
 ```
 .anatoly/
-├── cache/progress.json           # Pipeline state
-├── tasks/*.task.json             # AST + hash per file
-├── reviews/*.rev.json            # Machine-readable reviews
-├── reviews/*.rev.md              # Human-readable reviews
-├── logs/*.transcript.md          # Full agent reasoning logs
-└── report.md                     # Aggregated audit report
+├── cache/progress.json                    # Pipeline state
+├── tasks/*.task.json                      # AST + hash per file
+├── rag/                                   # RAG semantic index
+│   ├── lancedb/                           # LanceDB vector store
+│   └── cache.json                         # File hash → lastIndexed
+└── runs/                                  # Run-scoped outputs
+    ├── latest → <runId>                   # Symlink to latest run
+    └── <YYYY-MM-DD_HHmmss>/
+        ├── reviews/*.rev.json             # Machine-readable reviews
+        ├── reviews/*.rev.md               # Human-readable reviews
+        ├── logs/*.transcript.md           # Full agent reasoning logs
+        └── report.md                      # Aggregated audit report
 ```
 
 ---
@@ -156,21 +178,23 @@ npm install -g anatoly
 anatoly run
 ```
 
-The `run` command executes the full pipeline: **scan** → **estimate** → **review** → **report**.
+The `run` command executes the full pipeline: **scan** → **estimate** → **[index]** → **review** → **report**. The index phase runs only when `--enable-rag` is set.
 
 ## Usage
 
 ### Commands
 
 ```bash
-npx anatoly run            # Full pipeline: scan → estimate → review → report
+npx anatoly run            # Full pipeline: scan → estimate → [index] → review → report
 npx anatoly watch          # Daemon mode: re-review on file change
 npx anatoly scan           # Parse AST + compute SHA-256 hashes
 npx anatoly estimate       # Estimate token cost (local, no API calls)
 npx anatoly review         # Run Claude agent on pending files
 npx anatoly report         # Aggregate reviews → report.md
 npx anatoly status         # Show current audit progress
-npx anatoly clean-logs     # Delete transcript files
+npx anatoly rag-status     # Show RAG index stats (cards, files)
+npx anatoly rag-status <fn> # Inspect a specific function card
+npx anatoly clean-logs     # Delete old runs (alias: clean-runs)
 npx anatoly reset          # Wipe all cache, reviews, and logs
 ```
 
@@ -183,6 +207,18 @@ npx anatoly reset          # Wipe all cache, reviews, and logs
 --file <glob>      Target specific files (e.g. "src/utils/**/*.ts")
 --plain            Disable spinners and colors
 --no-color         Disable colors only
+--run-id <id>      Custom run ID (default: YYYY-MM-DD_HHmmss)
+--enable-rag       Enable semantic RAG cross-file duplication detection
+--rebuild-rag      Force full RAG re-indexation
+```
+
+### RAG Status Options
+
+```bash
+npx anatoly rag-status             # Show index stats (cards, files, last indexed)
+npx anatoly rag-status myFunction  # Inspect a function card by name
+npx anatoly rag-status --all       # List all indexed function cards
+npx anatoly rag-status --json      # Output as JSON (for scripting)
 ```
 
 ### Example Output
@@ -235,6 +271,12 @@ llm:
   agentic_tools: true
   timeout_per_file: 180
   max_retries: 3
+
+rag:
+  enabled: false    # opt-in via --enable-rag or here
+
+output:
+  max_runs: 10      # optional: purge old runs beyond this limit
 ```
 
 ---
@@ -286,7 +328,7 @@ Please follow the existing code style and ensure all CI checks pass.
 
 ## License
 
-[ISC](https://opensource.org/licenses/ISC)
+[Apache-2.0](https://opensource.org/licenses/Apache-2.0)
 
 ## Contact & Support
 
