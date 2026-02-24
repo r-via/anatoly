@@ -4,14 +4,16 @@ import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
 import { generateFunctionCards } from './card-generator.js';
-import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache, indexCards } from './indexer.js';
+import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import { embed, setEmbeddingLogger } from './embeddings.js';
+import { runWorkerPool } from '../core/worker-pool.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
   indexModel: string;
   rebuild?: boolean;
+  concurrency?: number;
   onLog: (message: string) => void;
   isInterrupted: () => boolean;
 }
@@ -73,7 +75,7 @@ export async function processFileForIndex(
  * Returns the initialized VectorStore and indexing stats.
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, indexModel, rebuild, onLog, isInterrupted } = options;
+  const { projectRoot, tasks, indexModel, rebuild, concurrency = 4, onLog, isInterrupted } = options;
 
   setEmbeddingLogger(onLog);
 
@@ -94,23 +96,24 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
-  // Accumulate results from all files
+  // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
+  let fileCounter = 0;
 
-  for (let i = 0; i < tasksWithFunctions.length; i++) {
-    if (isInterrupted()) break;
-    const task = tasksWithFunctions[i];
-    onLog(`[${i + 1}/${tasksWithFunctions.length}] ${task.file}`);
+  await runWorkerPool({
+    items: tasksWithFunctions,
+    concurrency,
+    isInterrupted,
+    handler: async (task) => {
+      const idx = ++fileCounter;
+      onLog(`[${idx}/${tasksWithFunctions.length}] ${task.file}`);
 
-    try {
       const result = await processFileForIndex(projectRoot, task, indexModel, cache);
       if (result.cards.length > 0) {
         results.push(result);
       }
-    } catch {
-      // Card generation failed for this file — continue
-    }
-  }
+    },
+  });
 
   // Batch upsert all accumulated results sequentially
   let cardsIndexed = 0;

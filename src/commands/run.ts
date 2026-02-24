@@ -144,6 +144,7 @@ export function registerRunCommand(program: Command): void {
             tasks: loadTasks(projectRoot),
             indexModel: config.llm.index_model,
             rebuild: rebuildRag,
+            concurrency,
             onLog: (msg) => console.log(`  ${msg}`),
             isInterrupted: () => interrupted,
           });
