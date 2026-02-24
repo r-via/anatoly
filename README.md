@@ -336,7 +336,7 @@ coverage:
   report_path: "coverage/coverage-final.json"
 
 llm:
-  model: "claude-sonnet-4-20250514"
+  model: "claude-sonnet-4-6"
   agentic_tools: true
   timeout_per_file: 180
   max_retries: 3

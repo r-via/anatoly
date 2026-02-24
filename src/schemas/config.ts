@@ -22,7 +22,7 @@ export const CoverageConfigSchema = z.object({
 });
 
 export const LlmConfigSchema = z.object({
-  model: z.string().default('claude-sonnet-4-20250514'),
+  model: z.string().default('claude-sonnet-4-6'),
   index_model: z.string().default('claude-haiku-4-5-20251001'),
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(180),
@@ -54,7 +54,7 @@ export const ConfigSchema = z.object({
     report_path: 'coverage/coverage-final.json',
   }),
   llm: LlmConfigSchema.default({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     index_model: 'claude-haiku-4-5-20251001',
     agentic_tools: true,
     timeout_per_file: 180,
