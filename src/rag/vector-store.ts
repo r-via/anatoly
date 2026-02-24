@@ -192,6 +192,18 @@ export class VectorStore {
   }
 
   /**
+   * Return the set of distinct file paths currently in the index.
+   */
+  async listIndexedFiles(): Promise<Set<string>> {
+    if (!this.table) return new Set();
+    const rows = await this.table
+      .query()
+      .select(['filePath'])
+      .toArray();
+    return new Set(rows.map((r) => r.filePath as string));
+  }
+
+  /**
    * Get stats about the index.
    */
   async stats(): Promise<RagStats> {

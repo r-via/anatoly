@@ -28,6 +28,8 @@ vi.mock('./vector-store.js', () => {
     init = vi.fn().mockResolvedValue(undefined);
     rebuild = vi.fn().mockResolvedValue(undefined);
     upsert = vi.fn().mockResolvedValue(undefined);
+    listIndexedFiles = vi.fn().mockResolvedValue(new Set<string>());
+    deleteByFile = vi.fn().mockResolvedValue(undefined);
     stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0 });
   }
   return {

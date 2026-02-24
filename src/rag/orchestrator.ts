@@ -108,6 +108,16 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Pre-load cache for the entire indexing run
   const cache = loadRagCache(projectRoot);
 
+  // Garbage-collect stale entries: remove cards for files no longer in the project
+  const currentFiles = new Set(tasks.map((t) => t.file));
+  const indexedFiles = await store.listIndexedFiles();
+  for (const orphan of indexedFiles) {
+    if (!currentFiles.has(orphan)) {
+      await store.deleteByFile(orphan);
+      onLog(`gc: removed stale cards for ${orphan}`);
+    }
+  }
+
   const tasksWithFunctions = tasks.filter((t) =>
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
