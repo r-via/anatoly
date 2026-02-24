@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
+import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -9,8 +10,8 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
-import { createRenderer } from '../utils/renderer.js';
 import { toOutputName } from '../utils/cache.js';
+import { verdictColor } from '../utils/format.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -21,28 +22,22 @@ export function registerReviewCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const plain = parentOpts.plain === true || !process.stdout.isTTY;
-      const renderer = createRenderer({ plain, concurrency: 1 });
 
-      // Acquire lock to prevent concurrent instances
       const lockPath = acquireLock(projectRoot);
       let filesReviewed = 0;
       let filesErrored = 0;
       let totalFindings = 0;
       let interrupted = false;
 
-      // Track active AbortController for the current review
       let activeAbort: AbortController | undefined;
 
-      // SIGINT handler: first Ctrl+C → graceful shutdown + abort, second → force exit
       const onSigint = () => {
         if (interrupted) {
-          renderer.stop();
           releaseLock(lockPath);
           process.exit(1);
         }
         interrupted = true;
         activeAbort?.abort();
-        renderer.log(`${chalk.yellow.bold('⚠ shutting down…')} press Ctrl+C again to force exit`);
       };
       process.on('SIGINT', onSigint);
 
@@ -50,92 +45,101 @@ export function registerReviewCommand(program: Command): void {
         // Auto-scan if no tasks exist
         const tasks = loadTasks(projectRoot);
         if (tasks.length === 0) {
-          renderer.log('anatoly — scan (auto)');
+          console.log('anatoly — scan (auto)');
           const scanResult = await scanProject(projectRoot, config);
-          renderer.log(`  files     ${scanResult.filesScanned}`);
+          console.log(`  files     ${scanResult.filesScanned}`);
         }
 
         const pm = new ProgressManager(projectRoot);
         const pending = pm.getPendingFiles();
 
         if (pending.length === 0) {
-          renderer.log('anatoly — review');
-          renderer.log('  No pending files to review.');
+          console.log('anatoly — review');
+          console.log('  No pending files to review.');
           return;
         }
 
         const total = pending.length;
-        renderer.start(total);
+        const allTasks = loadTasks(projectRoot);
+        const taskMap = new Map(allTasks.map((t) => [t.file, t]));
 
-        for (let i = 0; i < pending.length; i++) {
-          if (interrupted) break;
-
-          const filePath = pending[i].file;
-          renderer.updateProgress(i, total, `reviewing ${filePath}`);
-
-          // Find the matching task
-          const allTasks = loadTasks(projectRoot);
-          const task = allTasks.find((t) => t.file === filePath);
-
-          if (!task) {
-            renderer.log(`  [skip] no task found for ${filePath}`);
-            continue;
-          }
-
-          pm.updateFileStatus(filePath, 'IN_PROGRESS');
-          activeAbort = new AbortController();
-
-          try {
-            const result = await reviewFile(projectRoot, task, config, {}, activeAbort);
-            writeReviewOutput(projectRoot, result.review);
-
-            pm.updateFileStatus(filePath, 'DONE');
-            filesReviewed++;
-
-            // Count findings
-            for (const s of result.review.symbols) {
-              if (s.utility === 'DEAD') { renderer.incrementCounter('dead'); totalFindings++; }
-              if (s.duplication === 'DUPLICATE') { renderer.incrementCounter('duplicate'); totalFindings++; }
-              if (s.overengineering === 'OVER') { renderer.incrementCounter('overengineering'); totalFindings++; }
-              if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') { renderer.incrementCounter('error'); totalFindings++; }
+        // Build listr2 task list — one task per file, sequential
+        const listrTasks = pending.map((fp, idx) => ({
+          title: `[${idx + 1}/${total}] ${fp.file}`,
+          task: async (_ctx: unknown, listrTask: { title: string; output: string }) => {
+            if (interrupted) {
+              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — skipped`;
+              return;
             }
 
-            const outputName = toOutputName(filePath);
-            renderer.addResult(outputName, result.review.verdict);
-            renderer.updateProgress(i + 1, total, `reviewing ${filePath}`);
-          } catch (error) {
-            // If interrupted, don't count as error — just stop
-            if (interrupted) break;
-
-            const message = error instanceof AnatolyError ? error.message : String(error);
-            const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-
-            pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-            filesErrored++;
-            renderer.updateProgress(i + 1, total, `reviewing ${filePath}`);
-            renderer.incrementCounter('error');
-
-            if (error instanceof AnatolyError) {
-              renderer.log(`  [${errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error'}] ${error.formatForDisplay()}`);
-            } else {
-              renderer.log(`  [error] error: ${String(error)}`);
+            const task = taskMap.get(fp.file);
+            if (!task) {
+              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — skipped (no task)`;
+              return;
             }
-          } finally {
-            activeAbort = undefined;
-          }
-        }
 
-        renderer.stop();
+            pm.updateFileStatus(fp.file, 'IN_PROGRESS');
+            activeAbort = new AbortController();
+
+            try {
+              const result = await reviewFile(projectRoot, task, config, {}, activeAbort);
+              writeReviewOutput(projectRoot, result.review);
+              pm.updateFileStatus(fp.file, 'DONE');
+              filesReviewed++;
+
+              // Count findings
+              for (const s of result.review.symbols) {
+                if (s.utility === 'DEAD') totalFindings++;
+                if (s.duplication === 'DUPLICATE') totalFindings++;
+                if (s.overengineering === 'OVER') totalFindings++;
+                if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
+              }
+
+              const outputName = toOutputName(fp.file);
+              listrTask.title = `[${idx + 1}/${total}] ${outputName} — ${verdictColor(result.review.verdict)}`;
+            } catch (error) {
+              if (interrupted) return;
+
+              const message = error instanceof AnatolyError ? error.message : String(error);
+              const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+
+              pm.updateFileStatus(fp.file, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+              filesErrored++;
+
+              const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
+              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — ${chalk.red(label)}`;
+              throw error;
+            } finally {
+              activeAbort = undefined;
+            }
+          },
+          rendererOptions: { persistentOutput: true as const },
+        }));
+
+        const runner = new Listr(listrTasks, {
+          concurrent: false,
+          exitOnError: false,
+          renderer: plain ? 'simple' : 'default',
+          fallbackRenderer: 'simple',
+          rendererOptions: {
+            collapseSubtasks: false,
+            collapseErrors: false,
+            showErrorMessage: false,
+          },
+        });
+
+        await runner.run();
 
         if (interrupted) {
-          renderer.log(`interrupted — ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
+          console.log(`interrupted — ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
         } else {
           const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
           const logsDir = resolve(projectRoot, '.anatoly', 'logs');
-          renderer.showCompletion(
-            { reviewed: filesReviewed, findings: totalFindings, clean: filesReviewed - filesErrored },
-            { report: '', reviews: reviewsDir, logs: logsDir },
-          );
+          console.log('');
+          console.log(chalk.bold('review complete') + ` — ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
+          console.log('');
+          console.log(`  reviews      ${chalk.cyan(reviewsDir)}`);
+          console.log(`  transcripts  ${chalk.cyan(logsDir)}`);
         }
       } finally {
         process.removeListener('SIGINT', onSigint);
