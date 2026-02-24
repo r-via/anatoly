@@ -38,7 +38,7 @@
   },
   "homepage": "https://github.com/r-via/anatoly#readme",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.50",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.52",
     "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
     "cli-table3": "^0.6.5",
@@ -54,12 +54,12 @@
   "devDependencies": {
     "@commander-js/extra-typings": "^14.0.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.19.11",
-    "eslint": "^9.39.3",
+    "@types/node": "^25.3.0",
+    "eslint": "^10.0.2",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.56.0",
+    "typescript-eslint": "^8.56.1",
     "vitest": "^4.0.18"
   }
 }
