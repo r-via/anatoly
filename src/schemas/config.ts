@@ -69,10 +69,4 @@ export const ConfigSchema = z.object({
   output: OutputConfigSchema.default({}),
 });
 
-export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
-export type ScanConfig = z.infer<typeof ScanConfigSchema>;
-export type CoverageConfig = z.infer<typeof CoverageConfigSchema>;
-export type LlmConfig = z.infer<typeof LlmConfigSchema>;
-export type RagConfig = z.infer<typeof RagConfigSchema>;
-export type OutputConfig = z.infer<typeof OutputConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

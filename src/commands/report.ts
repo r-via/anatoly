@@ -21,36 +21,28 @@ export function registerReportCommand(program: Command): void {
       // Resolve run directory
       const runDir = resolveRunDir(projectRoot, cmdOpts.run);
 
-      if (runDir && existsSync(resolve(runDir, 'reviews'))) {
-        // Run-scoped mode: read reviews from run directory
-        const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
-        const errorFiles: string[] = [];
-        if (existsSync(progressPath)) {
-          const pm = new ProgressManager(projectRoot);
-          const progress = pm.getProgress();
-          for (const [, fp] of Object.entries(progress.files)) {
-            if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') {
-              errorFiles.push(fp.file);
-            }
+      // Collect error files from progress (shared by both modes)
+      const errorFiles: string[] = [];
+      const pm = new ProgressManager(projectRoot);
+      const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
+      if (existsSync(progressPath)) {
+        const progress = pm.getProgress();
+        for (const [, fp] of Object.entries(progress.files)) {
+          if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') {
+            errorFiles.push(fp.file);
           }
         }
+      }
 
+      if (runDir && existsSync(resolve(runDir, 'reviews'))) {
+        // Run-scoped mode: read reviews from run directory
         const { reportPath, data } = generateReport(projectRoot, errorFiles, runDir);
         printReportSummary(data, reportPath, resolve(runDir, 'reviews') + '/');
         if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/
-        const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
-        const errorFiles: string[] = [];
         if (existsSync(progressPath)) {
-          const pm = new ProgressManager(projectRoot);
           const summary = pm.getSummary();
-          const progress = pm.getProgress();
-          for (const [, fp] of Object.entries(progress.files)) {
-            if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') {
-              errorFiles.push(fp.file);
-            }
-          }
           if (summary.DONE === 0 && summary.CACHED === 0) {
             console.log(chalk.yellow('No completed reviews found. Run `anatoly run` first.'));
             return;

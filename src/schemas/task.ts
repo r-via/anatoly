@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const SymbolKindSchema = z.enum([
+export const SymbolKindSchema = z.enum([
   'function',
   'class',
   'method',
@@ -11,7 +11,7 @@ const SymbolKindSchema = z.enum([
   'hook',
 ]);
 
-const SymbolInfoSchema = z.object({
+export const SymbolInfoSchema = z.object({
   name: z.string(),
   kind: SymbolKindSchema,
   exported: z.boolean(),
@@ -19,7 +19,7 @@ const SymbolInfoSchema = z.object({
   line_end: z.int().min(1),
 });
 
-const CoverageDataSchema = z.object({
+export const CoverageDataSchema = z.object({
   statements_total: z.int().min(0),
   statements_covered: z.int().min(0),
   branches_total: z.int().min(0),
@@ -30,7 +30,7 @@ const CoverageDataSchema = z.object({
   lines_covered: z.int().min(0),
 });
 
-const TaskSchema = z.object({
+export const TaskSchema = z.object({
   version: z.literal(1),
   file: z.string(),
   hash: z.string(),

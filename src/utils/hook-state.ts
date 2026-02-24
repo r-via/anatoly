@@ -51,7 +51,7 @@ export function loadHookState(projectRoot: string): HookState {
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as HookState;
 
     // Validate structure
-    if (!raw.session_id || typeof raw.reviews !== 'object') {
+    if (!raw.session_id || typeof raw.reviews !== 'object' || raw.reviews === null) {
       return initHookState();
     }
 

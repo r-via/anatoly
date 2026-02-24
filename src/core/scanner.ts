@@ -15,6 +15,7 @@ const esmRequire = createRequire(import.meta.url);
 const DECLARATION_KINDS: Record<string, SymbolKind> = {
   function_declaration: 'function',
   class_declaration: 'class',
+  abstract_class_declaration: 'class',
   interface_declaration: 'type',
   type_alias_declaration: 'type',
   enum_declaration: 'enum',

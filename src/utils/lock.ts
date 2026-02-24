@@ -32,9 +32,11 @@ export function acquireLock(projectRoot: string): string {
       }
 
       // Stale lock — clean it up
+      unlinkSync(lockPath);
     } catch (error) {
       if (error instanceof AnatolyError) throw error;
       // Corrupted lock file — remove it
+      try { unlinkSync(lockPath); } catch { /* already gone */ }
     }
   }
 

@@ -12,7 +12,6 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport } from '../core/reporter.js';
-import { toOutputName } from '../utils/cache.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
@@ -210,8 +209,9 @@ async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
   const ragTasks = loadTasks(ctx.projectRoot);
   let ragResult: RagIndexResult | undefined;
 
+  const indexModelLabel = shortModelName(ctx.config.llm.index_model);
   const ragRunner = new Listr([{
-    title: `RAG index (haiku) — 0/${ragTasks.length}`,
+    title: `RAG index (${indexModelLabel}) — 0/${ragTasks.length}`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       ragResult = await indexProject({
         projectRoot: ctx.projectRoot,
@@ -221,7 +221,7 @@ async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
         concurrency: ctx.concurrency,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
-          listrTask.title = `RAG index (haiku) — ${current}/${total}`;
+          listrTask.title = `RAG index (${indexModelLabel}) — ${current}/${total}`;
         },
         isInterrupted: () => ctx.interrupted,
       });
@@ -302,8 +302,10 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
       try {
         const startTime = Date.now();
 
+        const maxRetries = 5;
         const result = await retryWithBackoff(
           async () => {
+            if (ctx.interrupted) throw new Error('interrupted');
             if (currentAbort.signal.aborted) {
               ctx.activeAborts.delete(currentAbort);
               currentAbort = new AbortController();
@@ -312,7 +314,7 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
             return reviewFile(ctx.projectRoot, task, ctx.config, promptOptions, currentAbort, ctx.runDir);
           },
           {
-            maxRetries: 5,
+            maxRetries,
             baseDelayMs: 5000,
             maxDelayMs: 120_000,
             jitterFactor: 0.2,
@@ -320,7 +322,7 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
             isInterrupted: () => ctx.interrupted,
             onRetry: (attempt, delayMs) => {
               const delaySec = (delayMs / 1000).toFixed(0);
-              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
+              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/${maxRetries})`;
             },
           },
         );
@@ -339,8 +341,7 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
           if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') ctx.totalFindings++;
         }
 
-        const outputName = toOutputName(filePath);
-        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${outputName} — ${verdictColor(result.review.verdict)}`;
+        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${verdictColor(result.review.verdict)}`;
 
         if (ctx.verbose) {
           const elapsed = (elapsedMs / 1000).toFixed(1);

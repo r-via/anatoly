@@ -110,15 +110,10 @@ export class VectorStore {
       .limit(limit)
       .toArray();
 
-    return results
-      .filter((row) => {
-        const score = distanceToCosineSimilarity(row._distance ?? 0);
-        return score >= minScore;
-      })
-      .map((row) => ({
-        card: rowToCard(row),
-        score: distanceToCosineSimilarity(row._distance ?? 0),
-      }));
+    return results.flatMap((row) => {
+      const score = distanceToCosineSimilarity(row._distance ?? 0);
+      return score >= minScore ? [{ card: rowToCard(row), score }] : [];
+    });
   }
 
   /**
@@ -242,7 +237,7 @@ function safeParseJsonArray(value: unknown): string[] {
   if (typeof value !== 'string') return [];
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
   } catch {
     return [];
   }

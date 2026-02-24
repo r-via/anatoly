@@ -24,6 +24,7 @@ const sampleReview: ReviewFile = {
       tests: 'GOOD',
       confidence: 90,
       detail: 'Well-structured function with clear naming.',
+      duplicate_target: undefined,
     },
     {
       name: 'unusedHelper',
@@ -155,6 +156,7 @@ describe('renderReviewMarkdown', () => {
           tests: 'GOOD',
           confidence: 95,
           detail: 'Clean function with proper tests.',
+          duplicate_target: undefined,
         },
       ],
       actions: [],

@@ -108,7 +108,6 @@ export async function reviewFile(
 
   const maxRetries = config.llm.max_retries;
   let totalCostUsd = 0;
-  let retries = 0;
 
   try {
     // Initial query
@@ -148,7 +147,6 @@ export async function reviewFile(
       }
 
       // Send Zod error feedback and retry
-      retries++;
       const feedback = formatRetryFeedback(validation.error, attempt, maxRetries);
       appendTranscript(`## Retry ${attempt}/${maxRetries}`);
       appendTranscript('');
@@ -234,7 +232,6 @@ async function runQuery(params: RunQueryParams): Promise<QueryResult> {
       ...(systemPrompt ? { systemPrompt } : {}),
       model,
       cwd: projectRoot,
-      tools: ['Read', 'Grep', 'Glob'],
       allowedTools: ['Read', 'Grep', 'Glob'],
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,

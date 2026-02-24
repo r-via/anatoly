@@ -45,24 +45,7 @@ export function formatResultLine(filename: string, verdict: Verdict, findings?: 
   const name = useColor ? chalk.dim(filename) : filename;
   const suffix = findings ? ` ${findings}` : '';
 
-  let verdictStr: string;
-  if (!useColor) {
-    verdictStr = verdict + suffix;
-  } else {
-    switch (verdict) {
-      case 'CLEAN':
-        verdictStr = chalk.green(verdict) + suffix;
-        break;
-      case 'NEEDS_REFACTOR':
-        verdictStr = chalk.yellow(verdict) + suffix;
-        break;
-      case 'CRITICAL':
-        verdictStr = chalk.red(verdict) + suffix;
-        break;
-      default:
-        verdictStr = verdict + suffix;
-    }
-  }
+  const verdictStr = (useColor ? verdictColor(verdict) : verdict) + suffix;
 
   return `${mark} ${name}  ${verdictStr}`;
 }

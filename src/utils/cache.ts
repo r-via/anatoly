@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { ProgressSchema } from '../schemas/progress.js';
 import type { Progress } from '../schemas/progress.js';
 
 /**
@@ -28,8 +29,12 @@ export function atomicWriteJson(filePath: string, data: unknown): void {
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
   const tmpPath = join(dir, `.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n');
-  renameSync(tmpPath, filePath);
+  try {
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n');
+    renameSync(tmpPath, filePath);
+  } finally {
+    try { unlinkSync(tmpPath); } catch { /* already renamed or cleaned */ }
+  }
 }
 
 /**
@@ -38,7 +43,8 @@ export function atomicWriteJson(filePath: string, data: unknown): void {
 export function readProgress(progressPath: string): Progress | null {
   try {
     const content = readFileSync(progressPath, 'utf-8');
-    return JSON.parse(content) as Progress;
+    const result = ProgressSchema.safeParse(JSON.parse(content));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
