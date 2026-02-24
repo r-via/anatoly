@@ -64,7 +64,7 @@ export function renderReviewMarkdown(review: ReviewFile): string {
       lines.push(`#### \`${s.name}\` (L${s.line_start}–L${s.line_end})`);
       lines.push('');
       lines.push(s.detail);
-      if (s.duplicate_target) {
+      if (s.duplicate_target?.file) {
         lines.push('');
         lines.push(`> **Duplicate of** \`${s.duplicate_target.file}:${s.duplicate_target.symbol}\` — ${s.duplicate_target.similarity}`);
       }
