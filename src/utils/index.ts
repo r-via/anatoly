@@ -12,3 +12,4 @@ export { createRenderer, buildProgressBar, formatCounterRow, formatResultLine, t
 export type { Renderer, RendererOptions, Counters } from './renderer.js';
 export { confirm, isInteractive } from './confirm.js';
 export { openFile } from './open.js';
+export { retryWithBackoff, isRateLimitError, calculateBackoff } from './rate-limiter.js';

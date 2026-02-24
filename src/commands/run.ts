@@ -16,6 +16,7 @@ import type { PromptOptions } from '../utils/prompt-builder.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { runWorkerPool } from '../core/worker-pool.js';
+import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 
 declare const PKG_VERSION: string;
@@ -196,12 +197,35 @@ export function registerRunCommand(program: Command): void {
               renderer.updateProgress(completedCount + 1, totalFiles, filePath);
               pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
-              const abort = new AbortController();
-              activeAborts.add(abort);
+              let currentAbort = new AbortController();
+              activeAborts.add(currentAbort);
 
               try {
                 const startTime = Date.now();
-                const result = await reviewFile(projectRoot, task, config, promptOptions, abort, runDir);
+
+                const result = await retryWithBackoff(
+                  async () => {
+                    // Create a fresh AbortController for each retry attempt
+                    if (currentAbort.signal.aborted) {
+                      activeAborts.delete(currentAbort);
+                      currentAbort = new AbortController();
+                      activeAborts.add(currentAbort);
+                    }
+                    return reviewFile(projectRoot, task, config, promptOptions, currentAbort, runDir);
+                  },
+                  {
+                    maxRetries: 5,
+                    baseDelayMs: 5000,
+                    maxDelayMs: 120_000,
+                    jitterFactor: 0.2,
+                    filePath,
+                    onRetry: (attempt, delayMs) => {
+                      const delaySec = (delayMs / 1000).toFixed(0);
+                      console.log(`  rate limited — retrying ${filePath} in ${delaySec}s (attempt ${attempt}/5)`);
+                    },
+                  },
+                );
+
                 const elapsedMs = Date.now() - startTime;
 
                 writeReviewOutput(projectRoot, result.review, runDir);
@@ -247,7 +271,7 @@ export function registerRunCommand(program: Command): void {
                 console.log(`  [${label}] ${filePath}: ${message}`);
                 if (hint) console.log(`    → ${hint}`);
               } finally {
-                activeAborts.delete(abort);
+                activeAborts.delete(currentAbort);
               }
             },
           });
