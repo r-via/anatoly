@@ -21,7 +21,7 @@ export function registerReviewCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const plain = parentOpts.plain === true || !process.stdout.isTTY;
-      const renderer = createRenderer({ plain });
+      const renderer = createRenderer({ plain, concurrency: 1 });
 
       // Acquire lock to prevent concurrent instances
       const lockPath = acquireLock(projectRoot);

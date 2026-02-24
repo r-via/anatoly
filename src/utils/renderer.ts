@@ -1,11 +1,16 @@
 import chalk from 'chalk';
-import ora from 'ora';
-import logUpdate from 'log-update';
+import {
+  cursorSavePosition,
+  cursorRestorePosition,
+  cursorHide,
+  cursorShow,
+} from 'ansi-escapes';
 import type { Verdict } from '../schemas/review.js';
 
 export interface RendererOptions {
   plain?: boolean;
   version?: string;
+  concurrency?: number;
 }
 
 export interface Counters {
@@ -133,11 +138,12 @@ export function truncatePath(filePath: string, maxLen: number): string {
 export function createRenderer(options: RendererOptions = {}): Renderer {
   const isPlain = options.plain ?? !process.stdout.isTTY;
   const version = options.version ?? 'unknown';
+  const concurrency = options.concurrency ?? 1;
 
   if (isPlain) {
     return createPlainRenderer(version);
   }
-  return createInteractiveRenderer(version);
+  return createPinnedRenderer(version, concurrency);
 }
 
 function createPlainRenderer(version: string): Renderer {
@@ -189,82 +195,185 @@ function createPlainRenderer(version: string): Renderer {
   };
 }
 
-function createInteractiveRenderer(version: string): Renderer {
+// ANSI escape helpers for scroll region control
+const ESC = '\x1b[';
+const setScrollRegion = (top: number, bottom: number) => `${ESC}${top};${bottom}r`;
+const resetScrollRegion = () => `${ESC}r`;
+const moveTo = (row: number, col: number) => `${ESC}${row};${col}H`;
+const eraseLine = `${ESC}2K`;
+const beginSync = '\x1b[?2026h';
+const endSync = '\x1b[?2026l';
+
+function createPinnedRenderer(_version: string, concurrency: number): Renderer {
   const counters: Counters = { dead: 0, duplicate: 0, overengineering: 0, error: 0 };
-  const results: string[] = [];
-  let spinner: ReturnType<typeof ora> | null = null;
+  const workerSlots = new Map<number, string>();
   let currentTotal = 0;
   let currentProgress = 0;
   let currentFile = '';
 
-  // Multi-file worker slots: workerIndex → filePath (null = idle)
-  const workerSlots = new Map<number, string>();
+  // Layout state
+  let pinnedLineCount = 0;
+  let scrollBottom = 0;
+  let active = false;
+  let termRows = 0;
+  let termCols = 0;
+  const maxWorkerDisplay = Math.min(concurrency, 6);
 
-  function renderFixedZone(): string {
-    const lines: string[] = [];
-    lines.push(chalk.bold(`anatoly v${version}`));
-    lines.push('');
+  const stdout = process.stdout;
 
-    // Multi-file mode: show worker slots
-    if (workerSlots.size > 0) {
-      const sortedSlots = [...workerSlots.entries()].sort((a, b) => a[0] - b[0]);
-      for (const [idx, filePath] of sortedSlots) {
-        lines.push(`  [${idx + 1}] reviewing ${chalk.cyan(filePath)}`);
-      }
-    } else if (currentFile) {
-      // Single-file fallback
-      lines.push(`  ⠋ reviewing ${chalk.cyan(currentFile)}`);
-    }
-
-    const bar = buildProgressBar(currentProgress, currentTotal);
-    lines.push(`  progress ${bar}  ${currentProgress}/${currentTotal}`);
-    lines.push('');
-    lines.push(`  ${formatCounterRow(counters)}`);
-
-    return lines.join('\n');
+  function getTermSize(): { rows: number; cols: number } {
+    return {
+      rows: stdout.rows || 24,
+      cols: stdout.columns || 80,
+    };
   }
 
-  function render() {
-    const fixedZone = renderFixedZone();
-    // Flow zone: last N results that fit
-    const flowLines = results.slice(-15);
-    const flowZone = flowLines.length > 0 ? '\n' + flowLines.join('\n') : '';
-    logUpdate(fixedZone + flowZone);
+  function setupLayout(): void {
+    const size = getTermSize();
+    termRows = size.rows;
+    termCols = size.cols;
+
+    // K = separator(1) + worker slots + progress(1) + counters(1)
+    pinnedLineCount = 1 + maxWorkerDisplay + 1 + 1;
+
+    // Degrade if terminal is too small
+    if (termRows <= pinnedLineCount + 3) {
+      pinnedLineCount = 3; // separator + progress + counters only
+    }
+
+    scrollBottom = termRows - pinnedLineCount;
+
+    let out = '';
+    // Push content up to make room for pinned area
+    out += '\n'.repeat(pinnedLineCount);
+    out += cursorHide;
+    out += setScrollRegion(1, scrollBottom);
+    out += moveTo(scrollBottom, 1);
+    stdout.write(out);
+
+    drawPinnedArea();
+  }
+
+  function drawPinnedArea(): void {
+    if (!active) return;
+
+    let out = beginSync;
+    out += cursorSavePosition;
+
+    const startRow = scrollBottom + 1;
+    const workerLineCount = pinnedLineCount - 3; // subtract separator, progress, counters
+
+    // Separator
+    out += moveTo(startRow, 1) + eraseLine;
+    out += chalk.dim('─'.repeat(termCols));
+
+    // Worker slots (or single-file fallback)
+    let row = startRow + 1;
+    if (workerLineCount > 0) {
+      if (workerSlots.size > 0) {
+        const sortedSlots = [...workerSlots.entries()].sort((a, b) => a[0] - b[0]);
+        for (let i = 0; i < workerLineCount; i++) {
+          out += moveTo(row + i, 1) + eraseLine;
+          if (i < sortedSlots.length) {
+            const [idx, filePath] = sortedSlots[i];
+            const truncated = truncatePath(filePath, termCols - 20);
+            out += `  [${idx + 1}] reviewing ${chalk.cyan(truncated)}`;
+          }
+        }
+      } else if (currentFile) {
+        out += moveTo(row, 1) + eraseLine;
+        out += `  ⠋ reviewing ${chalk.cyan(truncatePath(currentFile, termCols - 20))}`;
+        for (let i = 1; i < workerLineCount; i++) {
+          out += moveTo(row + i, 1) + eraseLine;
+        }
+      } else {
+        for (let i = 0; i < workerLineCount; i++) {
+          out += moveTo(row + i, 1) + eraseLine;
+        }
+      }
+    }
+
+    // Progress bar
+    const progressRow = startRow + 1 + workerLineCount;
+    const bar = buildProgressBar(currentProgress, currentTotal);
+    out += moveTo(progressRow, 1) + eraseLine;
+    out += `  progress ${bar}  ${currentProgress}/${currentTotal}`;
+
+    // Counters
+    const counterRow = progressRow + 1;
+    out += moveTo(counterRow, 1) + eraseLine;
+    out += `  ${formatCounterRow(counters)}`;
+
+    out += cursorRestorePosition;
+    out += endSync;
+    stdout.write(out);
+  }
+
+  function writeToScrollRegion(text: string): void {
+    if (!active) return;
+    let out = cursorSavePosition;
+    out += moveTo(scrollBottom, 1);
+    out += '\n' + text;
+    out += cursorRestorePosition;
+    stdout.write(out);
+  }
+
+  function onResize(): void {
+    if (!active) return;
+    const size = getTermSize();
+    termRows = size.rows;
+    termCols = size.cols;
+    scrollBottom = termRows - pinnedLineCount;
+
+    let out = resetScrollRegion();
+    out += setScrollRegion(1, scrollBottom);
+    out += moveTo(scrollBottom, 1);
+    stdout.write(out);
+    drawPinnedArea();
+  }
+
+  function cleanup(): void {
+    if (!active) return;
+    active = false;
+    stdout.removeListener('resize', onResize);
+
+    let out = resetScrollRegion();
+    out += moveTo(termRows, 1);
+    out += '\n';
+    out += cursorShow;
+    stdout.write(out);
   }
 
   return {
     start(total: number) {
       currentTotal = total;
-      spinner = ora({ text: '', spinner: 'dots', stream: process.stderr });
-      spinner.start();
-      render();
+      currentProgress = 0;
+      currentFile = '';
+      workerSlots.clear();
+      active = true;
+      setupLayout();
+      stdout.on('resize', onResize);
     },
 
     updateProgress(current: number, total: number, file: string) {
       currentProgress = current;
       currentTotal = total;
       currentFile = file;
-      render();
+      drawPinnedArea();
     },
 
     addResult(filename: string, verdict: Verdict, findings?: string) {
-      results.push('  ' + formatResultLine(filename, verdict, findings));
-      render();
+      writeToScrollRegion('  ' + formatResultLine(filename, verdict, findings));
     },
 
     incrementCounter(key: keyof Counters, amount: number = 1) {
       counters[key] += amount;
-      render();
+      drawPinnedArea();
     },
 
     showCompletion(stats, paths) {
-      if (spinner) {
-        spinner.stop();
-        spinner = null;
-      }
-      logUpdate.clear();
-
-      console.log(chalk.bold(`review complete`) + ` — ${stats.reviewed} files | ${stats.findings} findings | ${stats.clean} clean`);
+      cleanup();
+      console.log(chalk.bold('review complete') + ` — ${stats.reviewed} files | ${stats.findings} findings | ${stats.clean} clean`);
       console.log('');
       console.log(`  report       ${chalk.cyan(paths.report)}`);
       console.log(`  reviews      ${chalk.cyan(paths.reviews)}`);
@@ -272,27 +381,21 @@ function createInteractiveRenderer(version: string): Renderer {
     },
 
     stop() {
-      if (spinner) {
-        spinner.stop();
-        spinner = null;
-      }
-      logUpdate.clear();
+      cleanup();
     },
 
     updateWorkerSlot(workerIndex: number, filePath: string) {
       workerSlots.set(workerIndex, filePath);
-      render();
+      drawPinnedArea();
     },
 
     clearWorkerSlot(workerIndex: number) {
       workerSlots.delete(workerIndex);
-      render();
+      drawPinnedArea();
     },
 
     log(message: string) {
-      logUpdate.clear();
-      console.log(message);
-      render();
+      writeToScrollRegion(message);
     },
   };
 }

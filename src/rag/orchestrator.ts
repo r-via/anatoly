@@ -16,6 +16,7 @@ export interface RagIndexOptions {
   rebuild?: boolean;
   concurrency?: number;
   onLog: (message: string) => void;
+  onProgress?: (current: number, total: number) => void;
   isInterrupted: () => boolean;
 }
 
@@ -76,7 +77,7 @@ export async function processFileForIndex(
  * Returns the initialized VectorStore and indexing stats.
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, indexModel, rebuild, concurrency = 4, onLog, isInterrupted } = options;
+  const { projectRoot, tasks, indexModel, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
 
   setEmbeddingLogger(onLog);
 
@@ -127,6 +128,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       if (result.cards.length > 0) {
         results.push(result);
       }
+      onProgress?.(fileCounter, tasksWithFunctions.length);
     },
   });
 

@@ -63,6 +63,7 @@ export function registerRunCommand(program: Command): void {
       const renderer = createRenderer({
         plain: isPlain,
         version: pkgVersion,
+        concurrency,
       });
 
       let lockPath: string | undefined;
@@ -138,17 +139,22 @@ export function registerRunCommand(program: Command): void {
         let promptOptions: PromptOptions = { ragEnabled: enableRag };
 
         if (enableRag) {
-          console.log('anatoly — rag index (haiku)');
+          const ragTasks = loadTasks(projectRoot);
+          renderer.start(ragTasks.length);
+          renderer.log('anatoly — rag index (haiku)');
+
           const ragResult = await indexProject({
             projectRoot,
-            tasks: loadTasks(projectRoot),
+            tasks: ragTasks,
             indexModel: config.llm.index_model,
             rebuild: rebuildRag,
             concurrency,
-            onLog: (msg) => console.log(`  ${msg}`),
+            onLog: (msg) => renderer.log(`  ${msg}`),
+            onProgress: (current, total) => renderer.updateProgress(current, total, 'rag index'),
             isInterrupted: () => interrupted,
           });
 
+          renderer.stop();
           console.log(`  cards indexed  ${ragResult.cardsIndexed} new / ${ragResult.totalCards} total`);
           console.log(`  files          ${ragResult.filesIndexed} new / ${ragResult.totalFiles} total`);
           console.log('');
