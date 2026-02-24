@@ -95,12 +95,13 @@ export function registerRunCommand(program: Command): void {
       try {
         // Display launch parameters
         console.log(chalk.bold(`anatoly v${pkgVersion}`));
-        console.log(`  model        ${config.llm.model}`);
-        console.log(`  concurrency  ${concurrency}`);
-        console.log(`  rag          ${enableRag ? 'on' : 'off'}`);
-        console.log(`  cache        ${noCache ? 'off' : 'on'}`);
-        if (fileFilter) console.log(`  file filter  ${fileFilter}`);
-        console.log(`  run id       ${runId}`);
+        console.log(`  model          ${config.llm.model}`);
+        console.log(`  index model    ${config.llm.index_model}`);
+        console.log(`  concurrency    ${concurrency}`);
+        console.log(`  rag            ${enableRag ? 'on' : 'off'}`);
+        console.log(`  cache          ${noCache ? 'off' : 'on'}`);
+        if (fileFilter) console.log(`  file filter    ${fileFilter}`);
+        console.log(`  run id         ${runId}`);
         console.log('');
 
         // Phase 1: SCAN
@@ -141,6 +142,7 @@ export function registerRunCommand(program: Command): void {
           const ragResult = await indexProject({
             projectRoot,
             tasks: loadTasks(projectRoot),
+            indexModel: config.llm.index_model,
             rebuild: rebuildRag,
             onLog: (msg) => console.log(`  ${msg}`),
             isInterrupted: () => interrupted,

@@ -23,6 +23,7 @@ export const CoverageConfigSchema = z.object({
 
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-20250514'),
+  index_model: z.string().default('claude-haiku-4-5-20251001'),
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(180),
   max_retries: z.int().min(1).max(10).default(3),
@@ -52,6 +53,7 @@ export const ConfigSchema = z.object({
   }),
   llm: LlmConfigSchema.default({
     model: 'claude-sonnet-4-20250514',
+    index_model: 'claude-haiku-4-5-20251001',
     agentic_tools: true,
     timeout_per_file: 180,
     max_retries: 3,

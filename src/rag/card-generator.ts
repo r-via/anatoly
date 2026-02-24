@@ -8,19 +8,18 @@ import { FunctionCardLLMOutputSchema } from './types.js';
 import { z } from 'zod';
 import { extractJson } from '../utils/extract-json.js';
 
-const CARD_MODEL = 'claude-haiku-4-5-20251001';
-
 const CardResponseSchema = z.object({
   function_cards: z.array(FunctionCardLLMOutputSchema),
 });
 
 /**
- * Generate FunctionCards for all functions/methods/hooks in a file using Haiku.
+ * Generate FunctionCards for all functions/methods/hooks in a file.
  * This is a fast, cheap call — no tools, just prompt → JSON.
  */
 export async function generateFunctionCards(
   projectRoot: string,
   task: Task,
+  model: string,
 ): Promise<FunctionCardLLMOutput[]> {
   const functionSymbols = task.symbols.filter(
     (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
@@ -61,7 +60,7 @@ ${source}
       prompt: userPrompt,
       options: {
         systemPrompt,
-        model: CARD_MODEL,
+        model,
         maxTurns: 1,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,

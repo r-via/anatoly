@@ -9,6 +9,7 @@ import { setEmbeddingLogger } from './embeddings.js';
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
+  indexModel: string;
   rebuild?: boolean;
   onLog: (message: string) => void;
   isInterrupted: () => boolean;
@@ -29,7 +30,7 @@ export interface RagIndexResult {
  * Returns the initialized VectorStore and indexing stats.
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, rebuild, onLog, isInterrupted } = options;
+  const { projectRoot, tasks, indexModel, rebuild, onLog, isInterrupted } = options;
 
   setEmbeddingLogger(onLog);
 
@@ -53,7 +54,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     onLog(`[${i + 1}/${tasksWithFunctions.length}] ${task.file}`);
 
     try {
-      const llmCards = await generateFunctionCards(projectRoot, task);
+      const llmCards = await generateFunctionCards(projectRoot, task, indexModel);
       if (llmCards.length > 0) {
         const absPath = resolve(projectRoot, task.file);
         const source = readFileSync(absPath, 'utf-8');
