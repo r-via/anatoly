@@ -148,6 +148,27 @@ export class VectorStore {
   }
 
   /**
+   * List all cards (without embedding vectors).
+   */
+  async listAll(): Promise<FunctionCard[]> {
+    if (!this.table) return [];
+    const rows = await this.table
+      .query()
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed'])
+      .toArray();
+    return rows.map(rowToCard);
+  }
+
+  /**
+   * Find cards by function name (case-insensitive substring match).
+   */
+  async searchByName(name: string): Promise<FunctionCard[]> {
+    const all = await this.listAll();
+    const lower = name.toLowerCase();
+    return all.filter((c) => c.name.toLowerCase().includes(lower));
+  }
+
+  /**
    * Delete all cards for a given file path.
    */
   async deleteByFile(filePath: string): Promise<void> {

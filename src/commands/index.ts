@@ -7,3 +7,4 @@ export { registerWatchCommand } from './watch.js';
 export { registerStatusCommand } from './status.js';
 export { registerCleanLogsCommand } from './clean-logs.js';
 export { registerResetCommand } from './reset.js';
+export { registerRagStatusCommand } from './rag-status.js';

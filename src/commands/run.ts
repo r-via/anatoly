@@ -43,9 +43,15 @@ export function registerRunCommand(program: Command): void {
       let totalFindings = 0;
       let totalFiles = 0;
 
-      // SIGINT handler for graceful shutdown
+      // SIGINT handler: first Ctrl+C → graceful shutdown, second → force exit
       const onSigint = () => {
+        if (interrupted) {
+          console.log('\nforce exit');
+          if (lockPath) releaseLock(lockPath);
+          process.exit(1);
+        }
         interrupted = true;
+        console.log('\ninterrupting… press Ctrl+C again to force exit');
       };
       process.on('SIGINT', onSigint);
 
