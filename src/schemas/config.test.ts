@@ -8,7 +8,7 @@ describe('ConfigSchema', () => {
     expect(config.scan.include).toEqual(['src/**/*.ts', 'src/**/*.tsx']);
     expect(config.scan.exclude).toContain('node_modules/**');
     expect(config.coverage.enabled).toBe(true);
-    expect(config.llm.timeout_per_file).toBe(180);
+    expect(config.llm.timeout_per_file).toBe(600);
     expect(config.llm.max_retries).toBe(3);
   });
 

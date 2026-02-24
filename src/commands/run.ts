@@ -104,9 +104,7 @@ export function registerRunCommand(program: Command): void {
       process.on('SIGINT', onSigint);
 
       try {
-        printBanner(ctx);
-        await runScanPhase(ctx);
-        const estimate = runEstimatePhase(ctx);
+        const estimate = await runSetupPhase(ctx);
         if (ctx.interrupted) {
           console.log(`interrupted — 0/${estimate.files} files reviewed | 0 findings`);
           return;
@@ -143,41 +141,65 @@ export function registerRunCommand(program: Command): void {
     });
 }
 
-function printBanner(ctx: RunContext): void {
+function shortModelName(model: string): string {
+  return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+}
+
+async function runSetupPhase(ctx: RunContext): Promise<{ files: number }> {
   console.log(chalk.bold(`anatoly v${pkgVersion}`));
-  console.log(`  model          ${ctx.config.llm.model}`);
-  console.log(`  index model    ${ctx.config.llm.index_model}`);
-  console.log(`  concurrency    ${ctx.concurrency}`);
-  console.log(`  rag            ${ctx.enableRag ? 'on' : 'off'}`);
-  console.log(`  cache          ${ctx.noCache ? 'off' : 'on'}`);
-  if (ctx.fileFilter) console.log(`  file filter    ${ctx.fileFilter}`);
-  console.log(`  run id         ${ctx.runId}`);
-  console.log('');
-}
 
-async function runScanPhase(ctx: RunContext): Promise<void> {
-  const scanResult = await scanProject(ctx.projectRoot, ctx.config);
-  console.log(`anatoly — scan`);
-  console.log(`  files     ${scanResult.filesScanned}`);
-  if (ctx.verbose) {
-    console.log(`  new       ${scanResult.filesNew}`);
-    console.log(`  cached    ${scanResult.filesCached}`);
-  }
-  console.log('');
-}
+  let estimateFiles = 0;
 
-function runEstimatePhase(ctx: RunContext): { files: number } {
-  const estimate = estimateProject(ctx.projectRoot);
-  console.log('anatoly — estimate');
-  console.log(`  files        ${estimate.files}`);
-  console.log(`  symbols      ${estimate.symbols}`);
-  console.log(`  est. tokens  ${formatTokenCount(estimate.inputTokens)} input / ${formatTokenCount(estimate.outputTokens)} output`);
-  const timeLabel = ctx.concurrency > 1
-    ? `~${Math.ceil(estimate.estimatedMinutes / ctx.concurrency)} min (×${ctx.concurrency})`
-    : `~${estimate.estimatedMinutes} min (sequential)`;
-  console.log(`  est. time    ${timeLabel}`);
-  console.log('');
-  return { files: estimate.files };
+  const setupRunner = new Listr([
+    {
+      title: 'config',
+      task: (_c: unknown, listrTask: { title: string }) => {
+        const parts = [
+          shortModelName(ctx.config.llm.model),
+          `concurrency ${ctx.concurrency}`,
+          `rag ${ctx.enableRag ? 'on' : 'off'}`,
+          `cache ${ctx.noCache ? 'off' : 'on'}`,
+        ];
+        if (ctx.fileFilter) parts.push(`filter ${ctx.fileFilter}`);
+        parts.push(`run ${ctx.runId}`);
+
+        listrTask.title = `config \u2014 ${parts.join(' \u00b7 ')}`;
+      },
+    },
+    {
+      title: 'scan',
+      task: async (_c: unknown, listrTask: { title: string; output: string }) => {
+        const scanResult = await scanProject(ctx.projectRoot, ctx.config);
+        listrTask.title = `scan \u2014 ${scanResult.filesScanned} files`;
+
+        if (ctx.verbose) {
+          listrTask.output = `${scanResult.filesNew} new / ${scanResult.filesCached} cached`;
+        }
+      },
+      rendererOptions: { persistentOutput: !!ctx.verbose },
+    },
+    {
+      title: 'estimate',
+      task: (_c: unknown, listrTask: { title: string }) => {
+        const estimate = estimateProject(ctx.projectRoot);
+        estimateFiles = estimate.files;
+
+        const timeLabel = ctx.concurrency > 1
+          ? `~${Math.ceil(estimate.estimatedMinutes / ctx.concurrency)} min (\u00d7${ctx.concurrency})`
+          : `~${estimate.estimatedMinutes} min (sequential)`;
+
+        listrTask.title = `estimate \u2014 ${estimate.files} files \u00b7 ${estimate.symbols} symbols \u00b7 ${formatTokenCount(estimate.inputTokens)} in / ${formatTokenCount(estimate.outputTokens)} out \u00b7 ${timeLabel}`;
+      },
+    },
+  ], {
+    concurrent: false,
+    renderer: ctx.plain ? 'simple' : 'default',
+    fallbackRenderer: 'simple',
+  });
+
+  await setupRunner.run();
+
+  return { files: estimateFiles };
 }
 
 async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
