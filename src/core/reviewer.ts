@@ -26,6 +26,30 @@ interface QueryResult {
 }
 
 /**
+ * Pre-resolve RAG similarity results for all function symbols in a task.
+ */
+async function preResolveRag(task: Task, promptOptions: PromptOptions): Promise<PromptOptions> {
+  if (!promptOptions.ragEnabled || !promptOptions.vectorStore) return promptOptions;
+
+  const functionSymbols = task.symbols.filter(
+    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+  );
+
+  const preResolved: PreResolvedRag = [];
+  for (const symbol of functionSymbols) {
+    const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
+    try {
+      const results = await promptOptions.vectorStore.searchById(functionId);
+      preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
+    } catch {
+      preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results: null });
+    }
+  }
+
+  return { ...promptOptions, preResolvedRag: preResolved };
+}
+
+/**
  * Review a single file using the Claude Agent SDK.
  * Builds the system prompt, invokes the agent, streams the transcript,
  * validates the response with Zod, and retries up to max_retries times
@@ -39,39 +63,9 @@ export async function reviewFile(
   externalAbort?: AbortController,
   runDir?: string,
 ): Promise<ReviewResult> {
-  // Pre-resolve RAG similarity results BEFORE building the system prompt
-  if (promptOptions.ragEnabled && promptOptions.vectorStore) {
-    const functionSymbols = task.symbols.filter(
-      (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
-    );
-
-    const preResolved: PreResolvedRag = [];
-    for (const symbol of functionSymbols) {
-      const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
-      try {
-        const results = await promptOptions.vectorStore.searchById(functionId);
-        preResolved.push({
-          symbolName: symbol.name,
-          lineStart: symbol.line_start,
-          lineEnd: symbol.line_end,
-          results,
-        });
-      } catch {
-        // Unexpected error (DB corruption, etc.) — mark as null
-        preResolved.push({
-          symbolName: symbol.name,
-          lineStart: symbol.line_start,
-          lineEnd: symbol.line_end,
-          results: null,
-        });
-      }
-    }
-
-    promptOptions = { ...promptOptions, preResolvedRag: preResolved };
-  }
-
-  const systemPrompt = buildSystemPrompt(task, promptOptions);
-  const userPrompt = buildUserPrompt(task, promptOptions);
+  const resolvedOptions = await preResolveRag(task, promptOptions);
+  const systemPrompt = buildSystemPrompt(task, resolvedOptions);
+  const userPrompt = buildUserPrompt(task, resolvedOptions);
 
   const logsDir = runDir ? join(runDir, 'logs') : join(projectRoot, '.anatoly', 'logs');
   mkdirSync(logsDir, { recursive: true });
