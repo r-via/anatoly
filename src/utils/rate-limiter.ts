@@ -13,6 +13,8 @@ export interface RetryWithBackoffOptions {
   onRetry?: (attempt: number, delayMs: number, filePath: string) => void;
   /** File path for error messages. */
   filePath: string;
+  /** Called to check whether to abort retries early (e.g. SIGINT). */
+  isInterrupted?: () => boolean;
 }
 
 /**
@@ -55,12 +57,15 @@ export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: RetryWithBackoffOptions,
 ): Promise<T> {
-  const { maxRetries, baseDelayMs, maxDelayMs, jitterFactor, onRetry, filePath } = options;
+  const { maxRetries, baseDelayMs, maxDelayMs, jitterFactor, onRetry, filePath, isInterrupted } = options;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
+      // If interrupted, stop retrying immediately
+      if (isInterrupted?.()) throw error;
+
       if (!isRateLimitError(error) || attempt === maxRetries) {
         // Not a rate limit error or exhausted retries
         if (isRateLimitError(error) && attempt === maxRetries) {
@@ -76,7 +81,10 @@ export async function retryWithBackoff<T>(
 
       const delayMs = calculateBackoff(attempt, baseDelayMs, maxDelayMs, jitterFactor);
       onRetry?.(attempt + 1, delayMs, filePath);
-      await sleep(delayMs);
+      await sleep(delayMs, isInterrupted);
+
+      // Re-check after sleep in case we were interrupted during wait
+      if (isInterrupted?.()) throw error;
     }
   }
 
@@ -84,6 +92,20 @@ export async function retryWithBackoff<T>(
   throw new Error('unreachable');
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, isInterrupted?: () => boolean): Promise<void> {
+  if (!isInterrupted) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  // Poll every 250ms so Ctrl+C is detected quickly during long backoff waits
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (isInterrupted() || Date.now() - start >= ms) {
+        resolve();
+        return;
+      }
+      setTimeout(check, 250);
+    };
+    check();
+  });
 }

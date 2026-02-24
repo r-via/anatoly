@@ -25,11 +25,20 @@ export function registerReviewCommand(program: Command): void {
       let filesErrored = 0;
       let interrupted = false;
 
-      // SIGINT handler for graceful shutdown
+      // Track active AbortController for the current review
+      let activeAbort: AbortController | undefined;
+
+      // SIGINT handler: first Ctrl+C → graceful shutdown + abort, second → force exit
       const onSigint = () => {
+        if (interrupted) {
+          console.log(`\n${chalk.red.bold('force exit')}`);
+          releaseLock(lockPath);
+          process.exit(1);
+        }
         interrupted = true;
+        activeAbort?.abort();
         console.log('');
-        console.log(`${chalk.yellow.bold('⚠ shutting down…')} finishing current file then stopping`);
+        console.log(`${chalk.yellow.bold('⚠ shutting down…')} press Ctrl+C again to force exit`);
       };
       process.on('SIGINT', onSigint);
 
@@ -74,9 +83,10 @@ export function registerReviewCommand(program: Command): void {
           }
 
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
+          activeAbort = new AbortController();
 
           try {
-            const result = await reviewFile(projectRoot, task, config);
+            const result = await reviewFile(projectRoot, task, config, {}, activeAbort);
             const { jsonPath, mdPath } = writeReviewOutput(projectRoot, result.review);
 
             pm.updateFileStatus(filePath, 'DONE');
@@ -87,6 +97,9 @@ export function registerReviewCommand(program: Command): void {
             console.log(`         ${jsonPath}`);
             console.log(`         ${mdPath}`);
           } catch (error) {
+            // If interrupted, don't count as error — just stop
+            if (interrupted) break;
+
             const message = error instanceof AnatolyError ? error.message : String(error);
             const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
 
@@ -98,6 +111,8 @@ export function registerReviewCommand(program: Command): void {
             } else {
               console.log(`  [error] error: ${String(error)}`);
             }
+          } finally {
+            activeAbort = undefined;
           }
         }
 

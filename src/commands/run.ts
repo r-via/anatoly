@@ -235,6 +235,7 @@ export function registerRunCommand(program: Command): void {
                     maxDelayMs: 120_000,
                     jitterFactor: 0.2,
                     filePath,
+                    isInterrupted: () => interrupted,
                     onRetry: (attempt, delayMs) => {
                       const delaySec = (delayMs / 1000).toFixed(0);
                       console.log(`  rate limited — retrying ${filePath} in ${delaySec}s (attempt ${attempt}/5)`);
