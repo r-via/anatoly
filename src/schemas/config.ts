@@ -26,6 +26,7 @@ export const LlmConfigSchema = z.object({
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(180),
   max_retries: z.int().min(1).max(10).default(3),
+  concurrency: z.int().min(1).max(10).default(1),
 });
 
 export const RagConfigSchema = z.object({
@@ -54,6 +55,7 @@ export const ConfigSchema = z.object({
     agentic_tools: true,
     timeout_per_file: 180,
     max_retries: 3,
+    concurrency: 1,
   }),
   rag: RagConfigSchema.default({
     enabled: false,

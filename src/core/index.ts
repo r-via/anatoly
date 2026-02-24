@@ -8,3 +8,5 @@ export { ProgressManager } from './progress-manager.js';
 export { writeReviewOutput, renderReviewMarkdown } from './review-writer.js';
 export { loadReviews, computeGlobalVerdict, aggregateReviews, renderReport, generateReport } from './reporter.js';
 export type { ReportData } from './reporter.js';
+export { runWorkerPool } from './worker-pool.js';
+export type { WorkerPoolOptions, WorkerPoolResult } from './worker-pool.js';

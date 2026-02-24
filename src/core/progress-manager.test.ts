@@ -78,13 +78,14 @@ describe('ProgressManager', () => {
     expect(summary.IN_PROGRESS).toBe(0);
   });
 
-  it('should update file status atomically', () => {
+  it('should update file status atomically', async () => {
     makeProgress(tempDir, {
       'src/a.ts': { status: 'PENDING' },
     });
 
     const pm = new ProgressManager(tempDir);
     pm.updateFileStatus('src/a.ts', 'IN_PROGRESS');
+    await pm.flush();
 
     // Re-read from disk to verify atomic write
     const pm2 = new ProgressManager(tempDir);
@@ -92,13 +93,14 @@ describe('ProgressManager', () => {
     expect(files['src/a.ts'].status).toBe('IN_PROGRESS');
   });
 
-  it('should update file status with error message', () => {
+  it('should update file status with error message', async () => {
     makeProgress(tempDir, {
       'src/a.ts': { status: 'IN_PROGRESS' },
     });
 
     const pm = new ProgressManager(tempDir);
     pm.updateFileStatus('src/a.ts', 'ERROR', 'Zod validation failed');
+    await pm.flush();
 
     const pm2 = new ProgressManager(tempDir);
     const file = pm2.getProgress().files['src/a.ts'];

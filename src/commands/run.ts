@@ -15,6 +15,8 @@ import { indexProject } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
+import { runWorkerPool } from '../core/worker-pool.js';
+import type { Task } from '../schemas/task.js';
 
 declare const PKG_VERSION: string;
 const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
@@ -36,6 +38,17 @@ export function registerRunCommand(program: Command): void {
       const shouldOpen = parentOpts.open as boolean | undefined;
       const verbose = parentOpts.verbose as boolean | undefined;
 
+      // Resolve concurrency: CLI flag > config > default 1
+      const cliConcurrency = parentOpts.concurrency as number | undefined;
+      const concurrency = cliConcurrency ?? config.llm.concurrency;
+
+      // Validate concurrency range
+      if (concurrency < 1 || concurrency > 10 || !Number.isInteger(concurrency)) {
+        console.error('error: --concurrency must be between 1 and 10');
+        process.exitCode = 2;
+        return;
+      }
+
       // Resolve run ID and create run-scoped output directory
       const runId = cmdOpts.runId ?? generateRunId();
       if (cmdOpts.runId && !isValidRunId(cmdOpts.runId)) {
@@ -55,7 +68,9 @@ export function registerRunCommand(program: Command): void {
       let filesReviewed = 0;
       let totalFindings = 0;
       let totalFiles = 0;
-      let activeAbort: AbortController | undefined;
+
+      // Track all active AbortControllers for concurrent reviews
+      const activeAborts = new Set<AbortController>();
 
       // SIGINT handler: first Ctrl+C → graceful shutdown, second → force exit
       const onSigint = () => {
@@ -65,7 +80,10 @@ export function registerRunCommand(program: Command): void {
           process.exit(1);
         }
         interrupted = true;
-        if (activeAbort) activeAbort.abort();
+        // Abort all in-flight reviews
+        for (const ac of activeAborts) {
+          ac.abort();
+        }
         console.log('\ninterrupting… press Ctrl+C again to force exit');
       };
       process.on('SIGINT', onSigint);
@@ -87,7 +105,10 @@ export function registerRunCommand(program: Command): void {
         console.log(`  files        ${estimate.files}`);
         console.log(`  symbols      ${estimate.symbols}`);
         console.log(`  est. tokens  ${formatTokenCount(estimate.inputTokens)} input / ${formatTokenCount(estimate.outputTokens)} output`);
-        console.log(`  est. time    ~${estimate.estimatedMinutes} min (sequential)`);
+        const timeLabel = concurrency > 1
+          ? `~${Math.ceil(estimate.estimatedMinutes / concurrency)} min (×${concurrency})`
+          : `~${estimate.estimatedMinutes} min (sequential)`;
+        console.log(`  est. time    ${timeLabel}`);
         console.log('');
 
         if (interrupted) {
@@ -148,77 +169,99 @@ export function registerRunCommand(program: Command): void {
           console.log('');
         } else {
           totalFiles = pending.length;
-          renderer.start(totalFiles);
 
-          for (let i = 0; i < pending.length; i++) {
-            if (interrupted) break;
-
-            const fileProgress = pending[i];
-            const filePath = fileProgress.file;
-            const allTasks = loadTasks(projectRoot);
-            const task = allTasks.find((t) => t.file === filePath);
-
-            if (!task) continue;
-
-            renderer.updateProgress(i + 1, totalFiles, filePath);
-            pm.updateFileStatus(filePath, 'IN_PROGRESS');
-
-            try {
-              activeAbort = new AbortController();
-              const startTime = Date.now();
-              const result = await reviewFile(projectRoot, task, config, promptOptions, activeAbort, runDir);
-              const elapsedMs = Date.now() - startTime;
-              activeAbort = undefined;
-              writeReviewOutput(projectRoot, result.review, runDir);
-              pm.updateFileStatus(filePath, 'DONE');
-              filesReviewed++;
-
-              // Count findings and update counters
-              const outputName = toOutputName(filePath) + '.rev.md';
-              let findingsSummary: string | undefined;
-
-              for (const s of result.review.symbols) {
-                if (s.utility === 'DEAD') { renderer.incrementCounter('dead'); totalFindings++; }
-                if (s.duplication === 'DUPLICATE') { renderer.incrementCounter('duplicate'); totalFindings++; }
-                if (s.overengineering === 'OVER') { renderer.incrementCounter('overengineering'); totalFindings++; }
-                if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') { renderer.incrementCounter('error'); totalFindings++; }
-              }
-
-              // Build findings summary for result line
-              const dead = result.review.symbols.filter((s) => s.utility === 'DEAD').length;
-              const dup = result.review.symbols.filter((s) => s.duplication === 'DUPLICATE').length;
-              if (dead > 0) findingsSummary = `DEAD:${dead}`;
-              else if (dup > 0) findingsSummary = `DUP:${dup}`;
-
-              renderer.addResult(outputName, result.review.verdict, findingsSummary);
-
-              // Verbose output: cost, time, retries per file
-              if (verbose) {
-                const elapsed = (elapsedMs / 1000).toFixed(1);
-                const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
-                const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
-                console.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
-              }
-            } catch (error) {
-              activeAbort = undefined;
-              const message = error instanceof AnatolyError ? error.message : String(error);
-              const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-              const hint = error instanceof AnatolyError ? error.hint : '';
-              pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-              renderer.incrementCounter('error');
-
-              const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
-              console.log(`  [${label}] ${filePath}: ${message}`);
-              if (hint) console.log(`    → ${hint}`);
-            }
+          // Pre-load all tasks once for the review phase
+          const allTasks = loadTasks(projectRoot);
+          const taskMap = new Map<string, Task>();
+          for (const t of allTasks) {
+            taskMap.set(t.file, t);
           }
 
+          // Build the list of reviewable items (files with matching tasks)
+          const reviewItems = pending
+            .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file) }))
+            .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
+
+          renderer.start(totalFiles);
+
+          let completedCount = 0;
+
+          await runWorkerPool({
+            items: reviewItems,
+            concurrency,
+            isInterrupted: () => interrupted,
+            handler: async (item) => {
+              const { filePath, task } = item;
+
+              renderer.updateProgress(completedCount + 1, totalFiles, filePath);
+              pm.updateFileStatus(filePath, 'IN_PROGRESS');
+
+              const abort = new AbortController();
+              activeAborts.add(abort);
+
+              try {
+                const startTime = Date.now();
+                const result = await reviewFile(projectRoot, task, config, promptOptions, abort, runDir);
+                const elapsedMs = Date.now() - startTime;
+
+                writeReviewOutput(projectRoot, result.review, runDir);
+                pm.updateFileStatus(filePath, 'DONE');
+                filesReviewed++;
+                completedCount++;
+
+                // Count findings and update counters
+                const outputName = toOutputName(filePath) + '.rev.md';
+                let findingsSummary: string | undefined;
+
+                for (const s of result.review.symbols) {
+                  if (s.utility === 'DEAD') { renderer.incrementCounter('dead'); totalFindings++; }
+                  if (s.duplication === 'DUPLICATE') { renderer.incrementCounter('duplicate'); totalFindings++; }
+                  if (s.overengineering === 'OVER') { renderer.incrementCounter('overengineering'); totalFindings++; }
+                  if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') { renderer.incrementCounter('error'); totalFindings++; }
+                }
+
+                // Build findings summary for result line
+                const dead = result.review.symbols.filter((s) => s.utility === 'DEAD').length;
+                const dup = result.review.symbols.filter((s) => s.duplication === 'DUPLICATE').length;
+                if (dead > 0) findingsSummary = `DEAD:${dead}`;
+                else if (dup > 0) findingsSummary = `DUP:${dup}`;
+
+                renderer.addResult(outputName, result.review.verdict, findingsSummary);
+
+                // Verbose output: cost, time, retries per file
+                if (verbose) {
+                  const elapsed = (elapsedMs / 1000).toFixed(1);
+                  const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
+                  const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
+                  console.log(`    ${filePath}  ${elapsed}s  ${cost}${retryInfo}`);
+                }
+              } catch (error) {
+                const message = error instanceof AnatolyError ? error.message : String(error);
+                const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+                const hint = error instanceof AnatolyError ? error.hint : '';
+                pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+                completedCount++;
+                renderer.incrementCounter('error');
+
+                const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
+                console.log(`  [${label}] ${filePath}: ${message}`);
+                if (hint) console.log(`    → ${hint}`);
+              } finally {
+                activeAborts.delete(abort);
+              }
+            },
+          });
+
+          // Flush any pending ProgressManager writes before stopping
+          await pm.flush();
           renderer.stop();
         }
 
         // Handle interrupt after review loop
         if (interrupted) {
-          console.log(`interrupted — ${filesReviewed}/${totalFiles} files reviewed | ${totalFindings} findings`);
+          const inFlight = activeAborts.size;
+          const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
+          console.log(`interrupted — ${filesReviewed}/${totalFiles} files reviewed | ${totalFindings} findings${inFlightNote}`);
           releaseLock(lockPath);
           lockPath = undefined;
           return;

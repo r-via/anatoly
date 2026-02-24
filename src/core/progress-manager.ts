@@ -1,14 +1,18 @@
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import type { Progress, FileProgress, FileStatus } from '../schemas/progress.js';
 import { readProgress, atomicWriteJson } from '../utils/cache.js';
 
 /**
  * Manages review progress: reads state, filters pending files,
  * and atomically updates file statuses.
+ *
+ * Thread-safe: concurrent calls to updateFileStatus() are serialized
+ * through an internal write queue to prevent data corruption.
  */
 export class ProgressManager {
   private progress: Progress;
   private readonly progressPath: string;
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(projectRoot: string) {
     this.progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
@@ -57,7 +61,8 @@ export class ProgressManager {
   }
 
   /**
-   * Update a file's status atomically (writes progress.json immediately).
+   * Update a file's status. Writes are serialized through an internal queue
+   * so concurrent callers never corrupt progress.json.
    */
   updateFileStatus(
     filePath: string,
@@ -67,6 +72,7 @@ export class ProgressManager {
     const existing = this.progress.files[filePath];
     if (!existing) return;
 
+    // Update in-memory state immediately (single-threaded JS = safe)
     this.progress.files[filePath] = {
       ...existing,
       status,
@@ -74,7 +80,18 @@ export class ProgressManager {
       ...(error ? { error } : {}),
     };
 
-    atomicWriteJson(this.progressPath, this.progress);
+    // Queue the disk write — each write waits for the previous one to finish
+    this.writeQueue = this.writeQueue.then(() => {
+      atomicWriteJson(this.progressPath, this.progress);
+    });
+  }
+
+  /**
+   * Wait for all queued writes to complete.
+   * Call this before reading progress from disk or before exiting.
+   */
+  async flush(): Promise<void> {
+    await this.writeQueue;
   }
 
   /**

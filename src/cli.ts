@@ -28,7 +28,8 @@ export function createProgram(): Command {
     .option('--no-color', 'disable chalk colors')
     .option('--enable-rag', 'enable semantic RAG cross-file analysis')
     .option('--rebuild-rag', 'force full RAG re-indexation')
-    .option('--open', 'open report in default app after generation');
+    .option('--open', 'open report in default app after generation')
+    .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt);
 
   registerScanCommand(program);
   registerEstimateCommand(program);
