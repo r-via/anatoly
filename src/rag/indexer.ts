@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard, FunctionCardLLMOutput } from './types.js';
 import { embed, buildEmbedText } from './embeddings.js';
-import { VectorStore } from './vector-store.js';
 import { atomicWriteJson } from '../utils/cache.js';
 
 export interface RagCache {
@@ -187,45 +186,3 @@ export function saveRagCache(projectRoot: string, cache: RagCache): void {
   atomicWriteJson(cachePath, cache);
 }
 
-/**
- * Index FunctionCards into the vector store.
- * Handles incremental updates: only re-embeds cards whose file hash changed.
- *
- * When `preComputedEmbeddings` is provided, uses those instead of generating new ones.
- * The embeddings array must correspond 1:1 with the cards that need indexing.
- */
-export async function indexCards(
-  projectRoot: string,
-  store: VectorStore,
-  cards: FunctionCard[],
-  fileHash: string,
-  preComputedEmbeddings?: number[][],
-): Promise<number> {
-  if (cards.length === 0) return 0;
-
-  const cache = loadRagCache(projectRoot);
-
-  // Check which cards need re-indexing
-  const toIndex = cards.filter((card) => needsReindex(cache, card, fileHash));
-
-  if (toIndex.length === 0) return 0;
-
-  // Use pre-computed embeddings or generate new ones
-  let embeddings: number[][];
-  if (preComputedEmbeddings) {
-    embeddings = preComputedEmbeddings;
-  } else {
-    embeddings = await embedCards(toIndex);
-  }
-
-  // Upsert into vector store
-  await store.upsert(toIndex, embeddings);
-
-  // Update cache
-  for (const card of toIndex) {
-    cache.entries[card.id] = fileHash;
-  }
-  saveRagCache(projectRoot, cache);
-
-  return toIndex.length;
-}

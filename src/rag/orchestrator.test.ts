@@ -8,6 +8,11 @@ const { workerPoolSpy, retryWithBackoffSpy } = vi.hoisted(() => {
   return { workerPoolSpy, retryWithBackoffSpy };
 });
 
+// Mock fs for processFileForIndex (reads source files)
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn().mockReturnValue('export function foo() { return 1; }'),
+}));
+
 // Mock all heavy dependencies before importing the module under test
 vi.mock('./card-generator.js', () => ({
   generateFunctionCards: vi.fn().mockResolvedValue([]),
@@ -38,7 +43,6 @@ vi.mock('./indexer.js', () => ({
   embedCards: vi.fn().mockResolvedValue([]),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
   saveRagCache: vi.fn(),
-  indexCards: vi.fn(),
 }));
 
 vi.mock('../core/worker-pool.js', () => ({
@@ -49,9 +53,12 @@ vi.mock('../utils/rate-limiter.js', () => ({
   retryWithBackoff: retryWithBackoffSpy,
 }));
 
-import { indexProject } from './orchestrator.js';
+import { indexProject, processFileForIndex } from './orchestrator.js';
+import { generateFunctionCards } from './card-generator.js';
+import { buildFunctionCards, needsReindex, embedCards } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
+import type { FunctionCard } from './types.js';
 
 function poolArgs(): WorkerPoolOptions<Task> {
   return workerPoolSpy.mock.calls[0][0] as WorkerPoolOptions<Task>;
@@ -189,5 +196,90 @@ describe('indexProject', () => {
     expect(opts.maxDelayMs).toBe(30_000);
     expect(opts.jitterFactor).toBe(0.2);
     expect(opts.filePath).toBe('src/a.ts');
+  });
+});
+
+function makeCard(name: string, filePath: string): FunctionCard {
+  return {
+    id: `card-${name}`,
+    filePath,
+    name,
+    signature: `function ${name}()`,
+    summary: `Does ${name}`,
+    keyConcepts: [name],
+    behavioralProfile: 'pure',
+    complexityScore: 1,
+    calledInternals: [],
+    lastIndexed: '2024-01-01T00:00:00.000Z',
+  };
+}
+
+describe('processFileForIndex', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns empty cards when LLM returns no cards', async () => {
+    vi.mocked(generateFunctionCards).mockResolvedValue([]);
+
+    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), 'haiku', { entries: {} });
+
+    expect(result.cards).toEqual([]);
+    expect(result.embeddings).toEqual([]);
+  });
+
+  it('filters out cached cards via needsReindex', async () => {
+    const card1 = makeCard('foo', 'src/a.ts');
+    const card2 = makeCard('bar', 'src/a.ts');
+
+    vi.mocked(generateFunctionCards).mockResolvedValue([
+      { name: 'foo', summary: 'foo', keyConcepts: ['foo'], behavioralProfile: 'pure' },
+      { name: 'bar', summary: 'bar', keyConcepts: ['bar'], behavioralProfile: 'pure' },
+    ]);
+    vi.mocked(buildFunctionCards).mockReturnValue([card1, card2]);
+    // card1 is cached (needsReindex=false), card2 needs reindex
+    vi.mocked(needsReindex)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    vi.mocked(embedCards).mockResolvedValue([[0.1, 0.2]]);
+
+    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), 'haiku', { entries: {} });
+
+    expect(result.cards).toEqual([card2]);
+    expect(embedCards).toHaveBeenCalledWith([card2]);
+  });
+
+  it('returns empty when all cards are cached', async () => {
+    const card = makeCard('foo', 'src/a.ts');
+
+    vi.mocked(generateFunctionCards).mockResolvedValue([
+      { name: 'foo', summary: 'foo', keyConcepts: ['foo'], behavioralProfile: 'pure' },
+    ]);
+    vi.mocked(buildFunctionCards).mockReturnValue([card]);
+    vi.mocked(needsReindex).mockReturnValue(false);
+
+    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), 'haiku', { entries: { 'card-foo': 'abc123' } });
+
+    expect(result.cards).toEqual([]);
+    expect(result.embeddings).toEqual([]);
+    expect(embedCards).not.toHaveBeenCalled();
+  });
+
+  it('generates embeddings for cards that need reindexing', async () => {
+    const card = makeCard('foo', 'src/a.ts');
+    const embedding = [0.1, 0.2, 0.3];
+
+    vi.mocked(generateFunctionCards).mockResolvedValue([
+      { name: 'foo', summary: 'foo', keyConcepts: ['foo'], behavioralProfile: 'pure' },
+    ]);
+    vi.mocked(buildFunctionCards).mockReturnValue([card]);
+    vi.mocked(needsReindex).mockReturnValue(true);
+    vi.mocked(embedCards).mockResolvedValue([embedding]);
+
+    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), 'haiku', { entries: {} });
+
+    expect(result.cards).toEqual([card]);
+    expect(result.embeddings).toEqual([embedding]);
+    expect(result.task.file).toBe('src/a.ts');
   });
 });

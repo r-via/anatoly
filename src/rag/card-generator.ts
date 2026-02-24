@@ -7,6 +7,7 @@ import type { FunctionCardLLMOutput } from './types.js';
 import { FunctionCardLLMOutputSchema } from './types.js';
 import { z } from 'zod';
 import { extractJson } from '../utils/extract-json.js';
+import { isRateLimitError } from '../utils/rate-limiter.js';
 
 const CardResponseSchema = z.object({
   function_cards: z.array(FunctionCardLLMOutputSchema),
@@ -83,8 +84,9 @@ ${source}
     if (!result.success) return [];
 
     return result.data.function_cards;
-  } catch {
+  } catch (error) {
+    // Re-throw rate limit errors so retryWithBackoff can handle them
+    if (isRateLimitError(error)) throw error;
     return [];
   }
 }
-
