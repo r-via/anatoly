@@ -26,7 +26,9 @@ export const SymbolReviewSchema = z.object({
   confidence: z.int().min(0).max(100),
 
   detail: z.string().min(10),
-  duplicate_target: DuplicateTargetSchema.optional(),
+  duplicate_target: DuplicateTargetSchema.nullable()
+    .optional()
+    .transform((v) => v ?? undefined),
 });
 
 export const EffortSchema = z.enum(['trivial', 'small', 'large']);

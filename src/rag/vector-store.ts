@@ -140,11 +140,14 @@ export class VectorStore {
 
     if (matches.length === 0) return [];
 
+    const queryCard = rowToCard(matches[0]);
     const embedding = matches[0].vector as number[];
     const results = await this.search(embedding, limit + 1, minScore);
 
-    // Exclude the query function itself
-    return results.filter((r) => r.card.id !== functionId);
+    // Exclude self-matches: same ID (exact) or same file+name (stale entries from re-indexation)
+    return results.filter(
+      (r) => r.card.id !== functionId && !(r.card.filePath === queryCard.filePath && r.card.name === queryCard.name),
+    );
   }
 
   /**

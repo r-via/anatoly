@@ -76,6 +76,15 @@ describe('ReviewFileSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('should accept null duplicate_target and normalize to undefined', () => {
+    const withNull = { ...validSymbol, duplicate_target: null };
+    const result = SymbolReviewSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.duplicate_target).toBeUndefined();
+    }
+  });
+
   it('should reject confidence outside 0-100 range', () => {
     const result = SymbolReviewSchema.safeParse({ ...validSymbol, confidence: 101 });
     expect(result.success).toBe(false);

@@ -105,8 +105,8 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
       "duplication": "UNIQUE | DUPLICATE",
       "tests": "GOOD | WEAK | NONE",
       "confidence": 85,
-      "detail": "Explanation of findings (min 10 chars)",
-      "duplicate_target": null
+      "detail": "Explanation of findings (min 10 chars)"
+      // "duplicate_target": { "file": "...", "symbol": "...", "similarity": "..." }  ← only when duplication is "DUPLICATE", omit entirely otherwise
     }
   ],
   "actions": [
