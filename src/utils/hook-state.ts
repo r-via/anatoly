@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { atomicWriteJson } from './cache.js';
+import { isProcessRunning } from './process.js';
 
 export interface HookReview {
   pid: number;
@@ -81,15 +82,5 @@ export function saveHookState(projectRoot: string, state: HookState): void {
   atomicWriteJson(path, state);
 }
 
-/**
- * Check if a process with the given PID is still running.
- */
-export function isProcessRunning(pid: number): boolean {
-  if (!pid || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Re-export for consumers that previously imported from here
+export { isProcessRunning } from './process.js';

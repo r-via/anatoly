@@ -12,9 +12,7 @@ import {
   registerRagStatusCommand,
   registerHookCommand,
 } from './commands/index.js';
-
-declare const PKG_VERSION: string;
-const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
+import { pkgVersion } from './utils/version.js';
 
 export function createProgram(): Command {
   const program = new Command()

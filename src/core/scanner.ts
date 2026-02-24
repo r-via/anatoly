@@ -22,8 +22,7 @@ const DECLARATION_KINDS: Record<string, SymbolKind> = {
 };
 
 let parserInstance: Parser | null = null;
-let tsLanguage: Language | null = null;
-let tsxLanguage: Language | null = null;
+const languageCache = new Map<string, Language>();
 
 async function getParser(): Promise<Parser> {
   if (parserInstance) return parserInstance;
@@ -32,18 +31,21 @@ async function getParser(): Promise<Parser> {
   return parserInstance;
 }
 
-async function getTsLanguage(): Promise<Language> {
-  if (tsLanguage) return tsLanguage;
-  const wasmPath = esmRequire.resolve('tree-sitter-typescript/tree-sitter-typescript.wasm');
-  tsLanguage = await Language.load(wasmPath);
-  return tsLanguage;
+async function loadLanguage(wasmModule: string): Promise<Language> {
+  const cached = languageCache.get(wasmModule);
+  if (cached) return cached;
+  const wasmPath = esmRequire.resolve(wasmModule);
+  const lang = await Language.load(wasmPath);
+  languageCache.set(wasmModule, lang);
+  return lang;
 }
 
-async function getTsxLanguage(): Promise<Language> {
-  if (tsxLanguage) return tsxLanguage;
-  const wasmPath = esmRequire.resolve('tree-sitter-typescript/tree-sitter-tsx.wasm');
-  tsxLanguage = await Language.load(wasmPath);
-  return tsxLanguage;
+function getTsLanguage(): Promise<Language> {
+  return loadLanguage('tree-sitter-typescript/tree-sitter-typescript.wasm');
+}
+
+function getTsxLanguage(): Promise<Language> {
+  return loadLanguage('tree-sitter-typescript/tree-sitter-tsx.wasm');
 }
 
 function isHookName(name: string): boolean {

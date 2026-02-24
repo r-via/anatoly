@@ -19,9 +19,7 @@ import { openFile } from '../utils/open.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
-
-declare const PKG_VERSION: string;
-const pkgVersion = typeof PKG_VERSION !== 'undefined' ? PKG_VERSION : '0.0.0-dev';
+import { pkgVersion } from '../utils/version.js';
 
 export function registerRunCommand(program: Command): void {
   program

@@ -1,6 +1,7 @@
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { AnatolyError, ERROR_CODES } from './errors.js';
+import { isProcessRunning } from './process.js';
 
 interface LockData {
   pid: number;
@@ -74,14 +75,3 @@ export function isLockActive(projectRoot: string): boolean {
   }
 }
 
-/**
- * Check if a process with the given PID is still running.
- */
-function isProcessRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
