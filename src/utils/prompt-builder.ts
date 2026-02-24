@@ -1,8 +1,21 @@
 import type { Task, CoverageData } from '../schemas/task.js';
+import type { SimilarityResult } from '../rag/types.js';
 import type { VectorStore } from '../rag/vector-store.js';
+
+export interface PreResolvedRagEntry {
+  symbolName: string;
+  lineStart: number;
+  lineEnd: number;
+  /** null means the function was not found in the index */
+  results: SimilarityResult[] | null;
+}
+
+export type PreResolvedRag = PreResolvedRagEntry[];
 
 export interface PromptOptions {
   ragEnabled?: boolean;
+  preResolvedRag?: PreResolvedRag;
+  /** Passed through to reviewer for pre-resolution; not used by prompt builder */
   vectorStore?: VectorStore;
 }
 
@@ -138,7 +151,7 @@ You MUST output a single JSON object (no markdown fences, no explanation outside
 - \`verdict\` should be CRITICAL if any symbol has correction: "ERROR".
 - \`verdict\` should be NEEDS_REFACTOR if any symbol has issues (correction, utility, duplication, or overengineering) but no errors. tests: "NONE" alone is NOT an issue.
 - \`verdict\` should be CLEAN if all symbols are healthy (tests: "NONE" alone counts as healthy).
-- Output ONLY the JSON object. No preamble, no markdown fences.${options.ragEnabled ? buildRagPromptSection(task) : ''}`;
+- Output ONLY the JSON object. No preamble, no markdown fences.${options.ragEnabled && options.preResolvedRag ? buildRagPromptSection(options.preResolvedRag) : ''}`;
 }
 
 function formatCoverage(cov: CoverageData): string {
@@ -163,19 +176,49 @@ function formatCoverage(cov: CoverageData): string {
 }
 
 /**
- * Build the RAG-specific prompt section.
+ * Build the RAG-specific prompt section with pre-resolved similarity results.
  * Appended to the system prompt when RAG is active.
  */
-function buildRagPromptSection(task: Task): string {
+function buildRagPromptSection(rag: PreResolvedRag): string {
+  if (rag.length === 0) {
+    return `
+
+## RAG — Semantic Duplication (pre-resolved)
+
+No functions to check for duplication (barrel export / type-only file).`;
+  }
+
+  const entries = rag.map((entry) => {
+    const header = `### ${entry.symbolName} (L${entry.lineStart}–L${entry.lineEnd})`;
+
+    if (entry.results === null) {
+      return `${header}\nFunction not indexed — cannot check for duplication.`;
+    }
+
+    if (entry.results.length === 0) {
+      return `${header}\nNo similar functions found.`;
+    }
+
+    const matches = entry.results.map(
+      (r) =>
+        `- **${r.card.name}** in \`${r.card.filePath}\` (score: ${r.score.toFixed(3)})\n` +
+        `  Summary: ${r.card.summary}\n` +
+        `  Profile: ${r.card.behavioralProfile} | Complexity: ${r.card.complexityScore}/5`,
+    );
+    return `${header}\nSimilar functions found:\n${matches.join('\n')}`;
+  });
+
   return `
 
-## RAG — Semantic Duplication (REPLACES grep-based duplication detection)
+## RAG — Semantic Duplication (pre-resolved)
 
-You have access to the \`findSimilarFunctions\` tool which searches the indexed codebase for semantically similar functions.
-**You MUST use this tool for each function/method/hook** before concluding on the \`duplication\` axis. Do NOT use Grep for duplication detection when RAG is available.
-- If the tool returns results with score >= 0.85, mark as duplication: "DUPLICATE" and set duplicate_target accordingly.
-- If score is between 0.78 and 0.85, mention it in the detail field but keep duplication: "UNIQUE" unless the code is clearly duplicated.
-- If no results, mark as duplication: "UNIQUE".`;
+The following similarity results were pre-computed from the codebase index.
+Use these results for the \`duplication\` axis — do NOT use Grep for duplication detection.
+- Score >= 0.85: mark as duplication: "DUPLICATE" and set duplicate_target accordingly.
+- Score 0.78–0.85: mention in the detail field but keep duplication: "UNIQUE" unless clearly duplicated.
+- No results: mark as duplication: "UNIQUE".
+
+${entries.join('\n\n')}`;
 }
 
 /**

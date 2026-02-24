@@ -1,16 +1,16 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKMessage, SDKResultSuccess, SDKResultError, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage, McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKMessage, SDKResultSuccess, SDKResultError, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import { buildSystemPrompt, buildUserPrompt, type PromptOptions } from '../utils/prompt-builder.js';
+import { buildSystemPrompt, buildUserPrompt, type PromptOptions, type PreResolvedRag } from '../utils/prompt-builder.js';
 import { toOutputName } from '../utils/cache.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { extractJson } from '../utils/extract-json.js';
-import { createRagMcpServer } from '../rag/index.js';
+import { buildFunctionId } from '../rag/indexer.js';
 
 export interface ReviewResult {
   review: ReviewFile;
@@ -39,6 +39,37 @@ export async function reviewFile(
   externalAbort?: AbortController,
   runDir?: string,
 ): Promise<ReviewResult> {
+  // Pre-resolve RAG similarity results BEFORE building the system prompt
+  if (promptOptions.ragEnabled && promptOptions.vectorStore) {
+    const functionSymbols = task.symbols.filter(
+      (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+    );
+
+    const preResolved: PreResolvedRag = [];
+    for (const symbol of functionSymbols) {
+      const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
+      try {
+        const results = await promptOptions.vectorStore.searchById(functionId);
+        preResolved.push({
+          symbolName: symbol.name,
+          lineStart: symbol.line_start,
+          lineEnd: symbol.line_end,
+          results,
+        });
+      } catch {
+        // Unexpected error (DB corruption, etc.) — mark as null
+        preResolved.push({
+          symbolName: symbol.name,
+          lineStart: symbol.line_start,
+          lineEnd: symbol.line_end,
+          results: null,
+        });
+      }
+    }
+
+    promptOptions = { ...promptOptions, preResolvedRag: preResolved };
+  }
+
   const systemPrompt = buildSystemPrompt(task, promptOptions);
   const userPrompt = buildUserPrompt(task, promptOptions);
 
@@ -74,12 +105,6 @@ export async function reviewFile(
     }
   }
 
-  // Set up RAG MCP server when RAG is enabled
-  const mcpServers: Record<string, McpServerConfig> | undefined =
-    promptOptions.ragEnabled && promptOptions.vectorStore
-      ? { 'anatoly-rag': createRagMcpServer(promptOptions.vectorStore) }
-      : undefined;
-
   const maxRetries = config.llm.max_retries;
   let totalCostUsd = 0;
   let retries = 0;
@@ -93,7 +118,6 @@ export async function reviewFile(
       projectRoot,
       abortController,
       appendTranscript,
-      mcpServers,
     });
     totalCostUsd += initial.costUsd;
 
@@ -194,7 +218,6 @@ interface RunQueryParams {
   abortController: AbortController;
   appendTranscript: (line: string) => void;
   resumeSessionId?: string;
-  mcpServers?: Record<string, McpServerConfig>;
 }
 
 /**
@@ -202,7 +225,7 @@ interface RunQueryParams {
  * Supports both initial queries (with systemPrompt) and resume queries.
  */
 async function runQuery(params: RunQueryParams): Promise<QueryResult> {
-  const { prompt, systemPrompt, model, projectRoot, abortController, appendTranscript, resumeSessionId, mcpServers } = params;
+  const { prompt, systemPrompt, model, projectRoot, abortController, appendTranscript, resumeSessionId } = params;
 
   const q = query({
     prompt,
@@ -218,7 +241,6 @@ async function runQuery(params: RunQueryParams): Promise<QueryResult> {
       maxTurns: 25,
       persistSession: true,
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
-      ...(mcpServers ? { mcpServers } : {}),
     },
   });
 

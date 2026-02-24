@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildSystemPrompt, buildUserPrompt } from './prompt-builder.js';
+import type { PreResolvedRag } from './prompt-builder.js';
 import type { Task } from '../schemas/task.js';
+import type { FunctionCard } from '../rag/types.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -66,6 +68,74 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('NEVER guess');
     expect(prompt).toContain('DEAD');
     expect(prompt).toContain('DUPLICATE');
+  });
+});
+
+describe('buildSystemPrompt with pre-resolved RAG', () => {
+  const makeCard = (overrides: Partial<FunctionCard> = {}): FunctionCard => ({
+    id: 'abcdef0123456789',
+    filePath: 'src/other.ts',
+    name: 'otherFn',
+    signature: 'function otherFn(): void',
+    summary: 'Does something similar.',
+    keyConcepts: ['util'],
+    behavioralProfile: 'pure',
+    complexityScore: 2,
+    calledInternals: [],
+    lastIndexed: '2026-01-01T00:00:00Z',
+    ...overrides,
+  });
+
+  it('should render pre-resolved RAG section with matches and no-matches', () => {
+    const rag: PreResolvedRag = [
+      {
+        symbolName: 'formatName',
+        lineStart: 1,
+        lineEnd: 5,
+        results: [{ card: makeCard(), score: 0.92 }],
+      },
+      {
+        symbolName: 'parseName',
+        lineStart: 10,
+        lineEnd: 20,
+        results: [],
+      },
+    ];
+    const prompt = buildSystemPrompt(makeTask(), { ragEnabled: true, preResolvedRag: rag });
+    expect(prompt).toContain('## RAG — Semantic Duplication (pre-resolved)');
+    expect(prompt).toContain('### formatName (L1–L5)');
+    expect(prompt).toContain('**otherFn** in `src/other.ts` (score: 0.920)');
+    expect(prompt).toContain('### parseName (L10–L20)');
+    expect(prompt).toContain('No similar functions found.');
+  });
+
+  it('should render barrel export message for empty RAG array', () => {
+    const prompt = buildSystemPrompt(makeTask(), { ragEnabled: true, preResolvedRag: [] });
+    expect(prompt).toContain('No functions to check for duplication (barrel export / type-only file)');
+  });
+
+  it('should render not-indexed message for null results', () => {
+    const rag: PreResolvedRag = [
+      {
+        symbolName: 'newFn',
+        lineStart: 1,
+        lineEnd: 10,
+        results: null,
+      },
+    ];
+    const prompt = buildSystemPrompt(makeTask(), { ragEnabled: true, preResolvedRag: rag });
+    expect(prompt).toContain('### newFn (L1–L10)');
+    expect(prompt).toContain('Function not indexed — cannot check for duplication.');
+  });
+
+  it('should not include RAG section when ragEnabled is false', () => {
+    const prompt = buildSystemPrompt(makeTask(), { ragEnabled: false });
+    expect(prompt).not.toContain('RAG');
+  });
+
+  it('should not include RAG section when ragEnabled is true but preResolvedRag is undefined', () => {
+    const prompt = buildSystemPrompt(makeTask(), { ragEnabled: true });
+    expect(prompt).not.toContain('RAG');
   });
 });
 
