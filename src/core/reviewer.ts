@@ -89,6 +89,13 @@ export async function reviewFile(
   appendTranscript('');
   appendTranscript('---');
   appendTranscript('');
+  appendTranscript('<details>');
+  appendTranscript('<summary>System prompt</summary>');
+  appendTranscript('');
+  appendTranscript(systemPrompt);
+  appendTranscript('');
+  appendTranscript('</details>');
+  appendTranscript('');
 
   // Set up timeout via AbortController
   const abortController = new AbortController();
