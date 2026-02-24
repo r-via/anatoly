@@ -150,7 +150,7 @@ export function registerRunCommand(program: Command): void {
             rebuild: rebuildRag,
             concurrency,
             onLog: (msg) => renderer.log(`  ${msg}`),
-            onProgress: (current, total) => renderer.updateProgress(current, total, 'rag index'),
+            onProgress: (current, total) => renderer.updateProgress(current, total, 'indexing'),
             isInterrupted: () => interrupted,
           });
 
@@ -255,7 +255,7 @@ export function registerRunCommand(program: Command): void {
                 pm.updateFileStatus(filePath, 'DONE');
                 filesReviewed++;
                 completedCount++;
-                renderer.updateProgress(completedCount, totalFiles, filePath);
+                renderer.updateProgress(completedCount, totalFiles, `reviewing ${filePath}`);
 
                 // Count findings and update counters
                 const outputName = toOutputName(filePath) + '.rev.md';
@@ -288,7 +288,7 @@ export function registerRunCommand(program: Command): void {
                 const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
                 pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
                 completedCount++;
-                renderer.updateProgress(completedCount, totalFiles, filePath);
+                renderer.updateProgress(completedCount, totalFiles, `reviewing ${filePath}`);
                 renderer.incrementCounter('error');
 
                 if (error instanceof AnatolyError) {

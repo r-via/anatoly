@@ -71,7 +71,7 @@ export function registerReviewCommand(program: Command): void {
           if (interrupted) break;
 
           const filePath = pending[i].file;
-          renderer.updateProgress(i, total, filePath);
+          renderer.updateProgress(i, total, `reviewing ${filePath}`);
 
           // Find the matching task
           const allTasks = loadTasks(projectRoot);
@@ -102,7 +102,7 @@ export function registerReviewCommand(program: Command): void {
 
             const outputName = toOutputName(filePath);
             renderer.addResult(outputName, result.review.verdict);
-            renderer.updateProgress(i + 1, total, filePath);
+            renderer.updateProgress(i + 1, total, `reviewing ${filePath}`);
           } catch (error) {
             // If interrupted, don't count as error — just stop
             if (interrupted) break;
@@ -112,7 +112,7 @@ export function registerReviewCommand(program: Command): void {
 
             pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
             filesErrored++;
-            renderer.updateProgress(i + 1, total, filePath);
+            renderer.updateProgress(i + 1, total, `reviewing ${filePath}`);
             renderer.incrementCounter('error');
 
             if (error instanceof AnatolyError) {

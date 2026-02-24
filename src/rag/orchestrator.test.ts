@@ -39,6 +39,7 @@ vi.mock('./vector-store.js', () => {
 
 vi.mock('./indexer.js', () => ({
   buildFunctionCards: vi.fn().mockReturnValue([]),
+  buildFunctionId: vi.fn((_file: string, start: number, end: number) => `mock-${start}-${end}`),
   needsReindex: vi.fn().mockReturnValue(true),
   embedCards: vi.fn().mockResolvedValue([]),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
@@ -55,7 +56,7 @@ vi.mock('../utils/rate-limiter.js', () => ({
 
 import { indexProject, processFileForIndex } from './orchestrator.js';
 import { generateFunctionCards } from './card-generator.js';
-import { buildFunctionCards, needsReindex, embedCards } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
 import type { FunctionCard } from './types.js';
@@ -217,6 +218,18 @@ function makeCard(name: string, filePath: string): FunctionCard {
 describe('processFileForIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('skips LLM call when all function symbols are cached for current hash', async () => {
+    // Cache contains the mock ID for the symbol (line 1-10) with the task hash
+    const cache = { entries: { 'mock-1-10': 'abc123' } };
+
+    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), 'haiku', cache);
+
+    expect(result.cards).toEqual([]);
+    expect(result.embeddings).toEqual([]);
+    expect(generateFunctionCards).not.toHaveBeenCalled();
+    expect(buildFunctionId).toHaveBeenCalledWith('src/a.ts', 1, 10);
   });
 
   it('returns empty cards when LLM returns no cards', async () => {

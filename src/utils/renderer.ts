@@ -156,7 +156,7 @@ function createPlainRenderer(version: string): Renderer {
     },
 
     updateProgress(current: number, total: number, currentFile: string) {
-      console.log(`  reviewing ${currentFile} (${current}/${total})`);
+      console.log(`  ${currentFile} (${current}/${total})`);
     },
 
     addResult(filename: string, verdict: Verdict, findings?: string) {
@@ -277,12 +277,12 @@ function createPinnedRenderer(_version: string, concurrency: number): Renderer {
           if (i < sortedSlots.length) {
             const [idx, filePath] = sortedSlots[i];
             const truncated = truncatePath(filePath, termCols - 20);
-            out += `  [${idx + 1}] reviewing ${chalk.cyan(truncated)}`;
+            out += `  [${idx + 1}] ${chalk.cyan(truncated)}`;
           }
         }
       } else if (currentFile) {
         out += moveTo(row, 1) + eraseLine;
-        out += `  ⠋ reviewing ${chalk.cyan(truncatePath(currentFile, termCols - 20))}`;
+        out += `  ⠋ ${chalk.cyan(truncatePath(currentFile, termCols - 20))}`;
         for (let i = 1; i < workerLineCount; i++) {
           out += moveTo(row + i, 1) + eraseLine;
         }

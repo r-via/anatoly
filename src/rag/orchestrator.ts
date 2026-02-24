@@ -4,7 +4,7 @@ import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
 import { generateFunctionCards } from './card-generator.js';
-import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import { embed, setEmbeddingLogger } from './embeddings.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
@@ -49,6 +49,20 @@ export async function processFileForIndex(
   indexModel: string,
   cache: { entries: Record<string, string> },
 ): Promise<IndexedFileResult> {
+  // Early exit: skip LLM call if all functions are already cached for this hash
+  const functionSymbols = task.symbols.filter(
+    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+  );
+  const allCached =
+    functionSymbols.length > 0 &&
+    functionSymbols.every((symbol) => {
+      const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
+      return cache.entries[id] === task.hash;
+    });
+  if (allCached) {
+    return { task, cards: [], embeddings: [] };
+  }
+
   const llmCards = await generateFunctionCards(projectRoot, task, indexModel);
   if (llmCards.length === 0) {
     return { task, cards: [], embeddings: [] };
@@ -98,17 +112,28 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
+  // Filter out files where all function cards are already cached for the current hash
+  const tasksToIndex = tasksWithFunctions.filter((task) => {
+    const fnSymbols = task.symbols.filter(
+      (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+    );
+    return !fnSymbols.every((symbol) => {
+      const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
+      return cache.entries[id] === task.hash;
+    });
+  });
+
   // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
   let fileCounter = 0;
 
   await runWorkerPool({
-    items: tasksWithFunctions,
+    items: tasksToIndex,
     concurrency,
     isInterrupted,
     handler: async (task) => {
       const idx = ++fileCounter;
-      onLog(`[${idx}/${tasksWithFunctions.length}] ${task.file}`);
+      onLog(`[${idx}/${tasksToIndex.length}] ${task.file}`);
 
       const result = await retryWithBackoff(
         () => processFileForIndex(projectRoot, task, indexModel, cache),
@@ -128,7 +153,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       if (result.cards.length > 0) {
         results.push(result);
       }
-      onProgress?.(fileCounter, tasksWithFunctions.length);
+      onProgress?.(fileCounter, tasksToIndex.length);
     },
   });
 
