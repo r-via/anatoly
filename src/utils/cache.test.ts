@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { computeFileHash, computeHash, toOutputName, atomicWriteJson, readProgress } from './cache.js';
+import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from './cache.js';
 
 describe('computeFileHash', () => {
   let tempDir: string;
@@ -30,13 +30,6 @@ describe('computeFileHash', () => {
     writeFileSync(file1, 'const a = 1;');
     writeFileSync(file2, 'const b = 2;');
     expect(computeFileHash(file1)).not.toBe(computeFileHash(file2));
-  });
-});
-
-describe('computeHash', () => {
-  it('should hash strings consistently', () => {
-    expect(computeHash('hello')).toBe(computeHash('hello'));
-    expect(computeHash('hello')).not.toBe(computeHash('world'));
   });
 });
 

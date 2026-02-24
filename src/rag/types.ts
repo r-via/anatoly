@@ -22,7 +22,6 @@ export const FunctionCardSchema = z.object({
   lastIndexed: z.string().datetime(),
 });
 
-export type BehavioralProfile = z.infer<typeof BehavioralProfileSchema>;
 export type FunctionCard = z.infer<typeof FunctionCardSchema>;
 
 /** Schema for the LLM-generated portion of a FunctionCard (during review). */

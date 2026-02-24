@@ -12,13 +12,6 @@ export function computeFileHash(filePath: string): string {
 }
 
 /**
- * Compute SHA-256 hash of a string.
- */
-export function computeHash(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
-}
-
-/**
  * Convert a source file path to the output filename convention.
  * Example: "src/utils/format.ts" → "src-utils-format"
  */

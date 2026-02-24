@@ -312,21 +312,6 @@ export function tryParseReview(
 }
 
 /**
- * Extract JSON from agent response text and validate against ReviewFileSchema.
- * Throws AnatolyError on failure.
- */
-export function parseReviewResponse(responseText: string, filePath: string): ReviewFile {
-  const result = tryParseReview(responseText, filePath);
-  if (result.success) return result.data;
-
-  throw new AnatolyError(
-    `Zod validation failed for ${filePath}: ${result.error}`,
-    ERROR_CODES.ZOD_VALIDATION_FAILED,
-    true,
-  );
-}
-
-/**
  * Format Zod validation error into a feedback prompt for the agent.
  */
 export function formatRetryFeedback(
