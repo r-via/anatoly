@@ -5,6 +5,7 @@ import {
   formatResultLine,
   truncatePath,
   createRenderer,
+  verdictColor,
 } from './renderer.js';
 
 describe('buildProgressBar', () => {
@@ -70,6 +71,19 @@ describe('truncatePath', () => {
     const result = truncatePath(long, 30);
     expect(result.length).toBeLessThanOrEqual(30);
     expect(result).toContain('...');
+  });
+});
+
+describe('verdictColor', () => {
+  it('should return the verdict string for all known verdicts', () => {
+    // verdictColor adds chalk coloring; the raw text should still contain the verdict
+    expect(verdictColor('CLEAN')).toContain('CLEAN');
+    expect(verdictColor('NEEDS_REFACTOR')).toContain('NEEDS_REFACTOR');
+    expect(verdictColor('CRITICAL')).toContain('CRITICAL');
+  });
+
+  it('should return unknown verdicts as-is', () => {
+    expect(verdictColor('UNKNOWN')).toBe('UNKNOWN');
   });
 });
 

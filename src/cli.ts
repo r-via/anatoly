@@ -25,7 +25,7 @@ export function createProgram(): Command {
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--plain', 'disable log-update, linear sequential output')
-    .option('--no-color', 'disable chalk colors')
+    .option('--no-color', 'disable chalk colors (also respects $NO_COLOR env var)')
     .option('--enable-rag', 'enable semantic RAG cross-file analysis')
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--open', 'open report in default app after generation')

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
-import { buildProgressBar } from '../utils/renderer.js';
+import { buildProgressBar, verdictColor } from '../utils/renderer.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
 
 export function registerStatusCommand(program: Command): void {
@@ -98,17 +98,4 @@ export function registerStatusCommand(program: Command): void {
         console.log(`  reviews     ${chalk.cyan(resolve(projectRoot, '.anatoly', 'reviews') + '/')}`);
       }
     });
-}
-
-function verdictColor(verdict: string): string {
-  switch (verdict) {
-    case 'CLEAN':
-      return chalk.green(verdict);
-    case 'NEEDS_REFACTOR':
-      return chalk.yellow(verdict);
-    case 'CRITICAL':
-      return chalk.red(verdict);
-    default:
-      return verdict;
-  }
 }

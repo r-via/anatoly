@@ -94,6 +94,22 @@ export function formatResultLine(filename: string, verdict: Verdict, findings?: 
 }
 
 /**
+ * Colorize a verdict string for terminal display.
+ */
+export function verdictColor(verdict: string): string {
+  switch (verdict) {
+    case 'CLEAN':
+      return chalk.green(verdict);
+    case 'NEEDS_REFACTOR':
+      return chalk.yellow(verdict);
+    case 'CRITICAL':
+      return chalk.red(verdict);
+    default:
+      return verdict;
+  }
+}
+
+/**
  * Truncate a file path to fit within maxLen characters.
  */
 export function truncatePath(filePath: string, maxLen: number): string {

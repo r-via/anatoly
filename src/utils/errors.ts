@@ -17,7 +17,7 @@ export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
  * Each hint is a short, actionable next step for the user.
  */
 const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
-  LOCK_EXISTS: 'run `anatoly reset` to remove the stale lock',
+  LOCK_EXISTS: 'wait for it to finish or run `anatoly reset` to force clear',
   CONFIG_INVALID: 'check .anatoly.yml syntax and refer to documentation',
   CONFIG_NOT_FOUND: 'create a .anatoly.yml or run without --config',
   LLM_TIMEOUT: 'try again — the file may be too large; consider splitting it',
@@ -25,7 +25,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   ZOD_VALIDATION_FAILED: 'run with --verbose for detailed validation output',
   TREE_SITTER_PARSE_ERROR: 'ensure the file is valid TypeScript',
   WRITE_ERROR: 'check disk space and file permissions',
-  FILE_NOT_FOUND: 'verify the file path exists and is not gitignored',
+  FILE_NOT_FOUND: 'make sure you are running Anatoly from your project root',
 };
 
 export class AnatolyError extends Error {

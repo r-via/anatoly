@@ -29,7 +29,7 @@ describe('acquireLock / releaseLock', () => {
   it('should throw LOCK_EXISTS if lock is held by running process', () => {
     const lockPath = acquireLock(tempDir);
 
-    expect(() => acquireLock(tempDir)).toThrow('Another Anatoly instance');
+    expect(() => acquireLock(tempDir)).toThrow('Another instance is running');
 
     releaseLock(lockPath);
   });

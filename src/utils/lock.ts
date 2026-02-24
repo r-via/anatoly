@@ -24,10 +24,9 @@ export function acquireLock(projectRoot: string): string {
       // Check if the process is still running
       if (isProcessRunning(existing.pid)) {
         throw new AnatolyError(
-          `Another Anatoly instance is running (PID ${existing.pid}, started ${existing.started_at})`,
+          `Another instance is running (PID: ${existing.pid}). Wait for it to finish or run 'anatoly reset' to force clear.`,
           ERROR_CODES.LOCK_EXISTS,
           false,
-          `run \`anatoly reset\` to remove the lock, or \`rm ${lockPath}\` if this is stale`,
         );
       }
 

@@ -263,14 +263,15 @@ export function registerRunCommand(program: Command): void {
               } catch (error) {
                 const message = error instanceof AnatolyError ? error.message : String(error);
                 const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-                const hint = error instanceof AnatolyError ? error.hint : '';
                 pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
                 completedCount++;
                 renderer.incrementCounter('error');
 
-                const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
-                console.log(`  [${label}] ${filePath}: ${message}`);
-                if (hint) console.log(`    → ${hint}`);
+                if (error instanceof AnatolyError) {
+                  console.log(`  [${errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error'}] ${error.formatForDisplay()}`);
+                } else {
+                  console.log(`  [error] error: ${String(error)}`);
+                }
               } finally {
                 activeAborts.delete(currentAbort);
                 renderer.clearWorkerSlot(workerIndex);

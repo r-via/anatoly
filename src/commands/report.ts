@@ -6,6 +6,7 @@ import { generateReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
+import { verdictColor } from '../utils/renderer.js';
 
 export function registerReportCommand(program: Command): void {
   program
@@ -92,17 +93,4 @@ function printReportSummary(
   console.log('');
   console.log(`Report: ${chalk.cyan(reportPath)}`);
   console.log(`Details: ${chalk.cyan(reviewsPath)}`);
-}
-
-function verdictColor(verdict: string): string {
-  switch (verdict) {
-    case 'CLEAN':
-      return chalk.green(verdict);
-    case 'NEEDS_REFACTOR':
-      return chalk.yellow(verdict);
-    case 'CRITICAL':
-      return chalk.red(verdict);
-    default:
-      return verdict;
-  }
 }

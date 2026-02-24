@@ -116,7 +116,7 @@ export async function reviewFile(
       // Last attempt — throw the error
       if (attempt === maxRetries) {
         throw new AnatolyError(
-          `Zod validation failed after ${maxRetries} attempts for ${task.file}: ${validation.error}`,
+          `Review validation failed for ${task.file} after ${maxRetries} retries. Run with --verbose for details.`,
           ERROR_CODES.ZOD_VALIDATION_FAILED,
           true,
         );
@@ -146,7 +146,7 @@ export async function reviewFile(
 
     // Should not reach here, but guard against it
     throw new AnatolyError(
-      `Review exhausted all retries for ${task.file}`,
+      `Review validation failed for ${task.file} after ${maxRetries} retries. Run with --verbose for details.`,
       ERROR_CODES.ZOD_VALIDATION_FAILED,
       true,
     );

@@ -42,7 +42,7 @@ describe('AnatolyError', () => {
 
   it('should use default hint when no custom hint provided', () => {
     const err = new AnatolyError('lock exists', ERROR_CODES.LOCK_EXISTS, false);
-    expect(err.hint).toBe('run `anatoly reset` to remove the stale lock');
+    expect(err.hint).toBe('wait for it to finish or run `anatoly reset` to force clear');
   });
 
   it('should use custom hint when provided', () => {

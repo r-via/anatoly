@@ -41,9 +41,12 @@ Anatoly is an **agentic CLI** that parses your codebase with tree-sitter AST ana
 - **RAG semantic duplication** — Local embeddings (Xenova/all-MiniLM-L6-v2) + LanceDB vector store detect cross-file semantic duplications invisible to grep
 - **Run-scoped outputs** — Each run is stored in `.anatoly/runs/<timestamp>/` with a `latest` symlink; old runs auto-purged via `output.max_runs`
 - **Watch mode** — Daemon that re-reviews changed files automatically
-- **CI-friendly** — Exit codes: `0` (clean), `1` (findings), `2` (error)
+- **Parallel reviews** — `--concurrency N` runs up to 10 reviews simultaneously with rate limiting and multi-file renderer
+- **CI-friendly** — Exit codes: `0` (clean), `1` (findings), `2` (error); `--yes` flag for non-interactive destructive commands
 - **Coverage integration** — Parses Istanbul/Vitest/Jest coverage data to enrich reviews
 - **Crash-resilient** — Atomic state writes, lock files, and interrupted-run recovery
+- **Actionable errors** — Every error includes a recovery hint (`error: <message>\n  → <next step>`)
+- **Accessibility** — Respects `$NO_COLOR` env var; `--plain` mode for pipes/CI; `--open` to launch report in default app
 
 ## Target Audience
 
@@ -72,7 +75,7 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js —
 └───────────────────────────────────────────────────────────────┘
 ```
 
-The pipeline is strictly sequential per run: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** (optional, with `--enable-rag`) generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs one Claude Agent SDK session per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
+The pipeline phases run in order: **scan** parses AST and computes hashes, **estimate** counts tokens locally, **index** (optional, with `--enable-rag`) generates FunctionCards via Haiku and embeds them locally into LanceDB, **review** runs Claude Agent SDK sessions per file (read-only tools: Glob, Grep, Read + findSimilarFunctions when RAG is active), and **report** aggregates all `.rev.json` files into a final `report.md`. Reviews can run in parallel with `--concurrency N` (up to 10 workers). Each run's outputs are stored in `.anatoly/runs/<timestamp>/`.
 
 ## Tech Stack
 
@@ -116,7 +119,8 @@ src/
 │   ├── reviewer.ts       # Claude Agent SDK + Zod retry
 │   ├── review-writer.ts  # Writes .rev.json + .rev.md
 │   ├── reporter.ts       # Aggregates → report.md
-│   └── progress-manager.ts # Atomic state management
+│   ├── progress-manager.ts # Atomic state management
+│   └── worker-pool.ts    # Concurrent review pool + semaphore
 ├── schemas/              # Zod schemas (source of truth)
 │   ├── review.ts         # 5-axis review schema
 │   ├── task.ts           # AST task schema
@@ -134,12 +138,17 @@ src/
 └── utils/                # Cross-cutting utilities
     ├── cache.ts           # SHA-256 + atomic writes
     ├── config-loader.ts   # YAML → typed Config
-    ├── lock.ts            # PID-based lock file
-    ├── prompt-builder.ts  # Agent prompt construction
-    ├── renderer.ts        # Terminal rendering (TTY/plain)
-    ├── run-id.ts          # Run ID generation + symlink + purge
+    ├── confirm.ts         # Interactive y/n confirmation prompts
+    ├── errors.ts          # AnatolyError + error codes + recovery hints
     ├── extract-json.ts    # JSON extraction from agent responses
-    └── git.ts             # .gitignore filtering
+    ├── git.ts             # .gitignore filtering
+    ├── lock.ts            # PID-based lock file
+    ├── monorepo.ts        # Monorepo workspace detection
+    ├── open.ts            # Open file with system default app
+    ├── prompt-builder.ts  # Agent prompt construction
+    ├── rate-limiter.ts    # Exponential backoff for API rate limits
+    ├── renderer.ts        # Terminal rendering (TTY/plain/multi-file)
+    └── run-id.ts          # Run ID generation + symlink + purge
 ```
 
 Runtime output directory:
@@ -194,22 +203,26 @@ npx anatoly report         # Aggregate reviews → report.md
 npx anatoly status         # Show current audit progress
 npx anatoly rag-status     # Show RAG index stats (cards, files)
 npx anatoly rag-status <fn> # Inspect a specific function card
-npx anatoly clean-logs     # Delete old runs (alias: clean-runs)
-npx anatoly reset          # Wipe all cache, reviews, and logs
+npx anatoly clean-runs     # Delete old runs (--keep <n>, --yes)
+npx anatoly clean-logs     # Alias for clean-runs
+npx anatoly reset          # Wipe all state (shows summary, asks confirmation)
+npx anatoly reset --yes    # Skip confirmation (for CI/scripts)
 ```
 
 ### Global Flags
 
 ```
---config <path>    Path to .anatoly.yml config file
---verbose          Enable verbose output
---no-cache         Skip cache, re-review all files
---file <glob>      Target specific files (e.g. "src/utils/**/*.ts")
---plain            Disable spinners and colors
---no-color         Disable colors only
---run-id <id>      Custom run ID (default: YYYY-MM-DD_HHmmss)
---enable-rag       Enable semantic RAG cross-file duplication detection
---rebuild-rag      Force full RAG re-indexation
+--config <path>      Path to .anatoly.yml config file
+--verbose            Enable verbose output (per-file time, cost, retries)
+--no-cache           Skip cache, re-review all files
+--file <glob>        Target specific files (e.g. "src/utils/**/*.ts")
+--plain              Disable spinners and colors
+--no-color           Disable colors only (also respects $NO_COLOR env var)
+--open               Open report in default app after generation
+--run-id <id>        Custom run ID (default: YYYY-MM-DD_HHmmss)
+--concurrency <n>    Number of concurrent reviews, 1-10 (default: 1)
+--enable-rag         Enable semantic RAG cross-file duplication detection
+--rebuild-rag        Force full RAG re-indexation
 ```
 
 ### RAG Status Options
@@ -271,6 +284,7 @@ llm:
   agentic_tools: true
   timeout_per_file: 180
   max_retries: 3
+  concurrency: 1            # parallel reviews (1-10, or use --concurrency flag)
 
 rag:
   enabled: false    # opt-in via --enable-rag or here
