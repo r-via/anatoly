@@ -12,6 +12,7 @@ export interface HookReview {
 export interface HookState {
   session_id: string;
   reviews: Record<string, HookReview>;
+  stop_count: number;
 }
 
 function hookStatePath(projectRoot: string): string {
@@ -32,6 +33,7 @@ export function initHookState(): HookState {
   return {
     session_id: generateSessionId(),
     reviews: {},
+    stop_count: 0,
   };
 }
 
@@ -50,6 +52,11 @@ export function loadHookState(projectRoot: string): HookState {
     // Validate structure
     if (!raw.session_id || typeof raw.reviews !== 'object') {
       return initHookState();
+    }
+
+    // Ensure stop_count exists (backward compat with old state files)
+    if (typeof raw.stop_count !== 'number') {
+      raw.stop_count = 0;
     }
 
     // Clean up reviews with dead PIDs (orphaned from crash)

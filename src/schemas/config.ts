@@ -29,6 +29,7 @@ export const LlmConfigSchema = z.object({
   max_retries: z.int().min(1).max(10).default(3),
   concurrency: z.int().min(1).max(10).default(4),
   min_confidence: z.int().min(0).max(100).default(70),
+  max_stop_iterations: z.int().min(1).max(10).default(3),
 });
 
 export const RagConfigSchema = z.object({
@@ -60,6 +61,7 @@ export const ConfigSchema = z.object({
     max_retries: 3,
     concurrency: 4,
     min_confidence: 70,
+    max_stop_iterations: 3,
   }),
   rag: RagConfigSchema.default({
     enabled: true,

@@ -170,6 +170,18 @@ export function registerHookCommand(program: Command): void {
       }
 
       const state = loadHookState(projectRoot);
+      const maxStopIterations = config.llm.max_stop_iterations;
+
+      // Anti-loop: check stop_count against max_stop_iterations
+      if (state.stop_count >= maxStopIterations) {
+        process.stderr.write(
+          `anatoly hook stop: max iterations reached (${state.stop_count}/${maxStopIterations}), exiting silently\n`,
+        );
+        process.exit(0);
+      }
+
+      // Increment stop_count
+      state.stop_count++;
 
       // Wait for running reviews to complete (timeout 120s)
       const timeoutMs = 120_000;
