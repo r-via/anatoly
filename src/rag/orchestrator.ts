@@ -7,6 +7,7 @@ import { generateFunctionCards } from './card-generator.js';
 import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import { embed, setEmbeddingLogger } from './embeddings.js';
 import { runWorkerPool } from '../core/worker-pool.js';
+import { retryWithBackoff } from '../utils/rate-limiter.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
@@ -108,7 +109,21 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       const idx = ++fileCounter;
       onLog(`[${idx}/${tasksWithFunctions.length}] ${task.file}`);
 
-      const result = await processFileForIndex(projectRoot, task, indexModel, cache);
+      const result = await retryWithBackoff(
+        () => processFileForIndex(projectRoot, task, indexModel, cache),
+        {
+          maxRetries: 5,
+          baseDelayMs: 2000,
+          maxDelayMs: 30_000,
+          jitterFactor: 0.2,
+          filePath: task.file,
+          isInterrupted,
+          onRetry: (attempt, delayMs) => {
+            const delaySec = (delayMs / 1000).toFixed(0);
+            onLog(`  rate limited — retrying ${task.file} in ${delaySec}s (attempt ${attempt}/5)`);
+          },
+        },
+      );
       if (result.cards.length > 0) {
         results.push(result);
       }

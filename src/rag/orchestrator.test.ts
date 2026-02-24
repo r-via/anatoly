@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { workerPoolSpy } = vi.hoisted(() => {
+const { workerPoolSpy, retryWithBackoffSpy } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const workerPoolSpy = vi.fn<any>();
-  return { workerPoolSpy };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const retryWithBackoffSpy = vi.fn<any>();
+  return { workerPoolSpy, retryWithBackoffSpy };
 });
 
 // Mock all heavy dependencies before importing the module under test
@@ -43,6 +45,10 @@ vi.mock('../core/worker-pool.js', () => ({
   runWorkerPool: workerPoolSpy,
 }));
 
+vi.mock('../utils/rate-limiter.js', () => ({
+  retryWithBackoff: retryWithBackoffSpy,
+}));
+
 import { indexProject } from './orchestrator.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
@@ -65,6 +71,9 @@ describe('indexProject', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workerPoolSpy.mockResolvedValue({ completed: 0, errored: 0, skipped: 0 });
+    // Default: retryWithBackoff calls the fn directly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    retryWithBackoffSpy.mockImplementation(async (fn: any) => fn());
   });
 
   it('should pass concurrency option to runWorkerPool', async () => {
@@ -147,5 +156,38 @@ describe('indexProject', () => {
     expect(workerPoolSpy).toHaveBeenCalledOnce();
     expect(poolArgs().items).toHaveLength(3);
     expect(poolArgs().concurrency).toBe(3);
+  });
+
+  it('should wrap processFileForIndex with retryWithBackoff (base 2s, max 30s)', async () => {
+    // Make workerPool invoke the handler so retryWithBackoff gets called
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    workerPoolSpy.mockImplementation(async (opts: any) => {
+      for (const item of opts.items) {
+        await opts.handler(item, 0);
+      }
+      return { completed: opts.items.length, errored: 0, skipped: 0 };
+    });
+
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      indexModel: 'claude-haiku-4-5-20251001',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(retryWithBackoffSpy).toHaveBeenCalledOnce();
+    const opts = retryWithBackoffSpy.mock.calls[0][1] as {
+      maxRetries: number;
+      baseDelayMs: number;
+      maxDelayMs: number;
+      jitterFactor: number;
+      filePath: string;
+    };
+    expect(opts.maxRetries).toBe(5);
+    expect(opts.baseDelayMs).toBe(2000);
+    expect(opts.maxDelayMs).toBe(30_000);
+    expect(opts.jitterFactor).toBe(0.2);
+    expect(opts.filePath).toBe('src/a.ts');
   });
 });
