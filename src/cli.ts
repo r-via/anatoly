@@ -10,6 +10,7 @@ import {
   registerCleanLogsCommand,
   registerResetCommand,
   registerRagStatusCommand,
+  registerHookCommand,
 } from './commands/index.js';
 
 declare const PKG_VERSION: string;
@@ -41,6 +42,7 @@ export function createProgram(): Command {
   registerCleanLogsCommand(program);
   registerResetCommand(program);
   registerRagStatusCommand(program);
+  registerHookCommand(program);
 
   return program;
 }

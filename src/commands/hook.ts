@@ -1,0 +1,283 @@
+import type { Command } from 'commander';
+import { resolve, relative, extname } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { loadConfig } from '../utils/config-loader.js';
+import { computeFileHash, toOutputName, atomicWriteJson } from '../utils/cache.js';
+import { isLockActive } from '../utils/lock.js';
+import type { ReviewFile } from '../schemas/review.js';
+import type { HookState, HookReview } from '../utils/hook-state.js';
+import { loadHookState, saveHookState, initHookState, isProcessRunning } from '../utils/hook-state.js';
+
+const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
+
+/**
+ * Read all of stdin as a string (for hook JSON payloads).
+ */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+/**
+ * Extract file_path from Claude Code hook stdin JSON.
+ * PostToolUse hooks receive: { tool_name, tool_input: { file_path, ... }, ... }
+ */
+function extractFilePath(stdinJson: string): string | null {
+  try {
+    const payload = JSON.parse(stdinJson) as Record<string, unknown>;
+    const toolInput = payload.tool_input as Record<string, unknown> | undefined;
+    if (toolInput && typeof toolInput.file_path === 'string') {
+      return toolInput.file_path;
+    }
+    // Also check top-level file_path
+    if (typeof payload.file_path === 'string') {
+      return payload.file_path;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function registerHookCommand(program: Command): void {
+  const hookCmd = program
+    .command('hook')
+    .description('Claude Code integration hooks (internal)')
+    .addHelpText('after', '\nThese subcommands are designed for Claude Code hooks, not direct user invocation.');
+
+  // --- hook post-edit ---
+  hookCmd
+    .command('post-edit')
+    .description('PostToolUse hook: queue background review for edited file')
+    .action(async () => {
+      const projectRoot = resolve('.');
+
+      // Read stdin JSON from Claude Code
+      const stdinData = await readStdin();
+      const filePath = extractFilePath(stdinData);
+
+      if (!filePath) {
+        // No file_path in payload — exit silently
+        process.exit(0);
+      }
+
+      // Resolve to relative path
+      const absPath = resolve(projectRoot, filePath);
+      const relPath = relative(projectRoot, absPath);
+
+      // Skip non-TS files
+      const ext = extname(relPath);
+      if (!TS_EXTENSIONS.has(ext)) {
+        process.exit(0);
+      }
+
+      // Skip if file doesn't exist (deleted)
+      if (!existsSync(absPath)) {
+        process.exit(0);
+      }
+
+      // Skip if anatoly run is active (lock held by another process)
+      if (isLockActive(projectRoot)) {
+        process.exit(0);
+      }
+
+      // Check SHA-256 hash — skip if unchanged from cached review
+      const currentHash = computeFileHash(absPath);
+      const outputName = toOutputName(relPath);
+      const revJsonPath = resolve(projectRoot, '.anatoly', 'reviews', `${outputName}.rev.json`);
+      if (existsSync(revJsonPath)) {
+        try {
+          const existingReview = JSON.parse(readFileSync(revJsonPath, 'utf-8')) as ReviewFile;
+          // If the review's file matches and we have a matching task hash, skip
+          const taskPath = resolve(projectRoot, '.anatoly', 'tasks', `${outputName}.task.json`);
+          if (existsSync(taskPath)) {
+            const task = JSON.parse(readFileSync(taskPath, 'utf-8')) as { hash: string };
+            if (task.hash === currentHash && existingReview.file === relPath) {
+              process.exit(0);
+            }
+          }
+        } catch {
+          // Corrupted review/task — proceed with re-review
+        }
+      }
+
+      // Load or initialize hook state
+      const state = loadHookState(projectRoot);
+
+      // Debounce: if a review for this file is already running, kill it
+      const existingReview = state.reviews[relPath];
+      if (existingReview && existingReview.status === 'running' && existingReview.pid) {
+        try {
+          process.kill(existingReview.pid, 'SIGTERM');
+        } catch {
+          // Process may have already exited
+        }
+      }
+
+      // Spawn detached child process: anatoly review --file <path> --no-cache
+      const child = spawn(
+        process.execPath,
+        [process.argv[1], 'review', '--file', relPath, '--no-cache'],
+        {
+          cwd: projectRoot,
+          detached: true,
+          stdio: 'ignore',
+          env: { ...process.env, ANATOLY_HOOK_MODE: '1' },
+        },
+      );
+      child.unref();
+
+      // Update hook state
+      state.reviews[relPath] = {
+        pid: child.pid ?? 0,
+        status: 'running',
+        started_at: new Date().toISOString(),
+        rev_path: revJsonPath,
+      };
+      saveHookState(projectRoot, state);
+
+      // Exit immediately — review continues in background
+      process.exit(0);
+    });
+
+  // --- hook stop ---
+  hookCmd
+    .command('stop')
+    .description('Stop hook: wait for reviews, inject findings as feedback')
+    .action(async () => {
+      const projectRoot = resolve('.');
+      const parentOpts = program.opts();
+      const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+      const minConfidence = (config.llm as Record<string, unknown>).min_confidence as number | undefined ?? 70;
+
+      const state = loadHookState(projectRoot);
+
+      // Anti-loop protection: check stop_count
+      const maxStopIterations = 3;
+      state.stop_count = (state.stop_count ?? 0) + 1;
+      saveHookState(projectRoot, state);
+
+      if (state.stop_count > maxStopIterations) {
+        // Too many stop iterations — exit silently, log on stderr
+        process.stderr.write(`anatoly hook stop: max iterations (${maxStopIterations}) reached, skipping\n`);
+        process.exit(0);
+      }
+
+      // Wait for running reviews to complete (timeout 120s)
+      const timeoutMs = 120_000;
+      const startTime = Date.now();
+      const runningFiles = Object.entries(state.reviews).filter(
+        ([, r]) => r.status === 'running',
+      );
+
+      for (const [file, review] of runningFiles) {
+        const elapsed = Date.now() - startTime;
+        const remaining = timeoutMs - elapsed;
+
+        if (remaining <= 0) {
+          process.stderr.write(`anatoly hook stop: timeout waiting for ${file}\n`);
+          state.reviews[file] = { ...review, status: 'timeout' };
+          continue;
+        }
+
+        // Poll until process finishes or timeout
+        await waitForProcess(review.pid, remaining);
+
+        // Check if process is still running
+        if (isProcessRunning(review.pid)) {
+          process.stderr.write(`anatoly hook stop: review for ${file} still running after timeout\n`);
+          state.reviews[file] = { ...review, status: 'timeout' };
+        } else {
+          state.reviews[file] = { ...review, status: 'done' };
+        }
+      }
+
+      // Collect findings from completed reviews
+      const findings: Array<{ file: string; symbols: ReviewFile['symbols']; verdict: string }> = [];
+
+      for (const [file, review] of Object.entries(state.reviews)) {
+        if (review.status !== 'done' && review.status !== 'running') continue;
+
+        // Check if process has actually finished
+        if (review.pid && isProcessRunning(review.pid)) continue;
+
+        const revPath = review.rev_path;
+        if (!revPath || !existsSync(revPath)) continue;
+
+        try {
+          const revData = JSON.parse(readFileSync(revPath, 'utf-8')) as ReviewFile;
+
+          // Filter symbols by min_confidence
+          const significantSymbols = revData.symbols.filter(
+            (s) => s.confidence >= minConfidence &&
+              (s.correction !== 'OK' || s.utility === 'DEAD' || s.duplication === 'DUPLICATE' || s.overengineering === 'OVER'),
+          );
+
+          if (significantSymbols.length > 0) {
+            findings.push({
+              file: revData.file,
+              symbols: significantSymbols,
+              verdict: revData.verdict,
+            });
+          }
+        } catch {
+          // Corrupted or incomplete review — skip
+        }
+      }
+
+      saveHookState(projectRoot, state);
+
+      // If no findings, exit cleanly
+      if (findings.length === 0) {
+        process.exit(0);
+      }
+
+      // Format findings as additionalContext for Claude Code
+      const contextLines: string[] = [];
+      contextLines.push('## Anatoly Review Findings\n');
+      contextLines.push('The following issues were detected by Anatoly\'s deep audit:\n');
+
+      for (const finding of findings) {
+        contextLines.push(`### ${finding.file} (${finding.verdict})\n`);
+        for (const s of finding.symbols) {
+          const issues: string[] = [];
+          if (s.correction !== 'OK') issues.push(`correction: ${s.correction}`);
+          if (s.utility === 'DEAD') issues.push('utility: DEAD');
+          if (s.utility === 'LOW_VALUE') issues.push('utility: LOW_VALUE');
+          if (s.duplication === 'DUPLICATE') issues.push(`duplication: DUPLICATE${s.duplicate_target ? ` (${s.duplicate_target.file}:${s.duplicate_target.symbol})` : ''}`);
+          if (s.overengineering === 'OVER') issues.push('overengineering: OVER');
+
+          contextLines.push(`- **${s.name}** (L${s.line_start}–L${s.line_end}, confidence: ${s.confidence}%): ${issues.join(', ')}`);
+          contextLines.push(`  ${s.detail}`);
+        }
+        contextLines.push('');
+      }
+
+      contextLines.push('Please fix these issues before completing your task.\n');
+
+      // Output as JSON for Claude Code Stop hook protocol
+      const output = JSON.stringify({
+        additionalContext: contextLines.join('\n'),
+      });
+      process.stdout.write(output);
+      process.exit(0);
+    });
+}
+
+/**
+ * Wait for a process to exit, polling every 500ms.
+ * Returns when process exits or timeout is reached.
+ */
+async function waitForProcess(pid: number, timeoutMs: number): Promise<void> {
+  const pollInterval = 500;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (!isProcessRunning(pid)) return;
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+}

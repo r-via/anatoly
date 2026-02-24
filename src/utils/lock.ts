@@ -58,6 +58,23 @@ export function releaseLock(lockPath: string): void {
 }
 
 /**
+ * Check if the lock is held by another running process.
+ * Does NOT acquire the lock — read-only check for hook coordination.
+ */
+export function isLockActive(projectRoot: string): boolean {
+  const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
+  if (!existsSync(lockPath)) return false;
+
+  try {
+    const existing = JSON.parse(readFileSync(lockPath, 'utf-8')) as LockData;
+    // Lock is active if the process is running AND it's not our own process
+    return isProcessRunning(existing.pid) && existing.pid !== process.pid;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check if a process with the given PID is still running.
  */
 function isProcessRunning(pid: number): boolean {

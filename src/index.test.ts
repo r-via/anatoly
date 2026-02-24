@@ -27,9 +27,10 @@ describe('CLI program', () => {
         'clean-runs',
         'reset',
         'rag-status',
+        'hook',
       ]),
     );
-    expect(commandNames).toHaveLength(11);
+    expect(commandNames).toHaveLength(12);
   });
 
   it('should register all global options', () => {

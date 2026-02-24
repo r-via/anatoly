@@ -8,3 +8,4 @@ export { registerStatusCommand } from './status.js';
 export { registerCleanLogsCommand } from './clean-logs.js';
 export { registerResetCommand } from './reset.js';
 export { registerRagStatusCommand } from './rag-status.js';
+export { registerHookCommand } from './hook.js';
