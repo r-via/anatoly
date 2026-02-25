@@ -59,6 +59,23 @@ export interface AxisEvaluator {
 }
 
 // ---------------------------------------------------------------------------
+// Model resolution (here to avoid circular deps between axes/index and evaluators)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the effective model for an axis evaluator based on config overrides.
+ * Priority: axes.[axis].model → (haiku ? fast_model : model) → evaluator.defaultModel fallback
+ */
+export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): string {
+  const axisConfig = config.llm.axes?.[evaluator.id];
+  if (axisConfig?.model) return axisConfig.model;
+
+  return evaluator.defaultModel === 'haiku'
+    ? (config.llm.fast_model ?? config.llm.index_model)
+    : config.llm.model;
+}
+
+// ---------------------------------------------------------------------------
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------
 
