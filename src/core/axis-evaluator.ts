@@ -4,8 +4,22 @@ import type { z } from 'zod';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { UsageGraph } from './usage-graph.js';
-import type { PreResolvedRag } from '../utils/prompt-builder.js';
+import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
+
+// ---------------------------------------------------------------------------
+// Pre-resolved RAG types (moved from prompt-builder.ts)
+// ---------------------------------------------------------------------------
+
+export interface PreResolvedRagEntry {
+  symbolName: string;
+  lineStart: number;
+  lineEnd: number;
+  /** null means the function was not found in the index */
+  results: SimilarityResult[] | null;
+}
+
+export type PreResolvedRag = PreResolvedRagEntry[];
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 

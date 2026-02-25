@@ -8,14 +8,12 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, estimateTriagedMinutes, formatTokenCount, loadTasks, SECONDS_PER_TIER } from '../core/estimator.js';
+import { estimateProject, formatTokenCount, loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
-import type { PromptOptions } from '../utils/prompt-builder.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
@@ -24,7 +22,12 @@ import { pkgVersion } from '../utils/version.js';
 import { verdictColor } from '../utils/format.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
-import { fastReviewFile } from '../core/fast-reviewer.js';
+import { getEnabledEvaluators } from '../core/axes/index.js';
+import { evaluateFile } from '../core/file-evaluator.js';
+import type { VectorStore } from '../rag/vector-store.js';
+
+/** Seconds per tier for time estimation */
+const SECONDS_PER_TIER = { skip: 0, evaluate: 8 };
 
 interface RunContext {
   projectRoot: string;
@@ -46,7 +49,7 @@ interface RunContext {
   filesReviewed: number;
   totalFindings: number;
   totalFiles: number;
-  reviewCounts: { skipped: number; fast: number; deep: number };
+  reviewCounts: { skipped: number; evaluated: number };
 }
 
 export function registerRunCommand(program: Command): void {
@@ -96,7 +99,7 @@ export function registerRunCommand(program: Command): void {
         filesReviewed: 0,
         totalFindings: 0,
         totalFiles: 0,
-        reviewCounts: { skipped: 0, fast: 0, deep: 0 },
+        reviewCounts: { skipped: 0, evaluated: 0 },
       };
 
       const onSigint = () => {
@@ -118,15 +121,10 @@ export function registerRunCommand(program: Command): void {
         }
 
         ctx.lockPath = acquireLock(projectRoot);
-        const promptOptions = await runRagPhase(ctx, setup.tasks);
+        const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
-        // Inject usage graph into prompt options
-        if (setup.usageGraph) {
-          promptOptions.usageGraph = setup.usageGraph;
-        }
-
-        await runReviewPhase(ctx, promptOptions, setup.triageMap);
+        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext);
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
@@ -222,7 +220,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           return;
         }
 
-        const tiers = { skip: 0, fast: 0, deep: 0 };
+        const tiers = { skip: 0, evaluate: 0 };
 
         for (const task of allTasks) {
           const absPath = resolve(ctx.projectRoot, task.file);
@@ -230,9 +228,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           try {
             source = readFileSync(absPath, 'utf-8');
           } catch {
-            // File unreadable — treat as deep
-            triageMap.set(task.file, { tier: 'deep', reason: 'unreadable' });
-            tiers.deep++;
+            // File unreadable — treat as evaluate
+            triageMap.set(task.file, { tier: 'evaluate', reason: 'unreadable' });
+            tiers.evaluate++;
             continue;
           }
 
@@ -241,12 +239,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           tiers[result.tier]++;
         }
 
-        const triageMinutes = estimateTriagedMinutes(tiers);
+        const triageMinutes = (tiers.skip * SECONDS_PER_TIER.skip + tiers.evaluate * SECONDS_PER_TIER.evaluate) / 60;
         const timeLabel = ctx.concurrency > 1
           ? `~${Math.ceil(triageMinutes / ctx.concurrency)} min (\u00d7${ctx.concurrency})`
-          : `~${triageMinutes} min`;
+          : `~${Math.ceil(triageMinutes)} min`;
 
-        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.fast} fast \u00b7 ${tiers.deep} deep \u00b7 ${timeLabel}`;
+        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${timeLabel}`;
       },
     },
     {
@@ -267,10 +265,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph };
 }
 
-async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<PromptOptions> {
-  const promptOptions: PromptOptions = { ragEnabled: ctx.enableRag };
+interface RagContext {
+  vectorStore?: VectorStore;
+  ragEnabled: boolean;
+}
 
-  if (!ctx.enableRag) return promptOptions;
+async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {
+  if (!ctx.enableRag) return { ragEnabled: false };
 
   let ragResult: RagIndexResult | undefined;
 
@@ -304,19 +305,20 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<PromptOption
   if (ctx.interrupted) {
     console.log('interrupted — rag indexing incomplete');
     if (ctx.lockPath) { releaseLock(ctx.lockPath); ctx.lockPath = undefined; }
-    return promptOptions;
+    return { ragEnabled: false };
   }
 
   if (ragResult) {
     return { ragEnabled: true, vectorStore: ragResult.vectorStore };
   }
-  return promptOptions;
+  return { ragEnabled: false };
 }
 
 async function runReviewPhase(
   ctx: RunContext,
-  promptOptions: PromptOptions,
   triageMap: Map<string, TriageResult>,
+  usageGraph: UsageGraph | undefined,
+  ragContext: RagContext,
 ): Promise<void> {
   const pm = new ProgressManager(ctx.projectRoot);
 
@@ -350,6 +352,8 @@ async function runReviewPhase(
     .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file) }))
     .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
 
+  const evaluators = getEnabledEvaluators(ctx.config);
+
   // Shared atomic counter for completed files
   let completedCount = 0;
 
@@ -378,9 +382,7 @@ async function runReviewPhase(
         return;
       }
 
-      // Fast-tier: single-turn review, promote to deep on failure
-      const isFastTier = ctx.triageEnabled && triage?.tier === 'fast';
-
+      // Evaluate tier: run all axis evaluators in parallel
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
       let currentAbort = new AbortController();
@@ -389,61 +391,6 @@ async function runReviewPhase(
       try {
         const startTime = Date.now();
 
-        // Try fast review first for fast-tier files
-        if (isFastTier) {
-          const fastOutcome = await retryWithBackoff(
-            async () => {
-              if (ctx.interrupted) throw new Error('interrupted');
-              if (currentAbort.signal.aborted) {
-                ctx.activeAborts.delete(currentAbort);
-                currentAbort = new AbortController();
-                ctx.activeAborts.add(currentAbort);
-              }
-              return fastReviewFile(ctx.projectRoot, task, ctx.config, promptOptions, currentAbort, ctx.runDir);
-            },
-            {
-              maxRetries: 5,
-              baseDelayMs: 5000,
-              maxDelayMs: 120_000,
-              jitterFactor: 0.2,
-              filePath,
-              isInterrupted: () => ctx.interrupted,
-              onRetry: (attempt, delayMs) => {
-                const delaySec = (delayMs / 1000).toFixed(0);
-                listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
-              },
-            },
-          );
-
-          if (!fastOutcome.promoted) {
-            // Fast review succeeded
-            const elapsedMs = Date.now() - startTime;
-            writeReviewOutput(ctx.projectRoot, fastOutcome.review, ctx.runDir);
-            pm.updateFileStatus(filePath, 'DONE');
-            ctx.filesReviewed++;
-            ctx.reviewCounts.fast++;
-            completedCount++;
-
-            countFindings(ctx, fastOutcome.review);
-            listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${verdictColor(fastOutcome.review.verdict)} ${chalk.dim('(fast)')}`;
-
-            if (ctx.verbose) {
-              const elapsed = (elapsedMs / 1000).toFixed(1);
-              const cost = fastOutcome.costUsd > 0 ? `$${fastOutcome.costUsd.toFixed(4)}` : '-';
-              const retryInfo = fastOutcome.retries > 0 ? ` retries:${fastOutcome.retries}` : '';
-              listrTask.output = `${elapsed}s  ${cost}${retryInfo}  fast`;
-            }
-            return;
-          }
-
-          // Fast review failed — promote to deep, continue in same slot
-          if (ctx.verbose) {
-            listrTask.output = `fast review failed (${fastOutcome.reason}) — promoting to deep`;
-          }
-        }
-
-        // Deep review (also handles promoted fast files)
-        const maxRetries = 5;
         const result = await retryWithBackoff(
           async () => {
             if (ctx.interrupted) throw new Error('interrupted');
@@ -452,10 +399,23 @@ async function runReviewPhase(
               currentAbort = new AbortController();
               ctx.activeAborts.add(currentAbort);
             }
-            return reviewFile(ctx.projectRoot, task, ctx.config, promptOptions, currentAbort, ctx.runDir);
+            return evaluateFile({
+              projectRoot: ctx.projectRoot,
+              task,
+              config: ctx.config,
+              evaluators,
+              abortController: currentAbort,
+              runDir: ctx.runDir,
+              usageGraph,
+              vectorStore: ragContext.vectorStore,
+              ragEnabled: ragContext.ragEnabled,
+              onAxisComplete: (axisId) => {
+                listrTask.output = `\u2713 ${axisId}`;
+              },
+            });
           },
           {
-            maxRetries,
+            maxRetries: 5,
             baseDelayMs: 5000,
             maxDelayMs: 120_000,
             jitterFactor: 0.2,
@@ -463,7 +423,7 @@ async function runReviewPhase(
             isInterrupted: () => ctx.interrupted,
             onRetry: (attempt, delayMs) => {
               const delaySec = (delayMs / 1000).toFixed(0);
-              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/${maxRetries})`;
+              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
             },
           },
         );
@@ -472,7 +432,7 @@ async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
         pm.updateFileStatus(filePath, 'DONE');
         ctx.filesReviewed++;
-        ctx.reviewCounts.deep++;
+        ctx.reviewCounts.evaluated++;
         completedCount++;
 
         countFindings(ctx, result.review);
@@ -481,8 +441,7 @@ async function runReviewPhase(
         if (ctx.verbose) {
           const elapsed = (elapsedMs / 1000).toFixed(1);
           const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
-          const retryInfo = result.retries > 0 ? ` retries:${result.retries}` : '';
-          listrTask.output = `${elapsed}s  ${cost}${retryInfo}`;
+          listrTask.output = `${elapsed}s  ${cost}`;
         }
       } catch (error) {
         if (ctx.interrupted) return;
@@ -537,19 +496,18 @@ function runReportPhase(ctx: RunContext): void {
 
   let triageStats: TriageStats | undefined;
   if (ctx.triageEnabled) {
-    const { skipped, fast, deep } = ctx.reviewCounts;
-    const total = skipped + fast + deep;
-    const allDeepSeconds = total * SECONDS_PER_TIER.deep;
+    const { skipped, evaluated } = ctx.reviewCounts;
+    const total = skipped + evaluated;
+    const allEvalSeconds = total * SECONDS_PER_TIER.evaluate;
     const actualSeconds =
       skipped * SECONDS_PER_TIER.skip +
-      fast * SECONDS_PER_TIER.fast +
-      deep * SECONDS_PER_TIER.deep;
+      evaluated * SECONDS_PER_TIER.evaluate;
     triageStats = {
       total,
       skip: skipped,
-      fast,
-      deep,
-      estimatedTimeSaved: (allDeepSeconds - actualSeconds) / 60,
+      fast: 0,
+      deep: evaluated,
+      estimatedTimeSaved: (allEvalSeconds - actualSeconds) / 60,
     };
   }
 
@@ -561,9 +519,9 @@ function runReportPhase(ctx: RunContext): void {
 
   console.log('');
 
-  const { skipped, fast, deep } = ctx.reviewCounts;
+  const { skipped, evaluated } = ctx.reviewCounts;
   const tierSummary = ctx.triageEnabled
-    ? ` (${skipped} skipped \u00b7 ${fast} fast \u00b7 ${deep} deep)`
+    ? ` (${skipped} skipped \u00b7 ${evaluated} evaluated)`
     : '';
   console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary}`);
   console.log('');

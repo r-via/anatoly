@@ -1,7 +1,7 @@
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 
-export type TriageTier = 'skip' | 'fast' | 'deep';
+export type TriageTier = 'skip' | 'evaluate';
 
 export interface TriageResult {
   tier: TriageTier;
@@ -23,7 +23,10 @@ function isBarrelExport(task: Task, source: string): boolean {
 }
 
 /**
- * Classify a file into skip/fast/deep tier for review dispatch.
+ * Classify a file into skip or evaluate tier for review dispatch.
+ *
+ * In the axis-based pipeline, there is no distinction between fast/deep —
+ * all non-skip files go through the same per-axis evaluator pipeline.
  */
 export function triageFile(task: Task, source: string): TriageResult {
   const lineCount = source.split('\n').length;
@@ -51,21 +54,14 @@ export function triageFile(task: Task, source: string): TriageResult {
     return { tier: 'skip', reason: 'constants-only' };
   }
 
-  // --- Fast tier ---
+  // --- Evaluate tier (all non-skip files) ---
 
-  // Simple: < 50 lines with < 3 symbols
-  if (lineCount < 50 && symbols.length < 3) {
-    return { tier: 'fast', reason: 'simple' };
-  }
-
-  // Internal: no exported symbols
+  // Internal: has symbols but none are exported
   if (symbols.length > 0 && !symbols.some((s) => s.exported)) {
-    return { tier: 'fast', reason: 'internal' };
+    return { tier: 'evaluate', reason: 'internal' };
   }
 
-  // --- Deep tier ---
-
-  return { tier: 'deep', reason: 'complex' };
+  return { tier: 'evaluate', reason: symbols.length < 3 ? 'simple' : 'complex' };
 }
 
 /**
@@ -93,7 +89,7 @@ export function generateSkipReview(task: Task, reason: string): ReviewFile {
   }));
 
   return {
-    version: 1,
+    version: 2,
     file: task.file,
     is_generated: true,
     skip_reason: reason,

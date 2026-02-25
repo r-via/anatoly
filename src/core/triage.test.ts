@@ -79,9 +79,9 @@ describe('triageFile', () => {
     expect(result).toEqual({ tier: 'skip', reason: 'constants-only' });
   });
 
-  // --- Fast tier ---
+  // --- Evaluate tier ---
 
-  it('fast: simple file (< 50 lines, < 3 symbols)', () => {
+  it('evaluate: simple file (< 50 lines, < 3 symbols)', () => {
     const task = makeTask({
       symbols: [
         makeSymbol({ name: 'helper', kind: 'function', line_end: 20 }),
@@ -90,10 +90,10 @@ describe('triageFile', () => {
     });
     const source = Array(40).fill('// line').join('\n');
     const result = triageFile(task, source);
-    expect(result).toEqual({ tier: 'fast', reason: 'simple' });
+    expect(result).toEqual({ tier: 'evaluate', reason: 'simple' });
   });
 
-  it('fast: internal file (no exports)', () => {
+  it('evaluate: internal file (no exports)', () => {
     const task = makeTask({
       symbols: [
         makeSymbol({ name: 'helper', exported: false, line_end: 30 }),
@@ -103,12 +103,12 @@ describe('triageFile', () => {
     });
     const source = Array(100).fill('// line').join('\n');
     const result = triageFile(task, source);
-    expect(result).toEqual({ tier: 'fast', reason: 'internal' });
+    expect(result).toEqual({ tier: 'evaluate', reason: 'internal' });
   });
 
-  // --- Deep tier ---
+  // --- Evaluate tier ---
 
-  it('deep: complex file (many symbols, exports, large)', () => {
+  it('evaluate: complex file (many symbols, exports, large)', () => {
     const task = makeTask({
       symbols: [
         makeSymbol({ name: 'doA', kind: 'function', exported: true }),
@@ -119,7 +119,7 @@ describe('triageFile', () => {
     });
     const source = Array(200).fill('// line').join('\n');
     const result = triageFile(task, source);
-    expect(result).toEqual({ tier: 'deep', reason: 'complex' });
+    expect(result).toEqual({ tier: 'evaluate', reason: 'complex' });
   });
 
   // --- Edge cases ---
@@ -142,7 +142,7 @@ describe('triageFile', () => {
     expect(result).toEqual({ tier: 'skip', reason: 'trivial' });
   });
 
-  it('mixed type+function file is deep', () => {
+  it('mixed type+function file is evaluate', () => {
     const task = makeTask({
       symbols: [
         makeSymbol({ name: 'MyType', kind: 'type' }),
@@ -153,7 +153,7 @@ describe('triageFile', () => {
     });
     const source = Array(100).fill('// line').join('\n');
     const result = triageFile(task, source);
-    expect(result).toEqual({ tier: 'deep', reason: 'complex' });
+    expect(result).toEqual({ tier: 'evaluate', reason: 'complex' });
   });
 });
 
@@ -173,7 +173,7 @@ describe('generateSkipReview', () => {
     const parsed = ReviewFileSchema.safeParse(review);
     expect(parsed.success).toBe(true);
 
-    expect(review.version).toBe(1);
+    expect(review.version).toBe(2);
     expect(review.file).toBe('src/utils/types.ts');
     expect(review.is_generated).toBe(true);
     expect(review.skip_reason).toBe('type-only');

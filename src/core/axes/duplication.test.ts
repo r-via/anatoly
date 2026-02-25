@@ -3,7 +3,7 @@ import { buildDuplicationSystemPrompt, buildDuplicationUserMessage } from './dup
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
-import type { PreResolvedRag } from '../../utils/prompt-builder.js';
+import type { PreResolvedRag } from '../axis-evaluator.js';
 import { ConfigSchema } from '../../schemas/config.js';
 
 const mockTask: Task = {

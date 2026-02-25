@@ -7,11 +7,12 @@ import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { verdictColor } from '../utils/format.js';
+import { getEnabledEvaluators } from '../core/axes/index.js';
+import { evaluateFile } from '../core/file-evaluator.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -80,9 +81,17 @@ export function registerReviewCommand(program: Command): void {
 
             pm.updateFileStatus(fp.file, 'IN_PROGRESS');
             activeAbort = new AbortController();
+            const evaluators = getEnabledEvaluators(config);
 
             try {
-              const result = await reviewFile(projectRoot, task, config, {}, activeAbort);
+              const result = await evaluateFile({
+                projectRoot,
+                task,
+                config,
+                evaluators,
+                abortController: activeAbort,
+                runDir: resolve(projectRoot, '.anatoly'),
+              });
               writeReviewOutput(projectRoot, result.review);
               pm.updateFileStatus(fp.file, 'DONE');
               filesReviewed++;

@@ -6,9 +6,10 @@ import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
 import { parseFile } from '../core/scanner.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
-import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
+import { getEnabledEvaluators } from '../core/axes/index.js';
+import { evaluateFile } from '../core/file-evaluator.js';
 import { isGitIgnored } from '../utils/git.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
@@ -89,15 +90,22 @@ export function registerWatchCommand(program: Command): void {
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
-          const result = await reviewFile(projectRoot, task, config);
+          const evaluators = getEnabledEvaluators(config);
+          const result = await evaluateFile({
+            projectRoot,
+            task,
+            config,
+            evaluators,
+            abortController: new AbortController(),
+            runDir: resolve(projectRoot, '.anatoly'),
+          });
           writeReviewOutput(projectRoot, result.review);
 
           progress.files[relPath].status = 'DONE';
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
-          const retryNote = result.retries > 0 ? ` (${result.retries} retries)` : '';
-          console.log(`  ${chalk.green('reviewed')} ${relPath} → ${result.review.verdict}${retryNote}`);
+          console.log(`  ${chalk.green('reviewed')} ${relPath} → ${result.review.verdict}`);
         } catch (error) {
           const message = error instanceof AnatolyError ? error.message : String(error);
 
