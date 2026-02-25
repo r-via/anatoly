@@ -10,7 +10,7 @@ import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { writeReviewOutput } from '../core/review-writer.js';
+import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
@@ -525,6 +525,7 @@ async function runReviewPhase(
             );
 
             writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
+            writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
             pm.updateFileStatus(filePath, 'DONE');
             ctx.filesReviewed++;
             ctx.reviewCounts.evaluated++;

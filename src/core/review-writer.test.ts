@@ -306,6 +306,24 @@ describe('renderReviewMarkdown', () => {
     expect(md).toContain('This function is not imported anywhere');
   });
 
+  it('should show defaulted axes when some evaluators did not produce results', () => {
+    const partial: ReviewFile = {
+      ...sampleReviewV2,
+      symbols: [{
+        ...sampleReviewV2.symbols[0],
+        // Only 3 axes in detail — correction and tests missing
+        detail: '[USED] Exported function | [UNIQUE] No duplicates | [LEAN] Straightforward',
+      }],
+    };
+    const md = renderReviewMarkdown(partial);
+    expect(md).toContain('- **Utility [USED]**: Exported function');
+    expect(md).toContain('- **Correction [OK]**: *(default — evaluator did not produce a result)*');
+    expect(md).toContain('- **Tests [NONE]**: *(default — evaluator did not produce a result)*');
+    // These axes ran, should NOT have default marker
+    expect(md).not.toContain('- **Duplication [UNIQUE]**: *(default');
+    expect(md).not.toContain('- **Overengineering [LEAN]**: *(default');
+  });
+
   // --- Actions category tests ---
 
   it('should render actions in multiple categories', () => {

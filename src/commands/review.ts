@@ -7,7 +7,7 @@ import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { writeReviewOutput } from '../core/review-writer.js';
+import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
@@ -159,6 +159,7 @@ export function registerReviewCommand(program: Command): void {
                     },
                   });
                   writeReviewOutput(projectRoot, result.review);
+                  writeTranscript(projectRoot, fp.file, result.transcript);
                   pm.updateFileStatus(fp.file, 'DONE');
                   filesReviewed++;
 

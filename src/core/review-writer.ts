@@ -30,6 +30,22 @@ export function writeReviewOutput(
   return { jsonPath, mdPath };
 }
 
+/**
+ * Persist an axis evaluation transcript to the logs directory.
+ * When runDir is provided, writes into the run-scoped logs directory.
+ */
+export function writeTranscript(
+  projectRoot: string,
+  filePath: string,
+  transcript: string,
+  runDir?: string,
+): void {
+  const logsDir = runDir ? join(runDir, 'logs') : join(projectRoot, '.anatoly', 'logs');
+  mkdirSync(logsDir, { recursive: true });
+  const baseName = toOutputName(filePath);
+  writeFileSync(join(logsDir, `${baseName}.log`), transcript);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -115,9 +131,23 @@ export function renderReviewMarkdown(review: ReviewFile): string {
 
       const segments = parseDetailSegments(s.detail);
       if (segments) {
+        const coveredAxes = new Set(segments.map((seg) => VALUE_TO_AXIS[seg.value]));
         for (const seg of segments) {
           const axisName = VALUE_TO_AXIS[seg.value] ?? seg.value;
           lines.push(`- **${axisName} [${seg.value}]**: ${seg.explanation}`);
+        }
+        // Show defaulted axes (evaluator didn't run or didn't produce a result)
+        const SYMBOL_AXES: Array<{ axis: string; field: keyof typeof s; }> = [
+          { axis: 'Utility', field: 'utility' },
+          { axis: 'Duplication', field: 'duplication' },
+          { axis: 'Correction', field: 'correction' },
+          { axis: 'Overengineering', field: 'overengineering' },
+          { axis: 'Tests', field: 'tests' },
+        ];
+        for (const { axis, field } of SYMBOL_AXES) {
+          if (!coveredAxes.has(axis)) {
+            lines.push(`- **${axis} [${s[field]}]**: *(default — evaluator did not produce a result)*`);
+          }
         }
       } else {
         lines.push(s.detail);
