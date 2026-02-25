@@ -24,6 +24,7 @@ export const CoverageConfigSchema = z.object({
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   index_model: z.string().default('claude-haiku-4-5-20251001'),
+  fast_model: z.string().optional(),
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(600),
   max_retries: z.int().min(1).max(10).default(3),
