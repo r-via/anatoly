@@ -9,12 +9,32 @@ const OUTPUT_TOKENS_PER_SYMBOL = 150;
 const OUTPUT_BASE_PER_FILE = 300;
 const SECONDS_PER_FILE = 45;
 
+/** Seconds per file by triage tier */
+export const SECONDS_PER_TIER = { skip: 0, fast: 5, deep: 45 } as const;
+
 export interface EstimateResult {
   files: number;
   symbols: number;
   inputTokens: number;
   outputTokens: number;
   estimatedMinutes: number;
+}
+
+export interface TieredEstimateOptions {
+  skip: number;
+  fast: number;
+  deep: number;
+}
+
+/**
+ * Estimate review time based on triage tier distribution.
+ */
+export function estimateTriagedMinutes(tiers: TieredEstimateOptions): number {
+  const totalSeconds =
+    tiers.skip * SECONDS_PER_TIER.skip +
+    tiers.fast * SECONDS_PER_TIER.fast +
+    tiers.deep * SECONDS_PER_TIER.deep;
+  return Math.ceil(totalSeconds / 60);
 }
 
 /**

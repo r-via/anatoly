@@ -28,7 +28,8 @@ export function createProgram(): Command {
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--open', 'open report in default app after generation')
-    .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt);
+    .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
+    .option('--no-triage', 'disable triage, review all files with full agent');
 
   registerScanCommand(program);
   registerEstimateCommand(program);

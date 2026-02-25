@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
@@ -7,7 +8,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, formatTokenCount, loadTasks } from '../core/estimator.js';
+import { estimateProject, estimateTriagedMinutes, formatTokenCount, loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
@@ -21,6 +22,8 @@ import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
 import { verdictColor } from '../utils/format.js';
+import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
+import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 
 interface RunContext {
   projectRoot: string;
@@ -35,6 +38,7 @@ interface RunContext {
   enableRag: boolean;
   rebuildRag?: boolean;
   shouldOpen?: boolean;
+  triageEnabled: boolean;
   interrupted: boolean;
   lockPath?: string;
   activeAborts: Set<AbortController>;
@@ -84,6 +88,7 @@ export function registerRunCommand(program: Command): void {
         enableRag: parentOpts.rag !== false && config.rag.enabled,
         rebuildRag: parentOpts.rebuildRag as boolean | undefined,
         shouldOpen: parentOpts.open as boolean | undefined,
+        triageEnabled: parentOpts.triage !== false,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -103,9 +108,9 @@ export function registerRunCommand(program: Command): void {
       process.on('SIGINT', onSigint);
 
       try {
-        const estimate = await runSetupPhase(ctx);
+        const setup = await runSetupPhase(ctx);
         if (ctx.interrupted) {
-          console.log(`interrupted — 0/${estimate.files} files reviewed | 0 findings`);
+          console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings`);
           return;
         }
 
@@ -113,7 +118,12 @@ export function registerRunCommand(program: Command): void {
         const promptOptions = await runRagPhase(ctx);
         if (ctx.interrupted) return;
 
-        await runReviewPhase(ctx, promptOptions);
+        // Inject usage graph into prompt options
+        if (setup.usageGraph) {
+          promptOptions.usageGraph = setup.usageGraph;
+        }
+
+        await runReviewPhase(ctx, promptOptions, setup.triageMap);
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
@@ -144,10 +154,18 @@ function shortModelName(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
-async function runSetupPhase(ctx: RunContext): Promise<{ files: number }> {
+interface SetupResult {
+  files: number;
+  triageMap: Map<string, TriageResult>;
+  usageGraph?: UsageGraph;
+}
+
+async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   console.log(chalk.bold(`anatoly v${pkgVersion}`));
 
   let estimateFiles = 0;
+  const triageMap = new Map<string, TriageResult>();
+  let usageGraph: UsageGraph | undefined;
 
   const setupRunner = new Listr([
     {
@@ -190,6 +208,50 @@ async function runSetupPhase(ctx: RunContext): Promise<{ files: number }> {
         listrTask.title = `estimate \u2014 ${estimate.files} files \u00b7 ${estimate.symbols} symbols \u00b7 ${formatTokenCount(estimate.inputTokens)} in / ${formatTokenCount(estimate.outputTokens)} out \u00b7 ${timeLabel}`;
       },
     },
+    {
+      title: 'triage',
+      task: (_c: unknown, listrTask: { title: string }) => {
+        if (!ctx.triageEnabled) {
+          listrTask.title = 'triage \u2014 disabled (--no-triage)';
+          return;
+        }
+
+        const tasks = loadTasks(ctx.projectRoot);
+        const tiers = { skip: 0, fast: 0, deep: 0 };
+
+        for (const task of tasks) {
+          const absPath = resolve(ctx.projectRoot, task.file);
+          let source: string;
+          try {
+            source = readFileSync(absPath, 'utf-8');
+          } catch {
+            // File unreadable — treat as deep
+            triageMap.set(task.file, { tier: 'deep', reason: 'unreadable' });
+            tiers.deep++;
+            continue;
+          }
+
+          const result = triageFile(task, source);
+          triageMap.set(task.file, result);
+          tiers[result.tier]++;
+        }
+
+        const triageMinutes = estimateTriagedMinutes(tiers);
+        const timeLabel = ctx.concurrency > 1
+          ? `~${Math.ceil(triageMinutes / ctx.concurrency)} min (\u00d7${ctx.concurrency})`
+          : `~${triageMinutes} min`;
+
+        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.fast} fast \u00b7 ${tiers.deep} deep \u00b7 ${timeLabel}`;
+      },
+    },
+    {
+      title: 'usage graph',
+      task: (_c: unknown, listrTask: { title: string }) => {
+        const tasks = loadTasks(ctx.projectRoot);
+        usageGraph = buildUsageGraph(ctx.projectRoot, tasks);
+        listrTask.title = `usage graph \u2014 ${usageGraph.usages.size} edges`;
+      },
+    },
   ], {
     concurrent: false,
     renderer: ctx.plain ? 'simple' : 'default',
@@ -198,7 +260,7 @@ async function runSetupPhase(ctx: RunContext): Promise<{ files: number }> {
 
   await setupRunner.run();
 
-  return { files: estimateFiles };
+  return { files: estimateFiles, triageMap, usageGraph };
 }
 
 async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
@@ -248,7 +310,11 @@ async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
   return promptOptions;
 }
 
-async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Promise<void> {
+async function runReviewPhase(
+  ctx: RunContext,
+  promptOptions: PromptOptions,
+  triageMap: Map<string, TriageResult>,
+): Promise<void> {
   const pm = new ProgressManager(ctx.projectRoot);
 
   if (ctx.noCache) {
@@ -294,6 +360,21 @@ async function runReviewPhase(ctx: RunContext, promptOptions: PromptOptions): Pr
       }
 
       const { filePath, task } = item;
+      const triage = triageMap.get(filePath);
+
+      // Handle skip-tier files: generate synthetic review, no API call
+      if (ctx.triageEnabled && triage?.tier === 'skip') {
+        pm.updateFileStatus(filePath, 'IN_PROGRESS');
+        const skipReview = generateSkipReview(task, triage.reason);
+        writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
+        pm.updateFileStatus(filePath, 'DONE');
+        ctx.filesReviewed++;
+        completedCount++;
+        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${chalk.green('CLEAN')} ${chalk.dim('(skipped)')}`;
+        return;
+      }
+
+      // Fast and deep tier: full agent review (fast = deep fallback for now, TODO Epic 17)
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
       let currentAbort = new AbortController();
