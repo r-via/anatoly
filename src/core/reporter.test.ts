@@ -10,6 +10,10 @@ import {
   aggregateReviews,
   renderReport,
   generateReport,
+  sortFindingFiles,
+  buildShards,
+  renderIndex,
+  renderShard,
 } from './reporter.js';
 
 function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
@@ -273,6 +277,224 @@ describe('loadReviews', () => {
   });
 });
 
+describe('sortFindingFiles', () => {
+  it('should sort CRITICAL before NEEDS_REFACTOR', () => {
+    const files = [
+      makeReview({ file: 'b.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
+    ];
+    const sorted = sortFindingFiles(files);
+    expect(sorted[0].file).toBe('a.ts');
+    expect(sorted[1].file).toBe('b.ts');
+  });
+
+  it('should sort by finding count descending within same verdict', () => {
+    const files = [
+      makeReview({ file: 'one.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+      makeReview({ file: 'two.ts', symbols: [
+        makeSymbol({ utility: 'DEAD', confidence: 80 }),
+        makeSymbol({ name: 'dup', duplication: 'DUPLICATE', confidence: 80 }),
+      ] }),
+    ];
+    const sorted = sortFindingFiles(files);
+    expect(sorted[0].file).toBe('two.ts');
+  });
+
+  it('should sort by max confidence descending as tiebreaker', () => {
+    const files = [
+      makeReview({ file: 'low.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 70 })] }),
+      makeReview({ file: 'high.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 95 })] }),
+    ];
+    const sorted = sortFindingFiles(files);
+    expect(sorted[0].file).toBe('high.ts');
+  });
+});
+
+describe('buildShards', () => {
+  it('should return empty array for 0 findings', () => {
+    const data = aggregateReviews([makeReview()]);
+    expect(buildShards(data)).toEqual([]);
+  });
+
+  it('should create a single shard for <= 10 findings', () => {
+    const reviews = Array.from({ length: 5 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    expect(shards).toHaveLength(1);
+    expect(shards[0].files).toHaveLength(5);
+    expect(shards[0].index).toBe(1);
+  });
+
+  it('should create multiple shards for > 10 findings', () => {
+    const reviews = Array.from({ length: 22 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    expect(shards).toHaveLength(3);
+    expect(shards[0].files).toHaveLength(10);
+    expect(shards[1].files).toHaveLength(10);
+    expect(shards[2].files).toHaveLength(2);
+    expect(shards[0].index).toBe(1);
+    expect(shards[1].index).toBe(2);
+    expect(shards[2].index).toBe(3);
+  });
+
+  it('should scope actions to shard files', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [{ id: 1, description: 'Fix a', severity: 'high' as const, effort: 'small' as const, category: 'quickwin' as const, target_symbol: null, target_lines: null }],
+      }),
+      makeReview({
+        file: 'b.ts',
+        symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })],
+        actions: [{ id: 2, description: 'Fix b', severity: 'high' as const, effort: 'small' as const, category: 'refactor' as const, target_symbol: null, target_lines: null }],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    expect(shards).toHaveLength(1);
+    expect(shards[0].actions).toHaveLength(2);
+  });
+
+  it('should count CRITICAL and NEEDS_REFACTOR per shard', () => {
+    const reviews = [
+      makeReview({ file: 'crit.ts', symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
+      makeReview({ file: 'ref.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    expect(shards[0].criticalCount).toBe(1);
+    expect(shards[0].refactorCount).toBe(1);
+  });
+});
+
+describe('renderIndex', () => {
+  it('should show "All files clean" when no findings', () => {
+    const data = aggregateReviews([makeReview()]);
+    const md = renderIndex(data, []);
+    expect(md).toContain('All files clean');
+    expect(md).not.toContain('## Shards');
+  });
+
+  it('should include executive summary', () => {
+    const data = aggregateReviews([
+      makeReview({ file: 'a.ts' }),
+      makeReview({ file: 'b.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
+    ]);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('# Anatoly Audit Report');
+    expect(md).toContain('**Files reviewed:** 2');
+    expect(md).toContain('**Global verdict:** NEEDS_REFACTOR');
+    expect(md).toContain('**Clean files:** 1');
+    expect(md).toContain('**Files with findings:** 1');
+  });
+
+  it('should include severity table', () => {
+    const data = aggregateReviews([
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
+    ]);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('Dead code');
+    expect(md).toContain('| Category |');
+  });
+
+  it('should include checkbox list with shard links', () => {
+    const reviews = Array.from({ length: 15 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('## Shards');
+    expect(md).toContain('- [ ] [report.1.md](./report.1.md)');
+    expect(md).toContain('- [ ] [report.2.md](./report.2.md)');
+    expect(md).toContain('10 files');
+    expect(md).toContain('5 files');
+  });
+
+  it('should include CRITICAL/NEEDS_REFACTOR composition in shard description', () => {
+    const reviews = [
+      makeReview({ file: 'crit.ts', symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
+      makeReview({ file: 'ref.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('1 CRITICAL');
+    expect(md).toContain('1 NEEDS_REFACTOR');
+  });
+
+  it('should be under ~100 lines', () => {
+    const reviews = Array.from({ length: 62 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    const lineCount = md.split('\n').length;
+    expect(lineCount).toBeLessThanOrEqual(100);
+  });
+
+  it('should include error files section', () => {
+    const data = aggregateReviews([], ['broken.ts']);
+    const md = renderIndex(data, []);
+    expect(md).toContain('## Files in Error');
+    expect(md).toContain('`broken.ts`');
+  });
+});
+
+describe('renderShard', () => {
+  it('should include findings table', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    expect(md).toContain('# Shard 1');
+    expect(md).toContain('## Findings');
+    expect(md).toContain('`a.ts`');
+    expect(md).toContain('[details](./reviews/a.rev.md)');
+  });
+
+  it('should include actions scoped to shard', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, target_symbol: 'fn', target_lines: null },
+          { id: 2, description: 'Add tests', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    expect(md).toContain('## Quick Wins');
+    expect(md).toContain('## Hygiene');
+  });
+
+  it('should not include actions section when no actions', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    expect(md).not.toContain('## Quick Wins');
+    expect(md).not.toContain('## Refactors');
+    expect(md).not.toContain('## Hygiene');
+  });
+});
+
 describe('generateReport', () => {
   let tmpDir: string;
 
@@ -284,7 +506,7 @@ describe('generateReport', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should write report.md and return data', () => {
+  it('should write report.md index and return data', () => {
     const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
@@ -299,5 +521,61 @@ describe('generateReport', () => {
 
     const content = readFileSync(reportPath, 'utf-8');
     expect(content).toContain('# Anatoly Audit Report');
+    expect(content).toContain('All files clean');
+  });
+
+  it('should write shard files for finding reviews', () => {
+    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    mkdirSync(reviewsDir, { recursive: true });
+
+    for (let i = 0; i < 15; i++) {
+      writeFileSync(
+        join(reviewsDir, `f${i}.rev.json`),
+        JSON.stringify(makeReview({
+          file: `f${i}.ts`,
+          symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        })),
+      );
+    }
+
+    const { reportPath } = generateReport(tmpDir);
+    const indexContent = readFileSync(reportPath, 'utf-8');
+    expect(indexContent).toContain('report.1.md');
+    expect(indexContent).toContain('report.2.md');
+
+    const shard1 = readFileSync(join(tmpDir, '.anatoly', 'report.1.md'), 'utf-8');
+    expect(shard1).toContain('# Shard 1');
+    expect(shard1).toContain('## Findings');
+
+    const shard2 = readFileSync(join(tmpDir, '.anatoly', 'report.2.md'), 'utf-8');
+    expect(shard2).toContain('# Shard 2');
+  });
+
+  it('should not write shard files when all clean', () => {
+    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    mkdirSync(reviewsDir, { recursive: true });
+    writeFileSync(
+      join(reviewsDir, 'clean.rev.json'),
+      JSON.stringify(makeReview({ file: 'clean.ts' })),
+    );
+
+    generateReport(tmpDir);
+    expect(() => readFileSync(join(tmpDir, '.anatoly', 'report.1.md'))).toThrow();
+  });
+
+  it('should return report.md path even with shards', () => {
+    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    mkdirSync(reviewsDir, { recursive: true });
+    writeFileSync(
+      join(reviewsDir, 'f.rev.json'),
+      JSON.stringify(makeReview({
+        file: 'f.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+      })),
+    );
+
+    const { reportPath } = generateReport(tmpDir);
+    expect(reportPath.endsWith('report.md')).toBe(true);
+    expect(reportPath).not.toContain('report.1.md');
   });
 });
