@@ -24,6 +24,7 @@ import { pkgVersion } from '../utils/version.js';
 import { verdictColor } from '../utils/format.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
+import { fastReviewFile } from '../core/fast-reviewer.js';
 
 interface RunContext {
   projectRoot: string;
@@ -45,6 +46,7 @@ interface RunContext {
   filesReviewed: number;
   totalFindings: number;
   totalFiles: number;
+  reviewCounts: { skipped: number; fast: number; deep: number };
 }
 
 export function registerRunCommand(program: Command): void {
@@ -94,6 +96,7 @@ export function registerRunCommand(program: Command): void {
         filesReviewed: 0,
         totalFindings: 0,
         totalFiles: 0,
+        reviewCounts: { skipped: 0, fast: 0, deep: 0 },
       };
 
       const onSigint = () => {
@@ -369,12 +372,15 @@ async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         pm.updateFileStatus(filePath, 'DONE');
         ctx.filesReviewed++;
+        ctx.reviewCounts.skipped++;
         completedCount++;
         listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${chalk.green('CLEAN')} ${chalk.dim('(skipped)')}`;
         return;
       }
 
-      // Fast and deep tier: full agent review (fast = deep fallback for now, TODO Epic 17)
+      // Fast-tier: single-turn review, promote to deep on failure
+      const isFastTier = ctx.triageEnabled && triage?.tier === 'fast';
+
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
 
       let currentAbort = new AbortController();
@@ -383,6 +389,60 @@ async function runReviewPhase(
       try {
         const startTime = Date.now();
 
+        // Try fast review first for fast-tier files
+        if (isFastTier) {
+          const fastOutcome = await retryWithBackoff(
+            async () => {
+              if (ctx.interrupted) throw new Error('interrupted');
+              if (currentAbort.signal.aborted) {
+                ctx.activeAborts.delete(currentAbort);
+                currentAbort = new AbortController();
+                ctx.activeAborts.add(currentAbort);
+              }
+              return fastReviewFile(ctx.projectRoot, task, ctx.config, promptOptions, currentAbort, ctx.runDir);
+            },
+            {
+              maxRetries: 5,
+              baseDelayMs: 5000,
+              maxDelayMs: 120_000,
+              jitterFactor: 0.2,
+              filePath,
+              isInterrupted: () => ctx.interrupted,
+              onRetry: (attempt, delayMs) => {
+                const delaySec = (delayMs / 1000).toFixed(0);
+                listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
+              },
+            },
+          );
+
+          if (!fastOutcome.promoted) {
+            // Fast review succeeded
+            const elapsedMs = Date.now() - startTime;
+            writeReviewOutput(ctx.projectRoot, fastOutcome.review, ctx.runDir);
+            pm.updateFileStatus(filePath, 'DONE');
+            ctx.filesReviewed++;
+            ctx.reviewCounts.fast++;
+            completedCount++;
+
+            countFindings(ctx, fastOutcome.review);
+            listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${verdictColor(fastOutcome.review.verdict)} ${chalk.dim('(fast)')}`;
+
+            if (ctx.verbose) {
+              const elapsed = (elapsedMs / 1000).toFixed(1);
+              const cost = fastOutcome.costUsd > 0 ? `$${fastOutcome.costUsd.toFixed(4)}` : '-';
+              const retryInfo = fastOutcome.retries > 0 ? ` retries:${fastOutcome.retries}` : '';
+              listrTask.output = `${elapsed}s  ${cost}${retryInfo}  fast`;
+            }
+            return;
+          }
+
+          // Fast review failed — promote to deep, continue in same slot
+          if (ctx.verbose) {
+            listrTask.output = `fast review failed (${fastOutcome.reason}) — promoting to deep`;
+          }
+        }
+
+        // Deep review (also handles promoted fast files)
         const maxRetries = 5;
         const result = await retryWithBackoff(
           async () => {
@@ -412,16 +472,10 @@ async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
         pm.updateFileStatus(filePath, 'DONE');
         ctx.filesReviewed++;
+        ctx.reviewCounts.deep++;
         completedCount++;
 
-        // Count findings
-        for (const s of result.review.symbols) {
-          if (s.utility === 'DEAD') ctx.totalFindings++;
-          if (s.duplication === 'DUPLICATE') ctx.totalFindings++;
-          if (s.overengineering === 'OVER') ctx.totalFindings++;
-          if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') ctx.totalFindings++;
-        }
-
+        countFindings(ctx, result.review);
         listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${verdictColor(result.review.verdict)}`;
 
         if (ctx.verbose) {
@@ -464,6 +518,15 @@ async function runReviewPhase(
   await pm.flush();
 }
 
+function countFindings(ctx: RunContext, review: import('../schemas/review.js').ReviewFile): void {
+  for (const s of review.symbols) {
+    if (s.utility === 'DEAD') ctx.totalFindings++;
+    if (s.duplication === 'DUPLICATE') ctx.totalFindings++;
+    if (s.overengineering === 'OVER') ctx.totalFindings++;
+    if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') ctx.totalFindings++;
+  }
+}
+
 function runReportPhase(ctx: RunContext): void {
   const pm = new ProgressManager(ctx.projectRoot);
   const errorFiles: string[] = [];
@@ -479,7 +542,12 @@ function runReportPhase(ctx: RunContext): void {
   }
 
   console.log('');
-  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean`);
+
+  const { skipped, fast, deep } = ctx.reviewCounts;
+  const tierSummary = ctx.triageEnabled
+    ? ` (${skipped} skipped \u00b7 ${fast} fast \u00b7 ${deep} deep)`
+    : '';
+  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary}`);
   console.log('');
   console.log(`  run          ${ctx.runId}`);
   console.log(`  report       ${chalk.cyan(reportPath)}`);
