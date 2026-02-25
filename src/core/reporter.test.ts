@@ -14,6 +14,7 @@ import {
   buildShards,
   renderIndex,
   renderShard,
+  type TriageStats,
 } from './reporter.js';
 
 function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
@@ -447,6 +448,36 @@ describe('renderIndex', () => {
     const md = renderIndex(data, []);
     expect(md).toContain('## Files in Error');
     expect(md).toContain('`broken.ts`');
+  });
+
+  it('should include Performance & Triage section when triageStats provided', () => {
+    const data = aggregateReviews([makeReview()]);
+    const stats: TriageStats = { total: 20, skip: 8, fast: 7, deep: 5, estimatedTimeSaved: 8.5 };
+    const md = renderIndex(data, [], stats);
+    expect(md).toContain('## Performance & Triage');
+    expect(md).toContain('| Skip | 8 | 40% |');
+    expect(md).toContain('| Fast | 7 | 35% |');
+    expect(md).toContain('| Deep | 5 | 25% |');
+    expect(md).toContain('**8.5 min**');
+  });
+
+  it('should not include Performance & Triage section when triageStats absent', () => {
+    const data = aggregateReviews([makeReview()]);
+    const md = renderIndex(data, []);
+    expect(md).not.toContain('Performance & Triage');
+  });
+
+  it('should still be under ~100 lines with triage stats and 62 findings', () => {
+    const reviews = Array.from({ length: 62 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const stats: TriageStats = { total: 100, skip: 30, fast: 40, deep: 30, estimatedTimeSaved: 15.0 };
+    const md = renderIndex(data, shards, stats);
+    const lineCount = md.split('\n').length;
+    // Allow a bit more room for the triage section
+    expect(lineCount).toBeLessThanOrEqual(110);
   });
 });
 

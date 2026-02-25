@@ -4,6 +4,14 @@ import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
 import { toOutputName } from '../utils/cache.js';
 
+export interface TriageStats {
+  total: number;
+  skip: number;
+  fast: number;
+  deep: number;
+  estimatedTimeSaved: number;
+}
+
 export interface ReportData {
   reviews: ReviewFile[];
   globalVerdict: Verdict;
@@ -222,7 +230,7 @@ export function buildShards(data: ReportData): ShardInfo[] {
 /**
  * Render the compact index (report.md) — always < ~100 lines.
  */
-export function renderIndex(data: ReportData, shards: ShardInfo[]): string {
+export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats): string {
   const lines: string[] = [];
 
   lines.push('# Anatoly Audit Report');
@@ -282,6 +290,23 @@ export function renderIndex(data: ReportData, shards: ShardInfo[]): string {
     for (const f of data.errorFiles) {
       lines.push(`- \`${f}\``);
     }
+    lines.push('');
+  }
+
+  // Performance & Triage section (only when triage was active)
+  if (triageStats) {
+    lines.push('## Performance & Triage');
+    lines.push('');
+    const skipPct = triageStats.total > 0 ? ((triageStats.skip / triageStats.total) * 100).toFixed(0) : '0';
+    const fastPct = triageStats.total > 0 ? ((triageStats.fast / triageStats.total) * 100).toFixed(0) : '0';
+    const deepPct = triageStats.total > 0 ? ((triageStats.deep / triageStats.total) * 100).toFixed(0) : '0';
+    lines.push(`| Tier | Files | % |`);
+    lines.push(`|------|-------|---|`);
+    lines.push(`| Skip | ${triageStats.skip} | ${skipPct}% |`);
+    lines.push(`| Fast | ${triageStats.fast} | ${fastPct}% |`);
+    lines.push(`| Deep | ${triageStats.deep} | ${deepPct}% |`);
+    lines.push('');
+    lines.push(`Estimated time saved: **${triageStats.estimatedTimeSaved.toFixed(1)} min**`);
     lines.push('');
   }
 
@@ -559,6 +584,7 @@ export function generateReport(
   projectRoot: string,
   errorFiles?: string[],
   runDir?: string,
+  triageStats?: TriageStats,
 ): { reportPath: string; data: ReportData } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
@@ -568,7 +594,7 @@ export function generateReport(
   const reportPath = join(baseDir, 'report.md');
 
   // Write index
-  writeFileSync(reportPath, renderIndex(data, shards));
+  writeFileSync(reportPath, renderIndex(data, shards, triageStats));
 
   // Write shards
   for (const shard of shards) {

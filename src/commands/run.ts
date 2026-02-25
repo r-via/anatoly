@@ -8,11 +8,11 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, estimateTriagedMinutes, formatTokenCount, loadTasks } from '../core/estimator.js';
+import { estimateProject, estimateTriagedMinutes, formatTokenCount, loadTasks, SECONDS_PER_TIER } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { reviewFile } from '../core/reviewer.js';
 import { writeReviewOutput } from '../core/review-writer.js';
-import { generateReport } from '../core/reporter.js';
+import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
 import type { PromptOptions } from '../utils/prompt-builder.js';
@@ -535,7 +535,25 @@ function runReportPhase(ctx: RunContext): void {
     if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') errorFiles.push(fp.file);
   }
 
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir);
+  let triageStats: TriageStats | undefined;
+  if (ctx.triageEnabled) {
+    const { skipped, fast, deep } = ctx.reviewCounts;
+    const total = skipped + fast + deep;
+    const allDeepSeconds = total * SECONDS_PER_TIER.deep;
+    const actualSeconds =
+      skipped * SECONDS_PER_TIER.skip +
+      fast * SECONDS_PER_TIER.fast +
+      deep * SECONDS_PER_TIER.deep;
+    triageStats = {
+      total,
+      skip: skipped,
+      fast,
+      deep,
+      estimatedTimeSaved: (allDeepSeconds - actualSeconds) / 60,
+    };
+  }
+
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats);
 
   if (ctx.config.output?.max_runs) {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
