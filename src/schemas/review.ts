@@ -50,8 +50,60 @@ export const FileLevelSchema = z.object({
   general_notes: z.string().default(''),
 });
 
+// ---------------------------------------------------------------------------
+// Best Practices (new axis, v2)
+// ---------------------------------------------------------------------------
+
+export const BestPracticesRuleSeveritySchema = z.enum(['CRITIQUE', 'HAUTE', 'MOYENNE']);
+
+export const BestPracticesRuleStatusSchema = z.enum(['PASS', 'WARN', 'FAIL']);
+
+export const BestPracticesRuleSchema = z.object({
+  rule_id: z.int().min(1).max(17),
+  rule_name: z.string(),
+  status: BestPracticesRuleStatusSchema,
+  severity: BestPracticesRuleSeveritySchema,
+  detail: z.string().optional(),
+  lines: z.string().optional(),
+});
+
+export const BestPracticesSuggestionSchema = z.object({
+  description: z.string(),
+  before: z.string().optional(),
+  after: z.string().optional(),
+});
+
+export const BestPracticesSchema = z.object({
+  score: z.number().min(0).max(10),
+  rules: z.array(BestPracticesRuleSchema),
+  suggestions: z.array(BestPracticesSuggestionSchema).default([]),
+});
+
+// ---------------------------------------------------------------------------
+// Axis metadata (v2)
+// ---------------------------------------------------------------------------
+
+export const AxisIdSchema = z.enum([
+  'utility',
+  'duplication',
+  'correction',
+  'overengineering',
+  'tests',
+  'best_practices',
+]);
+
+export const AxisMetaEntrySchema = z.object({
+  model: z.string(),
+  cost_usd: z.number(),
+  duration_ms: z.number(),
+});
+
+// ---------------------------------------------------------------------------
+// ReviewFile — accepts version 1 or 2 for backward compatibility
+// ---------------------------------------------------------------------------
+
 export const ReviewFileSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   file: z.string(),
   is_generated: z.boolean().default(false),
   skip_reason: z.string().optional(),
@@ -61,6 +113,12 @@ export const ReviewFileSchema = z.object({
   actions: z.array(ActionSchema).default([]),
 
   file_level: FileLevelSchema,
+
+  /** Best practices evaluation (v2 only) */
+  best_practices: BestPracticesSchema.optional(),
+
+  /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
+  axis_meta: z.record(z.string(), AxisMetaEntrySchema).optional(),
 });
 
 export type Verdict = z.infer<typeof VerdictSchema>;
@@ -71,4 +129,8 @@ export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
 export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
 export type Action = z.infer<typeof ActionSchema>;
 export type FileLevel = z.infer<typeof FileLevelSchema>;
+export type BestPracticesRule = z.infer<typeof BestPracticesRuleSchema>;
+export type BestPracticesSuggestion = z.infer<typeof BestPracticesSuggestionSchema>;
+export type BestPractices = z.infer<typeof BestPracticesSchema>;
+export type AxisMetaEntry = z.infer<typeof AxisMetaEntrySchema>;
 export type ReviewFile = z.infer<typeof ReviewFileSchema>;

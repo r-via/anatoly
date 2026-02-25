@@ -21,6 +21,29 @@ export const CoverageConfigSchema = z.object({
   report_path: z.string().default('coverage/coverage-final.json'),
 });
 
+export const AxisConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  model: z.string().optional(),
+});
+
+const defaultAxes = {
+  utility: { enabled: true },
+  duplication: { enabled: true },
+  correction: { enabled: true },
+  overengineering: { enabled: true },
+  tests: { enabled: true },
+  best_practices: { enabled: true },
+};
+
+export const AxesConfigSchema = z.object({
+  utility: AxisConfigSchema.default({ enabled: true }),
+  duplication: AxisConfigSchema.default({ enabled: true }),
+  correction: AxisConfigSchema.default({ enabled: true }),
+  overengineering: AxisConfigSchema.default({ enabled: true }),
+  tests: AxisConfigSchema.default({ enabled: true }),
+  best_practices: AxisConfigSchema.default({ enabled: true }),
+});
+
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   index_model: z.string().default('claude-haiku-4-5-20251001'),
@@ -31,6 +54,7 @@ export const LlmConfigSchema = z.object({
   concurrency: z.int().min(1).max(10).default(4),
   min_confidence: z.int().min(0).max(100).default(70),
   max_stop_iterations: z.int().min(1).max(10).default(3),
+  axes: AxesConfigSchema.default(defaultAxes),
 });
 
 export const RagConfigSchema = z.object({
@@ -63,6 +87,7 @@ export const ConfigSchema = z.object({
     concurrency: 4,
     min_confidence: 70,
     max_stop_iterations: 3,
+    axes: defaultAxes,
   }),
   rag: RagConfigSchema.default({
     enabled: true,
@@ -70,4 +95,5 @@ export const ConfigSchema = z.object({
   output: OutputConfigSchema.default({}),
 });
 
+export type AxisConfig = z.infer<typeof AxisConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

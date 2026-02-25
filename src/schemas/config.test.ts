@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ConfigSchema } from './config.js';
+import { ConfigSchema, AxisConfigSchema } from './config.js';
 
 describe('ConfigSchema', () => {
   it('should apply all defaults when given empty object', () => {
@@ -70,5 +70,47 @@ describe('ConfigSchema', () => {
       llm: { min_confidence: 101 },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('AxisConfigSchema', () => {
+  it('should default all axes to enabled', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.axes.utility.enabled).toBe(true);
+    expect(config.llm.axes.duplication.enabled).toBe(true);
+    expect(config.llm.axes.correction.enabled).toBe(true);
+    expect(config.llm.axes.overengineering.enabled).toBe(true);
+    expect(config.llm.axes.tests.enabled).toBe(true);
+    expect(config.llm.axes.best_practices.enabled).toBe(true);
+  });
+
+  it('should accept per-axis model override', () => {
+    const config = ConfigSchema.parse({
+      llm: {
+        axes: {
+          correction: { model: 'claude-opus-4-20250514' },
+        },
+      },
+    });
+    expect(config.llm.axes.correction.model).toBe('claude-opus-4-20250514');
+    expect(config.llm.axes.utility.model).toBeUndefined();
+  });
+
+  it('should accept disabling an axis', () => {
+    const config = ConfigSchema.parse({
+      llm: {
+        axes: {
+          best_practices: { enabled: false },
+        },
+      },
+    });
+    expect(config.llm.axes.best_practices.enabled).toBe(false);
+    expect(config.llm.axes.utility.enabled).toBe(true);
+  });
+
+  it('should validate standalone AxisConfigSchema', () => {
+    expect(AxisConfigSchema.safeParse({}).success).toBe(true);
+    expect(AxisConfigSchema.safeParse({ enabled: false }).success).toBe(true);
+    expect(AxisConfigSchema.safeParse({ enabled: true, model: 'claude-haiku-4-5-20251001' }).success).toBe(true);
   });
 });
