@@ -7,10 +7,22 @@ const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
 const OUTPUT_TOKENS_PER_SYMBOL = 150;
 const OUTPUT_BASE_PER_FILE = 300;
-const SECONDS_PER_FILE = 45;
 
-/** Seconds per file by triage tier */
-export const SECONDS_PER_TIER = { skip: 0, fast: 5, deep: 45 } as const;
+/**
+ * In the axis pipeline, each file runs 6 evaluators in parallel.
+ * The bottleneck is the slowest axis (~8s with parallelism), not 6×sequential.
+ */
+const SECONDS_PER_FILE = 8;
+
+/** Seconds per file by triage tier (axis pipeline) */
+export const SECONDS_PER_TIER = { skip: 0, evaluate: 8 } as const;
+
+/** Number of axis evaluators per file */
+export const AXIS_COUNT = 6;
+
+/** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */
+export const HAIKU_AXES = 4; // utility, duplication, overengineering, tests
+export const SONNET_AXES = 2; // correction, best_practices
 
 export interface EstimateResult {
   files: number;
@@ -18,12 +30,13 @@ export interface EstimateResult {
   inputTokens: number;
   outputTokens: number;
   estimatedMinutes: number;
+  /** Breakdown: estimated LLM calls (6 per file × N files) */
+  estimatedCalls: number;
 }
 
 export interface TieredEstimateOptions {
   skip: number;
-  fast: number;
-  deep: number;
+  evaluate: number;
 }
 
 /**
@@ -32,8 +45,7 @@ export interface TieredEstimateOptions {
 export function estimateTriagedMinutes(tiers: TieredEstimateOptions): number {
   const totalSeconds =
     tiers.skip * SECONDS_PER_TIER.skip +
-    tiers.fast * SECONDS_PER_TIER.fast +
-    tiers.deep * SECONDS_PER_TIER.deep;
+    tiers.evaluate * SECONDS_PER_TIER.evaluate;
   return Math.ceil(totalSeconds / 60);
 }
 
@@ -79,7 +91,7 @@ export function estimateProject(projectRoot: string): EstimateResult {
   const tasks = loadTasks(projectRoot);
 
   if (tasks.length === 0) {
-    return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0 };
+    return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0, estimatedCalls: 0 };
   }
 
   let totalInputTokens = 0;
@@ -118,6 +130,7 @@ export function estimateProject(projectRoot: string): EstimateResult {
   }
 
   const estimatedMinutes = Math.ceil((tasks.length * SECONDS_PER_FILE) / 60);
+  const estimatedCalls = tasks.length * AXIS_COUNT;
 
   return {
     files: tasks.length,
@@ -125,6 +138,7 @@ export function estimateProject(projectRoot: string): EstimateResult {
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
     estimatedMinutes,
+    estimatedCalls,
   };
 }
 

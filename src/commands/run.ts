@@ -505,8 +505,7 @@ function runReportPhase(ctx: RunContext): void {
     triageStats = {
       total,
       skip: skipped,
-      fast: 0,
-      deep: evaluated,
+      evaluate: evaluated,
       estimatedTimeSaved: (allEvalSeconds - actualSeconds) / 60,
     };
   }

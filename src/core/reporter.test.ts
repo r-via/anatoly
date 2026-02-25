@@ -381,14 +381,28 @@ describe('renderIndex', () => {
     expect(md).toContain('`broken.ts`');
   });
 
+  it('should include Methodology section with axis pipeline description', () => {
+    const data = aggregateReviews([makeReview()]);
+    const md = renderIndex(data, []);
+    expect(md).toContain('## Methodology');
+    expect(md).toContain('6 independent axis evaluators');
+    expect(md).toContain('Utility');
+    expect(md).toContain('Duplication');
+    expect(md).toContain('Correction');
+    expect(md).toContain('Overengineering');
+    expect(md).toContain('Tests');
+    expect(md).toContain('Best Practices');
+    expect(md).toContain('haiku');
+    expect(md).toContain('sonnet');
+  });
+
   it('should include Performance & Triage section when triageStats provided', () => {
     const data = aggregateReviews([makeReview()]);
-    const stats: TriageStats = { total: 20, skip: 8, fast: 7, deep: 5, estimatedTimeSaved: 8.5 };
+    const stats: TriageStats = { total: 20, skip: 8, evaluate: 12, estimatedTimeSaved: 8.5 };
     const md = renderIndex(data, [], stats);
     expect(md).toContain('## Performance & Triage');
     expect(md).toContain('| Skip | 8 | 40% |');
-    expect(md).toContain('| Fast | 7 | 35% |');
-    expect(md).toContain('| Deep | 5 | 25% |');
+    expect(md).toContain('| Evaluate | 12 | 60% |');
     expect(md).toContain('**8.5 min**');
   });
 
@@ -404,7 +418,7 @@ describe('renderIndex', () => {
     );
     const data = aggregateReviews(reviews);
     const shards = buildShards(data);
-    const stats: TriageStats = { total: 100, skip: 30, fast: 40, deep: 30, estimatedTimeSaved: 15.0 };
+    const stats: TriageStats = { total: 100, skip: 30, evaluate: 70, estimatedTimeSaved: 15.0 };
     const md = renderIndex(data, shards, stats);
     const lineCount = md.split('\n').length;
     // Allow a bit more room for the triage section
@@ -442,6 +456,36 @@ describe('renderShard', () => {
     const md = renderShard(shards[0]);
     expect(md).toContain('## Quick Wins');
     expect(md).toContain('## Hygiene');
+  });
+
+  it('should include BP Score column with best_practices data', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        best_practices: {
+          score: 7.5,
+          rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITIQUE' as const }],
+          suggestions: [],
+        },
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    expect(md).toContain('BP Score');
+    expect(md).toContain('7.5/10');
+  });
+
+  it('should show dash for BP Score when no best_practices data', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    expect(md).toContain('BP Score');
+    expect(md).toContain('| - |');
   });
 
   it('should not include actions section when no actions', () => {

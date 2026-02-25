@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { estimateProject, loadTasks, countTokens, formatTokenCount } from './estimator.js';
+import { estimateProject, loadTasks, countTokens, formatTokenCount, estimateTriagedMinutes, SECONDS_PER_TIER, AXIS_COUNT } from './estimator.js';
 
 describe('countTokens', () => {
   it('should count tokens in a string', () => {
@@ -87,6 +87,7 @@ describe('estimateProject', () => {
     expect(result.inputTokens).toBe(0);
     expect(result.outputTokens).toBe(0);
     expect(result.estimatedMinutes).toBe(0);
+    expect(result.estimatedCalls).toBe(0);
   });
 
   it('should estimate tokens from task files and source content', () => {
@@ -119,6 +120,7 @@ describe('estimateProject', () => {
     expect(result.inputTokens).toBeGreaterThan(0);
     expect(result.outputTokens).toBeGreaterThan(0);
     expect(result.estimatedMinutes).toBeGreaterThan(0);
+    expect(result.estimatedCalls).toBe(AXIS_COUNT); // 6 axes per file
   });
 
   it('should handle deleted source files gracefully', () => {
@@ -141,5 +143,28 @@ describe('estimateProject', () => {
     const result = estimateProject(tempDir);
     expect(result.files).toBe(1);
     expect(result.inputTokens).toBeGreaterThan(0);
+  });
+});
+
+describe('estimateTriagedMinutes', () => {
+  it('should return 0 for all skip', () => {
+    expect(estimateTriagedMinutes({ skip: 10, evaluate: 0 })).toBe(0);
+  });
+
+  it('should estimate time for evaluate tier', () => {
+    // 10 files × 8s = 80s → Math.ceil(80/60) = 2 min
+    expect(estimateTriagedMinutes({ skip: 0, evaluate: 10 })).toBe(2);
+  });
+
+  it('should combine skip and evaluate', () => {
+    // 5 skip × 0s + 5 evaluate × 8s = 40s → Math.ceil(40/60) = 1 min
+    expect(estimateTriagedMinutes({ skip: 5, evaluate: 5 })).toBe(1);
+  });
+});
+
+describe('SECONDS_PER_TIER', () => {
+  it('should have skip at 0 and evaluate at 8', () => {
+    expect(SECONDS_PER_TIER.skip).toBe(0);
+    expect(SECONDS_PER_TIER.evaluate).toBe(8);
   });
 });

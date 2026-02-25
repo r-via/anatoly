@@ -7,8 +7,7 @@ import { toOutputName } from '../utils/cache.js';
 export interface TriageStats {
   total: number;
   skip: number;
-  fast: number;
-  deep: number;
+  evaluate: number;
   estimatedTimeSaved: number;
 }
 
@@ -298,17 +297,30 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('## Performance & Triage');
     lines.push('');
     const skipPct = triageStats.total > 0 ? ((triageStats.skip / triageStats.total) * 100).toFixed(0) : '0';
-    const fastPct = triageStats.total > 0 ? ((triageStats.fast / triageStats.total) * 100).toFixed(0) : '0';
-    const deepPct = triageStats.total > 0 ? ((triageStats.deep / triageStats.total) * 100).toFixed(0) : '0';
+    const evalPct = triageStats.total > 0 ? ((triageStats.evaluate / triageStats.total) * 100).toFixed(0) : '0';
     lines.push(`| Tier | Files | % |`);
     lines.push(`|------|-------|---|`);
     lines.push(`| Skip | ${triageStats.skip} | ${skipPct}% |`);
-    lines.push(`| Fast | ${triageStats.fast} | ${fastPct}% |`);
-    lines.push(`| Deep | ${triageStats.deep} | ${deepPct}% |`);
+    lines.push(`| Evaluate | ${triageStats.evaluate} | ${evalPct}% |`);
     lines.push('');
     lines.push(`Estimated time saved: **${triageStats.estimatedTimeSaved.toFixed(1)} min**`);
     lines.push('');
   }
+
+  // Methodology
+  lines.push('## Methodology');
+  lines.push('');
+  lines.push('Each file is evaluated through 6 independent axis evaluators running in parallel:');
+  lines.push('');
+  lines.push('| Axis | Model | Focus |');
+  lines.push('|------|-------|-------|');
+  lines.push('| Utility | haiku | USED / DEAD / LOW_VALUE (pre-computed usage graph) |');
+  lines.push('| Duplication | haiku | UNIQUE / DUPLICATE (RAG similarity search) |');
+  lines.push('| Correction | sonnet | OK / NEEDS_FIX / ERROR + actions |');
+  lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE |');
+  lines.push('| Tests | haiku | GOOD / WEAK / NONE (coverage data) |');
+  lines.push('| Best Practices | sonnet | 17 TypeGuard v2 rules, score /10 |');
+  lines.push('');
 
   lines.push(`*Generated: ${new Date().toISOString()}*`);
   lines.push('');
@@ -328,8 +340,8 @@ export function renderShard(shard: ShardInfo): string {
   // Findings table
   lines.push('## Findings');
   lines.push('');
-  lines.push('| File | Verdict | Dead Code | Duplicate | Over Engineered | Errors | Confidence | Details |');
-  lines.push('|------|---------|-----------|-----------|-----------------|--------|------------|---------|');
+  lines.push('| File | Verdict | Dead Code | Duplicate | Over Engineered | Errors | BP Score | Confidence | Details |');
+  lines.push('|------|---------|-----------|-----------|-----------------|--------|----------|------------|---------|');
 
   for (const review of shard.files) {
     const reliable = review.symbols.filter((s) => s.confidence >= 30);
@@ -339,12 +351,13 @@ export function renderShard(shard: ShardInfo): string {
     const errors = reliable.filter(
       (s) => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR',
     ).length;
+    const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
     const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
     const outputName = toOutputName(review.file);
     const link = `[details](./reviews/${outputName}.rev.md)`;
     const fileVerdict = computeFileVerdict(review);
     lines.push(
-      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${maxConf}% | ${link} |`,
+      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${bpScore} | ${maxConf}% | ${link} |`,
     );
   }
   lines.push('');
