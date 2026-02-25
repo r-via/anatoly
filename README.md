@@ -34,13 +34,15 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 ## How Anatoly Solves It
 
-Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** powered by Claude Agent SDK. The pipeline works in five phases:
+Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** powered by Claude Agent SDK. The pipeline works in seven phases:
 
 1. **Scan**, Parses every file with tree-sitter to extract symbols (functions, classes, types, hooks, constants) with line ranges and export status
 2. **Estimate**, Counts tokens locally with tiktoken so you know the cost before any API call
-3. **Index**, Builds a semantic RAG index (local embeddings + LanceDB) to detect cross-file duplication invisible to grep
-4. **Review**, Launches a Claude agent per file with read-only tools (Glob, Grep, Read, findSimilarFunctions). The agent must **prove** every finding before reporting it
-5. **Report**, Aggregates all Zod-validated reviews into an actionable audit report with severity rankings
+3. **Triage**, Classifies files into `skip` (barrels, type-only, constants), `fast` (simple files), or `deep` (complex files), eliminating unnecessary API calls
+4. **Usage Graph**, Pre-computes an import graph across all files in a single local pass (< 1s), so the agent no longer needs to grep for usage verification
+5. **Index**, Builds a semantic RAG index (local embeddings + LanceDB) to detect cross-file duplication invisible to grep
+6. **Review**, Launches a Claude agent per file with read-only tools (Glob, Grep, Read, findSimilarFunctions). Simple files get a fast single-turn review; complex files get the full agentic investigation. The agent must **prove** every finding before reporting it
+7. **Report**, Aggregates all Zod-validated reviews into a sharded audit report: compact index + per-shard detail files (max 10 files each), sorted by severity
 
 ### Self-correction loop
 
@@ -67,6 +69,10 @@ Every finding is backed by evidence. Every review is schema-validated. The agent
 - **AST-driven scanning**,Uses web-tree-sitter (WASM) to extract every function, class, type, enum, constant, and hook with line ranges and export status
 - **Evidence-based review**,The Claude agent must grep/read to prove DEAD, DUPLICATE, or OVER findings,no guessing
 - **5-axis analysis**,Every symbol evaluated on: correction, overengineering, utility, duplication, and test coverage
+- **Smart triage**,Auto-classifies files into skip/fast/deep tiers; barrels, type-only, and constants skip the LLM entirely; simple files get a fast single-turn review
+- **Pre-computed usage graph**,Builds a full import graph in < 1s so the agent doesn't need to grep for usage verification,eliminating ~90 redundant tool calls per review
+- **Fast reviewer**,Single-turn `query()` for simple files (3-8s vs 45s), with automatic promotion to deep review on validation failure
+- **Sharded reports**,Compact index (~100 lines) + per-shard detail files (max 10 files each), sorted by severity with Markdown checkboxes for agent-driven correction
 - **Zod-validated output**,Machine-readable `.rev.json` + human-readable `.rev.md` per file, all schema-validated
 - **Smart caching**,SHA-256 per file; unchanged files skip review at zero API cost
 - **Token estimation**,Local tiktoken estimation before any API call (no surprise bills)
@@ -96,20 +102,25 @@ flowchart TD
         direction LR
         Scanner["Scanner<br/><small>tree-sitter AST + SHA-256</small>"]
         Estimator["Estimator<br/><small>tiktoken (local)</small>"]
+        Triage["Triage<br/><small>skip / fast / deep</small>"]
+        UsageGraph["Usage Graph<br/><small>import analysis (local)</small>"]
         Indexer["RAG Indexer<br/><small>Haiku + Xenova embeddings</small>"]
         Reviewer["Reviewer<br/><small>Claude Agent SDK</small>"]
-        Reporter["Reporter<br/><small>aggregate → report.md</small>"]
+        Reporter["Reporter<br/><small>index + shards</small>"]
 
-        Scanner --> Estimator --> Indexer --> Reviewer --> Reporter
+        Scanner --> Estimator --> Triage --> UsageGraph --> Indexer --> Reviewer --> Reporter
     end
 
     subgraph ReviewLoop["Review Loop (per file, ×N concurrent)"]
+        FastReviewer["Fast Reviewer<br/><small>single-turn query()</small>"]
         Agent["Claude Agent<br/><small>read-only tools</small>"]
         Tools["Glob | Grep | Read<br/>findSimilarFunctions"]
         Zod["Zod Validation"]
+        FastReviewer --> Zod
         Agent <--> Tools
         Agent --> Zod
         Zod -- "errors → retry<br/>same session" --> Agent
+        FastReviewer -. "promote on failure" .-> Agent
     end
 
     subgraph Hook["Claude Code Hook (optional)"]
@@ -174,9 +185,12 @@ src/
 ├── core/                 # Business logic
 │   ├── scanner.ts        # AST + SHA-256 + coverage
 │   ├── estimator.ts      # tiktoken token counting
-│   ├── reviewer.ts       # Claude Agent SDK + Zod retry
+│   ├── triage.ts         # File triage: skip / fast / deep classification
+│   ├── usage-graph.ts    # Pre-computed import usage graph
+│   ├── reviewer.ts       # Claude Agent SDK + Zod retry (deep reviews)
+│   ├── fast-reviewer.ts  # Single-turn reviewer for fast-tier files
 │   ├── review-writer.ts  # Writes .rev.json + .rev.md
-│   ├── reporter.ts       # Aggregates → report.md
+│   ├── reporter.ts       # Sharded report: index + per-shard files
 │   ├── progress-manager.ts # Atomic state management
 │   └── worker-pool.ts    # Concurrent review pool + semaphore
 ├── schemas/              # Zod schemas (source of truth)
@@ -225,7 +239,9 @@ Runtime output directory:
         ├── reviews/*.rev.json             # Machine-readable reviews
         ├── reviews/*.rev.md               # Human-readable reviews
         ├── logs/*.transcript.md           # Full agent reasoning logs
-        └── report.md                      # Aggregated audit report
+        ├── logs/*.fast.transcript.md      # Fast reviewer transcripts
+        ├── report.md                      # Index: summary + shard links
+        └── report.N.md                    # Shard N: 10 files with findings
 ```
 
 ---
@@ -285,6 +301,7 @@ npx anatoly hook stop        # Stop hook: collect findings, block if issues
 --concurrency <n>    Number of concurrent reviews, 1-10 (default: 4)
 --no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
+--no-triage          Disable triage, review all files with full agent
 ```
 
 ### RAG Status Options
@@ -311,11 +328,9 @@ Each reviewed file produces two outputs:
 | `tests` | `GOOD` / `WEAK` / `NONE` |
 | `confidence` | 0–100 |
 
-**`report.md`**,Aggregated report with:
-- Executive summary and global verdict (`CLEAN` / `NEEDS_REFACTOR` / `CRITICAL`)
-- Findings table sorted by severity
-- Recommended actions
-- Clean/error file lists
+**`report.md`**,Sharded audit report:
+- `report.md` — compact index (~100 lines) with executive summary, severity table, checkbox links to shards, and triage stats
+- `report.N.md` — per-shard detail files (max 10 files each), sorted by severity with Quick Wins / Refactors / Hygiene actions
 
 ## Configuration
 
@@ -343,6 +358,7 @@ coverage:
 
 llm:
   model: "claude-sonnet-4-6"
+  fast_model: "claude-haiku-4-5-20251001"  # optional: cheaper model for fast-tier reviews
   agentic_tools: true
   timeout_per_file: 600
   max_retries: 3
