@@ -100,6 +100,26 @@ describe('mergeAxisResults', () => {
     expect(review.symbols[0].tests).toBe('NONE');
   });
 
+  it('should apply coherence rule: ERROR correction → overengineering=ACCEPTABLE', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('correction', [makeSymbol('doWork', { value: 'ERROR' })]),
+      makeAxisResult('overengineering', [makeSymbol('doWork', { value: 'OVER' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.symbols[0].overengineering).toBe('ACCEPTABLE');
+  });
+
+  it('should not override overengineering when correction is OK', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('correction', [makeSymbol('doWork', { value: 'OK' })]),
+      makeAxisResult('overengineering', [makeSymbol('doWork', { value: 'OVER' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.symbols[0].overengineering).toBe('OVER');
+  });
+
   it('should not override tests when utility is USED', () => {
     const results: AxisResult[] = [
       makeAxisResult('utility', [makeSymbol('doWork', { value: 'USED' })]),
@@ -135,13 +155,13 @@ describe('mergeAxisResults', () => {
     expect(review.verdict).toBe('CRITICAL');
   });
 
-  it('should compute verdict CRITICAL when correction=NEEDS_FIX', () => {
+  it('should compute verdict NEEDS_REFACTOR when correction=NEEDS_FIX', () => {
     const results: AxisResult[] = [
       makeAxisResult('correction', [makeSymbol('doWork', { value: 'NEEDS_FIX' })]),
     ];
 
     const review = mergeAxisResults(mockTask, results);
-    expect(review.verdict).toBe('CRITICAL');
+    expect(review.verdict).toBe('NEEDS_REFACTOR');
   });
 
   it('should compute verdict NEEDS_REFACTOR for DEAD/DUPLICATE/OVER', () => {

@@ -9,13 +9,19 @@ const OUTPUT_TOKENS_PER_SYMBOL = 150;
 const OUTPUT_BASE_PER_FILE = 300;
 
 /**
- * In the axis pipeline, each file runs 6 evaluators in parallel.
- * The bottleneck is the slowest axis (~8s with parallelism), not 6×sequential.
+ * Weighted time estimation constants (axis pipeline).
+ * BASE_SECONDS covers fixed overhead (file read, prompt assembly, RAG pre-resolution).
+ * SECONDS_PER_SYMBOL accounts for LLM output tokens scaling with symbol count.
+ * A file with 5 symbols ≈ 8s, a file with 20 symbols ≈ 20s.
  */
-const SECONDS_PER_FILE = 8;
+export const BASE_SECONDS = 4;
+export const SECONDS_PER_SYMBOL = 0.8;
 
-/** Seconds per file by triage tier (axis pipeline) */
-export const SECONDS_PER_TIER = { skip: 0, evaluate: 8 } as const;
+/**
+ * Concurrency does not scale linearly due to rate limits, API contention,
+ * and tail effects (last workers finish alone). 0.75 = 25% overhead.
+ */
+export const CONCURRENCY_EFFICIENCY = 0.75;
 
 /** Number of axis evaluators per file */
 export const AXIS_COUNT = 6;
@@ -34,19 +40,29 @@ export interface EstimateResult {
   estimatedCalls: number;
 }
 
-export interface TieredEstimateOptions {
-  skip: number;
-  evaluate: number;
+/**
+ * Compute the estimated seconds for a single file based on its symbol count.
+ */
+export function estimateFileSeconds(symbolCount: number): number {
+  return BASE_SECONDS + symbolCount * SECONDS_PER_SYMBOL;
 }
 
 /**
- * Estimate review time based on triage tier distribution.
+ * Compute estimated seconds for a list of tasks (evaluate-tier only).
  */
-export function estimateTriagedMinutes(tiers: TieredEstimateOptions): number {
-  const totalSeconds =
-    tiers.skip * SECONDS_PER_TIER.skip +
-    tiers.evaluate * SECONDS_PER_TIER.evaluate;
-  return Math.ceil(totalSeconds / 60);
+export function estimateSequentialSeconds(tasks: Task[]): number {
+  return tasks.reduce((sum, t) => sum + estimateFileSeconds(t.symbols.length), 0);
+}
+
+/**
+ * Compute estimated minutes factoring in concurrency overhead.
+ */
+export function estimateMinutesWithConcurrency(sequentialSeconds: number, concurrency: number): number {
+  if (sequentialSeconds === 0) return 0;
+  const effectiveSeconds = concurrency > 1
+    ? sequentialSeconds / (concurrency * CONCURRENCY_EFFICIENCY)
+    : sequentialSeconds;
+  return Math.ceil(effectiveSeconds / 60);
 }
 
 /**
@@ -129,7 +145,7 @@ export function estimateProject(projectRoot: string): EstimateResult {
     enc.free();
   }
 
-  const estimatedMinutes = Math.ceil((tasks.length * SECONDS_PER_FILE) / 60);
+  const estimatedMinutes = Math.ceil(estimateSequentialSeconds(tasks) / 60);
   const estimatedCalls = tasks.length * AXIS_COUNT;
 
   return {

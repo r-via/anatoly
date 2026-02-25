@@ -77,7 +77,7 @@ function hasActionableIssue(s: SymbolReview): boolean {
 export function computeFileVerdict(review: ReviewFile): Verdict {
   const symbols = review.symbols;
 
-  if (symbols.some((s) => s.correction === 'ERROR')) return 'CRITICAL';
+  if (symbols.some((s) => s.correction === 'ERROR' && s.confidence >= 60)) return 'CRITICAL';
 
   const hasConfirmedIssue = symbols.some(
     (s) => s.confidence >= 60 && hasActionableIssue(s),
@@ -259,7 +259,7 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('| Category | High | Medium | Low | Total |');
     lines.push('|----------|------|--------|-----|-------|');
     if (totalCorr > 0) lines.push(`| Correction errors | ${cor.high} | ${cor.medium} | ${cor.low} | ${totalCorr} |`);
-    if (totalDead > 0) lines.push(`| Dead code | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
+    if (totalDead > 0) lines.push(`| Utility | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
     if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
     if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
     lines.push('');
@@ -310,16 +310,94 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   // Methodology
   lines.push('## Methodology');
   lines.push('');
-  lines.push('Each file is evaluated through 6 independent axis evaluators running in parallel:');
+  lines.push('Each file is evaluated through 6 independent axis evaluators running in parallel.');
+  lines.push('Every symbol (function, class, variable, type) is analysed individually and receives a rating per axis along with a confidence score (0–100).');
+  lines.push('Findings with confidence < 30 are discarded; those with confidence < 60 are excluded from verdict computation.');
   lines.push('');
-  lines.push('| Axis | Model | Focus |');
-  lines.push('|------|-------|-------|');
-  lines.push('| Utility | haiku | USED / DEAD / LOW_VALUE (pre-computed usage graph) |');
-  lines.push('| Duplication | haiku | UNIQUE / DUPLICATE (RAG similarity search) |');
-  lines.push('| Correction | sonnet | OK / NEEDS_FIX / ERROR + actions |');
-  lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE |');
-  lines.push('| Tests | haiku | GOOD / WEAK / NONE (coverage data) |');
-  lines.push('| Best Practices | sonnet | 17 TypeGuard v2 rules, score /10 |');
+  lines.push('### Axis Reference');
+  lines.push('');
+  lines.push('| Axis | Model | Ratings | Description |');
+  lines.push('|------|-------|---------|-------------|');
+  lines.push('| Utility | haiku | USED / DEAD / LOW_VALUE | Is this symbol actually used in the codebase? |');
+  lines.push('| Duplication | haiku | UNIQUE / DUPLICATE | Is this symbol a copy of logic that exists elsewhere? |');
+  lines.push('| Correction | sonnet | OK / NEEDS_FIX / ERROR | Does this symbol contain bugs or correctness issues? |');
+  lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE | Is the implementation unnecessarily complex? |');
+  lines.push('| Tests | haiku | GOOD / WEAK / NONE | Does this symbol have adequate test coverage? |');
+  lines.push('| Best Practices | sonnet | Score 0–10 (17 rules) | Does the file follow TypeScript best practices? |');
+  lines.push('');
+  lines.push('### Rating Criteria');
+  lines.push('');
+  lines.push('**Utility** — Detects dead or low-value code using a pre-computed import/usage graph.');
+  lines.push('');
+  lines.push('- **USED**: The symbol is imported or referenced by at least one other file (exported) or used locally (non-exported).');
+  lines.push('- **DEAD**: The symbol is exported but imported by 0 files, or is a non-exported symbol with no local references. Likely safe to remove.');
+  lines.push('- **LOW_VALUE**: The symbol is used but provides negligible value (trivial wrapper, identity function, unnecessary indirection).');
+  lines.push('');
+  lines.push('**Duplication** — Identifies code clones via RAG semantic vector search against the codebase index.');
+  lines.push('');
+  lines.push('- **UNIQUE**: No semantically similar function found, or similarity score < 0.75.');
+  lines.push('- **DUPLICATE**: Similarity score >= 0.85 with matching logic/behavior. The duplicate target file and symbol are reported.');
+  lines.push('');
+  lines.push('**Correction** — Finds bugs, logic errors, incorrect types, and unsafe operations. Only flags real correctness issues, not style.');
+  lines.push('');
+  lines.push('- **OK**: No bugs or correctness issues found.');
+  lines.push('- **NEEDS_FIX**: A real bug, logic error, or type mismatch that would cause incorrect behavior at runtime.');
+  lines.push('- **ERROR**: A critical bug that would cause a crash, data loss, or security breach.');
+  lines.push('');
+  lines.push('**Overengineering** — Evaluates whether complexity is justified by actual requirements.');
+  lines.push('');
+  lines.push('- **LEAN**: Implementation is minimal and appropriate for its purpose. A long function doing one thing well is still LEAN.');
+  lines.push('- **OVER**: Unnecessary abstractions, premature generalization, factory patterns for single use, excessive configuration for simple behavior.');
+  lines.push('- **ACCEPTABLE**: Some complexity present but justified by requirements.');
+  lines.push('');
+  lines.push('**Tests** — Assesses test coverage quality using coverage data (when available) and test file analysis.');
+  lines.push('');
+  lines.push('- **GOOD**: Meaningful unit tests covering happy path and edge cases.');
+  lines.push('- **WEAK**: Tests exist but are superficial, missing edge cases, or testing implementation details rather than behavior.');
+  lines.push('- **NONE**: No test file or test cases found for this symbol. Types/interfaces with no runtime behavior default to GOOD.');
+  lines.push('');
+  lines.push('**Best Practices** — File-level evaluation against 17 TypeGuard v2 rules. Starts at 10/10, penalties subtracted per violation:');
+  lines.push('');
+  lines.push('| # | Rule | Severity | Penalty |');
+  lines.push('|---|------|----------|---------|');
+  lines.push('| 1 | Strict mode (tsconfig strict: true) | HAUTE | -1 pt |');
+  lines.push('| 2 | No `any` (explicit or implicit) | CRITIQUE | -3 pts |');
+  lines.push('| 3 | Discriminated unions over type assertions | MOYENNE | -0.5 pt |');
+  lines.push('| 4 | Utility types (Pick, Omit, Partial, Record) | MOYENNE | -0.5 pt |');
+  lines.push('| 5 | Immutability (readonly, as const) | MOYENNE | -0.5 pt |');
+  lines.push('| 6 | Interface vs Type consistency | MOYENNE | -0.5 pt |');
+  lines.push('| 7 | File size < 300 lines | HAUTE | -1 pt |');
+  lines.push('| 8 | ESLint compliance | HAUTE | -1 pt |');
+  lines.push('| 9 | JSDoc on public exports | MOYENNE | -0.5 pt |');
+  lines.push('| 10 | Modern 2026 practices | MOYENNE | -0.5 pt |');
+  lines.push('| 11 | Import organization | MOYENNE | -0.5 pt |');
+  lines.push('| 12 | Async/Promises/Error handling | HAUTE | -1 pt |');
+  lines.push('| 13 | Security (no secrets, eval, injection) | CRITIQUE | -4 pts |');
+  lines.push('| 14 | Performance (no N+1, sync I/O) | MOYENNE | -0.5 pt |');
+  lines.push('| 15 | Testability (DI, low coupling) | MOYENNE | -0.5 pt |');
+  lines.push('| 16 | TypeScript 5.5+ features | MOYENNE | -0.5 pt |');
+  lines.push('| 17 | Context-adapted rules | MOYENNE | -0.5 pt |');
+  lines.push('');
+  lines.push('### Severity Classification');
+  lines.push('');
+  lines.push('Each finding is classified by severity:');
+  lines.push('');
+  lines.push('- **High**: ERROR corrections, or NEEDS_FIX / DEAD / DUPLICATE with confidence >= 80%.');
+  lines.push('- **Medium**: NEEDS_FIX / DEAD / DUPLICATE with confidence < 80%, or OVER (any confidence).');
+  lines.push('- **Low**: LOW_VALUE utility or remaining minor findings.');
+  lines.push('');
+  lines.push('### Verdict Rules');
+  lines.push('');
+  lines.push('- **CLEAN**: No actionable findings with confidence >= 60%.');
+  lines.push('- **NEEDS_REFACTOR**: At least one confirmed finding (DEAD, DUPLICATE, OVER, or NEEDS_FIX) with confidence >= 60%.');
+  lines.push('- **CRITICAL**: At least one ERROR correction found.');
+  lines.push('');
+  lines.push('### Inter-axis Coherence');
+  lines.push('');
+  lines.push('After individual evaluation, coherence rules reconcile contradictions:');
+  lines.push('');
+  lines.push('- If utility = DEAD, tests is forced to NONE (no point testing dead code).');
+  lines.push('- If correction = ERROR, overengineering is forced to ACCEPTABLE (complexity is secondary to correctness).');
   lines.push('');
 
   lines.push(`*Generated: ${new Date().toISOString()}*`);
@@ -340,7 +418,7 @@ export function renderShard(shard: ShardInfo): string {
   // Findings table
   lines.push('## Findings');
   lines.push('');
-  lines.push('| File | Verdict | Dead Code | Duplicate | Over Engineered | Errors | BP Score | Confidence | Details |');
+  lines.push('| File | Verdict | Utility | Duplicate | Over Engineered | Errors | BP Score | Confidence | Details |');
   lines.push('|------|---------|-----------|-----------|-----------------|--------|----------|------------|---------|');
 
   for (const review of shard.files) {
@@ -392,6 +470,26 @@ export function renderShard(shard: ShardInfo): string {
       lines.push('## Hygiene');
       lines.push('');
       for (const a of byCategory.hygiene) renderAction(lines, a);
+      lines.push('');
+    }
+  }
+
+  // Best Practices section — rendered from review data, not actions
+  const bpReviews = shard.files.filter((r) => r.best_practices && r.best_practices.suggestions.length > 0);
+  if (bpReviews.length > 0) {
+    lines.push('## Best Practices');
+    lines.push('');
+    for (const review of bpReviews) {
+      const bp = review.best_practices!;
+      lines.push(`### \`${review.file}\` — ${bp.score}/10`);
+      lines.push('');
+      for (const s of bp.suggestions) {
+        lines.push(`- ${s.description}`);
+        if (s.before && s.after) {
+          lines.push(`  - Before: \`${s.before}\``);
+          lines.push(`  - After: \`${s.after}\``);
+        }
+      }
       lines.push('');
     }
   }

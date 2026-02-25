@@ -41,21 +41,20 @@ export function detectFileContext(filePath: string, fileContent: string): FileCo
   if (lower.includes('config') || lower.endsWith('.config.ts') || lower.endsWith('.config.js')) return 'config';
 
   if (
-    fileContent.includes('React') ||
-    fileContent.includes('jsx') ||
-    fileContent.includes('tsx') ||
-    /\buse[A-Z]\w+/.test(fileContent) ||
-    fileContent.includes('Component')
+    /^import\b.*from\s+['"]react['"]/m.test(fileContent) ||
+    lower.endsWith('.tsx') ||
+    lower.endsWith('.jsx')
   ) {
     return 'react-component';
   }
 
   if (
-    fileContent.includes('Request') ||
-    fileContent.includes('Response') ||
-    fileContent.includes('router') ||
-    fileContent.includes('endpoint') ||
-    fileContent.includes('handler')
+    lower.includes('route') ||
+    lower.includes('controller') ||
+    lower.includes('handler') ||
+    /^import\b.*from\s+['"]express['"]/m.test(fileContent) ||
+    /^import\b.*from\s+['"]fastify['"]/m.test(fileContent) ||
+    /^import\b.*from\s+['"]hono['"]/m.test(fileContent)
   ) {
     return 'api-handler';
   }
@@ -117,9 +116,8 @@ ${RULES_TABLE}
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-\`\`\`json
 {
   "score": 8.5,
   "rules": [
@@ -139,8 +137,7 @@ Output ONLY a JSON object (no markdown fences, no explanation):
       "after": "const config: Readonly<Config> = { ... }"
     }
   ]
-}
-\`\`\``;
+}`;
 }
 
 export function buildBestPracticesUserMessage(ctx: AxisContext): string {
@@ -157,7 +154,9 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push('');
 
   parts.push(`## File stats`);
-  parts.push(`- Lines: ${ctx.fileContent.split('\n').length}`);
+  const rawLines = ctx.fileContent.split('\n');
+  const lineCount = rawLines[rawLines.length - 1] === '' ? rawLines.length - 1 : rawLines.length;
+  parts.push(`- Lines: ${lineCount}`);
   parts.push(`- Symbols: ${ctx.task.symbols.length}`);
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
@@ -197,15 +196,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
       fileLevel: {
         general_notes: `Best practices score: ${data.score}/10 (${data.rules.filter((r) => r.status === 'FAIL').length} FAIL, ${data.rules.filter((r) => r.status === 'WARN').length} WARN, ${data.rules.filter((r) => r.status === 'PASS').length} PASS)`,
       },
-      actions: data.suggestions.map((s, i) => ({
-        id: i + 1,
-        description: s.description,
-        severity: 'low' as const,
-        effort: 'small' as const,
-        category: 'hygiene' as const,
-        target_symbol: null,
-        target_lines: null,
-      })),
+      actions: [],
       costUsd,
       durationMs,
       transcript,

@@ -68,19 +68,37 @@ export function registerReviewCommand(program: Command): void {
         // Track active files for compact display (only in-flight files visible)
         const activeFiles = new Map<string, { axes: Set<string> }>();
 
+        const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
+        let spinFrame = 0;
+
+        const AXIS_LABELS: Record<string, string> = {
+          utility: 'utility',
+          duplication: 'duplication',
+          overengineering: 'overengineering',
+          tests: 'tests',
+          correction: 'correction',
+          best_practices: 'best practices',
+        };
+
         function formatAxes(done: Set<string>): string {
-          return axisIds.map((id) =>
-            done.has(id) ? chalk.green(`[x] ${id}`) : chalk.yellow(`[~] ${id}`),
-          ).join(' ');
+          const frame = SPINNER[spinFrame % SPINNER.length];
+          return axisIds.map((id) => {
+            const label = AXIS_LABELS[id] ?? id;
+            return done.has(id) ? `${chalk.green('[x]')} ${label}` : `[${chalk.yellow(frame)}] ${label}`;
+          }).join(' ');
         }
 
         function emitActiveFiles(listrTask: { output: string }): void {
+          spinFrame++;
           const marker = chalk.yellow('\u25cf');
-          const maxLen = Math.max(...[...activeFiles.keys()].map((f) => f.length));
-          for (const [file, state] of activeFiles) {
+          const files = [...activeFiles.entries()];
+          const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
+          const lines: string[] = [];
+          for (const [file, state] of files) {
             const padded = file.padEnd(maxLen);
-            listrTask.output = `${marker} ${padded}  ${formatAxes(state.axes)}`;
+            lines.push(`${marker} ${padded}  ${formatAxes(state.axes)}`);
           }
+          listrTask.output = lines.join('\n');
         }
 
         const runner = new Listr([{
@@ -93,6 +111,11 @@ export function registerReviewCommand(program: Command): void {
               listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
             };
 
+            const spinInterval = setInterval(() => {
+              if (activeFiles.size > 0) emitActiveFiles(listrTask);
+            }, 80);
+
+            try {
             await runWorkerPool({
               items: pending,
               concurrency: 1,
@@ -107,7 +130,6 @@ export function registerReviewCommand(program: Command): void {
 
                 pm.updateFileStatus(fp.file, 'IN_PROGRESS');
                 activeFiles.set(fp.file, { axes: new Set() });
-                emitActiveFiles(listrTask);
 
                 activeAbort = new AbortController();
 
@@ -122,7 +144,6 @@ export function registerReviewCommand(program: Command): void {
                     onAxisComplete: (axisId) => {
                       const state = activeFiles.get(fp.file);
                       if (state) state.axes.add(axisId);
-                      emitActiveFiles(listrTask);
                     },
                   });
                   writeReviewOutput(projectRoot, result.review);
@@ -151,10 +172,12 @@ export function registerReviewCommand(program: Command): void {
                   activeAbort = undefined;
                   activeFiles.delete(fp.file);
                   updateTitle();
-                  emitActiveFiles(listrTask);
                 }
               },
             });
+            } finally {
+              clearInterval(spinInterval);
+            }
 
             const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
             listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;

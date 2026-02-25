@@ -25,6 +25,7 @@ const mockUsageGraph: UsageGraph = {
     ['formatNumber::src/utils/format.ts', new Set(['src/core/reporter.ts', 'src/commands/status.ts'])],
     // MAX_WIDTH has 0 importers → DEAD
   ]),
+  typeOnlyUsages: new Map(),
 };
 
 function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
@@ -62,7 +63,7 @@ describe('buildUtilityUserMessage', () => {
   it('should include usage graph data for exported symbols', () => {
     const msg = buildUtilityUserMessage(createCtx());
     expect(msg).toContain('Pre-computed Import Analysis');
-    expect(msg).toContain('formatNumber (exported): imported by 2 files');
+    expect(msg).toContain('formatNumber (exported): runtime-imported by 2 files');
     expect(msg).toContain('MAX_WIDTH (exported): imported by 0 files');
     expect(msg).toContain('LIKELY DEAD');
   });

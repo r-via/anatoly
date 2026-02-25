@@ -42,8 +42,12 @@ describe('detectFileContext', () => {
     expect(detectFileContext('src/components/Button.tsx', 'import React from "react";\nexport const Button = () => <div/>;')).toBe('react-component');
   });
 
-  it('should detect API handlers', () => {
-    expect(detectFileContext('src/api/users.ts', 'export function handler(req: Request, res: Response) {}')).toBe('api-handler');
+  it('should detect API handlers by path', () => {
+    expect(detectFileContext('src/api/handler.ts', 'export function handle() {}')).toBe('api-handler');
+  });
+
+  it('should detect API handlers by framework import', () => {
+    expect(detectFileContext('src/api/users.ts', 'import express from "express";\nexport function handler() {}')).toBe('api-handler');
   });
 
   it('should detect utility files', () => {

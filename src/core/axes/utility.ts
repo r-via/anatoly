@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery } from '../axis-evaluator.js';
 import { resolveAxisModel } from '../axis-evaluator.js';
-import { getSymbolUsage } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage } from '../usage-graph.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (utility axis only)
@@ -37,11 +37,12 @@ Evaluate whether each symbol is actually USED, DEAD (never imported/called), or 
 ## Rules
 
 1. Use the Pre-computed Import Analysis provided. This data is EXHAUSTIVE — do NOT guess.
-2. Exported symbol with 0 importers = DEAD (confidence: 95).
-3. Exported symbol with 1+ importers = USED (confidence: 95).
-4. Non-exported symbol: check local usage in the file content. If called/referenced = USED, else = DEAD.
-5. LOW_VALUE = symbol exists and is used but provides negligible value (e.g. trivial wrapper, identity function).
-6. Do NOT evaluate other axes — only utility.
+2. Exported symbol with 0 runtime importers AND 0 type-only importers = DEAD (confidence: 95).
+3. Exported symbol with 1+ runtime importers = USED (confidence: 95).
+4. Exported symbol with 0 runtime importers but 1+ type-only importers = USED (confidence: 95). Type-only imports are real usage — removing the symbol would break compilation.
+5. Non-exported symbol: check local usage in the file content. If called/referenced = USED, else = DEAD.
+6. LOW_VALUE = symbol exists and is used but provides negligible value (e.g. trivial wrapper, identity function).
+7. Do NOT evaluate other axes — only utility.
 
 ## Output format
 
@@ -86,10 +87,13 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
     for (const sym of ctx.task.symbols) {
       if (sym.exported) {
         const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
-        if (importers.length === 0) {
+        const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        if (importers.length === 0 && typeImporters.length === 0) {
           parts.push(`- ${sym.name} (exported): imported by 0 files — LIKELY DEAD`);
+        } else if (importers.length > 0) {
+          parts.push(`- ${sym.name} (exported): runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}${typeImporters.length > 0 ? ` (also type-imported by ${typeImporters.length})` : ''}`);
         } else {
-          parts.push(`- ${sym.name} (exported): imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`);
+          parts.push(`- ${sym.name} (exported): type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')} — USED (type-only)`);
         }
       } else {
         parts.push(`- ${sym.name} (not exported): internal only — check local usage in file`);

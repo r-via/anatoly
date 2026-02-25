@@ -123,10 +123,19 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap): SymbolReview {
  * - If correction=ERROR, force overengineering=ACCEPTABLE (complexity is secondary to correctness)
  */
 function applyCoherenceRules(sym: SymbolReview): SymbolReview {
-  if (sym.utility === 'DEAD' && sym.tests !== 'NONE') {
-    return { ...sym, tests: 'NONE' };
+  let result = sym;
+
+  // DEAD code doesn't need tests
+  if (result.utility === 'DEAD' && result.tests !== 'NONE') {
+    result = { ...result, tests: 'NONE' };
   }
-  return sym;
+
+  // ERROR corrections make complexity assessment moot
+  if (result.correction === 'ERROR' && result.overengineering !== 'ACCEPTABLE') {
+    result = { ...result, overengineering: 'ACCEPTABLE' };
+  }
+
+  return result;
 }
 
 function mergeActions(results: AxisResult[]): Action[] {
@@ -165,8 +174,7 @@ function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | '
     }
   }
 
-  if (hasCorrection) return 'CRITICAL';
-  if (hasFinding) return 'NEEDS_REFACTOR';
+  if (hasCorrection || hasFinding) return 'NEEDS_REFACTOR';
   return 'CLEAN';
 }
 

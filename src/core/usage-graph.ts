@@ -4,8 +4,10 @@ import { existsSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 
 export interface UsageGraph {
-  /** "symbolName::filePath" → Set<files that import this symbol from this file> */
+  /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
   usages: Map<string, Set<string>>;
+  /** "symbolName::filePath" → Set<files that type-only import this symbol from this file> */
+  typeOnlyUsages: Map<string, Set<string>>;
 }
 
 /**
@@ -15,15 +17,20 @@ export interface UsageGraph {
  * - import Default from './path'
  * - import * as X from './path'
  * - export { A, B } from './path'
- * Ignores:
- * - import type { ... } from '...' (type-only, no runtime usage)
- * - export type { ... } from '...'
+ * - import type { A } from './path' (type-only — tracked separately)
+ * - export type { A } from './path' (type-only — tracked separately)
  */
 const NAMED_IMPORT_RE =
   /import\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
 const DEFAULT_IMPORT_RE =
   /import\s+(?!type\s)(\w+)\s+from\s+['"]([^'"]+)['"]/g;
+
+const TYPE_NAMED_IMPORT_RE =
+  /import\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
+
+const TYPE_REEXPORT_RE =
+  /export\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
 const NAMESPACE_IMPORT_RE =
   /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
@@ -82,105 +89,80 @@ function extractImports(
   importerAbsPath: string,
   projectRoot: string,
   allExportsByFile: Map<string, Set<string>>,
-): Array<{ symbol: string; sourceFile: string; importerFile: string }> {
+): Array<{ symbol: string; sourceFile: string; importerFile: string; typeOnly: boolean }> {
   const results: Array<{
     symbol: string;
     sourceFile: string;
     importerFile: string;
+    typeOnly: boolean;
   }> = [];
 
   const importerFile = relative(projectRoot, importerAbsPath);
 
-  // Named imports: import { A, B as C } from './path'
-  for (const match of source.matchAll(NAMED_IMPORT_RE)) {
-    const names = match[1];
-    const specifier = match[2];
+  /** Helper to extract named symbols from a comma-separated capture group */
+  function parseNamedSymbols(
+    namesStr: string, specifier: string, typeOnly: boolean,
+  ): void {
     const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
-    if (!resolved) continue;
-
-    for (const part of names.split(',')) {
+    if (!resolved) return;
+    for (const part of namesStr.split(',')) {
       const trimmed = part.trim();
       if (!trimmed) continue;
-      // Handle "A as B" — the original name is what matters for usage tracking
       const originalName = trimmed.split(/\s+as\s+/)[0].trim();
       if (originalName) {
-        results.push({
-          symbol: originalName,
-          sourceFile: resolved,
-          importerFile,
-        });
+        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly });
       }
     }
   }
 
+  // Named imports: import { A, B as C } from './path'
+  for (const match of source.matchAll(NAMED_IMPORT_RE)) {
+    parseNamedSymbols(match[1], match[2], false);
+  }
+
+  // Type-only named imports: import type { A, B } from './path'
+  for (const match of source.matchAll(TYPE_NAMED_IMPORT_RE)) {
+    parseNamedSymbols(match[1], match[2], true);
+  }
+
   // Default imports: import X from './path'
   for (const match of source.matchAll(DEFAULT_IMPORT_RE)) {
-    const specifier = match[2];
-    // Skip if this is actually a namespace or named import (already handled)
     if (match[0].includes('{') || match[0].includes('*')) continue;
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot);
     if (!resolved) continue;
-    results.push({
-      symbol: 'default',
-      sourceFile: resolved,
-      importerFile,
-    });
+    results.push({ symbol: 'default', sourceFile: resolved, importerFile, typeOnly: false });
   }
 
   // Namespace imports: import * as X from './path'
   for (const match of source.matchAll(NAMESPACE_IMPORT_RE)) {
-    const specifier = match[2];
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot);
     if (!resolved) continue;
-
-    // Count all exports of the source file as used
     const exports = allExportsByFile.get(resolved);
     if (exports) {
       for (const sym of exports) {
-        results.push({
-          symbol: sym,
-          sourceFile: resolved,
-          importerFile,
-        });
+        results.push({ symbol: sym, sourceFile: resolved, importerFile, typeOnly: false });
       }
     }
   }
 
   // Re-exports: export { A, B } from './path'
   for (const match of source.matchAll(REEXPORT_RE)) {
-    const names = match[1];
-    const specifier = match[2];
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
-    if (!resolved) continue;
+    parseNamedSymbols(match[1], match[2], false);
+  }
 
-    for (const part of names.split(',')) {
-      const trimmed = part.trim();
-      if (!trimmed) continue;
-      const originalName = trimmed.split(/\s+as\s+/)[0].trim();
-      if (originalName) {
-        results.push({
-          symbol: originalName,
-          sourceFile: resolved,
-          importerFile,
-        });
-      }
-    }
+  // Type-only re-exports: export type { A, B } from './path'
+  for (const match of source.matchAll(TYPE_REEXPORT_RE)) {
+    parseNamedSymbols(match[1], match[2], true);
   }
 
   // Star re-exports: export * from './path' — all exports of source marked as used
   for (const match of source.matchAll(STAR_REEXPORT_RE)) {
-    const specifier = match[1];
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot);
     if (!resolved) continue;
-
     const exports = allExportsByFile.get(resolved);
     if (exports) {
       for (const sym of exports) {
-        results.push({
-          symbol: sym,
-          sourceFile: resolved,
-          importerFile,
-        });
+        results.push({ symbol: sym, sourceFile: resolved, importerFile, typeOnly: false });
       }
     }
   }
@@ -220,6 +202,7 @@ export function buildUsageGraph(
   tasks: Task[],
 ): UsageGraph {
   const usages = new Map<string, Set<string>>();
+  const typeOnlyUsages = new Map<string, Set<string>>();
   const allExportsByFile = buildExportMap(tasks);
 
   for (const task of tasks) {
@@ -243,20 +226,21 @@ export function buildUsageGraph(
       if (imp.importerFile === imp.sourceFile) continue;
 
       const key = `${imp.symbol}::${imp.sourceFile}`;
-      let set = usages.get(key);
+      const targetMap = imp.typeOnly ? typeOnlyUsages : usages;
+      let set = targetMap.get(key);
       if (!set) {
         set = new Set<string>();
-        usages.set(key, set);
+        targetMap.set(key, set);
       }
       set.add(imp.importerFile);
     }
   }
 
-  return { usages };
+  return { usages, typeOnlyUsages };
 }
 
 /**
- * Get the list of files that import a specific symbol from a specific file.
+ * Get the list of files that runtime-import a specific symbol from a specific file.
  */
 export function getSymbolUsage(
   graph: UsageGraph,
@@ -265,5 +249,18 @@ export function getSymbolUsage(
 ): string[] {
   const key = `${symbolName}::${filePath}`;
   const set = graph.usages.get(key);
+  return set ? [...set].sort() : [];
+}
+
+/**
+ * Get the list of files that type-only import a specific symbol from a specific file.
+ */
+export function getTypeOnlySymbolUsage(
+  graph: UsageGraph,
+  symbolName: string,
+  filePath: string,
+): string[] {
+  const key = `${symbolName}::${filePath}`;
+  const set = graph.typeOnlyUsages.get(key);
   return set ? [...set].sort() : [];
 }

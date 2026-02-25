@@ -8,12 +8,13 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, formatTokenCount, loadTasks } from '../core/estimator.js';
+import { estimateProject, formatTokenCount, loadTasks, estimateFileSeconds, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
+import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
@@ -25,9 +26,6 @@ import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
-
-/** Seconds per tier for time estimation */
-const SECONDS_PER_TIER = { skip: 0, evaluate: 8 };
 
 interface RunContext {
   projectRoot: string;
@@ -50,6 +48,11 @@ interface RunContext {
   totalFindings: number;
   totalFiles: number;
   reviewCounts: { skipped: number; evaluated: number };
+  startTime: number;
+  /** All loaded tasks — set during setup phase, used in report phase for time estimation */
+  allTasks: Task[];
+  /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
+  triageMap: Map<string, TriageResult>;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -100,6 +103,9 @@ export function registerRunCommand(program: Command): void {
         totalFindings: 0,
         totalFiles: 0,
         reviewCounts: { skipped: 0, evaluated: 0 },
+        startTime: Date.now(),
+        allTasks: [],
+        triageMap: new Map(),
       };
 
       const onSigint = () => {
@@ -116,7 +122,7 @@ export function registerRunCommand(program: Command): void {
       try {
         const setup = await runSetupPhase(ctx);
         if (ctx.interrupted) {
-          console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings`);
+          console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatDuration(Date.now() - ctx.startTime)}`);
           return;
         }
 
@@ -128,7 +134,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote}`);
+          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatDuration(Date.now() - ctx.startTime)}`);
           releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
@@ -153,6 +159,14 @@ export function registerRunCommand(program: Command): void {
 
 function shortModelName(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
 interface SetupResult {
@@ -205,9 +219,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         const estimate = estimateProject(ctx.projectRoot);
         estimateFiles = estimate.files;
 
+        const minutes = estimateMinutesWithConcurrency(
+          estimateSequentialSeconds(allTasks),
+          ctx.concurrency,
+        );
         const timeLabel = ctx.concurrency > 1
-          ? `~${Math.ceil(estimate.estimatedMinutes / ctx.concurrency)} min (\u00d7${ctx.concurrency})`
-          : `~${estimate.estimatedMinutes} min (sequential)`;
+          ? `~${minutes} min (\u00d7${ctx.concurrency})`
+          : `~${minutes} min`;
 
         listrTask.title = `estimate \u2014 ${estimate.files} files \u00b7 ${estimate.symbols} symbols \u00b7 ${formatTokenCount(estimate.inputTokens)} in / ${formatTokenCount(estimate.outputTokens)} out \u00b7 ${timeLabel}`;
       },
@@ -239,10 +257,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           tiers[result.tier]++;
         }
 
-        const triageMinutes = (tiers.skip * SECONDS_PER_TIER.skip + tiers.evaluate * SECONDS_PER_TIER.evaluate) / 60;
+        const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
+        const triageMinutes = estimateMinutesWithConcurrency(
+          estimateSequentialSeconds(evalTasks),
+          ctx.concurrency,
+        );
         const timeLabel = ctx.concurrency > 1
-          ? `~${Math.ceil(triageMinutes / ctx.concurrency)} min (\u00d7${ctx.concurrency})`
-          : `~${Math.ceil(triageMinutes)} min`;
+          ? `~${triageMinutes} min (\u00d7${ctx.concurrency})`
+          : `~${triageMinutes} min`;
 
         listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${timeLabel}`;
       },
@@ -262,6 +284,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   await setupRunner.run();
 
+  ctx.allTasks = allTasks;
+  ctx.triageMap = triageMap;
+
   return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph };
 }
 
@@ -276,8 +301,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   let ragResult: RagIndexResult | undefined;
 
   const indexModelLabel = shortModelName(ctx.config.llm.index_model);
+  const embedLabel = EMBEDDING_MODEL;
   const ragRunner = new Listr([{
-    title: `RAG index (${indexModelLabel}) — 0/${tasks.length}`,
+    title: `RAG index (${indexModelLabel} · ${embedLabel}) — 0/${tasks.length}`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       ragResult = await indexProject({
         projectRoot: ctx.projectRoot,
@@ -287,7 +313,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         concurrency: ctx.concurrency,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
-          listrTask.title = `RAG index (${indexModelLabel}) — ${current}/${total}`;
+          listrTask.title = `RAG index (${indexModelLabel} · ${embedLabel}) — ${current}/${total}`;
         },
         isInterrupted: () => ctx.interrupted,
       });
@@ -362,25 +388,38 @@ async function runReviewPhase(
   const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
   let spinFrame = 0;
 
+  const AXIS_LABELS: Record<string, string> = {
+    utility: 'utility',
+    duplication: 'duplication',
+    overengineering: 'overengineering',
+    tests: 'tests',
+    correction: 'correction',
+    best_practices: 'best practices',
+  };
+
   function formatAxes(done: Set<string>): string {
     const frame = SPINNER[spinFrame % SPINNER.length];
-    return axisIds.map((id) =>
-      done.has(id) ? `${chalk.green('[x]')} ${id}` : `[${chalk.yellow(frame)}] ${id}`,
-    ).join(' ');
+    return axisIds.map((id) => {
+      const label = AXIS_LABELS[id] ?? id;
+      return done.has(id) ? `${chalk.green('[x]')} ${label}` : `[${chalk.yellow(frame)}] ${label}`;
+    }).join(' ');
   }
 
   function emitActiveFiles(listrTask: { output: string }): void {
     spinFrame++;
     const marker = chalk.yellow('\u25cf');
-    const maxLen = Math.max(...[...activeFiles.keys()].map((f) => f.length));
-    for (const [file, state] of activeFiles) {
+    const files = [...activeFiles.entries()];
+    const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
+    const lines: string[] = [];
+    for (const [file, state] of files) {
       const padded = file.padEnd(maxLen);
       if (state.retryMsg) {
-        listrTask.output = `${marker} ${padded}  ${state.retryMsg}`;
+        lines.push(`${marker} ${padded}  ${state.retryMsg}`);
       } else {
-        listrTask.output = `${marker} ${padded}  ${formatAxes(state.axes)}`;
+        lines.push(`${marker} ${padded}  ${formatAxes(state.axes)}`);
       }
     }
+    listrTask.output = lines.join('\n');
   }
 
   const reviewRunner = new Listr([{
@@ -393,6 +432,12 @@ async function runReviewPhase(
         listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
       };
 
+      // Animate spinner while files are being processed
+      const spinInterval = setInterval(() => {
+        if (activeFiles.size > 0) emitActiveFiles(listrTask);
+      }, 80);
+
+      try {
       await runWorkerPool({
         items: reviewItems,
         concurrency: ctx.concurrency,
@@ -411,14 +456,12 @@ async function runReviewPhase(
             ctx.reviewCounts.skipped++;
             completedCount++;
             updateTitle();
-            emitActiveFiles(listrTask);
             return;
           }
 
           // Evaluate tier: run all axis evaluators in parallel
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
           activeFiles.set(filePath, { axes: new Set() });
-          emitActiveFiles(listrTask);
 
           let currentAbort = new AbortController();
           ctx.activeAborts.add(currentAbort);
@@ -448,7 +491,6 @@ async function runReviewPhase(
                       state.retryMsg = undefined;
                       state.axes.add(axisId);
                     }
-                    emitActiveFiles(listrTask);
                   },
                 });
               },
@@ -463,7 +505,6 @@ async function runReviewPhase(
                   const delaySec = (delayMs / 1000).toFixed(0);
                   const state = activeFiles.get(filePath);
                   if (state) state.retryMsg = `retrying in ${delaySec}s (${attempt}/5)`;
-                  emitActiveFiles(listrTask);
                 },
               },
             );
@@ -485,15 +526,17 @@ async function runReviewPhase(
             ctx.activeAborts.delete(currentAbort);
             activeFiles.delete(filePath);
             updateTitle();
-            emitActiveFiles(listrTask);
           }
         },
       });
+      } finally {
+        clearInterval(spinInterval);
+      }
 
       const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
       listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
     },
-    rendererOptions: { outputBar: ctx.concurrency as number },
+    rendererOptions: { outputBar: 1 as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
@@ -524,15 +567,18 @@ function runReportPhase(ctx: RunContext): void {
   if (ctx.triageEnabled) {
     const { skipped, evaluated } = ctx.reviewCounts;
     const total = skipped + evaluated;
-    const allEvalSeconds = total * SECONDS_PER_TIER.evaluate;
-    const actualSeconds =
-      skipped * SECONDS_PER_TIER.skip +
-      evaluated * SECONDS_PER_TIER.evaluate;
+    // Time saved = weighted seconds of files that were skipped (would have been evaluated)
+    let skippedSeconds = 0;
+    for (const task of ctx.allTasks) {
+      if (ctx.triageMap.get(task.file)?.tier === 'skip') {
+        skippedSeconds += estimateFileSeconds(task.symbols.length);
+      }
+    }
     triageStats = {
       total,
       skip: skipped,
       evaluate: evaluated,
-      estimatedTimeSaved: (allEvalSeconds - actualSeconds) / 60,
+      estimatedTimeSaved: skippedSeconds / 60,
     };
   }
 
@@ -548,7 +594,8 @@ function runReportPhase(ctx: RunContext): void {
   const tierSummary = ctx.triageEnabled
     ? ` (${skipped} skipped \u00b7 ${evaluated} evaluated)`
     : '';
-  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary}`);
+  const duration = formatDuration(Date.now() - ctx.startTime);
+  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
   console.log('');
   console.log(`  run          ${ctx.runId}`);
   console.log(`  report       ${chalk.cyan(reportPath)}`);

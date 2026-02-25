@@ -2,7 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { estimateProject, loadTasks, countTokens, formatTokenCount, estimateTriagedMinutes, SECONDS_PER_TIER, AXIS_COUNT } from './estimator.js';
+import {
+  estimateProject,
+  loadTasks,
+  countTokens,
+  formatTokenCount,
+  estimateFileSeconds,
+  estimateSequentialSeconds,
+  estimateMinutesWithConcurrency,
+  BASE_SECONDS,
+  SECONDS_PER_SYMBOL,
+  CONCURRENCY_EFFICIENCY,
+  AXIS_COUNT,
+} from './estimator.js';
 
 describe('countTokens', () => {
   it('should count tokens in a string', () => {
@@ -146,25 +158,65 @@ describe('estimateProject', () => {
   });
 });
 
-describe('estimateTriagedMinutes', () => {
-  it('should return 0 for all skip', () => {
-    expect(estimateTriagedMinutes({ skip: 10, evaluate: 0 })).toBe(0);
+describe('estimateFileSeconds', () => {
+  it('should return BASE_SECONDS for 0 symbols', () => {
+    expect(estimateFileSeconds(0)).toBe(BASE_SECONDS);
   });
 
-  it('should estimate time for evaluate tier', () => {
-    // 10 files × 8s = 80s → Math.ceil(80/60) = 2 min
-    expect(estimateTriagedMinutes({ skip: 0, evaluate: 10 })).toBe(2);
+  it('should scale with symbol count', () => {
+    // 5 symbols: 4 + 5 × 0.8 = 8s
+    expect(estimateFileSeconds(5)).toBe(BASE_SECONDS + 5 * SECONDS_PER_SYMBOL);
+    expect(estimateFileSeconds(5)).toBeCloseTo(8);
   });
 
-  it('should combine skip and evaluate', () => {
-    // 5 skip × 0s + 5 evaluate × 8s = 40s → Math.ceil(40/60) = 1 min
-    expect(estimateTriagedMinutes({ skip: 5, evaluate: 5 })).toBe(1);
+  it('should estimate more time for files with many symbols', () => {
+    // 20 symbols: 4 + 20 × 0.8 = 20s
+    expect(estimateFileSeconds(20)).toBeCloseTo(20);
   });
 });
 
-describe('SECONDS_PER_TIER', () => {
-  it('should have skip at 0 and evaluate at 8', () => {
-    expect(SECONDS_PER_TIER.skip).toBe(0);
-    expect(SECONDS_PER_TIER.evaluate).toBe(8);
+describe('estimateSequentialSeconds', () => {
+  it('should return 0 for empty task list', () => {
+    expect(estimateSequentialSeconds([])).toBe(0);
+  });
+
+  it('should sum weighted seconds across tasks', () => {
+    const tasks = [
+      { file: 'a.ts', symbols: new Array(5) },
+      { file: 'b.ts', symbols: new Array(10) },
+    ] as { file: string; symbols: unknown[] }[];
+    // a: 4 + 5×0.8 = 8, b: 4 + 10×0.8 = 12 → total 20
+    const result = estimateSequentialSeconds(tasks as import('../schemas/task.js').Task[]);
+    expect(result).toBeCloseTo(20);
+  });
+});
+
+describe('estimateMinutesWithConcurrency', () => {
+  it('should return 0 for 0 seconds', () => {
+    expect(estimateMinutesWithConcurrency(0, 3)).toBe(0);
+  });
+
+  it('should ceil to minutes for sequential (concurrency 1)', () => {
+    // 80s sequential → ceil(80/60) = 2 min
+    expect(estimateMinutesWithConcurrency(80, 1)).toBe(2);
+  });
+
+  it('should apply concurrency efficiency factor', () => {
+    // 120s / (3 × 0.75) = 120 / 2.25 = 53.3s → ceil(53.3/60) = 1 min
+    expect(estimateMinutesWithConcurrency(120, 3)).toBe(1);
+  });
+
+  it('should not over-discount with high concurrency', () => {
+    // 600s / (5 × 0.75) = 600 / 3.75 = 160s → ceil(160/60) = 3 min
+    expect(estimateMinutesWithConcurrency(600, 5)).toBe(3);
+  });
+});
+
+describe('constants', () => {
+  it('should have expected values', () => {
+    expect(BASE_SECONDS).toBe(4);
+    expect(SECONDS_PER_SYMBOL).toBe(0.8);
+    expect(CONCURRENCY_EFFICIENCY).toBe(0.75);
+    expect(AXIS_COUNT).toBe(6);
   });
 });

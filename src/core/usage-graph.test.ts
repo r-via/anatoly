@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildUsageGraph, getSymbolUsage } from './usage-graph.js';
+import { buildUsageGraph, getSymbolUsage, getTypeOnlySymbolUsage } from './usage-graph.js';
 import type { Task } from '../schemas/task.js';
 
 function makeTask(file: string, symbols: Array<{ name: string; exported: boolean; kind?: string }>): Task {
@@ -210,7 +210,7 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'unused', 'src/utils/cache.ts')).toEqual([]);
   });
 
-  it('ignores type-only imports', () => {
+  it('tracks type-only imports separately from runtime imports', () => {
     createFile('src/schemas/task.ts', 'export type Task = { file: string };\n');
     createFile('src/core/scanner.ts', "import type { Task } from '../schemas/task.js';\n");
 
@@ -220,8 +220,10 @@ describe('buildUsageGraph', () => {
     ];
 
     const graph = buildUsageGraph(testDir, tasks);
-    // type-only imports should not count as runtime usage
+    // type-only imports should NOT count as runtime usage
     expect(getSymbolUsage(graph, 'Task', 'src/schemas/task.ts')).toEqual([]);
+    // but they should be tracked in typeOnlyUsages
+    expect(getTypeOnlySymbolUsage(graph, 'Task', 'src/schemas/task.ts')).toEqual(['src/core/scanner.ts']);
   });
 
   it('does not count self-imports', () => {

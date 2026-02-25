@@ -74,9 +74,16 @@ describe('computeFileVerdict', () => {
     expect(computeFileVerdict(review)).toBe('CLEAN');
   });
 
-  it('should return CRITICAL for any ERROR regardless of confidence', () => {
+  it('should return CLEAN for ERROR with confidence < 60', () => {
     const review = makeReview({
       symbols: [makeSymbol({ correction: 'ERROR', confidence: 10 })],
+    });
+    expect(computeFileVerdict(review)).toBe('CLEAN');
+  });
+
+  it('should return CRITICAL for ERROR with confidence >= 60', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ correction: 'ERROR', confidence: 80 })],
     });
     expect(computeFileVerdict(review)).toBe('CRITICAL');
   });
@@ -333,7 +340,7 @@ describe('renderIndex', () => {
     ]);
     const shards = buildShards(data);
     const md = renderIndex(data, shards);
-    expect(md).toContain('Dead code');
+    expect(md).toContain('Utility');
     expect(md).toContain('| Category |');
   });
 
@@ -363,7 +370,7 @@ describe('renderIndex', () => {
     expect(md).toContain('1 NEEDS_REFACTOR');
   });
 
-  it('should be under ~100 lines', () => {
+  it('should keep index compact (detailed methodology included)', () => {
     const reviews = Array.from({ length: 62 }, (_, i) =>
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
@@ -371,7 +378,7 @@ describe('renderIndex', () => {
     const shards = buildShards(data);
     const md = renderIndex(data, shards);
     const lineCount = md.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(100);
+    expect(lineCount).toBeLessThanOrEqual(130);
   });
 
   it('should include error files section', () => {
@@ -412,7 +419,7 @@ describe('renderIndex', () => {
     expect(md).not.toContain('Performance & Triage');
   });
 
-  it('should still be under ~100 lines with triage stats and 62 findings', () => {
+  it('should keep index compact with triage stats and 62 findings', () => {
     const reviews = Array.from({ length: 62 }, (_, i) =>
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
@@ -422,7 +429,7 @@ describe('renderIndex', () => {
     const md = renderIndex(data, shards, stats);
     const lineCount = md.split('\n').length;
     // Allow a bit more room for the triage section
-    expect(lineCount).toBeLessThanOrEqual(110);
+    expect(lineCount).toBeLessThanOrEqual(140);
   });
 });
 

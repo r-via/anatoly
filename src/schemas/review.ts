@@ -60,7 +60,7 @@ export const BestPracticesRuleStatusSchema = z.enum(['PASS', 'WARN', 'FAIL']);
 
 export const BestPracticesRuleSchema = z.object({
   rule_id: z.int().min(1).max(17),
-  rule_name: z.string(),
+  rule_name: z.string().min(1),
   status: BestPracticesRuleStatusSchema,
   severity: BestPracticesRuleSeveritySchema,
   detail: z.string().optional(),
@@ -94,8 +94,8 @@ export const AxisIdSchema = z.enum([
 
 export const AxisMetaEntrySchema = z.object({
   model: z.string(),
-  cost_usd: z.number(),
-  duration_ms: z.number(),
+  cost_usd: z.number().min(0),
+  duration_ms: z.number().min(0),
 });
 
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ export const ReviewFileSchema = z.object({
   best_practices: BestPracticesSchema.optional(),
 
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
-  axis_meta: z.record(z.string(), AxisMetaEntrySchema).optional(),
+  axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
 });
 
 export type Verdict = z.infer<typeof VerdictSchema>;

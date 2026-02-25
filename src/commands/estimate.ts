@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, formatTokenCount } from '../core/estimator.js';
+import { estimateProject, formatTokenCount, loadTasks, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 
 export function registerEstimateCommand(program: Command): void {
   program
@@ -25,6 +25,9 @@ export function registerEstimateCommand(program: Command): void {
 
       const result = estimateProject(projectRoot);
       const concurrency = config.llm.concurrency;
+      const tasks = loadTasks(projectRoot);
+      const seqSeconds = estimateSequentialSeconds(tasks);
+      const minutes = estimateMinutesWithConcurrency(seqSeconds, concurrency);
 
       console.log('anatoly — estimate');
       console.log('');
@@ -32,8 +35,8 @@ export function registerEstimateCommand(program: Command): void {
       console.log(`  symbols      ${result.symbols}`);
       console.log(`  est. tokens  ${formatTokenCount(result.inputTokens)} input / ${formatTokenCount(result.outputTokens)} output`);
       const timeLabel = concurrency > 1
-        ? `~${Math.ceil(result.estimatedMinutes / concurrency)} min (×${concurrency})`
-        : `~${result.estimatedMinutes} min (sequential)`;
+        ? `~${minutes} min (×${concurrency})`
+        : `~${minutes} min`;
       console.log(`  est. time    ${timeLabel}`);
     });
 }

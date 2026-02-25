@@ -75,7 +75,7 @@ function printReportSummary(
   const totalCorr = cor.high + cor.medium + cor.low;
 
   if (totalCorr > 0) console.log(`  Correction errors: ${totalCorr}  (high: ${cor.high}, medium: ${cor.medium}, low: ${cor.low})`);
-  if (totalDead > 0) console.log(`  Dead code:         ${totalDead}  (high: ${dc.high}, medium: ${dc.medium}, low: ${dc.low})`);
+  if (totalDead > 0) console.log(`  Utility:           ${totalDead}  (high: ${dc.high}, medium: ${dc.medium}, low: ${dc.low})`);
   if (totalDup > 0) console.log(`  Duplicates:        ${totalDup}  (high: ${dup.high}, medium: ${dup.medium}, low: ${dup.low})`);
   if (totalOver > 0) console.log(`  Over-engineering:  ${totalOver}  (high: ${ov.high}, medium: ${ov.medium}, low: ${ov.low})`);
   console.log(`  Clean:             ${data.cleanFiles.length}`);
