@@ -19,12 +19,12 @@ import { openFile } from '../utils/open.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
-import { verdictColor } from '../utils/format.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
+import { runWorkerPool } from '../core/worker-pool.js';
 
 /** Seconds per tier for time estimation */
 const SECONDS_PER_TIER = { skip: 0, evaluate: 8 };
@@ -353,124 +353,150 @@ async function runReviewPhase(
     .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
 
   const evaluators = getEnabledEvaluators(ctx.config);
+  const axisIds = evaluators.map((e) => e.id);
+  const total = reviewItems.length;
 
-  // Shared atomic counter for completed files
-  let completedCount = 0;
+  // Track active files for compact display (only in-flight files visible)
+  const activeFiles = new Map<string, { axes: Set<string>; retryMsg?: string }>();
 
-  // Build listr2 task list — one task per file
-  const fileTasks = reviewItems.map((item, idx) => ({
-    title: `[${idx + 1}/${ctx.totalFiles}] ${item.filePath}`,
+  const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
+  let spinFrame = 0;
+
+  function formatAxes(done: Set<string>): string {
+    const frame = SPINNER[spinFrame % SPINNER.length];
+    return axisIds.map((id) =>
+      done.has(id) ? `${chalk.green('[x]')} ${id}` : `[${chalk.yellow(frame)}] ${id}`,
+    ).join(' ');
+  }
+
+  function emitActiveFiles(listrTask: { output: string }): void {
+    spinFrame++;
+    const marker = chalk.yellow('\u25cf');
+    const maxLen = Math.max(...[...activeFiles.keys()].map((f) => f.length));
+    for (const [file, state] of activeFiles) {
+      const padded = file.padEnd(maxLen);
+      if (state.retryMsg) {
+        listrTask.output = `${marker} ${padded}  ${state.retryMsg}`;
+      } else {
+        listrTask.output = `${marker} ${padded}  ${formatAxes(state.axes)}`;
+      }
+    }
+  }
+
+  const reviewRunner = new Listr([{
+    title: `review — 0/${total}`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      if (ctx.interrupted) {
-        listrTask.title = `[${idx + 1}/${ctx.totalFiles}] ${item.filePath} — skipped`;
-        return;
-      }
+      let completedCount = 0;
 
-      const { filePath, task } = item;
-      const triage = triageMap.get(filePath);
+      const updateTitle = () => {
+        const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+        listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
+      };
 
-      // Handle skip-tier files: generate synthetic review, no API call
-      if (ctx.triageEnabled && triage?.tier === 'skip') {
-        pm.updateFileStatus(filePath, 'IN_PROGRESS');
-        const skipReview = generateSkipReview(task, triage.reason);
-        writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
-        pm.updateFileStatus(filePath, 'DONE');
-        ctx.filesReviewed++;
-        ctx.reviewCounts.skipped++;
-        completedCount++;
-        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${chalk.green('CLEAN')} ${chalk.dim('(skipped)')}`;
-        return;
-      }
+      await runWorkerPool({
+        items: reviewItems,
+        concurrency: ctx.concurrency,
+        isInterrupted: () => ctx.interrupted,
+        handler: async (item) => {
+          const { filePath, task } = item;
+          const triage = triageMap.get(filePath);
 
-      // Evaluate tier: run all axis evaluators in parallel
-      pm.updateFileStatus(filePath, 'IN_PROGRESS');
+          // Handle skip-tier files: generate synthetic review, no API call
+          if (ctx.triageEnabled && triage?.tier === 'skip') {
+            pm.updateFileStatus(filePath, 'IN_PROGRESS');
+            const skipReview = generateSkipReview(task, triage.reason);
+            writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
+            pm.updateFileStatus(filePath, 'DONE');
+            ctx.filesReviewed++;
+            ctx.reviewCounts.skipped++;
+            completedCount++;
+            updateTitle();
+            emitActiveFiles(listrTask);
+            return;
+          }
 
-      let currentAbort = new AbortController();
-      ctx.activeAborts.add(currentAbort);
+          // Evaluate tier: run all axis evaluators in parallel
+          pm.updateFileStatus(filePath, 'IN_PROGRESS');
+          activeFiles.set(filePath, { axes: new Set() });
+          emitActiveFiles(listrTask);
 
-      try {
-        const startTime = Date.now();
+          let currentAbort = new AbortController();
+          ctx.activeAborts.add(currentAbort);
 
-        const result = await retryWithBackoff(
-          async () => {
-            if (ctx.interrupted) throw new Error('interrupted');
-            if (currentAbort.signal.aborted) {
-              ctx.activeAborts.delete(currentAbort);
-              currentAbort = new AbortController();
-              ctx.activeAborts.add(currentAbort);
-            }
-            return evaluateFile({
-              projectRoot: ctx.projectRoot,
-              task,
-              config: ctx.config,
-              evaluators,
-              abortController: currentAbort,
-              runDir: ctx.runDir,
-              usageGraph,
-              vectorStore: ragContext.vectorStore,
-              ragEnabled: ragContext.ragEnabled,
-              onAxisComplete: (axisId) => {
-                listrTask.output = `\u2713 ${axisId}`;
+          try {
+            const result = await retryWithBackoff(
+              async () => {
+                if (ctx.interrupted) throw new Error('interrupted');
+                if (currentAbort.signal.aborted) {
+                  ctx.activeAborts.delete(currentAbort);
+                  currentAbort = new AbortController();
+                  ctx.activeAborts.add(currentAbort);
+                }
+                return evaluateFile({
+                  projectRoot: ctx.projectRoot,
+                  task,
+                  config: ctx.config,
+                  evaluators,
+                  abortController: currentAbort,
+                  runDir: ctx.runDir,
+                  usageGraph,
+                  vectorStore: ragContext.vectorStore,
+                  ragEnabled: ragContext.ragEnabled,
+                  onAxisComplete: (axisId) => {
+                    const state = activeFiles.get(filePath);
+                    if (state) {
+                      state.retryMsg = undefined;
+                      state.axes.add(axisId);
+                    }
+                    emitActiveFiles(listrTask);
+                  },
+                });
               },
-            });
-          },
-          {
-            maxRetries: 5,
-            baseDelayMs: 5000,
-            maxDelayMs: 120_000,
-            jitterFactor: 0.2,
-            filePath,
-            isInterrupted: () => ctx.interrupted,
-            onRetry: (attempt, delayMs) => {
-              const delaySec = (delayMs / 1000).toFixed(0);
-              listrTask.output = `rate limited — retrying in ${delaySec}s (attempt ${attempt}/5)`;
-            },
-          },
-        );
+              {
+                maxRetries: 5,
+                baseDelayMs: 5000,
+                maxDelayMs: 120_000,
+                jitterFactor: 0.2,
+                filePath,
+                isInterrupted: () => ctx.interrupted,
+                onRetry: (attempt, delayMs) => {
+                  const delaySec = (delayMs / 1000).toFixed(0);
+                  const state = activeFiles.get(filePath);
+                  if (state) state.retryMsg = `retrying in ${delaySec}s (${attempt}/5)`;
+                  emitActiveFiles(listrTask);
+                },
+              },
+            );
 
-        const elapsedMs = Date.now() - startTime;
-        writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
-        pm.updateFileStatus(filePath, 'DONE');
-        ctx.filesReviewed++;
-        ctx.reviewCounts.evaluated++;
-        completedCount++;
+            writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
+            pm.updateFileStatus(filePath, 'DONE');
+            ctx.filesReviewed++;
+            ctx.reviewCounts.evaluated++;
+            completedCount++;
+            countFindings(ctx, result.review);
+          } catch (error) {
+            if (ctx.interrupted) return;
 
-        countFindings(ctx, result.review);
-        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${verdictColor(result.review.verdict)}`;
+            const message = error instanceof AnatolyError ? error.message : String(error);
+            const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+            pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+            completedCount++;
+          } finally {
+            ctx.activeAborts.delete(currentAbort);
+            activeFiles.delete(filePath);
+            updateTitle();
+            emitActiveFiles(listrTask);
+          }
+        },
+      });
 
-        if (ctx.verbose) {
-          const elapsed = (elapsedMs / 1000).toFixed(1);
-          const cost = result.costUsd > 0 ? `$${result.costUsd.toFixed(4)}` : '-';
-          listrTask.output = `${elapsed}s  ${cost}`;
-        }
-      } catch (error) {
-        if (ctx.interrupted) return;
-
-        const message = error instanceof AnatolyError ? error.message : String(error);
-        const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-        pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-        completedCount++;
-
-        const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
-        listrTask.title = `[${completedCount}/${ctx.totalFiles}] ${filePath} — ${chalk.red(label)}`;
-        throw error;
-      } finally {
-        ctx.activeAborts.delete(currentAbort);
-      }
+      const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+      listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
     },
-    rendererOptions: { persistentOutput: ctx.verbose as boolean | undefined },
-  }));
-
-  const reviewRunner = new Listr(fileTasks, {
-    concurrent: ctx.concurrency,
-    exitOnError: false,
+    rendererOptions: { outputBar: ctx.concurrency as number },
+  }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
-    rendererOptions: {
-      collapseSubtasks: false,
-      collapseErrors: false,
-      showErrorMessage: false,
-    },
   });
 
   await reviewRunner.run();

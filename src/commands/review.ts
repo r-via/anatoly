@@ -9,10 +9,9 @@ import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
-import { toOutputName } from '../utils/cache.js';
-import { verdictColor } from '../utils/format.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
+import { runWorkerPool } from '../core/worker-pool.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -63,78 +62,107 @@ export function registerReviewCommand(program: Command): void {
         const total = pending.length;
         const allTasks = loadTasks(projectRoot);
         const taskMap = new Map(allTasks.map((t) => [t.file, t]));
+        const evaluators = getEnabledEvaluators(config);
+        const axisIds = evaluators.map((e) => e.id);
 
-        // Build listr2 task list — one task per file, sequential
-        const listrTasks = pending.map((fp, idx) => ({
-          title: `[${idx + 1}/${total}] ${fp.file}`,
-          task: async (_ctx: unknown, listrTask: { title: string; output: string }) => {
-            if (interrupted) {
-              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — skipped`;
-              return;
-            }
+        // Track active files for compact display (only in-flight files visible)
+        const activeFiles = new Map<string, { axes: Set<string> }>();
 
-            const task = taskMap.get(fp.file);
-            if (!task) {
-              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — skipped (no task)`;
-              return;
-            }
+        function formatAxes(done: Set<string>): string {
+          return axisIds.map((id) =>
+            done.has(id) ? chalk.green(`[x] ${id}`) : chalk.yellow(`[~] ${id}`),
+          ).join(' ');
+        }
 
-            pm.updateFileStatus(fp.file, 'IN_PROGRESS');
-            activeAbort = new AbortController();
-            const evaluators = getEnabledEvaluators(config);
+        function emitActiveFiles(listrTask: { output: string }): void {
+          const marker = chalk.yellow('\u25cf');
+          const maxLen = Math.max(...[...activeFiles.keys()].map((f) => f.length));
+          for (const [file, state] of activeFiles) {
+            const padded = file.padEnd(maxLen);
+            listrTask.output = `${marker} ${padded}  ${formatAxes(state.axes)}`;
+          }
+        }
 
-            try {
-              const result = await evaluateFile({
-                projectRoot,
-                task,
-                config,
-                evaluators,
-                abortController: activeAbort,
-                runDir: resolve(projectRoot, '.anatoly'),
-              });
-              writeReviewOutput(projectRoot, result.review);
-              pm.updateFileStatus(fp.file, 'DONE');
-              filesReviewed++;
+        const runner = new Listr([{
+          title: `review — 0/${total}`,
+          task: async (_c: unknown, listrTask: { title: string; output: string }) => {
+            let completedCount = 0;
 
-              // Count findings
-              for (const s of result.review.symbols) {
-                if (s.utility === 'DEAD') totalFindings++;
-                if (s.duplication === 'DUPLICATE') totalFindings++;
-                if (s.overengineering === 'OVER') totalFindings++;
-                if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
-              }
+            const updateTitle = () => {
+              const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
+              listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
+            };
 
-              const outputName = toOutputName(fp.file);
-              listrTask.title = `[${idx + 1}/${total}] ${outputName} — ${verdictColor(result.review.verdict)}`;
-            } catch (error) {
-              if (interrupted) return;
+            await runWorkerPool({
+              items: pending,
+              concurrency: 1,
+              isInterrupted: () => interrupted,
+              handler: async (fp) => {
+                const task = taskMap.get(fp.file);
+                if (!task) {
+                  completedCount++;
+                  updateTitle();
+                  return;
+                }
 
-              const message = error instanceof AnatolyError ? error.message : String(error);
-              const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+                pm.updateFileStatus(fp.file, 'IN_PROGRESS');
+                activeFiles.set(fp.file, { axes: new Set() });
+                emitActiveFiles(listrTask);
 
-              pm.updateFileStatus(fp.file, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-              filesErrored++;
+                activeAbort = new AbortController();
 
-              const label = errorCode === 'LLM_TIMEOUT' ? 'timeout' : 'error';
-              listrTask.title = `[${idx + 1}/${total}] ${fp.file} — ${chalk.red(label)}`;
-              throw error;
-            } finally {
-              activeAbort = undefined;
-            }
+                try {
+                  const result = await evaluateFile({
+                    projectRoot,
+                    task,
+                    config,
+                    evaluators,
+                    abortController: activeAbort,
+                    runDir: resolve(projectRoot, '.anatoly'),
+                    onAxisComplete: (axisId) => {
+                      const state = activeFiles.get(fp.file);
+                      if (state) state.axes.add(axisId);
+                      emitActiveFiles(listrTask);
+                    },
+                  });
+                  writeReviewOutput(projectRoot, result.review);
+                  pm.updateFileStatus(fp.file, 'DONE');
+                  filesReviewed++;
+
+                  // Count findings
+                  for (const s of result.review.symbols) {
+                    if (s.utility === 'DEAD') totalFindings++;
+                    if (s.duplication === 'DUPLICATE') totalFindings++;
+                    if (s.overengineering === 'OVER') totalFindings++;
+                    if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
+                  }
+
+                  completedCount++;
+                } catch (error) {
+                  if (interrupted) return;
+
+                  const message = error instanceof AnatolyError ? error.message : String(error);
+                  const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+
+                  pm.updateFileStatus(fp.file, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+                  filesErrored++;
+                  completedCount++;
+                } finally {
+                  activeAbort = undefined;
+                  activeFiles.delete(fp.file);
+                  updateTitle();
+                  emitActiveFiles(listrTask);
+                }
+              },
+            });
+
+            const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
+            listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
           },
-          rendererOptions: { persistentOutput: true as const },
-        }));
-
-        const runner = new Listr(listrTasks, {
-          concurrent: false,
-          exitOnError: false,
+          rendererOptions: { outputBar: 1 as number },
+        }], {
           renderer: plain ? 'simple' : 'default',
           fallbackRenderer: 'simple',
-          rendererOptions: {
-            collapseSubtasks: false,
-            collapseErrors: false,
-            showErrorMessage: false,
-          },
         });
 
         await runner.run();
