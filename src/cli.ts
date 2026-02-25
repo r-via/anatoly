@@ -7,7 +7,7 @@ import {
   registerRunCommand,
   registerWatchCommand,
   registerStatusCommand,
-  registerCleanLogsCommand,
+  registerCleanRunsCommand,
   registerResetCommand,
   registerRagStatusCommand,
   registerHookCommand,
@@ -37,7 +37,7 @@ export function createProgram(): Command {
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);
-  registerCleanLogsCommand(program);
+  registerCleanRunsCommand(program);
   registerResetCommand(program);
   registerRagStatusCommand(program);
   registerHookCommand(program);

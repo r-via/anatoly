@@ -23,14 +23,13 @@ describe('CLI program', () => {
         'run',
         'watch',
         'status',
-        'clean-logs',
         'clean-runs',
         'reset',
         'rag-status',
         'hook',
       ]),
     );
-    expect(commandNames).toHaveLength(12);
+    expect(commandNames).toHaveLength(11);
   });
 
   it('should register all global options', () => {

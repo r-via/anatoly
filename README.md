@@ -148,7 +148,7 @@ flowchart TD
 | AI Agent | @anthropic-ai/claude-agent-sdk |
 | Tokens | tiktoken (local) |
 | Watcher | chokidar v5 |
-| Terminal | ora + log-update + chalk |
+| Terminal | listr2 + chalk |
 | Embeddings | Xenova/all-MiniLM-L6-v2 (384 dim, local) |
 | Vector Store | LanceDB (embedded, zero-server) |
 
@@ -159,6 +159,7 @@ src/
 ├── index.ts              # Entry point
 ├── cli.ts                # Command registration + global flags
 ├── commands/             # One file per CLI command (thin wrappers)
+│   ├── index.ts          # Command registration barrel
 │   ├── run.ts            # Orchestrates: scan → estimate → [index] → review → report
 │   ├── watch.ts          # File watcher daemon
 │   ├── scan.ts           # Parse AST + compute hashes
@@ -167,8 +168,9 @@ src/
 │   ├── report.ts         # Aggregate → report.md
 │   ├── status.ts         # Show progress
 │   ├── rag-status.ts     # Inspect RAG index + function cards
-│   ├── clean-logs.ts     # Delete old runs (alias: clean-runs)
-│   └── reset.ts          # Wipe all state
+│   ├── clean-runs.ts     # Delete old runs (--keep, --yes)
+│   ├── reset.ts          # Wipe all state
+│   └── hook.ts           # Claude Code hook subcommands (init, post-edit, stop)
 ├── core/                 # Business logic
 │   ├── scanner.ts        # AST + SHA-256 + coverage
 │   ├── estimator.ts      # tiktoken token counting
@@ -189,7 +191,6 @@ src/
 │   ├── indexer.ts        # Incremental indexing + AST extraction
 │   ├── card-generator.ts # FunctionCard generation via Haiku
 │   ├── orchestrator.ts   # Index pipeline orchestration
-│   ├── tools.ts          # findSimilarFunctions MCP server
 │   └── index.ts          # Barrel export
 └── utils/                # Cross-cutting utilities
     ├── cache.ts           # SHA-256 + atomic writes
@@ -197,14 +198,16 @@ src/
     ├── confirm.ts         # Interactive y/n confirmation prompts
     ├── errors.ts          # AnatolyError + error codes + recovery hints
     ├── extract-json.ts    # JSON extraction from agent responses
+    ├── format.ts          # Output formatting helpers
     ├── git.ts             # .gitignore filtering
+    ├── hook-state.ts      # Hook state tracking (PIDs, debounce, SHA)
     ├── lock.ts            # PID-based lock file
-    ├── monorepo.ts        # Monorepo workspace detection
     ├── open.ts            # Open file with system default app
+    ├── process.ts         # Process utilities (signal handling)
     ├── prompt-builder.ts  # Agent prompt construction
     ├── rate-limiter.ts    # Exponential backoff for API rate limits
-    ├── renderer.ts        # Terminal rendering (TTY/plain/multi-file)
-    └── run-id.ts          # Run ID generation + symlink + purge
+    ├── run-id.ts          # Run ID generation + symlink + purge
+    └── version.ts         # Package version detection
 ```
 
 Runtime output directory:
@@ -250,19 +253,23 @@ The `run` command executes the full pipeline: **scan** → **estimate** → **in
 ### Commands
 
 ```bash
-npx anatoly run            # Full pipeline: scan → estimate → index → review → report
-npx anatoly watch          # Daemon mode: re-review on file change
-npx anatoly scan           # Parse AST + compute SHA-256 hashes
-npx anatoly estimate       # Estimate token cost (local, no API calls)
-npx anatoly review         # Run Claude agent on pending files
-npx anatoly report         # Aggregate reviews → report.md
-npx anatoly status         # Show current audit progress
-npx anatoly rag-status     # Show RAG index stats (cards, files)
-npx anatoly rag-status <fn> # Inspect a specific function card
-npx anatoly clean-runs     # Delete old runs (--keep <n>, --yes)
-npx anatoly clean-logs     # Alias for clean-runs
-npx anatoly reset          # Wipe all state (shows summary, asks confirmation)
-npx anatoly reset --yes    # Skip confirmation (for CI/scripts)
+npx anatoly run              # Full pipeline: scan → estimate → index → review → report
+npx anatoly run --run-id X   # Custom run ID (default: YYYY-MM-DD_HHmmss)
+npx anatoly watch            # Daemon mode: re-review on file change
+npx anatoly scan             # Parse AST + compute SHA-256 hashes
+npx anatoly estimate         # Estimate token cost (local, no API calls)
+npx anatoly review           # Run Claude agent on pending files
+npx anatoly report           # Aggregate reviews → report.md
+npx anatoly report --run X   # Generate report from a specific run
+npx anatoly status           # Show current audit progress
+npx anatoly rag-status       # Show RAG index stats (cards, files)
+npx anatoly rag-status <fn>  # Inspect a specific function card
+npx anatoly clean-runs       # Delete old runs (--keep <n>, --yes)
+npx anatoly reset            # Wipe all state (shows summary, asks confirmation)
+npx anatoly reset --yes      # Skip confirmation (for CI/scripts)
+npx anatoly hook init        # Generate Claude Code hooks configuration
+npx anatoly hook post-edit   # PostToolUse hook (called by Claude Code)
+npx anatoly hook stop        # Stop hook: collect findings, block if issues
 ```
 
 ### Global Flags
@@ -275,7 +282,6 @@ npx anatoly reset --yes    # Skip confirmation (for CI/scripts)
 --plain              Disable spinners and colors
 --no-color           Disable colors only (also respects $NO_COLOR env var)
 --open               Open report in default app after generation
---run-id <id>        Custom run ID (default: YYYY-MM-DD_HHmmss)
 --concurrency <n>    Number of concurrent reviews, 1-10 (default: 4)
 --no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
@@ -338,9 +344,11 @@ coverage:
 llm:
   model: "claude-sonnet-4-6"
   agentic_tools: true
-  timeout_per_file: 180
+  timeout_per_file: 600
   max_retries: 3
   concurrency: 4            # parallel reviews (1-10, or use --concurrency flag)
+  min_confidence: 70         # minimum confidence to report findings (hook mode)
+  max_stop_iterations: 3     # anti-loop limit for stop hook
 
 rag:
   enabled: true     # disable with --no-rag or set to false

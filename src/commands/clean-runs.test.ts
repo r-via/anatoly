@@ -3,12 +3,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync,
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-describe('clean-logs logic', () => {
+describe('clean-runs logic', () => {
   let tmpDir: string;
   let logsDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'clean-logs-test-'));
+    tmpDir = mkdtempSync(join(tmpdir(), 'clean-runs-test-'));
     logsDir = join(tmpDir, '.anatoly', 'logs');
     mkdirSync(logsDir, { recursive: true });
   });

@@ -5,7 +5,7 @@ import chalk from 'chalk';
 import { listRuns } from '../utils/run-id.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 
-export function registerCleanLogsCommand(program: Command): void {
+export function registerCleanRunsCommand(program: Command): void {
   program
     .command('clean-runs')
     .description('Delete all runs from .anatoly/runs/')
@@ -15,15 +15,6 @@ export function registerCleanLogsCommand(program: Command): void {
       await cleanRuns(opts.keep, opts.yes);
     });
 
-  // Legacy alias — hidden so it doesn't clutter `--help`
-  program
-    .command('clean-logs', { hidden: true })
-    .description('Delete all runs from .anatoly/runs/')
-    .option('--keep <n>', 'keep the N most recent runs', parseInt)
-    .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
-    .action(async (opts: { keep?: number; yes?: boolean }) => {
-      await cleanRuns(opts.keep, opts.yes);
-    });
 }
 
 async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {

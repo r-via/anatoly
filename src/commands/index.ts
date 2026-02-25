@@ -5,7 +5,7 @@ export { registerReportCommand } from './report.js';
 export { registerRunCommand } from './run.js';
 export { registerWatchCommand } from './watch.js';
 export { registerStatusCommand } from './status.js';
-export { registerCleanLogsCommand } from './clean-logs.js';
+export { registerCleanRunsCommand } from './clean-runs.js';
 export { registerResetCommand } from './reset.js';
 export { registerRagStatusCommand } from './rag-status.js';
 export { registerHookCommand } from './hook.js';
