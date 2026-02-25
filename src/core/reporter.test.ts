@@ -8,7 +8,6 @@ import {
   computeGlobalVerdict,
   computeFileVerdict,
   aggregateReviews,
-  renderReport,
   generateReport,
   sortFindingFiles,
   buildShards,
@@ -173,74 +172,6 @@ describe('aggregateReviews', () => {
   it('should include error files passed in', () => {
     const data = aggregateReviews([], ['broken.ts', 'timeout.ts']);
     expect(data.errorFiles).toEqual(['broken.ts', 'timeout.ts']);
-  });
-});
-
-describe('renderReport', () => {
-  it('should render a report with executive summary', () => {
-    const data = aggregateReviews([
-      makeReview({ file: 'a.ts', verdict: 'CLEAN' }),
-      makeReview({ file: 'b.ts', verdict: 'NEEDS_REFACTOR', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
-    ]);
-    const md = renderReport(data);
-    expect(md).toContain('# Anatoly Audit Report');
-    expect(md).toContain('**Files reviewed:** 2');
-    expect(md).toContain('**Global verdict:** NEEDS_REFACTOR');
-    expect(md).toContain('Dead code');
-  });
-
-  it('should render findings table with links', () => {
-    const data = aggregateReviews([
-      makeReview({
-        file: 'src/core/foo.ts',
-        verdict: 'CRITICAL',
-        symbols: [makeSymbol({ correction: 'ERROR', confidence: 95 })],
-      }),
-    ]);
-    const md = renderReport(data);
-    expect(md).toContain('## Findings');
-    expect(md).toContain('`src/core/foo.ts`');
-    expect(md).toContain('[details](./reviews/src-core-foo.rev.md)');
-  });
-
-  it('should render clean files section', () => {
-    const data = aggregateReviews([makeReview({ file: 'clean.ts', verdict: 'CLEAN' })]);
-    const md = renderReport(data);
-    expect(md).toContain('## Clean Files');
-    expect(md).toContain('`clean.ts`');
-  });
-
-  it('should render error files section', () => {
-    const data = aggregateReviews([], ['broken.ts']);
-    const md = renderReport(data);
-    expect(md).toContain('## Files in Error');
-    expect(md).toContain('`broken.ts`');
-  });
-
-  it('should render actions by category', () => {
-    const data = aggregateReviews([
-      makeReview({
-        file: 'a.ts',
-        actions: [
-          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, target_symbol: 'fn', target_lines: null },
-          { id: 2, description: 'Add unit tests', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
-        ],
-      }),
-    ]);
-    const md = renderReport(data);
-    expect(md).toContain('## Quick Wins');
-    expect(md).toContain('**[high · trivial]**');
-    expect(md).toContain('## Hygiene');
-    expect(md).toContain('**[low · small]**');
-    expect(md).not.toContain('## Recommended Actions');
-  });
-
-  it('should include metadata section', () => {
-    const data = aggregateReviews([]);
-    const md = renderReport(data);
-    expect(md).toContain('## Metadata');
-    expect(md).toContain('**Generated:**');
-    expect(md).toContain('**Version:** 1');
   });
 });
 

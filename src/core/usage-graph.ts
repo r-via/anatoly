@@ -31,6 +31,9 @@ const NAMESPACE_IMPORT_RE =
 const REEXPORT_RE =
   /export\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
+const STAR_REEXPORT_RE =
+  /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+
 /**
  * Resolve a relative import specifier to a project-relative file path.
  * Handles: .js → .ts, bare → .ts or /index.ts.
@@ -157,6 +160,24 @@ function extractImports(
       if (originalName) {
         results.push({
           symbol: originalName,
+          sourceFile: resolved,
+          importerFile,
+        });
+      }
+    }
+  }
+
+  // Star re-exports: export * from './path' — all exports of source marked as used
+  for (const match of source.matchAll(STAR_REEXPORT_RE)) {
+    const specifier = match[1];
+    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
+    if (!resolved) continue;
+
+    const exports = allExportsByFile.get(resolved);
+    if (exports) {
+      for (const sym of exports) {
+        results.push({
+          symbol: sym,
           sourceFile: resolved,
           importerFile,
         });

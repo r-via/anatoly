@@ -118,7 +118,7 @@ export function registerRunCommand(program: Command): void {
         }
 
         ctx.lockPath = acquireLock(projectRoot);
-        const promptOptions = await runRagPhase(ctx);
+        const promptOptions = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
         // Inject usage graph into prompt options
@@ -159,6 +159,7 @@ function shortModelName(model: string): string {
 
 interface SetupResult {
   files: number;
+  tasks: Task[];
   triageMap: Map<string, TriageResult>;
   usageGraph?: UsageGraph;
 }
@@ -169,6 +170,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
   let usageGraph: UsageGraph | undefined;
+  let allTasks: Task[] = [];
 
   const setupRunner = new Listr([
     {
@@ -201,6 +203,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     {
       title: 'estimate',
       task: (_c: unknown, listrTask: { title: string }) => {
+        allTasks = loadTasks(ctx.projectRoot);
         const estimate = estimateProject(ctx.projectRoot);
         estimateFiles = estimate.files;
 
@@ -219,10 +222,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           return;
         }
 
-        const tasks = loadTasks(ctx.projectRoot);
         const tiers = { skip: 0, fast: 0, deep: 0 };
 
-        for (const task of tasks) {
+        for (const task of allTasks) {
           const absPath = resolve(ctx.projectRoot, task.file);
           let source: string;
           try {
@@ -250,8 +252,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     {
       title: 'usage graph',
       task: (_c: unknown, listrTask: { title: string }) => {
-        const tasks = loadTasks(ctx.projectRoot);
-        usageGraph = buildUsageGraph(ctx.projectRoot, tasks);
+        usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
         listrTask.title = `usage graph \u2014 ${usageGraph.usages.size} edges`;
       },
     },
@@ -263,24 +264,23 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   await setupRunner.run();
 
-  return { files: estimateFiles, triageMap, usageGraph };
+  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph };
 }
 
-async function runRagPhase(ctx: RunContext): Promise<PromptOptions> {
+async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<PromptOptions> {
   const promptOptions: PromptOptions = { ragEnabled: ctx.enableRag };
 
   if (!ctx.enableRag) return promptOptions;
 
-  const ragTasks = loadTasks(ctx.projectRoot);
   let ragResult: RagIndexResult | undefined;
 
   const indexModelLabel = shortModelName(ctx.config.llm.index_model);
   const ragRunner = new Listr([{
-    title: `RAG index (${indexModelLabel}) — 0/${ragTasks.length}`,
+    title: `RAG index (${indexModelLabel}) — 0/${tasks.length}`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       ragResult = await indexProject({
         projectRoot: ctx.projectRoot,
-        tasks: ragTasks,
+        tasks,
         indexModel: ctx.config.llm.index_model,
         rebuild: ctx.rebuildRag,
         concurrency: ctx.concurrency,

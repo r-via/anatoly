@@ -311,7 +311,7 @@ export async function fastReviewFile(
 
   const logsDir = runDir ? join(runDir, 'logs') : join(projectRoot, '.anatoly', 'logs');
   mkdirSync(logsDir, { recursive: true });
-  const transcriptPath = join(logsDir, `${toOutputName(task.file)}.transcript.md`);
+  const transcriptPath = join(logsDir, `${toOutputName(task.file)}.fast.transcript.md`);
   const transcriptLines: string[] = [];
   const appendTranscript = (line: string): void => { transcriptLines.push(line); };
 

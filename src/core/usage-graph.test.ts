@@ -116,6 +116,23 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
   });
 
+  it('tracks star re-exports — all exports marked used', () => {
+    createFile('src/utils/cache.ts', 'export function computeHash() {}\nexport function readProgress() {}\n');
+    createFile('src/utils/index.ts', "export * from './cache.js';\n");
+
+    const tasks = [
+      makeTask('src/utils/cache.ts', [
+        { name: 'computeHash', exported: true },
+        { name: 'readProgress', exported: true },
+      ]),
+      makeTask('src/utils/index.ts', []),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
+    expect(getSymbolUsage(graph, 'readProgress', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
+  });
+
   it('ignores node_modules imports', () => {
     createFile('src/core/scanner.ts', "import { readFileSync } from 'node:fs';\nimport chalk from 'chalk';\n");
 
