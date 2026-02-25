@@ -139,6 +139,53 @@ describe('buildSystemPrompt with pre-resolved RAG', () => {
   });
 });
 
+describe('buildSystemPrompt with usage graph', () => {
+  it('should render usage section with importers', () => {
+    const usageGraph = {
+      usages: new Map([
+        ['formatName::src/utils/format.ts', new Set(['src/core/reporter.ts', 'src/commands/run.ts'])],
+      ]),
+    };
+    const prompt = buildSystemPrompt(makeTask(), { usageGraph });
+    expect(prompt).toContain('## Pre-computed Import Analysis');
+    expect(prompt).toContain('formatName (exported): imported by 2 files: src/commands/run.ts, src/core/reporter.ts');
+    // MAX_LENGTH has 0 importers
+    expect(prompt).toContain('MAX_LENGTH (exported): imported by 0 files');
+    expect(prompt).toContain('LIKELY DEAD');
+  });
+
+  it('should show "internal only" for non-exported symbols', () => {
+    const task = makeTask({
+      symbols: [
+        { name: 'helper', kind: 'function', exported: false, line_start: 1, line_end: 10 },
+      ],
+    });
+    const usageGraph = { usages: new Map() };
+    const prompt = buildSystemPrompt(task, { usageGraph });
+    expect(prompt).toContain('helper (not exported): internal only');
+  });
+
+  it('should add rule 6 about not grepping for imports', () => {
+    const usageGraph = { usages: new Map() };
+    const prompt = buildSystemPrompt(makeTask(), { usageGraph });
+    expect(prompt).toContain('Do NOT grep for imports');
+    expect(prompt).toContain('this data is exhaustive');
+  });
+
+  it('should not include usage section when usageGraph is undefined (backward compatible)', () => {
+    const prompt = buildSystemPrompt(makeTask());
+    expect(prompt).not.toContain('Pre-computed Import Analysis');
+    expect(prompt).not.toContain('Do NOT grep for imports');
+  });
+
+  it('should not render usage section for task with 0 symbols', () => {
+    const task = makeTask({ symbols: [] });
+    const usageGraph = { usages: new Map() };
+    const prompt = buildSystemPrompt(task, { usageGraph });
+    expect(prompt).not.toContain('Pre-computed Import Analysis');
+  });
+});
+
 describe('buildUserPrompt', () => {
   it('should reference the file', () => {
     const prompt = buildUserPrompt(makeTask());

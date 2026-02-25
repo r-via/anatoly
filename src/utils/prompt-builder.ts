@@ -1,6 +1,8 @@
 import type { Task, CoverageData } from '../schemas/task.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { VectorStore } from '../rag/vector-store.js';
+import type { UsageGraph } from '../core/usage-graph.js';
+import { getSymbolUsage } from '../core/usage-graph.js';
 
 export interface PreResolvedRagEntry {
   symbolName: string;
@@ -17,6 +19,8 @@ export interface PromptOptions {
   preResolvedRag?: PreResolvedRag;
   /** Passed through to reviewer for pre-resolution; not used by prompt builder */
   vectorStore?: VectorStore;
+  /** Pre-computed import usage graph for the utility axis */
+  usageGraph?: UsageGraph;
 }
 
 /**
@@ -35,6 +39,16 @@ export function buildSystemPrompt(task: Task, options: PromptOptions = {}): stri
     ? formatCoverage(task.coverage)
     : 'Coverage data: not available.';
 
+  const hasUsageGraph = options.usageGraph && task.symbols.length > 0;
+  const usageSection = hasUsageGraph
+    ? buildUsageGraphSection(task, options.usageGraph!)
+    : '';
+
+  const usageRule = hasUsageGraph
+    ? `
+6. For **utility** axis on exported symbols: use the Pre-computed Import Analysis above. Do NOT grep for imports — this data is exhaustive. If a symbol shows 0 importers, mark as utility: "DEAD" (confidence: 95). If a symbol shows 1+ importers, mark as utility: "USED". For non-exported symbols, verify local usage by reading the file only.`
+    : '';
+
   return `You are Anatoly, the most rigorous code auditor in the world.
 You audit TypeScript/TSX code with zero tolerance for guessing.
 
@@ -49,14 +63,14 @@ ${symbolList || '(no symbols detected)'}
 ### Coverage
 
 ${coverageBlock}
-
+${usageSection}
 ## Rules (NEVER deviate)
 
 1. **NEVER guess.** Use tools (Grep, Read, Glob) to verify every claim.
 2. For **utility: "DEAD"** → you MUST grep the entire project and find zero import/usage matches.
 3. For **duplication: "DUPLICATE"** → you MUST read the target file and quote the similar code.
 4. **confidence: 100** = bulletproof evidence with tool verification.
-5. **confidence < 70** = you are unsure and should investigate more.
+5. **confidence < 70** = you are unsure and should investigate more.${usageRule}
 
 ## 5 Evaluation Axes
 
@@ -173,6 +187,40 @@ function formatCoverage(cov: CoverageData): string {
 - Branches: ${branchPct}% (${cov.branches_covered}/${cov.branches_total})
 - Functions: ${fnPct}% (${cov.functions_covered}/${cov.functions_total})
 - Lines: ${linePct}% (${cov.lines_covered}/${cov.lines_total})`;
+}
+
+/**
+ * Build the usage graph prompt section showing import analysis for each symbol.
+ */
+function buildUsageGraphSection(task: Task, graph: UsageGraph): string {
+  if (task.symbols.length === 0) {
+    return '';
+  }
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('## Pre-computed Import Analysis');
+  lines.push('');
+  lines.push('The following usage data was computed by scanning ALL project files.');
+  lines.push('This data is EXHAUSTIVE — you do NOT need to Grep for import verification.');
+  lines.push('Use this for the `utility` axis.');
+  lines.push('');
+
+  for (const sym of task.symbols) {
+    if (sym.exported) {
+      const importers = getSymbolUsage(graph, sym.name, task.file);
+      if (importers.length === 0) {
+        lines.push(`- ${sym.name} (exported): imported by 0 files ⚠️ LIKELY DEAD`);
+      } else {
+        lines.push(`- ${sym.name} (exported): imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`);
+      }
+    } else {
+      lines.push(`- ${sym.name} (not exported): internal only — check for local usage within this file`);
+    }
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }
 
 /**
