@@ -100,15 +100,14 @@ export function countTokens(text: string): number {
 }
 
 /**
- * Estimate token usage and time for reviewing all scanned files.
+ * Estimate token usage for a given set of tasks.
  * Reads actual file content to get accurate input token counts.
  */
-export function estimateProject(projectRoot: string): EstimateResult {
-  const tasks = loadTasks(projectRoot);
-
-  if (tasks.length === 0) {
-    return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0, estimatedCalls: 0 };
-  }
+export function estimateTasksTokens(
+  projectRoot: string,
+  tasks: Task[],
+): { inputTokens: number; outputTokens: number; symbols: number } {
+  if (tasks.length === 0) return { inputTokens: 0, outputTokens: 0, symbols: 0 };
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -145,14 +144,30 @@ export function estimateProject(projectRoot: string): EstimateResult {
     enc.free();
   }
 
+  return { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, symbols: totalSymbols };
+}
+
+/**
+ * Estimate token usage and time for reviewing all scanned files.
+ * Reads actual file content to get accurate input token counts.
+ */
+export function estimateProject(projectRoot: string): EstimateResult {
+  const tasks = loadTasks(projectRoot);
+
+  if (tasks.length === 0) {
+    return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0, estimatedCalls: 0 };
+  }
+
+  const { inputTokens, outputTokens, symbols } = estimateTasksTokens(projectRoot, tasks);
+
   const estimatedMinutes = Math.ceil(estimateSequentialSeconds(tasks) / 60);
   const estimatedCalls = tasks.length * AXIS_COUNT;
 
   return {
     files: tasks.length,
-    symbols: totalSymbols,
-    inputTokens: totalInputTokens,
-    outputTokens: totalOutputTokens,
+    symbols,
+    inputTokens,
+    outputTokens,
     estimatedMinutes,
     estimatedCalls,
   };

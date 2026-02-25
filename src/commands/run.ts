@@ -8,7 +8,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, formatTokenCount, loadTasks, estimateFileSeconds, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
+import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
@@ -22,6 +22,7 @@ import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
+import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
@@ -130,7 +131,7 @@ export function registerRunCommand(program: Command): void {
         const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
-        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext);
+        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta);
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
@@ -174,6 +175,7 @@ interface SetupResult {
   tasks: Task[];
   triageMap: Map<string, TriageResult>;
   usageGraph?: UsageGraph;
+  depMeta?: DependencyMeta;
 }
 
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
@@ -182,6 +184,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
   let usageGraph: UsageGraph | undefined;
+  let depMeta: DependencyMeta | undefined;
   let allTasks: Task[] = [];
 
   const setupRunner = new Listr([
@@ -198,6 +201,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         parts.push(`run ${ctx.runId}`);
 
         listrTask.title = `config \u2014 ${parts.join(' \u00b7 ')}`;
+        depMeta = loadDependencyMeta(ctx.projectRoot);
       },
     },
     {
@@ -262,11 +266,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           estimateSequentialSeconds(evalTasks),
           ctx.concurrency,
         );
+        const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, evalTasks);
         const timeLabel = ctx.concurrency > 1
           ? `~${triageMinutes} min (\u00d7${ctx.concurrency})`
           : `~${triageMinutes} min`;
 
-        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${timeLabel}`;
+        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${formatTokenCount(inputTokens)} in / ${formatTokenCount(outputTokens)} out \u00b7 ${timeLabel}`;
       },
     },
     {
@@ -287,7 +292,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.allTasks = allTasks;
   ctx.triageMap = triageMap;
 
-  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph };
+  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta };
 }
 
 interface RagContext {
@@ -303,7 +308,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const indexModelLabel = shortModelName(ctx.config.llm.index_model);
   const embedLabel = EMBEDDING_MODEL;
   const ragRunner = new Listr([{
-    title: `RAG index (${indexModelLabel} · ${embedLabel}) — 0/${tasks.length}`,
+    title: `RAG index (${indexModelLabel} · ${embedLabel})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       ragResult = await indexProject({
         projectRoot: ctx.projectRoot,
@@ -345,11 +350,20 @@ async function runReviewPhase(
   triageMap: Map<string, TriageResult>,
   usageGraph: UsageGraph | undefined,
   ragContext: RagContext,
+  depMeta?: DependencyMeta,
 ): Promise<void> {
   const pm = new ProgressManager(ctx.projectRoot);
 
-  if (ctx.noCache) {
-    const progress = pm.getProgress();
+  const progress = pm.getProgress();
+  if (ctx.fileFilter) {
+    // Explicit --file filter: always re-review matching files (implicit no-cache)
+    const isMatch = picomatch(ctx.fileFilter);
+    for (const [, fp] of Object.entries(progress.files)) {
+      if (isMatch(fp.file) && (fp.status === 'DONE' || fp.status === 'CACHED')) {
+        pm.updateFileStatus(fp.file, 'PENDING');
+      }
+    }
+  } else if (ctx.noCache) {
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
     }
@@ -485,6 +499,7 @@ async function runReviewPhase(
                   usageGraph,
                   vectorStore: ragContext.vectorStore,
                   ragEnabled: ragContext.ragEnabled,
+                  depMeta,
                   onAxisComplete: (axisId) => {
                     const state = activeFiles.get(filePath);
                     if (state) {

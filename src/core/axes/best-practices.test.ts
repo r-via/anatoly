@@ -113,4 +113,32 @@ describe('buildBestPracticesUserMessage', () => {
     const msg = buildBestPracticesUserMessage(createCtx({ task: testTask }));
     expect(msg).toContain('Context: test');
   });
+
+  it('should include dependency section when fileDeps is provided', () => {
+    const msg = buildBestPracticesUserMessage(createCtx({
+      fileDeps: {
+        deps: [
+          { name: 'commander', version: '^14.0.3' },
+          { name: 'zod', version: '^3.22.0' },
+        ],
+        nodeEngine: '>=20.19',
+      },
+    }));
+    expect(msg).toContain('## Project Dependencies');
+    expect(msg).toContain('commander: ^14.0.3');
+    expect(msg).toContain('zod: ^3.22.0');
+    expect(msg).toContain('Node.js engine: >=20.19');
+  });
+
+  it('should omit dependency section when fileDeps is not provided', () => {
+    const msg = buildBestPracticesUserMessage(createCtx());
+    expect(msg).not.toContain('## Project Dependencies');
+  });
+
+  it('should omit dependency section when fileDeps has no deps', () => {
+    const msg = buildBestPracticesUserMessage(createCtx({
+      fileDeps: { deps: [] },
+    }));
+    expect(msg).not.toContain('## Project Dependencies');
+  });
 });

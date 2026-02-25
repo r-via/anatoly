@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { UsageGraph } from './usage-graph.js';
+import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 
@@ -41,6 +42,7 @@ export interface AxisContext {
   config: Config;
   usageGraph?: UsageGraph;
   preResolvedRag?: PreResolvedRag;
+  fileDeps?: FileDependencyContext;
 }
 
 export interface AxisSymbolResult {

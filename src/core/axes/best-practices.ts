@@ -83,7 +83,7 @@ const RULES_TABLE = `| # | Rule | Severity | Penalty |
 | 9 | JSDoc on public exports (except test files) | MOYENNE | -0.5 pt |
 | 10 | Modern 2026 practices (no deprecated APIs, modern syntax) | MOYENNE | -0.5 pt |
 | 11 | Import organization (grouped, no circular, no side-effect imports) | MOYENNE | -0.5 pt |
-| 12 | Async/Promises/Error handling (no unhandled rejections, proper try-catch) | HAUTE | -1 pt |
+| 12 | Async/Promises/Error handling (no unhandled rejections, proper try-catch — consider framework version capabilities) | HAUTE | -1 pt |
 | 13 | Security (no hardcoded secrets, no eval, no command injection) | CRITIQUE | -4 pts |
 | 14 | Performance (no obvious N+1, unnecessary re-renders, sync I/O in async) | MOYENNE | -0.5 pt |
 | 15 | Testability (dependency injection, low coupling, pure functions) | MOYENNE | -0.5 pt |
@@ -113,6 +113,7 @@ ${RULES_TABLE}
 6. Score cannot go below 0.
 7. Include concrete suggestions with before/after code snippets when relevant.
 8. Do NOT evaluate other axes — only best practices.
+9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
 
 ## Output format
 
@@ -160,6 +161,18 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`- Symbols: ${ctx.task.symbols.length}`);
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
+
+  if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
+    parts.push('## Project Dependencies (imported in this file)');
+    parts.push('');
+    for (const dep of ctx.fileDeps.deps) {
+      parts.push(`- ${dep.name}: ${dep.version}`);
+    }
+    if (ctx.fileDeps.nodeEngine) {
+      parts.push(`- Node.js engine: ${ctx.fileDeps.nodeEngine}`);
+    }
+    parts.push('');
+  }
 
   parts.push('Evaluate all 17 rules and output the JSON.');
 

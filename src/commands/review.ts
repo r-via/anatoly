@@ -11,6 +11,7 @@ import { writeReviewOutput } from '../core/review-writer.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
+import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 
 export function registerReviewCommand(program: Command): void {
@@ -51,6 +52,15 @@ export function registerReviewCommand(program: Command): void {
         }
 
         const pm = new ProgressManager(projectRoot);
+
+        // Explicit review command always re-reviews all files (no cache)
+        const progress = pm.getProgress();
+        for (const [, fp] of Object.entries(progress.files)) {
+          if (fp.status === 'DONE' || fp.status === 'CACHED') {
+            pm.updateFileStatus(fp.file, 'PENDING');
+          }
+        }
+
         const pending = pm.getPendingFiles();
 
         if (pending.length === 0) {
@@ -63,6 +73,7 @@ export function registerReviewCommand(program: Command): void {
         const allTasks = loadTasks(projectRoot);
         const taskMap = new Map(allTasks.map((t) => [t.file, t]));
         const evaluators = getEnabledEvaluators(config);
+        const depMeta = loadDependencyMeta(projectRoot);
         const axisIds = evaluators.map((e) => e.id);
 
         // Track active files for compact display (only in-flight files visible)
@@ -141,6 +152,7 @@ export function registerReviewCommand(program: Command): void {
                     evaluators,
                     abortController: activeAbort,
                     runDir: resolve(projectRoot, '.anatoly'),
+                    depMeta,
                     onAxisComplete: (axisId) => {
                       const state = activeFiles.get(fp.file);
                       if (state) state.axes.add(axisId);

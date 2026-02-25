@@ -49,6 +49,7 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
 5. Do NOT flag missing tests — only actual bugs in the implementation.
 6. For each NEEDS_FIX or ERROR, add an action with severity and description.
 7. Do NOT evaluate other axes — only correction.
+8. When project dependency versions are provided, consider them when evaluating correctness. Do not flag as a bug something that is handled natively by the installed version of a dependency.
 
 ## Output format
 
@@ -93,6 +94,18 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
     parts.push(`- ${s.exported ? 'export ' : ''}${s.kind} ${s.name} (L${s.line_start}–L${s.line_end})`);
   }
   parts.push('');
+
+  if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
+    parts.push('## Project Dependencies (imported in this file)');
+    parts.push('');
+    for (const dep of ctx.fileDeps.deps) {
+      parts.push(`- ${dep.name}: ${dep.version}`);
+    }
+    if (ctx.fileDeps.nodeEngine) {
+      parts.push(`- Node.js engine: ${ctx.fileDeps.nodeEngine}`);
+    }
+    parts.push('');
+  }
 
   parts.push('Identify any bugs, logic errors, or correctness issues and output the JSON.');
 

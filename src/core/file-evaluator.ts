@@ -5,6 +5,8 @@ import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag } from './axis-evaluator.js';
 import type { UsageGraph } from './usage-graph.js';
+import type { DependencyMeta } from './dependency-meta.js';
+import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
 import { mergeAxisResults } from './axis-merger.js';
@@ -23,6 +25,7 @@ export interface EvaluateFileOptions {
   usageGraph?: UsageGraph;
   vectorStore?: VectorStore;
   ragEnabled?: boolean;
+  depMeta?: DependencyMeta;
   onAxisComplete?: (axisId: AxisId) => void;
 }
 
@@ -55,12 +58,15 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   // Pre-resolve RAG for duplication axis
   const preResolvedRag = await preResolveRag(task, opts);
 
+  const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
+
   const ctx: AxisContext = {
     task,
     fileContent,
     config,
     usageGraph,
     preResolvedRag,
+    fileDeps,
   };
 
   const startTime = Date.now();
