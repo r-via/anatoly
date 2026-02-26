@@ -83,9 +83,10 @@ function escapeTableCell(text: string): string {
 
 function renderFileAction(lines: string[], a: Action): void {
   const effort = a.effort ?? 'small';
+  const src = a.source ? `${a.source} · ` : '';
   const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
   const loc = a.target_lines ? ` [${a.target_lines}]` : '';
-  lines.push(`- **[${a.severity} · ${effort}]** ${a.description}${target}${loc}`);
+  lines.push(`- **[${src}${a.severity} · ${effort}]** ${a.description}${target}${loc}`);
 }
 
 // ---------------------------------------------------------------------------

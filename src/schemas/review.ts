@@ -34,12 +34,22 @@ export const SymbolReviewSchema = z.object({
 export const EffortSchema = z.enum(['trivial', 'small', 'large']);
 export const CategorySchema = z.enum(['quickwin', 'refactor', 'hygiene']);
 
+export const AxisIdSchema = z.enum([
+  'utility',
+  'duplication',
+  'correction',
+  'overengineering',
+  'tests',
+  'best_practices',
+]);
+
 export const ActionSchema = z.object({
   id: z.int().min(1),
   description: z.string().min(1),
   severity: SeveritySchema,
   effort: EffortSchema.default('small'),
   category: CategorySchema.default('refactor'),
+  source: AxisIdSchema.optional(),
   target_symbol: z.string().nullable(),
   target_lines: z.string().nullable(),
 });
@@ -82,15 +92,6 @@ export const BestPracticesSchema = z.object({
 // ---------------------------------------------------------------------------
 // Axis metadata (v2)
 // ---------------------------------------------------------------------------
-
-export const AxisIdSchema = z.enum([
-  'utility',
-  'duplication',
-  'correction',
-  'overengineering',
-  'tests',
-  'best_practices',
-]);
 
 export const AxisMetaEntrySchema = z.object({
   model: z.string(),

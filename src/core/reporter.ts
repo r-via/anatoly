@@ -164,9 +164,10 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
 
 function renderAction(lines: string[], a: Action & { file: string }): void {
   const effort = a.effort ?? 'small';
+  const src = a.source ? `${a.source} · ` : '';
   const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
   const loc = a.target_lines ? ` [${a.target_lines}]` : '';
-  lines.push(`- **[${a.severity} · ${effort}]** \`${a.file}\`: ${a.description}${target}${loc}`);
+  lines.push(`- **[${src}${a.severity} · ${effort}]** \`${a.file}\`: ${a.description}${target}${loc}`);
 }
 
 const SHARD_SIZE = 10;

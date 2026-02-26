@@ -139,7 +139,9 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
 }
 
 function mergeActions(results: AxisResult[]): Action[] {
-  const allActions = results.flatMap((r) => r.actions);
+  const allActions = results.flatMap((r) =>
+    r.actions.map((a) => ({ ...a, source: r.axisId })),
+  );
   // Re-assign IDs sequentially
   return allActions.map((a, i) => ({ ...a, id: i + 1 }));
 }
