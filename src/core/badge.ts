@@ -28,7 +28,7 @@ export function buildBadgeMarkdown(
   link?: string,
 ): string {
   const baseUrl = 'https://img.shields.io/badge';
-  const target = link ?? DEFAULT_LINK;
+  const target = (link ?? DEFAULT_LINK).replace(/\(/g, '%28').replace(/\)/g, '%29');
 
   if (includeVerdict && verdict) {
     const colorMap: Record<Verdict, string> = {

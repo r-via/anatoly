@@ -150,16 +150,14 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
-        releaseLock(ctx.lockPath);
-        ctx.lockPath = undefined;
         const reportData = runReportPhase(ctx);
 
-        // Badge injection — post-report
+        // Badge injection — post-report, still under lock
         if (parentOpts.badge !== false && config.badge.enabled) {
           const badgeResult = injectBadge({
             projectRoot,
             verdict: reportData.globalVerdict,
-            includeVerdict: (parentOpts.badgeVerdict as boolean | undefined) || config.badge.verdict,
+            includeVerdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
             link: config.badge.link,
           });
           if (badgeResult.injected) {
@@ -168,6 +166,9 @@ export function registerRunCommand(program: Command): void {
             console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
           }
         }
+
+        releaseLock(ctx.lockPath);
+        ctx.lockPath = undefined;
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         if (error instanceof AnatolyError) {
