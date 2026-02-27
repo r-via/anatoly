@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { Listr } from 'listr2';
@@ -13,6 +13,7 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
+import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
 import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
@@ -327,6 +328,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         indexModel: ctx.config.llm.index_model,
         rebuild: ctx.rebuildRag,
         concurrency: ctx.concurrency,
+        verbose: ctx.verbose,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
           listrTask.title = `RAG index (${indexModelLabel} · ${embedLabel}) — ${current}/${total}`;
@@ -501,6 +503,11 @@ async function runReviewPhase(
                   currentAbort = new AbortController();
                   ctx.activeAborts.add(currentAbort);
                 }
+                // Prepare streaming transcript path
+                const logsDir = join(ctx.runDir, 'logs');
+                mkdirSync(logsDir, { recursive: true });
+                const logPath = join(logsDir, `${toOutputName(filePath)}.log`);
+
                 return evaluateFile({
                   projectRoot: ctx.projectRoot,
                   task,
@@ -521,6 +528,9 @@ async function runReviewPhase(
                       state.axes.add(axisId);
                     }
                   },
+                  onTranscriptChunk: (chunk) => {
+                    appendFileSync(logPath, chunk);
+                  },
                 });
               },
               {
@@ -531,9 +541,11 @@ async function runReviewPhase(
                 filePath,
                 isInterrupted: () => ctx.interrupted,
                 onRetry: (attempt, delayMs) => {
+                  if (!ctx.verbose) return;
                   const delaySec = (delayMs / 1000).toFixed(0);
                   const state = activeFiles.get(filePath);
                   if (state) state.retryMsg = `retrying in ${delaySec}s (${attempt}/5)`;
+                  verboseLog(`rate limit ${filePath} — retrying in ${delaySec}s (${attempt}/5)`);
                 },
               },
             );

@@ -15,6 +15,7 @@ export interface RagIndexOptions {
   indexModel: string;
   rebuild?: boolean;
   concurrency?: number;
+  verbose?: boolean;
   onLog: (message: string) => void;
   onProgress?: (current: number, total: number) => void;
   isInterrupted: () => boolean;
@@ -154,10 +155,10 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
           jitterFactor: 0.2,
           filePath: task.file,
           isInterrupted,
-          onRetry: (attempt, delayMs) => {
+          onRetry: options.verbose ? (attempt, delayMs) => {
             const delaySec = (delayMs / 1000).toFixed(0);
             onLog(`  rate limited — retrying ${task.file} in ${delaySec}s (attempt ${attempt}/5)`);
-          },
+          } : undefined,
         },
       );
       if (result.cards.length > 0) {

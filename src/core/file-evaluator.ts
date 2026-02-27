@@ -37,6 +37,8 @@ export interface EvaluateFileOptions {
   projectTree?: string;
   deliberation?: boolean;
   onAxisComplete?: (axisId: AxisId) => void;
+  /** Stream transcript chunks to disk as each axis completes. */
+  onTranscriptChunk?: (chunk: string) => void;
 }
 
 export interface EvaluateFileResult {
@@ -97,20 +99,23 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }),
   );
 
-  // Collect successful results, log failures
+  // Collect successful results, log failures — stream transcript chunks as available
   const successResults: AxisResult[] = [];
   const failedAxes: AxisId[] = [];
   for (let i = 0; i < settledResults.length; i++) {
     const settled = settledResults[i];
     const evaluator = evaluators[i];
+    let chunk: string;
     if (settled.status === 'fulfilled') {
       successResults.push(settled.value);
-      transcriptParts.push(`# Axis: ${evaluator.id}\n\n${settled.value.transcript}\n`);
+      chunk = `# Axis: ${evaluator.id}\n\n${settled.value.transcript}\n`;
     } else {
       failedAxes.push(evaluator.id);
-      transcriptParts.push(`# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`);
+      chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
       process.stderr.write(`[warn] axis "${evaluator.id}" failed for ${task.file}: ${String(settled.reason)}\n`);
     }
+    transcriptParts.push(chunk);
+    opts.onTranscriptChunk?.(chunk + '\n---\n\n');
   }
 
   // Extract best_practices data from the dedicated evaluator
@@ -154,13 +159,19 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         totalOutputTokens += deliberationResult.outputTokens;
         totalCacheReadTokens += deliberationResult.cacheReadTokens;
         totalCacheCreationTokens += deliberationResult.cacheCreationTokens;
-        transcriptParts.push(`# Deliberation Pass\n\n${deliberationResult.transcript}\n`);
+        const delibChunk = `# Deliberation Pass\n\n${deliberationResult.transcript}\n`;
+        transcriptParts.push(delibChunk);
+        opts.onTranscriptChunk?.(delibChunk);
       } catch (err) {
-        transcriptParts.push(`# Deliberation Pass — FAILED\n\n${String(err)}\n`);
+        const failChunk = `# Deliberation Pass — FAILED\n\n${String(err)}\n`;
+        transcriptParts.push(failChunk);
+        opts.onTranscriptChunk?.(failChunk);
         process.stderr.write(`[warn] deliberation failed for ${task.file}: ${String(err)}\n`);
       }
     } else {
-      transcriptParts.push('# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n');
+      const skipChunk = '# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n';
+      transcriptParts.push(skipChunk);
+      opts.onTranscriptChunk?.(skipChunk);
     }
   }
 

@@ -197,10 +197,39 @@ export function applyDeliberation(
 
   const actions = review.actions.filter((a) => !removedActionIds.has(a.id));
 
+  // Recompute verdict from final symbols to ensure coherence
+  // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
+  const verdict = recomputeVerdict(symbols, deliberation.verdict);
+
   return {
     ...review,
-    verdict: deliberation.verdict,
+    verdict,
     symbols,
     actions,
   };
+}
+
+/**
+ * Recompute the verdict from actual symbol state, using Opus's verdict as a
+ * starting point but escalating if the symbols contradict it.
+ */
+function recomputeVerdict(
+  symbols: ReviewFile['symbols'],
+  opusVerdict: 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL',
+): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {
+  let hasError = false;
+  let hasFinding = false;
+
+  for (const s of symbols) {
+    if (s.correction === 'ERROR') hasError = true;
+    if (s.correction === 'NEEDS_FIX') hasFinding = true;
+    if (s.utility === 'DEAD' || s.duplication === 'DUPLICATE' || s.overengineering === 'OVER') {
+      hasFinding = true;
+    }
+  }
+
+  // Never allow a verdict less severe than what the symbols demand
+  if (hasError) return 'CRITICAL';
+  if (hasFinding && opusVerdict === 'CLEAN') return 'NEEDS_REFACTOR';
+  return opusVerdict;
 }

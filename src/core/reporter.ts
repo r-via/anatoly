@@ -441,6 +441,28 @@ export function renderShard(shard: ShardInfo): string {
   }
   lines.push('');
 
+  // Symbol-level details for files with findings
+  const filesWithFindings = shard.files.filter((r) =>
+    r.symbols.some((s) => s.confidence >= 30 && hasActionableIssue(s)),
+  );
+  if (filesWithFindings.length > 0) {
+    lines.push('## Symbol Details');
+    lines.push('');
+    for (const review of filesWithFindings) {
+      lines.push(`### \`${review.file}\``);
+      lines.push('');
+      lines.push('| Symbol | Lines | Correction | Utility | Duplication | Over-eng. | Tests | Conf. |');
+      lines.push('|--------|-------|------------|---------|-------------|-----------|-------|-------|');
+      const actionable = review.symbols.filter((s) => s.confidence >= 30 && hasActionableIssue(s));
+      for (const s of actionable) {
+        lines.push(
+          `| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${s.correction} | ${s.utility} | ${s.duplication} | ${s.overengineering} | ${s.tests} | ${s.confidence}% |`,
+        );
+      }
+      lines.push('');
+    }
+  }
+
   // Actions by category (scoped to shard)
   if (shard.actions.length > 0) {
     const byCategory: Record<Category, Array<Action & { file: string }>> = {
