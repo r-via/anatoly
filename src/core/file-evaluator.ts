@@ -43,6 +43,10 @@ export interface EvaluateFileResult {
   review: ReviewFile;
   costUsd: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   transcript: string;
 }
 
@@ -121,6 +125,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   }
 
   let totalCost = successResults.reduce((sum, r) => sum + r.costUsd, 0);
+  let totalInputTokens = successResults.reduce((sum, r) => sum + r.inputTokens, 0);
+  let totalOutputTokens = successResults.reduce((sum, r) => sum + r.outputTokens, 0);
+  let totalCacheReadTokens = successResults.reduce((sum, r) => sum + r.cacheReadTokens, 0);
+  let totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
 
   let review = mergeAxisResults(task, successResults, bestPractices, failedAxes);
 
@@ -142,6 +150,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
         review = applyDeliberation(review, deliberationResult.data);
         totalCost += deliberationResult.costUsd;
+        totalInputTokens += deliberationResult.inputTokens;
+        totalOutputTokens += deliberationResult.outputTokens;
+        totalCacheReadTokens += deliberationResult.cacheReadTokens;
+        totalCacheCreationTokens += deliberationResult.cacheCreationTokens;
         transcriptParts.push(`# Deliberation Pass\n\n${deliberationResult.transcript}\n`);
       } catch (err) {
         transcriptParts.push(`# Deliberation Pass — FAILED\n\n${String(err)}\n`);
@@ -155,7 +167,16 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
 
-  return { review, costUsd: totalCost, durationMs: totalDuration, transcript };
+  return {
+    review,
+    costUsd: totalCost,
+    durationMs: totalDuration,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    cacheReadTokens: totalCacheReadTokens,
+    cacheCreationTokens: totalCacheCreationTokens,
+    transcript,
+  };
 }
 
 // ---------------------------------------------------------------------------

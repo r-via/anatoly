@@ -88,7 +88,7 @@ export class UtilityEvaluator implements AxisEvaluator {
     const systemPrompt = buildUtilitySystemPrompt();
     const userMessage = buildUtilityUserMessage(ctx);
 
-    const { data, costUsd, durationMs, transcript } = await runSingleTurnQuery<UtilityResponse>(
+    const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<UtilityResponse>(
       {
         systemPrompt,
         userMessage,
@@ -114,6 +114,10 @@ export class UtilityEvaluator implements AxisEvaluator {
       actions: [],
       costUsd,
       durationMs,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       transcript,
     };
   }

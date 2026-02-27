@@ -17,6 +17,7 @@ import { indexProject, type RagIndexResult } from '../rag/index.js';
 import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
+import { verboseLog, formatTokenSummary } from '../utils/format.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
@@ -220,6 +221,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
         if (ctx.verbose) {
           listrTask.output = `${scanResult.filesNew} new / ${scanResult.filesCached} cached`;
+          verboseLog(`scan ${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)`);
         }
       },
       rendererOptions: { persistentOutput: !!ctx.verbose },
@@ -543,6 +545,13 @@ async function runReviewPhase(
             ctx.reviewCounts.evaluated++;
             completedCount++;
             countFindings(ctx, result.review);
+            if (ctx.verbose) {
+              const tokenInfo = formatTokenSummary(
+                result.inputTokens, result.outputTokens,
+                result.cacheReadTokens, result.cacheCreationTokens,
+              );
+              verboseLog(`${filePath} ${result.review.verdict} $${result.costUsd.toFixed(4)} ${tokenInfo} ${(result.durationMs / 1000).toFixed(1)}s`);
+            }
           } catch (error) {
             if (ctx.interrupted) return;
 

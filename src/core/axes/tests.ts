@@ -79,7 +79,7 @@ export class TestsEvaluator implements AxisEvaluator {
     const systemPrompt = buildTestsSystemPrompt();
     const userMessage = buildTestsUserMessage(ctx);
 
-    const { data, costUsd, durationMs, transcript } = await runSingleTurnQuery<TestsResponse>(
+    const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<TestsResponse>(
       {
         systemPrompt,
         userMessage,
@@ -105,6 +105,10 @@ export class TestsEvaluator implements AxisEvaluator {
       actions: [],
       costUsd,
       durationMs,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       transcript,
     };
   }

@@ -98,7 +98,7 @@ export class DuplicationEvaluator implements AxisEvaluator {
     const systemPrompt = buildDuplicationSystemPrompt();
     const userMessage = buildDuplicationUserMessage(ctx);
 
-    const { data, costUsd, durationMs, transcript } = await runSingleTurnQuery<DuplicationResponse>(
+    const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<DuplicationResponse>(
       {
         systemPrompt,
         userMessage,
@@ -125,6 +125,10 @@ export class DuplicationEvaluator implements AxisEvaluator {
       actions: [],
       costUsd,
       durationMs,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       transcript,
     };
   }

@@ -306,6 +306,10 @@ export class CorrectionEvaluator implements AxisEvaluator {
     let finalData = pass1.data;
     let totalCost = pass1.costUsd;
     let totalDuration = pass1.durationMs;
+    let totalInputTokens = pass1.inputTokens;
+    let totalOutputTokens = pass1.outputTokens;
+    let totalCacheReadTokens = pass1.cacheReadTokens;
+    let totalCacheCreationTokens = pass1.cacheCreationTokens;
     let transcript = pass1.transcript;
 
     // --- Pass 2: verify dependency-related findings against README ---
@@ -327,6 +331,10 @@ export class CorrectionEvaluator implements AxisEvaluator {
 
         totalCost += pass2.costUsd;
         totalDuration += pass2.durationMs;
+        totalInputTokens += pass2.inputTokens;
+        totalOutputTokens += pass2.outputTokens;
+        totalCacheReadTokens += pass2.cacheReadTokens;
+        totalCacheCreationTokens += pass2.cacheCreationTokens;
         transcript += '\n\n---\n\n## Verification Pass\n\n' + pass2.transcript;
 
         // Apply verification results to pass 1 data
@@ -368,6 +376,10 @@ export class CorrectionEvaluator implements AxisEvaluator {
       actions,
       costUsd: totalCost,
       durationMs: totalDuration,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      cacheReadTokens: totalCacheReadTokens,
+      cacheCreationTokens: totalCacheCreationTokens,
       transcript,
     };
   }

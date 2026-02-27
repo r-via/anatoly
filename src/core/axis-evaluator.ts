@@ -67,6 +67,10 @@ export interface AxisResult {
   actions: Action[];
   costUsd: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   transcript: string;
 }
 
@@ -116,6 +120,10 @@ export interface SingleTurnQueryResult<T> {
   data: T;
   costUsd: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   transcript: string;
 }
 
@@ -135,6 +143,30 @@ export async function runSingleTurnQuery<T>(
   const transcriptLines: string[] = [];
   let totalCost = 0;
   let totalDuration = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCacheReadTokens = 0;
+  let totalCacheCreationTokens = 0;
+
+  const accumulateTokens = (r: ExecQueryResult) => {
+    totalCost += r.costUsd;
+    totalDuration += r.durationMs;
+    totalInputTokens += r.inputTokens;
+    totalOutputTokens += r.outputTokens;
+    totalCacheReadTokens += r.cacheReadTokens;
+    totalCacheCreationTokens += r.cacheCreationTokens;
+  };
+
+  const makeResult = (data: T) => ({
+    data,
+    costUsd: totalCost,
+    durationMs: totalDuration,
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    cacheReadTokens: totalCacheReadTokens,
+    cacheCreationTokens: totalCacheCreationTokens,
+    transcript: transcriptLines.join('\n'),
+  });
 
   // --- Attempt 1 ---
   const initial = await execQuery({
@@ -145,12 +177,11 @@ export async function runSingleTurnQuery<T>(
     abortController,
     transcriptLines,
   });
-  totalCost += initial.costUsd;
-  totalDuration += initial.durationMs;
+  accumulateTokens(initial);
 
   const v1 = tryValidate(initial.resultText, schema);
   if (v1.success) {
-    return { data: v1.data, costUsd: totalCost, durationMs: totalDuration, transcript: transcriptLines.join('\n') };
+    return makeResult(v1.data);
   }
 
   // --- Attempt 2: retry with Zod error feedback ---
@@ -168,12 +199,11 @@ export async function runSingleTurnQuery<T>(
     transcriptLines,
     resumeSessionId: initial.sessionId,
   });
-  totalCost += retry.costUsd;
-  totalDuration += retry.durationMs;
+  accumulateTokens(retry);
 
   const v2 = tryValidate(retry.resultText, schema);
   if (v2.success) {
-    return { data: v2.data, costUsd: totalCost, durationMs: totalDuration, transcript: transcriptLines.join('\n') };
+    return makeResult(v2.data);
   }
 
   // Both attempts failed
@@ -202,6 +232,10 @@ interface ExecQueryResult {
   resultText: string;
   costUsd: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   sessionId: string;
 }
 
@@ -227,6 +261,10 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   let resultText = '';
   let costUsd = 0;
   let durationMs = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
   let sessionId = '';
 
   for await (const message of q) {
@@ -239,6 +277,16 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
         costUsd = success.total_cost_usd ?? 0;
         durationMs = success.duration_ms ?? 0;
         sessionId = success.session_id;
+
+        // Aggregate token counts across all models
+        if (success.modelUsage) {
+          for (const mu of Object.values(success.modelUsage)) {
+            inputTokens += mu.inputTokens ?? 0;
+            outputTokens += mu.outputTokens ?? 0;
+            cacheReadTokens += mu.cacheReadInputTokens ?? 0;
+            cacheCreationTokens += mu.cacheCreationInputTokens ?? 0;
+          }
+        }
       } else {
         const errorResult = message as SDKResultError;
         const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
@@ -260,7 +308,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
     );
   }
 
-  return { resultText, costUsd, durationMs, sessionId };
+  return { resultText, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, sessionId };
 }
 
 function tryValidate<T>(

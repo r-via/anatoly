@@ -141,7 +141,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
     const systemPrompt = buildBestPracticesSystemPrompt();
     const userMessage = buildBestPracticesUserMessage(ctx);
 
-    const { data, costUsd, durationMs, transcript } = await runSingleTurnQuery<BestPracticesResponse>(
+    const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<BestPracticesResponse>(
       {
         systemPrompt,
         userMessage,
@@ -161,6 +161,10 @@ export class BestPracticesEvaluator implements AxisEvaluator {
       actions: [],
       costUsd,
       durationMs,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       transcript,
       _bestPractices: data,
     } as AxisResult & { _bestPractices: BestPracticesResponse };

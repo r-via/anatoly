@@ -174,7 +174,7 @@ export function applyDeliberation(
     const newConfidence = delib.deliberated.confidence;
 
     // Protect ERROR: only allow downgrade if Opus confidence ≥ 95
-    if (originalCorrection === 'ERROR' && newCorrection === 'OK' && newConfidence < 95) {
+    if (originalCorrection === 'ERROR' && newCorrection !== 'ERROR' && newConfidence < 95) {
       return {
         ...sym,
         detail: `${sym.detail} (deliberated: ERROR protected — Opus confidence ${newConfidence} < 95)`,

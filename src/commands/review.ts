@@ -153,6 +153,7 @@ export function registerReviewCommand(program: Command): void {
                     abortController: activeAbort,
                     runDir: resolve(projectRoot, '.anatoly'),
                     depMeta,
+                    deliberation: config.llm.deliberation,
                     onAxisComplete: (axisId) => {
                       const state = activeFiles.get(fp.file);
                       if (state) state.axes.add(axisId);

@@ -38,6 +38,10 @@ function makeAxisResult(axisId: string, symbols: AxisSymbolResult[], overrides: 
     actions: [],
     costUsd: 0.001,
     durationMs: 500,
+    inputTokens: 100,
+    outputTokens: 50,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
     transcript: `## System (init)\n\n**Model:** claude-haiku-4-5-20251001\n`,
     ...overrides,
   };

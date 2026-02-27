@@ -80,7 +80,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
     const systemPrompt = buildOverengineeringSystemPrompt();
     const userMessage = buildOverengineeringUserMessage(ctx);
 
-    const { data, costUsd, durationMs, transcript } = await runSingleTurnQuery<OverengineeringResponse>(
+    const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<OverengineeringResponse>(
       {
         systemPrompt,
         userMessage,
@@ -106,6 +106,10 @@ export class OverengineeringEvaluator implements AxisEvaluator {
       actions: [],
       costUsd,
       durationMs,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
       transcript,
     };
   }
