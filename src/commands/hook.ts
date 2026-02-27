@@ -8,6 +8,7 @@ import { computeFileHash, toOutputName } from '../utils/cache.js';
 import { isLockActive } from '../utils/lock.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { loadHookState, saveHookState, isProcessRunning } from '../utils/hook-state.js';
+import { getLogger } from '../utils/logger.js';
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
@@ -174,9 +175,7 @@ export function registerHookCommand(program: Command): void {
 
       // Anti-loop: check stop_count against max_stop_iterations
       if (state.stop_count >= maxStopIterations) {
-        process.stderr.write(
-          `anatoly hook stop: max iterations reached (${state.stop_count}/${maxStopIterations}), exiting silently\n`,
-        );
+        getLogger().warn({ stopCount: state.stop_count, maxStopIterations }, 'hook stop: max iterations reached, exiting silently');
         process.exit(0);
       }
 
@@ -195,7 +194,7 @@ export function registerHookCommand(program: Command): void {
         const remaining = timeoutMs - elapsed;
 
         if (remaining <= 0) {
-          process.stderr.write(`anatoly hook stop: timeout waiting for ${file}\n`);
+          getLogger().warn({ file }, 'hook stop: timeout waiting for review');
           state.reviews[file] = { ...review, status: 'timeout' };
           continue;
         }
@@ -205,7 +204,7 @@ export function registerHookCommand(program: Command): void {
 
         // Check if process is still running
         if (isProcessRunning(review.pid)) {
-          process.stderr.write(`anatoly hook stop: review for ${file} still running after timeout\n`);
+          getLogger().warn({ file }, 'hook stop: review still running after timeout');
           state.reviews[file] = { ...review, status: 'timeout' };
         } else {
           state.reviews[file] = { ...review, status: 'done' };

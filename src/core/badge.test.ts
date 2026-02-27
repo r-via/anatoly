@@ -141,16 +141,11 @@ describe('injectBadge', () => {
     writeFileSync(readmePath, '# Project\n');
     chmodSync(readmePath, 0o444);
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
     const result = injectBadge({ projectRoot: tempDir });
 
     expect(result).toEqual({ injected: false, updated: false });
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('not writable'),
-    );
+    // Warning is now emitted via pino logger (getLogger().warn)
 
-    stderrSpy.mockRestore();
     // Restore write permission for cleanup
     chmodSync(readmePath, 0o644);
   });

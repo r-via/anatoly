@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, constants, accessSync } from 'node:fs';
 import { join } from 'node:path';
+import { getLogger } from '../utils/logger.js';
 import type { Verdict } from '../schemas/review.js';
 
 const MARKER_START = '<!-- checked-by-anatoly -->';
@@ -81,7 +82,7 @@ export function injectBadge(options: BadgeOptions): BadgeResult {
   try {
     accessSync(readmePath, constants.W_OK);
   } catch {
-    process.stderr.write(`anatoly — warning: README.md is not writable, skipping badge injection\n`);
+    getLogger().warn('README.md is not writable, skipping badge injection');
     return { injected: false, updated: false };
   }
 

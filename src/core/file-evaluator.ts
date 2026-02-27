@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getLogger } from '../utils/logger.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
@@ -112,7 +113,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     } else {
       failedAxes.push(evaluator.id);
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
-      process.stderr.write(`[warn] axis "${evaluator.id}" failed for ${task.file}: ${String(settled.reason)}\n`);
+      getLogger().warn({ axis: evaluator.id, file: task.file, err: settled.reason }, 'axis evaluation failed');
     }
     transcriptParts.push(chunk);
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
@@ -166,7 +167,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         const failChunk = `# Deliberation Pass — FAILED\n\n${String(err)}\n`;
         transcriptParts.push(failChunk);
         opts.onTranscriptChunk?.(failChunk);
-        process.stderr.write(`[warn] deliberation failed for ${task.file}: ${String(err)}\n`);
+        getLogger().warn({ file: task.file, err }, 'deliberation failed');
       }
     } else {
       const skipChunk = '# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n';

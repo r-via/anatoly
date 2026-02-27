@@ -18,7 +18,8 @@ import { indexProject, type RagIndexResult } from '../rag/index.js';
 import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
-import { verboseLog, formatTokenSummary } from '../utils/format.js';
+import { formatTokenSummary } from '../utils/format.js';
+import { getLogger } from '../utils/logger.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import { pkgVersion } from '../utils/version.js';
@@ -240,7 +241,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
         if (ctx.verbose) {
           listrTask.output = `${scanResult.filesNew} new / ${scanResult.filesCached} cached`;
-          verboseLog(`scan ${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)`);
+          getLogger().debug({ filesScanned: scanResult.filesScanned, filesNew: scanResult.filesNew, filesCached: scanResult.filesCached }, 'scan complete');
         }
       },
       rendererOptions: { persistentOutput: !!ctx.verbose },
@@ -518,7 +519,7 @@ async function runReviewPhase(
                   if (!ctx.verbose) return;
                   const delaySec = (delayMs / 1000).toFixed(0);
                   display.setRetryMessage(filePath, `retrying in ${delaySec}s (${attempt}/5)`);
-                  verboseLog(`rate limit ${filePath} — retrying in ${delaySec}s (${attempt}/5)`);
+                  getLogger().debug({ file: filePath, attempt, delayMs }, 'rate limited, retrying');
                 },
               },
             );
@@ -530,13 +531,16 @@ async function runReviewPhase(
             ctx.reviewCounts.evaluated++;
             completedCount++;
             ctx.totalFindings += countReviewFindings(result.review, 60);
-            if (ctx.verbose) {
-              const tokenInfo = formatTokenSummary(
-                result.inputTokens, result.outputTokens,
-                result.cacheReadTokens, result.cacheCreationTokens,
-              );
-              verboseLog(`${filePath} ${result.review.verdict} $${result.costUsd.toFixed(4)} ${tokenInfo} ${(result.durationMs / 1000).toFixed(1)}s`);
-            }
+            getLogger().debug({
+              file: filePath,
+              verdict: result.review.verdict,
+              costUsd: result.costUsd,
+              durationMs: result.durationMs,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+              cacheReadTokens: result.cacheReadTokens,
+              cacheCreationTokens: result.cacheCreationTokens,
+            }, 'file review completed');
           } catch (error) {
             if (ctx.interrupted) return;
 
