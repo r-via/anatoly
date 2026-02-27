@@ -23,6 +23,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function parseConfig(raw: string) {\n  return JSON.parse(raw);\n}\n\nfunction validateInput(x: unknown): boolean {\n  return typeof x === "string";\n}\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     ...overrides,
   };
 }

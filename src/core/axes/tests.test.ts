@@ -37,6 +37,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function getCacheEntry(key: string): CacheEntry | null {\n  return cache.get(key) ?? null;\n}\n\nexport type CacheEntry = { key: string; value: unknown; ttl: number };\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     ...overrides,
   };
 }

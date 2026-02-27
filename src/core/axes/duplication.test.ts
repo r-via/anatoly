@@ -55,6 +55,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function calculateTotal(items) {\n  return items.reduce((a, b) => a + b.price, 0);\n}\n\nexport function roundPrice(p) {\n  return Math.round(p * 100) / 100;\n}\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     preResolvedRag: mockRag,
     ...overrides,
   };

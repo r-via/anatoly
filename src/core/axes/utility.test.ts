@@ -33,6 +33,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function formatNumber(n: number): string {\n  return padLeft(n.toString());\n}\n\nfunction padLeft(s: string): string {\n  return s.padStart(10);\n}\n\nexport const MAX_WIDTH = 80;\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     usageGraph: mockUsageGraph,
     ...overrides,
   };

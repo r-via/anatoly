@@ -232,8 +232,8 @@ describe('mergeAxisResults', () => {
     const review = mergeAxisResults(mockTask, results);
     expect(review.axis_meta).toBeDefined();
     expect(review.axis_meta!['utility']).toBeDefined();
-    expect(review.axis_meta!['utility'].cost_usd).toBe(0.002);
-    expect(review.axis_meta!['correction'].duration_ms).toBe(1200);
+    expect(review.axis_meta!['utility']!.cost_usd).toBe(0.002);
+    expect(review.axis_meta!['correction']!.duration_ms).toBe(1200);
   });
 
   it('should use minimum confidence across axes', () => {

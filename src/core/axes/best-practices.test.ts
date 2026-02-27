@@ -23,6 +23,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function formatDate(d: Date): string {\n  return d.toISOString();\n}\n\nfunction padNumber(n: number): string {\n  return n.toString().padStart(2, "0");\n}\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     ...overrides,
   };
 }

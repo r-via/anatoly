@@ -23,6 +23,7 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
     task: mockTask,
     fileContent: 'export function createHandler<T>(opts: HandlerOptions<T>) {\n  return new AbstractHandler(opts);\n}\n\nexport type HandlerOptions<T> = {\n  transform: (input: T) => T;\n  validate?: boolean;\n};\n',
     config: mockConfig,
+    projectRoot: '/tmp/test',
     ...overrides,
   };
 }
