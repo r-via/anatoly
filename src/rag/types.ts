@@ -24,16 +24,6 @@ export const FunctionCardSchema = z.object({
 
 export type FunctionCard = z.infer<typeof FunctionCardSchema>;
 
-/** Schema for the LLM-generated portion of a FunctionCard (during review). */
-export const FunctionCardLLMOutputSchema = z.object({
-  name: z.string(),
-  summary: z.string().max(400),
-  keyConcepts: z.array(z.string()).min(1).max(6),
-  behavioralProfile: BehavioralProfileSchema,
-});
-
-export type FunctionCardLLMOutput = z.infer<typeof FunctionCardLLMOutputSchema>;
-
 /** Result from a similarity search. */
 export interface SimilarityResult {
   card: FunctionCard;

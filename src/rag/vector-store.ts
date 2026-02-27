@@ -1,6 +1,6 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 import { EMBEDDING_DIM } from './embeddings.js';
 
@@ -71,7 +71,6 @@ export class VectorStore {
             await this.rebuild();
             // Clear RAG cache to force full re-indexation
             const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
-            const { writeFileSync } = await import('node:fs');
             writeFileSync(cachePath, JSON.stringify({ entries: {} }));
           }
         }

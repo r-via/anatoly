@@ -11,6 +11,7 @@ async function main() {
     return;
   }
   try {
+    // Keep in sync with EMBEDDING_MODEL in src/rag/embeddings.ts
     const model = 'jinaai/jina-embeddings-v2-base-code';
     console.log(`anatoly: downloading embedding model ${model}...`);
     const { pipeline, env } = await import('@xenova/transformers');

@@ -273,10 +273,9 @@ src/
 │   └── progress.ts       # Progress state schema
 ├── rag/                  # Semantic RAG module
 │   ├── types.ts          # FunctionCard schema + types
-│   ├── embeddings.ts     # Xenova/all-MiniLM-L6-v2 (local)
+│   ├── embeddings.ts     # Code embedding (jinaai/jina-embeddings-v2-base-code)
 │   ├── vector-store.ts   # LanceDB wrapper
 │   ├── indexer.ts        # Incremental indexing + AST extraction
-│   ├── card-generator.ts # FunctionCard generation via Haiku
 │   ├── orchestrator.ts   # Index pipeline orchestration
 │   └── index.ts          # Barrel export
 ├── types/

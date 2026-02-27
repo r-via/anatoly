@@ -1,5 +1,5 @@
-export { FunctionCardSchema, FunctionCardLLMOutputSchema } from './types.js';
-export type { FunctionCard, FunctionCardLLMOutput, SimilarityResult, RagStats } from './types.js';
+export { FunctionCardSchema } from './types.js';
+export type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 export { embed, buildEmbedCode, setEmbeddingLogger, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
 export { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
 export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
