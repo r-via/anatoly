@@ -7,6 +7,8 @@ import type { UsageGraph } from './usage-graph.js';
 import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
+import { extractJson } from '../utils/extract-json.js';
+import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -21,8 +23,6 @@ export interface PreResolvedRagEntry {
 }
 
 export type PreResolvedRag = PreResolvedRagEntry[];
-import { extractJson } from '../utils/extract-json.js';
-import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Core types
@@ -154,6 +154,9 @@ export async function runSingleTurnQuery<T>(
   }
 
   // --- Attempt 2: retry with Zod error feedback ---
+  if (abortController.signal.aborted) {
+    throw new AnatolyError('Aborted before retry', ERROR_CODES.LLM_TIMEOUT, true);
+  }
   transcriptLines.push(`\n## Retry: validation failed\n${v1.error}\n`);
 
   const feedback = `Your JSON output failed validation:\n  ${v1.error}\n\nFix these issues and output ONLY the corrected JSON object. No markdown fences, no explanation.`;
@@ -233,8 +236,8 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       if (message.subtype === 'success') {
         const success = message as SDKResultSuccess;
         resultText = success.result;
-        costUsd = success.total_cost_usd;
-        durationMs = success.duration_ms;
+        costUsd = success.total_cost_usd ?? 0;
+        durationMs = success.duration_ms ?? 0;
         sessionId = success.session_id;
       } else {
         const errorResult = message as SDKResultError;
@@ -246,6 +249,15 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
         );
       }
     }
+  }
+
+  // Guard: SDK completed without yielding a result message
+  if (!sessionId) {
+    throw new AnatolyError(
+      'Agent query completed without producing a result message',
+      ERROR_CODES.LLM_API_ERROR,
+      true,
+    );
   }
 
   return { resultText, costUsd, durationMs, sessionId };
@@ -304,7 +316,9 @@ function formatMessage(message: SDKMessage): string {
     case 'result': {
       if (message.subtype === 'success') {
         const msg = message as SDKResultSuccess;
-        return `## Result (success)\n\n**Cost:** $${msg.total_cost_usd.toFixed(4)} | **Duration:** ${(msg.duration_ms / 1000).toFixed(1)}s\n`;
+        const cost = msg.total_cost_usd?.toFixed(4) ?? '?';
+        const duration = msg.duration_ms ? (msg.duration_ms / 1000).toFixed(1) : '?';
+        return `## Result (success)\n\n**Cost:** $${cost} | **Duration:** ${duration}s\n`;
       }
       const msg = message as SDKResultError;
       return `## Result (${msg.subtype})\n\n**Errors:** ${msg.errors?.join(', ') ?? 'unknown'}\n`;

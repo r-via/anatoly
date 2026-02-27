@@ -93,7 +93,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         systemPrompt,
         userMessage,
         model,
-        projectRoot: '.',
+        projectRoot: ctx.projectRoot,
         abortController,
       },
       UtilityResponseSchema,

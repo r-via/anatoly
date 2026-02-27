@@ -66,6 +66,11 @@ export function mergeAxisResults(
 // Internals
 // ---------------------------------------------------------------------------
 
+/** Validate that a value is a member of the expected enum, falling back to a default. */
+function validateEnum<T extends string>(value: string, allowed: readonly T[], fallback: T): T {
+  return (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
 type AxisMap = Map<AxisId, Map<string, AxisSymbolResult>>;
 
 function buildAxisMap(results: AxisResult[]): AxisMap {
@@ -125,11 +130,11 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>)
     exported: sym.exported,
     line_start: sym.line_start,
     line_end: sym.line_end,
-    correction: (correction?.value ?? AXIS_DEFAULTS.correction) as 'OK' | 'NEEDS_FIX' | 'ERROR',
-    overengineering: (overengineering?.value ?? AXIS_DEFAULTS.overengineering) as 'LEAN' | 'OVER' | 'ACCEPTABLE',
-    utility: (utility?.value ?? AXIS_DEFAULTS.utility) as 'USED' | 'DEAD' | 'LOW_VALUE',
-    duplication: (duplication?.value ?? AXIS_DEFAULTS.duplication) as 'UNIQUE' | 'DUPLICATE',
-    tests: (tests?.value ?? AXIS_DEFAULTS.tests) as 'GOOD' | 'WEAK' | 'NONE',
+    correction: validateEnum(correction?.value ?? AXIS_DEFAULTS.correction, ['OK', 'NEEDS_FIX', 'ERROR'] as const, 'OK'),
+    overengineering: validateEnum(overengineering?.value ?? AXIS_DEFAULTS.overengineering, ['LEAN', 'OVER', 'ACCEPTABLE'] as const, 'LEAN'),
+    utility: validateEnum(utility?.value ?? AXIS_DEFAULTS.utility, ['USED', 'DEAD', 'LOW_VALUE'] as const, 'USED'),
+    duplication: validateEnum(duplication?.value ?? AXIS_DEFAULTS.duplication, ['UNIQUE', 'DUPLICATE'] as const, 'UNIQUE'),
+    tests: validateEnum(tests?.value ?? AXIS_DEFAULTS.tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,
@@ -220,11 +225,15 @@ function detectContradictions(
   });
 }
 
+/** Confidence threshold: only symbols above this are considered for verdict. */
+const VERDICT_CONFIDENCE_THRESHOLD = 60;
+
 function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {
   let hasCorrection = false;
   let hasFinding = false;
 
   for (const s of symbols) {
+    if (s.confidence < VERDICT_CONFIDENCE_THRESHOLD) continue;
     if (s.correction === 'ERROR') return 'CRITICAL';
     if (s.correction === 'NEEDS_FIX') hasCorrection = true;
     if (s.utility === 'DEAD' || s.duplication === 'DUPLICATE' || s.overengineering === 'OVER') {

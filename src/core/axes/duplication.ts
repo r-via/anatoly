@@ -103,7 +103,7 @@ export class DuplicationEvaluator implements AxisEvaluator {
         systemPrompt,
         userMessage,
         model,
-        projectRoot: '.',
+        projectRoot: ctx.projectRoot,
         abortController,
       },
       DuplicationResponseSchema,

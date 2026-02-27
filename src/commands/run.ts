@@ -576,6 +576,7 @@ async function runReviewPhase(
 
 function countFindings(ctx: RunContext, review: import('../schemas/review.js').ReviewFile): void {
   for (const s of review.symbols) {
+    if (s.confidence < 60) continue;
     if (s.utility === 'DEAD') ctx.totalFindings++;
     if (s.duplication === 'DUPLICATE') ctx.totalFindings++;
     if (s.overengineering === 'OVER') ctx.totalFindings++;

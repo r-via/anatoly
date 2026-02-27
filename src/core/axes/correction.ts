@@ -232,15 +232,14 @@ function applyVerification(
     return { ...sym, confidence: v.confidence };
   });
 
-  // Remove actions for symbols that were downgraded to OK
-  const okSymbols = new Set(
-    updatedSymbols.filter((s) => s.correction === 'OK').map((s) => s.name),
-  );
+  // Remove actions whose line falls within a now-OK symbol's range
+  const okRanges = updatedSymbols
+    .filter((s) => s.correction === 'OK')
+    .map((s) => ({ start: s.line_start, end: s.line_end }));
+
   const filteredActions = pass1.actions.filter((a) => {
-    // Keep actions that aren't tied to a now-OK symbol
-    // Since actions don't have a symbol field, keep all unless the related line
-    // falls within a now-OK symbol's range
-    return true; // Conservative: keep all actions, let the merger filter
+    if (!a.line) return true; // No line info → keep conservatively
+    return !okRanges.some((r) => a.line! >= r.start && a.line! <= r.end);
   });
 
   return { symbols: updatedSymbols, actions: filteredActions };

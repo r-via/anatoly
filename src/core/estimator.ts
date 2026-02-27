@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { get_encoding } from 'tiktoken';
-import type { Task } from '../schemas/task.js';
+import { TaskSchema, type Task } from '../schemas/task.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
@@ -78,7 +78,7 @@ export function loadTasks(projectRoot: string): Task[] {
   for (const entry of entries) {
     try {
       const raw = readFileSync(join(tasksDir, entry), 'utf-8');
-      tasks.push(JSON.parse(raw) as Task);
+      tasks.push(TaskSchema.parse(JSON.parse(raw)));
     } catch {
       // Skip unreadable task files
     }

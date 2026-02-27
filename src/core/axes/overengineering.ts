@@ -85,7 +85,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         systemPrompt,
         userMessage,
         model,
-        projectRoot: '.',
+        projectRoot: ctx.projectRoot,
         abortController,
       },
       OverengineeringResponseSchema,

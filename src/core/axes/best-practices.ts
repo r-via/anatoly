@@ -60,7 +60,11 @@ export function detectFileContext(filePath: string, fileContent: string): FileCo
     return 'api-handler';
   }
 
-  if (lower.includes('util') || lower.includes('helper') || lower.includes('lib')) {
+  // Use path-segment matching to avoid false positives (e.g. "deliberation", "calibration")
+  const segments = lower.split('/');
+  if (
+    segments.some((seg) => seg.includes('util') || seg.includes('helper') || seg === 'lib' || seg.startsWith('lib.'))
+  ) {
     return 'utility';
   }
 
@@ -142,7 +146,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         systemPrompt,
         userMessage,
         model,
-        projectRoot: '.',
+        projectRoot: ctx.projectRoot,
         abortController,
       },
       BestPracticesResponseSchema,
