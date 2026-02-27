@@ -287,6 +287,8 @@ src/
     ├── git.ts             # .gitignore filtering
     ├── hook-state.ts      # Hook state tracking (PIDs, debounce, SHA)
     ├── lock.ts            # PID-based lock file
+    ├── log-context.ts     # AsyncLocalStorage log context propagation
+    ├── logger.ts          # Centralized pino logger (singleton + factory)
     ├── open.ts            # Open file with system default app
     ├── process.ts         # Process utilities (signal handling)
     ├── prompt-builder.ts  # Agent prompt construction
@@ -313,7 +315,9 @@ Runtime output directory:
         ├── logs/*.transcript.md           # Full agent reasoning logs
         ├── logs/*.fast.transcript.md      # Fast reviewer transcripts
         ├── report.md                      # Index: summary + shard links
-        └── report.N.md                    # Shard N: 10 files with findings
+        ├── report.N.md                    # Shard N: 10 files with findings
+        ├── anatoly.ndjson                 # Debug-level structured log (auto-created)
+        └── run-metrics.json               # Phase durations, cost, findings, errors
 ```
 
 ---
@@ -374,6 +378,8 @@ npx anatoly hook stop        # Stop hook: collect findings, block if issues
 --no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
 --no-triage          Disable triage, review all files with full agent
+--log-level <level>  Set log level (fatal, error, warn, info, debug, trace)
+--log-file <path>    Write logs to file in ndjson format
 ```
 
 ### RAG Status Options
@@ -447,6 +453,50 @@ rag:
 output:
   max_runs: 10      # optional: purge old runs beyond this limit
 ```
+
+---
+
+## Diagnostic Logging
+
+Anatoly uses structured logging (via [pino](https://getpino.io/)) for diagnostic output. By default, only `warn` and above are shown to keep CLI output clean.
+
+### Log levels
+
+| Level | What it shows |
+|-------|--------------|
+| `fatal` | Unrecoverable errors |
+| `error` | File review failures, API errors |
+| `warn` | Rate limit exhaustion, AST parse errors, error summaries |
+| `info` | Pipeline phase start/end with durations, run summary |
+| `debug` | Per-file triage/review results, usage graph stats, RAG index stats |
+| `trace` | Per-LLM-call token counts, cache hit rates, cost |
+
+### Usage
+
+```bash
+# Show info-level pipeline progress
+npx anatoly run --log-level info
+
+# Full debug output to terminal
+npx anatoly run --log-level debug
+
+# Write debug logs to a file (ndjson)
+npx anatoly run --log-file anatoly.log
+
+# Combine: info on screen, debug to file
+npx anatoly run --log-level info --log-file anatoly.log
+
+# Use environment variable
+ANATOLY_LOG_LEVEL=debug npx anatoly run
+```
+
+### Per-run log file
+
+Every `run` command automatically creates a debug-level ndjson log at `.anatoly/runs/<runId>/anatoly.ndjson`. This captures per-file review results, errors, phase timings, and the run summary -- useful for post-mortem analysis without needing to set `--log-level debug` upfront.
+
+### Priority order
+
+`--log-level` flag > `--verbose` (maps to `debug`) > `ANATOLY_LOG_LEVEL` env > default (`warn`)
 
 ---
 
