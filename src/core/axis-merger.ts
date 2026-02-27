@@ -1,7 +1,7 @@
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile, SymbolReview, Action, BestPractices } from '../schemas/review.js';
 import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,7 +50,7 @@ export function mergeAxisResults(
   const verdict = computeVerdict(symbols);
   const axisMeta = buildAxisMeta(results);
 
-  getLogger().debug(
+  contextLogger().debug(
     {
       file: task.file,
       axesReceived: results.map((r) => r.axisId),

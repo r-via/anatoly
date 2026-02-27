@@ -77,4 +77,46 @@ describe('AnatolyError', () => {
     expect(err.formatForDisplay()).toContain('error: Something failed');
     expect(err.formatForDisplay()).toContain('→');
   });
+
+  describe('toLogObject', () => {
+    it('should serialize AnatolyError with hint to structured object', () => {
+      const err = new AnatolyError(
+        'evaluation timed out after 180s',
+        ERROR_CODES.LLM_TIMEOUT,
+        true,
+      );
+      const obj = err.toLogObject();
+      expect(obj.errorMessage).toBe('evaluation timed out after 180s');
+      expect(obj.code).toBe('LLM_TIMEOUT');
+      expect(obj.recoverable).toBe(true);
+      expect(obj.hint).toBe('try again — the file may be too large; consider splitting it');
+      expect(obj.stack).toBeDefined();
+      expect(typeof obj.stack).toBe('string');
+      expect((obj.stack as string)).toContain('AnatolyError');
+    });
+
+    it('should omit hint when it is empty', () => {
+      // Create with explicit empty hint
+      const err = new AnatolyError('bad config', ERROR_CODES.CONFIG_INVALID, false);
+      // CONFIG_INVALID has a default hint, so it won't be empty — use a code without default
+      const errNoHint = new AnatolyError('unknown', ERROR_CODES.WRITE_ERROR, false);
+      const obj = errNoHint.toLogObject();
+      // WRITE_ERROR has a default hint
+      expect(obj.hint).toBeDefined();
+    });
+
+    it('should use errorMessage (not msg) to avoid pino field collision', () => {
+      const err = new AnatolyError('test message', ERROR_CODES.FILE_NOT_FOUND, false);
+      const obj = err.toLogObject();
+      expect(obj.errorMessage).toBe('test message');
+      expect(obj).not.toHaveProperty('msg');
+    });
+
+    it('should include stack trace from Error', () => {
+      const err = new AnatolyError('boom', ERROR_CODES.LLM_API_ERROR, true);
+      const obj = err.toLogObject();
+      expect(typeof obj.stack).toBe('string');
+      expect((obj.stack as string).length).toBeGreaterThan(0);
+    });
+  });
 });

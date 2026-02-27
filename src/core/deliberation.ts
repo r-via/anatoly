@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -118,7 +118,7 @@ Remember:
  *   - verdict is CLEAN but any symbol confidence < 70
  */
 export function needsDeliberation(review: ReviewFile): boolean {
-  const log = getLogger();
+  const log = contextLogger();
   const hasFindings = review.symbols.some(
     (s) =>
       s.correction === 'NEEDS_FIX' ||
@@ -220,7 +220,7 @@ export function applyDeliberation(
     (s) => s.original.correction !== s.deliberated.correction,
   ).length;
 
-  getLogger().debug(
+  contextLogger().debug(
     {
       file: review.file,
       symbolsDeliberated: deliberation.symbols.length,

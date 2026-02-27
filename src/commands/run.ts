@@ -19,7 +19,7 @@ import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { formatTokenSummary } from '../utils/format.js';
-import { getLogger, createFileLogger } from '../utils/logger.js';
+import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
@@ -70,6 +70,8 @@ interface RunContext {
   errorCount: number;
   /** Errors aggregated by code for end-of-run summary */
   errorsByCode: Record<string, number>;
+  /** Per-axis aggregated stats for run-metrics.json */
+  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
   runLog?: import('../utils/logger.js').Logger;
 }
@@ -132,6 +134,7 @@ export function registerRunCommand(program: Command): void {
         totalCostUsd: 0,
         errorCount: 0,
         errorsByCode: {},
+        axisStats: {},
       };
 
       // Create per-run ndjson log file at debug level
@@ -141,16 +144,19 @@ export function registerRunCommand(program: Command): void {
 
       const onSigint = () => {
         if (ctx.interrupted) {
+          flushFileLogger();
           console.log(`\n${chalk.red.bold('force exit')}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           process.exit(1);
         }
         ctx.interrupted = true;
+        flushFileLogger();
         for (const ac of ctx.activeAborts) ac.abort();
       };
       process.on('SIGINT', onSigint);
 
       try {
+        await runWithContext({ runId, phase: 'setup' }, async () => {
         const setup = await runSetupPhase(ctx);
         if (ctx.interrupted) {
           console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatDuration(Date.now() - ctx.startTime)}`);
@@ -158,19 +164,23 @@ export function registerRunCommand(program: Command): void {
         }
 
         ctx.lockPath = acquireLock(projectRoot);
+        await runWithContext({ phase: 'rag-index' }, async () => {
         const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
+        await runWithContext({ phase: 'review' }, async () => {
         await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree);
+        });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
           console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatDuration(Date.now() - ctx.startTime)}`);
-          releaseLock(ctx.lockPath);
+          if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
         }
 
+        await runWithContext({ phase: 'report' }, async () => {
         const reportData = runReportPhase(ctx);
 
         // Badge injection — post-report, still under lock
@@ -187,9 +197,12 @@ export function registerRunCommand(program: Command): void {
             console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
           }
         }
+        });
 
-        releaseLock(ctx.lockPath);
+        if (ctx.lockPath) releaseLock(ctx.lockPath);
         ctx.lockPath = undefined;
+        });
+        });
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         if (error instanceof AnatolyError) {
@@ -199,6 +212,7 @@ export function registerRunCommand(program: Command): void {
         }
         process.exitCode = 2;
       } finally {
+        flushFileLogger();
         process.removeListener('SIGINT', onSigint);
       }
     });
@@ -227,6 +241,7 @@ interface SetupResult {
 
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const log = getLogger();
+  const rl = ctx.runLog;
   console.log(chalk.bold(`anatoly v${pkgVersion}`));
 
   let estimateFiles = 0;
@@ -260,12 +275,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       task: async (_c: unknown, listrTask: { title: string; output: string }) => {
         const scanStart = Date.now();
         log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
+        rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
         const scanResult = await scanProject(ctx.projectRoot, ctx.config);
         const scanDuration = Date.now() - scanStart;
         ctx.phaseDurations.scan = scanDuration;
         scanFilesScanned = scanResult.filesScanned;
         listrTask.title = `scan \u2014 ${scanResult.filesScanned} files`;
-        log.info({ phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned }, 'phase completed');
+        const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
+        log.info(scanCompleted, 'phase completed');
+        rl?.info(scanCompleted, 'phase completed');
 
         if (ctx.verbose) {
           listrTask.output = `${scanResult.filesNew} new / ${scanResult.filesCached} cached`;
@@ -279,6 +297,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       task: (_c: unknown, listrTask: { title: string }) => {
         const estStart = Date.now();
         log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
+        rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
         allTasks = loadTasks(ctx.projectRoot);
         const estimate = estimateProject(ctx.projectRoot);
         estimateFiles = estimate.files;
@@ -293,7 +312,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
         listrTask.title = `estimate \u2014 ${estimate.files} files \u00b7 ${estimate.symbols} symbols \u00b7 ${formatTokenCount(estimate.inputTokens)} in / ${formatTokenCount(estimate.outputTokens)} out \u00b7 ${timeLabel}`;
         ctx.phaseDurations.estimate = Date.now() - estStart;
-        log.info({ phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: estimate.inputTokens + estimate.outputTokens }, 'phase completed');
+        const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: estimate.inputTokens + estimate.outputTokens };
+        log.info(estCompleted, 'phase completed');
+        rl?.info(estCompleted, 'phase completed');
       },
     },
     {
@@ -334,6 +355,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           : `~${triageMinutes} min`;
 
         listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${formatTokenCount(inputTokens)} in / ${formatTokenCount(outputTokens)} out \u00b7 ${timeLabel}`;
+        const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
+        log.info(triageSummary, 'triage summary');
+        rl?.info(triageSummary, 'triage summary');
       },
     },
     {
@@ -367,8 +391,10 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   if (!ctx.enableRag) return { ragEnabled: false };
 
   const log = getLogger();
+  const rl = ctx.runLog;
   const ragStart = Date.now();
   log.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
+  rl?.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
   let ragResult: RagIndexResult | undefined;
 
@@ -409,10 +435,12 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     return { ragEnabled: false };
   }
 
-  log.info({
+  const ragCompleted = {
     phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
     cardsGenerated: ragResult?.cardsIndexed ?? 0, cached: (ragResult?.totalCards ?? 0) - (ragResult?.cardsIndexed ?? 0),
-  }, 'phase completed');
+  };
+  log.info(ragCompleted, 'phase completed');
+  rl?.info(ragCompleted, 'phase completed');
 
   if (ragResult) {
     return { ragEnabled: true, vectorStore: ragResult.vectorStore };
@@ -429,8 +457,10 @@ async function runReviewPhase(
   projectTree?: string,
 ): Promise<void> {
   const log = getLogger();
+  const rl = ctx.runLog;
   const reviewStart = Date.now();
   log.info({ phase: 'review', runId: ctx.runId }, 'phase started');
+  rl?.info({ phase: 'review', runId: ctx.runId, concurrency: ctx.concurrency }, 'phase started');
 
   const pm = new ProgressManager(ctx.projectRoot);
 
@@ -496,8 +526,9 @@ async function runReviewPhase(
         items: reviewItems,
         concurrency: ctx.concurrency,
         isInterrupted: () => ctx.interrupted,
-        handler: async (item) => {
+        handler: async (item, workerIndex) => {
           const { filePath, task } = item;
+          await runWithContext({ file: filePath, worker: workerIndex }, async () => {
           const triage = triageMap.get(filePath);
 
           // Handle skip-tier files: generate synthetic review, no API call
@@ -579,9 +610,18 @@ async function runReviewPhase(
             completedCount++;
             ctx.totalFindings += countReviewFindings(result.review, 60);
             ctx.totalCostUsd += result.costUsd;
+            for (const at of result.axisTiming) {
+              const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+              s.calls++;
+              s.totalDurationMs += at.durationMs;
+              s.totalCostUsd += at.costUsd;
+              s.totalInputTokens += at.inputTokens;
+              s.totalOutputTokens += at.outputTokens;
+            }
             const reviewFields = {
               file: filePath,
               verdict: result.review.verdict,
+              tier: triage?.tier ?? 'evaluate',
               costUsd: result.costUsd,
               durationMs: result.durationMs,
               inputTokens: result.inputTokens,
@@ -607,6 +647,7 @@ async function runReviewPhase(
             display.untrackFile(filePath);
             updateTitle();
           }
+          });
         },
       });
       } finally {
@@ -627,16 +668,20 @@ async function runReviewPhase(
 
   const reviewDuration = Date.now() - reviewStart;
   ctx.phaseDurations.review = reviewDuration;
-  log.info({
+  const reviewCompleted = {
     phase: 'review', runId: ctx.runId, durationMs: reviewDuration,
     filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency,
-  }, 'phase completed');
+  };
+  log.info(reviewCompleted, 'phase completed');
+  rl?.info(reviewCompleted, 'phase completed');
 }
 
 function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/review.js').Verdict } {
   const log = getLogger();
+  const rl = ctx.runLog;
   const reportStart = Date.now();
   log.info({ phase: 'report', runId: ctx.runId }, 'phase started');
+  rl?.info({ phase: 'report', runId: ctx.runId }, 'phase started');
 
   const pm = new ProgressManager(ctx.projectRoot);
   const errorFiles: string[] = [];
@@ -690,6 +735,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   const reportDuration = Date.now() - reportStart;
   ctx.phaseDurations.report = reportDuration;
   log.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
+  rl?.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
 
   // Run summary
   const totalDurationMs = Date.now() - ctx.startTime;
@@ -703,6 +749,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   // Log error summary by code (if any errors occurred)
   if (ctx.errorCount > 0) {
     log.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
+    rl?.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
   }
 
   // Write run summary to per-run log file
@@ -723,6 +770,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
     errorsByCode: ctx.errorsByCode,
     costUsd: ctx.totalCostUsd,
     phaseDurations: ctx.phaseDurations,
+    axisStats: ctx.axisStats,
   };
   try {
     writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');

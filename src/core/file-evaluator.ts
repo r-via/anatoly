@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { getLogger } from '../utils/logger.js';
+import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
@@ -43,6 +43,14 @@ export interface EvaluateFileOptions {
   onTranscriptChunk?: (chunk: string) => void;
 }
 
+export interface AxisTiming {
+  axisId: AxisId;
+  costUsd: number;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface EvaluateFileResult {
   review: ReviewFile;
   costUsd: number;
@@ -52,6 +60,7 @@ export interface EvaluateFileResult {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   transcript: string;
+  axisTiming: AxisTiming[];
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +80,7 @@ export interface EvaluateFileResult {
 export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateFileResult> {
   const { projectRoot, task, config, evaluators, abortController, usageGraph, onAxisComplete } = opts;
 
+  return runWithContext({ file: task.file }, async () => {
   const fileContent = readFileSync(resolve(projectRoot, task.file), 'utf-8');
 
   // Pre-resolve RAG for duplication axis
@@ -92,12 +102,14 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const startTime = Date.now();
   const transcriptParts: string[] = [];
 
-  // Execute all evaluators in parallel
+  // Execute all evaluators in parallel, each in its own axis sub-context
   const settledResults = await Promise.allSettled(
     evaluators.map(async (evaluator) => {
-      const result = await evaluator.evaluate(ctx, abortController);
-      onAxisComplete?.(evaluator.id);
-      return result;
+      return runWithContext({ axis: evaluator.id }, async () => {
+        const result = await evaluator.evaluate(ctx, abortController);
+        onAxisComplete?.(evaluator.id);
+        return result;
+      });
     }),
   );
 
@@ -116,8 +128,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
       const errFields = settled.reason instanceof AnatolyError
         ? settled.reason.toLogObject()
-        : { msg: String(settled.reason) };
-      getLogger().warn({ axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
+        : { errorMessage: String(settled.reason) };
+      contextLogger().warn({ axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
     }
     transcriptParts.push(chunk);
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
@@ -173,8 +185,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         opts.onTranscriptChunk?.(failChunk);
         const errFields = err instanceof AnatolyError
           ? err.toLogObject()
-          : { msg: String(err) };
-        getLogger().warn({ file: task.file, ...errFields }, 'deliberation failed');
+          : { errorMessage: String(err) };
+        contextLogger().warn({ file: task.file, ...errFields }, 'deliberation failed');
       }
     } else {
       const skipChunk = '# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n';
@@ -185,6 +197,13 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
+  const axisTiming: AxisTiming[] = successResults.map((r) => ({
+    axisId: r.axisId,
+    costUsd: r.costUsd,
+    durationMs: r.durationMs,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+  }));
 
   return {
     review,
@@ -195,7 +214,9 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     cacheReadTokens: totalCacheReadTokens,
     cacheCreationTokens: totalCacheCreationTokens,
     transcript,
+    axisTiming,
   };
+  });
 }
 
 // ---------------------------------------------------------------------------

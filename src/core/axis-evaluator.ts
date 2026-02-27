@@ -9,7 +9,7 @@ import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -326,7 +326,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
 
   const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
   const cacheHitRate = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
-  getLogger().trace(
+  contextLogger().trace(
     {
       model,
       inputTokens,

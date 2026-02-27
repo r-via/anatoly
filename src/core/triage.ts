@@ -1,6 +1,6 @@
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 export type TriageTier = 'skip' | 'evaluate';
 
@@ -32,7 +32,7 @@ function isBarrelExport(task: Task, source: string): boolean {
 export function triageFile(task: Task, source: string): TriageResult {
   const lineCount = source.split('\n').length;
   const symbols = task.symbols;
-  const log = getLogger();
+  const log = contextLogger();
 
   // --- Skip tier ---
 

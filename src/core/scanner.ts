@@ -9,7 +9,7 @@ import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { getGitTrackedFiles } from '../utils/git.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
 
@@ -186,7 +186,7 @@ export async function collectFiles(
   // Deduplicate and sort for deterministic output
   const result = [...new Set(filtered)].sort();
   const excluded = files.length - result.length;
-  getLogger().debug(
+  contextLogger().debug(
     { matched: files.length, excluded, final: result.length },
     'collectFiles complete',
   );
@@ -352,7 +352,7 @@ export async function scanProject(
     try {
       symbols = await parseFile(relPath, source);
     } catch (err) {
-      getLogger().warn({ file: relPath, err }, 'AST parse error, skipping symbols');
+      contextLogger().warn({ file: relPath, err }, 'AST parse error, skipping symbols');
       symbols = [];
       astErrors++;
     }
@@ -387,7 +387,7 @@ export async function scanProject(
   // Write progress atomically
   atomicWriteJson(progressPath, progress);
 
-  getLogger().debug(
+  contextLogger().debug(
     { filesScanned: files.length, filesCached, filesNew, astErrors },
     'scan summary',
   );

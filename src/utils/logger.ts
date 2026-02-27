@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,10 @@ export type Logger = pino.Logger;
 /**
  * Determine the log level to use.
  * Priority: explicit `--log-level` > `--verbose` flag > `ANATOLY_LOG_LEVEL` env > default.
+ *
+ * Invalid values for `logLevel` or `ANATOLY_LOG_LEVEL` are silently ignored
+ * and fall back to `'warn'`. The CLI validates `--log-level` before calling
+ * this function, so the silent fallback only applies to programmatic callers.
  */
 export function resolveLogLevel(opts: {
   logLevel?: string;
@@ -89,6 +93,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
 // ---------------------------------------------------------------------------
 
 let _instance: Logger | undefined;
+let _fileDestination: pino.DestinationStream | undefined;
 
 /**
  * Initialise the global logger singleton. Should be called once during CLI
@@ -121,8 +126,18 @@ export function getLogger(): Logger {
  */
 export function createFileLogger(filePath: string): Logger {
   mkdirSync(dirname(filePath), { recursive: true });
-  const dest = pino.destination({ dest: filePath, sync: false });
-  return pino({ level: 'debug' }, dest);
+  _fileDestination = pino.destination({ dest: filePath, sync: false });
+  return pino({ level: 'debug' }, _fileDestination);
+}
+
+/**
+ * Flush the per-run file logger synchronously. Call on SIGINT / process exit
+ * to avoid losing buffered log entries.
+ */
+export function flushFileLogger(): void {
+  if (_fileDestination && 'flushSync' in _fileDestination) {
+    (_fileDestination as pino.DestinationStream & { flushSync: () => void }).flushSync();
+  }
 }
 
 /**
@@ -131,4 +146,5 @@ export function createFileLogger(filePath: string): Logger {
  */
 export function _resetLogger(): void {
   _instance = undefined;
+  _fileDestination = undefined;
 }

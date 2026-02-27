@@ -492,7 +492,33 @@ ANATOLY_LOG_LEVEL=debug npx anatoly run
 
 ### Per-run log file
 
-Every `run` command automatically creates a debug-level ndjson log at `.anatoly/runs/<runId>/anatoly.ndjson`. This captures per-file review results, errors, phase timings, and the run summary -- useful for post-mortem analysis without needing to set `--log-level debug` upfront.
+Every `run` command automatically creates a debug-level ndjson log at `.anatoly/runs/<runId>/anatoly.ndjson`. This captures phase start/end events, per-file review results, errors, triage classifications, and the run summary -- useful for post-mortem analysis without needing to set `--log-level debug` upfront.
+
+### Diagnostic recipes
+
+Filter the per-run ndjson log with `jq` to answer common questions:
+
+```bash
+LOG=.anatoly/runs/latest/anatoly.ndjson
+
+# Why was a file skipped by triage?
+cat $LOG | jq 'select(.file=="src/foo.ts" and .msg=="triage classification")'
+
+# Which axes failed during the run?
+cat $LOG | jq 'select(.level>=40 and .axis)'
+
+# Show all errors grouped by code
+cat $LOG | jq 'select(.msg=="run error summary")'
+
+# How long did each phase take?
+cat $LOG | jq 'select(.msg=="phase completed") | {phase, durationMs}'
+
+# How much did this run cost?
+cat $LOG | jq 'select(.msg=="run completed") | {totalCostUsd, totalDurationMs, filesReviewed}'
+
+# Which files had the most expensive reviews?
+cat $LOG | jq 'select(.msg=="file review completed") | {file, costUsd, durationMs}' | jq -s 'sort_by(-.costUsd)'
+```
 
 ### Priority order
 

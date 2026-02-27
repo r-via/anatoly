@@ -8,7 +8,7 @@ import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagC
 import { embed, setEmbeddingLogger } from './embeddings.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
@@ -124,7 +124,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
-  const log = getLogger();
+  const log = contextLogger();
   log.debug(
     { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
     'RAG index: filtering files',

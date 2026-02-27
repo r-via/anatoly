@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   createLogger,
+  createFileLogger,
+  flushFileLogger,
   initLogger,
   getLogger,
   resolveLogLevel,
@@ -110,5 +115,41 @@ describe('initLogger / getLogger singleton', () => {
     const logger = getLogger();
     expect(logger).toBeDefined();
     expect(logger.level).toBe('warn');
+  });
+});
+
+describe('createFileLogger', () => {
+  const testDir = join(tmpdir(), `anatoly-logger-test-${Date.now()}`);
+  const testFile = join(testDir, 'test.ndjson');
+
+  afterEach(() => {
+    _resetLogger();
+    try { rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('should create a file logger at the specified path', () => {
+    const logger = createFileLogger(testFile);
+    expect(logger).toBeDefined();
+    expect(logger.level).toBe('debug');
+  });
+
+  it('should write ndjson entries to the file', async () => {
+    const logger = createFileLogger(testFile);
+    logger.info({ foo: 'bar' }, 'test message');
+    // sonic-boom needs a tick to become ready before flushSync works
+    await new Promise((r) => setTimeout(r, 50));
+    flushFileLogger();
+    const content = readFileSync(testFile, 'utf-8');
+    expect(content).toContain('"foo":"bar"');
+    expect(content).toContain('test message');
+  });
+
+  it('should create parent directories', async () => {
+    const nestedFile = join(testDir, 'nested', 'deep', 'log.ndjson');
+    const logger = createFileLogger(nestedFile);
+    logger.info('nested test');
+    await new Promise((r) => setTimeout(r, 50));
+    flushFileLogger();
+    expect(existsSync(nestedFile)).toBe(true);
   });
 });

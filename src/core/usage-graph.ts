@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
-import { getLogger } from '../utils/logger.js';
+import { contextLogger } from '../utils/log-context.js';
 
 export interface UsageGraph {
   /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
@@ -251,7 +251,7 @@ export function buildUsageGraph(
     }
   }
 
-  getLogger().debug(
+  contextLogger().debug(
     {
       files: tasks.length,
       runtimeImports: usages.size,
