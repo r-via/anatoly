@@ -1,7 +1,7 @@
 {
   "name": "@r-via/anatoly",
   "version": "0.4.2",
-  "description": "Deep Audit Agent for TypeScript codebases",
+  "description": "Deep Audit Agent for TypeScript codebases -- Anatoly & his Pals",
   "type": "module",
   "bin": {
     "anatoly": "./dist/index.js"

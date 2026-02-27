@@ -2,11 +2,11 @@
   <img src="assets/imgs/logo.jpg" alt="Anatoly"/>
 </p>
 
-# Anatoly
+# Anatoly & his Pals
 
-*"Can I clean here ?"*
+*"Can I clean here?"*
 
-**The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
+**The AI janitor crew that deep-audits your TypeScript codebase -- and proves every finding.**
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
@@ -16,9 +16,27 @@ npx anatoly run   # one command, full codebase audit
 
 ---
 
+> **Fair warning:** This project is context-and-time-hungry by design. Dream-quality code doesn't come cheap -- it takes serious effort (and tokens) to get there.
+
+---
+
+## Meet the Crew
+
+Anatoly is the boss. He orchestrates the crew, dispatches each Pal on every file, and compiles their findings into a single evidence-backed audit report. The Pals do the dirty work. Anatoly makes sure it's proven.
+
+| Pal | Axis | Job description |
+|-----|------|-----------------|
+| **The Perfectionist** | `correction` | Finds bugs, bad patterns, and code that just ain't right |
+| **The Minimalist** | `overengineering` | Calls out abstractions nobody asked for |
+| **The Bouncer** | `utility` | Kicks out dead code -- no invite, no entry |
+| **The Clone Hunter** | `duplication` | Tracks down copy-paste across file boundaries |
+| **The Guardian** | `tests` | Guards the gate -- no coverage, no mercy |
+
+---
+
 ## What is Anatoly?
 
-Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report, the kind of deep review that would take a senior developer days, done in minutes.
+Anatoly runs a crew of five specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report -- the kind of deep review that would take a senior developer days, done in minutes.
 
 This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. For every file it reviews, it can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions across file boundaries, and cross-reference exports, imports, and test coverage, then it must **prove** each finding with evidence before reporting it.
 
