@@ -39,9 +39,9 @@ export function registerRagStatusCommand(program: Command): void {
           console.log(chalk.bold(`${card.filePath}:${card.name}`));
           console.log(`  id          ${card.id}`);
           console.log(`  signature   ${card.signature}`);
-          console.log(`  summary     ${card.summary}`);
-          console.log(`  concepts    ${card.keyConcepts.join(', ')}`);
-          console.log(`  profile     ${card.behavioralProfile}`);
+          if (card.summary) console.log(`  summary     ${card.summary}`);
+          if (card.keyConcepts?.length) console.log(`  concepts    ${card.keyConcepts.join(', ')}`);
+          if (card.behavioralProfile) console.log(`  profile     ${card.behavioralProfile}`);
           console.log(`  complexity  ${card.complexityScore}/5`);
           if (card.calledInternals.length > 0) {
             console.log(`  calls       ${card.calledInternals.join(', ')}`);
@@ -72,7 +72,8 @@ export function registerRagStatusCommand(program: Command): void {
           console.log(chalk.bold(file));
           for (const card of fileCards) {
             const profile = chalk.dim(`[${card.behavioralProfile}]`);
-            console.log(`  ${profile} ${card.name} — ${card.summary.slice(0, 80)}${card.summary.length > 80 ? '…' : ''}`);
+            const summary = card.summary ?? '';
+            console.log(`  ${profile} ${card.name} — ${summary.slice(0, 80)}${summary.length > 80 ? '…' : ''}`);
           }
           console.log('');
         }

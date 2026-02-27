@@ -9,7 +9,6 @@ import {
 } from './indexer.js';
 import type { RagCache } from './indexer.js';
 import type { SymbolInfo, Task } from '../schemas/task.js';
-import type { FunctionCardLLMOutput } from './types.js';
 
 describe('buildFunctionId', () => {
   it('returns a deterministic 16-char hex string', () => {
@@ -156,7 +155,7 @@ function main() {
 });
 
 describe('buildFunctionCards', () => {
-  it('merges LLM output with AST-derived data', () => {
+  it('builds cards from AST data without LLM input', () => {
     const source = `export function greet(name: string): string {
   return 'Hello ' + name;
 }
@@ -176,17 +175,12 @@ export function farewell(name: string): string {
       scanned_at: '2026-02-24T00:00:00.000Z',
     };
 
-    const llmCards: FunctionCardLLMOutput[] = [
-      { name: 'greet', summary: 'Returns a greeting string', keyConcepts: ['greeting', 'string'], behavioralProfile: 'pure' },
-      { name: 'farewell', summary: 'Returns a farewell string', keyConcepts: ['farewell', 'string'], behavioralProfile: 'pure' },
-    ];
-
-    const cards = buildFunctionCards(task, source, llmCards);
+    const cards = buildFunctionCards(task, source);
     expect(cards).toHaveLength(2);
 
     expect(cards[0].name).toBe('greet');
     expect(cards[0].filePath).toBe('src/greetings.ts');
-    expect(cards[0].summary).toBe('Returns a greeting string');
+    expect(cards[0].summary).toBeUndefined();
     expect(cards[0].id).toMatch(/^[a-f0-9]{16}$/);
     expect(cards[0].signature).toContain('greet');
     expect(cards[0].complexityScore).toBeGreaterThanOrEqual(1);
@@ -209,11 +203,7 @@ export function calc() { return MAX; }`;
       scanned_at: '2026-02-24T00:00:00.000Z',
     };
 
-    const llmCards: FunctionCardLLMOutput[] = [
-      { name: 'calc', summary: 'Calculates something', keyConcepts: ['calc'], behavioralProfile: 'pure' },
-    ];
-
-    const cards = buildFunctionCards(task, source, llmCards);
+    const cards = buildFunctionCards(task, source);
     expect(cards).toHaveLength(1);
     expect(cards[0].name).toBe('calc');
   });
@@ -225,11 +215,8 @@ describe('needsReindex', () => {
     filePath: 'src/foo.ts',
     name: 'test',
     signature: 'function test()',
-    summary: 'Test function',
-    keyConcepts: ['test'],
-    behavioralProfile: 'pure' as const,
     complexityScore: 1,
-    calledInternals: [],
+    calledInternals: [] as string[],
     lastIndexed: '2026-01-01T00:00:00.000Z',
   };
 

@@ -11,10 +11,11 @@ async function main() {
     return;
   }
   try {
-    console.log('anatoly: downloading embedding model all-MiniLM-L6-v2...');
+    const model = 'jinaai/jina-embeddings-v2-base-code';
+    console.log(`anatoly: downloading embedding model ${model}...`);
     const { pipeline, env } = await import('@xenova/transformers');
     const cacheDir = env.cacheDir || '~/.cache/huggingface';
-    await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    await pipeline('feature-extraction', model);
     console.log(`anatoly: model ready (cache: ${cacheDir})`);
   } catch (e) {
     console.warn(

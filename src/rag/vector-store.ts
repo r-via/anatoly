@@ -2,6 +2,7 @@ import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
+import { EMBEDDING_DIM } from './embeddings.js';
 
 const TABLE_NAME = 'function_cards';
 
@@ -41,11 +42,15 @@ interface VectorRow {
 
 export class VectorStore {
   private dbPath: string;
+  private projectRoot: string;
   private db: Connection | null = null;
   private table: Table | null = null;
+  private onLog: (message: string) => void = () => {};
 
-  constructor(projectRoot: string) {
+  constructor(projectRoot: string, onLog?: (message: string) => void) {
+    this.projectRoot = projectRoot;
     this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+    if (onLog) this.onLog = onLog;
   }
 
   async init(): Promise<void> {
@@ -55,6 +60,24 @@ export class VectorStore {
     const tableNames = await this.db.tableNames();
     if (tableNames.includes(TABLE_NAME)) {
       this.table = await this.db.openTable(TABLE_NAME);
+
+      // Detect dimension mismatch and auto-rebuild
+      try {
+        const sample = await this.table.query().limit(1).toArray();
+        if (sample.length > 0) {
+          const storedDim = (sample[0].vector as number[]).length;
+          if (storedDim !== EMBEDDING_DIM) {
+            this.onLog(`dimension mismatch: index has ${storedDim}-dim vectors, model expects ${EMBEDDING_DIM}-dim — rebuilding index`);
+            await this.rebuild();
+            // Clear RAG cache to force full re-indexation
+            const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
+            const { writeFileSync } = await import('node:fs');
+            writeFileSync(cachePath, JSON.stringify({ entries: {} }));
+          }
+        }
+      } catch {
+        // If we can't read a sample, proceed normally — table may be empty
+      }
     }
   }
 
@@ -69,10 +92,10 @@ export class VectorStore {
       id: card.id,
       filePath: card.filePath,
       name: card.name,
-      summary: card.summary,
-      keyConcepts: JSON.stringify(card.keyConcepts),
+      summary: card.summary ?? '',
+      keyConcepts: JSON.stringify(card.keyConcepts ?? []),
       signature: card.signature,
-      behavioralProfile: card.behavioralProfile,
+      behavioralProfile: card.behavioralProfile ?? 'utility',
       complexityScore: card.complexityScore,
       calledInternals: JSON.stringify(card.calledInternals),
       lastIndexed: card.lastIndexed,
@@ -237,8 +260,7 @@ export class VectorStore {
  * Convert LanceDB L2 distance to cosine similarity.
  *
  * LanceDB default metric is L2 (euclidean). The `_distance` field contains the
- * **squared** L2 distance (L2²). For normalized vectors (as produced by
- * all-MiniLM-L6-v2), the relationship is:
+ * **squared** L2 distance (L2²). For normalized vectors, the relationship is:
  *   cosine_similarity = 1 - L2² / 2
  */
 function distanceToCosineSimilarity(distance: number): number {

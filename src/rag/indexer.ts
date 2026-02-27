@@ -2,8 +2,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
-import type { FunctionCard, FunctionCardLLMOutput } from './types.js';
-import { embed, buildEmbedText } from './embeddings.js';
+import type { FunctionCard } from './types.js';
+import { embed, buildEmbedCode } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 
 export interface RagCache {
@@ -37,12 +37,19 @@ export function extractSignature(source: string, symbol: SymbolInfo): string {
 }
 
 /**
+ * Extract the source body of a function from the full file source.
+ */
+export function extractFunctionBody(source: string, symbol: SymbolInfo): string {
+  const lines = source.split('\n');
+  return lines.slice(symbol.line_start - 1, symbol.line_end).join('\n');
+}
+
+/**
  * Compute cyclomatic complexity from source lines of a function.
  * Counts branching constructs: if, else if, case, &&, ||, ternary, catch.
  */
 export function computeComplexity(source: string, symbol: SymbolInfo): number {
-  const lines = source.split('\n');
-  const body = lines.slice(symbol.line_start - 1, symbol.line_end).join('\n');
+  const body = extractFunctionBody(source, symbol);
 
   let complexity = 1; // base path
   const patterns = [
@@ -77,8 +84,7 @@ export function extractCalledInternals(
   symbol: SymbolInfo,
   allSymbols: SymbolInfo[],
 ): string[] {
-  const lines = source.split('\n');
-  const body = lines.slice(symbol.line_start - 1, symbol.line_end).join('\n');
+  const body = extractFunctionBody(source, symbol);
 
   const otherNames = allSymbols
     .filter((s) => s.name !== symbol.name)
@@ -101,12 +107,11 @@ function escapeRegExp(str: string): string {
 }
 
 /**
- * Build complete FunctionCards by merging LLM output with AST-derived data.
+ * Build FunctionCards from AST-derived data only (no LLM dependency).
  */
 export function buildFunctionCards(
   task: Task,
   source: string,
-  llmCards: FunctionCardLLMOutput[],
 ): FunctionCard[] {
   const now = new Date().toISOString();
   const functionSymbols = task.symbols.filter(
@@ -116,9 +121,6 @@ export function buildFunctionCards(
   const cards: FunctionCard[] = [];
 
   for (const symbol of functionSymbols) {
-    const llmCard = llmCards.find((c) => c.name === symbol.name);
-    if (!llmCard) continue;
-
     const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
     const signature = extractSignature(source, symbol);
     const complexityScore = computeComplexity(source, symbol);
@@ -129,9 +131,6 @@ export function buildFunctionCards(
       filePath: task.file,
       name: symbol.name,
       signature,
-      summary: llmCard.summary,
-      keyConcepts: llmCard.keyConcepts,
-      behavioralProfile: llmCard.behavioralProfile,
       complexityScore,
       calledInternals,
       lastIndexed: now,
@@ -150,14 +149,23 @@ export function needsReindex(cache: RagCache, card: FunctionCard, fileHash: stri
 }
 
 /**
- * Generate embeddings for a list of cards.
- * Returns embedding vectors in the same order as the input cards.
+ * Generate embeddings for a list of cards using code-direct embedding.
+ * Requires the source text and symbol info to extract function bodies.
  */
-export async function embedCards(cards: FunctionCard[]): Promise<number[][]> {
+export async function embedCards(cards: FunctionCard[], source: string, symbols: SymbolInfo[]): Promise<number[][]> {
   const embeddings: number[][] = [];
   for (const card of cards) {
-    const text = buildEmbedText(card);
-    embeddings.push(await embed(text));
+    const symbol = symbols.find(
+      (s) => s.name === card.name && (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+    );
+    if (!symbol) {
+      // Fallback: embed just the signature
+      embeddings.push(await embed(buildEmbedCode(card.name, card.signature, '')));
+      continue;
+    }
+    const body = extractFunctionBody(source, symbol);
+    const codeText = buildEmbedCode(card.name, card.signature, body);
+    embeddings.push(await embed(codeText));
   }
   return embeddings;
 }
@@ -185,4 +193,3 @@ export function saveRagCache(projectRoot: string, cache: RagCache): void {
   const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
   atomicWriteJson(cachePath, cache);
 }
-

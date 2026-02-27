@@ -401,21 +401,19 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   let ragResult: RagIndexResult | undefined;
 
-  const indexModelLabel = shortModelName(ctx.config.llm.index_model);
   const embedLabel = EMBEDDING_MODEL;
   const ragRunner = new Listr([{
-    title: `RAG index (${indexModelLabel} · ${embedLabel})`,
+    title: `RAG index (${embedLabel})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       ragResult = await indexProject({
         projectRoot: ctx.projectRoot,
         tasks,
-        indexModel: ctx.config.llm.index_model,
         rebuild: ctx.rebuildRag,
         concurrency: ctx.concurrency,
         verbose: ctx.verbose,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
-          listrTask.title = `RAG index (${indexModelLabel} · ${embedLabel}) — ${current}/${total}`;
+          listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;
         },
         isInterrupted: () => ctx.interrupted,
       });

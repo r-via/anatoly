@@ -1,7 +1,10 @@
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery } from '../axis-evaluator.js';
 import { resolveAxisModel } from '../axis-evaluator.js';
+import { contextLogger } from '../../utils/log-context.js';
 import duplicationSystemPrompt from './prompts/duplication.system.md';
 
 // ---------------------------------------------------------------------------
@@ -68,7 +71,19 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
         parts.push('Similar functions found:');
         for (const r of entry.results) {
           parts.push(`- **${r.card.name}** in \`${r.card.filePath}\` (score: ${r.score.toFixed(3)})`);
-          parts.push(`  Summary: ${r.card.summary}`);
+          parts.push(`  Signature: ${r.card.signature}`);
+          parts.push(`  Complexity: ${r.card.complexityScore}/5`);
+          if (r.card.calledInternals.length > 0) {
+            parts.push(`  Calls: ${r.card.calledInternals.join(', ')}`);
+          }
+          // Include candidate source code (up to ~50 lines)
+          const candidateSource = readCandidateSource(ctx.projectRoot, r.card.filePath, r.card.name);
+          if (candidateSource) {
+            parts.push('  Source:');
+            parts.push('  ```typescript');
+            parts.push(`  ${candidateSource.split('\n').join('\n  ')}`);
+            parts.push('  ```');
+          }
         }
       }
       parts.push('');
@@ -83,6 +98,37 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
   parts.push('Evaluate the duplication of each symbol and output the JSON.');
 
   return parts.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const MAX_CANDIDATE_LINES = 50;
+
+/**
+ * Read candidate function source from disk for code-to-code comparison.
+ * Returns null if the file is missing or the function can't be located.
+ */
+function readCandidateSource(projectRoot: string, filePath: string, functionName: string): string | null {
+  try {
+    const absPath = resolve(projectRoot, filePath);
+    const source = readFileSync(absPath, 'utf-8');
+    const lines = source.split('\n');
+
+    // Find the function by name (simple heuristic: first line containing the function name + opening)
+    const startIdx = lines.findIndex((line) =>
+      line.includes(functionName) && (line.includes('function') || line.includes('=>') || line.includes('('))
+    );
+    if (startIdx === -1) return null;
+
+    // Extract up to MAX_CANDIDATE_LINES lines
+    const snippet = lines.slice(startIdx, startIdx + MAX_CANDIDATE_LINES);
+    return snippet.join('\n');
+  } catch {
+    contextLogger().warn({ filePath, functionName }, 'candidate source file not found on disk');
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

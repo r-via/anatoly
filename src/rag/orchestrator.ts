@@ -3,17 +3,16 @@ import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { generateFunctionCards } from './card-generator.js';
 import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import { embed, setEmbeddingLogger } from './embeddings.js';
 import { runWorkerPool } from '../core/worker-pool.js';
-import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { contextLogger } from '../utils/log-context.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
-  indexModel: string;
+  /** @deprecated No longer used — indexation is now local-only (code embedding). Kept for API compat. */
+  indexModel?: string;
   rebuild?: boolean;
   concurrency?: number;
   verbose?: boolean;
@@ -41,38 +40,25 @@ export interface IndexedFileResult {
 }
 
 /**
- * Process a single file for RAG indexing: Haiku LLM call + build cards + embed.
- * Returns cards and embeddings without touching VectorStore or cache.
- * This is the pure, parallelizable unit of work.
+ * Process a single file for RAG indexing: build cards from AST + embed code directly.
+ * No LLM call — purely local operation.
  */
 export async function processFileForIndex(
   projectRoot: string,
   task: Task,
-  indexModel: string,
   cache: { entries: Record<string, string> },
 ): Promise<IndexedFileResult> {
-  // Early exit: skip LLM call if all functions are already cached for this hash
   const functionSymbols = task.symbols.filter(
     (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
   );
-  const allCached =
-    functionSymbols.length > 0 &&
-    functionSymbols.every((symbol) => {
-      const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
-      return cache.entries[id] === task.hash;
-    });
-  if (allCached) {
-    return { task, cards: [], embeddings: [] };
-  }
 
-  const llmCards = await generateFunctionCards(projectRoot, task, indexModel);
-  if (llmCards.length === 0) {
+  if (functionSymbols.length === 0) {
     return { task, cards: [], embeddings: [] };
   }
 
   const absPath = resolve(projectRoot, task.file);
   const source = readFileSync(absPath, 'utf-8');
-  const cards = buildFunctionCards(task, source, llmCards);
+  const cards = buildFunctionCards(task, source);
 
   // Filter to only cards that need re-indexing
   const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
@@ -80,24 +66,24 @@ export async function processFileForIndex(
     return { task, cards: [], embeddings: [] };
   }
 
-  // Generate embeddings for cards that need indexing
-  const embeddings = await embedCards(toIndex);
+  // Generate embeddings for cards that need indexing (code-direct, no API)
+  const embeddings = await embedCards(toIndex, source, task.symbols);
 
   return { task, cards: toIndex, embeddings };
 }
 
 /**
- * Run the RAG indexing phase: generate function cards via Haiku,
- * compute embeddings, and upsert into the vector store.
+ * Run the RAG indexing phase: build function cards from AST,
+ * compute code embeddings locally, and upsert into the vector store.
  *
- * Returns the initialized VectorStore and indexing stats.
+ * No LLM API calls — indexation is now purely local.
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, indexModel, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
+  const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
 
   setEmbeddingLogger(onLog);
 
-  const store = new VectorStore(projectRoot);
+  const store = new VectorStore(projectRoot, onLog);
   await store.init();
 
   if (rebuild) {
@@ -153,21 +139,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       const idx = ++fileCounter;
       onLog(`[${idx}/${tasksToIndex.length}] ${task.file}`);
 
-      const result = await retryWithBackoff(
-        () => processFileForIndex(projectRoot, task, indexModel, cache),
-        {
-          maxRetries: 5,
-          baseDelayMs: 2000,
-          maxDelayMs: 30_000,
-          jitterFactor: 0.2,
-          filePath: task.file,
-          isInterrupted,
-          onRetry: options.verbose ? (attempt, delayMs) => {
-            const delaySec = (delayMs / 1000).toFixed(0);
-            onLog(`  rate limited — retrying ${task.file} in ${delaySec}s (attempt ${attempt}/5)`);
-          } : undefined,
-        },
-      );
+      const result = await processFileForIndex(projectRoot, task, cache);
       if (result.cards.length > 0) {
         results.push(result);
       }

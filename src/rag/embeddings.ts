@@ -1,7 +1,7 @@
-import type { FunctionCard } from './types.js';
+export const EMBEDDING_MODEL = 'jinaai/jina-embeddings-v2-base-code';
+export const EMBEDDING_DIM = 768;
 
-export const EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
-export const EMBEDDING_DIM = 384;
+const MAX_CODE_CHARS = 1500;
 
 let embedder: any = null;
 let onLog: (message: string) => void = () => {};
@@ -28,7 +28,7 @@ async function getEmbedder(): Promise<any> {
 }
 
 /**
- * Generate an embedding vector for the given text.
+ * Generate an embedding vector for the given text/code.
  * Returns a normalized float32 array of EMBEDDING_DIM dimensions.
  */
 export async function embed(text: string): Promise<number[]> {
@@ -38,9 +38,14 @@ export async function embed(text: string): Promise<number[]> {
 }
 
 /**
- * Build the text to embed for a FunctionCard.
- * Kept concise to maximize signal on 384 dimensions.
+ * Build the code text to embed for a function.
+ * Prefixes with name and signature, then includes the source body
+ * (truncated to ~1500 chars to stay within the model's effective window).
  */
-export function buildEmbedText(card: FunctionCard): string {
-  return `${card.name} ${card.signature}\n${card.summary}\n${card.keyConcepts.join(' ')}`;
+export function buildEmbedCode(name: string, signature: string, sourceBody: string): string {
+  let body = sourceBody;
+  if (body.length > MAX_CODE_CHARS) {
+    body = body.slice(0, MAX_CODE_CHARS) + '\n// ... truncated';
+  }
+  return `// ${name}\n${signature}\n${body}`;
 }
