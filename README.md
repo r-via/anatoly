@@ -66,6 +66,21 @@ Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** 
 
 The review phase includes an **agent ↔ schema feedback loop**. When the agent produces its JSON output, Anatoly validates it against a strict Zod schema. If validation fails, the exact Zod errors are sent back to the agent **within the same session**, preserving the full investigation context. The agent corrects its output and resubmits, up to `max_retries` times (default: 3).
 
+### Two-pass correction with dependency verification
+
+The Perfectionist (correction axis) runs a **two-pass pipeline** to eliminate false positives caused by library-specific patterns:
+
+1. **Pass 1** -- Standard correction analysis flags `NEEDS_FIX` and `ERROR` symbols
+2. **Pass 2** -- A verification agent re-evaluates each finding against the **actual README documentation** of the dependencies involved (read from `node_modules/`). If the library handles the flagged pattern natively, the finding is downgraded to `OK`
+
+False positives are recorded in a **persistent correction memory** (`.anatoly/correction-memory.json`). On subsequent runs, known false positives are injected into the prompt so the agent avoids flagging them again. The memory deduplicates by pattern and dependency.
+
+Additionally, a **contradiction detector** cross-references correction findings against best-practices results -- for example, if best-practices confirms async/error handling is correct (Rule 12 PASS) but correction flags `NEEDS_FIX` on an async pattern, the confidence is automatically lowered below the reporting threshold.
+
+### Crash-resilient axis pipeline
+
+Each of the 5 axes runs independently per file. If one axis crashes, the others continue. The merger injects **crash sentinels** for failed axes (visible in `.rev.md` as "axis crashed -- see transcript") and computes the final verdict from the surviving axes only.
+
 ### Claude Code autocorrection hook
 
 Anatoly can plug directly into Claude Code as a **PostToolUse + Stop hook**, creating a real-time audit loop while Claude Code writes your code:
@@ -99,8 +114,12 @@ Every finding is backed by evidence. Every review is schema-validated. The agent
 - **Watch mode**,Daemon that re-reviews changed files automatically
 - **Parallel reviews**,`--concurrency N` runs up to 10 reviews simultaneously with rate limiting and multi-file renderer
 - **CI-friendly**,Exit codes: `0` (clean), `1` (findings), `2` (error); `--yes` flag for non-interactive destructive commands
+- **Two-pass correction**,Verification pass re-checks findings against library READMEs from `node_modules/`, eliminating dependency-related false positives
+- **Correction memory**,Persistent `.anatoly/correction-memory.json` stores known false positives to avoid re-flagging across runs
+- **Contradiction detection**,Cross-references correction findings against best-practices results to suppress conflicting verdicts
+- **Crash-resilient axes**,Each axis runs independently; if one crashes the others continue with sentinel markers in the report
 - **Coverage integration**,Parses Istanbul/Vitest/Jest coverage data to enrich reviews
-- **Crash-resilient**,Atomic state writes, lock files, and interrupted-run recovery
+- **Crash-resilient state**,Atomic state writes, lock files, and interrupted-run recovery
 - **Actionable errors**,Every error includes a recovery hint (`error: <message>\n  → <next step>`)
 - **Accessibility**,Respects `$NO_COLOR` env var; `--plain` mode for pipes/CI; `--open` to launch report in default app
 
@@ -209,6 +228,8 @@ src/
 │   ├── fast-reviewer.ts  # Single-turn reviewer for fast-tier files
 │   ├── review-writer.ts  # Writes .rev.json + .rev.md
 │   ├── reporter.ts       # Sharded report: index + per-shard files
+│   ├── correction-memory.ts # Persistent false-positive memory
+│   ├── dependency-meta.ts # Dependency metadata + local README reader
 │   ├── progress-manager.ts # Atomic state management
 │   └── worker-pool.ts    # Concurrent review pool + semaphore
 ├── schemas/              # Zod schemas (source of truth)
@@ -248,6 +269,7 @@ Runtime output directory:
 .anatoly/
 ├── cache/progress.json                    # Pipeline state
 ├── tasks/*.task.json                      # AST + hash per file
+├── correction-memory.json                 # Known false positives (persistent)
 ├── rag/                                   # RAG semantic index
 │   ├── lancedb/                           # LanceDB vector store
 │   └── cache.json                         # File hash → lastIndexed
