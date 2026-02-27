@@ -67,6 +67,12 @@ export const BadgeConfigSchema = z.object({
   link: z.string().url().default('https://github.com/r-via/anatoly'),
 });
 
+export const LoggingConfigSchema = z.object({
+  level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('warn'),
+  file: z.string().optional(),
+  pretty: z.boolean().default(true),
+});
+
 export const OutputConfigSchema = z.object({
   max_runs: z.int().min(1).optional(),
 });
@@ -103,6 +109,7 @@ export const ConfigSchema = z.object({
     },
   }),
   rag: RagConfigSchema.default({ enabled: true }),
+  logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),
   output: OutputConfigSchema.default({}),
   badge: BadgeConfigSchema.default({
     enabled: true,
