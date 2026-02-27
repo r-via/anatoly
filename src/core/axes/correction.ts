@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
-import { readLocalPackageReadme } from '../dependency-meta.js';
+import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import correctionSystemPrompt from './prompts/correction.system.md';
 import { formatMemoryForPrompt, recordFalsePositive } from '../correction-memory.js';
 
@@ -131,11 +131,46 @@ Output ONLY a JSON object:
 \`\`\``;
 }
 
+const STOP_WORDS = new Set([
+  'this', 'that', 'with', 'from', 'have', 'been', 'will', 'would',
+  'could', 'should', 'does', 'which', 'when', 'where',
+  'they', 'them', 'their', 'there', 'about', 'into', 'more',
+  'some', 'such', 'than', 'very', 'also', 'just', 'only',
+  'each', 'because', 'being', 'other', 'what', 'then', 'still',
+  'called', 'calls', 'like', 'used', 'using', 'before', 'after',
+]);
+
+/**
+ * Extract search keywords from correction findings for README section targeting.
+ */
+export function extractVerificationKeywords(
+  findings: CorrectionResponse,
+): string[] {
+  const keywords = new Set<string>();
+
+  for (const sym of findings.symbols) {
+    if (sym.correction !== 'NEEDS_FIX' && sym.correction !== 'ERROR') continue;
+
+    const tokens = sym.detail
+      .toLowerCase()
+      .split(/[\s,.:;()\[\]{}'"`\/\\|—–]+/)
+      .filter((t) => t.length > 3)
+      .filter((t) => !STOP_WORDS.has(t));
+
+    for (const token of tokens) {
+      keywords.add(token);
+    }
+  }
+
+  return [...keywords];
+}
+
 function buildVerificationUserMessage(
   findings: CorrectionResponse,
   ctx: AxisContext,
 ): string {
   const parts: string[] = [];
+  const keywords = extractVerificationKeywords(findings);
 
   // Include the flagged findings
   const flagged = findings.symbols.filter(
@@ -158,12 +193,12 @@ function buildVerificationUserMessage(
   parts.push('```');
   parts.push('');
 
-  // Include README documentation for each dependency
+  // Include README documentation for each dependency (targeted extraction)
   if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
     parts.push('## Library Documentation');
     parts.push('');
     for (const dep of ctx.fileDeps.deps) {
-      const readme = readLocalPackageReadme(ctx.projectRoot, dep.name);
+      const readme = extractRelevantReadmeSections(ctx.projectRoot, dep.name, keywords);
       if (readme) {
         parts.push(`### ${dep.name}@${dep.version}`);
         parts.push('');

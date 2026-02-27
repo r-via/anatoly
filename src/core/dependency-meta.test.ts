@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { loadDependencyMeta, extractFileDeps } from './dependency-meta.js';
+import { loadDependencyMeta, extractFileDeps, extractRelevantReadmeSections, parseReadmeSections, scoreSection } from './dependency-meta.js';
 import type { DependencyMeta } from './dependency-meta.js';
 
 describe('loadDependencyMeta', () => {
@@ -130,5 +130,142 @@ import { foo } from './local.js';`;
     expect(result.deps).toEqual([
       { name: 'zod', version: '^3.22.0' },
     ]);
+  });
+});
+
+describe('parseReadmeSections', () => {
+  it('should split a multi-section markdown document', () => {
+    const md = `# Title
+
+Intro paragraph.
+
+## Section A
+
+Content A.
+
+## Section B
+
+Content B.
+
+### Subsection B1
+
+Sub-content.
+`;
+    const sections = parseReadmeSections(md);
+    expect(sections).toHaveLength(4);
+    expect(sections[0].heading).toBe('Title');
+    expect(sections[0].level).toBe(1);
+    expect(sections[1].heading).toBe('Section A');
+    expect(sections[1].level).toBe(2);
+    expect(sections[2].heading).toBe('Section B');
+    expect(sections[3].heading).toBe('Subsection B1');
+    expect(sections[3].level).toBe(3);
+  });
+
+  it('should return a single section for headingless content', () => {
+    const md = `Just some text without headings.
+
+More text here.`;
+    const sections = parseReadmeSections(md);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].heading).toBe('');
+    expect(sections[0].content).toContain('Just some text');
+  });
+
+  it('should preserve startOffset for each section', () => {
+    const md = `# First
+
+Body.
+
+## Second
+
+Body 2.`;
+    const sections = parseReadmeSections(md);
+    expect(sections[0].startOffset).toBe(0);
+    expect(sections[1].startOffset).toBeGreaterThan(0);
+  });
+});
+
+describe('scoreSection', () => {
+  it('should give heading matches higher weight than body matches', () => {
+    const headingMatch = {
+      heading: 'Error handling',
+      level: 2,
+      content: '## Error handling\n\nSome content.',
+      startOffset: 0,
+    };
+    const bodyMatch = {
+      heading: 'Introduction',
+      level: 2,
+      content: '## Introduction\n\nSomething about error handling.',
+      startOffset: 0,
+    };
+
+    const headingScore = scoreSection(headingMatch, ['error']);
+    const bodyScore = scoreSection(bodyMatch, ['error']);
+    expect(headingScore).toBeGreaterThan(bodyScore);
+  });
+
+  it('should return 0 for sections with no keyword matches', () => {
+    const section = {
+      heading: 'Installation',
+      level: 2,
+      content: '## Installation\n\nnpm install foo',
+      startOffset: 0,
+    };
+    expect(scoreSection(section, ['async', 'error'])).toBe(0);
+  });
+
+  it('should cap body occurrences at 3 per keyword', () => {
+    const section = {
+      heading: 'Details',
+      level: 2,
+      content: '## Details\n\nerror error error error error error error',
+      startOffset: 0,
+    };
+    // 3 body matches capped, no heading match
+    expect(scoreSection(section, ['error'])).toBe(3);
+  });
+});
+
+describe('extractRelevantReadmeSections', () => {
+  it('should return full content for small READMEs', () => {
+    // zod's README is likely smaller than 12000 chars or large — use a known small package
+    const result = extractRelevantReadmeSections(resolve('.'), 'commander', ['anything'], 200_000);
+    // With 200K budget, should return the full content without extraction note
+    if (result) {
+      expect(result).not.toContain('[Sections extracted');
+    }
+  });
+
+  it('should return null for missing packages', () => {
+    const result = extractRelevantReadmeSections(resolve('.'), 'nonexistent-pkg-xyz', ['error']);
+    expect(result).toBeNull();
+  });
+
+  it('should select relevant sections for large READMEs', () => {
+    // Commander's README is ~43KB, well above 12K default
+    const result = extractRelevantReadmeSections(
+      resolve('.'),
+      'commander',
+      ['async', 'action', 'parseasync', 'error', 'handler'],
+    );
+    expect(result).not.toBeNull();
+    expect(result).toContain('[Sections extracted');
+    // Should include the Action handler section
+    expect(result).toContain('Action handler');
+    // Should include parseAsync info
+    expect(result).toContain('parseAsync');
+  });
+
+  it('should always include the intro section', () => {
+    const result = extractRelevantReadmeSections(
+      resolve('.'),
+      'commander',
+      ['async', 'action'],
+    );
+    expect(result).not.toBeNull();
+    // Commander's intro starts with the title
+    expect(result).toContain('Commander');
   });
 });

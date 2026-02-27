@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords } from './correction.js';
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
@@ -83,5 +83,74 @@ describe('buildCorrectionUserMessage', () => {
       fileDeps: { deps: [] },
     }));
     expect(msg).not.toContain('## Project Dependencies');
+  });
+});
+
+describe('extractVerificationKeywords', () => {
+  it('should extract meaningful terms from finding details', () => {
+    const findings = {
+      symbols: [
+        {
+          name: 'handleRequest',
+          line_start: 1,
+          line_end: 20,
+          correction: 'NEEDS_FIX' as const,
+          confidence: 85,
+          detail: 'The async action callback has no try/catch for error handling. Promise rejections may go unhandled.',
+        },
+      ],
+      actions: [],
+    };
+    const keywords = extractVerificationKeywords(findings);
+    expect(keywords).toContain('async');
+    expect(keywords).toContain('action');
+    expect(keywords).toContain('error');
+    expect(keywords).toContain('promise');
+    expect(keywords).toContain('handling');
+    expect(keywords).toContain('rejections');
+  });
+
+  it('should filter stop words', () => {
+    const findings = {
+      symbols: [
+        {
+          name: 'foo',
+          line_start: 1,
+          line_end: 5,
+          correction: 'NEEDS_FIX' as const,
+          confidence: 80,
+          detail: 'This function will throw when called with undefined values from the callback',
+        },
+      ],
+      actions: [],
+    };
+    const keywords = extractVerificationKeywords(findings);
+    expect(keywords).not.toContain('this');
+    expect(keywords).not.toContain('will');
+    expect(keywords).not.toContain('when');
+    expect(keywords).not.toContain('with');
+    expect(keywords).not.toContain('from');
+    expect(keywords).toContain('function');
+    expect(keywords).toContain('throw');
+    expect(keywords).toContain('undefined');
+    expect(keywords).toContain('callback');
+  });
+
+  it('should skip OK symbols', () => {
+    const findings = {
+      symbols: [
+        {
+          name: 'safeFunc',
+          line_start: 1,
+          line_end: 5,
+          correction: 'OK' as const,
+          confidence: 95,
+          detail: 'No issues found with async error handling in this function.',
+        },
+      ],
+      actions: [],
+    };
+    const keywords = extractVerificationKeywords(findings);
+    expect(keywords).toHaveLength(0);
   });
 });
