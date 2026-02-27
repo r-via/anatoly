@@ -253,7 +253,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       model,
       cwd: projectRoot,
       allowedTools: [],
-      maxTurns: 1,
+      maxTurns: 2,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       abortController,
