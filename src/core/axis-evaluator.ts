@@ -138,7 +138,11 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt, userMessage, model, projectRoot, abortController } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController } = params;
+
+  // Prepend a no-tools directive so the model never attempts tool calls.
+  // All context the model needs is already embedded in the prompt.
+  const systemPrompt = `IMPORTANT: You are a single-turn JSON evaluator. Do NOT use any tools (Read, Glob, Grep, Bash, Write, Edit, WebSearch, etc.). All the context you need is provided below. Respond ONLY with a JSON object — no markdown fences, no explanation.\n\n${rawSystemPrompt}`;
 
   const transcriptLines: string[] = [];
   let totalCost = 0;
@@ -249,7 +253,6 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       model,
       cwd: projectRoot,
       allowedTools: [],
-      disallowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'AskUserQuestion', 'Task'],
       maxTurns: 1,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
