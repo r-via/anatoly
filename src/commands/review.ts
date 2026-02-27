@@ -135,7 +135,7 @@ export function registerReviewCommand(program: Command): void {
                   const message = error instanceof AnatolyError ? error.message : String(error);
                   const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
 
-                  pm.updateFileStatus(fp.file, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+                  pm.updateFileStatus(fp.file, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
                   filesErrored++;
                   completedCount++;
                 } finally {

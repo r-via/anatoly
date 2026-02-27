@@ -23,7 +23,7 @@ export interface RetryWithBackoffOptions {
  * The Anthropic SDK wraps these in various ways.
  */
 export function isRateLimitError(error: unknown): boolean {
-  if (error instanceof AnatolyError && error.code === 'LLM_API_ERROR') {
+  if (error instanceof AnatolyError && (error.code === 'SDK_ERROR')) {
     const msg = error.message.toLowerCase();
     return msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit');
   }
@@ -76,7 +76,7 @@ export async function retryWithBackoff<T>(
           );
           throw new AnatolyError(
             `Rate limit exceeded after ${maxRetries} retries for ${filePath}`,
-            ERROR_CODES.LLM_API_ERROR,
+            ERROR_CODES.SDK_ERROR,
             true,
             'reduce --concurrency or try again later',
           );

@@ -4,27 +4,27 @@ import { AnatolyError, ERROR_CODES } from './errors.js';
 
 describe('isRateLimitError', () => {
   it('should detect AnatolyError with 429 in message', () => {
-    const err = new AnatolyError('Agent SDK error: 429 Too Many Requests', ERROR_CODES.LLM_API_ERROR, true);
+    const err = new AnatolyError('Claude Code SDK error: 429 Too Many Requests', ERROR_CODES.SDK_ERROR, true);
     expect(isRateLimitError(err)).toBe(true);
   });
 
   it('should detect AnatolyError with rate limit in message', () => {
-    const err = new AnatolyError('Agent SDK error: rate limit exceeded', ERROR_CODES.LLM_API_ERROR, true);
+    const err = new AnatolyError('Claude Code SDK error: rate limit exceeded', ERROR_CODES.SDK_ERROR, true);
     expect(isRateLimitError(err)).toBe(true);
   });
 
   it('should detect AnatolyError with rate_limit in message', () => {
-    const err = new AnatolyError('Agent SDK error: rate_limit_error', ERROR_CODES.LLM_API_ERROR, true);
+    const err = new AnatolyError('Claude Code SDK error: rate_limit_error', ERROR_CODES.SDK_ERROR, true);
     expect(isRateLimitError(err)).toBe(true);
   });
 
   it('should not detect non-rate-limit AnatolyError', () => {
-    const err = new AnatolyError('Some other error', ERROR_CODES.LLM_API_ERROR, true);
+    const err = new AnatolyError('Some other error', ERROR_CODES.SDK_ERROR, true);
     expect(isRateLimitError(err)).toBe(false);
   });
 
   it('should not detect timeout errors as rate limit', () => {
-    const err = new AnatolyError('Timed out', ERROR_CODES.LLM_TIMEOUT, true);
+    const err = new AnatolyError('Timed out', ERROR_CODES.SDK_TIMEOUT, true);
     expect(isRateLimitError(err)).toBe(false);
   });
 
@@ -84,7 +84,7 @@ describe('retryWithBackoff', () => {
   });
 
   it('should retry on rate limit errors and succeed', async () => {
-    const rateLimitErr = new AnatolyError('429 rate limit', ERROR_CODES.LLM_API_ERROR, true);
+    const rateLimitErr = new AnatolyError('429 rate limit', ERROR_CODES.SDK_ERROR, true);
     const fn = vi.fn()
       .mockRejectedValueOnce(rateLimitErr)
       .mockRejectedValueOnce(rateLimitErr)
@@ -106,7 +106,7 @@ describe('retryWithBackoff', () => {
   });
 
   it('should throw after exhausting retries on rate limit', async () => {
-    const rateLimitErr = new AnatolyError('429 rate limit', ERROR_CODES.LLM_API_ERROR, true);
+    const rateLimitErr = new AnatolyError('429 rate limit', ERROR_CODES.SDK_ERROR, true);
     const fn = vi.fn().mockRejectedValue(rateLimitErr);
 
     await expect(
@@ -124,7 +124,7 @@ describe('retryWithBackoff', () => {
   });
 
   it('should not retry on non-rate-limit errors', async () => {
-    const otherErr = new AnatolyError('some error', ERROR_CODES.LLM_TIMEOUT, true);
+    const otherErr = new AnatolyError('some error', ERROR_CODES.SDK_TIMEOUT, true);
     const fn = vi.fn().mockRejectedValue(otherErr);
 
     await expect(

@@ -61,6 +61,8 @@ export interface EvaluateFileResult {
   cacheCreationTokens: number;
   transcript: string;
   axisTiming: AxisTiming[];
+  /** Axis IDs that crashed during evaluation (empty when all axes succeed). */
+  failedAxes: AxisId[];
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +217,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     cacheCreationTokens: totalCacheCreationTokens,
     transcript,
     axisTiming,
+    failedAxes,
   };
   });
 }

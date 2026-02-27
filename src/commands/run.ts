@@ -70,6 +70,8 @@ interface RunContext {
   errorCount: number;
   /** Errors aggregated by code for end-of-run summary */
   errorsByCode: Record<string, number>;
+  /** Number of files where at least one axis evaluator crashed */
+  degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
@@ -134,6 +136,7 @@ export function registerRunCommand(program: Command): void {
         totalCostUsd: 0,
         errorCount: 0,
         errorsByCode: {},
+        degradedReviews: 0,
         axisStats: {},
       };
 
@@ -610,6 +613,9 @@ async function runReviewPhase(
             completedCount++;
             ctx.totalFindings += countReviewFindings(result.review, 60);
             ctx.totalCostUsd += result.costUsd;
+            if (result.failedAxes.length > 0) {
+              ctx.degradedReviews++;
+            }
             for (const at of result.axisTiming) {
               const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 };
               s.calls++;
@@ -636,7 +642,7 @@ async function runReviewPhase(
 
             const message = error instanceof AnatolyError ? error.message : String(error);
             const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-            pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+            pm.updateFileStatus(filePath, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
             ctx.errorCount++;
             ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
             log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
@@ -768,6 +774,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
     findings: ctx.totalFindings,
     errors: ctx.errorCount,
     errorsByCode: ctx.errorsByCode,
+    degradedReviews: ctx.degradedReviews,
     costUsd: ctx.totalCostUsd,
     phaseDurations: ctx.phaseDurations,
     axisStats: ctx.axisStats,

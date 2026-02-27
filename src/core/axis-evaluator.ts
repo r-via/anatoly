@@ -129,9 +129,8 @@ export interface SingleTurnQueryResult<T> {
 }
 
 /**
- * Execute a single-turn LLM query (maxTurns: 1, no tools), validate the
- * response with a Zod schema, and retry once with Zod error feedback if
- * validation fails.
+ * Execute a single-turn LLM query (no tools), validate the response with a
+ * Zod schema, and retry once with Zod error feedback if validation fails.
  *
  * Shared by all axis evaluators to eliminate duplicated SDK boilerplate.
  */
@@ -187,7 +186,7 @@ export async function runSingleTurnQuery<T>(
 
   // --- Attempt 2: retry with Zod error feedback ---
   if (abortController.signal.aborted) {
-    throw new AnatolyError('Aborted before retry', ERROR_CODES.LLM_TIMEOUT, true);
+    throw new AnatolyError('Aborted before retry', ERROR_CODES.SDK_TIMEOUT, true);
   }
   transcriptLines.push(`\n## Retry: validation failed\n${v1.error}\n`);
 
@@ -250,10 +249,11 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       model,
       cwd: projectRoot,
       allowedTools: [],
+      disallowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'AskUserQuestion', 'Task'],
+      maxTurns: 1,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       abortController,
-      maxTurns: 2,
       persistSession: true,
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
@@ -280,21 +280,26 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
           durationMs = success.duration_ms ?? 0;
           sessionId = success.session_id;
 
-          // Aggregate token counts across all models
-          if (success.modelUsage) {
-            for (const mu of Object.values(success.modelUsage)) {
-              inputTokens += mu.inputTokens ?? 0;
-              outputTokens += mu.outputTokens ?? 0;
-              cacheReadTokens += mu.cacheReadInputTokens ?? 0;
-              cacheCreationTokens += mu.cacheCreationInputTokens ?? 0;
-            }
+          // Log SDK turn count for diagnostics
+          contextLogger().debug(
+            { model, numTurns: success.num_turns, usage: success.usage, modelUsage: success.modelUsage },
+            'SDK query result',
+          );
+
+          // Use cumulative usage (covers all turns) instead of per-model modelUsage
+          if (success.usage) {
+            const u = success.usage as Record<string, number>;
+            inputTokens += u.input_tokens ?? 0;
+            outputTokens += u.output_tokens ?? 0;
+            cacheReadTokens += u.cache_read_input_tokens ?? 0;
+            cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
           }
         } else {
           const errorResult = message as SDKResultError;
           const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
           throw new AnatolyError(
-            `Agent error [${errorResult.subtype}]: ${details}`,
-            ERROR_CODES.LLM_API_ERROR,
+            `Claude Code SDK error [${errorResult.subtype}]: ${details}`,
+            ERROR_CODES.SDK_ERROR,
             true,
           );
         }
@@ -309,8 +314,8 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       ? `\n--- partial transcript ---\n${transcriptLines.join('\n')}`
       : '';
     throw new AnatolyError(
-      `SDK query failed: ${rawMessage}${partial}`,
-      ERROR_CODES.LLM_API_ERROR,
+      `Claude Code SDK query failed: ${rawMessage}${partial}`,
+      ERROR_CODES.SDK_ERROR,
       true,
     );
   }
@@ -318,8 +323,8 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   // Guard: SDK completed without yielding a result message
   if (!sessionId) {
     throw new AnatolyError(
-      'Agent query completed without producing a result message',
-      ERROR_CODES.LLM_API_ERROR,
+      'Claude Code SDK query completed without producing a result message',
+      ERROR_CODES.SDK_ERROR,
       true,
     );
   }
@@ -337,7 +342,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       costUsd,
       durationMs,
     },
-    'LLM query complete',
+    'SDK query complete',
   );
 
   return { resultText, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, sessionId };

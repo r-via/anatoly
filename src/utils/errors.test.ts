@@ -18,12 +18,12 @@ describe('AnatolyError', () => {
 
   it('should create a recoverable error', () => {
     const err = new AnatolyError(
-      'LLM timeout after 180s',
-      ERROR_CODES.LLM_TIMEOUT,
+      'SDK timeout after 180s',
+      ERROR_CODES.SDK_TIMEOUT,
       true,
     );
     expect(err.recoverable).toBe(true);
-    expect(err.code).toBe('LLM_TIMEOUT');
+    expect(err.code).toBe('SDK_TIMEOUT');
   });
 
   it('should have all expected error codes', () => {
@@ -32,8 +32,8 @@ describe('AnatolyError', () => {
       CONFIG_NOT_FOUND: 'CONFIG_NOT_FOUND',
       FILE_NOT_FOUND: 'FILE_NOT_FOUND',
       LOCK_EXISTS: 'LOCK_EXISTS',
-      LLM_TIMEOUT: 'LLM_TIMEOUT',
-      LLM_API_ERROR: 'LLM_API_ERROR',
+      SDK_TIMEOUT: 'SDK_TIMEOUT',
+      SDK_ERROR: 'SDK_ERROR',
       ZOD_VALIDATION_FAILED: 'ZOD_VALIDATION_FAILED',
       TREE_SITTER_PARSE_ERROR: 'TREE_SITTER_PARSE_ERROR',
       WRITE_ERROR: 'WRITE_ERROR',
@@ -82,12 +82,12 @@ describe('AnatolyError', () => {
     it('should serialize AnatolyError with hint to structured object', () => {
       const err = new AnatolyError(
         'evaluation timed out after 180s',
-        ERROR_CODES.LLM_TIMEOUT,
+        ERROR_CODES.SDK_TIMEOUT,
         true,
       );
       const obj = err.toLogObject();
       expect(obj.errorMessage).toBe('evaluation timed out after 180s');
-      expect(obj.code).toBe('LLM_TIMEOUT');
+      expect(obj.code).toBe('SDK_TIMEOUT');
       expect(obj.recoverable).toBe(true);
       expect(obj.hint).toBe('try again — the file may be too large; consider splitting it');
       expect(obj.stack).toBeDefined();
@@ -113,7 +113,7 @@ describe('AnatolyError', () => {
     });
 
     it('should include stack trace from Error', () => {
-      const err = new AnatolyError('boom', ERROR_CODES.LLM_API_ERROR, true);
+      const err = new AnatolyError('boom', ERROR_CODES.SDK_ERROR, true);
       const obj = err.toLogObject();
       expect(typeof obj.stack).toBe('string');
       expect((obj.stack as string).length).toBeGreaterThan(0);
