@@ -252,7 +252,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       abortController,
-      maxTurns: 1,
+      maxTurns: 2,
       persistSession: true,
       ...(resumeSessionId ? { resume: resumeSessionId } : {}),
     },
