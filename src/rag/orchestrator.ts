@@ -8,6 +8,7 @@ import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagC
 import { embed, setEmbeddingLogger } from './embeddings.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
+import { getLogger } from '../utils/logger.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
@@ -123,6 +124,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
+  const log = getLogger();
+  log.debug(
+    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
+    'RAG index: filtering files',
+  );
+
   // Filter out files where all function cards are already cached for the current hash
   const tasksToIndex = tasksWithFunctions.filter((task) => {
     const fnSymbols = task.symbols.filter(
@@ -189,6 +196,17 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
 
   const stats = await store.stats();
+
+  log.debug(
+    {
+      cardsIndexed,
+      filesIndexed,
+      cached: tasksWithFunctions.length - tasksToIndex.length,
+      totalCards: stats.totalCards,
+      totalFiles: stats.totalFiles,
+    },
+    'RAG index summary',
+  );
 
   return {
     vectorStore: store,

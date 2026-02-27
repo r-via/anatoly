@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
+import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -117,6 +118,7 @@ Remember:
  *   - verdict is CLEAN but any symbol confidence < 70
  */
 export function needsDeliberation(review: ReviewFile): boolean {
+  const log = getLogger();
   const hasFindings = review.symbols.some(
     (s) =>
       s.correction === 'NEEDS_FIX' ||
@@ -125,20 +127,33 @@ export function needsDeliberation(review: ReviewFile): boolean {
       s.duplication === 'DUPLICATE' ||
       s.overengineering === 'OVER',
   );
-  if (hasFindings) return true;
+  if (hasFindings) {
+    log.debug({ file: review.file, reason: 'has-findings' }, 'deliberation needed');
+    return true;
+  }
 
   if (review.verdict === 'CLEAN') {
     const allHighConfidence = review.symbols.every((s) => s.confidence >= 95);
-    if (allHighConfidence) return false;
+    if (allHighConfidence) {
+      log.debug({ file: review.file, reason: 'clean-high-confidence' }, 'deliberation skipped');
+      return false;
+    }
 
     const anyLowConfidence = review.symbols.some((s) => s.confidence < 70);
-    if (anyLowConfidence) return true;
+    if (anyLowConfidence) {
+      log.debug({ file: review.file, reason: 'clean-low-confidence' }, 'deliberation needed');
+      return true;
+    }
   }
 
   // Non-CLEAN verdict always deliberates
-  if (review.verdict !== 'CLEAN') return true;
+  if (review.verdict !== 'CLEAN') {
+    log.debug({ file: review.file, reason: 'non-clean-verdict', verdict: review.verdict }, 'deliberation needed');
+    return true;
+  }
 
   // CLEAN with medium confidence (70-94): skip deliberation
+  log.debug({ file: review.file, reason: 'clean-medium-confidence' }, 'deliberation skipped');
   return false;
 }
 
@@ -200,6 +215,22 @@ export function applyDeliberation(
   // Recompute verdict from final symbols to ensure coherence
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
   const verdict = recomputeVerdict(symbols, deliberation.verdict);
+
+  const reclassified = deliberation.symbols.filter(
+    (s) => s.original.correction !== s.deliberated.correction,
+  ).length;
+
+  getLogger().debug(
+    {
+      file: review.file,
+      symbolsDeliberated: deliberation.symbols.length,
+      reclassified,
+      actionsRemoved: deliberation.removed_actions.length,
+      verdictBefore: review.verdict,
+      verdictAfter: verdict,
+    },
+    'deliberation applied',
+  );
 
   return {
     ...review,

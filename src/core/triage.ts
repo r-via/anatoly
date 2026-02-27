@@ -1,5 +1,6 @@
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
+import { getLogger } from '../utils/logger.js';
 
 export type TriageTier = 'skip' | 'evaluate';
 
@@ -31,26 +32,31 @@ function isBarrelExport(task: Task, source: string): boolean {
 export function triageFile(task: Task, source: string): TriageResult {
   const lineCount = source.split('\n').length;
   const symbols = task.symbols;
+  const log = getLogger();
 
   // --- Skip tier ---
 
   // Barrel export: 0 symbols, only re-export lines
   if (isBarrelExport(task, source)) {
+    log.debug({ file: task.file, tier: 'skip', reason: 'barrel-export' }, 'triage classification');
     return { tier: 'skip', reason: 'barrel-export' };
   }
 
   // Trivial: < 10 lines with 0-1 symbol
   if (lineCount < 10 && symbols.length <= 1) {
+    log.debug({ file: task.file, tier: 'skip', reason: 'trivial' }, 'triage classification');
     return { tier: 'skip', reason: 'trivial' };
   }
 
   // Type-only: all symbols are type or enum
   if (symbols.length > 0 && symbols.every((s) => TYPE_KINDS.has(s.kind))) {
+    log.debug({ file: task.file, tier: 'skip', reason: 'type-only' }, 'triage classification');
     return { tier: 'skip', reason: 'type-only' };
   }
 
   // Constants-only: all symbols are constants
   if (symbols.length > 0 && symbols.every((s) => CONSTANT_KINDS.has(s.kind))) {
+    log.debug({ file: task.file, tier: 'skip', reason: 'constants-only' }, 'triage classification');
     return { tier: 'skip', reason: 'constants-only' };
   }
 
@@ -58,10 +64,13 @@ export function triageFile(task: Task, source: string): TriageResult {
 
   // Internal: has symbols but none are exported
   if (symbols.length > 0 && !symbols.some((s) => s.exported)) {
+    log.debug({ file: task.file, tier: 'evaluate', reason: 'internal' }, 'triage classification');
     return { tier: 'evaluate', reason: 'internal' };
   }
 
-  return { tier: 'evaluate', reason: symbols.length < 3 ? 'simple' : 'complex' };
+  const reason = symbols.length < 3 ? 'simple' : 'complex';
+  log.debug({ file: task.file, tier: 'evaluate', reason }, 'triage classification');
+  return { tier: 'evaluate', reason };
 }
 
 /**

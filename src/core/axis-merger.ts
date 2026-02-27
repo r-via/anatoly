@@ -1,6 +1,7 @@
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile, SymbolReview, Action, BestPractices } from '../schemas/review.js';
 import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
+import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +49,18 @@ export function mergeAxisResults(
   const fileLevel = mergeFileLevels(results);
   const verdict = computeVerdict(symbols);
   const axisMeta = buildAxisMeta(results);
+
+  getLogger().debug(
+    {
+      file: task.file,
+      axesReceived: results.map((r) => r.axisId),
+      axesFailed: failedAxes,
+      symbols: symbols.length,
+      actions: actions.length,
+      verdict,
+    },
+    'axis merge complete',
+  );
 
   return {
     version: 2,

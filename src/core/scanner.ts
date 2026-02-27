@@ -9,6 +9,7 @@ import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { getGitTrackedFiles } from '../utils/git.js';
+import { getLogger } from '../utils/logger.js';
 
 const esmRequire = createRequire(import.meta.url);
 
@@ -183,7 +184,13 @@ export async function collectFiles(
     : files;
 
   // Deduplicate and sort for deterministic output
-  return [...new Set(filtered)].sort();
+  const result = [...new Set(filtered)].sort();
+  const excluded = files.length - result.length;
+  getLogger().debug(
+    { matched: files.length, excluded, final: result.length },
+    'collectFiles complete',
+  );
+  return result;
 }
 
 /**
@@ -316,6 +323,7 @@ export async function scanProject(
   const coverageMap = loadCoverage(projectRoot, config);
   let filesCached = 0;
   let filesNew = 0;
+  let astErrors = 0;
 
   for (const relPath of files) {
     const absPath = resolve(projectRoot, relPath);
@@ -340,7 +348,14 @@ export async function scanProject(
 
     // Parse and generate task
     const source = readFileSync(absPath, 'utf-8');
-    const symbols = await parseFile(relPath, source);
+    let symbols: SymbolInfo[];
+    try {
+      symbols = await parseFile(relPath, source);
+    } catch (err) {
+      getLogger().warn({ file: relPath, err }, 'AST parse error, skipping symbols');
+      symbols = [];
+      astErrors++;
+    }
 
     const task: Task = {
       version: 1,
@@ -371,6 +386,11 @@ export async function scanProject(
 
   // Write progress atomically
   atomicWriteJson(progressPath, progress);
+
+  getLogger().debug(
+    { filesScanned: files.length, filesCached, filesNew, astErrors },
+    'scan summary',
+  );
 
   return {
     filesScanned: files.length,

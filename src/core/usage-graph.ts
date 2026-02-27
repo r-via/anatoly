@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
+import { getLogger } from '../utils/logger.js';
 
 export interface UsageGraph {
   /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
@@ -201,6 +202,7 @@ export function buildUsageGraph(
   projectRoot: string,
   tasks: Task[],
 ): UsageGraph {
+  const startTime = Date.now();
   const usages = new Map<string, Set<string>>();
   const typeOnlyUsages = new Map<string, Set<string>>();
   const allExportsByFile = buildExportMap(tasks);
@@ -235,6 +237,31 @@ export function buildUsageGraph(
       set.add(imp.importerFile);
     }
   }
+
+  // Count orphan symbols (exported but never imported by any file)
+  let totalExports = 0;
+  let orphanCount = 0;
+  for (const [file, exports] of allExportsByFile) {
+    for (const sym of exports) {
+      totalExports++;
+      const key = `${sym}::${file}`;
+      if (!usages.has(key) && !typeOnlyUsages.has(key)) {
+        orphanCount++;
+      }
+    }
+  }
+
+  getLogger().debug(
+    {
+      files: tasks.length,
+      runtimeImports: usages.size,
+      typeImports: typeOnlyUsages.size,
+      totalExports,
+      orphanCount,
+      durationMs: Date.now() - startTime,
+    },
+    'usage graph built',
+  );
 
   return { usages, typeOnlyUsages };
 }

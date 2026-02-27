@@ -9,6 +9,7 @@ import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
+import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -322,6 +323,22 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       true,
     );
   }
+
+  const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
+  const cacheHitRate = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
+  getLogger().trace(
+    {
+      model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      cacheHitRate: Math.round(cacheHitRate * 100),
+      costUsd,
+      durationMs,
+    },
+    'LLM query complete',
+  );
 
   return { resultText, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, sessionId };
 }
