@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import chalk from 'chalk';
 import {
   registerScanCommand,
   registerEstimateCommand,
@@ -13,6 +14,11 @@ import {
   registerHookCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
+
+// Respect $NO_COLOR convention (https://no-color.org/)
+if ('NO_COLOR' in process.env) {
+  chalk.level = 0;
+}
 
 export function createProgram(): Command {
   const program = new Command()
