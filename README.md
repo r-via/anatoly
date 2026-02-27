@@ -37,7 +37,7 @@ Anatoly is the boss. He orchestrates the crew, dispatches each Pal on every file
 
 ## What is Anatoly?
 
-Anatoly runs a crew of six specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report -- the kind of deep review that would take a senior developer days, done in minutes.
+Anatoly runs a crew of six specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report -- the kind of deep review that would take a senior developer days, done in minutes... (or hours...).
 
 This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. For every file it reviews, six specialized axes evaluate every symbol independently -- then an optional Opus deliberation pass validates the merged results. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions across file boundaries, and cross-reference exports, imports, and test coverage, then it must **prove** each finding with evidence before reporting it.
 
@@ -240,6 +240,7 @@ src/
 │   ├── estimate.ts       # Token estimation
 │   ├── review.ts         # Run Claude agent reviews
 │   ├── report.ts         # Aggregate → report.md
+│   ├── review-display.ts # Review result display formatting
 │   ├── status.ts         # Show progress
 │   ├── rag-status.ts     # Inspect RAG index + function cards
 │   ├── clean-runs.ts     # Delete old runs (--keep, --yes)
@@ -262,6 +263,7 @@ src/
 │   ├── reporter.ts       # Sharded report: index + per-shard files + symbol tables
 │   ├── correction-memory.ts # Persistent false-positive memory
 │   ├── dependency-meta.ts # Dependency metadata + local README reader
+│   ├── badge.ts           # README badge injection/update
 │   ├── progress-manager.ts # Atomic state management
 │   └── worker-pool.ts    # Concurrent review pool + semaphore
 ├── schemas/              # Zod schemas (source of truth)
@@ -277,6 +279,8 @@ src/
 │   ├── card-generator.ts # FunctionCard generation via Haiku
 │   ├── orchestrator.ts   # Index pipeline orchestration
 │   └── index.ts          # Barrel export
+├── types/
+│   └── md.d.ts            # Type declarations for Markdown imports
 └── utils/                # Cross-cutting utilities
     ├── cache.ts           # SHA-256 + atomic writes
     ├── config-loader.ts   # YAML → typed Config
@@ -291,7 +295,6 @@ src/
     ├── logger.ts          # Centralized pino logger (singleton + factory)
     ├── open.ts            # Open file with system default app
     ├── process.ts         # Process utilities (signal handling)
-    ├── prompt-builder.ts  # Agent prompt construction
     ├── rate-limiter.ts    # Exponential backoff for API rate limits
     ├── run-id.ts          # Run ID generation + symlink + purge
     └── version.ts         # Package version detection
@@ -378,6 +381,10 @@ npx anatoly hook stop        # Stop hook: collect findings, block if issues
 --no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
 --no-triage          Disable triage, review all files with full agent
+--deliberation       Enable Opus deliberation pass after axis merge
+--no-deliberation    Disable deliberation pass (overrides config)
+--no-badge           Skip README badge injection after audit
+--badge-verdict      Include audit verdict in README badge
 --log-level <level>  Set log level (fatal, error, warn, info, debug, trace)
 --log-file <path>    Write logs to file in ndjson format
 ```
@@ -437,6 +444,7 @@ coverage:
 
 llm:
   model: "claude-sonnet-4-6"
+  index_model: "claude-haiku-4-5-20251001" # model for RAG card generation
   fast_model: "claude-haiku-4-5-20251001"  # optional: cheaper model for fast-tier reviews
   agentic_tools: true
   timeout_per_file: 600
