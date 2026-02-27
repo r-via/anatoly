@@ -18,6 +18,7 @@ export interface ReportData {
   cleanFiles: ReviewFile[];
   findingFiles: ReviewFile[];
   errorFiles: string[];
+  degradedFiles: ReviewFile[];
   counts: {
     dead: { high: number; medium: number; low: number };
     duplicate: { high: number; medium: number; low: number };
@@ -67,6 +68,16 @@ function hasActionableIssue(s: SymbolReview): boolean {
     s.duplication === 'DUPLICATE' ||
     s.overengineering === 'OVER'
   );
+}
+
+/** The sentinel substring injected by axis-merger when an axis crashes. */
+const CRASH_SENTINEL = 'axis crashed';
+
+/**
+ * Detect if a review has degraded results (one or more symbols with crash sentinels).
+ */
+function isDegradedReview(review: ReviewFile): boolean {
+  return review.symbols.some((s) => s.detail.includes(CRASH_SENTINEL));
 }
 
 /**
@@ -149,6 +160,7 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
   // Use computeFileVerdict for consistent verdict classification
   const cleanFiles = reviews.filter((r) => computeFileVerdict(r) === 'CLEAN');
   const findingFiles = reviews.filter((r) => computeFileVerdict(r) !== 'CLEAN');
+  const degradedFiles = reviews.filter((r) => isDegradedReview(r));
 
   return {
     reviews,
@@ -157,6 +169,7 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
     cleanFiles,
     findingFiles,
     errorFiles: errorFiles ?? [],
+    degradedFiles,
     counts,
     actions: allActions,
   };
@@ -244,6 +257,9 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   if (data.errorFiles.length > 0) {
     lines.push(`- **Files in error:** ${data.errorFiles.length}`);
   }
+  if (data.degradedFiles.length > 0) {
+    lines.push(`- **Degraded reviews (axis crashes):** ${data.degradedFiles.length}`);
+  }
   lines.push('');
 
   // Severity table
@@ -289,6 +305,18 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('');
     for (const f of data.errorFiles) {
       lines.push(`- \`${f}\``);
+    }
+    lines.push('');
+  }
+
+  // Degraded reviews (axis crashes produced incomplete results)
+  if (data.degradedFiles.length > 0) {
+    lines.push('## Degraded Reviews');
+    lines.push('');
+    lines.push('> One or more axis evaluators crashed for these files. Verdicts may be unreliable — re-run recommended.');
+    lines.push('');
+    for (const r of data.degradedFiles) {
+      lines.push(`- \`${r.file}\``);
     }
     lines.push('');
   }

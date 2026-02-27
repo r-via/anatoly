@@ -108,9 +108,15 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>)
     .filter((a): a is { id: AxisId; result: AxisSymbolResult } => a.result !== undefined)
     .map((a) => a.result.confidence);
 
+  // Detect when all symbol-level axes crashed (no real results but failures recorded)
+  const crashedSymbolAxes = axisResults.filter(
+    (a) => a.result === undefined && failedAxes.has(a.id),
+  ).length;
+  const allSymbolAxesFailed = confidences.length === 0 && crashedSymbolAxes > 0;
+
   const confidence = confidences.length > 0
     ? Math.min(...confidences)
-    : 80;
+    : allSymbolAxesFailed ? 0 : 80;
 
   // Build detail segments: include crash sentinels for failed axes
   const details: string[] = [];

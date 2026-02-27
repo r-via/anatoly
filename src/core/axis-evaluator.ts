@@ -267,36 +267,51 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   let cacheCreationTokens = 0;
   let sessionId = '';
 
-  for await (const message of q) {
-    transcriptLines.push(formatMessage(message));
+  try {
+    for await (const message of q) {
+      transcriptLines.push(formatMessage(message));
 
-    if (message.type === 'result') {
-      if (message.subtype === 'success') {
-        const success = message as SDKResultSuccess;
-        resultText = success.result;
-        costUsd = success.total_cost_usd ?? 0;
-        durationMs = success.duration_ms ?? 0;
-        sessionId = success.session_id;
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          const success = message as SDKResultSuccess;
+          resultText = success.result;
+          costUsd = success.total_cost_usd ?? 0;
+          durationMs = success.duration_ms ?? 0;
+          sessionId = success.session_id;
 
-        // Aggregate token counts across all models
-        if (success.modelUsage) {
-          for (const mu of Object.values(success.modelUsage)) {
-            inputTokens += mu.inputTokens ?? 0;
-            outputTokens += mu.outputTokens ?? 0;
-            cacheReadTokens += mu.cacheReadInputTokens ?? 0;
-            cacheCreationTokens += mu.cacheCreationInputTokens ?? 0;
+          // Aggregate token counts across all models
+          if (success.modelUsage) {
+            for (const mu of Object.values(success.modelUsage)) {
+              inputTokens += mu.inputTokens ?? 0;
+              outputTokens += mu.outputTokens ?? 0;
+              cacheReadTokens += mu.cacheReadInputTokens ?? 0;
+              cacheCreationTokens += mu.cacheCreationInputTokens ?? 0;
+            }
           }
+        } else {
+          const errorResult = message as SDKResultError;
+          const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
+          throw new AnatolyError(
+            `Agent error [${errorResult.subtype}]: ${details}`,
+            ERROR_CODES.LLM_API_ERROR,
+            true,
+          );
         }
-      } else {
-        const errorResult = message as SDKResultError;
-        const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
-        throw new AnatolyError(
-          `Agent error [${errorResult.subtype}]: ${details}`,
-          ERROR_CODES.LLM_API_ERROR,
-          true,
-        );
       }
     }
+  } catch (err) {
+    // Re-throw AnatolyErrors as-is (from the result handler above)
+    if (err instanceof AnatolyError) throw err;
+    // SDK-level error (e.g. subprocess crash, exit code 1) — attach partial transcript
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const partial = transcriptLines.length > 0
+      ? `\n--- partial transcript ---\n${transcriptLines.join('\n')}`
+      : '';
+    throw new AnatolyError(
+      `SDK query failed: ${rawMessage}${partial}`,
+      ERROR_CODES.LLM_API_ERROR,
+      true,
+    );
   }
 
   // Guard: SDK completed without yielding a result message

@@ -433,6 +433,47 @@ describe('renderIndex', () => {
   });
 });
 
+describe('degraded reviews', () => {
+  it('should detect degraded reviews with crash sentinels', () => {
+    const reviews = [
+      makeReview({
+        file: 'crashed.ts',
+        symbols: [makeSymbol({
+          confidence: 0,
+          detail: '[USED] *(axis crashed — see transcript)* | [OK] *(axis crashed — see transcript)*',
+        })],
+      }),
+      makeReview({ file: 'clean.ts' }),
+    ];
+    const data = aggregateReviews(reviews);
+    expect(data.degradedFiles).toHaveLength(1);
+    expect(data.degradedFiles[0].file).toBe('crashed.ts');
+  });
+
+  it('should show degraded reviews section in index', () => {
+    const reviews = [
+      makeReview({
+        file: 'crashed.ts',
+        symbols: [makeSymbol({
+          confidence: 0,
+          detail: '[USED] *(axis crashed — see transcript)*',
+        })],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const md = renderIndex(data, []);
+    expect(md).toContain('## Degraded Reviews');
+    expect(md).toContain('`crashed.ts`');
+    expect(md).toContain('**Degraded reviews (axis crashes):** 1');
+  });
+
+  it('should not show degraded section when no crashes', () => {
+    const data = aggregateReviews([makeReview()]);
+    const md = renderIndex(data, []);
+    expect(md).not.toContain('Degraded Reviews');
+  });
+});
+
 describe('renderShard', () => {
   it('should include findings table', () => {
     const reviews = [

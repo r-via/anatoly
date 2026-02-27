@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mergeAxisResults } from './axis-merger.js';
 import type { Task } from '../schemas/task.js';
-import type { AxisResult, AxisSymbolResult } from './axis-evaluator.js';
+import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
 import type { BestPractices } from '../schemas/review.js';
 
 // ---------------------------------------------------------------------------
@@ -259,6 +259,37 @@ describe('mergeAxisResults', () => {
     expect(review.verdict).toBe('CLEAN');
     expect(review.symbols[0].utility).toBe('USED');
     expect(review.symbols[0].correction).toBe('OK');
+  });
+
+  it('should set confidence to 0 when all symbol-level axes crashed', () => {
+    const failedAxes: AxisId[] = ['utility', 'duplication', 'correction', 'overengineering', 'tests'];
+    const review = mergeAxisResults(mockTask, [], undefined, failedAxes);
+
+    expect(review.symbols[0].confidence).toBe(0);
+    expect(review.symbols[1].confidence).toBe(0);
+    expect(review.verdict).toBe('CLEAN');
+    expect(review.symbols[0].detail).toContain('axis crashed');
+  });
+
+  it('should keep confidence 80 when no axes ran and none crashed', () => {
+    const review = mergeAxisResults(mockTask, []);
+
+    expect(review.symbols[0].confidence).toBe(80);
+  });
+
+  it('should use real min confidence when some axes succeed and some crash', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [
+        makeSymbol('doWork', { value: 'USED', confidence: 75 }),
+      ]),
+    ];
+    const failedAxes: AxisId[] = ['correction', 'tests', 'duplication', 'overengineering'];
+    const review = mergeAxisResults(mockTask, results, undefined, failedAxes);
+
+    // doWork has utility result with confidence 75
+    expect(review.symbols[0].confidence).toBe(75);
+    // Helper has no utility result → all axes failed for it → confidence 0
+    expect(review.symbols[1].confidence).toBe(0);
   });
 
   it('should include duplicate_target from duplication axis', () => {
