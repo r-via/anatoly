@@ -31,14 +31,15 @@ Anatoly is the boss. He orchestrates the crew, dispatches each Pal on every file
 | **The Bouncer** | `utility` | Kicks out dead code -- no invite, no entry |
 | **The Clone Hunter** | `duplication` | Tracks down copy-paste across file boundaries |
 | **The Guardian** | `tests` | Guards the gate -- no coverage, no mercy |
+| **The Coach** | `best_practices` | Scores every file against 17 TypeScript best-practice rules |
 
 ---
 
 ## What is Anatoly?
 
-Anatoly runs a crew of five specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report -- the kind of deep review that would take a senior developer days, done in minutes.
+Anatoly runs a crew of six specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report -- the kind of deep review that would take a senior developer days, done in minutes.
 
-This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. For every file it reviews, it can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions across file boundaries, and cross-reference exports, imports, and test coverage, then it must **prove** each finding with evidence before reporting it.
+This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. For every file it reviews, six specialized axes evaluate every symbol independently -- then an optional Opus deliberation pass validates the merged results. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions across file boundaries, and cross-reference exports, imports, and test coverage, then it must **prove** each finding with evidence before reporting it.
 
 The result: dead code found with zero false positives. Hidden duplication surfaced across file boundaries. Over-engineered abstractions called out with concrete proof. Missing test coverage quantified per symbol.
 
@@ -52,7 +53,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 ## How Anatoly Solves It
 
-Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** powered by Claude Agent SDK. The pipeline works in seven phases:
+Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** powered by Claude Agent SDK. The pipeline works in eight phases:
 
 1. **Scan**, Parses every file with tree-sitter to extract symbols (functions, classes, types, hooks, constants) with line ranges and export status
 2. **Estimate**, Counts tokens locally with tiktoken so you know the cost before any API call
@@ -60,7 +61,8 @@ Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** 
 4. **Usage Graph**, Pre-computes an import graph across all files in a single local pass (< 1s), so the agent no longer needs to grep for usage verification
 5. **Index**, Builds a semantic RAG index (local embeddings + LanceDB) to detect cross-file duplication invisible to grep
 6. **Review**, Launches a Claude agent per file with read-only tools (Glob, Grep, Read, findSimilarFunctions). Simple files get a fast single-turn review; complex files get the full agentic investigation. The agent must **prove** every finding before reporting it
-7. **Report**, Aggregates all Zod-validated reviews into a sharded audit report: compact index + per-shard detail files (max 10 files each), sorted by severity
+7. **Deliberate**, An optional Opus deliberation pass validates merged findings across axes, filters residual false positives, and ensures inter-axis coherence before the final report
+8. **Report**, Aggregates all Zod-validated reviews into a sharded audit report: compact index + per-shard detail files (max 10 files each), sorted by severity, with symbol-level detail tables
 
 ### Self-correction loop
 
@@ -79,7 +81,22 @@ Additionally, a **contradiction detector** cross-references correction findings 
 
 ### Crash-resilient axis pipeline
 
-Each of the 5 axes runs independently per file. If one axis crashes, the others continue. The merger injects **crash sentinels** for failed axes (visible in `.rev.md` as "axis crashed -- see transcript") and computes the final verdict from the surviving axes only.
+Each of the 6 axes runs independently per file. If one axis crashes, the others continue. The merger injects **crash sentinels** for failed axes (visible in `.rev.md` as "axis crashed -- see transcript") and computes the final verdict from the surviving axes only.
+
+### Opus deliberation pass
+
+After all axes merge their results, an optional **deliberation pass** powered by Claude Opus validates the combined findings. The deliberation agent acts as a senior auditor:
+
+1. **Coherence check** -- Verifies inter-axis findings make sense together (e.g., a function can't be both `DEAD` and `DUPLICATE`)
+2. **False-positive filter** -- Re-evaluates `NEEDS_FIX` and `ERROR` findings; downgrades incorrect ones to `OK` (ERROR requires >= 95 confidence to downgrade)
+3. **Confidence adjustment** -- Adjusts symbol confidences based on cross-axis evidence
+4. **Action cleanup** -- Removes actions tied to invalidated findings
+
+Enable with `llm.deliberation: true` in `.anatoly.yml`. Uses `claude-opus-4-6` by default (configurable via `llm.deliberation_model`). Skips files with high-confidence `CLEAN` verdicts to minimize cost.
+
+### Project tree context
+
+Axes that benefit from structural awareness (`best_practices`, `overengineering`) receive a compact ASCII tree of the project. The tree is automatically condensed to stay under 300 tokens, even on 500+ file projects, giving axes contextual understanding of project scope and organization.
 
 ### Claude Code autocorrection hook
 
@@ -101,7 +118,7 @@ Every finding is backed by evidence. Every review is schema-validated. The agent
 
 - **AST-driven scanning**,Uses web-tree-sitter (WASM) to extract every function, class, type, enum, constant, and hook with line ranges and export status
 - **Evidence-based review**,The Claude agent must grep/read to prove DEAD, DUPLICATE, or OVER findings,no guessing
-- **5-axis analysis**,Every symbol evaluated on: correction, overengineering, utility, duplication, and test coverage
+- **6-axis analysis**,Every symbol evaluated on: correction, overengineering, utility, duplication, test coverage, and best practices
 - **Smart triage**,Auto-classifies files into skip/fast/deep tiers; barrels, type-only, and constants skip the LLM entirely; simple files get a fast single-turn review
 - **Pre-computed usage graph**,Builds a full import graph in < 1s so the agent doesn't need to grep for usage verification,eliminating ~90 redundant tool calls per review
 - **Fast reviewer**,Single-turn `query()` for simple files (3-8s vs 45s), with automatic promotion to deep review on validation failure
@@ -111,13 +128,19 @@ Every finding is backed by evidence. Every review is schema-validated. The agent
 - **Token estimation**,Local tiktoken estimation before any API call (no surprise bills)
 - **RAG semantic duplication**,Local embeddings (Xenova/all-MiniLM-L6-v2) + LanceDB vector store detect cross-file semantic duplications invisible to grep
 - **Run-scoped outputs**,Each run is stored in `.anatoly/runs/<timestamp>/` with a `latest` symlink; old runs auto-purged via `output.max_runs`
-- **Watch mode**,Daemon that re-reviews changed files automatically
+- **Watch mode**,Daemon with initial scan, incremental re-review, automatic report regeneration, file deletion handling, and lock management
 - **Parallel reviews**,`--concurrency N` runs up to 10 reviews simultaneously with rate limiting and multi-file renderer
 - **CI-friendly**,Exit codes: `0` (clean), `1` (findings), `2` (error); `--yes` flag for non-interactive destructive commands
 - **Two-pass correction**,Verification pass re-checks findings against library READMEs from `node_modules/`, eliminating dependency-related false positives
 - **Correction memory**,Persistent `.anatoly/correction-memory.json` stores known false positives to avoid re-flagging across runs
 - **Contradiction detection**,Cross-references correction findings against best-practices results to suppress conflicting verdicts
 - **Crash-resilient axes**,Each axis runs independently; if one crashes the others continue with sentinel markers in the report
+- **Opus deliberation**,Optional post-merge validation pass (Claude Opus) filters residual false positives and ensures inter-axis coherence
+- **Project tree context**,Compact ASCII tree injected into axes that benefit from structural awareness (best practices, overengineering)
+- **Symbol-level reports**,Sharded reports include per-symbol detail tables showing each axis rating, confidence, and line ranges
+- **Real-time transcript streaming**,LLM reasoning streamed to disk as it happens; `tail -f` to follow evaluations live
+- **Verbose token tracking**,`--verbose` shows `[anatoly]`-prefixed logs with per-file token usage, cost, cache hit rates, and timing
+- **Markdown axis prompts**,System prompts for all 6 axes stored as editable Markdown files for transparency and customization
 - **Coverage integration**,Parses Istanbul/Vitest/Jest coverage data to enrich reviews
 - **Crash-resilient state**,Atomic state writes, lock files, and interrupted-run recovery
 - **Actionable errors**,Every error includes a recovery hint (`error: <message>\n  → <next step>`)
@@ -142,22 +165,25 @@ flowchart TD
         Triage["Triage<br/><small>skip / fast / deep</small>"]
         UsageGraph["Usage Graph<br/><small>import analysis (local)</small>"]
         Indexer["RAG Indexer<br/><small>Haiku + Xenova embeddings</small>"]
-        Reviewer["Reviewer<br/><small>Claude Agent SDK</small>"]
-        Reporter["Reporter<br/><small>index + shards</small>"]
+        Reviewer["Reviewer<br/><small>6-axis evaluators</small>"]
+        Reporter["Reporter<br/><small>index + shards + symbol tables</small>"]
 
         Scanner --> Estimator --> Triage --> UsageGraph --> Indexer --> Reviewer --> Reporter
     end
 
     subgraph ReviewLoop["Review Loop (per file, ×N concurrent)"]
-        FastReviewer["Fast Reviewer<br/><small>single-turn query()</small>"]
+        Axes["6 Axis Evaluators<br/><small>correction | utility | duplication<br/>overengineering | tests | best_practices</small>"]
         Agent["Claude Agent<br/><small>read-only tools</small>"]
         Tools["Glob | Grep | Read<br/>findSimilarFunctions"]
+        Merger["Axis Merger<br/><small>merge → verdict</small>"]
+        Deliberation["Deliberation<br/><small>Opus validation (optional)</small>"]
         Zod["Zod Validation"]
-        FastReviewer --> Zod
+        Axes --> Agent
         Agent <--> Tools
-        Agent --> Zod
+        Agent --> Merger
+        Merger --> Deliberation
+        Deliberation --> Zod
         Zod -- "errors → retry<br/>same session" --> Agent
-        FastReviewer -. "promote on failure" .-> Agent
     end
 
     subgraph Hook["Claude Code Hook (optional)"]
@@ -224,16 +250,22 @@ src/
 │   ├── estimator.ts      # tiktoken token counting
 │   ├── triage.ts         # File triage: skip / fast / deep classification
 │   ├── usage-graph.ts    # Pre-computed import usage graph
-│   ├── reviewer.ts       # Claude Agent SDK + Zod retry (deep reviews)
-│   ├── fast-reviewer.ts  # Single-turn reviewer for fast-tier files
+│   ├── axes/             # Per-axis evaluators
+│   │   ├── correction.ts, utility.ts, duplication.ts, ...
+│   │   └── prompts/      # Editable Markdown system prompts (1 per axis)
+│   ├── axis-evaluator.ts # Shared axis evaluation harness
+│   ├── axis-merger.ts    # Merges 6 axis results into a single review
+│   ├── file-evaluator.ts # Orchestrates axes + merge per file
+│   ├── deliberation.ts   # Opus deliberation pass (post-merge validation)
+│   ├── project-tree.ts   # Compact ASCII project tree for axis context
 │   ├── review-writer.ts  # Writes .rev.json + .rev.md
-│   ├── reporter.ts       # Sharded report: index + per-shard files
+│   ├── reporter.ts       # Sharded report: index + per-shard files + symbol tables
 │   ├── correction-memory.ts # Persistent false-positive memory
 │   ├── dependency-meta.ts # Dependency metadata + local README reader
 │   ├── progress-manager.ts # Atomic state management
 │   └── worker-pool.ts    # Concurrent review pool + semaphore
 ├── schemas/              # Zod schemas (source of truth)
-│   ├── review.ts         # 5-axis review schema
+│   ├── review.ts         # 6-axis review schema
 │   ├── task.ts           # AST task schema
 │   ├── config.ts         # Config file schema
 │   └── progress.ts       # Progress state schema
@@ -311,7 +343,7 @@ The `run` command executes the full pipeline: **scan** → **estimate** → **in
 ```bash
 npx anatoly run              # Full pipeline: scan → estimate → index → review → report
 npx anatoly run --run-id X   # Custom run ID (default: YYYY-MM-DD_HHmmss)
-npx anatoly watch            # Daemon mode: re-review on file change
+npx anatoly watch            # Daemon mode: initial scan + incremental re-review on change/delete
 npx anatoly scan             # Parse AST + compute SHA-256 hashes
 npx anatoly estimate         # Estimate token cost (local, no API calls)
 npx anatoly review           # Run Claude agent on pending files
@@ -366,6 +398,7 @@ Each reviewed file produces two outputs:
 | `utility` | `USED` / `DEAD` / `LOW_VALUE` |
 | `duplication` | `UNIQUE` / `DUPLICATE` |
 | `tests` | `GOOD` / `WEAK` / `NONE` |
+| `best_practices` | Score 0–10 (17 rules) + suggestions |
 | `confidence` | 0–100 |
 
 **`report.md`**,Sharded audit report:
@@ -405,6 +438,8 @@ llm:
   concurrency: 4            # parallel reviews (1-10, or use --concurrency flag)
   min_confidence: 70         # minimum confidence to report findings (hook mode)
   max_stop_iterations: 3     # anti-loop limit for stop hook
+  deliberation: true         # enable Opus deliberation pass (default: false)
+  deliberation_model: "claude-opus-4-6"  # model for deliberation (default: claude-opus-4-6)
 
 rag:
   enabled: true     # disable with --no-rag or set to false
