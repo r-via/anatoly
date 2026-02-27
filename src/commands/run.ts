@@ -55,6 +55,7 @@ interface RunContext {
   allTasks: Task[];
   /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
   triageMap: Map<string, TriageResult>;
+  deliberation: boolean;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -99,6 +100,9 @@ export function registerRunCommand(program: Command): void {
         rebuildRag: parentOpts.rebuildRag as boolean | undefined,
         shouldOpen: parentOpts.open as boolean | undefined,
         triageEnabled: parentOpts.triage !== false,
+        deliberation: parentOpts.deliberation !== undefined
+          ? parentOpts.deliberation as boolean
+          : config.llm.deliberation,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -199,6 +203,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           `concurrency ${ctx.concurrency}`,
           `rag ${ctx.enableRag ? 'on' : 'off'}`,
           `cache ${ctx.noCache ? 'off' : 'on'}`,
+          ...(ctx.deliberation ? [`deliberation ${shortModelName(ctx.config.llm.deliberation_model)}`] : []),
         ];
         if (ctx.fileFilter) parts.push(`filter ${ctx.fileFilter}`);
         parts.push(`run ${ctx.runId}`);
@@ -506,6 +511,7 @@ async function runReviewPhase(
                   ragEnabled: ragContext.ragEnabled,
                   depMeta,
                   projectTree,
+                  deliberation: ctx.deliberation,
                   onAxisComplete: (axisId) => {
                     const state = activeFiles.get(filePath);
                     if (state) {

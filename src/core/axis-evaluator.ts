@@ -93,6 +93,13 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
     : config.llm.model;
 }
 
+/**
+ * Resolve the model for the deliberation pass.
+ */
+export function resolveDeliberationModel(config: Config): string {
+  return config.llm.deliberation_model;
+}
+
 // ---------------------------------------------------------------------------
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------

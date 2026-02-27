@@ -6,6 +6,8 @@ import type { Config } from '../schemas/config.js';
 import type { AxisEvaluator, AxisResult } from './axis-evaluator.js';
 import { ConfigSchema } from '../schemas/config.js';
 import { readFileSync } from 'node:fs';
+import * as deliberationModule from './deliberation.js';
+import * as axisEvaluatorModule from './axis-evaluator.js';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(() => 'export function doWork() { return 42; }\n'),
@@ -170,5 +172,71 @@ describe('evaluateFile', () => {
 
     expect(result.review.best_practices).toBeDefined();
     expect(result.review.best_practices!.score).toBe(8);
+  });
+
+  it('should run deliberation when enabled and needsDeliberation returns true', async () => {
+    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(true);
+    const applySpy = vi.spyOn(deliberationModule, 'applyDeliberation').mockImplementation((review) => ({
+      ...review,
+      verdict: 'CLEAN',
+    }));
+    const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery').mockResolvedValue({
+      data: {
+        verdict: 'CLEAN',
+        symbols: [],
+        removed_actions: [],
+        reasoning: 'Everything looks fine after deliberation',
+      },
+      costUsd: 0.05,
+      durationMs: 2000,
+      transcript: '## Deliberation\n\nOpus output',
+    });
+
+    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
+    const opts = makeOptions({ config: deliberationConfig, deliberation: true });
+    const result = await evaluateFile(opts);
+
+    expect(needsSpy).toHaveBeenCalled();
+    expect(querySpy).toHaveBeenCalled();
+    expect(applySpy).toHaveBeenCalled();
+    expect(result.transcript).toContain('Deliberation Pass');
+    expect(result.costUsd).toBeGreaterThan(0.05);
+
+    needsSpy.mockRestore();
+    applySpy.mockRestore();
+    querySpy.mockRestore();
+  });
+
+  it('should skip deliberation when needsDeliberation returns false', async () => {
+    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(false);
+    const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery');
+
+    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
+    const opts = makeOptions({ config: deliberationConfig, deliberation: true });
+    const result = await evaluateFile(opts);
+
+    expect(needsSpy).toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(result.transcript).toContain('Deliberation Pass — SKIPPED');
+
+    needsSpy.mockRestore();
+    querySpy.mockRestore();
+  });
+
+  it('should handle deliberation failure gracefully', async () => {
+    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(true);
+    const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery').mockRejectedValue(new Error('Opus timeout'));
+
+    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
+    const opts = makeOptions({ config: deliberationConfig, deliberation: true });
+    const result = await evaluateFile(opts);
+
+    // Should still return a valid review (the pre-deliberation one)
+    expect(result.review.version).toBe(2);
+    expect(result.transcript).toContain('Deliberation Pass — FAILED');
+    expect(result.transcript).toContain('Opus timeout');
+
+    needsSpy.mockRestore();
+    querySpy.mockRestore();
   });
 });

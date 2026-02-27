@@ -29,7 +29,9 @@ export function createProgram(): Command {
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--open', 'open report in default app after generation')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
-    .option('--no-triage', 'disable triage, review all files with full agent');
+    .option('--no-triage', 'disable triage, review all files with full agent')
+    .option('--deliberation', 'enable Opus deliberation pass after axis merge')
+    .option('--no-deliberation', 'disable deliberation pass (overrides config)');
 
   registerScanCommand(program);
   registerEstimateCommand(program);

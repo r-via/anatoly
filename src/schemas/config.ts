@@ -54,6 +54,8 @@ export const LlmConfigSchema = z.object({
   concurrency: z.int().min(1).max(10).default(4),
   min_confidence: z.int().min(0).max(100).default(70),
   max_stop_iterations: z.int().min(1).max(10).default(3),
+  deliberation: z.boolean().default(false),
+  deliberation_model: z.string().default('claude-opus-4-6'),
   axes: AxesConfigSchema.default(defaultAxes),
 });
 
@@ -87,6 +89,8 @@ export const ConfigSchema = z.object({
     concurrency: 4,
     min_confidence: 70,
     max_stop_iterations: 3,
+    deliberation: false,
+    deliberation_model: 'claude-opus-4-6',
     axes: defaultAxes,
   }),
   rag: RagConfigSchema.default({

@@ -10,6 +10,14 @@ import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
 import { mergeAxisResults } from './axis-merger.js';
+import { resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
+import {
+  DeliberationResponseSchema,
+  buildDeliberationSystemPrompt,
+  buildDeliberationUserMessage,
+  needsDeliberation,
+  applyDeliberation,
+} from './deliberation.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +35,7 @@ export interface EvaluateFileOptions {
   ragEnabled?: boolean;
   depMeta?: DependencyMeta;
   projectTree?: string;
+  deliberation?: boolean;
   onAxisComplete?: (axisId: AxisId) => void;
 }
 
@@ -111,11 +120,40 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }
   }
 
-  const totalCost = successResults.reduce((sum, r) => sum + r.costUsd, 0);
+  let totalCost = successResults.reduce((sum, r) => sum + r.costUsd, 0);
+
+  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes);
+
+  // --- Deliberation pass (optional) ---
+  if (opts.deliberation && config.llm.deliberation) {
+    if (needsDeliberation(review)) {
+      try {
+        const deliberationModel = resolveDeliberationModel(config);
+        const deliberationResult = await runSingleTurnQuery(
+          {
+            systemPrompt: buildDeliberationSystemPrompt(),
+            userMessage: buildDeliberationUserMessage(review, fileContent),
+            model: deliberationModel,
+            projectRoot,
+            abortController,
+          },
+          DeliberationResponseSchema,
+        );
+
+        review = applyDeliberation(review, deliberationResult.data);
+        totalCost += deliberationResult.costUsd;
+        transcriptParts.push(`# Deliberation Pass\n\n${deliberationResult.transcript}\n`);
+      } catch (err) {
+        transcriptParts.push(`# Deliberation Pass — FAILED\n\n${String(err)}\n`);
+        process.stderr.write(`[warn] deliberation failed for ${task.file}: ${String(err)}\n`);
+      }
+    } else {
+      transcriptParts.push('# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n');
+    }
+  }
+
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
-
-  const review = mergeAxisResults(task, successResults, bestPractices, failedAxes);
 
   return { review, costUsd: totalCost, durationMs: totalDuration, transcript };
 }
