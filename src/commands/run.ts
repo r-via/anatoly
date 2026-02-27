@@ -31,6 +31,7 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { injectBadge } from '../core/badge.js';
 
 interface RunContext {
   projectRoot: string;
@@ -151,7 +152,22 @@ export function registerRunCommand(program: Command): void {
 
         releaseLock(ctx.lockPath);
         ctx.lockPath = undefined;
-        runReportPhase(ctx);
+        const reportData = runReportPhase(ctx);
+
+        // Badge injection — post-report
+        if (parentOpts.badge !== false && config.badge.enabled) {
+          const badgeResult = injectBadge({
+            projectRoot,
+            verdict: reportData.globalVerdict,
+            includeVerdict: (parentOpts.badgeVerdict as boolean | undefined) || config.badge.verdict,
+            link: config.badge.link,
+          });
+          if (badgeResult.injected) {
+            const verb = badgeResult.updated ? 'updated' : 'added';
+            const hint = badgeResult.updated ? '' : ' (disable with --no-badge)';
+            console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
+          }
+        }
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         if (error instanceof AnatolyError) {
@@ -551,7 +567,7 @@ async function runReviewPhase(
   await pm.flush();
 }
 
-function runReportPhase(ctx: RunContext): void {
+function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/review.js').Verdict } {
   const pm = new ProgressManager(ctx.projectRoot);
   const errorFiles: string[] = [];
   const progress = pm.getProgress();
@@ -601,4 +617,6 @@ function runReportPhase(ctx: RunContext): void {
   if (ctx.shouldOpen) openFile(reportPath);
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
+
+  return { globalVerdict: data.globalVerdict };
 }

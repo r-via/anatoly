@@ -61,6 +61,12 @@ export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+export const BadgeConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  verdict: z.boolean().default(false),
+  link: z.string().url().default('https://github.com/r-via/anatoly'),
+});
+
 export const OutputConfigSchema = z.object({
   max_runs: z.int().min(1).optional(),
 });
@@ -98,6 +104,11 @@ export const ConfigSchema = z.object({
   }),
   rag: RagConfigSchema.default({ enabled: true }),
   output: OutputConfigSchema.default({}),
+  badge: BadgeConfigSchema.default({
+    enabled: true,
+    verdict: false,
+    link: 'https://github.com/r-via/anatoly',
+  }),
 });
 
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;

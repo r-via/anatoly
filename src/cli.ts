@@ -37,7 +37,9 @@ export function createProgram(): Command {
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--no-triage', 'disable triage, review all files with full agent')
     .option('--deliberation', 'enable Opus deliberation pass after axis merge')
-    .option('--no-deliberation', 'disable deliberation pass (overrides config)');
+    .option('--no-deliberation', 'disable deliberation pass (overrides config)')
+    .option('--no-badge', 'skip README badge injection after audit')
+    .option('--badge-verdict', 'include audit verdict in README badge');
 
   registerScanCommand(program);
   registerEstimateCommand(program);
