@@ -255,17 +255,24 @@ function safeParseJsonArray(value: unknown): string[] {
   }
 }
 
+const VALID_BEHAVIORAL_PROFILES = new Set([
+  'pure', 'sideEffectful', 'async', 'memoized', 'stateful', 'utility',
+]);
+
 function rowToCard(row: Record<string, unknown>): FunctionCard {
+  const profile = String(row.behavioralProfile ?? 'utility');
   return {
-    id: row.id as string,
-    filePath: row.filePath as string,
-    name: row.name as string,
-    signature: row.signature as string,
-    summary: row.summary as string,
+    id: String(row.id ?? ''),
+    filePath: String(row.filePath ?? ''),
+    name: String(row.name ?? ''),
+    signature: String(row.signature ?? ''),
+    summary: String(row.summary ?? ''),
     keyConcepts: safeParseJsonArray(row.keyConcepts),
-    behavioralProfile: row.behavioralProfile as FunctionCard['behavioralProfile'],
-    complexityScore: row.complexityScore as number,
+    behavioralProfile: (VALID_BEHAVIORAL_PROFILES.has(profile)
+      ? profile
+      : 'utility') as FunctionCard['behavioralProfile'],
+    complexityScore: typeof row.complexityScore === 'number' ? row.complexityScore : 1,
     calledInternals: safeParseJsonArray(row.calledInternals),
-    lastIndexed: row.lastIndexed as string,
+    lastIndexed: String(row.lastIndexed ?? ''),
   };
 }

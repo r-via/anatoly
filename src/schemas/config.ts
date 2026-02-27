@@ -26,15 +26,6 @@ export const AxisConfigSchema = z.object({
   model: z.string().optional(),
 });
 
-const defaultAxes = {
-  utility: { enabled: true },
-  duplication: { enabled: true },
-  correction: { enabled: true },
-  overengineering: { enabled: true },
-  tests: { enabled: true },
-  best_practices: { enabled: true },
-};
-
 export const AxesConfigSchema = z.object({
   utility: AxisConfigSchema.default({ enabled: true }),
   duplication: AxisConfigSchema.default({ enabled: true }),
@@ -56,7 +47,14 @@ export const LlmConfigSchema = z.object({
   max_stop_iterations: z.int().min(1).max(10).default(3),
   deliberation: z.boolean().default(false),
   deliberation_model: z.string().default('claude-opus-4-6'),
-  axes: AxesConfigSchema.default(defaultAxes),
+  axes: AxesConfigSchema.default({
+    utility: { enabled: true },
+    duplication: { enabled: true },
+    correction: { enabled: true },
+    overengineering: { enabled: true },
+    tests: { enabled: true },
+    best_practices: { enabled: true },
+  }),
 });
 
 export const RagConfigSchema = z.object({
@@ -68,9 +66,7 @@ export const OutputConfigSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
-  project: ProjectConfigSchema.default({
-    monorepo: false,
-  }),
+  project: ProjectConfigSchema.default({ monorepo: false }),
   scan: ScanConfigSchema.default({
     include: ['src/**/*.ts', 'src/**/*.tsx'],
     exclude: ['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts'],
@@ -91,11 +87,16 @@ export const ConfigSchema = z.object({
     max_stop_iterations: 3,
     deliberation: false,
     deliberation_model: 'claude-opus-4-6',
-    axes: defaultAxes,
+    axes: {
+      utility: { enabled: true },
+      duplication: { enabled: true },
+      correction: { enabled: true },
+      overengineering: { enabled: true },
+      tests: { enabled: true },
+      best_practices: { enabled: true },
+    },
   }),
-  rag: RagConfigSchema.default({
-    enabled: true,
-  }),
+  rag: RagConfigSchema.default({ enabled: true }),
   output: OutputConfigSchema.default({}),
 });
 

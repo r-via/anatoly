@@ -4,7 +4,6 @@ import {
   verdictColor,
   formatCounterRow,
   formatResultLine,
-  truncatePath,
   type Counters,
 } from './format.js';
 
@@ -93,28 +92,3 @@ describe('formatResultLine', () => {
   });
 });
 
-describe('truncatePath', () => {
-  it('should return path unchanged when shorter than maxLen', () => {
-    expect(truncatePath('src/foo.ts', 50)).toBe('src/foo.ts');
-  });
-
-  it('should truncate long paths with ellipsis', () => {
-    const long = 'src/very/deep/nested/directory/structure/file.ts';
-    const result = truncatePath(long, 30);
-    expect(result.length).toBeLessThanOrEqual(30);
-    expect(result).toContain('...');
-  });
-
-  it('should handle paths with only two segments', () => {
-    const result = truncatePath('a/' + 'x'.repeat(30), 20);
-    expect(result.length).toBeLessThanOrEqual(20);
-    expect(result).toContain('...');
-  });
-
-  it('should keep first and last segments when possible', () => {
-    const result = truncatePath('src/components/features/dashboard/widgets/file.ts', 30);
-    expect(result).toContain('src');
-    expect(result).toContain('file.ts');
-    expect(result).toContain('...');
-  });
-});

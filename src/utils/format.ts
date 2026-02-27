@@ -93,18 +93,3 @@ export function formatTokenSummary(
   return parts.join(' / ');
 }
 
-/**
- * Truncate a file path to fit within maxLen characters.
- */
-export function truncatePath(filePath: string, maxLen: number): string {
-  if (filePath.length <= maxLen) return filePath;
-  const parts = filePath.split('/');
-  if (parts.length <= 2) return '...' + filePath.slice(filePath.length - maxLen + 3);
-  // Keep first and last parts, replace middle with ...
-  const first = parts[0];
-  const last = parts[parts.length - 1];
-  const secondLast = parts[parts.length - 2];
-  const result = `${first}/.../${secondLast}/${last}`;
-  if (result.length <= maxLen) return result;
-  return '...' + filePath.slice(filePath.length - maxLen + 3);
-}
