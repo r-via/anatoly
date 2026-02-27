@@ -26,6 +26,7 @@ export interface EvaluateFileOptions {
   vectorStore?: VectorStore;
   ragEnabled?: boolean;
   depMeta?: DependencyMeta;
+  projectTree?: string;
   onAxisComplete?: (axisId: AxisId) => void;
 }
 
@@ -68,6 +69,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     usageGraph,
     preResolvedRag,
     fileDeps,
+    projectTree: opts.projectTree,
   };
 
   const startTime = Date.now();

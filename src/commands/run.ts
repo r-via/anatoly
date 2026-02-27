@@ -27,6 +27,7 @@ import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
+import { buildProjectTree } from '../core/project-tree.js';
 
 interface RunContext {
   projectRoot: string;
@@ -131,7 +132,7 @@ export function registerRunCommand(program: Command): void {
         const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
-        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta);
+        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree);
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
@@ -176,6 +177,7 @@ interface SetupResult {
   triageMap: Map<string, TriageResult>;
   usageGraph?: UsageGraph;
   depMeta?: DependencyMeta;
+  projectTree?: string;
 }
 
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
@@ -186,6 +188,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let usageGraph: UsageGraph | undefined;
   let depMeta: DependencyMeta | undefined;
   let allTasks: Task[] = [];
+  let projectTree: string | undefined;
 
   const setupRunner = new Listr([
     {
@@ -278,6 +281,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       title: 'usage graph',
       task: (_c: unknown, listrTask: { title: string }) => {
         usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
+        projectTree = buildProjectTree(allTasks.map((t) => t.file));
         listrTask.title = `usage graph \u2014 ${usageGraph.usages.size} edges`;
       },
     },
@@ -292,7 +296,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.allTasks = allTasks;
   ctx.triageMap = triageMap;
 
-  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta };
+  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree };
 }
 
 interface RagContext {
@@ -351,6 +355,7 @@ async function runReviewPhase(
   usageGraph: UsageGraph | undefined,
   ragContext: RagContext,
   depMeta?: DependencyMeta,
+  projectTree?: string,
 ): Promise<void> {
   const pm = new ProgressManager(ctx.projectRoot);
 
@@ -500,6 +505,7 @@ async function runReviewPhase(
                   vectorStore: ragContext.vectorStore,
                   ragEnabled: ragContext.ragEnabled,
                   depMeta,
+                  projectTree,
                   onAxisComplete: (axisId) => {
                     const state = activeFiles.get(filePath);
                     if (state) {

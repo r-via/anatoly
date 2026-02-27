@@ -44,6 +44,7 @@ export interface AxisContext {
   usageGraph?: UsageGraph;
   preResolvedRag?: PreResolvedRag;
   fileDeps?: FileDependencyContext;
+  projectTree?: string;
 }
 
 export interface AxisSymbolResult {

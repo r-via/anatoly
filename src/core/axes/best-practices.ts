@@ -174,6 +174,17 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
     parts.push('');
   }
 
+  if (ctx.projectTree) {
+    parts.push('## Project Structure');
+    parts.push('');
+    parts.push('```');
+    parts.push(ctx.projectTree);
+    parts.push('```');
+    parts.push('');
+    parts.push('Use the project structure above to evaluate rule 11 (import organization) and detect file placement inconsistencies. If the file is in an unexpected directory given the project conventions, flag it as WARN for the most relevant rule.');
+    parts.push('');
+  }
+
   parts.push('Evaluate all 17 rules and output the JSON.');
 
   return parts.join('\n');

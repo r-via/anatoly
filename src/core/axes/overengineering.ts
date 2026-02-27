@@ -78,6 +78,21 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
+  if (ctx.projectTree) {
+    parts.push('## Project Structure');
+    parts.push('');
+    parts.push('```');
+    parts.push(ctx.projectTree);
+    parts.push('```');
+    parts.push('');
+    parts.push('Use the project structure to detect excessive fragmentation:');
+    parts.push('- Directory with only 1 file → potential fragmentation');
+    parts.push('- More than 5 nesting levels → excessive structural complexity');
+    parts.push('- Factory/adapter directories with ≤ 2 files → likely over-engineering');
+    parts.push('These heuristics may increase a symbol\'s rating from LEAN to OVER.');
+    parts.push('');
+  }
+
   parts.push('Evaluate the complexity of each symbol and output the JSON.');
 
   return parts.join('\n');
