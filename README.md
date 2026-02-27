@@ -503,3 +503,7 @@ Please follow the existing code style and ensure all CI checks pass.
 
 - Issues: [github.com/r-via/anatoly/issues](https://github.com/r-via/anatoly/issues)
 - Repository: [github.com/r-via/anatoly](https://github.com/r-via/anatoly)
+
+<!-- checked-by-anatoly -->
+[![Checked by Anatoly](https://img.shields.io/badge/checked%20by-Anatoly-blue)](https://github.com/r-via/anatoly)
+<!-- /checked-by-anatoly -->
