@@ -54,4 +54,17 @@ export class AnatolyError extends Error {
     }
     return lines.join('\n');
   }
+
+  /**
+   * Serialize to a structured object suitable for pino log fields.
+   * Keeps `msg`, `code`, `recoverable`, and `hint` as top-level fields.
+   */
+  toLogObject(): Record<string, unknown> {
+    return {
+      msg: this.message,
+      code: this.code,
+      recoverable: this.recoverable,
+      ...(this.hint ? { hint: this.hint } : {}),
+    };
+  }
 }

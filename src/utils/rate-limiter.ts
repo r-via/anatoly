@@ -1,4 +1,5 @@
 import { AnatolyError, ERROR_CODES } from './errors.js';
+import { getLogger } from './logger.js';
 
 export interface RetryWithBackoffOptions {
   /** Maximum number of retries on rate limit errors. */
@@ -69,6 +70,10 @@ export async function retryWithBackoff<T>(
       if (!isRateLimitError(error) || attempt === maxRetries) {
         // Not a rate limit error or exhausted retries
         if (isRateLimitError(error) && attempt === maxRetries) {
+          getLogger().warn(
+            { file: filePath, attempts: maxRetries },
+            'rate limit retries exhausted',
+          );
           throw new AnatolyError(
             `Rate limit exceeded after ${maxRetries} retries for ${filePath}`,
             ERROR_CODES.LLM_API_ERROR,
@@ -80,6 +85,10 @@ export async function retryWithBackoff<T>(
       }
 
       const delayMs = calculateBackoff(attempt, baseDelayMs, maxDelayMs, jitterFactor);
+      getLogger().debug(
+        { file: filePath, attempt: attempt + 1, maxRetries, delayMs },
+        'rate limited, retrying',
+      );
       onRetry?.(attempt + 1, delayMs, filePath);
       await sleep(delayMs, isInterrupted);
 

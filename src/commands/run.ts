@@ -68,6 +68,8 @@ interface RunContext {
   totalCostUsd: number;
   /** Error count for error summary */
   errorCount: number;
+  /** Errors aggregated by code for end-of-run summary */
+  errorsByCode: Record<string, number>;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -127,6 +129,7 @@ export function registerRunCommand(program: Command): void {
         phaseDurations: {},
         totalCostUsd: 0,
         errorCount: 0,
+        errorsByCode: {},
       };
 
       const onSigint = () => {
@@ -586,6 +589,7 @@ async function runReviewPhase(
             const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
             pm.updateFileStatus(filePath, errorCode === 'LLM_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
             ctx.errorCount++;
+            ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
             log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
             completedCount++;
           } finally {
@@ -685,6 +689,11 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
     errors: ctx.errorCount,
   }, 'run completed');
 
+  // Log error summary by code (if any errors occurred)
+  if (ctx.errorCount > 0) {
+    log.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
+  }
+
   // Write run-metrics.json
   const metrics = {
     runId: ctx.runId,
@@ -692,6 +701,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
     filesReviewed: ctx.filesReviewed,
     findings: ctx.totalFindings,
     errors: ctx.errorCount,
+    errorsByCode: ctx.errorsByCode,
     costUsd: ctx.totalCostUsd,
     phaseDurations: ctx.phaseDurations,
   };
