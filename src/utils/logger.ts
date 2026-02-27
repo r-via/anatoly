@@ -1,4 +1,6 @@
 import pino from 'pino';
+import { createWriteStream, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -110,6 +112,17 @@ export function getLogger(): Logger {
     _instance = createLogger();
   }
   return _instance;
+}
+
+/**
+ * Create a standalone file logger that writes ndjson to a specific path.
+ * Used for per-run log files (e.g. `.anatoly/runs/<runId>/anatoly.ndjson`).
+ * Always writes at debug level regardless of the console logger's level.
+ */
+export function createFileLogger(filePath: string): Logger {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const dest = pino.destination({ dest: filePath, sync: false });
+  return pino({ level: 'debug' }, dest);
 }
 
 /**

@@ -19,7 +19,7 @@ import { EMBEDDING_MODEL } from '../rag/embeddings.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { formatTokenSummary } from '../utils/format.js';
-import { getLogger } from '../utils/logger.js';
+import { getLogger, createFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
@@ -70,6 +70,8 @@ interface RunContext {
   errorCount: number;
   /** Errors aggregated by code for end-of-run summary */
   errorsByCode: Record<string, number>;
+  /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
+  runLog?: import('../utils/logger.js').Logger;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -131,6 +133,11 @@ export function registerRunCommand(program: Command): void {
         errorCount: 0,
         errorsByCode: {},
       };
+
+      // Create per-run ndjson log file at debug level
+      const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
+      ctx.runLog = createFileLogger(runLogPath);
+      ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
 
       const onSigint = () => {
         if (ctx.interrupted) {
@@ -572,7 +579,7 @@ async function runReviewPhase(
             completedCount++;
             ctx.totalFindings += countReviewFindings(result.review, 60);
             ctx.totalCostUsd += result.costUsd;
-            log.debug({
+            const reviewFields = {
               file: filePath,
               verdict: result.review.verdict,
               costUsd: result.costUsd,
@@ -581,7 +588,9 @@ async function runReviewPhase(
               outputTokens: result.outputTokens,
               cacheReadTokens: result.cacheReadTokens,
               cacheCreationTokens: result.cacheCreationTokens,
-            }, 'file review completed');
+            };
+            log.debug(reviewFields, 'file review completed');
+            ctx.runLog?.debug(reviewFields, 'file review completed');
           } catch (error) {
             if (ctx.interrupted) return;
 
@@ -591,6 +600,7 @@ async function runReviewPhase(
             ctx.errorCount++;
             ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
             log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
+            ctx.runLog?.error({ file: filePath, code: errorCode, message }, 'file review failed');
             completedCount++;
           } finally {
             ctx.activeAborts.delete(currentAbort);
@@ -673,6 +683,7 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   console.log(`  report       ${chalk.cyan(reportPath)}`);
   console.log(`  reviews      ${chalk.cyan(resolve(ctx.runDir, 'reviews') + '/')}`);
   console.log(`  transcripts  ${chalk.cyan(resolve(ctx.runDir, 'logs') + '/')}`);
+  console.log(`  log          ${chalk.cyan(resolve(ctx.runDir, 'anatoly.ndjson'))}`);
 
   if (ctx.shouldOpen) openFile(reportPath);
 
@@ -693,6 +704,14 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   if (ctx.errorCount > 0) {
     log.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
   }
+
+  // Write run summary to per-run log file
+  ctx.runLog?.info({
+    runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
+    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
+    errors: ctx.errorCount, errorsByCode: ctx.errorsByCode,
+    phaseDurations: ctx.phaseDurations,
+  }, 'run completed');
 
   // Write run-metrics.json
   const metrics = {
