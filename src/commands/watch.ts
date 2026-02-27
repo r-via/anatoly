@@ -1,16 +1,18 @@
 import type { Command } from 'commander';
 import { resolve, relative } from 'node:path';
-import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { watch } from 'chokidar';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
-import { parseFile } from '../core/scanner.js';
+import { scanProject, parseFile } from '../core/scanner.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { writeReviewOutput } from '../core/review-writer.js';
+import { generateReport } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { isGitIgnored } from '../utils/git.js';
+import { acquireLock, releaseLock } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 
@@ -30,13 +32,38 @@ export function registerWatchCommand(program: Command): void {
       mkdirSync(tasksDir, { recursive: true });
       mkdirSync(resolve(anatolyDir, 'cache'), { recursive: true });
 
+      // Acquire lock to prevent conflicts with concurrent anatoly instances
+      const lockPath = acquireLock(projectRoot);
+
       console.log(chalk.bold('anatoly — watch'));
       console.log(`  watching ${config.scan.include.join(', ')}`);
       console.log(`  press Ctrl+C to stop`);
       console.log('');
 
+      // Initial scan on startup — index all matching files before watching
+      const scanResult = await scanProject(projectRoot, config);
+      console.log(`  ${chalk.cyan('initial scan')} ${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)`);
+      console.log('');
+
       let processing = false;
       const queue: string[] = [];
+
+      const regenerateReport = () => {
+        try {
+          const errorFiles: string[] = [];
+          const progress = readProgress(progressPath);
+          if (progress) {
+            for (const [, fp] of Object.entries(progress.files)) {
+              if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') {
+                errorFiles.push(fp.file);
+              }
+            }
+          }
+          generateReport(projectRoot, errorFiles);
+        } catch {
+          // Report generation is best-effort in watch mode
+        }
+      };
 
       const watcher = watch(config.scan.include, {
         cwd: projectRoot,
@@ -47,7 +74,7 @@ export function registerWatchCommand(program: Command): void {
 
       const processFile = async (relPath: string) => {
         const absPath = resolve(projectRoot, relPath);
-        if (!existsSync(absPath)) return; // File deleted
+        if (!existsSync(absPath)) return; // File deleted — handled by unlink
 
         try {
           // Re-scan: hash + parse AST
@@ -106,6 +133,9 @@ export function registerWatchCommand(program: Command): void {
           atomicWriteJson(progressPath, progress);
 
           console.log(`  ${chalk.green('reviewed')} ${relPath} → ${result.review.verdict}`);
+
+          // Regenerate report after each successful review
+          regenerateReport();
         } catch (error) {
           const message = error instanceof AnatolyError ? error.message : String(error);
 
@@ -130,6 +160,39 @@ export function registerWatchCommand(program: Command): void {
             console.log(`  ${chalk.red('error')} ${relPath}: ${message}`);
           }
         }
+      };
+
+      const handleUnlink = (filePath: string) => {
+        const relPath = relative(projectRoot, resolve(projectRoot, filePath));
+
+        // Remove task file
+        const taskFileName = `${toOutputName(relPath)}.task.json`;
+        const taskPath = resolve(tasksDir, taskFileName);
+        try {
+          if (existsSync(taskPath)) unlinkSync(taskPath);
+        } catch {
+          // Already gone
+        }
+
+        // Remove review file
+        const reviewPath = resolve(anatolyDir, 'reviews', `${toOutputName(relPath)}.rev.json`);
+        try {
+          if (existsSync(reviewPath)) unlinkSync(reviewPath);
+        } catch {
+          // Already gone
+        }
+
+        // Update progress: remove the file entry
+        const progress = readProgress(progressPath);
+        if (progress && progress.files[relPath]) {
+          delete progress.files[relPath];
+          atomicWriteJson(progressPath, progress);
+        }
+
+        console.log(`  ${chalk.yellow('deleted')} ${relPath}`);
+
+        // Regenerate report to reflect deletion
+        regenerateReport();
       };
 
       const processQueue = async () => {
@@ -161,12 +224,14 @@ export function registerWatchCommand(program: Command): void {
 
       watcher.on('change', onFileChange);
       watcher.on('add', onFileChange);
+      watcher.on('unlink', handleUnlink);
 
-      // Graceful shutdown
+      // Graceful shutdown — release lock
       const onSigint = () => {
         console.log('');
-        console.log(`${chalk.yellow.bold('⚠ shutting down…')} closing watcher`);
+        console.log(`${chalk.yellow.bold('shutting down')} closing watcher`);
         watcher.close();
+        releaseLock(lockPath);
         process.exit(0);
       };
       process.on('SIGINT', onSigint);
