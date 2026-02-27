@@ -7,8 +7,8 @@ Evaluate whether each symbol is UNIQUE or a DUPLICATE of another function in the
 ## Rules
 
 1. Use the RAG Similarity results provided. This data comes from a code-to-code semantic vector search using a code embedding model. The candidate source code is provided for direct comparison.
-2. Score >= 0.85 with matching logic/behavior in the source code = DUPLICATE (confidence: 90+).
-3. Score >= 0.75 but different logic when comparing the actual code = UNIQUE (note similarity in detail).
+2. Score >= 0.82 with matching logic/behavior in the source code = DUPLICATE (confidence: 90+).
+3. Score >= 0.68 but different logic when comparing the actual code = UNIQUE (note similarity in detail).
 4. No similar functions found = UNIQUE (confidence: 95).
 5. If DUPLICATE, you MUST provide duplicate_target with file, symbol, and similarity description.
 6. Compare the actual source code of both functions — do not rely solely on names or signatures.

@@ -124,7 +124,7 @@ export class VectorStore {
   async search(
     queryEmbedding: number[],
     limit: number = 8,
-    minScore: number = 0.78,
+    minScore: number = 0.75,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
 
@@ -145,7 +145,7 @@ export class VectorStore {
   async searchById(
     functionId: string,
     limit: number = 8,
-    minScore: number = 0.78,
+    minScore: number = 0.75,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
 
