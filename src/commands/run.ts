@@ -30,6 +30,7 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
+import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 
 interface RunContext {
   projectRoot: string;
@@ -407,48 +408,8 @@ async function runReviewPhase(
     .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
 
   const evaluators = getEnabledEvaluators(ctx.config);
-  const axisIds = evaluators.map((e) => e.id);
   const total = reviewItems.length;
-
-  // Track active files for compact display (only in-flight files visible)
-  const activeFiles = new Map<string, { axes: Set<string>; retryMsg?: string }>();
-
-  const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
-  let spinFrame = 0;
-
-  const AXIS_LABELS: Record<string, string> = {
-    utility: 'utility',
-    duplication: 'duplication',
-    overengineering: 'overengineering',
-    tests: 'tests',
-    correction: 'correction',
-    best_practices: 'best practices',
-  };
-
-  function formatAxes(done: Set<string>): string {
-    const frame = SPINNER[spinFrame % SPINNER.length];
-    return axisIds.map((id) => {
-      const label = AXIS_LABELS[id] ?? id;
-      return done.has(id) ? `${chalk.green('[x]')} ${label}` : `[${chalk.yellow(frame)}] ${label}`;
-    }).join(' ');
-  }
-
-  function emitActiveFiles(listrTask: { output: string }): void {
-    spinFrame++;
-    const marker = chalk.yellow('\u25cf');
-    const files = [...activeFiles.entries()];
-    const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
-    const lines: string[] = [];
-    for (const [file, state] of files) {
-      const padded = file.padEnd(maxLen);
-      if (state.retryMsg) {
-        lines.push(`${marker} ${padded}  ${state.retryMsg}`);
-      } else {
-        lines.push(`${marker} ${padded}  ${formatAxes(state.axes)}`);
-      }
-    }
-    listrTask.output = lines.join('\n');
-  }
+  const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
 
   const reviewRunner = new Listr([{
     title: `review — 0/${total}`,
@@ -462,7 +423,7 @@ async function runReviewPhase(
 
       // Animate spinner while files are being processed
       const spinInterval = setInterval(() => {
-        if (activeFiles.size > 0) emitActiveFiles(listrTask);
+        if (display.hasActiveFiles) listrTask.output = display.render();
       }, 80);
 
       try {
@@ -489,7 +450,7 @@ async function runReviewPhase(
 
           // Evaluate tier: run all axis evaluators in parallel
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
-          activeFiles.set(filePath, { axes: new Set() });
+          display.trackFile(filePath);
 
           let currentAbort = new AbortController();
           ctx.activeAborts.add(currentAbort);
@@ -522,11 +483,7 @@ async function runReviewPhase(
                   projectTree,
                   deliberation: ctx.deliberation,
                   onAxisComplete: (axisId) => {
-                    const state = activeFiles.get(filePath);
-                    if (state) {
-                      state.retryMsg = undefined;
-                      state.axes.add(axisId);
-                    }
+                    display.markAxisDone(filePath, axisId);
                   },
                   onTranscriptChunk: (chunk) => {
                     appendFileSync(logPath, chunk);
@@ -543,8 +500,7 @@ async function runReviewPhase(
                 onRetry: (attempt, delayMs) => {
                   if (!ctx.verbose) return;
                   const delaySec = (delayMs / 1000).toFixed(0);
-                  const state = activeFiles.get(filePath);
-                  if (state) state.retryMsg = `retrying in ${delaySec}s (${attempt}/5)`;
+                  display.setRetryMessage(filePath, `retrying in ${delaySec}s (${attempt}/5)`);
                   verboseLog(`rate limit ${filePath} — retrying in ${delaySec}s (${attempt}/5)`);
                 },
               },
@@ -556,7 +512,7 @@ async function runReviewPhase(
             ctx.filesReviewed++;
             ctx.reviewCounts.evaluated++;
             completedCount++;
-            countFindings(ctx, result.review);
+            ctx.totalFindings += countReviewFindings(result.review, 60);
             if (ctx.verbose) {
               const tokenInfo = formatTokenSummary(
                 result.inputTokens, result.outputTokens,
@@ -573,7 +529,7 @@ async function runReviewPhase(
             completedCount++;
           } finally {
             ctx.activeAborts.delete(currentAbort);
-            activeFiles.delete(filePath);
+            display.untrackFile(filePath);
             updateTitle();
           }
         },
@@ -593,16 +549,6 @@ async function runReviewPhase(
 
   await reviewRunner.run();
   await pm.flush();
-}
-
-function countFindings(ctx: RunContext, review: import('../schemas/review.js').ReviewFile): void {
-  for (const s of review.symbols) {
-    if (s.confidence < 60) continue;
-    if (s.utility === 'DEAD') ctx.totalFindings++;
-    if (s.duplication === 'DUPLICATE') ctx.totalFindings++;
-    if (s.overengineering === 'OVER') ctx.totalFindings++;
-    if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') ctx.totalFindings++;
-  }
 }
 
 function runReportPhase(ctx: RunContext): void {

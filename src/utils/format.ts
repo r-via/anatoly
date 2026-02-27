@@ -1,12 +1,4 @@
 import chalk from 'chalk';
-import type { Verdict } from '../schemas/review.js';
-
-export interface Counters {
-  dead: number;
-  duplicate: number;
-  overengineering: number;
-  error: number;
-}
 
 /**
  * Build a Unicode progress bar.
@@ -17,37 +9,6 @@ export function buildProgressBar(current: number, total: number, width: number =
   const filled = Math.round(ratio * width);
   const empty = width - filled;
   return '█'.repeat(filled) + '░'.repeat(empty);
-}
-
-/**
- * Format a counter row: dead N  dup N  over N  err N
- */
-export function formatCounterRow(counters: Counters, useColor: boolean = true): string {
-  const fmt = (label: string, value: number, color: (s: string) => string): string => {
-    const v = String(value);
-    if (!useColor) return `${label} ${v}`;
-    return `${chalk.bold(label)} ${value > 0 ? color(v) : chalk.dim(v)}`;
-  };
-
-  return [
-    fmt('dead', counters.dead, chalk.yellow),
-    fmt('dup', counters.duplicate, chalk.yellow),
-    fmt('over', counters.overengineering, chalk.yellow),
-    fmt('err', counters.error, chalk.red),
-  ].join('  ');
-}
-
-/**
- * Format a file result line: ✓ filename  VERDICT
- */
-export function formatResultLine(filename: string, verdict: Verdict, findings?: string, useColor: boolean = true): string {
-  const mark = useColor ? chalk.green('✓') : 'OK';
-  const name = useColor ? chalk.dim(filename) : filename;
-  const suffix = findings ? ` ${findings}` : '';
-
-  const verdictStr = (useColor ? verdictColor(verdict) : verdict) + suffix;
-
-  return `${mark} ${name}  ${verdictStr}`;
 }
 
 /**

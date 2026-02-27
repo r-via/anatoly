@@ -13,6 +13,7 @@ import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
+import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -74,43 +75,7 @@ export function registerReviewCommand(program: Command): void {
         const taskMap = new Map(allTasks.map((t) => [t.file, t]));
         const evaluators = getEnabledEvaluators(config);
         const depMeta = loadDependencyMeta(projectRoot);
-        const axisIds = evaluators.map((e) => e.id);
-
-        // Track active files for compact display (only in-flight files visible)
-        const activeFiles = new Map<string, { axes: Set<string> }>();
-
-        const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
-        let spinFrame = 0;
-
-        const AXIS_LABELS: Record<string, string> = {
-          utility: 'utility',
-          duplication: 'duplication',
-          overengineering: 'overengineering',
-          tests: 'tests',
-          correction: 'correction',
-          best_practices: 'best practices',
-        };
-
-        function formatAxes(done: Set<string>): string {
-          const frame = SPINNER[spinFrame % SPINNER.length];
-          return axisIds.map((id) => {
-            const label = AXIS_LABELS[id] ?? id;
-            return done.has(id) ? `${chalk.green('[x]')} ${label}` : `[${chalk.yellow(frame)}] ${label}`;
-          }).join(' ');
-        }
-
-        function emitActiveFiles(listrTask: { output: string }): void {
-          spinFrame++;
-          const marker = chalk.yellow('\u25cf');
-          const files = [...activeFiles.entries()];
-          const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
-          const lines: string[] = [];
-          for (const [file, state] of files) {
-            const padded = file.padEnd(maxLen);
-            lines.push(`${marker} ${padded}  ${formatAxes(state.axes)}`);
-          }
-          listrTask.output = lines.join('\n');
-        }
+        const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
 
         const runner = new Listr([{
           title: `review — 0/${total}`,
@@ -123,7 +88,7 @@ export function registerReviewCommand(program: Command): void {
             };
 
             const spinInterval = setInterval(() => {
-              if (activeFiles.size > 0) emitActiveFiles(listrTask);
+              if (display.hasActiveFiles) listrTask.output = display.render();
             }, 80);
 
             try {
@@ -140,7 +105,7 @@ export function registerReviewCommand(program: Command): void {
                 }
 
                 pm.updateFileStatus(fp.file, 'IN_PROGRESS');
-                activeFiles.set(fp.file, { axes: new Set() });
+                display.trackFile(fp.file);
 
                 activeAbort = new AbortController();
 
@@ -155,23 +120,14 @@ export function registerReviewCommand(program: Command): void {
                     depMeta,
                     deliberation: config.llm.deliberation,
                     onAxisComplete: (axisId) => {
-                      const state = activeFiles.get(fp.file);
-                      if (state) state.axes.add(axisId);
+                      display.markAxisDone(fp.file, axisId);
                     },
                   });
                   writeReviewOutput(projectRoot, result.review);
                   writeTranscript(projectRoot, fp.file, result.transcript);
                   pm.updateFileStatus(fp.file, 'DONE');
                   filesReviewed++;
-
-                  // Count findings
-                  for (const s of result.review.symbols) {
-                    if (s.utility === 'DEAD') totalFindings++;
-                    if (s.duplication === 'DUPLICATE') totalFindings++;
-                    if (s.overengineering === 'OVER') totalFindings++;
-                    if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
-                  }
-
+                  totalFindings += countReviewFindings(result.review);
                   completedCount++;
                 } catch (error) {
                   if (interrupted) return;
@@ -184,7 +140,7 @@ export function registerReviewCommand(program: Command): void {
                   completedCount++;
                 } finally {
                   activeAbort = undefined;
-                  activeFiles.delete(fp.file);
+                  display.untrackFile(fp.file);
                   updateTitle();
                 }
               },
