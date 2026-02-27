@@ -33,14 +33,17 @@ export function mergeAxisResults(
   task: Task,
   results: AxisResult[],
   bestPractices?: BestPractices,
+  failedAxes: AxisId[] = [],
 ): ReviewFile {
   const axisMap = buildAxisMap(results);
+  const failedSet = new Set(failedAxes);
 
-  const symbols: SymbolReview[] = task.symbols.map((sym) => {
-    const merged = mergeSymbol(sym, axisMap);
+  const rawSymbols: SymbolReview[] = task.symbols.map((sym) => {
+    const merged = mergeSymbol(sym, axisMap, failedSet);
     return applyCoherenceRules(merged);
   });
 
+  const symbols = detectContradictions(rawSymbols, bestPractices);
   const actions = mergeActions(results);
   const fileLevel = mergeFileLevels(results);
   const verdict = computeVerdict(symbols);
@@ -81,24 +84,40 @@ function findAxisValue(axisMap: AxisMap, axisId: AxisId, symbolName: string): Ax
   return axisMap.get(axisId)?.get(symbolName);
 }
 
-function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap): SymbolReview {
+function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>): SymbolReview {
   const utility = findAxisValue(axisMap, 'utility', sym.name);
   const duplication = findAxisValue(axisMap, 'duplication', sym.name);
   const correction = findAxisValue(axisMap, 'correction', sym.name);
   const overengineering = findAxisValue(axisMap, 'overengineering', sym.name);
   const tests = findAxisValue(axisMap, 'tests', sym.name);
 
-  const confidences = [utility, duplication, correction, overengineering, tests]
-    .filter((r): r is AxisSymbolResult => r !== undefined)
-    .map((r) => r.confidence);
+  const axisResults: Array<{ id: AxisId; result: AxisSymbolResult | undefined }> = [
+    { id: 'utility', result: utility },
+    { id: 'duplication', result: duplication },
+    { id: 'correction', result: correction },
+    { id: 'overengineering', result: overengineering },
+    { id: 'tests', result: tests },
+  ];
+
+  const confidences = axisResults
+    .filter((a): a is { id: AxisId; result: AxisSymbolResult } => a.result !== undefined)
+    .map((a) => a.result.confidence);
 
   const confidence = confidences.length > 0
     ? Math.min(...confidences)
     : 80;
 
-  const details = [utility, duplication, correction, overengineering, tests]
-    .filter((r): r is AxisSymbolResult => r !== undefined)
-    .map((r) => `[${r.value}] ${r.detail}`);
+  // Build detail segments: include crash sentinels for failed axes
+  const details: string[] = [];
+  for (const { id, result } of axisResults) {
+    if (result) {
+      details.push(`[${result.value}] ${result.detail}`);
+    } else if (failedAxes.has(id)) {
+      const defaultValue = AXIS_DEFAULTS[id];
+      details.push(`[${defaultValue}] *(axis crashed — see transcript)*`);
+    }
+    // If not in results AND not crashed → omitted (review-writer shows "default" message)
+  }
 
   return {
     name: sym.name,
@@ -162,6 +181,43 @@ function mergeFileLevels(results: AxisResult[]) {
     circular_dependencies: [...new Set(circular)],
     general_notes: notes.join(' | '),
   };
+}
+
+/**
+ * Detect contradictions between correction findings and best_practices results.
+ * When correction flags NEEDS_FIX on a pattern that best_practices explicitly PASSes,
+ * downgrade the correction confidence below the 60-threshold so it is excluded from verdict.
+ *
+ * Currently handled: async/error handling (Rule 12).
+ */
+function detectContradictions(
+  symbols: SymbolReview[],
+  bestPractices?: BestPractices,
+): SymbolReview[] {
+  if (!bestPractices) return symbols;
+
+  // Rule 12 = Async/Promises/Error handling
+  const rule12 = bestPractices.rules.find((r) => r.rule_id === 12);
+  if (!rule12 || rule12.status !== 'PASS') return symbols;
+
+  return symbols.map((sym) => {
+    if (sym.correction !== 'NEEDS_FIX') return sym;
+
+    const detail = sym.detail.toLowerCase();
+    const isAsyncRelated =
+      detail.includes('async') ||
+      detail.includes('promise') ||
+      detail.includes('try-catch') ||
+      detail.includes('try/catch') ||
+      detail.includes('rejection') ||
+      detail.includes('unhandled');
+
+    if (!isAsyncRelated) return sym;
+
+    // Downgrade below the reporter's 60 threshold → excluded from verdict
+    // but above the 30 discard threshold → still visible in .rev.md
+    return { ...sym, confidence: Math.min(sym.confidence, 55) };
+  });
 }
 
 function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {

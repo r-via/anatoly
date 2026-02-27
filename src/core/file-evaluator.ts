@@ -64,6 +64,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     task,
     fileContent,
     config,
+    projectRoot,
     usageGraph,
     preResolvedRag,
     fileDeps,
@@ -83,6 +84,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   // Collect successful results, log failures
   const successResults: AxisResult[] = [];
+  const failedAxes: AxisId[] = [];
   for (let i = 0; i < settledResults.length; i++) {
     const settled = settledResults[i];
     const evaluator = evaluators[i];
@@ -90,7 +92,9 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       successResults.push(settled.value);
       transcriptParts.push(`# Axis: ${evaluator.id}\n\n${settled.value.transcript}\n`);
     } else {
+      failedAxes.push(evaluator.id);
       transcriptParts.push(`# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`);
+      process.stderr.write(`[warn] axis "${evaluator.id}" failed for ${task.file}: ${String(settled.reason)}\n`);
     }
   }
 
@@ -109,7 +113,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
 
-  const review = mergeAxisResults(task, successResults, bestPractices);
+  const review = mergeAxisResults(task, successResults, bestPractices, failedAxes);
 
   return { review, costUsd: totalCost, durationMs: totalDuration, transcript };
 }

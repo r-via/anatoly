@@ -40,6 +40,7 @@ export interface AxisContext {
   task: Task;
   fileContent: string;
   config: Config;
+  projectRoot: string;
   usageGraph?: UsageGraph;
   preResolvedRag?: PreResolvedRag;
   fileDeps?: FileDependencyContext;
@@ -228,9 +229,10 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
         durationMs = success.duration_ms;
         sessionId = success.session_id;
       } else {
-        const errorMsg = message as { errors?: string[] };
+        const errorResult = message as SDKResultError;
+        const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
         throw new AnatolyError(
-          `Agent error: ${errorMsg.errors?.join(', ') ?? 'unknown'}`,
+          `Agent error [${errorResult.subtype}]: ${details}`,
           ERROR_CODES.LLM_API_ERROR,
           true,
         );

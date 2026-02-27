@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,6 +95,26 @@ export function extractFileDeps(fileContent: string, meta: DependencyMeta): File
     deps,
     ...(meta.engines?.node ? { nodeEngine: meta.engines.node } : {}),
   };
+}
+
+/**
+ * Read the README of a locally installed npm package from node_modules.
+ * Returns the content truncated to maxChars, or null if not found.
+ */
+export function readLocalPackageReadme(
+  projectRoot: string,
+  pkgName: string,
+  maxChars = 8000,
+): string | null {
+  const base = resolve(projectRoot, 'node_modules', pkgName);
+  for (const candidate of ['README.md', 'Readme.md', 'readme.md', 'README']) {
+    const p = join(base, candidate);
+    try {
+      const content = readFileSync(p, 'utf-8');
+      return content.length > maxChars ? content.slice(0, maxChars) + '\n[...truncated]' : content;
+    } catch { /* try next candidate */ }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
