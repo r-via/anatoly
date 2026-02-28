@@ -13,9 +13,16 @@ vi.mock('node:fs', () => ({
 
 vi.mock('./embeddings.js', () => ({
   embed: vi.fn().mockResolvedValue(new Array(768).fill(0)),
+  embedCode: vi.fn().mockResolvedValue(new Array(768).fill(0)),
+  embedNlp: vi.fn().mockResolvedValue(new Array(384).fill(0)),
   setEmbeddingLogger: vi.fn(),
+  configureModels: vi.fn(),
   buildEmbedCode: vi.fn().mockReturnValue('// foo\nfunction foo()\nexport function foo() { return 1; }'),
   buildEmbedNlp: vi.fn().mockReturnValue('Function: foo\nPurpose: test'),
+  getCodeDim: vi.fn().mockReturnValue(768),
+  getNlpDim: vi.fn().mockReturnValue(384),
+  getCodeModelId: vi.fn().mockReturnValue('jinaai/jina-embeddings-v2-base-code'),
+  getNlpModelId: vi.fn().mockReturnValue('Xenova/all-MiniLM-L6-v2'),
   EMBEDDING_DIM: 768,
   EMBEDDING_MODEL: 'jinaai/jina-embeddings-v2-base-code',
 }));
@@ -50,6 +57,13 @@ vi.mock('./indexer.js', () => ({
 
 vi.mock('./nlp-summarizer.js', () => ({
   generateNlpSummaries: vi.fn().mockResolvedValue(new Map()),
+}));
+
+vi.mock('./hardware-detect.js', () => ({
+  MODEL_REGISTRY: {
+    'jinaai/jina-embeddings-v2-base-code': { dim: 768, runtime: 'onnx', description: 'Jina Code v2', minMemoryGB: 2 },
+    'Xenova/all-MiniLM-L6-v2': { dim: 384, runtime: 'onnx', description: 'MiniLM L6', minMemoryGB: 1 },
+  },
 }));
 
 vi.mock('../core/worker-pool.js', () => ({

@@ -1,7 +1,10 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
-import { VectorStore } from '../rag/index.js';
+import { VectorStore, getCodeModelId, getNlpModelId } from '../rag/index.js';
+import { loadConfig } from '../utils/config-loader.js';
+import { detectHardware, resolveEmbeddingModels } from '../rag/hardware-detect.js';
+import { configureModels } from '../rag/embeddings.js';
 
 export function registerRagStatusCommand(program: Command): void {
   program
@@ -11,6 +14,12 @@ export function registerRagStatusCommand(program: Command): void {
     .option('--json', 'output as JSON')
     .action(async (functionName: string | undefined, opts: { all?: boolean; json?: boolean }) => {
       const projectRoot = resolve('.');
+
+      // Resolve models so vector store dimension checks use correct values
+      const config = loadConfig(projectRoot);
+      const hardware = detectHardware();
+      const resolved = resolveEmbeddingModels(config.rag, hardware);
+      configureModels(resolved);
 
       const vectorStore = new VectorStore(projectRoot);
       await vectorStore.init();
@@ -83,11 +92,15 @@ export function registerRagStatusCommand(program: Command): void {
       // Default: show stats
       console.log(chalk.bold('anatoly — rag-status'));
       console.log('');
-      console.log(`  cards    ${stats.totalCards}`);
-      console.log(`  files    ${stats.totalFiles}`);
-      console.log(`  mode     ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
+      console.log(`  cards      ${stats.totalCards}`);
+      console.log(`  files      ${stats.totalFiles}`);
+      console.log(`  mode       ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
+      console.log(`  code model ${chalk.dim(resolved.codeModel)} (${resolved.codeDim}d)`);
+      if (stats.dualEmbedding) {
+        console.log(`  nlp model  ${chalk.dim(resolved.nlpModel)} (${resolved.nlpDim}d)`);
+      }
       if (stats.lastIndexed) {
-        console.log(`  indexed  ${stats.lastIndexed}`);
+        console.log(`  indexed    ${stats.lastIndexed}`);
       }
       console.log('');
       console.log(chalk.dim('  Use --all to list all cards, or pass a function name to inspect.'));

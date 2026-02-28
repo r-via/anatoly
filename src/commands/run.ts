@@ -15,7 +15,8 @@ import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
-import { EMBEDDING_MODEL } from '../rag/embeddings.js';
+import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
+import { detectHardware, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { formatTokenSummary } from '../utils/format.js';
@@ -63,6 +64,7 @@ interface RunContext {
   triageMap: Map<string, TriageResult>;
   deliberation: boolean;
   dualEmbedding: boolean;
+  resolvedModels?: ResolvedModels;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
   /** Total LLM cost accumulated across all review phases */
@@ -106,6 +108,10 @@ export function registerRunCommand(program: Command): void {
       }
 
       const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
+
+      // CLI model overrides take precedence over config
+      if (parentOpts.codeModel) config.rag.code_model = parentOpts.codeModel as string;
+      if (parentOpts.nlpModel) config.rag.nlp_model = parentOpts.nlpModel as string;
 
       const ctx: RunContext = {
         projectRoot,
@@ -263,10 +269,31 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     {
       title: 'config',
       task: (_c: unknown, listrTask: { title: string }) => {
+        // Detect hardware and resolve embedding models
+        if (ctx.enableRag) {
+          const hardware = detectHardware();
+          ctx.resolvedModels = resolveEmbeddingModels(
+            ctx.config.rag,
+            hardware,
+            ctx.verbose ? (msg) => { log.debug(msg); } : undefined,
+          );
+          rl?.info({
+            hardware: {
+              memoryGB: hardware.totalMemoryGB,
+              cpuCores: hardware.cpuCores,
+              gpu: hardware.hasGpu ? hardware.gpuType : 'none',
+            },
+            models: ctx.resolvedModels,
+          }, 'hardware detection');
+        }
+
+        const ragLabel = ctx.enableRag
+          ? (ctx.dualEmbedding ? 'dual' : 'on')
+          : 'off';
         const parts = [
           shortModelName(ctx.config.llm.model),
           `concurrency ${ctx.concurrency}`,
-          `rag ${ctx.enableRag ? (ctx.dualEmbedding ? 'dual' : 'on') : 'off'}`,
+          `rag ${ragLabel}`,
           `cache ${ctx.noCache ? 'off' : 'on'}`,
           ...(ctx.deliberation ? [`deliberation ${shortModelName(ctx.config.llm.deliberation_model)}`] : []),
         ];
@@ -405,7 +432,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   let ragResult: RagIndexResult | undefined;
 
-  const embedLabel = ctx.dualEmbedding ? `${EMBEDDING_MODEL} + NLP` : EMBEDDING_MODEL;
+  const codeModelShort = shortModelName(ctx.resolvedModels?.codeModel ?? 'jina-code');
+  const nlpModelShort = shortModelName(ctx.resolvedModels?.nlpModel ?? 'minilm');
+  const embedLabel = ctx.dualEmbedding
+    ? `${codeModelShort} + ${nlpModelShort}`
+    : codeModelShort;
   const ragRunner = new Listr([{
     title: `RAG index (${embedLabel})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
@@ -417,6 +448,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         verbose: ctx.verbose,
         dualEmbedding: ctx.dualEmbedding,
         indexModel: ctx.config.llm.index_model,
+        resolvedModels: ctx.resolvedModels,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
           listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;

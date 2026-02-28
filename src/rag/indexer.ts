@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embed, buildEmbedCode, buildEmbedNlp, EMBEDDING_DIM } from './embeddings.js';
+import { embedCode, embedNlp, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 import type { NlpSummary } from './nlp-summarizer.js';
 
@@ -161,12 +161,12 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
     );
     if (!symbol) {
       // Fallback: embed just the signature
-      embeddings.push(await embed(buildEmbedCode(card.name, card.signature, '')));
+      embeddings.push(await embedCode(buildEmbedCode(card.name, card.signature, '')));
       continue;
     }
     const body = extractFunctionBody(source, symbol);
     const codeText = buildEmbedCode(card.name, card.signature, body);
-    embeddings.push(await embed(codeText));
+    embeddings.push(await embedCode(codeText));
   }
   return embeddings;
 }
@@ -182,7 +182,8 @@ export async function applyNlpSummaries(
 ): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][] }> {
   const enrichedCards: FunctionCard[] = [];
   const nlpEmbeddings: number[][] = [];
-  const zeroVector = new Array(EMBEDDING_DIM).fill(0);
+  const nlpDimSize = getNlpDim();
+  const zeroVector = new Array(nlpDimSize).fill(0);
 
   for (const card of cards) {
     const summary = nlpSummaries.get(card.id);
@@ -194,7 +195,7 @@ export async function applyNlpSummaries(
         behavioralProfile: summary.behavioralProfile,
       });
       const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile);
-      nlpEmbeddings.push(await embed(nlpText));
+      nlpEmbeddings.push(await embedNlp(nlpText));
     } else {
       enrichedCards.push(card);
       // Zero vector: card has no NLP summary, won't activate hybrid search

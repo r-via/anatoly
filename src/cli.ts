@@ -36,6 +36,8 @@ export function createProgram(): Command {
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--dual-embedding', 'enable dual code+NLP embedding for RAG (generates NLP summaries via LLM)')
     .option('--no-dual-embedding', 'disable dual embedding (code-only, overrides config)')
+    .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
+    .option('--nlp-model <model>', 'embedding model for NLP vectors in dual mode (default: auto-detect)')
     .option('--open', 'open report in default app after generation')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--no-triage', 'disable triage, review all files with full agent')

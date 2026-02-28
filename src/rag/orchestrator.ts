@@ -4,7 +4,8 @@ import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
 import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache, extractFunctionBody } from './indexer.js';
-import { embed, setEmbeddingLogger } from './embeddings.js';
+import { embedCode, embedNlp, setEmbeddingLogger, configureModels } from './embeddings.js';
+import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
@@ -16,6 +17,8 @@ export interface RagIndexOptions {
   indexModel?: string;
   /** Enable dual embedding (code + NLP). Requires indexModel. */
   dualEmbedding?: boolean;
+  /** Resolved embedding models (from hardware detection). Configures code/NLP model selection. */
+  resolvedModels?: ResolvedModels;
   rebuild?: boolean;
   concurrency?: number;
   verbose?: boolean;
@@ -153,6 +156,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   setEmbeddingLogger(onLog);
 
+  // Configure embedding models if resolved models provided
+  if (options.resolvedModels) {
+    configureModels(options.resolvedModels);
+  }
+
   const store = new VectorStore(projectRoot, onLog);
   await store.init();
 
@@ -160,8 +168,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     await store.rebuild();
   }
 
-  // Pre-warm embedding model before processing files
-  await embed('');
+  // Pre-warm code embedding model (always needed)
+  await embedCode('');
+  // Pre-warm NLP embedding model only in dual mode (may be a different model)
+  if (dualMode) {
+    await embedNlp('');
+  }
 
   // Pre-load cache for the entire indexing run
   const cache = loadRagCache(projectRoot);

@@ -111,9 +111,9 @@ npx anatoly hook init            # Generate Claude Code hooks configuration
 
 ### Dual Embedding (Code + NLP)
 
-By default, Anatoly uses **code-only embedding** -- function bodies are embedded directly using `jina-embeddings-v2-base-code` for structural similarity matching. This catches duplicates that look alike syntactically.
+By default, Anatoly uses **code-only embedding** -- function bodies are embedded directly using a code-specific model (Jina v2 by default) for structural similarity matching. This catches duplicates that look alike syntactically.
 
-Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text alongside the code.
+Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text with a dedicated NLP model (all-MiniLM-L6-v2 by default).
 
 During duplication search, both scores are combined:
 
@@ -123,13 +123,26 @@ hybrid_score = code_weight × code_similarity + (1 - code_weight) × nlp_similar
 
 This catches duplicates that the code-only approach misses -- functions that **do the same thing** but are implemented differently (different libraries, different paradigms, different naming). The code embedding catches structural similarity; the NLP embedding catches intentional similarity.
 
+#### Embedding models
+
+At startup, Anatoly detects available hardware (RAM, GPU) and selects the best embedding model. You can override model selection in config or via CLI:
+
 ```yaml
 # .anatoly.yml
 rag:
   enabled: true
   dual_embedding: true   # Enable NLP summaries + hybrid search
-  code_weight: 0.6       # 60% code similarity, 40% NLP similarity (default)
+  code_model: auto        # 'auto' = hardware-based selection (default: jina-v2-base-code)
+  nlp_model: auto         # 'auto' = all-MiniLM-L6-v2 (384d, optimized for text similarity)
+  code_weight: 0.6        # 60% code similarity, 40% NLP similarity (default)
 ```
+
+```bash
+# CLI overrides
+npx anatoly run --dual-embedding --code-model jinaai/jina-embeddings-v2-base-code --nlp-model Xenova/all-MiniLM-L6-v2
+```
+
+Using separate specialized models (code model for structure, NLP model for semantics) produces better results than a single general-purpose model for both tasks.
 
 > **Note:** Dual embedding adds LLM API calls during indexing (one call per file with functions). This increases indexing cost but significantly improves cross-file duplication detection for semantically similar functions.
 
