@@ -56,7 +56,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **6-axis analysis** — correction, overengineering, utility, duplication, tests, best practices
 - **Smart triage** — auto-classifies files into skip/fast/deep tiers
 - **Pre-computed usage graph** — full import graph in < 1s, eliminating ~90% of redundant tool calls
-- **RAG semantic duplication** — local embeddings + LanceDB detect cross-file duplications invisible to grep
+- **RAG semantic duplication** — local code embeddings + optional dual code+NLP embedding for hybrid similarity search via LanceDB
 - **Opus deliberation** — optional post-merge validation pass filters residual false positives
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables
@@ -92,21 +92,46 @@ The `run` command executes the full pipeline: **scan** → **estimate** → **in
 ## Usage
 
 ```bash
-npx anatoly run              # Full pipeline: scan → estimate → index → review → report
-npx anatoly run --run-id X   # Custom run ID (default: YYYY-MM-DD_HHmmss)
-npx anatoly watch            # Daemon mode: initial scan + incremental re-review on change/delete
-npx anatoly scan             # Parse AST + compute SHA-256 hashes
-npx anatoly estimate         # Estimate token cost (local, no API calls)
-npx anatoly review           # Run Claude agent on pending files
-npx anatoly report           # Aggregate reviews → report.md
-npx anatoly status           # Show current audit progress
-npx anatoly rag-status       # Show RAG index stats
-npx anatoly clean-runs       # Delete old runs (--keep <n>, --yes)
-npx anatoly reset            # Wipe all state
-npx anatoly hook init        # Generate Claude Code hooks configuration
+npx anatoly run                  # Full pipeline: scan → estimate → index → review → report
+npx anatoly run --dual-embedding # Enable dual code+NLP embedding for improved duplication detection
+npx anatoly run --run-id X       # Custom run ID (default: YYYY-MM-DD_HHmmss)
+npx anatoly watch                # Daemon mode: initial scan + incremental re-review on change/delete
+npx anatoly scan                 # Parse AST + compute SHA-256 hashes
+npx anatoly estimate             # Estimate token cost (local, no API calls)
+npx anatoly review               # Run Claude agent on pending files
+npx anatoly report               # Aggregate reviews → report.md
+npx anatoly status               # Show current audit progress
+npx anatoly rag-status           # Show RAG index stats (includes dual embedding mode)
+npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
+npx anatoly reset                # Wipe all state
+npx anatoly hook init            # Generate Claude Code hooks configuration
 ```
 
 > See [Configuration](docs/configuration.md) for the full `.anatoly.yml` reference and all CLI flags.
+
+### Dual Embedding (Code + NLP)
+
+By default, Anatoly uses **code-only embedding** -- function bodies are embedded directly using `jina-embeddings-v2-base-code` for structural similarity matching. This catches duplicates that look alike syntactically.
+
+Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text alongside the code.
+
+During duplication search, both scores are combined:
+
+```
+hybrid_score = code_weight × code_similarity + (1 - code_weight) × nlp_similarity
+```
+
+This catches duplicates that the code-only approach misses -- functions that **do the same thing** but are implemented differently (different libraries, different paradigms, different naming). The code embedding catches structural similarity; the NLP embedding catches intentional similarity.
+
+```yaml
+# .anatoly.yml
+rag:
+  enabled: true
+  dual_embedding: true   # Enable NLP summaries + hybrid search
+  code_weight: 0.6       # 60% code similarity, 40% NLP similarity (default)
+```
+
+> **Note:** Dual embedding adds LLM API calls during indexing (one call per file with functions). This increases indexing cost but significantly improves cross-file duplication detection for semantically similar functions.
 
 ---
 

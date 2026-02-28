@@ -3,8 +3,9 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embed, buildEmbedCode } from './embeddings.js';
+import { embed, buildEmbedCode, buildEmbedNlp } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
+import type { NlpSummary } from './nlp-summarizer.js';
 
 export interface RagCache {
   /** Map of functionId → file hash at time of indexing */
@@ -168,6 +169,39 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
     embeddings.push(await embed(codeText));
   }
   return embeddings;
+}
+
+/**
+ * Apply NLP summaries to function cards and generate NLP embeddings.
+ * Cards without a corresponding NLP summary get a zero-vector placeholder.
+ */
+export async function applyNlpSummaries(
+  cards: FunctionCard[],
+  nlpSummaries: Map<string, NlpSummary>,
+): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][] }> {
+  const enrichedCards: FunctionCard[] = [];
+  const nlpEmbeddings: number[][] = [];
+
+  for (const card of cards) {
+    const summary = nlpSummaries.get(card.id);
+    if (summary) {
+      enrichedCards.push({
+        ...card,
+        summary: summary.summary,
+        keyConcepts: summary.keyConcepts,
+        behavioralProfile: summary.behavioralProfile,
+      });
+      const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile);
+      nlpEmbeddings.push(await embed(nlpText));
+    } else {
+      enrichedCards.push(card);
+      // Generate a minimal NLP embedding from just the function name + signature
+      const fallbackText = buildEmbedNlp(card.name, '', [], 'utility');
+      nlpEmbeddings.push(await embed(fallbackText));
+    }
+  }
+
+  return { enrichedCards, nlpEmbeddings };
 }
 
 /**

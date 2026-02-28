@@ -38,6 +38,12 @@ interface VectorRow {
   calledInternals: string;   // JSON-serialized string[]
   lastIndexed: string;
   vector: number[];
+  nlp_vector: number[];
+}
+
+/** Options for upserting cards with optional NLP embeddings. */
+export interface UpsertOptions {
+  nlpEmbeddings?: number[][];
 }
 
 export class VectorStore {
@@ -46,11 +52,17 @@ export class VectorStore {
   private db: Connection | null = null;
   private table: Table | null = null;
   private onLog: (message: string) => void = () => {};
+  private _hasDualEmbedding = false;
 
   constructor(projectRoot: string, onLog?: (message: string) => void) {
     this.projectRoot = projectRoot;
     this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
     if (onLog) this.onLog = onLog;
+  }
+
+  /** Whether the index contains NLP vectors (dual embedding). */
+  get hasDualEmbedding(): boolean {
+    return this._hasDualEmbedding;
   }
 
   async init(): Promise<void> {
@@ -73,6 +85,12 @@ export class VectorStore {
             const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
             writeFileSync(cachePath, JSON.stringify({ entries: {} }));
           }
+
+          // Detect whether NLP vectors are present
+          if (sample[0].nlp_vector) {
+            const nlpVec = sample[0].nlp_vector as number[];
+            this._hasDualEmbedding = nlpVec.length === EMBEDDING_DIM && nlpVec.some((v) => v !== 0);
+          }
         }
       } catch {
         // If we can't read a sample, proceed normally — table may be empty
@@ -82,10 +100,14 @@ export class VectorStore {
 
   /**
    * Upsert FunctionCards with their embedding vectors into the store.
+   * Optionally includes NLP embedding vectors for dual-embedding mode.
    */
-  async upsert(cards: FunctionCard[], embeddings: number[][]): Promise<void> {
+  async upsert(cards: FunctionCard[], embeddings: number[][], options?: UpsertOptions): Promise<void> {
     if (cards.length === 0) return;
     if (!this.db) throw new Error('VectorStore not initialized');
+
+    const nlpEmbeddings = options?.nlpEmbeddings;
+    const zeroVector = new Array(EMBEDDING_DIM).fill(0);
 
     const rows: VectorRow[] = cards.map((card, i) => ({
       id: card.id,
@@ -99,11 +121,13 @@ export class VectorStore {
       calledInternals: JSON.stringify(card.calledInternals),
       lastIndexed: card.lastIndexed,
       vector: embeddings[i],
+      nlp_vector: nlpEmbeddings?.[i] ?? zeroVector,
     }));
 
     if (!this.table) {
       // Create table with first batch
       this.table = await this.db.createTable(TABLE_NAME, rows);
+      if (nlpEmbeddings) this._hasDualEmbedding = true;
       return;
     }
 
@@ -115,10 +139,11 @@ export class VectorStore {
       // Table might be empty or IDs don't exist — that's fine
     }
     await this.table.add(rows);
+    if (nlpEmbeddings) this._hasDualEmbedding = true;
   }
 
   /**
-   * Search for similar functions by embedding vector.
+   * Search for similar functions by embedding vector (code-only).
    */
   async search(
     queryEmbedding: number[],
@@ -139,7 +164,29 @@ export class VectorStore {
   }
 
   /**
-   * Search by function ID: find the card, then search by its embedding.
+   * Search for similar functions by NLP embedding vector.
+   */
+  async searchByNlpVector(
+    queryEmbedding: number[],
+    limit: number = 8,
+    minScore: number = 0.65,
+  ): Promise<SimilarityResult[]> {
+    if (!this.table) return [];
+
+    const results = await this.table
+      .search(queryEmbedding)
+      .column('nlp_vector')
+      .limit(limit)
+      .toArray();
+
+    return results.flatMap((row) => {
+      const score = distanceToCosineSimilarity(row._distance ?? 0);
+      return score >= minScore ? [{ card: rowToCard(row), score }] : [];
+    });
+  }
+
+  /**
+   * Search by function ID: find the card, then search by its code embedding.
    */
   async searchById(
     functionId: string,
@@ -165,6 +212,79 @@ export class VectorStore {
     return results.filter(
       (r) => r.card.id !== functionId && !(r.card.filePath === queryCard.filePath && r.card.name === queryCard.name),
     );
+  }
+
+  /**
+   * Hybrid search by function ID: combines code similarity and NLP similarity.
+   * Uses weighted scoring: final = codeWeight * codeScore + (1 - codeWeight) * nlpScore.
+   *
+   * Falls back to code-only search if NLP vectors are not available.
+   */
+  async searchByIdHybrid(
+    functionId: string,
+    codeWeight: number = 0.6,
+    limit: number = 8,
+    minScore: number = 0.70,
+  ): Promise<SimilarityResult[]> {
+    if (!this.table) return [];
+
+    const safeId = sanitizeId(functionId);
+    const matches = await this.table
+      .query()
+      .where(`id = '${safeId}'`)
+      .limit(1)
+      .toArray();
+
+    if (matches.length === 0) return [];
+
+    const queryCard = rowToCard(matches[0]);
+    const codeEmbedding = matches[0].vector as number[];
+    const nlpEmbedding = matches[0].nlp_vector as number[] | undefined;
+
+    // If no NLP vector or it's all zeros, fall back to code-only search
+    if (!nlpEmbedding || nlpEmbedding.every((v) => v === 0)) {
+      return this.searchById(functionId, limit, minScore);
+    }
+
+    const nlpWeight = 1 - codeWeight;
+
+    // Run both searches in parallel with lower individual thresholds
+    const [codeResults, nlpResults] = await Promise.all([
+      this.search(codeEmbedding, limit * 2, 0.5),
+      this.searchByNlpVector(nlpEmbedding, limit * 2, 0.5),
+    ]);
+
+    // Build a unified score map: card.id → { codeScore, nlpScore }
+    const scoreMap = new Map<string, { card: FunctionCard; codeScore: number; nlpScore: number }>();
+
+    for (const r of codeResults) {
+      scoreMap.set(r.card.id, { card: r.card, codeScore: r.score, nlpScore: 0 });
+    }
+    for (const r of nlpResults) {
+      const existing = scoreMap.get(r.card.id);
+      if (existing) {
+        existing.nlpScore = r.score;
+      } else {
+        scoreMap.set(r.card.id, { card: r.card, codeScore: 0, nlpScore: r.score });
+      }
+    }
+
+    // Compute hybrid score and filter
+    const hybridResults: SimilarityResult[] = [];
+    for (const [id, entry] of scoreMap) {
+      // Exclude self-matches
+      if (id === functionId) continue;
+      if (entry.card.filePath === queryCard.filePath && entry.card.name === queryCard.name) continue;
+
+      const hybridScore = codeWeight * entry.codeScore + nlpWeight * entry.nlpScore;
+      if (hybridScore >= minScore) {
+        hybridResults.push({ card: entry.card, score: hybridScore });
+      }
+    }
+
+    // Sort by hybrid score descending, take top N
+    hybridResults.sort((a, b) => b.score - a.score);
+    return hybridResults.slice(0, limit);
   }
 
   /**
@@ -211,6 +331,7 @@ export class VectorStore {
       // Table might not exist
     }
     this.table = null;
+    this._hasDualEmbedding = false;
   }
 
   /**
@@ -230,7 +351,7 @@ export class VectorStore {
    */
   async stats(): Promise<RagStats> {
     if (!this.table) {
-      return { totalCards: 0, totalFiles: 0, lastIndexed: null };
+      return { totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false };
     }
 
     const totalCards = await this.table.countRows();
@@ -251,6 +372,7 @@ export class VectorStore {
       totalCards,
       totalFiles: files.size,
       lastIndexed: lastIndexed || null,
+      dualEmbedding: this._hasDualEmbedding,
     };
   }
 }

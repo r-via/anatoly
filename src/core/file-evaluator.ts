@@ -38,6 +38,8 @@ export interface EvaluateFileOptions {
   depMeta?: DependencyMeta;
   projectTree?: string;
   deliberation?: boolean;
+  /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - codeWeight. */
+  codeWeight?: number;
   onAxisComplete?: (axisId: AxisId) => void;
   /** Stream transcript chunks to disk as each axis completes. */
   onTranscriptChunk?: (chunk: string) => void;
@@ -233,11 +235,17 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
     (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
   );
 
+  // Use hybrid search when dual embedding is available
+  const useDual = opts.vectorStore.hasDualEmbedding;
+  const codeWeight = opts.codeWeight ?? 0.6;
+
   const preResolved: PreResolvedRag = [];
   for (const symbol of functionSymbols) {
     const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
     try {
-      const results = await opts.vectorStore.searchById(functionId);
+      const results = useDual
+        ? await opts.vectorStore.searchByIdHybrid(functionId, codeWeight)
+        : await opts.vectorStore.searchById(functionId);
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
     } catch {
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results: null });

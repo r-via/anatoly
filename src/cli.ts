@@ -34,6 +34,8 @@ export function createProgram(): Command {
     .option('--no-color', 'disable chalk colors (also respects $NO_COLOR env var)')
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
     .option('--rebuild-rag', 'force full RAG re-indexation')
+    .option('--dual-embedding', 'enable dual code+NLP embedding for RAG (generates NLP summaries via LLM)')
+    .option('--no-dual-embedding', 'disable dual embedding (code-only, overrides config)')
     .option('--open', 'open report in default app after generation')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--no-triage', 'disable triage, review all files with full agent')

@@ -59,6 +59,9 @@ export const LlmConfigSchema = z.object({
 
 export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  dual_embedding: z.boolean().default(false),
+  /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - code_weight. */
+  code_weight: z.number().min(0).max(1).default(0.6),
 });
 
 export const BadgeConfigSchema = z.object({
@@ -108,7 +111,7 @@ export const ConfigSchema = z.object({
       best_practices: { enabled: true },
     },
   }),
-  rag: RagConfigSchema.default({ enabled: true }),
+  rag: RagConfigSchema.default({ enabled: true, dual_embedding: false, code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),
   output: OutputConfigSchema.default({}),
   badge: BadgeConfigSchema.default({

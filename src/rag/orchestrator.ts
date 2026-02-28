@@ -3,16 +3,19 @@ import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache, extractFunctionBody } from './indexer.js';
 import { embed, setEmbeddingLogger } from './embeddings.js';
+import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
-  /** @deprecated No longer used — indexation is now local-only (code embedding). Kept for API compat. */
+  /** Model used for NLP summary generation (dual embedding mode). */
   indexModel?: string;
+  /** Enable dual embedding (code + NLP). Requires indexModel. */
+  dualEmbedding?: boolean;
   rebuild?: boolean;
   concurrency?: number;
   verbose?: boolean;
@@ -27,6 +30,8 @@ export interface RagIndexResult {
   filesIndexed: number;
   totalCards: number;
   totalFiles: number;
+  /** Whether dual embedding (code + NLP) was used during indexing. */
+  dualEmbedding: boolean;
 }
 
 /**
@@ -37,11 +42,13 @@ export interface IndexedFileResult {
   task: Task;
   cards: FunctionCard[];
   embeddings: number[][];
+  /** NLP embeddings (same length as cards). Only present when dual embedding is enabled. */
+  nlpEmbeddings?: number[][];
 }
 
 /**
  * Process a single file for RAG indexing: build cards from AST + embed code directly.
- * No LLM call — purely local operation.
+ * No LLM call — purely local operation (code embedding only).
  */
 export async function processFileForIndex(
   projectRoot: string,
@@ -73,13 +80,64 @@ export async function processFileForIndex(
 }
 
 /**
+ * Process a single file for dual-embedding RAG indexing:
+ * builds cards from AST, embeds code locally, then generates NLP summaries
+ * via LLM and embeds the NLP text.
+ */
+export async function processFileForDualIndex(
+  projectRoot: string,
+  task: Task,
+  cache: { entries: Record<string, string> },
+  indexModel: string,
+): Promise<IndexedFileResult> {
+  // First pass: same as regular indexing (code embedding)
+  const baseResult = await processFileForIndex(projectRoot, task, cache);
+  if (baseResult.cards.length === 0) {
+    return baseResult;
+  }
+
+  // Read source for function body extraction
+  const absPath = resolve(projectRoot, task.file);
+  const source = readFileSync(absPath, 'utf-8');
+
+  // Extract function bodies for NLP summarization
+  const functionBodies: string[] = baseResult.cards.map((card) => {
+    const symbol = task.symbols.find(
+      (s) => s.name === card.name && (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+    );
+    return symbol ? extractFunctionBody(source, symbol) : card.signature;
+  });
+
+  // Generate NLP summaries via LLM
+  const nlpSummaries = await generateNlpSummaries(
+    baseResult.cards,
+    functionBodies,
+    task.file,
+    indexModel,
+    projectRoot,
+  );
+
+  // Apply NLP summaries and generate NLP embeddings
+  const { enrichedCards, nlpEmbeddings } = await applyNlpSummaries(baseResult.cards, nlpSummaries);
+
+  return {
+    task: baseResult.task,
+    cards: enrichedCards,
+    embeddings: baseResult.embeddings,
+    nlpEmbeddings,
+  };
+}
+
+/**
  * Run the RAG indexing phase: build function cards from AST,
  * compute code embeddings locally, and upsert into the vector store.
  *
- * No LLM API calls — indexation is now purely local.
+ * When dualEmbedding is enabled, also generates NLP summaries via LLM
+ * and computes NLP embeddings for hybrid search.
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
+  const dualMode = !!(options.dualEmbedding && options.indexModel);
 
   setEmbeddingLogger(onLog);
 
@@ -112,7 +170,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   const log = contextLogger();
   log.debug(
-    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
+    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length, dualEmbedding: dualMode },
     'RAG index: filtering files',
   );
 
@@ -137,9 +195,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     isInterrupted,
     handler: async (task) => {
       const idx = ++fileCounter;
-      onLog(`[${idx}/${tasksToIndex.length}] ${task.file}`);
+      const modeLabel = dualMode ? ' [dual]' : '';
+      onLog(`[${idx}/${tasksToIndex.length}]${modeLabel} ${task.file}`);
 
-      const result = await processFileForIndex(projectRoot, task, cache);
+      const result = dualMode
+        ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!)
+        : await processFileForIndex(projectRoot, task, cache);
+
       if (result.cards.length > 0) {
         results.push(result);
       }
@@ -152,7 +214,9 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   let filesIndexed = 0;
 
   for (const result of results) {
-    await store.upsert(result.cards, result.embeddings);
+    await store.upsert(result.cards, result.embeddings, {
+      nlpEmbeddings: result.nlpEmbeddings,
+    });
     cardsIndexed += result.cards.length;
     filesIndexed++;
 
@@ -176,6 +240,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       cached: tasksWithFunctions.length - tasksToIndex.length,
       totalCards: stats.totalCards,
       totalFiles: stats.totalFiles,
+      dualEmbedding: dualMode,
     },
     'RAG index summary',
   );
@@ -186,5 +251,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     filesIndexed,
     totalCards: stats.totalCards,
     totalFiles: stats.totalFiles,
+    dualEmbedding: dualMode,
   };
 }

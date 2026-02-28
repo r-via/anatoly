@@ -62,6 +62,7 @@ interface RunContext {
   /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
   triageMap: Map<string, TriageResult>;
   deliberation: boolean;
+  dualEmbedding: boolean;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
   /** Total LLM cost accumulated across all review phases */
@@ -123,6 +124,9 @@ export function registerRunCommand(program: Command): void {
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
           : config.llm.deliberation,
+        dualEmbedding: parentOpts.dualEmbedding !== undefined
+          ? parentOpts.dualEmbedding as boolean
+          : config.rag.dual_embedding,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -262,7 +266,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         const parts = [
           shortModelName(ctx.config.llm.model),
           `concurrency ${ctx.concurrency}`,
-          `rag ${ctx.enableRag ? 'on' : 'off'}`,
+          `rag ${ctx.enableRag ? (ctx.dualEmbedding ? 'dual' : 'on') : 'off'}`,
           `cache ${ctx.noCache ? 'off' : 'on'}`,
           ...(ctx.deliberation ? [`deliberation ${shortModelName(ctx.config.llm.deliberation_model)}`] : []),
         ];
@@ -401,7 +405,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   let ragResult: RagIndexResult | undefined;
 
-  const embedLabel = EMBEDDING_MODEL;
+  const embedLabel = ctx.dualEmbedding ? `${EMBEDDING_MODEL} + NLP` : EMBEDDING_MODEL;
   const ragRunner = new Listr([{
     title: `RAG index (${embedLabel})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
@@ -411,6 +415,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         rebuild: ctx.rebuildRag,
         concurrency: ctx.concurrency,
         verbose: ctx.verbose,
+        dualEmbedding: ctx.dualEmbedding,
+        indexModel: ctx.config.llm.index_model,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
           listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;
@@ -418,7 +424,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         isInterrupted: () => ctx.interrupted,
       });
 
-      listrTask.title = `RAG index — ${ragResult.cardsIndexed} new / ${ragResult.totalCards} cards, ${ragResult.filesIndexed} new / ${ragResult.totalFiles} files`;
+      const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
+      listrTask.title = `RAG index${dualLabel} — ${ragResult.cardsIndexed} new / ${ragResult.totalCards} cards, ${ragResult.filesIndexed} new / ${ragResult.totalFiles} files`;
     },
     rendererOptions: { outputBar: 1 as const },
   }], {
@@ -579,6 +586,7 @@ async function runReviewPhase(
                   depMeta,
                   projectTree,
                   deliberation: ctx.deliberation,
+                  codeWeight: ctx.config.rag.code_weight,
                   onAxisComplete: (axisId) => {
                     display.markAxisDone(filePath, axisId);
                   },

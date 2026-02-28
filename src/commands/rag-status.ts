@@ -85,6 +85,7 @@ export function registerRagStatusCommand(program: Command): void {
       console.log('');
       console.log(`  cards    ${stats.totalCards}`);
       console.log(`  files    ${stats.totalFiles}`);
+      console.log(`  mode     ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
       if (stats.lastIndexed) {
         console.log(`  indexed  ${stats.lastIndexed}`);
       }
