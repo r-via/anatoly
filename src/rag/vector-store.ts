@@ -2,7 +2,7 @@ import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
-import { EMBEDDING_DIM } from './embeddings.js';
+import { getCodeDim, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 
 const TABLE_NAME = 'function_cards';
@@ -78,19 +78,31 @@ export class VectorStore {
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0) {
-          const storedDim = (sample[0].vector as number[]).length;
-          if (storedDim !== EMBEDDING_DIM) {
-            this.onLog(`dimension mismatch: index has ${storedDim}-dim vectors, model expects ${EMBEDDING_DIM}-dim — rebuilding index`);
+          const storedCodeDim = (sample[0].vector as number[]).length;
+          const expectedCodeDim = getCodeDim();
+          if (storedCodeDim !== expectedCodeDim) {
+            this.onLog(`dimension mismatch: code vectors ${storedCodeDim}-dim vs model ${expectedCodeDim}-dim — rebuilding index`);
             await this.rebuild();
-            // Clear RAG cache atomically to force full re-indexation
             const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
             atomicWriteJson(cachePath, { entries: {} });
+            return; // Table dropped, nothing more to check
           }
 
-          // Detect whether NLP vectors are present
+          // Detect whether NLP vectors are present and check their dimension
           if (sample[0].nlp_vector) {
             const nlpVec = sample[0].nlp_vector as number[];
-            this._hasDualEmbedding = nlpVec.length === EMBEDDING_DIM && nlpVec.some((v) => v !== 0);
+            const hasRealNlp = nlpVec.some((v) => v !== 0);
+            if (hasRealNlp) {
+              const expectedNlpDim = getNlpDim();
+              if (nlpVec.length !== expectedNlpDim) {
+                this.onLog(`dimension mismatch: NLP vectors ${nlpVec.length}-dim vs model ${expectedNlpDim}-dim — rebuilding index`);
+                await this.rebuild();
+                const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
+                atomicWriteJson(cachePath, { entries: {} });
+                return;
+              }
+              this._hasDualEmbedding = true;
+            }
           }
         }
       } catch {
@@ -122,7 +134,7 @@ export class VectorStore {
       lastIndexed: card.lastIndexed,
       vector: embeddings[i],
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
-      nlp_vector: nlpEmbeddings?.[i] ?? new Array(EMBEDDING_DIM).fill(0),
+      nlp_vector: nlpEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
     }));
 
     if (!this.table) {
