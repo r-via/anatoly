@@ -3,7 +3,7 @@ export const EMBEDDING_DIM = 768;
 
 const MAX_CODE_CHARS = 1500;
 
-let embedder: any = null;
+let embedderPromise: Promise<any> | null = null;
 let onLog: (message: string) => void = () => {};
 
 /**
@@ -16,15 +16,19 @@ export function setEmbeddingLogger(logger: (message: string) => void): void {
 
 /**
  * Lazily initialize the embedding pipeline (singleton).
- * The model is downloaded at postinstall; this just loads it from cache.
+ * Caches the promise to prevent concurrent callers from loading the model twice.
  */
 async function getEmbedder(): Promise<any> {
-  if (embedder) return embedder;
-  onLog(`loading embedding model ${EMBEDDING_MODEL}...`);
-  const { pipeline } = await import('@xenova/transformers');
-  embedder = await pipeline('feature-extraction', EMBEDDING_MODEL);
-  onLog('embedding model ready');
-  return embedder;
+  if (!embedderPromise) {
+    embedderPromise = (async () => {
+      onLog(`loading embedding model ${EMBEDDING_MODEL}...`);
+      const { pipeline } = await import('@xenova/transformers');
+      const model = await pipeline('feature-extraction', EMBEDDING_MODEL);
+      onLog('embedding model ready');
+      return model;
+    })();
+  }
+  return embedderPromise;
 }
 
 /**

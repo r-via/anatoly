@@ -45,7 +45,7 @@ function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodie
 
   for (let i = 0; i < cards.length; i++) {
     const card = cards[i];
-    const body = functionBodies[i];
+    const body = functionBodies[i] ?? card.signature;
     parts.push(`### ${card.name}`);
     parts.push('```typescript');
     parts.push(body.slice(0, 2000));

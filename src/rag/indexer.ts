@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embed, buildEmbedCode, buildEmbedNlp } from './embeddings.js';
+import { embed, buildEmbedCode, buildEmbedNlp, EMBEDDING_DIM } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 import type { NlpSummary } from './nlp-summarizer.js';
 
@@ -173,7 +173,8 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
 
 /**
  * Apply NLP summaries to function cards and generate NLP embeddings.
- * Cards without a corresponding NLP summary get a zero-vector placeholder.
+ * Cards without a corresponding NLP summary get a zero-vector so they
+ * don't falsely trigger hybrid search (only real NLP embeddings count).
  */
 export async function applyNlpSummaries(
   cards: FunctionCard[],
@@ -181,6 +182,7 @@ export async function applyNlpSummaries(
 ): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][] }> {
   const enrichedCards: FunctionCard[] = [];
   const nlpEmbeddings: number[][] = [];
+  const zeroVector = new Array(EMBEDDING_DIM).fill(0);
 
   for (const card of cards) {
     const summary = nlpSummaries.get(card.id);
@@ -195,9 +197,8 @@ export async function applyNlpSummaries(
       nlpEmbeddings.push(await embed(nlpText));
     } else {
       enrichedCards.push(card);
-      // Generate a minimal NLP embedding from just the function name + signature
-      const fallbackText = buildEmbedNlp(card.name, '', [], 'utility');
-      nlpEmbeddings.push(await embed(fallbackText));
+      // Zero vector: card has no NLP summary, won't activate hybrid search
+      nlpEmbeddings.push([...zeroVector]);
     }
   }
 
