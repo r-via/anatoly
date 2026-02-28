@@ -1,8 +1,11 @@
 export { FunctionCardSchema } from './types.js';
 export type { FunctionCard, SimilarityResult, RagStats } from './types.js';
-export { embed, buildEmbedCode, setEmbeddingLogger, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
+export { embed, buildEmbedCode, buildEmbedNlp, setEmbeddingLogger, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
 export { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
-export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
+export type { UpsertOptions } from './vector-store.js';
+export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache } from './indexer.js';
 export type { RagCache } from './indexer.js';
-export { indexProject, processFileForIndex } from './orchestrator.js';
+export { generateNlpSummaries } from './nlp-summarizer.js';
+export type { NlpSummary } from './nlp-summarizer.js';
+export { indexProject, processFileForIndex, processFileForDualIndex } from './orchestrator.js';
 export type { RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';

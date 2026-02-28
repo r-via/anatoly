@@ -49,3 +49,22 @@ export function buildEmbedCode(name: string, signature: string, sourceBody: stri
   }
   return `// ${name}\n${signature}\n${body}`;
 }
+
+/**
+ * Build natural language text to embed for a function's NLP summary.
+ * Combines the summary, key concepts, and behavioral profile into a
+ * semantically rich text representation optimized for NLP similarity.
+ */
+export function buildEmbedNlp(
+  name: string,
+  summary: string,
+  keyConcepts: string[],
+  behavioralProfile: string,
+): string {
+  const parts: string[] = [];
+  parts.push(`Function: ${name}`);
+  if (summary) parts.push(`Purpose: ${summary}`);
+  if (keyConcepts.length > 0) parts.push(`Concepts: ${keyConcepts.join(', ')}`);
+  if (behavioralProfile) parts.push(`Behavior: ${behavioralProfile}`);
+  return parts.join('\n');
+}
