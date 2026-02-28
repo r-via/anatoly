@@ -36,7 +36,11 @@ llm:
   deliberation_model: "claude-opus-4-6"  # model for deliberation (default: claude-opus-4-6)
 
 rag:
-  enabled: true     # disable with --no-rag or set to false
+  enabled: true              # disable with --no-rag or set to false
+  dual_embedding: false      # enable dual code+NLP embedding (default: false)
+  code_model: auto           # code embedding model ('auto' = hardware-based, or HuggingFace ID)
+  nlp_model: auto            # NLP embedding model ('auto' = all-MiniLM-L6-v2, or HuggingFace ID)
+  code_weight: 0.6           # hybrid search: code similarity weight (NLP = 1 - code_weight)
 
 output:
   max_runs: 10      # optional: purge old runs beyond this limit
@@ -55,6 +59,10 @@ output:
 --concurrency <n>    Number of concurrent reviews, 1-10 (default: 4)
 --no-rag             Disable semantic RAG cross-file analysis
 --rebuild-rag        Force full RAG re-indexation
+--dual-embedding     Enable dual code+NLP embedding for RAG
+--no-dual-embedding  Disable dual embedding (code-only, overrides config)
+--code-model <model> Embedding model for code vectors (default: auto-detect)
+--nlp-model <model>  Embedding model for NLP vectors (default: auto-detect)
 --no-triage          Disable triage, review all files with full agent
 --deliberation       Enable Opus deliberation pass after axis merge
 --no-deliberation    Disable deliberation pass (overrides config)

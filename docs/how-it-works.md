@@ -6,7 +6,7 @@ Anatoly combines **tree-sitter AST parsing** with an **agentic AI review loop** 
 2. **Estimate** — Counts tokens locally with tiktoken so you know the cost before any API call
 3. **Triage** — Classifies files into `skip` (barrels, type-only, constants), `fast` (simple files), or `deep` (complex files), eliminating unnecessary API calls
 4. **Usage Graph** — Pre-computes an import graph across all files in a single local pass (< 1s), so the agent no longer needs to grep for usage verification
-5. **Index** — Builds a semantic RAG index (local embeddings + LanceDB) to detect cross-file duplication invisible to grep
+5. **Index** — Detects hardware (RAM, GPU), resolves embedding models, then builds a semantic RAG index. In **code-only mode**, embeds function bodies directly with Jina v2 (768d). In **dual mode**, also generates NLP summaries via Haiku and embeds them with MiniLM (384d) for hybrid search. See [RAG Pipeline](rag.md) for full details
 6. **Review** — Launches a Claude agent per file with read-only tools (Glob, Grep, Read, findSimilarFunctions). Simple files get a fast single-turn review; complex files get the full agentic investigation. The agent must **prove** every finding before reporting it
 7. **Deliberate** — An optional Opus deliberation pass validates merged findings across axes, filters residual false positives, and ensures inter-axis coherence before the final report
 8. **Report** — Aggregates all Zod-validated reviews into a sharded audit report: compact index + per-shard detail files (max 10 files each), sorted by severity, with symbol-level detail tables

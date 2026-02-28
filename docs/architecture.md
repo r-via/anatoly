@@ -10,7 +10,7 @@ flowchart TD
         Estimator["Estimator<br/><small>tiktoken (local)</small>"]
         Triage["Triage<br/><small>skip / fast / deep</small>"]
         UsageGraph["Usage Graph<br/><small>import analysis (local)</small>"]
-        Indexer["RAG Indexer<br/><small>Haiku + Xenova embeddings</small>"]
+        Indexer["RAG Indexer<br/><small>dual embed: Jina (code) + MiniLM (NLP)</small>"]
         Reviewer["Reviewer<br/><small>6-axis evaluators</small>"]
         Reporter["Reporter<br/><small>index + shards + symbol tables</small>"]
 
@@ -69,7 +69,9 @@ flowchart TD
 | Tokens | tiktoken (local) |
 | Watcher | chokidar v5 |
 | Terminal | listr2 + chalk |
-| Embeddings | Xenova/all-MiniLM-L6-v2 (384 dim, local) |
+| Code Embeddings | jinaai/jina-embeddings-v2-base-code (768d, local ONNX) |
+| NLP Embeddings | Xenova/all-MiniLM-L6-v2 (384d, local ONNX) |
+| Hardware Detection | RAM, GPU (CUDA/Metal/ROCm) — auto model selection |
 | Vector Store | LanceDB (embedded, zero-server) |
 
 ## Project Structure
@@ -119,10 +121,12 @@ src/
 │   └── progress.ts       # Progress state schema
 ├── rag/                  # Semantic RAG module
 │   ├── types.ts          # FunctionCard schema + types
-│   ├── embeddings.ts     # Code embedding (jinaai/jina-embeddings-v2-base-code)
-│   ├── vector-store.ts   # LanceDB wrapper
-│   ├── indexer.ts        # Incremental indexing + AST extraction
-│   ├── orchestrator.ts   # Index pipeline orchestration
+│   ├── hardware-detect.ts # Hardware detection + model registry + auto-selection
+│   ├── embeddings.ts     # Dual model embedding (code: Jina 768d, NLP: MiniLM 384d)
+│   ├── vector-store.ts   # LanceDB wrapper (multi-dim columns, hybrid search)
+│   ├── indexer.ts        # Incremental indexing + AST extraction + NLP summary application
+│   ├── nlp-summarizer.ts # LLM-based NLP summary generation (batched per file)
+│   ├── orchestrator.ts   # Index pipeline orchestration (code-only + dual mode)
 │   └── index.ts          # Barrel export
 ├── types/
 │   └── md.d.ts            # Type declarations for Markdown imports

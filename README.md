@@ -154,6 +154,7 @@ Using separate specialized models (code model for structure, NLP model for seman
 |----------|-------------|
 | [How It Works](docs/how-it-works.md) | Pipeline details, self-correction loop, two-pass correction, deliberation, Claude Code hook |
 | [Architecture](docs/architecture.md) | System diagram, tech stack, project structure, runtime output |
+| [RAG Pipeline](docs/rag.md) | Dual embedding, hardware detection, model selection, hybrid search, cost |
 | [Configuration](docs/configuration.md) | `.anatoly.yml` reference, CLI flags, review output format |
 | [Logging](docs/logging.md) | Diagnostic logging, log levels, `jq` recipes |
 
