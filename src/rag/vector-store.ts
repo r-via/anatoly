@@ -1,8 +1,9 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { resolve } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 import { EMBEDDING_DIM } from './embeddings.js';
+import { atomicWriteJson } from '../utils/cache.js';
 
 const TABLE_NAME = 'function_cards';
 
@@ -81,9 +82,9 @@ export class VectorStore {
           if (storedDim !== EMBEDDING_DIM) {
             this.onLog(`dimension mismatch: index has ${storedDim}-dim vectors, model expects ${EMBEDDING_DIM}-dim — rebuilding index`);
             await this.rebuild();
-            // Clear RAG cache to force full re-indexation
+            // Clear RAG cache atomically to force full re-indexation
             const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
-            writeFileSync(cachePath, JSON.stringify({ entries: {} }));
+            atomicWriteJson(cachePath, { entries: {} });
           }
 
           // Detect whether NLP vectors are present
@@ -107,7 +108,6 @@ export class VectorStore {
     if (!this.db) throw new Error('VectorStore not initialized');
 
     const nlpEmbeddings = options?.nlpEmbeddings;
-    const zeroVector = new Array(EMBEDDING_DIM).fill(0);
 
     const rows: VectorRow[] = cards.map((card, i) => ({
       id: card.id,
@@ -121,7 +121,8 @@ export class VectorStore {
       calledInternals: JSON.stringify(card.calledInternals),
       lastIndexed: card.lastIndexed,
       vector: embeddings[i],
-      nlp_vector: nlpEmbeddings?.[i] ?? zeroVector,
+      // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
+      nlp_vector: nlpEmbeddings?.[i] ?? new Array(EMBEDDING_DIM).fill(0),
     }));
 
     if (!this.table) {
@@ -385,7 +386,7 @@ export class VectorStore {
  *   cosine_similarity = 1 - L2² / 2
  */
 function distanceToCosineSimilarity(distance: number): number {
-  return 1 - distance / 2;
+  return Math.max(-1, Math.min(1, 1 - distance / 2));
 }
 
 function safeParseJsonArray(value: unknown): string[] {

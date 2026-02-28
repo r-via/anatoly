@@ -47,6 +47,41 @@ export interface IndexedFileResult {
 }
 
 /**
+ * Read source and build cards + code embeddings for a single file.
+ * Shared core logic for both code-only and dual-embedding modes.
+ */
+function readAndBuildCards(
+  projectRoot: string,
+  task: Task,
+  cache: { entries: Record<string, string> },
+): { source: string; toIndex: FunctionCard[]; embeddings: Promise<number[][]> } | null {
+  const functionSymbols = task.symbols.filter(
+    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
+  );
+
+  if (functionSymbols.length === 0) return null;
+
+  const absPath = resolve(projectRoot, task.file);
+  let source: string;
+  try {
+    source = readFileSync(absPath, 'utf-8');
+  } catch {
+    // File deleted between scan and index — skip silently
+    return null;
+  }
+
+  const cards = buildFunctionCards(task, source);
+  const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
+  if (toIndex.length === 0) return null;
+
+  return {
+    source,
+    toIndex,
+    embeddings: embedCards(toIndex, source, task.symbols),
+  };
+}
+
+/**
  * Process a single file for RAG indexing: build cards from AST + embed code directly.
  * No LLM call — purely local operation (code embedding only).
  */
@@ -55,34 +90,16 @@ export async function processFileForIndex(
   task: Task,
   cache: { entries: Record<string, string> },
 ): Promise<IndexedFileResult> {
-  const functionSymbols = task.symbols.filter(
-    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
-  );
+  const built = readAndBuildCards(projectRoot, task, cache);
+  if (!built) return { task, cards: [], embeddings: [] };
 
-  if (functionSymbols.length === 0) {
-    return { task, cards: [], embeddings: [] };
-  }
-
-  const absPath = resolve(projectRoot, task.file);
-  const source = readFileSync(absPath, 'utf-8');
-  const cards = buildFunctionCards(task, source);
-
-  // Filter to only cards that need re-indexing
-  const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
-  if (toIndex.length === 0) {
-    return { task, cards: [], embeddings: [] };
-  }
-
-  // Generate embeddings for cards that need indexing (code-direct, no API)
-  const embeddings = await embedCards(toIndex, source, task.symbols);
-
-  return { task, cards: toIndex, embeddings };
+  return { task, cards: built.toIndex, embeddings: await built.embeddings };
 }
 
 /**
  * Process a single file for dual-embedding RAG indexing:
  * builds cards from AST, embeds code locally, then generates NLP summaries
- * via LLM and embeds the NLP text.
+ * via LLM and embeds the NLP text. Reads the file only once.
  */
 export async function processFileForDualIndex(
   projectRoot: string,
@@ -90,27 +107,22 @@ export async function processFileForDualIndex(
   cache: { entries: Record<string, string> },
   indexModel: string,
 ): Promise<IndexedFileResult> {
-  // First pass: same as regular indexing (code embedding)
-  const baseResult = await processFileForIndex(projectRoot, task, cache);
-  if (baseResult.cards.length === 0) {
-    return baseResult;
-  }
+  const built = readAndBuildCards(projectRoot, task, cache);
+  if (!built) return { task, cards: [], embeddings: [] };
 
-  // Read source for function body extraction
-  const absPath = resolve(projectRoot, task.file);
-  const source = readFileSync(absPath, 'utf-8');
+  const codeEmbeddings = await built.embeddings;
 
-  // Extract function bodies for NLP summarization
-  const functionBodies: string[] = baseResult.cards.map((card) => {
+  // Extract function bodies for NLP summarization (reuse already-read source)
+  const functionBodies: string[] = built.toIndex.map((card) => {
     const symbol = task.symbols.find(
       (s) => s.name === card.name && (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
     );
-    return symbol ? extractFunctionBody(source, symbol) : card.signature;
+    return symbol ? extractFunctionBody(built.source, symbol) : card.signature;
   });
 
   // Generate NLP summaries via LLM
   const nlpSummaries = await generateNlpSummaries(
-    baseResult.cards,
+    built.toIndex,
     functionBodies,
     task.file,
     indexModel,
@@ -118,12 +130,12 @@ export async function processFileForDualIndex(
   );
 
   // Apply NLP summaries and generate NLP embeddings
-  const { enrichedCards, nlpEmbeddings } = await applyNlpSummaries(baseResult.cards, nlpSummaries);
+  const { enrichedCards, nlpEmbeddings } = await applyNlpSummaries(built.toIndex, nlpSummaries);
 
   return {
-    task: baseResult.task,
+    task,
     cards: enrichedCards,
-    embeddings: baseResult.embeddings,
+    embeddings: codeEmbeddings,
     nlpEmbeddings,
   };
 }
@@ -214,6 +226,9 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   let filesIndexed = 0;
 
   for (const result of results) {
+    // Delete all existing cards for this file first to remove stale entries
+    // (e.g. functions that were removed or renamed since last indexing)
+    await store.deleteByFile(result.task.file);
     await store.upsert(result.cards, result.embeddings, {
       nlpEmbeddings: result.nlpEmbeddings,
     });

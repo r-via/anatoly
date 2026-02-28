@@ -247,7 +247,8 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
         ? await opts.vectorStore.searchByIdHybrid(functionId, codeWeight)
         : await opts.vectorStore.searchById(functionId);
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
-    } catch {
+    } catch (err) {
+      contextLogger().debug({ symbol: symbol.name, file: task.file, err: String(err) }, 'RAG lookup failed for symbol');
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results: null });
     }
   }

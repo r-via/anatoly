@@ -15,6 +15,7 @@ vi.mock('./embeddings.js', () => ({
   embed: vi.fn().mockResolvedValue(new Array(768).fill(0)),
   setEmbeddingLogger: vi.fn(),
   buildEmbedCode: vi.fn().mockReturnValue('// foo\nfunction foo()\nexport function foo() { return 1; }'),
+  buildEmbedNlp: vi.fn().mockReturnValue('Function: foo\nPurpose: test'),
   EMBEDDING_DIM: 768,
   EMBEDDING_MODEL: 'jinaai/jina-embeddings-v2-base-code',
 }));
@@ -26,7 +27,8 @@ vi.mock('./vector-store.js', () => {
     upsert = vi.fn().mockResolvedValue(undefined);
     listIndexedFiles = vi.fn().mockResolvedValue(new Set<string>());
     deleteByFile = vi.fn().mockResolvedValue(undefined);
-    stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0 });
+    stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false });
+    hasDualEmbedding = false;
   }
   return {
     VectorStore: MockVectorStore,
@@ -40,9 +42,14 @@ vi.mock('./indexer.js', () => ({
   buildFunctionId: vi.fn((_file: string, start: number, end: number) => `mock-${start}-${end}`),
   needsReindex: vi.fn().mockReturnValue(true),
   embedCards: vi.fn().mockResolvedValue([]),
+  applyNlpSummaries: vi.fn().mockResolvedValue({ enrichedCards: [], nlpEmbeddings: [] }),
   extractFunctionBody: vi.fn().mockReturnValue('export function foo() { return 1; }'),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
   saveRagCache: vi.fn(),
+}));
+
+vi.mock('./nlp-summarizer.js', () => ({
+  generateNlpSummaries: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock('../core/worker-pool.js', () => ({
