@@ -28,9 +28,10 @@ describe('CLI program', () => {
         'rag-status',
         'hook',
         'fix',
+        'fix-sync',
       ]),
     );
-    expect(commandNames).toHaveLength(12);
+    expect(commandNames).toHaveLength(13);
   });
 
   it('should register all global options', () => {
