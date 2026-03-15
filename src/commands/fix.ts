@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import chalk from 'chalk';
 
@@ -156,84 +156,6 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
 `;
 }
 
-function generateRalphSh(reportFile: string, maxIterations: number): string {
-  return `#!/usr/bin/env bash
-# Ralph pattern — autonomous fix loop for Anatoly audit findings
-# Inspired by snarktank/ralph (https://github.com/snarktank/ralph)
-set -e
-
-MAX_ITERATIONS=\${1:-${maxIterations}}
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-PRD_FILE="$SCRIPT_DIR/prd.json"
-PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
-CLAUDE_MD="$SCRIPT_DIR/CLAUDE.md"
-REPORT_FILE="${reportFile}"
-ARCHIVE_DIR="$SCRIPT_DIR/archive"
-LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
-
-# Archive previous run if branch changed
-if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
-  CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
-  LAST_BRANCH=$(cat "$LAST_BRANCH_FILE" 2>/dev/null || echo "")
-  if [ -n "$CURRENT_BRANCH" ] && [ -n "$LAST_BRANCH" ] && [ "$CURRENT_BRANCH" != "$LAST_BRANCH" ]; then
-    DATE=$(date +%Y-%m-%d)
-    FOLDER_NAME=$(echo "$LAST_BRANCH" | sed 's|^fix/||')
-    ARCHIVE_FOLDER="$ARCHIVE_DIR/$DATE-$FOLDER_NAME"
-    echo "Archiving previous run: $LAST_BRANCH"
-    mkdir -p "$ARCHIVE_FOLDER"
-    [ -f "$PRD_FILE" ] && cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
-    [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
-    echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-    echo "Started: $(date)" >> "$PROGRESS_FILE"
-    echo "---" >> "$PROGRESS_FILE"
-  fi
-fi
-
-# Track current branch
-if [ -f "$PRD_FILE" ]; then
-  CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
-  [ -n "$CURRENT_BRANCH" ] && echo "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"
-fi
-
-# Initialize progress file
-if [ ! -f "$PROGRESS_FILE" ]; then
-  echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-  echo "Started: $(date)" >> "$PROGRESS_FILE"
-  echo "---" >> "$PROGRESS_FILE"
-fi
-
-echo "Ralph fix loop — $REPORT_FILE"
-echo "Max iterations: $MAX_ITERATIONS"
-echo ""
-
-for i in $(seq 1 $MAX_ITERATIONS); do
-  echo "==============================================================="
-  echo "  Ralph Iteration $i of $MAX_ITERATIONS"
-  echo "==============================================================="
-
-  OUTPUT=$(claude --dangerously-skip-permissions --print < "$CLAUDE_MD" 2>&1 | tee /dev/stderr) || true
-
-  # Sync completed fixes back to the report
-  npx anatoly fix-sync "$REPORT_FILE" 2>/dev/null || true
-
-  # Check for completion signal
-  if echo "$OUTPUT" | grep -q '<promise>COMPLETE</promise>'; then
-    echo ""
-    echo "All fixes complete! Finished at iteration $i."
-    exit 0
-  fi
-
-  echo "Iteration $i complete. Continuing..."
-  sleep 2
-done
-
-echo ""
-echo "Ralph reached max iterations ($MAX_ITERATIONS)."
-echo "Check $PROGRESS_FILE for status."
-exit 1
-`;
-}
-
 export function registerFixCommand(program: Command): void {
   program
     .command('fix <report-file>')
@@ -266,10 +188,6 @@ export function registerFixCommand(program: Command): void {
 
       writeFileSync(join(fixDir, 'CLAUDE.md'), generateClaudeMd(reportFile));
 
-      const ralphPath = join(fixDir, 'ralph.sh');
-      writeFileSync(ralphPath, generateRalphSh(reportFile, 10));
-      chmodSync(ralphPath, 0o755);
-
       // Initialize progress.txt with Codebase Patterns section
       const progressPath = join(fixDir, 'progress.txt');
       if (!existsSync(progressPath)) {
@@ -279,13 +197,9 @@ export function registerFixCommand(program: Command): void {
       console.log(chalk.green(`\u2713 Fix artifacts generated in .anatoly/fix/${shardName}/`));
       console.log(`  prd.json      \u2014 ${items.length} user stories`);
       console.log(`  CLAUDE.md     \u2014 agent instructions`);
-      console.log(`  ralph.sh      \u2014 execution loop (default 10 iterations)`);
       console.log(`  progress.txt  \u2014 learnings log with Codebase Patterns section`);
       console.log('');
       console.log('To start the fix loop:');
-      console.log(chalk.cyan(`  .anatoly/fix/${shardName}/ralph.sh`));
-      console.log('');
-      console.log(chalk.gray('Or with custom iterations:'));
-      console.log(chalk.gray(`  .anatoly/fix/${shardName}/ralph.sh 20`));
+      console.log(chalk.cyan(`  npx anatoly fix-run ${reportFile}`));
     });
 }
