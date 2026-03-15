@@ -13,6 +13,7 @@ import {
   buildShards,
   renderIndex,
   renderShard,
+  makeActId,
   type TriageStats,
 } from './reporter.js';
 
@@ -546,6 +547,152 @@ describe('renderShard', () => {
     expect(md).not.toContain('## Quick Wins');
     expect(md).not.toContain('## Refactors');
     expect(md).not.toContain('## Hygiene');
+  });
+});
+
+describe('makeActId', () => {
+  it('should produce deterministic IDs', () => {
+    const id1 = makeActId('src/foo.ts', 1);
+    const id2 = makeActId('src/foo.ts', 1);
+    expect(id1).toBe(id2);
+  });
+
+  it('should produce different IDs for different files', () => {
+    const id1 = makeActId('src/foo.ts', 1);
+    const id2 = makeActId('src/bar.ts', 1);
+    expect(id1).not.toBe(id2);
+  });
+
+  it('should produce different IDs for different action numbers', () => {
+    const id1 = makeActId('src/foo.ts', 1);
+    const id2 = makeActId('src/foo.ts', 2);
+    expect(id1).not.toBe(id2);
+  });
+
+  it('should match ACT-{6hex}-{number} format', () => {
+    const id = makeActId('src/foo.ts', 42);
+    expect(id).toMatch(/^ACT-[a-f0-9]{6}-42$/);
+  });
+});
+
+describe('renderAction checkboxes', () => {
+  it('should prefix actions with checkbox and ACT-ID in shards', () => {
+    const reviews = [
+      makeReview({
+        file: 'src/foo.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: 'fn', target_lines: '1-5' },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderShard(shards[0]);
+    const actId = makeActId('src/foo.ts', 1);
+    expect(md).toContain(`- [ ] <!-- ${actId} -->`);
+    expect(md).toContain('**[utility \u00B7 high \u00B7 trivial]**');
+  });
+});
+
+describe('renderIndex Checklist', () => {
+  it('should include Checklist section when actions exist', () => {
+    const reviews = [
+      makeReview({
+        file: 'src/foo.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'small' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: 'fn', target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('## Checklist');
+    const actId = makeActId('src/foo.ts', 1);
+    expect(md).toContain(`- [ ] <!-- ${actId} -->`);
+    expect(md).toContain('\u{1F534}'); // red circle for high severity
+    expect(md).toContain('**[utility \u00B7 high]**');
+  });
+
+  it('should not include Checklist when no actions', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).not.toContain('## Checklist');
+  });
+
+  it('should sort Checklist by severity then file', () => {
+    const reviews = [
+      makeReview({
+        file: 'b.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Low issue', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })],
+        actions: [
+          { id: 1, description: 'High issue', severity: 'high' as const, effort: 'small' as const, category: 'quickwin' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    const checklistStart = md.indexOf('## Checklist');
+    const highPos = md.indexOf('High issue', checklistStart);
+    const lowPos = md.indexOf('Low issue', checklistStart);
+    expect(highPos).toBeLessThan(lowPos);
+  });
+
+  it('should use correct severity icons', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })],
+        actions: [
+          { id: 1, description: 'High', severity: 'high' as const, effort: 'small' as const, category: 'quickwin' as const, target_symbol: null, target_lines: null },
+          { id: 2, description: 'Medium', severity: 'medium' as const, effort: 'small' as const, category: 'refactor' as const, target_symbol: null, target_lines: null },
+          { id: 3, description: 'Low', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const md = renderIndex(data, shards);
+    expect(md).toContain('\u{1F534}'); // red for high
+    expect(md).toContain('\u{1F7E0}'); // orange for medium
+    expect(md).toContain('\u{1F7E1}'); // yellow for low
+  });
+
+  it('should share same ACT-IDs between shard and checklist', () => {
+    const reviews = [
+      makeReview({
+        file: 'src/foo.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Fix it', severity: 'high' as const, effort: 'small' as const, category: 'quickwin' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const shards = buildShards(data);
+    const indexMd = renderIndex(data, shards);
+    const shardMd = renderShard(shards[0]);
+    const actId = makeActId('src/foo.ts', 1);
+    // Same ACT-ID appears in both
+    expect(indexMd).toContain(`<!-- ${actId} -->`);
+    expect(shardMd).toContain(`<!-- ${actId} -->`);
   });
 });
 

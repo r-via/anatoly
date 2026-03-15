@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
@@ -175,12 +176,22 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
   };
 }
 
+/**
+ * Generate a deterministic action ID for checkbox matching.
+ * Format: ACT-{6-char file hash}-{action id}
+ */
+export function makeActId(file: string, actionId: number): string {
+  const hash = createHash('sha256').update(file).digest('hex').slice(0, 6);
+  return `ACT-${hash}-${actionId}`;
+}
+
 function renderAction(lines: string[], a: Action & { file: string }): void {
   const effort = a.effort ?? 'small';
   const src = a.source ? `${a.source} · ` : '';
   const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
   const loc = a.target_lines ? ` [${a.target_lines}]` : '';
-  lines.push(`- **[${src}${a.severity} · ${effort}]** \`${a.file}\`: ${a.description}${target}${loc}`);
+  const actId = makeActId(a.file, a.id);
+  lines.push(`- [ ] <!-- ${actId} --> **[${src}${a.severity} · ${effort}]** \`${a.file}\`: ${a.description}${target}${loc}`);
 }
 
 const SHARD_SIZE = 10;
@@ -295,6 +306,28 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
       if (shard.refactorCount > 0) composition.push(`${shard.refactorCount} NEEDS_REFACTOR`);
       const desc = composition.length > 0 ? ` — ${composition.join(', ')}` : '';
       lines.push(`- [ ] [report.${shard.index}.md](./report.${shard.index}.md) (${shard.files.length} files${desc})`);
+    }
+    lines.push('');
+  }
+
+  // Checklist — aggregated actions from all shards, sorted by severity then file
+  if (data.actions.length > 0) {
+    const sevIcon: Record<string, string> = { high: '\u{1F534}', medium: '\u{1F7E0}', low: '\u{1F7E1}' };
+    const sorted = [...data.actions].sort((a, b) => {
+      const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      const sevDiff = (sevOrder[a.severity] ?? 2) - (sevOrder[b.severity] ?? 2);
+      if (sevDiff !== 0) return sevDiff;
+      return a.file.localeCompare(b.file);
+    });
+
+    lines.push('## Checklist');
+    lines.push('');
+    for (const a of sorted) {
+      const actId = makeActId(a.file, a.id);
+      const icon = sevIcon[a.severity] ?? '\u{1F7E1}';
+      const src = a.source ? `${a.source} \u00B7 ` : '';
+      const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
+      lines.push(`- [ ] <!-- ${actId} --> ${icon} **[${src}${a.severity}]** \`${a.file}\`: ${a.description}${target}`);
     }
     lines.push('');
   }
