@@ -2,11 +2,11 @@
   <img src="assets/imgs/logo.jpg" alt="Anatoly"/>
 </p>
 
-# Anatoly & his Pals
+# Anatoly
 
 *"Can I clean here?"*
 
-**The AI janitor crew that deep-audits your TypeScript codebase -- and proves every finding.**
+**The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
@@ -20,24 +20,9 @@ npx anatoly run   # one command, full codebase audit
 
 ---
 
-## Meet the Crew
-
-Anatoly is the boss. He orchestrates the crew, dispatches each Pal on every file, and compiles their findings into a single evidence-backed audit report. The Pals do the dirty work. Anatoly makes sure it's proven.
-
-| Pal | Axis | Job description |
-|-----|------|-----------------|
-| **The Perfectionist** | `correction` | Finds bugs, bad patterns, and code that just ain't right |
-| **The Minimalist** | `overengineering` | Calls out abstractions nobody asked for |
-| **The Bouncer** | `utility` | Kicks out dead code -- no invite, no entry |
-| **The Clone Hunter** | `duplication` | Tracks down copy-paste across file boundaries |
-| **The Guardian** | `tests` | Guards the gate -- no coverage, no mercy |
-| **The Coach** | `best_practices` | Scores every file against 17 TypeScript best-practice rules |
-
----
-
 ## What is Anatoly?
 
-Anatoly runs a crew of six specialized Pals -- each one an analysis axis powered by a Claude agent with full read access to your codebase and a semantic vector index. Together they walk through every file, investigate it with full project context, and deliver a surgical audit report.
+Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report.
 
 This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions, and cross-reference exports, imports, and test coverage -- then it must **prove** each finding with evidence before reporting it.
 
@@ -51,16 +36,20 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 ## Key Features
 
-- **AST-driven scanning** — tree-sitter extracts every symbol with line ranges and export status
-- **Evidence-based review** — the agent must grep/read to prove every finding
-- **6-axis analysis** — correction, overengineering, utility, duplication, tests, best practices
-- **Smart triage** — auto-classifies files into skip/fast/deep tiers
-- **Pre-computed usage graph** — full import graph in < 1s, eliminating ~90% of redundant tool calls
-- **RAG semantic duplication** — local embeddings + LanceDB detect cross-file duplications invisible to grep
-- **Opus deliberation** — optional post-merge validation pass filters residual false positives
+- **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status
+- **Evidence-based review** — the agent must grep/read to prove every finding before reporting it
+- **6-axis analysis** — correction, overengineering, utility, duplication, tests, best practices — all axes run in parallel per file
+- **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
+- **Pre-computed usage graph** — one-pass import resolution across all files, eliminating ~90% of redundant tool calls
+- **Local code embeddings** — Jina Embeddings V2 Base Code (768-dim) computed locally, stored in LanceDB — zero API cost for RAG indexing
+- **RAG semantic duplication** — vector similarity detects cross-file duplicates invisible to grep (renamed variables, refactored patterns)
+- **Opus deliberation** — optional senior-auditor pass detects inter-axis incoherence and filters residual false positives
+- **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs)
+- **Correction memory** — persistent false-positive registry prevents repeated flags across runs
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
-- **Sharded reports** — compact index + per-shard detail files with symbol-level tables
-- **Claude Code hook** — real-time audit loop: write → audit → fix
+- **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
+- **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
+- **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode, `--yes` for non-interactive use
 
 > See [How It Works](docs/how-it-works.md) for the full pipeline details, self-correction loop, two-pass correction, and deliberation pass.
