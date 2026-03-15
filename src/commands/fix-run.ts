@@ -1,8 +1,7 @@
 import type { Command } from 'commander';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
-import { execSync } from 'node:child_process';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { execSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { parseUncheckedActions } from './fix.js';
 
@@ -11,9 +10,9 @@ const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
 export function registerFixRunCommand(program: Command): void {
   program
     .command('fix-run <report-file>')
-    .description('Generate fix artifacts and run Ralph loop via Claude Agent SDK')
+    .description('Generate fix artifacts and run Ralph loop to remediate findings')
     .option('-n, --iterations <n>', 'max Ralph iterations', '10')
-    .action(async (reportFile: string, opts: { iterations: string }) => {
+    .action((reportFile: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
       const absPath = resolve(projectRoot, reportFile);
       const maxIterations = parseInt(opts.iterations, 10) || 10;
@@ -28,8 +27,6 @@ export function registerFixRunCommand(program: Command): void {
       const fixDir = resolve(projectRoot, '.anatoly', 'fix', shardName);
       const prdPath = join(fixDir, 'prd.json');
       const claudeMdPath = join(fixDir, 'CLAUDE.md');
-      const progressPath = join(fixDir, 'progress.txt');
-
       // Generate artifacts if not already present
       if (!existsSync(prdPath) || !existsSync(claudeMdPath)) {
         console.log(chalk.blue('Generating fix artifacts...'));
@@ -51,10 +48,8 @@ export function registerFixRunCommand(program: Command): void {
         process.exit(1);
       }
 
-      const claudeMd = readFileSync(claudeMdPath, 'utf-8');
-
       console.log('');
-      console.log(chalk.blue(`Ralph fix loop — ${maxIterations} iterations max`));
+      console.log(chalk.blue(`Ralph fix loop \u2014 ${maxIterations} iterations max`));
       console.log('');
 
       for (let i = 1; i <= maxIterations; i++) {
@@ -62,56 +57,23 @@ export function registerFixRunCommand(program: Command): void {
         console.log(`  Ralph Iteration ${i} of ${maxIterations}`);
         console.log('===============================================================');
 
-        // Build prompt with current prd.json and progress.txt context
-        const prdContent = readFileSync(prdPath, 'utf-8');
-        const progressContent = existsSync(progressPath) ? readFileSync(progressPath, 'utf-8') : '';
+        // Read CLAUDE.md fresh each iteration (it doesn't change, but keep it clean)
+        const claudeMd = readFileSync(claudeMdPath, 'utf-8');
 
-        const prompt = [
-          claudeMd,
-          '',
-          '## Current PRD State',
-          '```json',
-          prdContent,
-          '```',
-          '',
-          progressContent ? `## Current Progress\n\n${progressContent}` : '',
-        ].join('\n');
+        // Spawn a fresh Claude Code instance — full tools, full context, no SDK constraints
+        const result = spawnSync('claude', ['--dangerously-skip-permissions', '--print'], {
+          input: claudeMd,
+          cwd: projectRoot,
+          stdio: ['pipe', 'pipe', 'inherit'],
+          timeout: 15 * 60 * 1000, // 15 min per iteration
+        });
 
-        let outputText = '';
+        const output = result.stdout?.toString() ?? '';
 
-        try {
-          const q = query({
-            prompt,
-            options: {
-              model: 'claude-sonnet-4-6',
-              cwd: projectRoot,
-              maxTurns: 50,
-              permissionMode: 'bypassPermissions',
-              allowDangerouslySkipPermissions: true,
-            },
-          });
-
-          for await (const event of q) {
-            if (event.type === 'result') {
-              const result = event.result;
-              if ('resultText' in result) {
-                outputText = result.resultText;
-                console.log(chalk.gray(`  Tokens: ${result.inputTokens} in / ${result.outputTokens} out`));
-              }
-            } else if (event.type === 'message' && event.message.role === 'assistant') {
-              // Stream assistant text to console
-              const msg = event.message;
-              if ('content' in msg) {
-                for (const block of msg.content as Array<{ type: string; text?: string }>) {
-                  if (block.type === 'text' && block.text) {
-                    process.stdout.write(block.text);
-                  }
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.error(chalk.yellow(`  Iteration ${i} error: ${err instanceof Error ? err.message : String(err)}`));
+        // Print agent output
+        if (output) {
+          process.stdout.write(output);
+          process.stdout.write('\n');
         }
 
         // Sync completed fixes back to the report
@@ -125,19 +87,9 @@ export function registerFixRunCommand(program: Command): void {
         }
 
         // Check for completion signal
-        if (outputText.includes(COMPLETION_SIGNAL)) {
+        if (output.includes(COMPLETION_SIGNAL)) {
           console.log('');
           console.log(chalk.green(`All fixes complete! Finished at iteration ${i}.`));
-
-          // Final sync
-          try {
-            execSync(`npx anatoly fix-sync ${reportFile}`, {
-              cwd: projectRoot,
-              stdio: 'inherit',
-            });
-          } catch {
-            // Non-fatal
-          }
           return;
         }
 
