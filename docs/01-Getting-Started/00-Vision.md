@@ -2,7 +2,13 @@
 
 ## "Can I clean here?"
 
-Anatoly is named after the meticulous custodian who never touches a surface without asking first. The slogan captures the agent's core principle: **observe everything, prove before reporting, modify nothing**. Anatoly reads your entire codebase, investigates every symbol with full project context, and delivers a surgical audit report -- but it never changes a single line of your code.
+Anatoly is named after **Vladimir Shmondenko**, the Ukrainian powerlifter better known on the internet as *Anatoly* -- the guy who walks into elite gyms disguised as a scrawny cleaning man, politely asks *"Can I clean here?"*, then casually deadlifts 290 kg with one hand while the bodybuilders stare in disbelief.
+
+The metaphor is the project itself. Anatoly the tool shows up in your codebase looking like a harmless janitor with a mop. It asks nicely. It doesn't touch anything. And then it calmly identifies every dead export, every duplicated utility, every over-engineered abstraction, and every untested function -- with surgical proof -- while your linter is still checking semicolons.
+
+Just like the real Anatoly, the strength is disproportionate to the appearance. A polite CLI that says *"I'm sorry!"* while delivering a 300-finding audit report with evidence for each one.
+
+**Observe everything. Prove before reporting. Modify nothing.** Anatoly reads your entire codebase, investigates every symbol with full project context, and delivers a surgical audit report -- but it never changes a single line of your code. It just... cleans.
 
 ## Mission
 
@@ -60,3 +66,5 @@ If your team ships fast and reviews later, Anatoly is the reviewer that never ge
 ESLint tells you a variable is unused in one file. Anatoly tells you an entire module is dead because nothing imports it -- and proves it by showing the import graph. SonarQube flags cognitive complexity. Anatoly flags an abstraction layer that exists to serve a single call site and recommends inlining it. The TypeScript compiler catches type errors. Anatoly catches a function that technically type-checks but misuses a library API based on its documentation.
 
 These tools are complementary. Anatoly is not a replacement for linting or type checking. It is the layer above: the deep audit that catches what automated rules cannot.
+
+Or, to put it another way: ESLint is the personal trainer who spots bad form. SonarQube is the gym manager who tracks metrics. Anatoly is the cleaning guy who walks in, apologizes for the interruption, and one-arms your entire tech debt off the rack.
