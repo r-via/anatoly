@@ -9,3 +9,4 @@ export { registerCleanRunsCommand } from './clean-runs.js';
 export { registerResetCommand } from './reset.js';
 export { registerRagStatusCommand } from './rag-status.js';
 export { registerHookCommand } from './hook.js';
+export { registerFixCommand } from './fix.js';
