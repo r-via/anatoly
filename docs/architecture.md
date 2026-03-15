@@ -364,14 +364,14 @@ The progress file enables resumable runs:
 
 All errors are wrapped in `AnatolyError` (defined in `src/utils/errors.ts`) with structured error codes:
 
-| Error Code | Meaning | Retryable |
-|-----------|---------|-----------|
+| Error Code | Meaning | Recoverable |
+|-----------|---------|-------------|
 | `LOCK_EXISTS` | Another instance is running | No |
 | `SDK_ERROR` | Claude Code SDK failure (subprocess crash, exit code) | Yes |
 | `SDK_TIMEOUT` | LLM request timed out | Yes |
 | `ZOD_VALIDATION_FAILED` | LLM response did not match expected schema after 2 attempts | Yes |
 
-Each `AnatolyError` carries a `retryable` flag, a machine-readable `code`, and a `formatForDisplay()` method for user-facing output.
+Each `AnatolyError` carries a `recoverable` flag, a machine-readable `code`, and a `formatForDisplay()` method for user-facing output.
 
 ### Retry with Exponential Backoff
 
@@ -382,7 +382,7 @@ The `retryWithBackoff` utility (`src/utils/rate-limiter.ts`) wraps each file eva
 - **Max delay:** 120,000 ms
 - **Jitter factor:** 0.2 (20% randomization to prevent thundering herd)
 
-Only errors with `retryable: true` trigger retries. Non-retryable errors fail immediately. The retry loop respects the interruption flag and stops if SIGINT has been received.
+Only 429/rate-limit errors trigger retries. Other errors -- even those marked `recoverable: true` -- fail immediately without retry. The retry loop respects the interruption flag and stops if SIGINT has been received.
 
 ### Axis-Level Fault Isolation
 
@@ -391,7 +391,7 @@ Each of the 6 axis evaluators runs independently via `Promise.allSettled` inside
 - The remaining axes complete unaffected.
 - The crashed axis ID is recorded in `failedAxes`.
 - The axis merger applies safe defaults for the missing axis (e.g., `utility: 'USED'`, `correction: 'OK'`).
-- The symbol detail includes a crash sentinel: `"*(axis crashed -- see transcript)*"`.
+- The symbol detail includes a crash sentinel: `"*(axis crashed — see transcript)*"`.
 - The review is counted as "degraded" and flagged in the report.
 - The transcript records the full error for debugging.
 
