@@ -1,16 +1,16 @@
 import type { Command } from 'commander';
-import { existsSync, symlinkSync, unlinkSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
-import { execSync } from 'node:child_process';
-import { spawnSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { parseUncheckedActions } from './fix.js';
 
 export function registerFixRunCommand(program: Command): void {
   program
     .command('fix-run <report-file>')
-    .description('Generate fix artifacts and launch Ralph to remediate findings')
-    .action((reportFile: string) => {
+    .description('Generate fix artifacts and launch Ralph loop to remediate findings')
+    .option('-n, --iterations <n>', 'max Ralph iterations', '10')
+    .action((reportFile: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
       const absPath = resolve(projectRoot, reportFile);
 
@@ -19,22 +19,13 @@ export function registerFixRunCommand(program: Command): void {
         process.exit(1);
       }
 
-      // Check Ralph installation
-      const ralphScript = resolve(projectRoot, 'scripts', 'ralph', 'ralph.sh');
-      if (!existsSync(ralphScript)) {
-        console.error(chalk.red('Ralph not found at scripts/ralph/ralph.sh'));
-        console.error(chalk.red('See https://github.com/snarktank/ralph for installation'));
-        process.exit(1);
-      }
-
       // Derive shard name and fix directory
       const shardName = basename(reportFile, '.md');
       const fixDir = resolve(projectRoot, '.anatoly', 'fix', shardName);
-      const prdPath = join(fixDir, 'prd.json');
-      const claudeMdPath = join(fixDir, 'CLAUDE.md');
+      const ralphPath = join(fixDir, 'ralph.sh');
 
       // Generate artifacts if not already present
-      if (!existsSync(prdPath) || !existsSync(claudeMdPath)) {
+      if (!existsSync(ralphPath)) {
         console.log(chalk.blue('Generating fix artifacts...'));
         execSync(`npx anatoly fix ${reportFile}`, {
           cwd: projectRoot,
@@ -42,8 +33,8 @@ export function registerFixRunCommand(program: Command): void {
         });
       }
 
-      // Verify artifacts were created
-      if (!existsSync(prdPath)) {
+      // Verify ralph.sh was created
+      if (!existsSync(ralphPath)) {
         const content = readFileSync(absPath, 'utf-8');
         const items = parseUncheckedActions(content);
         if (items.length === 0) {
@@ -54,35 +45,20 @@ export function registerFixRunCommand(program: Command): void {
         process.exit(1);
       }
 
-      // Symlink prd.json and CLAUDE.md to project root (where Ralph expects them)
-      const rootPrd = resolve(projectRoot, 'prd.json');
-      const rootClaudeMd = resolve(projectRoot, 'CLAUDE.md');
-
-      // Create symlinks (remove existing ones first if they are symlinks)
-      for (const [src, dest] of [[prdPath, rootPrd], [claudeMdPath, rootClaudeMd]] as const) {
-        try {
-          unlinkSync(dest);
-        } catch {
-          // File may not exist — that's fine
-        }
-        symlinkSync(src, dest);
-        console.log(chalk.gray(`  Linked ${basename(dest)} → .anatoly/fix/${shardName}/${basename(dest)}`));
-      }
-
       console.log('');
-      console.log(chalk.blue('Launching Ralph...'));
+      console.log(chalk.blue('Launching Ralph fix loop...'));
       console.log('');
 
-      // Launch Ralph with stdio inherited so the user sees everything
-      const result = spawnSync(ralphScript, ['--tool', 'claude'], {
+      // Launch the generated ralph.sh with stdio inherited
+      const result = spawnSync(ralphPath, [opts.iterations], {
         cwd: projectRoot,
         stdio: 'inherit',
       });
 
+      // fix-sync is already called inside ralph.sh after each iteration,
+      // but run a final sync to be safe
       console.log('');
-
-      // After Ralph finishes, sync checkboxes back
-      console.log(chalk.blue('Syncing fix results back to report...'));
+      console.log(chalk.blue('Final sync of fix results...'));
       try {
         execSync(`npx anatoly fix-sync ${reportFile}`, {
           cwd: projectRoot,
@@ -92,18 +68,9 @@ export function registerFixRunCommand(program: Command): void {
         console.warn(chalk.yellow('fix-sync encountered an error (non-fatal)'));
       }
 
-      // Clean up symlinks
-      for (const dest of [rootPrd, rootClaudeMd]) {
-        try {
-          unlinkSync(dest);
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-
-      if (result.status !== 0) {
+      if (result.status !== 0 && result.status !== null) {
         console.error(chalk.red(`Ralph exited with code ${result.status}`));
-        process.exit(result.status ?? 1);
+        process.exit(result.status);
       }
 
       console.log(chalk.green('Fix run complete.'));
