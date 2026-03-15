@@ -7,16 +7,6 @@
 
 ---
 
-## Root Documents
-
-| Document | Description |
-|----------|-------------|
-| [Project Overview](project-overview.md) | Executive summary, goals, and scope of the Anatoly project |
-| [Architecture](architecture.md) | High-level architecture and system design |
-| [Source Tree Analysis](source-tree-analysis.md) | Annotated source tree with module descriptions |
-
----
-
 ## 1. Getting Started
 
 | Document | Description |
@@ -76,6 +66,7 @@
 
 | Document | Description |
 |----------|-------------|
+| [Source Tree](06-Development/00-Source-Tree.md) | Annotated source tree with module descriptions and LOC |
 | [Contributing](06-Development/01-Contributing.md) | Development workflow, code style, and PR guidelines |
 | [Testing](06-Development/02-Testing.md) | Test strategy, fixtures, and running the test suite |
 | [Schemas](06-Development/03-Schemas.md) | Internal data schemas and type definitions |
