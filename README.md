@@ -103,11 +103,16 @@ npx anatoly hook init        # Generate Claude Code hooks configuration
 
 | Document | Description |
 |----------|-------------|
-| [How It Works](docs/how-it-works.md) | Pipeline phases, self-correction loop, two-pass correction, deliberation, Claude Code hook |
+| [How It Works](docs/how-it-works.md) | Pipeline phases, triage, usage graph, review, deliberation |
 | [Analysis Axes](docs/analysis-axes.md) | 6 axes deep-dive, verdicts, 17 best-practices rules, scoring, inter-axis coherence |
 | [Architecture](docs/architecture.md) | System diagram, tech stack, project structure, concurrency model, error handling |
 | [Configuration](docs/configuration.md) | `.anatoly.yml` reference, all CLI flags, environment variables, examples |
-| [Logging](docs/logging.md) | Diagnostic logging, log levels, per-run logs, `jq` recipes |
+| [Schemas](docs/schemas.md) | Zod schemas: ReviewFile, Config, Task, Progress, all enums |
+| [Output Formats](docs/output-formats.md) | `.rev.json`, `.rev.md`, report shards, `run-metrics.json`, badge |
+| [RAG Semantic Index](docs/rag-semantic-index.md) | FunctionCard, Jina embeddings, LanceDB, indexing pipeline, search API |
+| [Runtime Directory](docs/runtime-directory.md) | `.anatoly/` layout, runs, cache, lock file, lifecycle commands |
+| [Claude Code Hook](docs/claude-code-hook.md) | Hook init, PostToolUse, Stop, anti-loop, autocorrection loop |
+| [Logging](docs/logging.md) | Structured pino logging, log context, transports, `jq` recipes |
 
 ---
 
