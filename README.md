@@ -8,6 +8,8 @@
 
 **The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
 
+Named after [Anatoly Shmondenko](https://www.youtube.com/@vladimirfitness) -- the Ukrainian powerlifter who disguises himself as a scrawny cleaning man, politely asks *"Can I clean here?"*, then casually one-arms 290 kg while bodybuilders stare. Same energy: a humble CLI that walks into your codebase with a mop and deadlifts your entire tech debt off the rack.
+
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
 ```bash
@@ -50,9 +52,9 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
-- **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode, `--yes` for non-interactive use
+- **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines
 
-> See [How It Works](docs/how-it-works.md) for the full pipeline details, self-correction loop, two-pass correction, and deliberation pass.
+> See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for the evaluation axes.
 
 ## Target Audience
 
@@ -95,24 +97,21 @@ npx anatoly reset            # Wipe all state
 npx anatoly hook init        # Generate Claude Code hooks configuration
 ```
 
-> See [Configuration](docs/configuration.md) for the full `.anatoly.yml` reference and all CLI flags.
+> See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference and all CLI flags.
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [How It Works](docs/how-it-works.md) | Pipeline phases, triage, usage graph, review, deliberation |
-| [Analysis Axes](docs/analysis-axes.md) | 6 axes deep-dive, verdicts, 17 best-practices rules, scoring, inter-axis coherence |
-| [Architecture](docs/architecture.md) | System diagram, tech stack, project structure, concurrency model, error handling |
-| [Configuration](docs/configuration.md) | `.anatoly.yml` reference, all CLI flags, environment variables, examples |
-| [Schemas](docs/schemas.md) | Zod schemas: ReviewFile, Config, Task, Progress, all enums |
-| [Output Formats](docs/output-formats.md) | `.rev.json`, `.rev.md`, report shards, `run-metrics.json`, badge |
-| [RAG Semantic Index](docs/rag-semantic-index.md) | FunctionCard, Jina embeddings, LanceDB, indexing pipeline, search API |
-| [Runtime Directory](docs/runtime-directory.md) | `.anatoly/` layout, runs, cache, lock file, lifecycle commands |
-| [Claude Code Hook](docs/claude-code-hook.md) | Hook init, PostToolUse, Stop, anti-loop, autocorrection loop |
-| [Logging](docs/logging.md) | Structured pino logging, log context, transports, `jq` recipes |
+| Section | Highlights |
+|---------|------------|
+| [Getting Started](docs/01-Getting-Started/) | [Vision](docs/01-Getting-Started/00-Vision.md), [Installation](docs/01-Getting-Started/01-Installation.md), [Configuration](docs/01-Getting-Started/02-Configuration.md) |
+| [Architecture](docs/02-Architecture/) | [Pipeline](docs/02-Architecture/01-Pipeline-Overview.md), [6-Axis System](docs/02-Architecture/02-Six-Axis-System.md), [RAG Engine](docs/02-Architecture/03-RAG-Engine.md), [Usage Graph](docs/02-Architecture/04-Usage-Graph.md), [Deliberation](docs/02-Architecture/05-Deliberation-Pass.md) |
+| [CLI Reference](docs/03-CLI-Reference/) | [Commands](docs/03-CLI-Reference/01-Commands.md), [Global Options](docs/03-CLI-Reference/02-Global-Options.md), [Output Formats](docs/03-CLI-Reference/03-Output-Formats.md) |
+| [Core Modules](docs/04-Core-Modules/) | [Scanner](docs/04-Core-Modules/01-Scanner.md), [Estimator](docs/04-Core-Modules/02-Estimator.md), [Triage](docs/04-Core-Modules/03-Triage.md), [Evaluators](docs/04-Core-Modules/04-Axis-Evaluators.md), [Reporter](docs/04-Core-Modules/05-Reporter.md), [Worker Pool](docs/04-Core-Modules/06-Worker-Pool.md) |
+| [Integration](docs/05-Integration/) | [Claude Code Hooks](docs/05-Integration/01-Claude-Code-Hooks.md), [CI/CD](docs/05-Integration/02-CI-CD.md), [Watch Mode](docs/05-Integration/03-Watch-Mode.md) |
+| [Development](docs/06-Development/) | [Source Tree](docs/06-Development/00-Source-Tree.md), [Contributing](docs/06-Development/01-Contributing.md), [Testing](docs/06-Development/02-Testing.md), [Schemas](docs/06-Development/03-Schemas.md) |
+| [Design Decisions](docs/07-Design-Decisions/) | [Why Local RAG](docs/07-Design-Decisions/01-Why-Local-RAG.md), [Evidence-Based](docs/07-Design-Decisions/02-Evidence-Based-Approach.md), [Cost Optimization](docs/07-Design-Decisions/03-Cost-Optimization.md) |
 
 ---
 
