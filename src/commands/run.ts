@@ -302,20 +302,25 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
         rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
         allTasks = loadTasks(ctx.projectRoot);
-        const estimate = estimateProject(ctx.projectRoot);
-        estimateFiles = estimate.files;
+
+        // When a file filter is active, scope estimate to matching files only
+        const estimateTasks = ctx.fileFilter
+          ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+          : allTasks;
+        const { inputTokens, outputTokens, symbols } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
+        estimateFiles = estimateTasks.length;
 
         const minutes = estimateMinutesWithConcurrency(
-          estimateSequentialSeconds(allTasks),
+          estimateSequentialSeconds(estimateTasks),
           ctx.concurrency,
         );
         const timeLabel = ctx.concurrency > 1
           ? `~${minutes} min (\u00d7${ctx.concurrency})`
           : `~${minutes} min`;
 
-        listrTask.title = `estimate \u2014 ${estimate.files} files \u00b7 ${estimate.symbols} symbols \u00b7 ${formatTokenCount(estimate.inputTokens)} in / ${formatTokenCount(estimate.outputTokens)} out \u00b7 ${timeLabel}`;
+        listrTask.title = `estimate \u2014 ${estimateTasks.length} files \u00b7 ${symbols} symbols \u00b7 ${formatTokenCount(inputTokens)} in / ${formatTokenCount(outputTokens)} out \u00b7 ${timeLabel}`;
         ctx.phaseDurations.estimate = Date.now() - estStart;
-        const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: estimate.inputTokens + estimate.outputTokens };
+        const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
         log.info(estCompleted, 'phase completed');
         rl?.info(estCompleted, 'phase completed');
       },
@@ -330,7 +335,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
         const tiers = { skip: 0, evaluate: 0 };
 
-        for (const task of allTasks) {
+        // When a file filter is active, only triage matching files
+        const triageTasks = ctx.fileFilter
+          ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+          : allTasks;
+
+        for (const task of triageTasks) {
           const absPath = resolve(ctx.projectRoot, task.file);
           let source: string;
           try {
@@ -347,17 +357,17 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           tiers[result.tier]++;
         }
 
-        const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
+        const evalTasks = triageTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
         const triageMinutes = estimateMinutesWithConcurrency(
           estimateSequentialSeconds(evalTasks),
           ctx.concurrency,
         );
-        const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, evalTasks);
+        const { inputTokens: triageIn, outputTokens: triageOut } = estimateTasksTokens(ctx.projectRoot, evalTasks);
         const timeLabel = ctx.concurrency > 1
           ? `~${triageMinutes} min (\u00d7${ctx.concurrency})`
           : `~${triageMinutes} min`;
 
-        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${formatTokenCount(inputTokens)} in / ${formatTokenCount(outputTokens)} out \u00b7 ${timeLabel}`;
+        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${formatTokenCount(triageIn)} in / ${formatTokenCount(triageOut)} out \u00b7 ${timeLabel}`;
         const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
         log.info(triageSummary, 'triage summary');
         rl?.info(triageSummary, 'triage summary');
