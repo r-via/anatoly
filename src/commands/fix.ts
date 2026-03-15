@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import chalk from 'chalk';
 
@@ -131,46 +131,6 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
 `;
 }
 
-function generateRalphSh(reportFile: string, maxIterations: number): string {
-  return `#!/usr/bin/env bash
-set -euo pipefail
-
-MAX_ITERATIONS=${maxIterations}
-REPORT_FILE="${reportFile}"
-PROGRESS_FILE="progress.txt"
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-
-echo "Ralph fix loop \u2014 ${reportFile}"
-echo "Max iterations: $MAX_ITERATIONS"
-echo ""
-
-cd "$SCRIPT_DIR"
-
-for i in $(seq 1 $MAX_ITERATIONS); do
-  echo "=== Iteration $i/$MAX_ITERATIONS ==="
-
-  # Run Claude agent with fix instructions
-  claude --print -p "Read prd.json. Find the first story with passes=false. Fix it following CLAUDE.md instructions." \\
-    --allowedTools "Bash(command:npm run build),Bash(command:npm test),Read,Write,Edit,Glob,Grep" \\
-    2>&1 | tee -a "$PROGRESS_FILE"
-
-  # Sync completed fixes back to the report
-  npx anatoly fix-sync "$REPORT_FILE"
-
-  # Check for completion signal
-  if grep -q '<promise>COMPLETE</promise>' "$PROGRESS_FILE"; then
-    echo ""
-    echo "All fixes complete!"
-    break
-  fi
-
-  echo ""
-done
-
-echo "Ralph fix loop finished."
-`;
-}
-
 export function registerFixCommand(program: Command): void {
   program
     .command('fix <report-file>')
@@ -203,19 +163,21 @@ export function registerFixCommand(program: Command): void {
 
       writeFileSync(join(fixDir, 'CLAUDE.md'), generateClaudeMd(reportFile));
 
-      const ralphPath = join(fixDir, 'ralph.sh');
-      writeFileSync(ralphPath, generateRalphSh(reportFile, 10));
-      chmodSync(ralphPath, 0o755);
-
-      writeFileSync(join(fixDir, 'progress.txt'), '');
+      // Check for real Ralph installation
+      const ralphScript = resolve(projectRoot, 'scripts', 'ralph', 'ralph.sh');
+      const hasRalph = existsSync(ralphScript);
 
       console.log(chalk.green(`\u2713 Fix artifacts generated in .anatoly/fix/${shardName}/`));
       console.log(`  prd.json     \u2014 ${items.length} user stories`);
       console.log(`  CLAUDE.md    \u2014 agent instructions`);
-      console.log(`  ralph.sh     \u2014 execution loop (max 10 iterations)`);
-      console.log(`  progress.txt \u2014 log file`);
       console.log('');
-      console.log('To start the fix loop:');
-      console.log(chalk.cyan(`  cd ${fixDir} && ./ralph.sh`));
+
+      if (!hasRalph) {
+        console.log(chalk.yellow('Ralph not found at scripts/ralph/ralph.sh'));
+        console.log(chalk.yellow('See https://github.com/snarktank/ralph for installation'));
+      } else {
+        console.log('To start the fix loop:');
+        console.log(chalk.cyan('  scripts/ralph/ralph.sh --tool claude'));
+      }
     });
 }

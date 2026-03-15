@@ -13,6 +13,7 @@ import {
   registerRagStatusCommand,
   registerHookCommand,
   registerFixCommand,
+  registerFixRunCommand,
   registerFixSyncCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
@@ -79,6 +80,7 @@ export function createProgram(): Command {
   registerRagStatusCommand(program);
   registerHookCommand(program);
   registerFixCommand(program);
+  registerFixRunCommand(program);
   registerFixSyncCommand(program);
 
   return program;
