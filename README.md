@@ -76,7 +76,7 @@ npm install -g anatoly
 anatoly run
 ```
 
-The `run` command executes the full pipeline: **scan** → **estimate** → **index** → **review** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it.
+The `run` command executes the full pipeline: **scan** → **estimate** → **triage** → **usage graph** → **RAG index** → **review** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it.
 
 ## Usage
 
@@ -103,10 +103,11 @@ npx anatoly hook init        # Generate Claude Code hooks configuration
 
 | Document | Description |
 |----------|-------------|
-| [How It Works](docs/how-it-works.md) | Pipeline details, self-correction loop, two-pass correction, deliberation, Claude Code hook |
-| [Architecture](docs/architecture.md) | System diagram, tech stack, project structure, runtime output |
-| [Configuration](docs/configuration.md) | `.anatoly.yml` reference, CLI flags, review output format |
-| [Logging](docs/logging.md) | Diagnostic logging, log levels, `jq` recipes |
+| [How It Works](docs/how-it-works.md) | Pipeline phases, self-correction loop, two-pass correction, deliberation, Claude Code hook |
+| [Analysis Axes](docs/analysis-axes.md) | 6 axes deep-dive, verdicts, 17 best-practices rules, scoring, inter-axis coherence |
+| [Architecture](docs/architecture.md) | System diagram, tech stack, project structure, concurrency model, error handling |
+| [Configuration](docs/configuration.md) | `.anatoly.yml` reference, all CLI flags, environment variables, examples |
+| [Logging](docs/logging.md) | Diagnostic logging, log levels, per-run logs, `jq` recipes |
 
 ---
 
