@@ -87,25 +87,34 @@ function generatePrd(shardName: string, items: FixItem[]): object {
   };
 }
 
-function generateClaudeMd(shardFile: string): string {
+function generateClaudeMd(shardFile: string, fixDir: string): string {
   return `# Fix Agent Instructions
 
 ## Role
 
 You are an autonomous TypeScript correction agent working in a Ralph loop.
-Your job is to fix audit findings one at a time, as described in \`prd.json\`.
+Your job is to fix audit findings one at a time.
+
+## Key Files
+
+| File | Path | Purpose |
+|------|------|---------|
+| PRD | \`${fixDir}/prd.json\` | User stories — pick the first with \`"passes": false\` |
+| Progress | \`${fixDir}/progress.txt\` | Learnings log — **read Codebase Patterns first** |
+| Source report | \`${shardFile}\` | The audit shard with original findings |
+| Reviews | \`.anatoly/runs/*/reviews/\` | Per-file \`.rev.md\` with axis-by-axis detail |
 
 ## Workflow
 
-1. Read \`prd.json\` to find the first user story where \`"passes": false\`
-2. Read \`progress.txt\` — check the **Codebase Patterns** section first for learnings from previous iterations
+1. Read \`${fixDir}/prd.json\` — find the first user story where \`"passes": false\`
+2. Read \`${fixDir}/progress.txt\` — check the **Codebase Patterns** section first for learnings from previous iterations
 3. Check you're on the correct branch from PRD \`branchName\`. If not, check it out or create from main.
-4. Read the corresponding \`.rev.md\` file in the run's reviews/ directory for detailed context
+4. Read the corresponding \`.rev.md\` file for detailed context on the finding
 5. Fix the issue in the source code
 6. Verify: \`npm run build && npm test\`
 7. Commit: \`git commit -m "fix: [FIX-NNN] - short description"\`
-8. Update \`prd.json\`: set \`"passes": true\` for the completed story
-9. Append your progress to \`progress.txt\` (see format below)
+8. Update \`${fixDir}/prd.json\`: set \`"passes": true\` for the completed story
+9. Append your progress to \`${fixDir}/progress.txt\` (see format below)
 10. If all stories have \`"passes": true\`, output \`<promise>COMPLETE</promise>\`
 
 ## Constraints
@@ -117,7 +126,7 @@ Your job is to fix audit findings one at a time, as described in \`prd.json\`.
 
 ## Progress Report Format
 
-APPEND to progress.txt (never replace, always append):
+APPEND to \`${fixDir}/progress.txt\` (never replace, always append):
 
 \`\`\`
 ## [Date/Time] - [FIX-NNN]
@@ -133,12 +142,8 @@ APPEND to progress.txt (never replace, always append):
 ## Consolidate Patterns
 
 If you discover a **reusable pattern**, add it to the \`## Codebase Patterns\` section
-at the TOP of progress.txt (create it if it doesn't exist). Only add patterns that are
-**general and reusable**, not fix-specific details.
-
-## Source Report
-
-The findings come from: \`${shardFile}\`
+at the TOP of \`${fixDir}/progress.txt\` (create it if it doesn't exist). Only add patterns
+that are **general and reusable**, not fix-specific details.
 
 ## Verification
 
@@ -186,7 +191,7 @@ export function registerFixCommand(program: Command): void {
       const prd = generatePrd(shardName, items);
       writeFileSync(join(fixDir, 'prd.json'), JSON.stringify(prd, null, 2));
 
-      writeFileSync(join(fixDir, 'CLAUDE.md'), generateClaudeMd(reportFile));
+      writeFileSync(join(fixDir, 'CLAUDE.md'), generateClaudeMd(reportFile, fixDir));
 
       // Initialize progress.txt with Codebase Patterns section
       const progressPath = join(fixDir, 'progress.txt');
