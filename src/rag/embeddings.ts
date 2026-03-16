@@ -32,6 +32,7 @@ let codeEmbedderPromise: Promise<any> | null = null;
 let nlpEmbedderPromise: Promise<any> | null = null;
 
 let onLog: (message: string) => void = () => {};
+let ollamaFallbackWarned = false;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -60,6 +61,7 @@ export function configureModels(resolved: ResolvedModels): void {
   // Reset cached embedders so new models are loaded
   codeEmbedderPromise = null;
   nlpEmbedderPromise = null;
+  ollamaFallbackWarned = false;
 }
 
 /** Current code embedding model ID. */
@@ -86,19 +88,12 @@ export function getNlpDim(): number {
 // Ollama embedding via HTTP API
 // ---------------------------------------------------------------------------
 
-// nomic-embed-code context window is ~8192 tokens; truncate to ~2000 chars
-// to stay safely within limits and avoid GGML_ASSERT overflow
-const OLLAMA_MAX_CHARS = 2000;
-
 async function embedViaOllama(model: string, text: string): Promise<number[]> {
-  const truncated = text.length > OLLAMA_MAX_CHARS
-    ? text.slice(0, OLLAMA_MAX_CHARS)
-    : text;
   const host = getOllamaHost();
   const res = await fetch(`${host}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input: truncated }),
+    body: JSON.stringify({ model, input: text }),
   });
 
   if (!res.ok) {
@@ -107,6 +102,13 @@ async function embedViaOllama(model: string, text: string): Promise<number[]> {
 
   const data = await res.json() as { embeddings: number[][] };
   return data.embeddings[0];
+}
+
+/** Embed via ONNX (Jina fallback). Lazy-loads the model on first call. */
+async function embedViaOnnx(text: string): Promise<number[]> {
+  const model = await getCodeEmbedder();
+  const output = await model(text, { pooling: 'mean', normalize: true });
+  return Array.from(output.data as Float32Array);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,24 +157,40 @@ function getNlpEmbedder(): Promise<any> {
 
 /**
  * Generate a code embedding vector for the given text.
- * Routes to Ollama or ONNX based on the configured runtime.
+ * Routes to Ollama when available; falls back to ONNX on any Ollama error.
  */
 export async function embedCode(text: string): Promise<number[]> {
   if (codeRuntime === 'ollama') {
-    return embedViaOllama(codeModelId, text);
+    try {
+      return await embedViaOllama(codeModelId, text);
+    } catch (err) {
+      if (!ollamaFallbackWarned) {
+        onLog(`Ollama embed failed, falling back to ONNX: ${(err as Error).message}`);
+        ollamaFallbackWarned = true;
+      }
+      return embedViaOnnx(text);
+    }
   }
-  const model = await getCodeEmbedder();
-  const output = await model(text, { pooling: 'mean', normalize: true });
-  return Array.from(output.data as Float32Array);
+  return embedViaOnnx(text);
 }
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Routes to Ollama or ONNX based on the configured runtime.
+ * Routes to Ollama when available; falls back to ONNX on any Ollama error.
  */
 export async function embedNlp(text: string): Promise<number[]> {
   if (nlpRuntime === 'ollama') {
-    return embedViaOllama(nlpModelId, text);
+    try {
+      return await embedViaOllama(nlpModelId, text);
+    } catch (err) {
+      if (!ollamaFallbackWarned) {
+        onLog(`Ollama NLP embed failed, falling back to ONNX: ${(err as Error).message}`);
+        ollamaFallbackWarned = true;
+      }
+      const model = await getNlpEmbedder();
+      const output = await model(text, { pooling: 'mean', normalize: true });
+      return Array.from(output.data as Float32Array);
+    }
   }
   const model = await getNlpEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
