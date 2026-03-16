@@ -11,7 +11,7 @@ All commands inherit the [global options](./02-Global-Options.md) defined on the
 Execute the full audit pipeline: scan, estimate, triage, RAG index, review, and report.
 
 ```
-anatoly run [--run-id <id>]
+anatoly run [--run-id <id>] [--axes <list>]
 ```
 
 ### Options
@@ -19,6 +19,7 @@ anatoly run [--run-id <id>]
 | Flag | Type | Description |
 |------|------|-------------|
 | `--run-id <id>` | string | Custom run identifier. Must be alphanumeric with dashes and underscores. Defaults to an auto-generated timestamp-based ID. |
+| `--axes <list>` | string | Comma-separated list of axes to evaluate (e.g. `correction,tests`). Only the listed axes run; others are skipped. Intersects with config-disabled axes. Omit to run all enabled axes. Valid axes: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`. |
 
 ### Behavior
 
@@ -56,6 +57,12 @@ anatoly run --file "src/core/**" --open
 
 # CI mode: plain output, no color, no badge
 anatoly run --plain --no-color --no-badge
+
+# Run only duplication detection
+anatoly run --axes duplication
+
+# Run correction and tests axes only
+anatoly run --axes correction,tests
 ```
 
 ---
@@ -129,12 +136,14 @@ anatoly estimate --file "src/commands/**"
 Run the agentic review on all pending files sequentially (concurrency 1). Automatically re-reviews all files (implicit `--no-cache`). If no tasks exist, runs an automatic scan first.
 
 ```
-anatoly review
+anatoly review [--axes <list>]
 ```
 
 ### Options
 
-No command-specific options.
+| Flag | Type | Description |
+|------|------|-------------|
+| `--axes <list>` | string | Comma-separated list of axes to evaluate. Same values as `run --axes`. |
 
 ### Behavior
 
@@ -156,6 +165,7 @@ review complete -- 42 files | 7 findings | 35 clean
 ```bash
 anatoly review
 anatoly review --verbose
+anatoly review --axes correction,tests
 ```
 
 ---
@@ -209,12 +219,14 @@ anatoly report --run sprint-42 --open
 Watch for file changes and incrementally re-scan and re-review modified files. Starts with an initial full scan, then monitors configured `scan.include` globs via chokidar.
 
 ```
-anatoly watch
+anatoly watch [--axes <list>]
 ```
 
 ### Options
 
-No command-specific options.
+| Flag | Type | Description |
+|------|------|-------------|
+| `--axes <list>` | string | Comma-separated list of axes to evaluate. Same values as `run --axes`. |
 
 ### Behavior
 
@@ -242,6 +254,7 @@ anatoly -- watch
 ```bash
 anatoly watch
 anatoly watch --config custom.yml
+anatoly watch --axes duplication,correction
 ```
 
 ---
