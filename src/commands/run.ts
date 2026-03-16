@@ -279,11 +279,11 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const setupRunner = new Listr([
     {
       title: 'config',
-      task: (_c: unknown, listrTask: { title: string }) => {
+      task: async (_c: unknown, listrTask: { title: string }) => {
         // Detect hardware and resolve embedding models
         if (ctx.enableRag) {
           const hardware = detectHardware();
-          ctx.resolvedModels = resolveEmbeddingModels(
+          ctx.resolvedModels = await resolveEmbeddingModels(
             ctx.config.rag,
             hardware,
             ctx.verbose ? (msg) => { log.debug(msg); } : undefined,

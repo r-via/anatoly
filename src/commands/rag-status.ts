@@ -18,7 +18,7 @@ export function registerRagStatusCommand(program: Command): void {
       // Resolve models so vector store dimension checks use correct values
       const config = loadConfig(projectRoot);
       const hardware = detectHardware();
-      const resolved = resolveEmbeddingModels(config.rag, hardware);
+      const resolved = await resolveEmbeddingModels(config.rag, hardware);
       configureModels(resolved);
 
       const vectorStore = new VectorStore(projectRoot);

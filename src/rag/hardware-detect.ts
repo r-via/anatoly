@@ -12,6 +12,12 @@ export interface HardwareProfile {
   gpuType?: 'cuda' | 'metal' | 'rocm';
 }
 
+export interface OllamaStatus {
+  running: boolean;
+  hasModel: boolean;
+  host: string;
+}
+
 /**
  * Detect available hardware: RAM, CPU cores, and GPU presence.
  * Used to auto-select embedding models when config is set to 'auto'.
@@ -66,10 +72,52 @@ export function detectHardware(): HardwareProfile {
 // Model resolution
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Ollama detection
+// ---------------------------------------------------------------------------
+
+const OLLAMA_MODEL = 'manutic/nomic-embed-code';
+const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
+
+/** Get the Ollama host from env or default. */
+export function getOllamaHost(): string {
+  return process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+}
+
+/**
+ * Detect whether Ollama is running and has the required embedding model.
+ * Non-blocking: returns { running: false, hasModel: false } on any error.
+ */
+export async function detectOllama(): Promise<OllamaStatus> {
+  const host = getOllamaHost();
+  const status: OllamaStatus = { running: false, hasModel: false, host };
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${host}/api/tags`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return status;
+    status.running = true;
+
+    const data = await res.json() as { models?: Array<{ name: string }> };
+    status.hasModel = data.models?.some((m) => m.name.startsWith(OLLAMA_MODEL)) ?? false;
+  } catch {
+    // Ollama not running or not reachable
+  }
+
+  return status;
+}
+
+// ---------------------------------------------------------------------------
+// Model resolution
+// ---------------------------------------------------------------------------
+
 /** Known embedding model metadata. */
 export interface ModelInfo {
   dim: number;
-  runtime: 'onnx' | 'gguf';
+  runtime: 'onnx' | 'ollama';
   description: string;
   minMemoryGB: number;
   requiresGpu?: boolean;
@@ -99,11 +147,11 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     description: 'Nomic Text v1 (768d, ONNX)',
     minMemoryGB: 2,
   },
-  'nomic-ai/nomic-embed-code': {
+  'manutic/nomic-embed-code': {
     dim: 768,
-    runtime: 'gguf',
-    description: 'Nomic Code 7B (768d, GGUF)',
-    minMemoryGB: 16,
+    runtime: 'ollama',
+    description: 'Nomic Embed Code (768d, Ollama)',
+    minMemoryGB: 4,
     requiresGpu: true,
   },
 };
@@ -111,57 +159,67 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
 export interface ResolvedModels {
   codeModel: string;
   codeDim: number;
+  codeRuntime: 'onnx' | 'ollama';
   nlpModel: string;
   nlpDim: number;
+  nlpRuntime: 'onnx' | 'ollama';
 }
 
 /**
- * Resolve embedding models based on config and hardware.
+ * Resolve embedding models based on config, hardware, and Ollama availability.
  *
- * When config value is 'auto', picks the best model the hardware can run.
- * When a specific model ID is set, uses that model directly.
+ * When config value is 'auto', picks the best model the hardware can run:
+ * - If Ollama is running with nomic-embed-code → use it (GPU-accelerated)
+ * - Otherwise → fall back to Jina v2 (ONNX, CPU)
  */
-export function resolveEmbeddingModels(
+export async function resolveEmbeddingModels(
   config: { code_model: string; nlp_model: string },
   hardware: HardwareProfile,
   onLog?: (message: string) => void,
-): ResolvedModels {
-  const codeModel = resolveCodeModel(config.code_model, hardware, onLog);
-  const nlpModel = resolveNlpModel(config.nlp_model, hardware, onLog);
+): Promise<ResolvedModels> {
+  const ollama = await detectOllama();
+  const codeModel = resolveCodeModel(config.code_model, hardware, ollama, onLog);
+  const nlpModel = resolveNlpModel(config.nlp_model, onLog);
 
   const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? 768;
+  const codeRuntime = MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx';
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
+  const nlpRuntime = MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx';
 
-  return { codeModel, codeDim, nlpModel, nlpDim };
+  return { codeModel, codeDim, codeRuntime, nlpModel, nlpDim, nlpRuntime };
 }
 
 function resolveCodeModel(
   configured: string,
   hardware: HardwareProfile,
+  ollama: OllamaStatus,
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;
 
-  // nomic-embed-code (7B) requires GPU + 16GB+ RAM and GGUF runtime
-  const canRunNomic = hardware.hasGpu && hardware.totalMemoryGB >= 16;
-
-  if (canRunNomic) {
-    const info = MODEL_REGISTRY['nomic-ai/nomic-embed-code']!;
-    if (info.runtime === 'gguf') {
-      onLog?.(`hardware: GPU (${hardware.gpuType}) + ${hardware.totalMemoryGB.toFixed(0)}GB RAM — ${info.description} eligible but GGUF runtime not yet integrated, using Jina fallback`);
-    }
-  } else {
-    const reason = !hardware.hasGpu ? 'no GPU detected' : `${hardware.totalMemoryGB.toFixed(0)}GB RAM < 16GB required`;
-    onLog?.(`hardware: ${reason} — using ${MODEL_REGISTRY['jinaai/jina-embeddings-v2-base-code']!.description}`);
+  // Prefer Ollama with nomic-embed-code when available
+  if (ollama.running && ollama.hasModel) {
+    const info = MODEL_REGISTRY[OLLAMA_MODEL]!;
+    onLog?.(`hardware: GPU (${hardware.gpuType ?? 'detected'}) — Ollama running with ${info.description}`);
+    return OLLAMA_MODEL;
   }
 
-  // Fallback to Jina until GGUF runtime is added
+  // Ollama not available — explain why and fall back
+  if (hardware.hasGpu) {
+    if (!ollama.running) {
+      onLog?.(`hardware: GPU (${hardware.gpuType}) available but Ollama not running — run ./scripts/setup-ollama.sh to enable GPU embeddings`);
+    } else {
+      onLog?.(`hardware: Ollama running but model ${OLLAMA_MODEL} not found — run: ollama pull ${OLLAMA_MODEL}`);
+    }
+  } else {
+    onLog?.(`hardware: no GPU detected — using ${MODEL_REGISTRY['jinaai/jina-embeddings-v2-base-code']!.description}`);
+  }
+
   return 'jinaai/jina-embeddings-v2-base-code';
 }
 
 function resolveNlpModel(
   configured: string,
-  _hardware: HardwareProfile,
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;

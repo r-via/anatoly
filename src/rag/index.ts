@@ -7,7 +7,7 @@ export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionB
 export type { RagCache } from './indexer.js';
 export { generateNlpSummaries } from './nlp-summarizer.js';
 export type { NlpSummary } from './nlp-summarizer.js';
-export { detectHardware, resolveEmbeddingModels, MODEL_REGISTRY } from './hardware-detect.js';
-export type { HardwareProfile, ModelInfo, ResolvedModels } from './hardware-detect.js';
+export { detectHardware, detectOllama, resolveEmbeddingModels, getOllamaHost, MODEL_REGISTRY } from './hardware-detect.js';
+export type { HardwareProfile, OllamaStatus, ModelInfo, ResolvedModels } from './hardware-detect.js';
 export { indexProject, processFileForIndex, processFileForDualIndex } from './orchestrator.js';
 export type { RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';

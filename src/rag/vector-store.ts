@@ -74,7 +74,7 @@ export class VectorStore {
     if (tableNames.includes(TABLE_NAME)) {
       this.table = await this.db.openTable(TABLE_NAME);
 
-      // Detect dimension mismatch and auto-rebuild
+      // Detect dimension or schema mismatch and auto-rebuild
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0) {
@@ -82,31 +82,35 @@ export class VectorStore {
           const expectedCodeDim = getCodeDim();
           if (storedCodeDim !== expectedCodeDim) {
             this.onLog(`dimension mismatch: code vectors ${storedCodeDim}-dim vs model ${expectedCodeDim}-dim — rebuilding index`);
-            await this.rebuild();
-            const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
-            atomicWriteJson(cachePath, { entries: {} });
-            return; // Table dropped, nothing more to check
+            await this.rebuildAndClearCache();
+            return;
           }
 
           // Detect whether NLP vectors are present and check their dimension
-          if (sample[0].nlp_vector) {
+          const hasNlpColumn = 'nlp_vector' in sample[0];
+          if (hasNlpColumn) {
             const nlpVec = sample[0].nlp_vector as number[];
             const hasRealNlp = nlpVec.some((v) => v !== 0);
             if (hasRealNlp) {
               const expectedNlpDim = getNlpDim();
               if (nlpVec.length !== expectedNlpDim) {
                 this.onLog(`dimension mismatch: NLP vectors ${nlpVec.length}-dim vs model ${expectedNlpDim}-dim — rebuilding index`);
-                await this.rebuild();
-                const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
-                atomicWriteJson(cachePath, { entries: {} });
+                await this.rebuildAndClearCache();
                 return;
               }
               this._hasDualEmbedding = true;
             }
           }
         }
-      } catch {
-        // If we can't read a sample, proceed normally — table may be empty
+      } catch (err) {
+        // Schema mismatch (e.g. nlp_vector column present/absent) — rebuild
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('not in schema')) {
+          this.onLog(`schema mismatch detected — rebuilding index: ${msg}`);
+          await this.rebuildAndClearCache();
+          return;
+        }
+        // Other errors: table may be empty, proceed normally
       }
     }
   }
@@ -345,6 +349,13 @@ export class VectorStore {
     }
     this.table = null;
     this._hasDualEmbedding = false;
+  }
+
+  /** Rebuild the index and clear the RAG cache so all files are re-indexed. */
+  private async rebuildAndClearCache(): Promise<void> {
+    await this.rebuild();
+    const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
+    atomicWriteJson(cachePath, { entries: {} });
   }
 
   /**

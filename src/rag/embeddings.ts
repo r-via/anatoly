@@ -1,4 +1,4 @@
-import { MODEL_REGISTRY, type ResolvedModels } from './hardware-detect.js';
+import { MODEL_REGISTRY, getOllamaHost, type ResolvedModels } from './hardware-detect.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -21,6 +21,8 @@ const MAX_CODE_CHARS = 1500;
 
 let codeModelId = DEFAULT_CODE_MODEL;
 let nlpModelId = DEFAULT_NLP_MODEL;
+let codeRuntime: 'onnx' | 'ollama' = 'onnx';
+let nlpRuntime: 'onnx' | 'ollama' = 'onnx';
 let codeDim = MODEL_REGISTRY[DEFAULT_CODE_MODEL]?.dim ?? 768;
 let nlpDim = MODEL_REGISTRY[DEFAULT_NLP_MODEL]?.dim ?? 384;
 
@@ -50,6 +52,8 @@ export function setEmbeddingLogger(logger: (message: string) => void): void {
 export function configureModels(resolved: ResolvedModels): void {
   codeModelId = resolved.codeModel;
   nlpModelId = resolved.nlpModel;
+  codeRuntime = resolved.codeRuntime;
+  nlpRuntime = resolved.nlpRuntime;
   codeDim = resolved.codeDim;
   nlpDim = resolved.nlpDim;
 
@@ -79,12 +83,32 @@ export function getNlpDim(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Model loading (lazy singletons per model type)
+// Ollama embedding via HTTP API
+// ---------------------------------------------------------------------------
+
+async function embedViaOllama(model: string, text: string): Promise<number[]> {
+  const host = getOllamaHost();
+  const res = await fetch(`${host}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, input: text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ollama embed failed (${res.status}): ${await res.text()}`);
+  }
+
+  const data = await res.json() as { embeddings: number[][] };
+  return data.embeddings[0];
+}
+
+// ---------------------------------------------------------------------------
+// ONNX model loading (lazy singletons per model type)
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadModel(modelId: string): Promise<any> {
-  onLog(`loading embedding model ${modelId}...`);
+async function loadOnnxModel(modelId: string): Promise<any> {
+  onLog(`loading ONNX embedding model ${modelId}...`);
   const { pipeline } = await import('@xenova/transformers');
   const model = await pipeline('feature-extraction', modelId);
   onLog(`embedding model ready: ${modelId}`);
@@ -92,19 +116,19 @@ async function loadModel(modelId: string): Promise<any> {
 }
 
 /**
- * Get the code embedding model (lazy singleton).
+ * Get the code embedding model (lazy singleton, ONNX only).
  * Caches the promise to prevent concurrent callers from loading twice.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getCodeEmbedder(): Promise<any> {
   if (!codeEmbedderPromise) {
-    codeEmbedderPromise = loadModel(codeModelId);
+    codeEmbedderPromise = loadOnnxModel(codeModelId);
   }
   return codeEmbedderPromise;
 }
 
 /**
- * Get the NLP embedding model (lazy singleton).
+ * Get the NLP embedding model (lazy singleton, ONNX only).
  * Reuses the code embedder if both models are the same.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,7 +137,7 @@ function getNlpEmbedder(): Promise<any> {
     return getCodeEmbedder();
   }
   if (!nlpEmbedderPromise) {
-    nlpEmbedderPromise = loadModel(nlpModelId);
+    nlpEmbedderPromise = loadOnnxModel(nlpModelId);
   }
   return nlpEmbedderPromise;
 }
@@ -124,9 +148,12 @@ function getNlpEmbedder(): Promise<any> {
 
 /**
  * Generate a code embedding vector for the given text.
- * Uses the configured code model.
+ * Routes to Ollama or ONNX based on the configured runtime.
  */
 export async function embedCode(text: string): Promise<number[]> {
+  if (codeRuntime === 'ollama') {
+    return embedViaOllama(codeModelId, text);
+  }
   const model = await getCodeEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data as Float32Array);
@@ -134,9 +161,12 @@ export async function embedCode(text: string): Promise<number[]> {
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Uses the configured NLP model (may differ from code model).
+ * Routes to Ollama or ONNX based on the configured runtime.
  */
 export async function embedNlp(text: string): Promise<number[]> {
+  if (nlpRuntime === 'ollama') {
+    return embedViaOllama(nlpModelId, text);
+  }
   const model = await getNlpEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data as Float32Array);
