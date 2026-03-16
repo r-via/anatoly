@@ -694,17 +694,19 @@ async function runReviewPhase(
   if (ctx.axesFilter) {
     warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
   }
-  const total = reviewItems.length;
+  const evaluateTotal = ctx.triageEnabled
+    ? reviewItems.filter((item) => triageMap.get(item.filePath)?.tier !== 'skip').length
+    : reviewItems.length;
   const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
 
   const reviewRunner = new Listr([{
-    title: `review — 0/${total}`,
+    title: `review — 0/${evaluateTotal}`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       let completedCount = 0;
 
       const updateTitle = () => {
         const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
-        listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
+        listrTask.title = `review — ${completedCount}/${evaluateTotal}${findingsNote}`;
       };
 
       // Animate spinner while files are being processed
@@ -730,8 +732,6 @@ async function runReviewPhase(
             pm.updateFileStatus(filePath, 'DONE');
             ctx.filesReviewed++;
             ctx.reviewCounts.skipped++;
-            completedCount++;
-            updateTitle();
             return;
           }
 
@@ -850,7 +850,7 @@ async function runReviewPhase(
       }
 
       const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
-      listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
+      listrTask.title = `review — ${completedCount}/${evaluateTotal}${findingsNote}`;
     },
     rendererOptions: { outputBar: 1 as number },
   }], {
