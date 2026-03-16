@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename, dirname, join } from 'node:path';
 import chalk from 'chalk';
+import { DISCOVERED_ACT_ID } from './clean.js';
 
 interface PrdStory {
   id: string;
@@ -75,7 +76,7 @@ export function registerCleanSyncCommand(program: Command): void {
 
       const prd: PrdFile = JSON.parse(readFileSync(prdPath, 'utf-8'));
       // Only sync stories that have a real ACT-ID (skip discovered stories with actId "DISCOVERED")
-      const completedStories = prd.userStories.filter((s) => s.passes && s.actId !== 'DISCOVERED');
+      const completedStories = prd.userStories.filter((s) => s.passes && s.actId !== DISCOVERED_ACT_ID);
 
       if (completedStories.length === 0) {
         console.log('No completed stories to sync.');

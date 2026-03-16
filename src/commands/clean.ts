@@ -15,6 +15,9 @@ export interface CleanItem {
   symbol?: string;
 }
 
+/** Sentinel actId for stories discovered by the agent during iteration (not from audit findings). */
+export const DISCOVERED_ACT_ID = 'DISCOVERED';
+
 const ACT_LINE_RE = /^- \[ \] <!-- (ACT-[a-f0-9]+-\d+) --> /;
 const BRACKET_RE = /\*\*\[([^\]]+)\]\*\*/;
 const FILE_RE = /`([^`]+)`:/;
@@ -137,16 +140,6 @@ Your job is to clean audit findings one at a time.
 
 Violation of these rules wastes iterations and burns tokens for zero progress.
 
-## Subagent Strategy
-
-Use subagents to preserve your main context window for reasoning and decision-making:
-
-- **Search operations**: Use subagents (via the Agent tool) for broad codebase searches, finding usages, and understanding call graphs
-- **File analysis**: Delegate reading large files or exploring unfamiliar modules to subagents
-- **Test execution**: Run \`npm run build && npm test\` directly (not via subagent) as you need the results immediately
-- Do NOT use subagents for the actual fix — you need full context for code changes
-- Limit subagent parallelism: max 3 concurrent for search, 1 for build/test
-
 ## Adaptive PRD
 
 The \`prd.json\` is a **living document**. You may modify it during your iteration:
@@ -167,7 +160,7 @@ If fixing a story reveals a **new issue** not covered by existing stories, you m
     "\`npm run build\` succeeds",
     "\`npm test\` passes"
   ],
-  "priority": <next available number>,
+  "priority": 999,
   "passes": false,
   "notes": "Discovered during FIX-NNN iteration"
 }
