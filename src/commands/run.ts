@@ -99,11 +99,9 @@ export function registerRunCommand(program: Command): void {
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
-    .option('--lite', 'force lite RAG mode (Jina dual embedding)')
-    .option('--advanced', 'force advanced RAG mode (nomic-embed-code sidecar)')
+    .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
+    .option('--rag-advanced', 'force advanced RAG mode (nomic-embed-code sidecar)')
     .option('--rebuild-rag', 'force full RAG re-indexation')
-    .option('--dual-embedding', 'enable dual code+NLP embedding for RAG')
-    .option('--no-dual-embedding', 'disable dual embedding (code-only)')
     .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
     .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
     .option('--no-triage', 'disable triage, review all files with full agent')
@@ -138,13 +136,13 @@ export function registerRunCommand(program: Command): void {
       const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
 
       // Validate --lite / --advanced mutual exclusivity
-      if (parentOpts.lite && parentOpts.advanced) {
-        console.error('error: --lite and --advanced are mutually exclusive');
+      if (parentOpts.ragLite && parentOpts.ragAdvanced) {
+        console.error('error: --rag-lite and --rag-advanced are mutually exclusive');
         process.exitCode = 2;
         return;
       }
-      const ragMode: 'lite' | 'advanced' | 'auto' = parentOpts.lite ? 'lite'
-        : parentOpts.advanced ? 'advanced'
+      const ragMode: 'lite' | 'advanced' | 'auto' = parentOpts.ragLite ? 'lite'
+        : parentOpts.ragAdvanced ? 'advanced'
         : 'auto';
 
       // CLI model overrides take precedence over config
@@ -174,9 +172,7 @@ export function registerRunCommand(program: Command): void {
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
           : config.llm.deliberation,
-        dualEmbedding: parentOpts.dualEmbedding !== undefined
-          ? parentOpts.dualEmbedding as boolean
-          : config.rag.dual_embedding,
+        dualEmbedding: ragMode !== 'advanced',
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -432,19 +428,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       return { files: 0, tasks: [], triageMap, usageGraph, depMeta, projectTree };
     }
 
-    // nomic-embed-code 7B captures code + semantics natively in 3584d —
-    // dual embedding (code + NLP) is redundant and wastes Claude API calls.
-    // Auto-disable dual when sidecar is active; keep dual for ONNX fallback
-    // where Jina (code-only) benefits from MiniLM (NLP) as second signal.
-    if (ctx.resolvedModels.codeRuntime === 'sidecar' && ctx.dualEmbedding) {
-      ctx.dualEmbedding = false;
-      logFn?.('dual embedding disabled — nomic-embed-code 7B encodes code + semantics natively');
-    }
-
     // Resolve effective RAG mode for table/cache selection
     ctx.resolvedRagMode = ctx.ragMode === 'auto'
       ? (ctx.resolvedModels.codeRuntime === 'sidecar' ? 'advanced' : 'lite')
       : ctx.ragMode;
+
+    // Dual embedding is derived from resolved mode:
+    // lite = Jina (code-only) + MiniLM (NLP) → dual
+    // advanced = nomic-embed-code 7B (code + semantics natively) → no dual
+    ctx.dualEmbedding = ctx.resolvedRagMode === 'lite';
 
     rl?.info({
       hardware: {

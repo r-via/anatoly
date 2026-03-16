@@ -40,9 +40,9 @@ export function registerRagStatusCommand(program: Command): void {
     .description('Show RAG index status, or inspect function cards')
     .option('--all', 'list all indexed function cards')
     .option('--json', 'output as JSON')
-    .option('--lite', 'show only lite index')
-    .option('--advanced', 'show only advanced index')
-    .action(async (functionName: string | undefined, opts: { all?: boolean; json?: boolean; lite?: boolean; advanced?: boolean }) => {
+    .option('--rag-lite', 'show only lite index')
+    .option('--rag-advanced', 'show only advanced index')
+    .action(async (functionName: string | undefined, opts: { all?: boolean; json?: boolean; ragLite?: boolean; ragAdvanced?: boolean }) => {
       const projectRoot = resolve('.');
 
       // Resolve models so vector store dimension checks use correct values
@@ -52,8 +52,8 @@ export function registerRagStatusCommand(program: Command): void {
       configureModels(resolved);
 
       // Determine which mode(s) to show
-      const modes: RagMode[] = opts.lite ? ['lite']
-        : opts.advanced ? ['advanced']
+      const modes: RagMode[] = opts.ragLite ? ['lite']
+        : opts.ragAdvanced ? ['advanced']
         : ['lite', 'advanced'];
 
       // For function search or --all, use the first available mode
