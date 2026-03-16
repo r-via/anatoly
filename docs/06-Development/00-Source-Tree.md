@@ -104,7 +104,7 @@ rag/
 ├── vector-store.ts      LanceDB-backed vector store: upsert, search (code/NLP/hybrid), stats
 ├── indexer.ts           Builds function cards from AST, computes embeddings, manages RAG cache
 ├── orchestrator.ts      Coordinates full project RAG indexation: diff detection, parallel embedding, store writes
-├── embeddings.ts        Dual embedding backend: ONNX (Jina/MiniLM) + sidecar (Nomic Embed Code v1.5)
+├── embeddings.ts        Dual embedding backend: ONNX (Jina/MiniLM) + sidecar (Nomic Embed Code)
 ├── hardware-detect.ts   GPU/RAM detection, sidecar availability check, model auto-selection
 ├── nlp-summarizer.ts    LLM-based NLP summary generation for dual embedding mode
 ├── types.ts             Zod schemas for FunctionCard, SimilarityResult, RagStats

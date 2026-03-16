@@ -46,7 +46,7 @@ On first install, a `postinstall` script downloads the default embedding model (
 
 ### Optional: GPU-accelerated embeddings
 
-If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code v1.5 for higher-quality code embeddings via the sentence-transformers sidecar:
+If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code for higher-quality code embeddings via the sentence-transformers sidecar:
 
 ```bash
 pip install sentence-transformers torch

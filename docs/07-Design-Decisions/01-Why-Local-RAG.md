@@ -58,7 +58,7 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ### Negative
 
-- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code v1.5 via sentence-transformers sidecar is ~4.7 GB but provides significantly better embeddings.
+- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code via sentence-transformers sidecar is ~4.7 GB but provides significantly better embeddings.
 - **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With the sentence-transformers sidecar on GPU, this is much faster with native batching support.
 - **768-dim vectors are larger than some cloud alternatives.** OpenAI's `text-embedding-3-small` offers 512-dim or 1536-dim options. The 768-dim models strike a good balance between quality and storage.
 
@@ -73,4 +73,4 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ## Notes
 
-The embedding model is now auto-selected at startup based on hardware and sidecar availability. When a GPU and the sentence-transformers sidecar are detected, Anatoly uses `nomic-ai/nomic-embed-code-v1.5` for higher-quality embeddings; otherwise it falls back to `jinaai/jina-embeddings-v2-base-code` (ONNX). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless for users. Run `./scripts/setup-embeddings.sh` to set up GPU-accelerated embeddings, or the sidecar auto-starts with `anatoly run`.
+The embedding model is now auto-selected at startup based on hardware and sidecar availability. When a GPU and the sentence-transformers sidecar are detected, Anatoly uses `nomic-ai/nomic-embed-code` for higher-quality embeddings; otherwise it falls back to `jinaai/jina-embeddings-v2-base-code` (ONNX). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless for users. Run `./scripts/setup-embeddings.sh` to set up GPU-accelerated embeddings, or the sidecar auto-starts with `anatoly run`.

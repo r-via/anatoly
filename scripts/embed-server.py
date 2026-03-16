@@ -25,8 +25,7 @@ from sentence_transformers import SentenceTransformer
 def parse_args():
     p = argparse.ArgumentParser(description="Anatoly embedding sidecar")
     p.add_argument("--port", type=int, default=11435)
-    p.add_argument("--model", default="nomic-ai/nomic-embed-code-v1.5")
-    p.add_argument("--trust-remote-code", action="store_true", default=True)
+    p.add_argument("--model", default="nomic-ai/nomic-embed-code")
     return p.parse_args()
 
 
@@ -41,7 +40,7 @@ else:
     device = "cpu"
 
 print(f"[embed-server] loading {args.model} on {device}...", flush=True)
-model = SentenceTransformer(args.model, trust_remote_code=args.trust_remote_code, device=device)
+model = SentenceTransformer(args.model, device=device)
 dim = model.get_sentence_embedding_dimension()
 print(f"[embed-server] ready — {dim}d on {device}, port {args.port}", flush=True)
 

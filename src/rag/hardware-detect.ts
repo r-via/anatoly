@@ -67,7 +67,7 @@ export function detectHardware(): HardwareProfile {
 // ---------------------------------------------------------------------------
 
 export const SIDECAR_DEFAULT_PORT = 11435;
-export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code-v1.5';
+export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code';
 
 export interface SidecarStatus {
   running: boolean;

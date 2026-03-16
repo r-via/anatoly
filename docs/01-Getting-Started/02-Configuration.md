@@ -132,7 +132,7 @@ The six axes are: `utility`, `duplication`, `correction`, `overengineering`, `te
 |-----|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable local RAG indexing and semantic search |
 | `dual_embedding` | boolean | `false` | Enable dual code+NLP embedding for hybrid search |
-| `code_model` | string | `"auto"` | Code embedding model. `auto` selects Nomic Embed Code v1.5 (sidecar) if GPU available, otherwise Jina v2 (ONNX) |
+| `code_model` | string | `"auto"` | Code embedding model. `auto` selects Nomic Embed Code (sidecar) if GPU available, otherwise Jina v2 (ONNX) |
 | `nlp_model` | string | `"auto"` | NLP embedding model. `auto` selects all-MiniLM-L6-v2 (ONNX) |
 | `code_weight` | number | `0.6` | Hybrid search weighting (0-1). Higher = more weight on code similarity |
 

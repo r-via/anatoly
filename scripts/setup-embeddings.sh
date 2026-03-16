@@ -13,7 +13,7 @@
 #
 set -euo pipefail
 
-MODEL="nomic-ai/nomic-embed-code-v1.5"
+MODEL="nomic-ai/nomic-embed-code"
 SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -162,7 +162,7 @@ if [[ "${1:-}" == "--check" ]]; then
       MODEL_CACHED=$("$PYTHON" -c "
 from sentence_transformers import SentenceTransformer
 try:
-    SentenceTransformer('${MODEL}', trust_remote_code=True)
+    SentenceTransformer('${MODEL}')
     print('yes')
 except:
     print('no')
@@ -250,7 +250,7 @@ fi
 info "Downloading ${MODEL} (first time only, ~1.5 GB)..."
 "$PYTHON" -c "
 from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('${MODEL}', trust_remote_code=True)
+model = SentenceTransformer('${MODEL}')
 print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')
 "
 ok "Model ${MODEL} ready"
