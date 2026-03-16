@@ -157,19 +157,26 @@ if [[ "${1:-}" == "--check" ]]; then
       warn "torch: not installed"
     fi
 
-    # Check if model is cached
+    # Check if model is cached + measure load time
     if check_package "$PYTHON" "sentence_transformers"; then
-      MODEL_CACHED=$("$PYTHON" -c "
+      MODEL_RESULT=$("$PYTHON" -c "
+import time
 from sentence_transformers import SentenceTransformer
 try:
-    SentenceTransformer('${MODEL}')
-    print('yes')
+    t0 = time.time()
+    m = SentenceTransformer('${MODEL}')
+    dt = time.time() - t0
+    print(f'yes {m.get_sentence_embedding_dimension()} {dt:.1f}')
 except:
-    print('no')
-" 2>/dev/null || echo "no")
+    print('no 0 0')
+" 2>/dev/null || echo "no 0 0")
 
-      if [[ "$MODEL_CACHED" == "yes" ]]; then
-        ok   "Model: ${MODEL} cached"
+      MODEL_OK=$(echo "$MODEL_RESULT" | cut -d' ' -f1)
+      MODEL_DIM=$(echo "$MODEL_RESULT" | cut -d' ' -f2)
+      MODEL_TIME=$(echo "$MODEL_RESULT" | cut -d' ' -f3)
+
+      if [[ "$MODEL_OK" == "yes" ]]; then
+        ok   "Model: ${MODEL} (${MODEL_DIM}d, loaded in ${MODEL_TIME}s)"
       else
         warn "Model: ${MODEL} not downloaded yet"
       fi

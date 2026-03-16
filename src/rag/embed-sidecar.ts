@@ -61,15 +61,15 @@ export async function ensureSidecar(
       if (msg) onLog?.(`[embed-server] ${msg}`);
     });
 
-    // Wait for the sidecar to become ready (model loading can take time)
-    const ready = await waitForReady(60_000);
+    // Wait for the sidecar to become ready (7B model can take 90-120s on first load)
+    const ready = await waitForReady(180_000);
     if (ready) {
       const info = await detectSidecar();
       onLog?.(`embed sidecar ready: ${info.model} on ${info.device} (${info.dim}d)`);
       return true;
     }
 
-    onLog?.('embed sidecar failed to start within 60s — falling back to ONNX');
+    onLog?.('embed sidecar failed to start within 180s — falling back to ONNX');
     stopSidecar();
     return false;
   } catch (err) {
