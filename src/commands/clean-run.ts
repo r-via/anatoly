@@ -7,6 +7,44 @@ import { parseUncheckedActions } from './clean.js';
 
 const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
 
+/** Circuit breaker state for the TypeScript clean-run loop. */
+interface CircuitBreakerState {
+  consecutiveNoProgress: number;
+  consecutiveSameError: number;
+  lastProgressIteration: number;
+  startSha: string;
+  lastGoodSha: string;
+}
+
+const CB_NO_PROGRESS_THRESHOLD = 3;
+const CB_SAME_ERROR_THRESHOLD = 5;
+
+function getGitSha(cwd: string): string {
+  try {
+    return execSync('git rev-parse HEAD', { cwd, stdio: 'pipe' }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+
+function hasGitChanges(cwd: string, sinceSha: string): boolean {
+  try {
+    const diff = execSync(`git diff --name-only ${sinceSha} HEAD`, { cwd, stdio: 'pipe' }).toString().trim();
+    return diff.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function rollbackToSha(cwd: string, sha: string): boolean {
+  try {
+    execSync(`git reset --hard ${sha}`, { cwd, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function finalSync(projectRoot: string, reportFile: string): void {
   try {
     console.log(chalk.blue('Final sync...'));
@@ -64,10 +102,21 @@ export function registerCleanRunCommand(program: Command): void {
       console.log(chalk.blue(`Ralph clean loop \u2014 ${maxIterations} iterations max`));
       console.log('');
 
+      // Circuit breaker state
+      const cb: CircuitBreakerState = {
+        consecutiveNoProgress: 0,
+        consecutiveSameError: 0,
+        lastProgressIteration: 0,
+        startSha: getGitSha(projectRoot),
+        lastGoodSha: getGitSha(projectRoot),
+      };
+
       for (let i = 1; i <= maxIterations; i++) {
         console.log('===============================================================');
         console.log(`  Ralph Iteration ${i} of ${maxIterations}`);
         console.log('===============================================================');
+
+        const preSha = getGitSha(projectRoot);
 
         // Read CLAUDE.md fresh each iteration (it doesn't change, but keep it clean)
         const claudeMd = readFileSync(claudeMdPath, 'utf-8');
@@ -81,6 +130,7 @@ export function registerCleanRunCommand(program: Command): void {
         });
 
         const output = result.stdout?.toString() ?? '';
+        const hasError = result.status !== 0;
 
         // Print agent output
         if (output) {
@@ -118,6 +168,75 @@ export function registerCleanRunCommand(program: Command): void {
           }
         } catch {
           // Continue if prd.json can't be parsed
+        }
+
+        // --- Circuit breaker evaluation ---
+        const postSha = getGitSha(projectRoot);
+        const madeProgress = postSha !== preSha || hasGitChanges(projectRoot, preSha);
+
+        if (madeProgress) {
+          cb.consecutiveNoProgress = 0;
+          cb.consecutiveSameError = 0;
+          cb.lastProgressIteration = i;
+          cb.lastGoodSha = postSha;
+        } else {
+          cb.consecutiveNoProgress++;
+        }
+
+        if (hasError) {
+          cb.consecutiveSameError++;
+        } else {
+          cb.consecutiveSameError = 0;
+        }
+
+        // Check circuit breaker thresholds
+        if (cb.consecutiveNoProgress >= CB_NO_PROGRESS_THRESHOLD) {
+          console.log('');
+          console.log(chalk.red('==============================================================='));
+          console.log(chalk.red('  CIRCUIT BREAKER OPEN — No progress detected'));
+          console.log(chalk.red(`  ${cb.consecutiveNoProgress} consecutive iterations without changes`));
+          console.log(chalk.red('==============================================================='));
+
+          // Rollback to last known good state
+          if (cb.lastGoodSha && cb.lastGoodSha !== postSha) {
+            console.log(chalk.yellow(`Rolling back to last good commit: ${cb.lastGoodSha.slice(0, 8)}`));
+            if (rollbackToSha(projectRoot, cb.lastGoodSha)) {
+              console.log(chalk.green('Rollback successful.'));
+            } else {
+              console.log(chalk.red('Rollback failed — manual intervention required.'));
+            }
+          }
+
+          finalSync(projectRoot, reportFile);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (cb.consecutiveSameError >= CB_SAME_ERROR_THRESHOLD) {
+          console.log('');
+          console.log(chalk.red('==============================================================='));
+          console.log(chalk.red('  CIRCUIT BREAKER OPEN — Repeated errors detected'));
+          console.log(chalk.red(`  ${cb.consecutiveSameError} consecutive iterations with errors`));
+          console.log(chalk.red('==============================================================='));
+
+          // Rollback to last known good state
+          if (cb.lastGoodSha && cb.lastGoodSha !== postSha) {
+            console.log(chalk.yellow(`Rolling back to last good commit: ${cb.lastGoodSha.slice(0, 8)}`));
+            if (rollbackToSha(projectRoot, cb.lastGoodSha)) {
+              console.log(chalk.green('Rollback successful.'));
+            } else {
+              console.log(chalk.red('Rollback failed — manual intervention required.'));
+            }
+          }
+
+          finalSync(projectRoot, reportFile);
+          process.exitCode = 1;
+          return;
+        }
+
+        // Warn in half-open state
+        if (cb.consecutiveNoProgress >= 2) {
+          console.log(chalk.yellow(`  Warning: ${cb.consecutiveNoProgress} iterations without progress (circuit breaker at ${CB_NO_PROGRESS_THRESHOLD})`));
         }
 
         console.log(`\nIteration ${i} complete.\n`);

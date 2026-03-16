@@ -74,7 +74,8 @@ export function registerCleanSyncCommand(program: Command): void {
       }
 
       const prd: PrdFile = JSON.parse(readFileSync(prdPath, 'utf-8'));
-      const completedStories = prd.userStories.filter((s) => s.passes);
+      // Only sync stories that have a real ACT-ID (skip discovered stories with actId "DISCOVERED")
+      const completedStories = prd.userStories.filter((s) => s.passes && s.actId !== 'DISCOVERED');
 
       if (completedStories.length === 0) {
         console.log('No completed stories to sync.');

@@ -124,6 +124,63 @@ Your job is to clean audit findings one at a time.
 - Always verify \`npm run build && npm test\` before committing
 - Read the \`.rev.md\` transcript for full axis-by-axis context before fixing
 
+## Anti-Placeholder Rules (CRITICAL)
+
+**DO NOT** implement placeholder, stub, or minimal implementations. Every fix must be **complete and production-ready**.
+
+- Do NOT leave \`// TODO\`, \`// FIXME\`, or \`throw new Error('not implemented')\` in the code
+- Do NOT write empty function bodies or return dummy values
+- Do NOT skip edge cases or error handling that the finding describes
+- Do NOT assume something is already implemented without verifying — run \`grep\` or read the file first
+- If a fix requires changes in multiple files, change ALL of them — partial fixes are worse than no fix
+- If you cannot fully resolve a finding, do NOT mark it as \`"passes": true\` — leave it for the next iteration
+
+Violation of these rules wastes iterations and burns tokens for zero progress.
+
+## Subagent Strategy
+
+Use subagents to preserve your main context window for reasoning and decision-making:
+
+- **Search operations**: Use subagents (via the Agent tool) for broad codebase searches, finding usages, and understanding call graphs
+- **File analysis**: Delegate reading large files or exploring unfamiliar modules to subagents
+- **Test execution**: Run \`npm run build && npm test\` directly (not via subagent) as you need the results immediately
+- Do NOT use subagents for the actual fix — you need full context for code changes
+- Limit subagent parallelism: max 3 concurrent for search, 1 for build/test
+
+## Adaptive PRD
+
+The \`prd.json\` is a **living document**. You may modify it during your iteration:
+
+### Reprioritize
+If you discover that a later story should be fixed first (e.g., it blocks other fixes, or is a root cause), you may reorder priorities by updating the \`"priority"\` field. Always fix the **lowest priority number** story with \`"passes": false\`.
+
+### Add Discovered Stories
+If fixing a story reveals a **new issue** not covered by existing stories, you may add it to \`prd.json\`:
+\`\`\`json
+{
+  "id": "FIX-DIS-001",
+  "actId": "DISCOVERED",
+  "title": "Fix: <description>",
+  "description": "<what you found and why it matters>",
+  "acceptanceCriteria": [
+    "The issue is resolved",
+    "\`npm run build\` succeeds",
+    "\`npm test\` passes"
+  ],
+  "priority": <next available number>,
+  "passes": false,
+  "notes": "Discovered during FIX-NNN iteration"
+}
+\`\`\`
+
+### Skip a Story
+If a story is **impossible to fix** (e.g., the finding is a false positive, or the code was already deleted), set \`"passes": true\` and add a \`"skipped": "reason"\` field. Log the reason in progress.txt.
+
+### Rules
+- Never remove existing stories — only add or update
+- Log all PRD changes in progress.txt with rationale
+- Discovered stories with \`actId: "DISCOVERED"\` will not sync to report checkboxes (this is expected)
+
 ## Progress Report Format
 
 APPEND to \`${cleanDir}/progress.txt\` (never replace, always append):
