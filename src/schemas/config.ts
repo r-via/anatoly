@@ -59,7 +59,7 @@ export const LlmConfigSchema = z.object({
 
 export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  dual_embedding: z.boolean().default(false),
+  dual_embedding: z.boolean().default(true),
   /** Embedding model for code vectors. 'auto' = detect hardware and pick best available. */
   code_model: z.string().default('auto'),
   /** Embedding model for NLP vectors (dual embedding mode). 'auto' = all-MiniLM-L6-v2. */
