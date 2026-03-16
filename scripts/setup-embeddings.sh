@@ -80,26 +80,27 @@ get_python() {
   fi
 }
 
-# Ensure a venv exists and return its python
+# Ensure a venv exists and return its python path on stdout.
+# All user-facing messages go to stderr so $(ensure_venv) captures only the path.
 ensure_venv() {
   # If user already has an active venv, use it
   if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-    ok "Using active venv: ${VIRTUAL_ENV}"
+    ok "Using active venv: ${VIRTUAL_ENV}" >&2
     echo "${VIRTUAL_ENV}/bin/python"
     return 0
   fi
 
   # Create or reuse .venv/
   if [[ -f "${VENV_DIR}/bin/python" ]]; then
-    ok "Using existing venv: ${VENV_DIR}"
+    ok "Using existing venv: ${VENV_DIR}" >&2
   else
     local sys_python
     if ! sys_python=$(find_system_python); then
       return 1
     fi
-    info "Creating venv at ${VENV_DIR}..."
+    info "Creating venv at ${VENV_DIR}..." >&2
     "$sys_python" -m venv "${VENV_DIR}"
-    ok "Venv created"
+    ok "Venv created" >&2
   fi
   echo "${VENV_DIR}/bin/python"
 }
