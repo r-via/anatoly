@@ -115,7 +115,7 @@ export const ConfigSchema = z.object({
       best_practices: { enabled: true },
     },
   }),
-  rag: RagConfigSchema.default({ enabled: true, dual_embedding: false, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
+  rag: RagConfigSchema.default({ enabled: true, dual_embedding: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),
   output: OutputConfigSchema.default({}),
   badge: BadgeConfigSchema.default({
