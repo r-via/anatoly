@@ -46,14 +46,15 @@ On first install, a `postinstall` script downloads the default embedding model (
 
 ### Optional: GPU-accelerated embeddings
 
-If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code 7B for higher-quality code embeddings via Ollama:
+If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code v1.5 for higher-quality code embeddings via the sentence-transformers sidecar:
 
 ```bash
-./scripts/setup-ollama.sh        # Installs Ollama, pulls the model (~4.7 GB), verifies GPU
-./scripts/setup-ollama.sh --check # Check status without installing
+pip install sentence-transformers torch
+./scripts/setup-embeddings.sh        # Verifies GPU and downloads the model (~4.7 GB)
+./scripts/setup-embeddings.sh --check # Check status without installing
 ```
 
-Anatoly auto-detects Ollama at startup and uses it when available. No configuration needed — just install and run.
+The sidecar auto-starts with `anatoly run` when a GPU is available. No additional configuration needed.
 
 ## First run walkthrough
 

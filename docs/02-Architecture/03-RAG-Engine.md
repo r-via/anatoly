@@ -127,15 +127,15 @@ The `--rebuild-rag` flag drops the entire LanceDB table and clears the cache, fo
 The embedding and search pipeline runs 100% locally with no external API calls, regardless of runtime:
 
 - **Code embedding (ONNX):** `@xenova/transformers` runs on CPU — no network, no cost
-- **Code embedding (Ollama):** Nomic Embed Code 7B runs on local GPU via Ollama — no network, no cost
+- **Code embedding (sidecar):** Nomic Embed Code v1.5 runs on local GPU via sentence-transformers sidecar — no network, no cost
 - **NLP embedding:** `all-MiniLM-L6-v2` via `@xenova/transformers` — always local ONNX
 - **Storage:** LanceDB is an embedded database with no server component
 - **Search:** vector similarity is computed locally
 
 The only API cost in the RAG pipeline comes from NLP summarization in dual embedding mode (one LLM call per file, ~$0.001/file with Haiku). The axis evaluator LLM calls in the Review phase are separate.
 
-### GPU-accelerated embedding via Ollama
+### GPU-accelerated embedding via sentence-transformers sidecar
 
-When a GPU and Ollama are available, Anatoly uses `manutic/nomic-embed-code` (7B, based on Qwen2.5-Coder-7B) for higher-quality code embeddings. Run `./scripts/setup-ollama.sh` to set up. The `OLLAMA_HOST` env var can override the default endpoint (`http://localhost:11434`).
+When a GPU and the sentence-transformers sidecar are available, Anatoly uses `nomic-ai/nomic-embed-code-v1.5` for higher-quality code embeddings. Run `./scripts/setup-embeddings.sh` to set up, or the sidecar auto-starts with `anatoly run`.
 
 Use `npx anatoly rag-status` to verify which runtime and model are active.

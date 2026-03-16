@@ -326,8 +326,8 @@ anatoly rag-status [function] [--all] [--json]
 anatoly — rag-status
 
   hardware   cuda (32GB RAM)
-  ollama     running + model ready
-  runtime    ollama
+  sidecar    running on cuda
+  runtime    sidecar
   code model manutic/nomic-embed-code (768d)
   nlp model  Xenova/all-MiniLM-L6-v2 (384d)
 
