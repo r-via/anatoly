@@ -6,19 +6,19 @@
 #   ./scripts/setup-embeddings.sh           # Install deps + download model
 #   ./scripts/setup-embeddings.sh --check   # Check status only (no install)
 #
-# What it does:
-#   1. Checks for CUDA/Metal/ROCm GPU availability
-#   2. Checks Python 3.9+ is available
-#   3. Installs sentence-transformers + torch (with GPU support if available)
-#   4. Downloads nomic-ai/nomic-embed-code-v1.5 (~1.5 GB)
-#   5. Runs a sanity check via the embed sidecar
+# Venv strategy:
+#   - If VIRTUAL_ENV is set (venv already active), uses it as-is
+#   - Otherwise, creates/reuses .venv/ in the project root
+#   - The embed-server.py sidecar always runs from this venv
 #
 set -euo pipefail
 
 MODEL="nomic-ai/nomic-embed-code-v1.5"
 SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SIDECAR_SCRIPT="${SCRIPT_DIR}/embed-server.py"
+VENV_DIR="${PROJECT_ROOT}/.venv"
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -50,9 +50,9 @@ detect_gpu() {
 }
 
 # ---------------------------------------------------------------------------
-# Python detection
+# Python / venv helpers
 # ---------------------------------------------------------------------------
-find_python() {
+find_system_python() {
   for cmd in python3 python; do
     if command -v "$cmd" &>/dev/null; then
       local ver
@@ -67,6 +67,41 @@ find_python() {
     fi
   done
   return 1
+}
+
+# Returns the python binary to use (from active venv or .venv/)
+get_python() {
+  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    echo "${VIRTUAL_ENV}/bin/python"
+  elif [[ -f "${VENV_DIR}/bin/python" ]]; then
+    echo "${VENV_DIR}/bin/python"
+  else
+    find_system_python
+  fi
+}
+
+# Ensure a venv exists and return its python
+ensure_venv() {
+  # If user already has an active venv, use it
+  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    ok "Using active venv: ${VIRTUAL_ENV}"
+    echo "${VIRTUAL_ENV}/bin/python"
+    return 0
+  fi
+
+  # Create or reuse .venv/
+  if [[ -f "${VENV_DIR}/bin/python" ]]; then
+    ok "Using existing venv: ${VENV_DIR}"
+  else
+    local sys_python
+    if ! sys_python=$(find_system_python); then
+      return 1
+    fi
+    info "Creating venv at ${VENV_DIR}..."
+    "$sys_python" -m venv "${VENV_DIR}"
+    ok "Venv created"
+  fi
+  echo "${VENV_DIR}/bin/python"
 }
 
 check_package() {
@@ -97,9 +132,15 @@ if [[ "${1:-}" == "--check" ]]; then
     ok   "GPU: $GPU"
   fi
 
-  if PYTHON=$(find_python); then
+  if PYTHON=$(get_python); then
     PYVER=$("$PYTHON" --version 2>&1)
-    ok   "Python: $PYVER ($PYTHON)"
+    VENV_LABEL=""
+    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+      VENV_LABEL=" (active venv)"
+    elif [[ "$PYTHON" == "${VENV_DIR}/bin/python" ]]; then
+      VENV_LABEL=" (.venv)"
+    fi
+    ok   "Python: ${PYVER}${VENV_LABEL}"
 
     if check_package "$PYTHON" "sentence_transformers"; then
       STVER=$("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)
@@ -116,20 +157,21 @@ if [[ "${1:-}" == "--check" ]]; then
     fi
 
     # Check if model is cached
-    MODEL_CACHED=$("$PYTHON" -c "
+    if check_package "$PYTHON" "sentence_transformers"; then
+      MODEL_CACHED=$("$PYTHON" -c "
 from sentence_transformers import SentenceTransformer
-import os
 try:
-    path = SentenceTransformer('${MODEL}', trust_remote_code=True).model_card_data.model_id or ''
+    SentenceTransformer('${MODEL}', trust_remote_code=True)
     print('yes')
 except:
     print('no')
 " 2>/dev/null || echo "no")
 
-    if [[ "$MODEL_CACHED" == "yes" ]]; then
-      ok   "Model: ${MODEL} cached"
-    else
-      warn "Model: ${MODEL} not downloaded yet"
+      if [[ "$MODEL_CACHED" == "yes" ]]; then
+        ok   "Model: ${MODEL} cached"
+      else
+        warn "Model: ${MODEL} not downloaded yet"
+      fi
     fi
   else
     warn "Python: 3.9+ not found"
@@ -165,8 +207,8 @@ else
   ok "GPU detected: ${GPU}"
 fi
 
-# Step 2: Python check
-if ! PYTHON=$(find_python); then
+# Step 2: Python + venv
+if ! PYTHON=$(ensure_venv); then
   err "Python 3.9+ required but not found."
   err "Install Python: https://www.python.org/downloads/"
   exit 1
@@ -216,7 +258,6 @@ ok "Model ${MODEL} ready"
 info "Running embedding sanity check..."
 "$PYTHON" "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
 SIDECAR_PID=$!
-sleep 3
 
 # Wait for sidecar to be ready (model loading)
 READY=false
@@ -257,6 +298,6 @@ ok "  for GPU-accelerated code embeddings."
 ok "═══════════════════════════════════════════════"
 echo ""
 info "The embed sidecar starts automatically with 'anatoly run'."
-info "To start it manually:  python scripts/embed-server.py"
+info "To start it manually:  $PYTHON scripts/embed-server.py"
 info "To check status:       ./scripts/setup-embeddings.sh --check"
 echo ""

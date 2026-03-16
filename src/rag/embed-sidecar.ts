@@ -7,6 +7,24 @@ let sidecarProcess: ChildProcess | null = null;
 let managedByUs = false;
 
 /**
+ * Find the best python binary: active venv > .venv/ > system python3.
+ */
+function findPython(projectRoot: string): string {
+  // Active venv (user ran `source .venv/bin/activate`)
+  if (process.env.VIRTUAL_ENV) {
+    const venvPy = resolve(process.env.VIRTUAL_ENV, 'bin', 'python');
+    if (existsSync(venvPy)) return venvPy;
+  }
+
+  // Project .venv/ (created by setup-embeddings.sh)
+  const dotVenvPy = resolve(projectRoot, '.venv', 'bin', 'python');
+  if (existsSync(dotVenvPy)) return dotVenvPy;
+
+  // Fallback to system python
+  return 'python3';
+}
+
+/**
  * Ensure the embed sidecar is running. If it's already running externally,
  * does nothing. Otherwise spawns it as a detached child process and waits
  * for it to become ready (up to 60s for model loading).
@@ -27,10 +45,11 @@ export async function ensureSidecar(
     return false;
   }
   const port = getSidecarPort();
-  onLog?.(`starting embed sidecar on port ${port}...`);
+  const python = findPython(process.cwd());
+  onLog?.(`starting embed sidecar on port ${port} (python: ${python})...`);
 
   try {
-    sidecarProcess = spawn('python3', [scriptPath, '--port', String(port)], {
+    sidecarProcess = spawn(python, [scriptPath, '--port', String(port)], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
     });
