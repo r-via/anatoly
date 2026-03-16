@@ -14,7 +14,7 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
-import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
+import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -28,14 +28,8 @@ export function registerReviewCommand(program: Command): void {
       const plain = parentOpts.plain === true || !process.stdout.isTTY;
 
       // Parse --axes filter
-      let axesFilter;
-      try {
-        axesFilter = parseAxesFilter(cmdOpts.axes);
-      } catch (err) {
-        console.error(`anatoly — error: ${(err as Error).message}`);
-        process.exitCode = 2;
-        return;
-      }
+      const axesFilter = parseAxesOption(cmdOpts.axes);
+      if (axesFilter === null) return;
 
       const lockPath = acquireLock(projectRoot);
       let filesReviewed = 0;

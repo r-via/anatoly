@@ -35,7 +35,7 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 import { injectBadge } from '../core/badge.js';
-import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
+import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import type { AxisId } from '../core/axis-evaluator.js';
 
 interface RunContext {
@@ -119,14 +119,9 @@ export function registerRunCommand(program: Command): void {
       if (parentOpts.nlpModel) config.rag.nlp_model = parentOpts.nlpModel as string;
 
       // Parse --axes filter (fail fast on invalid axis IDs)
-      let axesFilter: AxisId[] | undefined;
-      try {
-        axesFilter = parseAxesFilter(cmdOpts.axes);
-      } catch (err) {
-        console.error(`anatoly — error: ${(err as Error).message}`);
-        process.exitCode = 2;
-        return;
-      }
+      const axesResult = parseAxesOption(cmdOpts.axes);
+      if (axesResult === null) return;
+      const axesFilter: AxisId[] | undefined = axesResult;
 
       const ctx: RunContext = {
         projectRoot,

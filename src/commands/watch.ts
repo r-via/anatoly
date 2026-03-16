@@ -15,7 +15,7 @@ import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
-import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
+import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 
 export function registerWatchCommand(program: Command): void {
   program
@@ -28,14 +28,8 @@ export function registerWatchCommand(program: Command): void {
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
       // Parse --axes filter
-      let axesFilter;
-      try {
-        axesFilter = parseAxesFilter(cmdOpts.axes);
-      } catch (err) {
-        console.error(`anatoly — error: ${(err as Error).message}`);
-        process.exitCode = 2;
-        return;
-      }
+      const axesFilter = parseAxesOption(cmdOpts.axes);
+      if (axesFilter === null) return;
 
       const anatolyDir = resolve(projectRoot, '.anatoly');
       const tasksDir = resolve(anatolyDir, 'tasks');
@@ -51,6 +45,12 @@ export function registerWatchCommand(program: Command): void {
       console.log(`  watching ${config.scan.include.join(', ')}`);
       console.log(`  press Ctrl+C to stop`);
       console.log('');
+
+      // Warn once at startup if any requested axes are config-disabled
+      const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
+      if (axesFilter) {
+        warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
+      }
 
       // Initial scan on startup — index all matching files before watching
       const scanResult = await scanProject(projectRoot, config);
@@ -129,10 +129,6 @@ export function registerWatchCommand(program: Command): void {
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
-          const evaluators = getEnabledEvaluators(config, axesFilter);
-          if (axesFilter) {
-            warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
-          }
           const result = await evaluateFile({
             projectRoot,
             task,

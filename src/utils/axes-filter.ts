@@ -10,7 +10,7 @@ import { getLogger } from './logger.js';
 export function parseAxesFilter(raw: string | undefined): AxisId[] | undefined {
   if (raw === undefined || raw === '') return undefined;
 
-  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
 
   const invalid = ids.filter((id) => !ALL_AXIS_IDS.includes(id as AxisId));
   if (invalid.length > 0) {
@@ -24,16 +24,30 @@ export function parseAxesFilter(raw: string | undefined): AxisId[] | undefined {
 }
 
 /**
- * Apply an axes filter to a list of evaluator IDs, warning if any requested
- * axis is disabled in the config (intersection semantics).
+ * Parse `--axes` option and set process.exitCode on error.
+ * Returns the parsed filter, or `null` if parsing failed (caller should return early).
+ */
+export function parseAxesOption(raw: string | undefined): AxisId[] | undefined | null {
+  try {
+    return parseAxesFilter(raw);
+  } catch (err) {
+    console.error(`anatoly — error: ${(err as Error).message}`);
+    process.exitCode = 2;
+    return null;
+  }
+}
+
+/**
+ * Warn when axes requested via `--axes` are not in the post-filter evaluator list
+ * (i.e. disabled in config). Should be called once at startup, not per-file.
  */
 export function warnDisabledAxes(
   axesFilter: AxisId[],
-  enabledIds: readonly AxisId[],
+  filteredIds: readonly AxisId[],
 ): void {
   const log = getLogger();
   for (const id of axesFilter) {
-    if (!enabledIds.includes(id)) {
+    if (!filteredIds.includes(id)) {
       log.warn({ axis: id }, `axis "${id}" requested via --axes but disabled in config — skipped`);
     }
   }

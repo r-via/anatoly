@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAxesFilter } from './axes-filter.js';
+import { parseAxesFilter, parseAxesOption } from './axes-filter.js';
 
 describe('parseAxesFilter', () => {
   it('should return undefined when input is undefined', () => {
@@ -49,5 +49,27 @@ describe('parseAxesFilter', () => {
 
   it('should ignore empty segments from trailing comma', () => {
     expect(parseAxesFilter('correction,')).toEqual(['correction']);
+  });
+
+  it('should deduplicate repeated axes', () => {
+    expect(parseAxesFilter('correction,correction,tests')).toEqual(['correction', 'tests']);
+  });
+});
+
+describe('parseAxesOption', () => {
+  it('should return parsed filter on valid input', () => {
+    expect(parseAxesOption('correction,tests')).toEqual(['correction', 'tests']);
+  });
+
+  it('should return undefined when no input', () => {
+    expect(parseAxesOption(undefined)).toBeUndefined();
+  });
+
+  it('should return null and set exitCode on invalid input', () => {
+    const original = process.exitCode;
+    const result = parseAxesOption('foobar');
+    expect(result).toBeNull();
+    expect(process.exitCode).toBe(2);
+    process.exitCode = original;
   });
 });
