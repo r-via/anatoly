@@ -7,6 +7,18 @@ import { parseUncheckedActions } from './clean.js';
 
 const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
 
+function finalSync(projectRoot: string, reportFile: string): void {
+  try {
+    console.log(chalk.blue('Final sync...'));
+    execSync(`npx anatoly clean-sync ${reportFile}`, {
+      cwd: projectRoot,
+      stdio: 'inherit',
+    });
+  } catch {
+    // Non-fatal
+  }
+}
+
 export function registerCleanRunCommand(program: Command): void {
   program
     .command('clean-run <report-file>')
@@ -90,6 +102,7 @@ export function registerCleanRunCommand(program: Command): void {
         if (output.includes(COMPLETION_SIGNAL)) {
           console.log('');
           console.log(chalk.green(`All clean tasks complete! Finished at iteration ${i}.`));
+          finalSync(projectRoot, reportFile);
           return;
         }
 
@@ -100,6 +113,7 @@ export function registerCleanRunCommand(program: Command): void {
           if (allDone) {
             console.log('');
             console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
+            finalSync(projectRoot, reportFile);
             return;
           }
         } catch {
@@ -112,6 +126,7 @@ export function registerCleanRunCommand(program: Command): void {
       console.log('');
       console.log(chalk.yellow(`Ralph reached max iterations (${maxIterations}).`));
       console.log(chalk.yellow(`Check .anatoly/clean/${shardName}/progress.txt for status.`));
+      finalSync(projectRoot, reportFile);
       process.exitCode = 1;
     });
 }
