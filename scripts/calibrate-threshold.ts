@@ -15,7 +15,7 @@
 
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { embed, buildEmbedCode, setEmbeddingLogger, EMBEDDING_MODEL } from '../src/rag/embeddings.js';
+import { embedCode, buildEmbedCode, setEmbeddingLogger, getCodeModelId } from '../src/rag/embeddings.js';
 import { buildFunctionCards, buildFunctionId, extractFunctionBody } from '../src/rag/indexer.js';
 import type { Task } from '../src/schemas/task.js';
 import type { FunctionCard } from '../src/rag/types.js';
@@ -41,7 +41,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 async function main() {
-  console.log(`Calibration script for ${EMBEDDING_MODEL}`);
+  console.log(`Calibration script for ${getCodeModelId()}`);
   console.log(`Project root: ${resolve(projectRoot)}`);
   console.log(`Min score: ${minScoreArg}`);
   console.log('');
@@ -49,7 +49,7 @@ async function main() {
   setEmbeddingLogger((msg) => console.log(`  [embed] ${msg}`));
 
   // Pre-warm model
-  await embed('');
+  await embedCode('');
 
   // Find all .ts files with functions (simplified — reads task files if available)
   const { glob } = await import('tinyglobby');
@@ -132,7 +132,7 @@ async function main() {
 
       const body = extractFunctionBody(source, symbol);
       const codeText = buildEmbedCode(card.name, card.signature, body);
-      const embedding = await embed(codeText);
+      const embedding = await embedCode(codeText);
 
       allCards.push({ card, embedding, body: body.slice(0, 200) });
     }

@@ -35,4 +35,6 @@ export interface RagStats {
   totalCards: number;
   totalFiles: number;
   lastIndexed: string | null;
+  /** Whether the index contains NLP vectors (dual code+NLP embedding). */
+  dualEmbedding: boolean;
 }

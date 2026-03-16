@@ -122,13 +122,20 @@ On a typical incremental run where few files have changed, the vast majority of 
 
 The `--rebuild-rag` flag drops the entire LanceDB table and clears the cache, forcing a full re-index.
 
-## Zero API Cost
+## Zero API Cost for Embedding
 
-The entire RAG pipeline -- from AST analysis through embedding to vector search -- runs locally with no external API calls. This was a deliberate design choice:
+The embedding and search pipeline runs 100% locally with no external API calls, regardless of runtime:
 
-- **Indexing:** function cards are built from AST data (no LLM summarization)
-- **Embedding:** the Xenova transformer model runs on-device
+- **Code embedding (ONNX):** `@xenova/transformers` runs on CPU — no network, no cost
+- **Code embedding (Ollama):** Nomic Embed Code 7B runs on local GPU via Ollama — no network, no cost
+- **NLP embedding:** `all-MiniLM-L6-v2` via `@xenova/transformers` — always local ONNX
 - **Storage:** LanceDB is an embedded database with no server component
 - **Search:** vector similarity is computed locally
 
-The only API cost in the entire pipeline comes from the axis evaluator LLM calls in the Review phase and the optional Deliberation phase.
+The only API cost in the RAG pipeline comes from NLP summarization in dual embedding mode (one LLM call per file, ~$0.001/file with Haiku). The axis evaluator LLM calls in the Review phase are separate.
+
+### GPU-accelerated embedding via Ollama
+
+When a GPU and Ollama are available, Anatoly uses `manutic/nomic-embed-code` (7B, based on Qwen2.5-Coder-7B) for higher-quality code embeddings. Run `./scripts/setup-ollama.sh` to set up. The `OLLAMA_HOST` env var can override the default endpoint (`http://localhost:11434`).
+
+Use `npx anatoly rag-status` to verify which runtime and model are active.
