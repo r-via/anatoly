@@ -23,11 +23,14 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
 /**
  * Returns the list of enabled evaluators based on the config.
  * Respects `axes.[axis].enabled` (default true for all axes).
+ * When `axesFilter` is provided, only axes in both the config AND the filter are returned (intersection).
  */
-export function getEnabledEvaluators(config: Config): AxisEvaluator[] {
+export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): AxisEvaluator[] {
   return ALL_EVALUATORS.filter((evaluator) => {
     const axisConfig = config.llm.axes?.[evaluator.id];
-    return axisConfig?.enabled !== false;
+    if (axisConfig?.enabled === false) return false;
+    if (axesFilter && !axesFilter.includes(evaluator.id)) return false;
+    return true;
   });
 }
 

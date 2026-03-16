@@ -14,16 +14,28 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
 
 export function registerReviewCommand(program: Command): void {
   program
     .command('review')
     .description('Run agentic review on all pending files sequentially')
-    .action(async () => {
+    .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
+    .action(async (cmdOpts: { axes?: string }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const plain = parentOpts.plain === true || !process.stdout.isTTY;
+
+      // Parse --axes filter
+      let axesFilter;
+      try {
+        axesFilter = parseAxesFilter(cmdOpts.axes);
+      } catch (err) {
+        console.error(`anatoly — error: ${(err as Error).message}`);
+        process.exitCode = 2;
+        return;
+      }
 
       const lockPath = acquireLock(projectRoot);
       let filesReviewed = 0;
@@ -73,7 +85,10 @@ export function registerReviewCommand(program: Command): void {
         const total = pending.length;
         const allTasks = loadTasks(projectRoot);
         const taskMap = new Map(allTasks.map((t) => [t.file, t]));
-        const evaluators = getEnabledEvaluators(config);
+        const evaluators = getEnabledEvaluators(config, axesFilter);
+        if (axesFilter) {
+          warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
+        }
         const depMeta = loadDependencyMeta(projectRoot);
         const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
 

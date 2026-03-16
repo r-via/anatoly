@@ -15,15 +15,27 @@ import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
+import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
 
 export function registerWatchCommand(program: Command): void {
   program
     .command('watch')
     .description('Watch for file changes and incrementally re-scan and re-review')
-    .action(async () => {
+    .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
+    .action(async (cmdOpts: { axes?: string }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+
+      // Parse --axes filter
+      let axesFilter;
+      try {
+        axesFilter = parseAxesFilter(cmdOpts.axes);
+      } catch (err) {
+        console.error(`anatoly — error: ${(err as Error).message}`);
+        process.exitCode = 2;
+        return;
+      }
 
       const anatolyDir = resolve(projectRoot, '.anatoly');
       const tasksDir = resolve(anatolyDir, 'tasks');
@@ -117,7 +129,10 @@ export function registerWatchCommand(program: Command): void {
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
-          const evaluators = getEnabledEvaluators(config);
+          const evaluators = getEnabledEvaluators(config, axesFilter);
+          if (axesFilter) {
+            warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
+          }
           const result = await evaluateFile({
             projectRoot,
             task,

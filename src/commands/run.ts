@@ -35,6 +35,8 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 import { injectBadge } from '../core/badge.js';
+import { parseAxesFilter, warnDisabledAxes } from '../utils/axes-filter.js';
+import type { AxisId } from '../core/axis-evaluator.js';
 
 interface RunContext {
   projectRoot: string;
@@ -79,6 +81,8 @@ interface RunContext {
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
   runLog?: import('../utils/logger.js').Logger;
+  /** CLI axes filter — restricts which axes are evaluated (intersection with config) */
+  axesFilter?: AxisId[];
 }
 
 export function registerRunCommand(program: Command): void {
@@ -86,7 +90,8 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Execute full audit pipeline: scan → estimate → review → report')
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
-    .action(async (cmdOpts: { runId?: string }) => {
+    .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
+    .action(async (cmdOpts: { runId?: string; axes?: string }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
@@ -112,6 +117,16 @@ export function registerRunCommand(program: Command): void {
       // CLI model overrides take precedence over config
       if (parentOpts.codeModel) config.rag.code_model = parentOpts.codeModel as string;
       if (parentOpts.nlpModel) config.rag.nlp_model = parentOpts.nlpModel as string;
+
+      // Parse --axes filter (fail fast on invalid axis IDs)
+      let axesFilter: AxisId[] | undefined;
+      try {
+        axesFilter = parseAxesFilter(cmdOpts.axes);
+      } catch (err) {
+        console.error(`anatoly — error: ${(err as Error).message}`);
+        process.exitCode = 2;
+        return;
+      }
 
       const ctx: RunContext = {
         projectRoot,
@@ -148,6 +163,7 @@ export function registerRunCommand(program: Command): void {
         errorsByCode: {},
         degradedReviews: 0,
         axisStats: {},
+        axesFilter,
       };
 
       // Create per-run ndjson log file at debug level
@@ -552,7 +568,10 @@ async function runReviewPhase(
     .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file) }))
     .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
 
-  const evaluators = getEnabledEvaluators(ctx.config);
+  const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
+  if (ctx.axesFilter) {
+    warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
+  }
   const total = reviewItems.length;
   const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
 

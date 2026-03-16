@@ -47,6 +47,28 @@ describe('getEnabledEvaluators', () => {
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(0);
   });
+
+  it('should filter by axesFilter when provided', () => {
+    const config = makeConfig();
+    const evaluators = getEnabledEvaluators(config, ['correction', 'tests']);
+    expect(evaluators).toHaveLength(2);
+    expect(evaluators.map((e) => e.id)).toEqual(['correction', 'tests']);
+  });
+
+  it('should intersect axesFilter with config-disabled axes', () => {
+    const config = makeConfig({
+      llm: { axes: { correction: { enabled: false } } },
+    });
+    const evaluators = getEnabledEvaluators(config, ['correction', 'tests']);
+    expect(evaluators).toHaveLength(1);
+    expect(evaluators[0].id).toBe('tests');
+  });
+
+  it('should return all enabled axes when axesFilter is undefined', () => {
+    const config = makeConfig();
+    const evaluators = getEnabledEvaluators(config, undefined);
+    expect(evaluators).toHaveLength(6);
+  });
 });
 
 describe('ALL_AXIS_IDS', () => {
