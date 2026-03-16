@@ -70,9 +70,11 @@ export class VectorStore {
 
   async init(): Promise<void> {
     mkdirSync(this.dbPath, { recursive: true });
+    this.onLog(`vector-store: connecting to ${this.dbPath} (table: ${this.tableName})`);
     this.db = await connect(this.dbPath);
 
     const tableNames = await this.db.tableNames();
+    this.onLog(`vector-store: existing tables: ${tableNames.length > 0 ? tableNames.join(', ') : '(none)'}`);
 
     // Clean up legacy table if mode-specific tables are now in use
     if (this.tableName !== DEFAULT_TABLE_NAME && tableNames.includes(DEFAULT_TABLE_NAME)) {
@@ -156,6 +158,7 @@ export class VectorStore {
 
     if (!this.table) {
       // Create table with first batch
+      this.onLog(`vector-store: creating table ${this.tableName} (${rows.length} rows, vector dim=${rows[0].vector.length})`);
       this.table = await this.db.createTable(this.tableName, rows);
       if (nlpEmbeddings) this._hasDualEmbedding = true;
       return;

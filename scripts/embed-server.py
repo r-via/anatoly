@@ -4,6 +4,7 @@ Anatoly Embedding Sidecar — GPU-accelerated code embeddings via sentence-trans
 
 Usage:
     python scripts/embed-server.py [--port 11435] [--model nomic-ai/nomic-embed-code-v1.5]
+                                   [--idle-timeout 300]
 
 Endpoints:
     POST /embed   { "input": "text" }        → { "embedding": [...], "dim": 768 }
@@ -14,8 +15,9 @@ Endpoints:
 
 import argparse
 import json
-import sys
 import signal
+import threading
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import torch
@@ -26,6 +28,8 @@ def parse_args():
     p = argparse.ArgumentParser(description="Anatoly embedding sidecar")
     p.add_argument("--port", type=int, default=11435)
     p.add_argument("--model", default="nomic-ai/nomic-embed-code")
+    p.add_argument("--idle-timeout", type=int, default=300,
+                   help="auto-shutdown after N seconds of inactivity (0 = disabled)")
     return p.parse_args()
 
 
@@ -42,8 +46,37 @@ else:
 print(f"[embed-server] loading {args.model} on {device}...", flush=True)
 model = SentenceTransformer(args.model, device=device)
 dim = model.get_sentence_embedding_dimension()
-print(f"[embed-server] ready — {dim}d on {device}, port {args.port}", flush=True)
 
+idle_label = f", idle timeout {args.idle_timeout}s" if args.idle_timeout > 0 else ""
+print(f"[embed-server] ready — {dim}d on {device}, port {args.port}{idle_label}", flush=True)
+
+# ---------------------------------------------------------------------------
+# Idle timeout watchdog
+# ---------------------------------------------------------------------------
+
+last_activity = time.monotonic()
+
+
+def touch_activity():
+    """Reset the idle timer on every request."""
+    global last_activity
+    last_activity = time.monotonic()
+
+
+def idle_watchdog(timeout_sec: int, srv: HTTPServer):
+    """Background thread that shuts down the server after inactivity."""
+    while True:
+        time.sleep(10)  # check every 10s
+        idle = time.monotonic() - last_activity
+        if idle >= timeout_sec:
+            print(f"[embed-server] idle for {int(idle)}s — auto-shutdown", flush=True)
+            srv.shutdown()
+            return
+
+
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *_args):
@@ -59,17 +92,17 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        touch_activity()
         if self.path == "/health":
             self._send_json(200, {"status": "ok", "model": args.model, "device": device, "dim": dim})
         else:
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        touch_activity()
         if self.path == "/shutdown":
             self._send_json(200, {"status": "shutting down"})
-            # Schedule shutdown after response is sent
-            import threading
-            threading.Thread(target=lambda: (server.shutdown()), daemon=True).start()
+            threading.Thread(target=lambda: server.shutdown(), daemon=True).start()
             return
 
         if self.path != "/embed":
@@ -103,9 +136,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": str(e)})
 
 
+# ---------------------------------------------------------------------------
+# Server lifecycle
+# ---------------------------------------------------------------------------
+
 server = HTTPServer(("127.0.0.1", args.port), Handler)
 signal.signal(signal.SIGTERM, lambda *_: server.shutdown())
 signal.signal(signal.SIGINT, lambda *_: server.shutdown())
+
+# Start idle watchdog if enabled
+if args.idle_timeout > 0:
+    threading.Thread(target=idle_watchdog, args=(args.idle_timeout, server), daemon=True).start()
 
 try:
     server.serve_forever()

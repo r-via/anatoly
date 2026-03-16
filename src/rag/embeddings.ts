@@ -162,19 +162,14 @@ function getNlpEmbedder(): Promise<any> {
 
 /**
  * Generate a code embedding vector for the given text.
- * Routes to sidecar when available; falls back to ONNX on any sidecar error.
+ * Routes to sidecar when available. In sidecar mode, errors are NOT
+ * silently swallowed — they propagate so the caller can handle them.
+ * This prevents dimension mismatches (sidecar 3584d vs ONNX 768d)
+ * from corrupting the vector store.
  */
 export async function embedCode(text: string): Promise<number[]> {
   if (codeRuntime === 'sidecar') {
-    try {
-      return await embedViaSidecar(text);
-    } catch (err) {
-      if (!sidecarFallbackWarned) {
-        onLog(`embed sidecar failed, falling back to ONNX: ${(err as Error).message}`);
-        sidecarFallbackWarned = true;
-      }
-      return embedViaOnnx(text);
-    }
+    return embedViaSidecar(text);
   }
   return embedViaOnnx(text);
 }

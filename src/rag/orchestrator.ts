@@ -168,10 +168,14 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
+  onLog?.(`rag: mode=${effectiveMode} table=${tableName} dual=${dualMode} codeRuntime=${options.resolvedModels?.codeRuntime ?? '?'}`);
+
   setEmbeddingLogger(onLog);
 
   // Configure embedding models if resolved models provided
   if (options.resolvedModels) {
+    const nlpInfo = dualMode ? ` + nlp=${options.resolvedModels.nlpModel} (${options.resolvedModels.nlpRuntime})` : '';
+    onLog?.(`rag: models — code=${options.resolvedModels.codeModel} (${options.resolvedModels.codeRuntime})${nlpInfo}`);
     configureModels(options.resolvedModels);
   }
 
@@ -194,10 +198,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
 
   // Pre-warm code embedding model (always needed)
-  await embedCode('');
+  // Use a non-empty string — nomic-embed-code crashes on empty input
+  await embedCode('function warmup() {}');
   // Pre-warm NLP embedding model only in dual mode (may be a different model)
   if (dualMode) {
-    await embedNlp('');
+    await embedNlp('warmup');
   }
 
   // Garbage-collect stale entries: remove cards for files no longer in the project
@@ -244,18 +249,23 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       const modeLabel = dualMode ? ' [dual]' : '';
       onLog(`[${idx}/${tasksToIndex.length}]${modeLabel} ${task.file}`);
 
-      const result = dualMode
-        ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!)
-        : await processFileForIndex(projectRoot, task, cache);
+      try {
+        const result = dualMode
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!)
+          : await processFileForIndex(projectRoot, task, cache);
 
-      if (result.cards.length > 0) {
-        results.push(result);
+        if (result.cards.length > 0) {
+          results.push(result);
+        }
+      } catch (err) {
+        onLog?.(`rag: failed to index ${task.file}: ${(err as Error).message}`);
       }
       onProgress?.(fileCounter, tasksToIndex.length);
     },
   });
 
   // Batch upsert all accumulated results sequentially
+  onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);
   let cardsIndexed = 0;
   let filesIndexed = 0;
 

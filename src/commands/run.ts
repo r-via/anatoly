@@ -17,7 +17,7 @@ import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
 import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
-import { detectHardware, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
+import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -266,7 +266,7 @@ export function registerRunCommand(program: Command): void {
         }
         process.exitCode = 2;
       } finally {
-        await stopSidecar();
+        await stopSidecar(); // no-op if already stopped after RAG phase
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
       }
@@ -388,54 +388,20 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // --- Phase: config ---
   if (ctx.enableRag) {
     const hardware = detectHardware();
-    const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-
-    // --lite: skip sidecar entirely, force ONNX path
-    // --advanced: always try sidecar, error if unavailable
-    // auto: try sidecar when GPU available (existing behavior)
-    const shouldStartSidecar = ctx.ragMode === 'advanced'
-      || (ctx.ragMode === 'auto' && hardware.hasGpu && ctx.config.rag.code_model === 'auto');
 
     if (ctx.ragMode === 'lite') {
-      // Force Jina ONNX — skip sidecar detection entirely
       if (ctx.config.rag.code_model === 'auto') {
         ctx.config.rag.code_model = 'jinaai/jina-embeddings-v2-base-code';
       }
-    } else if (shouldStartSidecar) {
-      if (!ctx.plain && process.stdout.isTTY) {
-        process.stdout.write(chalk.dim('  loading embed sidecar (nomic-embed-code 7B)...'));
-        await ensureSidecar(logFn, (sec) => {
-          process.stdout.write(`\r\x1b[K${chalk.dim(`  loading embed sidecar (nomic-embed-code 7B)... ${sec}s`)}`);
-        });
-        process.stdout.write('\r\x1b[K');
-      } else {
-        await ensureSidecar(logFn);
-      }
     }
 
-    ctx.resolvedModels = await resolveEmbeddingModels(
-      ctx.config.rag,
-      hardware,
-      logFn,
-    );
-
-    // --advanced requires sidecar to be running
-    if (ctx.ragMode === 'advanced' && ctx.resolvedModels.codeRuntime !== 'sidecar') {
-      console.error('error: --advanced requires the embed sidecar (nomic-embed-code)');
-      console.error('  start manually: python scripts/embed-server.py');
-      console.error('  or use --lite for Jina ONNX fallback');
-      process.exitCode = 2;
-      return { files: 0, tasks: [], triageMap, usageGraph, depMeta, projectTree };
-    }
-
-    // Resolve effective RAG mode for table/cache selection
-    ctx.resolvedRagMode = ctx.ragMode === 'auto'
-      ? (ctx.resolvedModels.codeRuntime === 'sidecar' ? 'advanced' : 'lite')
-      : ctx.ragMode;
-
-    // Dual embedding is derived from resolved mode:
-    // lite = Jina (code-only) + MiniLM (NLP) → dual
-    // advanced = nomic-embed-code 7B (code + semantics natively) → no dual
+    // Determine the effective RAG mode from CLI flags + hardware + readiness flag.
+    // The sidecar is NOT started yet — that happens in runRagPhase.
+    const embeddingsReady = readEmbeddingsReadyFlag(ctx.projectRoot);
+    const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
+    const needsSidecar = ctx.ragMode === 'advanced'
+      || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
+    ctx.resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
     ctx.dualEmbedding = ctx.resolvedRagMode === 'lite';
 
     rl?.info({
@@ -444,14 +410,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         cpuCores: hardware.cpuCores,
         gpu: hardware.hasGpu ? hardware.gpuType : 'none',
       },
-      models: ctx.resolvedModels,
       ragMode: ctx.resolvedRagMode,
     }, 'hardware detection');
   }
 
   const ragModePrefix = ctx.ragMode !== 'auto' ? `${ctx.ragMode} ` : '';
   const ragLabel = ctx.enableRag
-    ? ctx.resolvedModels?.codeRuntime === 'sidecar'
+    ? ctx.resolvedRagMode === 'advanced'
       ? `${ragModePrefix}nomic-7B`
       : (ctx.dualEmbedding ? `${ragModePrefix}dual (jina + miniLM)` : `${ragModePrefix}on`)
     : 'off';
@@ -577,10 +542,39 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   log.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
+  // Spawn sidecar if advanced mode, resolve embedding models, then index
+  const needsSidecar = ctx.resolvedRagMode === 'advanced';
+  if (needsSidecar) {
+    const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+    if (!ctx.plain && process.stdout.isTTY) {
+      process.stdout.write(chalk.dim('  loading embed sidecar (nomic-embed-code 7B)...'));
+      await ensureSidecar(logFn, (sec) => {
+        process.stdout.write(`\r\x1b[K${chalk.dim(`  loading embed sidecar (nomic-embed-code 7B)... ${sec}s`)}`);
+      });
+      process.stdout.write('\r\x1b[K');
+    } else {
+      await ensureSidecar(logFn);
+    }
+  }
+
+  // Resolve models now that sidecar may be running
+  const hardware = detectHardware();
+  const resolveLogFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn);
+
+  if (needsSidecar && ctx.resolvedModels.codeRuntime !== 'sidecar') {
+    await stopSidecar();
+    console.error('error: --rag-advanced requires the embed sidecar (nomic-embed-code)');
+    console.error('  start manually: python scripts/embed-server.py');
+    console.error('  or use --lite for Jina ONNX fallback');
+    process.exitCode = 2;
+    return { ragEnabled: false };
+  }
+
   let ragResult: RagIndexResult | undefined;
 
-  const codeModelShort = shortModelName(ctx.resolvedModels?.codeModel ?? 'jina-code');
-  const nlpModelShort = shortModelName(ctx.resolvedModels?.nlpModel ?? 'minilm');
+  const codeModelShort = shortModelName(ctx.resolvedModels.codeModel);
+  const nlpModelShort = shortModelName(ctx.resolvedModels.nlpModel);
   const embedLabel = ctx.dualEmbedding
     ? `${codeModelShort} + ${nlpModelShort}`
     : codeModelShort;
@@ -614,10 +608,15 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   });
 
   await ragRunner.run();
+
+  // Sidecar is only needed for embedding — free GPU memory immediately
+  await stopSidecar();
+
   const ragDuration = Date.now() - ragStart;
   ctx.phaseDurations['rag-index'] = ragDuration;
 
   if (ctx.interrupted) {
+    await stopSidecar();
     console.log('interrupted — rag indexing incomplete');
     if (ctx.lockPath) { releaseLock(ctx.lockPath); ctx.lockPath = undefined; }
     return { ragEnabled: false };

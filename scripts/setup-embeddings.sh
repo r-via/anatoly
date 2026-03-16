@@ -299,6 +299,21 @@ else
   exit 1
 fi
 
+# Step 7: Write readiness flag for anatoly run --rag-advanced auto-detection
+DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}').get_sentence_embedding_dimension())" 2>/dev/null)
+FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+mkdir -p "$(dirname "$FLAG_FILE")"
+cat > "$FLAG_FILE" <<ENDJSON
+{
+  "model": "${MODEL}",
+  "dim": ${DIM:-3584},
+  "device": "${GPU}",
+  "python": "${PYTHON}",
+  "setup_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+ENDJSON
+ok "Readiness flag written to ${FLAG_FILE}"
+
 echo ""
 ok "═══════════════════════════════════════════════"
 ok "  Setup complete! Anatoly will use ${MODEL}"

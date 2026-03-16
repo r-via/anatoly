@@ -1,5 +1,7 @@
 import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Hardware detection
@@ -60,6 +62,32 @@ export function detectHardware(): HardwareProfile {
   }
 
   return { totalMemoryGB, cpuCores, hasGpu, gpuType };
+}
+
+// ---------------------------------------------------------------------------
+// Embeddings readiness flag (written by setup-embeddings.sh)
+// ---------------------------------------------------------------------------
+
+export interface EmbeddingsReadyFlag {
+  model: string;
+  dim: number;
+  device: string;
+  python: string;
+  setup_at: string;
+}
+
+/**
+ * Check if setup-embeddings.sh has been run successfully.
+ * Returns the flag data if .anatoly/embeddings-ready.json exists, null otherwise.
+ */
+export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFlag | null {
+  const flagPath = resolve(projectRoot, '.anatoly', 'embeddings-ready.json');
+  if (!existsSync(flagPath)) return null;
+  try {
+    return JSON.parse(readFileSync(flagPath, 'utf-8')) as EmbeddingsReadyFlag;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
