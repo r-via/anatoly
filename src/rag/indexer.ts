@@ -195,7 +195,7 @@ export async function applyNlpSummaries(
         keyConcepts: summary.keyConcepts,
         behavioralProfile: summary.behavioralProfile,
       });
-      const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile);
+      const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile ?? '');
       nlpEmbeddings.push(await embedNlp(nlpText));
     } else {
       enrichedCards.push(card);

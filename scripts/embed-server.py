@@ -113,4 +113,9 @@ except KeyboardInterrupt:
     pass
 finally:
     server.server_close()
+    # Explicitly release GPU memory before exit — relying on process death
+    # after SIGKILL leaves CUDA memory orphaned until driver cleanup.
+    del model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     print("[embed-server] stopped", flush=True)

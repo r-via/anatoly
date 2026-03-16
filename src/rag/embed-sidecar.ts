@@ -1,10 +1,94 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import { resolve, dirname } from 'node:path';
+import { existsSync, writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { getSidecarUrl, getSidecarPort, detectSidecar } from './hardware-detect.js';
+import { isProcessRunning } from '../utils/process.js';
 
 let sidecarProcess: ChildProcess | null = null;
 let managedByUs = false;
+
+// ---------------------------------------------------------------------------
+// PID file helpers (mirrors lock.ts pattern)
+// ---------------------------------------------------------------------------
+
+function getSidecarPidPath(): string {
+  return resolve(process.cwd(), '.anatoly', 'sidecar.pid');
+}
+
+function writeSidecarPid(pid: number): void {
+  const pidPath = getSidecarPidPath();
+  mkdirSync(dirname(pidPath), { recursive: true });
+  writeFileSync(pidPath, JSON.stringify({ pid, started_at: new Date().toISOString() }, null, 2) + '\n');
+}
+
+function removeSidecarPid(): void {
+  try { unlinkSync(getSidecarPidPath()); } catch { /* already gone */ }
+}
+
+/**
+ * Kill a process by PID: SIGTERM, wait up to 2s, then SIGKILL if needed.
+ */
+async function killProcess(pid: number): Promise<void> {
+  try { process.kill(pid, 'SIGTERM'); } catch { return; }
+
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    if (!isProcessRunning(pid)) return;
+  }
+
+  try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+}
+
+/**
+ * Find orphaned embed-server.py processes via pgrep (no PID file needed).
+ * Returns PIDs of matching processes, excluding our own PID.
+ */
+function findOrphanedSidecars(): number[] {
+  try {
+    const output = execSync('pgrep -f embed-server\\.py', { encoding: 'utf-8', timeout: 3000 });
+    return output.trim().split('\n')
+      .map(s => parseInt(s, 10))
+      .filter(pid => pid > 0 && pid !== process.pid);
+  } catch {
+    // pgrep returns exit code 1 when no match, or not available on this platform
+    return [];
+  }
+}
+
+/**
+ * Kill any orphaned sidecar from a previous crashed run.
+ * Strategy: PID file first, then pgrep fallback to catch strays.
+ */
+async function cleanStaleSidecar(onLog?: (message: string) => void): Promise<void> {
+  const killed: number[] = [];
+
+  // 1. PID file check (fast, reliable)
+  const pidPath = getSidecarPidPath();
+  if (existsSync(pidPath)) {
+    let pid: number | undefined;
+    try {
+      const data = JSON.parse(readFileSync(pidPath, 'utf-8')) as { pid: number };
+      if (data.pid && typeof data.pid === 'number' && data.pid > 0) pid = data.pid;
+    } catch { /* corrupted */ }
+
+    if (pid && isProcessRunning(pid)) {
+      await killProcess(pid);
+      killed.push(pid);
+    }
+    removeSidecarPid();
+  }
+
+  // 2. pgrep fallback — catch orphans with no PID file
+  const orphans = findOrphanedSidecars().filter(pid => !killed.includes(pid));
+  for (const pid of orphans) {
+    await killProcess(pid);
+    killed.push(pid);
+  }
+
+  if (killed.length > 0) {
+    onLog?.(`Stale embed-server.py killed (PID ${killed.join(', ')})`);
+  }
+}
 
 /**
  * Find the best python binary: active venv > .venv/ > system python3.
@@ -35,6 +119,9 @@ export async function ensureSidecar(
   onLog?: (message: string) => void,
   onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
+  // Kill any orphaned sidecar from a previous crashed run
+  await cleanStaleSidecar(onLog);
+
   // Already running (externally or by us)?
   const status = await detectSidecar();
   if (status.running) return true;
@@ -55,6 +142,7 @@ export async function ensureSidecar(
       detached: false,
     });
     managedByUs = true;
+    if (sidecarProcess.pid) writeSidecarPid(sidecarProcess.pid);
 
     // Forward stderr for debugging
     sidecarProcess.stderr?.on('data', (chunk: Buffer) => {
@@ -92,28 +180,30 @@ export async function stopSidecar(): Promise<void> {
     // Ignore
   }
 
-  // Give it a moment, then force kill if still alive
+  // Wait for graceful exit (model unload + CUDA cache flush can take a few seconds)
   await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      if (sidecarProcess && !sidecarProcess.killed) {
-        sidecarProcess.kill('SIGKILL');
-      }
-      resolve();
-    }, 3000);
+    if (!sidecarProcess) { resolve(); return; }
 
-    if (sidecarProcess) {
-      sidecarProcess.on('exit', () => {
-        clearTimeout(timeout);
+    const proc = sidecarProcess;
+    const onExit = () => { clearTimeout(killTimer); resolve(); };
+    proc.once('exit', onExit);
+
+    // Allow 8s for graceful shutdown (model unload + torch.cuda.empty_cache)
+    const killTimer = setTimeout(() => {
+      if (!proc.killed) {
+        proc.kill('SIGKILL');
+        // Wait for the SIGKILL to actually reap the process
+        const reapTimer = setTimeout(() => resolve(), 2000);
+        proc.once('exit', () => { clearTimeout(reapTimer); resolve(); });
+      } else {
         resolve();
-      });
-    } else {
-      clearTimeout(timeout);
-      resolve();
-    }
+      }
+    }, 8000);
   });
 
   sidecarProcess = null;
   managedByUs = false;
+  removeSidecarPid();
 }
 
 async function waitForReady(

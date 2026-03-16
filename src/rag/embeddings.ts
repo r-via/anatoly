@@ -61,6 +61,7 @@ export function configureModels(resolved: ResolvedModels): void {
   // Reset cached embedders so new models are loaded
   codeEmbedderPromise = null;
   nlpEmbedderPromise = null;
+  onnxFallbackPromise = null;
   sidecarFallbackWarned = false;
 }
 

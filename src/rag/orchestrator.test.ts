@@ -349,7 +349,8 @@ describe('indexProject ragMode', () => {
 
   it('passes cacheSuffix to loadRagCache and saveRagCache', async () => {
     // Make workerPool invoke the handler so cards are produced and cache is saved
-    workerPoolSpy.mockImplementation(async (opts: WorkerPoolOptions<Task>) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    workerPoolSpy.mockImplementation(async (opts: any) => {
       for (const item of opts.items) {
         await opts.handler(item, 0);
       }

@@ -204,13 +204,13 @@ export class VectorStore {
     if (!this.table) return [];
 
     const results = await this.table
-      .search(queryEmbedding)
+      .vectorSearch(queryEmbedding)
       .column('nlp_vector')
       .limit(limit)
       .toArray();
 
-    return results.flatMap((row) => {
-      const score = distanceToCosineSimilarity(row._distance ?? 0);
+    return results.flatMap((row: Record<string, unknown>) => {
+      const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
   }
