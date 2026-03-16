@@ -104,9 +104,13 @@ async function embedViaSidecar(text: string): Promise<number[]> {
   return data.embedding;
 }
 
-/** Embed via ONNX (Jina fallback). Lazy-loads the model on first call. */
+/** Embed via ONNX (Jina fallback). Always uses Jina regardless of codeModelId. */
+let onnxFallbackPromise: Promise<any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
 async function embedViaOnnx(text: string): Promise<number[]> {
-  const model = await getCodeEmbedder();
+  if (!onnxFallbackPromise) {
+    onnxFallbackPromise = loadOnnxModel(DEFAULT_CODE_MODEL);
+  }
+  const model = await onnxFallbackPromise;
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data as Float32Array);
 }
