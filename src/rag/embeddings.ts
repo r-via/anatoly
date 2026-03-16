@@ -86,12 +86,19 @@ export function getNlpDim(): number {
 // Ollama embedding via HTTP API
 // ---------------------------------------------------------------------------
 
+// nomic-embed-code context window is ~8192 tokens; truncate to ~2000 chars
+// to stay safely within limits and avoid GGML_ASSERT overflow
+const OLLAMA_MAX_CHARS = 2000;
+
 async function embedViaOllama(model: string, text: string): Promise<number[]> {
+  const truncated = text.length > OLLAMA_MAX_CHARS
+    ? text.slice(0, OLLAMA_MAX_CHARS)
+    : text;
   const host = getOllamaHost();
   const res = await fetch(`${host}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input: text }),
+    body: JSON.stringify({ model, input: truncated }),
   });
 
   if (!res.ok) {
