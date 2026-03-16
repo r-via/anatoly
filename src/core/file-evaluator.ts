@@ -156,7 +156,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let totalCacheReadTokens = successResults.reduce((sum, r) => sum + r.cacheReadTokens, 0);
   let totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
 
-  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes);
+  const enabledAxes = opts.evaluators.map((e) => e.id);
+  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes);
 
   // --- Deliberation pass (optional) ---
   if (opts.deliberation && config.llm.deliberation) {

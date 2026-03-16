@@ -17,11 +17,11 @@ export const SymbolReviewSchema = z.object({
   line_start: z.int().min(1),
   line_end: z.int().min(1),
 
-  correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
-  overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE']),
-  utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
-  duplication: z.enum(['UNIQUE', 'DUPLICATE']),
-  tests: z.enum(['GOOD', 'WEAK', 'NONE']),
+  correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']),
+  overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE', '-']),
+  utility: z.enum(['USED', 'DEAD', 'LOW_VALUE', '-']),
+  duplication: z.enum(['UNIQUE', 'DUPLICATE', '-']),
+  tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']),
 
   confidence: z.int().min(0).max(100),
 

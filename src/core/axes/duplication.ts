@@ -63,6 +63,11 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
     parts.push('');
     for (const entry of ctx.preResolvedRag) {
       parts.push(`### ${entry.symbolName} (L${entry.lineStart}–L${entry.lineEnd})`);
+      if (entry.lineEnd - entry.lineStart <= 2) {
+        parts.push('Trivial function (≤ 2 lines). Mark UNIQUE.');
+        parts.push('');
+        continue;
+      }
       if (entry.results === null) {
         parts.push('Function not indexed — cannot check for duplication. Mark UNIQUE.');
       } else if (entry.results.length === 0) {

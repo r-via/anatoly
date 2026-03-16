@@ -35,12 +35,14 @@ export function mergeAxisResults(
   results: AxisResult[],
   bestPractices?: BestPractices,
   failedAxes: AxisId[] = [],
+  enabledAxes?: AxisId[],
 ): ReviewFile {
   const axisMap = buildAxisMap(results);
   const failedSet = new Set(failedAxes);
+  const enabledSet = enabledAxes ? new Set(enabledAxes) : undefined;
 
   const rawSymbols: SymbolReview[] = task.symbols.map((sym) => {
-    const merged = mergeSymbol(sym, axisMap, failedSet);
+    const merged = mergeSymbol(sym, axisMap, failedSet, enabledSet);
     return applyCoherenceRules(merged);
   });
 
@@ -102,7 +104,7 @@ function findAxisValue(axisMap: AxisMap, axisId: AxisId, symbolName: string): Ax
   return axisMap.get(axisId)?.get(symbolName);
 }
 
-function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>): SymbolReview {
+function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>, enabledAxes?: Set<AxisId>): SymbolReview {
   const utility = findAxisValue(axisMap, 'utility', sym.name);
   const duplication = findAxisValue(axisMap, 'duplication', sym.name);
   const correction = findAxisValue(axisMap, 'correction', sym.name);
@@ -116,6 +118,9 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>)
     { id: 'overengineering', result: overengineering },
     { id: 'tests', result: tests },
   ];
+
+  /** Returns true if the axis was not requested (skipped by --axes filter) */
+  const isSkipped = (id: AxisId) => enabledAxes !== undefined && !enabledAxes.has(id);
 
   const confidences = axisResults
     .filter((a): a is { id: AxisId; result: AxisSymbolResult } => a.result !== undefined)
@@ -134,6 +139,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>)
   // Build detail segments: include crash sentinels for failed axes
   const details: string[] = [];
   for (const { id, result } of axisResults) {
+    if (isSkipped(id)) continue;
     if (result) {
       details.push(`[${result.value}] ${result.detail}`);
     } else if (failedAxes.has(id)) {
@@ -143,17 +149,23 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>)
     // If not in results AND not crashed → omitted (review-writer shows "default" message)
   }
 
+  /** Resolve axis value: '-' if skipped, result value if present, default otherwise */
+  const resolveAxis = <T extends string>(id: AxisId, result: AxisSymbolResult | undefined, allowed: readonly T[], fallback: T): T | '-' => {
+    if (isSkipped(id)) return '-';
+    return validateEnum(result?.value ?? AXIS_DEFAULTS[id], allowed, fallback);
+  };
+
   return {
     name: sym.name,
     kind: sym.kind,
     exported: sym.exported,
     line_start: sym.line_start,
     line_end: sym.line_end,
-    correction: validateEnum(correction?.value ?? AXIS_DEFAULTS.correction, ['OK', 'NEEDS_FIX', 'ERROR'] as const, 'OK'),
-    overengineering: validateEnum(overengineering?.value ?? AXIS_DEFAULTS.overengineering, ['LEAN', 'OVER', 'ACCEPTABLE'] as const, 'LEAN'),
-    utility: validateEnum(utility?.value ?? AXIS_DEFAULTS.utility, ['USED', 'DEAD', 'LOW_VALUE'] as const, 'USED'),
-    duplication: validateEnum(duplication?.value ?? AXIS_DEFAULTS.duplication, ['UNIQUE', 'DUPLICATE'] as const, 'UNIQUE'),
-    tests: validateEnum(tests?.value ?? AXIS_DEFAULTS.tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
+    correction: resolveAxis('correction', correction, ['OK', 'NEEDS_FIX', 'ERROR'] as const, 'OK'),
+    overengineering: resolveAxis('overengineering', overengineering, ['LEAN', 'OVER', 'ACCEPTABLE'] as const, 'LEAN'),
+    utility: resolveAxis('utility', utility, ['USED', 'DEAD', 'LOW_VALUE'] as const, 'USED'),
+    duplication: resolveAxis('duplication', duplication, ['UNIQUE', 'DUPLICATE'] as const, 'UNIQUE'),
+    tests: resolveAxis('tests', tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,

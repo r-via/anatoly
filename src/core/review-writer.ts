@@ -147,7 +147,11 @@ export function renderReviewMarkdown(review: ReviewFile): string {
         ];
         for (const { axis, field } of SYMBOL_AXES) {
           if (!coveredAxes.has(axis)) {
-            lines.push(`- **${axis} [${s[field]}]**: *(default — evaluator did not produce a result)*`);
+            if (s[field] === '-') {
+              lines.push(`- **${axis} [-]**: *(not evaluated)*`);
+            } else {
+              lines.push(`- **${axis} [${s[field]}]**: *(default — evaluator did not produce a result)*`);
+            }
           }
         }
       } else {
