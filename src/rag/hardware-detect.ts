@@ -155,10 +155,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     minMemoryGB: 2,
   },
   [SIDECAR_MODEL]: {
-    dim: 768,
+    dim: 3584,
     runtime: 'sidecar',
-    description: 'Nomic Embed Code v1.5 (768d, sentence-transformers)',
-    minMemoryGB: 4,
+    description: 'Nomic Embed Code 7B (3584d, sentence-transformers)',
+    minMemoryGB: 14,
     requiresGpu: true,
   },
 };
@@ -188,7 +188,8 @@ export async function resolveEmbeddingModels(
   const codeModel = resolveCodeModel(config.code_model, hardware, sidecar, onLog);
   const nlpModel = resolveNlpModel(config.nlp_model, onLog);
 
-  const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? 768;
+  // Use sidecar-reported dimension if available (more accurate than registry)
+  const codeDim = (sidecar.running && sidecar.dim) ? sidecar.dim : (MODEL_REGISTRY[codeModel]?.dim ?? 768);
   const codeRuntime = MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx';
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
   const nlpRuntime = MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx';
