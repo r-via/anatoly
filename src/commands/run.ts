@@ -282,13 +282,20 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     {
       title: 'config',
       task: async (_c: unknown, listrTask: { title: string }) => {
-        // Detect hardware and resolve embedding models
+        // Detect hardware, auto-start sidecar if GPU available, then resolve models
         if (ctx.enableRag) {
           const hardware = detectHardware();
+          const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+
+          // Try to start the sidecar BEFORE resolving models so detectSidecar() finds it
+          if (hardware.hasGpu && ctx.config.rag.code_model === 'auto') {
+            await ensureSidecar(logFn);
+          }
+
           ctx.resolvedModels = await resolveEmbeddingModels(
             ctx.config.rag,
             hardware,
-            ctx.verbose ? (msg) => { log.debug(msg); } : undefined,
+            logFn,
           );
           rl?.info({
             hardware: {
@@ -298,20 +305,6 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
             },
             models: ctx.resolvedModels,
           }, 'hardware detection');
-
-          // Auto-start embed sidecar if resolved model needs it
-          if (ctx.resolvedModels.codeRuntime === 'sidecar') {
-            const ok = await ensureSidecar(ctx.verbose ? (msg) => { log.debug(msg); } : undefined);
-            if (!ok) {
-              // Sidecar failed — downgrade to ONNX
-              ctx.resolvedModels = {
-                ...ctx.resolvedModels,
-                codeModel: 'jinaai/jina-embeddings-v2-base-code',
-                codeDim: 768,
-                codeRuntime: 'onnx',
-              };
-            }
-          }
         }
 
         const ragLabel = ctx.enableRag
