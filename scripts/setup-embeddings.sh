@@ -247,7 +247,7 @@ else
 fi
 
 # Step 5: Download the model
-info "Downloading ${MODEL} (first time only, ~1.5 GB)..."
+info "Downloading ${MODEL} (first time only, ~14 GB)..."
 "$PYTHON" -c "
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('${MODEL}')
