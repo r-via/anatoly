@@ -33,6 +33,7 @@ function findPython(projectRoot: string): string {
  */
 export async function ensureSidecar(
   onLog?: (message: string) => void,
+  onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
   // Already running (externally or by us)?
   const status = await detectSidecar();
@@ -61,8 +62,8 @@ export async function ensureSidecar(
       if (msg) onLog?.(`[embed-server] ${msg}`);
     });
 
-    // Wait for the sidecar to become ready (7B model can take 90-120s on first load)
-    const ready = await waitForReady(180_000);
+    // Wait for the sidecar to become ready (7B model can take 30-120s)
+    const ready = await waitForReady(180_000, onProgress);
     if (ready) {
       const info = await detectSidecar();
       onLog?.(`embed sidecar ready: ${info.model} on ${info.device} (${info.dim}d)`);
@@ -115,7 +116,10 @@ export async function stopSidecar(): Promise<void> {
   managedByUs = false;
 }
 
-async function waitForReady(timeoutMs: number): Promise<boolean> {
+async function waitForReady(
+  timeoutMs: number,
+  onProgress?: (elapsedSec: number) => void,
+): Promise<boolean> {
   const start = Date.now();
   const url = `${getSidecarUrl()}/health`;
 
@@ -129,6 +133,8 @@ async function waitForReady(timeoutMs: number): Promise<boolean> {
     } catch {
       // Not ready yet
     }
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    onProgress?.(elapsed);
     await new Promise((r) => setTimeout(r, 1000));
   }
   return false;

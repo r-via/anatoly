@@ -289,7 +289,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
           // Try to start the sidecar BEFORE resolving models so detectSidecar() finds it
           if (hardware.hasGpu && ctx.config.rag.code_model === 'auto') {
-            await ensureSidecar(logFn);
+            listrTask.title = 'config — loading embed sidecar (nomic-embed-code 7B)...';
+            await ensureSidecar(logFn, (sec) => {
+              listrTask.title = `config — loading embed sidecar (nomic-embed-code 7B)... ${sec}s`;
+            });
           }
 
           ctx.resolvedModels = await resolveEmbeddingModels(
