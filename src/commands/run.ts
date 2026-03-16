@@ -94,7 +94,7 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Execute full audit pipeline: scan → estimate → review → report')
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
-    .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
+    .option('--axes <list>', 'comma-separated axes: utility,duplication,correction,overengineering,tests,best_practices')
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
