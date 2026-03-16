@@ -12,12 +12,6 @@ export interface HardwareProfile {
   gpuType?: 'cuda' | 'metal' | 'rocm';
 }
 
-export interface OllamaStatus {
-  running: boolean;
-  hasModel: boolean;
-  host: string;
-}
-
 /**
  * Detect available hardware: RAM, CPU cores, and GPU presence.
  * Used to auto-select embedding models when config is set to 'auto'.
@@ -69,42 +63,55 @@ export function detectHardware(): HardwareProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Model resolution
+// Embed sidecar detection
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Ollama detection
-// ---------------------------------------------------------------------------
+export const SIDECAR_DEFAULT_PORT = 11435;
+export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code-v1.5';
 
-const OLLAMA_MODEL = 'manutic/nomic-embed-code';
-const OLLAMA_DEFAULT_HOST = 'http://localhost:11434';
+export interface SidecarStatus {
+  running: boolean;
+  model?: string;
+  device?: string;
+  dim?: number;
+  port: number;
+}
 
-/** Get the Ollama host from env or default. */
-export function getOllamaHost(): string {
-  return process.env.OLLAMA_HOST ?? OLLAMA_DEFAULT_HOST;
+/** Get the sidecar port from env or default. */
+export function getSidecarPort(): number {
+  const env = process.env.ANATOLY_EMBED_PORT;
+  return env ? parseInt(env, 10) : SIDECAR_DEFAULT_PORT;
+}
+
+/** Get the sidecar base URL. */
+export function getSidecarUrl(): string {
+  return `http://127.0.0.1:${getSidecarPort()}`;
 }
 
 /**
- * Detect whether Ollama is running and has the required embedding model.
- * Non-blocking: returns { running: false, hasModel: false } on any error.
+ * Detect whether the embed sidecar is running.
+ * Non-blocking: returns { running: false } on any error.
  */
-export async function detectOllama(): Promise<OllamaStatus> {
-  const host = getOllamaHost();
-  const status: OllamaStatus = { running: false, hasModel: false, host };
+export async function detectSidecar(): Promise<SidecarStatus> {
+  const port = getSidecarPort();
+  const status: SidecarStatus = { running: false, port };
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`${host}/api/tags`, { signal: controller.signal });
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`${getSidecarUrl()}/health`, { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!res.ok) return status;
-    status.running = true;
-
-    const data = await res.json() as { models?: Array<{ name: string }> };
-    status.hasModel = data.models?.some((m) => m.name.startsWith(OLLAMA_MODEL)) ?? false;
+    const data = await res.json() as { status: string; model?: string; device?: string; dim?: number };
+    if (data.status === 'ok') {
+      status.running = true;
+      status.model = data.model;
+      status.device = data.device;
+      status.dim = data.dim;
+    }
   } catch {
-    // Ollama not running or not reachable
+    // Sidecar not running
   }
 
   return status;
@@ -117,7 +124,7 @@ export async function detectOllama(): Promise<OllamaStatus> {
 /** Known embedding model metadata. */
 export interface ModelInfo {
   dim: number;
-  runtime: 'onnx' | 'ollama';
+  runtime: 'onnx' | 'sidecar';
   description: string;
   minMemoryGB: number;
   requiresGpu?: boolean;
@@ -147,10 +154,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     description: 'Nomic Text v1 (768d, ONNX)',
     minMemoryGB: 2,
   },
-  'manutic/nomic-embed-code': {
+  [SIDECAR_MODEL]: {
     dim: 768,
-    runtime: 'ollama',
-    description: 'Nomic Embed Code (768d, Ollama)',
+    runtime: 'sidecar',
+    description: 'Nomic Embed Code v1.5 (768d, sentence-transformers)',
     minMemoryGB: 4,
     requiresGpu: true,
   },
@@ -159,17 +166,17 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
 export interface ResolvedModels {
   codeModel: string;
   codeDim: number;
-  codeRuntime: 'onnx' | 'ollama';
+  codeRuntime: 'onnx' | 'sidecar';
   nlpModel: string;
   nlpDim: number;
-  nlpRuntime: 'onnx' | 'ollama';
+  nlpRuntime: 'onnx' | 'sidecar';
 }
 
 /**
- * Resolve embedding models based on config, hardware, and Ollama availability.
+ * Resolve embedding models based on config, hardware, and sidecar availability.
  *
  * When config value is 'auto', picks the best model the hardware can run:
- * - If Ollama is running with nomic-embed-code → use it (GPU-accelerated)
+ * - If the embed sidecar is running → use it (GPU-accelerated via sentence-transformers)
  * - Otherwise → fall back to Jina v2 (ONNX, CPU)
  */
 export async function resolveEmbeddingModels(
@@ -177,8 +184,8 @@ export async function resolveEmbeddingModels(
   hardware: HardwareProfile,
   onLog?: (message: string) => void,
 ): Promise<ResolvedModels> {
-  const ollama = await detectOllama();
-  const codeModel = resolveCodeModel(config.code_model, hardware, ollama, onLog);
+  const sidecar = await detectSidecar();
+  const codeModel = resolveCodeModel(config.code_model, hardware, sidecar, onLog);
   const nlpModel = resolveNlpModel(config.nlp_model, onLog);
 
   const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? 768;
@@ -192,25 +199,20 @@ export async function resolveEmbeddingModels(
 function resolveCodeModel(
   configured: string,
   hardware: HardwareProfile,
-  ollama: OllamaStatus,
+  sidecar: SidecarStatus,
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;
 
-  // Prefer Ollama with nomic-embed-code when available
-  if (ollama.running && ollama.hasModel) {
-    const info = MODEL_REGISTRY[OLLAMA_MODEL]!;
-    onLog?.(`hardware: GPU (${hardware.gpuType ?? 'detected'}) — Ollama running with ${info.description}`);
-    return OLLAMA_MODEL;
+  // Prefer embed sidecar when running (GPU-accelerated sentence-transformers)
+  if (sidecar.running) {
+    onLog?.(`embed sidecar: ${sidecar.model} on ${sidecar.device} (${sidecar.dim}d)`);
+    return SIDECAR_MODEL;
   }
 
-  // Ollama not available — explain why and fall back
+  // Sidecar not running — explain and fall back
   if (hardware.hasGpu) {
-    if (!ollama.running) {
-      onLog?.(`hardware: GPU (${hardware.gpuType}) available but Ollama not running — run ./scripts/setup-ollama.sh to enable GPU embeddings`);
-    } else {
-      onLog?.(`hardware: Ollama running but model ${OLLAMA_MODEL} not found — run: ollama pull ${OLLAMA_MODEL}`);
-    }
+    onLog?.(`hardware: GPU (${hardware.gpuType}) available but embed sidecar not running — start with: python scripts/embed-server.py`);
   } else {
     onLog?.(`hardware: no GPU detected — using ${MODEL_REGISTRY['jinaai/jina-embeddings-v2-base-code']!.description}`);
   }

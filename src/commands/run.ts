@@ -17,6 +17,7 @@ import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult } from '../rag/index.js';
 import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
 import { detectHardware, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
+import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { formatTokenSummary } from '../utils/format.js';
@@ -236,6 +237,7 @@ export function registerRunCommand(program: Command): void {
         }
         process.exitCode = 2;
       } finally {
+        await stopSidecar();
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
       }
@@ -296,6 +298,20 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
             },
             models: ctx.resolvedModels,
           }, 'hardware detection');
+
+          // Auto-start embed sidecar if resolved model needs it
+          if (ctx.resolvedModels.codeRuntime === 'sidecar') {
+            const ok = await ensureSidecar(ctx.verbose ? (msg) => { log.debug(msg); } : undefined);
+            if (!ok) {
+              // Sidecar failed — downgrade to ONNX
+              ctx.resolvedModels = {
+                ...ctx.resolvedModels,
+                codeModel: 'jinaai/jina-embeddings-v2-base-code',
+                codeDim: 768,
+                codeRuntime: 'onnx',
+              };
+            }
+          }
         }
 
         const ragLabel = ctx.enableRag
