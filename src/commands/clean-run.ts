@@ -3,14 +3,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
-import { parseUncheckedActions } from './fix.js';
+import { parseUncheckedActions } from './clean.js';
 
 const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
 
-export function registerFixRunCommand(program: Command): void {
+export function registerCleanRunCommand(program: Command): void {
   program
-    .command('fix-run <report-file>')
-    .description('Generate fix artifacts and run Ralph loop to remediate findings')
+    .command('clean-run <report-file>')
+    .description('Generate clean artifacts and run Ralph loop to remediate findings')
     .option('-n, --iterations <n>', 'max Ralph iterations', '10')
     .action((reportFile: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
@@ -24,13 +24,13 @@ export function registerFixRunCommand(program: Command): void {
 
       // Derive shard name and fix directory
       const shardName = basename(reportFile, '.md');
-      const fixDir = resolve(projectRoot, '.anatoly', 'fix', shardName);
-      const prdPath = join(fixDir, 'prd.json');
-      const claudeMdPath = join(fixDir, 'CLAUDE.md');
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      const prdPath = join(cleanDir, 'prd.json');
+      const claudeMdPath = join(cleanDir, 'CLAUDE.md');
       // Generate artifacts if not already present
       if (!existsSync(prdPath) || !existsSync(claudeMdPath)) {
-        console.log(chalk.blue('Generating fix artifacts...'));
-        execSync(`npx anatoly fix ${reportFile}`, {
+        console.log(chalk.blue('Generating clean artifacts...'));
+        execSync(`npx anatoly clean ${reportFile}`, {
           cwd: projectRoot,
           stdio: 'inherit',
         });
@@ -41,15 +41,15 @@ export function registerFixRunCommand(program: Command): void {
         const content = readFileSync(absPath, 'utf-8');
         const items = parseUncheckedActions(content);
         if (items.length === 0) {
-          console.log(chalk.yellow('No unchecked actions found — nothing to fix.'));
+          console.log(chalk.yellow('No unchecked actions found — nothing to clean.'));
           return;
         }
-        console.error(chalk.red('Fix artifacts not found after generation.'));
+        console.error(chalk.red('Clean artifacts not found after generation.'));
         process.exit(1);
       }
 
       console.log('');
-      console.log(chalk.blue(`Ralph fix loop \u2014 ${maxIterations} iterations max`));
+      console.log(chalk.blue(`Ralph clean loop \u2014 ${maxIterations} iterations max`));
       console.log('');
 
       for (let i = 1; i <= maxIterations; i++) {
@@ -78,7 +78,7 @@ export function registerFixRunCommand(program: Command): void {
 
         // Sync completed fixes back to the report
         try {
-          execSync(`npx anatoly fix-sync ${reportFile}`, {
+          execSync(`npx anatoly clean-sync ${reportFile}`, {
             cwd: projectRoot,
             stdio: 'pipe',
           });
@@ -89,7 +89,7 @@ export function registerFixRunCommand(program: Command): void {
         // Check for completion signal
         if (output.includes(COMPLETION_SIGNAL)) {
           console.log('');
-          console.log(chalk.green(`All fixes complete! Finished at iteration ${i}.`));
+          console.log(chalk.green(`All clean tasks complete! Finished at iteration ${i}.`));
           return;
         }
 
@@ -111,7 +111,7 @@ export function registerFixRunCommand(program: Command): void {
 
       console.log('');
       console.log(chalk.yellow(`Ralph reached max iterations (${maxIterations}).`));
-      console.log(chalk.yellow(`Check .anatoly/fix/${shardName}/progress.txt for status.`));
+      console.log(chalk.yellow(`Check .anatoly/clean/${shardName}/progress.txt for status.`));
       process.exitCode = 1;
     });
 }

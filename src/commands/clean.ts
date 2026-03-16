@@ -6,7 +6,7 @@ import chalk from 'chalk';
 /**
  * A parsed unchecked action from a shard report.
  */
-export interface FixItem {
+export interface CleanItem {
   actId: string;
   severity: string;
   source: string;
@@ -27,8 +27,8 @@ const EFFORT_SET = new Set(['trivial', 'small', 'large']);
  * Parse unchecked checkboxes from a shard (or index) report file.
  * Returns only unchecked `- [ ]` actions with valid ACT-IDs.
  */
-export function parseUncheckedActions(content: string): FixItem[] {
-  const items: FixItem[] = [];
+export function parseUncheckedActions(content: string): CleanItem[] {
+  const items: CleanItem[] = [];
 
   for (const line of content.split('\n')) {
     const actMatch = line.match(ACT_LINE_RE);
@@ -65,10 +65,10 @@ export function parseUncheckedActions(content: string): FixItem[] {
   return items;
 }
 
-function generatePrd(shardName: string, items: FixItem[]): object {
+function generatePrd(shardName: string, items: CleanItem[]): object {
   return {
-    project: 'Anatoly Fix',
-    branchName: `fix/anatoly-${shardName}`,
+    project: 'Anatoly Clean',
+    branchName: `clean/anatoly-${shardName}`,
     description: `Automated remediation of ${items.length} findings from ${shardName}.md`,
     userStories: items.map((item, i) => ({
       id: `FIX-${String(i + 1).padStart(3, '0')}`,
@@ -87,34 +87,34 @@ function generatePrd(shardName: string, items: FixItem[]): object {
   };
 }
 
-function generateClaudeMd(shardFile: string, fixDir: string): string {
-  return `# Fix Agent Instructions
+function generateClaudeMd(shardFile: string, cleanDir: string): string {
+  return `# Clean Agent Instructions
 
 ## Role
 
 You are an autonomous TypeScript correction agent working in a Ralph loop.
-Your job is to fix audit findings one at a time.
+Your job is to clean audit findings one at a time.
 
 ## Key Files
 
 | File | Path | Purpose |
 |------|------|---------|
-| PRD | \`${fixDir}/prd.json\` | User stories — pick the first with \`"passes": false\` |
-| Progress | \`${fixDir}/progress.txt\` | Learnings log — **read Codebase Patterns first** |
+| PRD | \`${cleanDir}/prd.json\` | User stories — pick the first with \`"passes": false\` |
+| Progress | \`${cleanDir}/progress.txt\` | Learnings log — **read Codebase Patterns first** |
 | Source report | \`${shardFile}\` | The audit shard with original findings |
 | Reviews | \`.anatoly/runs/*/reviews/\` | Per-file \`.rev.md\` with axis-by-axis detail |
 
 ## Workflow
 
-1. Read \`${fixDir}/prd.json\` — find the first user story where \`"passes": false\`
-2. Read \`${fixDir}/progress.txt\` — check the **Codebase Patterns** section first for learnings from previous iterations
+1. Read \`${cleanDir}/prd.json\` — find the first user story where \`"passes": false\`
+2. Read \`${cleanDir}/progress.txt\` — check the **Codebase Patterns** section first for learnings from previous iterations
 3. Check you're on the correct branch from PRD \`branchName\`. If not, check it out or create from main.
 4. Read the corresponding \`.rev.md\` file for detailed context on the finding
 5. Fix the issue in the source code
 6. Verify: \`npm run build && npm test\`
 7. Commit: \`git commit -m "fix: [FIX-NNN] - short description"\`
-8. Update \`${fixDir}/prd.json\`: set \`"passes": true\` for the completed story
-9. Append your progress to \`${fixDir}/progress.txt\` (see format below)
+8. Update \`${cleanDir}/prd.json\`: set \`"passes": true\` for the completed story
+9. Append your progress to \`${cleanDir}/progress.txt\` (see format below)
 10. If all stories have \`"passes": true\`, output \`<promise>COMPLETE</promise>\`
 
 ## Constraints
@@ -126,7 +126,7 @@ Your job is to fix audit findings one at a time.
 
 ## Progress Report Format
 
-APPEND to \`${fixDir}/progress.txt\` (never replace, always append):
+APPEND to \`${cleanDir}/progress.txt\` (never replace, always append):
 
 \`\`\`
 ## [Date/Time] - [FIX-NNN]
@@ -142,7 +142,7 @@ APPEND to \`${fixDir}/progress.txt\` (never replace, always append):
 ## Consolidate Patterns
 
 If you discover a **reusable pattern**, add it to the \`## Codebase Patterns\` section
-at the TOP of \`${fixDir}/progress.txt\` (create it if it doesn't exist). Only add patterns
+at the TOP of \`${cleanDir}/progress.txt\` (create it if it doesn't exist). Only add patterns
 that are **general and reusable**, not fix-specific details.
 
 ## Verification
@@ -161,10 +161,10 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
 `;
 }
 
-export function registerFixCommand(program: Command): void {
+export function registerCleanCommand(program: Command): void {
   program
-    .command('fix <report-file>')
-    .description('Generate Ralph artifacts from a shard report for autonomous fix loop')
+    .command('clean <report-file>')
+    .description('Generate Ralph artifacts from a shard report for autonomous clean loop')
     .action((reportFile: string) => {
       const projectRoot = process.cwd();
       const absPath = resolve(projectRoot, reportFile);
@@ -184,27 +184,27 @@ export function registerFixCommand(program: Command): void {
 
       // Derive shard name: report.1.md → report.1
       const shardName = basename(reportFile, '.md');
-      const fixDir = resolve(projectRoot, '.anatoly', 'fix', shardName);
-      mkdirSync(fixDir, { recursive: true });
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      mkdirSync(cleanDir, { recursive: true });
 
       // Generate artifacts
       const prd = generatePrd(shardName, items);
-      writeFileSync(join(fixDir, 'prd.json'), JSON.stringify(prd, null, 2));
+      writeFileSync(join(cleanDir, 'prd.json'), JSON.stringify(prd, null, 2));
 
-      writeFileSync(join(fixDir, 'CLAUDE.md'), generateClaudeMd(reportFile, fixDir));
+      writeFileSync(join(cleanDir, 'CLAUDE.md'), generateClaudeMd(reportFile, cleanDir));
 
       // Initialize progress.txt with Codebase Patterns section
-      const progressPath = join(fixDir, 'progress.txt');
+      const progressPath = join(cleanDir, 'progress.txt');
       if (!existsSync(progressPath)) {
         writeFileSync(progressPath, `## Codebase Patterns\n\n---\n\n# Ralph Progress Log\nStarted: ${new Date().toISOString()}\n---\n`);
       }
 
-      console.log(chalk.green(`\u2713 Fix artifacts generated in .anatoly/fix/${shardName}/`));
+      console.log(chalk.green(`\u2713 Clean artifacts generated in .anatoly/clean/${shardName}/`));
       console.log(`  prd.json      \u2014 ${items.length} user stories`);
       console.log(`  CLAUDE.md     \u2014 agent instructions`);
       console.log(`  progress.txt  \u2014 learnings log with Codebase Patterns section`);
       console.log('');
-      console.log('To start the fix loop:');
-      console.log(chalk.cyan(`  npx anatoly fix-run ${reportFile}`));
+      console.log('To start the clean loop:');
+      console.log(chalk.cyan(`  npx anatoly clean-run ${reportFile}`));
     });
 }

@@ -52,7 +52,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
-- **Auto-fix via Ralph** — `anatoly fix` parses a report shard, generates correction artifacts, and launches an autonomous fix loop that commits each remediation individually and syncs progress back to the report
+- **Auto-clean via Ralph** — `anatoly clean` parses a report shard into Ralph artifacts (prd.json + CLAUDE.md), then `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for the evaluation axes.
@@ -91,8 +91,9 @@ npx anatoly scan             # Parse AST + compute SHA-256 hashes
 npx anatoly estimate         # Estimate token cost (local, no API calls)
 npx anatoly review           # Run Claude agent on pending files
 npx anatoly report           # Aggregate reviews → report.md
-npx anatoly fix report.1.md  # Generate Ralph artifacts to auto-fix a shard's findings
-npx anatoly fix-sync report.1.md  # Sync completed fixes back to the report
+npx anatoly clean report.1.md      # Generate Ralph artifacts from a shard's findings
+npx anatoly clean-run report.1.md  # Generate + run Ralph loop to auto-clean findings
+npx anatoly clean-sync report.1.md # Sync completed clean tasks back to the report
 npx anatoly status           # Show current audit progress
 npx anatoly rag-status       # Show RAG index stats
 npx anatoly clean-runs       # Delete old runs (--keep <n>, --yes)

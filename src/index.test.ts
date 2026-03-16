@@ -27,9 +27,9 @@ describe('CLI program', () => {
         'reset',
         'rag-status',
         'hook',
-        'fix',
-        'fix-sync',
-        'fix-run',
+        'clean',
+        'clean-sync',
+        'clean-run',
       ]),
     );
     expect(commandNames).toHaveLength(14);

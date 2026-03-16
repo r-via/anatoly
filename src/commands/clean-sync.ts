@@ -50,10 +50,10 @@ export function checkShardInIndex(indexContent: string, shardFilename: string): 
   };
 }
 
-export function registerFixSyncCommand(program: Command): void {
+export function registerCleanSyncCommand(program: Command): void {
   program
-    .command('fix-sync <report-file>')
-    .description('Sync completed fixes from prd.json back to the shard and index reports')
+    .command('clean-sync <report-file>')
+    .description('Sync completed clean tasks from prd.json back to the shard and index reports')
     .action((reportFile: string) => {
       const projectRoot = process.cwd();
       const absShardPath = resolve(projectRoot, reportFile);
@@ -65,11 +65,11 @@ export function registerFixSyncCommand(program: Command): void {
 
       // Find prd.json in the corresponding fix directory
       const shardName = basename(reportFile, '.md');
-      const fixDir = resolve(projectRoot, '.anatoly', 'fix', shardName);
-      const prdPath = join(fixDir, 'prd.json');
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      const prdPath = join(cleanDir, 'prd.json');
 
       if (!existsSync(prdPath)) {
-        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly fix ${reportFile}\` first.`));
+        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly clean ${reportFile}\` first.`));
         process.exit(1);
       }
 

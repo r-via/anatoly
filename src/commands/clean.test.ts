@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseUncheckedActions } from './fix.js';
+import { parseUncheckedActions } from './clean.js';
 import { makeActId } from '../core/reporter.js';
 
 describe('parseUncheckedActions', () => {
