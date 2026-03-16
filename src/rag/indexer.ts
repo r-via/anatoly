@@ -179,9 +179,10 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
 export async function applyNlpSummaries(
   cards: FunctionCard[],
   nlpSummaries: Map<string, NlpSummary>,
-): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][] }> {
+): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][]; nlpFailedIds: Set<string> }> {
   const enrichedCards: FunctionCard[] = [];
   const nlpEmbeddings: number[][] = [];
+  const nlpFailedIds = new Set<string>();
   const nlpDimSize = getNlpDim();
   const zeroVector = new Array(nlpDimSize).fill(0);
 
@@ -200,10 +201,11 @@ export async function applyNlpSummaries(
       enrichedCards.push(card);
       // Zero vector: card has no NLP summary, won't activate hybrid search
       nlpEmbeddings.push([...zeroVector]);
+      nlpFailedIds.add(card.id);
     }
   }
 
-  return { enrichedCards, nlpEmbeddings };
+  return { enrichedCards, nlpEmbeddings, nlpFailedIds };
 }
 
 function cachePath(projectRoot: string, cacheSuffix?: string): string {

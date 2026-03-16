@@ -93,7 +93,7 @@ export async function generateNlpSummaries(
 
     const parsed = NlpResponseSchema.safeParse(JSON.parse(jsonStr));
     if (!parsed.success) {
-      log.warn({ filePath, errors: parsed.error.issues.length }, 'NLP summarization validation failed');
+      log.warn({ filePath, errors: parsed.error.issues.length, issues: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`) }, 'NLP summarization validation failed');
       return result;
     }
 

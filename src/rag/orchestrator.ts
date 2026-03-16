@@ -51,6 +51,8 @@ export interface IndexedFileResult {
   embeddings: number[][];
   /** NLP embeddings (same length as cards). Only present when dual embedding is enabled. */
   nlpEmbeddings?: number[][];
+  /** Card IDs where NLP summarization failed (zero vector). Excluded from cache. */
+  nlpFailedIds?: Set<string>;
 }
 
 /**
@@ -137,13 +139,14 @@ export async function processFileForDualIndex(
   );
 
   // Apply NLP summaries and generate NLP embeddings
-  const { enrichedCards, nlpEmbeddings } = await applyNlpSummaries(built.toIndex, nlpSummaries);
+  const { enrichedCards, nlpEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, nlpSummaries);
 
   return {
     task,
     cards: enrichedCards,
     embeddings: codeEmbeddings,
     nlpEmbeddings,
+    nlpFailedIds,
   };
 }
 
@@ -266,8 +269,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     cardsIndexed += result.cards.length;
     filesIndexed++;
 
-    // Update cache entries for this file's cards
+    // Update cache entries for this file's cards.
+    // In dual mode, skip cards where NLP failed (zero vector) so they
+    // get retried on the next run instead of being served stale.
     for (const card of result.cards) {
+      if (result.nlpFailedIds?.has(card.id)) continue;
       cache.entries[card.id] = result.task.hash;
     }
   }
