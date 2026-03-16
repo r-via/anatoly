@@ -74,22 +74,18 @@ export class VectorStore {
 
     const tableNames = await this.db.tableNames();
 
-    // Migration: if mode-specific table doesn't exist but legacy 'function_cards' does,
-    // copy rows from legacy table to the new mode-specific table and drop the legacy.
-    if (this.tableName !== DEFAULT_TABLE_NAME
-      && !tableNames.includes(this.tableName)
-      && tableNames.includes(DEFAULT_TABLE_NAME)) {
-      this.onLog(`migrating legacy table function_cards → ${this.tableName}`);
-      const legacyTable = await this.db.openTable(DEFAULT_TABLE_NAME);
-      const rows = await legacyTable.query().toArray();
-      if (rows.length > 0) {
-        this.table = await this.db.createTable(this.tableName, rows);
+    // Clean up legacy table if mode-specific tables are now in use
+    if (this.tableName !== DEFAULT_TABLE_NAME && tableNames.includes(DEFAULT_TABLE_NAME)) {
+      try {
+        await this.db.dropTable(DEFAULT_TABLE_NAME);
+        this.onLog('dropped legacy function_cards table — mode-specific tables are now used');
+      } catch {
+        // Best-effort cleanup
       }
-      await this.db.dropTable(DEFAULT_TABLE_NAME);
     }
 
-    if (tableNames.includes(this.tableName) || this.table) {
-      if (!this.table) this.table = await this.db.openTable(this.tableName);
+    if (tableNames.includes(this.tableName)) {
+      this.table = await this.db.openTable(this.tableName);
 
       // Detect dimension or schema mismatch and auto-rebuild
       try {
