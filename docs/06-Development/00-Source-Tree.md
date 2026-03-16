@@ -101,12 +101,14 @@ Semantic retrieval-augmented generation layer using local code embeddings and La
 
 ```
 rag/
-├── vector-store.ts      299 LOC   LanceDB-backed vector store: upsert, similarity search, stats, file deletion
-├── indexer.ts           195 LOC   Builds function cards from scanned tasks, computes embeddings, manages RAG cache
-├── orchestrator.ts      190 LOC   Coordinates full project RAG indexation: diff detection, parallel embedding, store writes
-├── embeddings.ts         51 LOC   Jina embeddings v2 (768-dim) via @xenova/transformers: embed(), buildEmbedCode()
-├── types.ts              38 LOC   Zod schemas for FunctionCard, SimilarityResult, RagStats
-├── index.ts               8 LOC   Barrel re-export of all RAG module symbols
+├── vector-store.ts      LanceDB-backed vector store: upsert, search (code/NLP/hybrid), stats
+├── indexer.ts           Builds function cards from AST, computes embeddings, manages RAG cache
+├── orchestrator.ts      Coordinates full project RAG indexation: diff detection, parallel embedding, store writes
+├── embeddings.ts        Dual embedding backend: ONNX (Jina/MiniLM) + Ollama (Nomic Embed Code 7B)
+├── hardware-detect.ts   GPU/RAM detection, Ollama availability check, model auto-selection
+├── nlp-summarizer.ts    LLM-based NLP summary generation for dual embedding mode
+├── types.ts             Zod schemas for FunctionCard, SimilarityResult, RagStats
+├── index.ts             Barrel re-export of all RAG module symbols
 ```
 
 ---

@@ -310,11 +310,18 @@ anatoly rag-status [function] [--all] [--json]
 ### Output (default)
 
 ```
-anatoly -- rag-status
+anatoly — rag-status
 
-  cards    1024
-  files    128
-  indexed  2026-03-15T12:00:00.000Z
+  hardware   cuda (32GB RAM)
+  ollama     running + model ready
+  runtime    ollama
+  code model manutic/nomic-embed-code (768d)
+  nlp model  Xenova/all-MiniLM-L6-v2 (384d)
+
+  cards      1024
+  files      128
+  mode       code-only
+  indexed    2026-03-15T12:00:00.000Z
 
   Use --all to list all cards, or pass a function name to inspect.
 ```

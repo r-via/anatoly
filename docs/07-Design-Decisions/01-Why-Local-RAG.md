@@ -58,10 +58,9 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ### Negative
 
-- **~30 MB model download** on first install. This is a one-time cost, but it increases the `npm install` time and disk footprint.
-- **CPU-bound embedding.** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. This is acceptable because it runs once per scan, not per review.
-- **768-dim vectors are larger than some cloud alternatives.** OpenAI's `text-embedding-3-small` offers 512-dim or 1536-dim options. The 768-dim Jina model strikes a good balance between quality and storage, but the LanceDB files will be larger than a minimal-dimension approach.
-- **Model quality ceiling.** Cloud embedding models (Voyage Code 3, OpenAI text-embedding-3-large) may produce higher-quality code embeddings. The local Jina model is good enough for detecting obvious duplicates and near-duplicates, but may miss subtler semantic similarities that a larger model would catch.
+- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code 7B via Ollama is ~4.7 GB but provides significantly better embeddings.
+- **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With Ollama on GPU, this is much faster with native batching support.
+- **768-dim vectors are larger than some cloud alternatives.** OpenAI's `text-embedding-3-small` offers 512-dim or 1536-dim options. The 768-dim models strike a good balance between quality and storage.
 
 ## Alternatives Considered
 
@@ -74,4 +73,4 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ## Notes
 
-The embedding model can be upgraded in the future by changing `EMBEDDING_MODEL` and `EMBEDDING_DIM` in `src/rag/embeddings.ts`. The vector store automatically detects dimension mismatches and rebuilds the index, so model upgrades are seamless for users.
+The embedding model is now auto-selected at startup based on hardware and Ollama availability. When a GPU and Ollama are detected, Anatoly uses `manutic/nomic-embed-code` (7B) for higher-quality embeddings; otherwise it falls back to `jinaai/jina-embeddings-v2-base-code` (ONNX). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless for users. Run `./scripts/setup-ollama.sh` to set up GPU-accelerated embeddings.

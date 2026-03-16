@@ -42,7 +42,18 @@ npm install -D @r-via/anatoly
 npx anatoly run
 ```
 
-On first install, a `postinstall` script downloads the local embedding model used for RAG indexing (Jina Embeddings V2 Base Code). This is a one-time download.
+On first install, a `postinstall` script downloads the default embedding model (Jina Embeddings V2 Base Code, ONNX). This is a one-time download.
+
+### Optional: GPU-accelerated embeddings
+
+If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code 7B for higher-quality code embeddings via Ollama:
+
+```bash
+./scripts/setup-ollama.sh        # Installs Ollama, pulls the model (~4.7 GB), verifies GPU
+./scripts/setup-ollama.sh --check # Check status without installing
+```
+
+Anatoly auto-detects Ollama at startup and uses it when available. No configuration needed — just install and run.
 
 ## First run walkthrough
 
