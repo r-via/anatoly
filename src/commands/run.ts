@@ -536,6 +536,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     rl?.info(triageSummary, 'triage summary');
   }
 
+  // --- Phase: RAG file count ---
+  if (ctx.enableRag) {
+    const ragFiles = allTasks.filter((t) =>
+      t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+    ).length;
+    pipelineRows.push({ phase: 'rag', detail: `${ragFiles} files` });
+  }
+
   // --- Phase: usage graph ---
   usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
   projectTree = buildProjectTree(allTasks.map((t) => t.file));
