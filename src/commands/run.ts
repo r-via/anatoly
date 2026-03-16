@@ -8,7 +8,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateSequentialSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
+import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
@@ -373,18 +373,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         const estimateTasks = ctx.fileFilter
           ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
           : allTasks;
-        const { inputTokens, outputTokens, symbols } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
+        const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
         estimateFiles = estimateTasks.length;
 
-        const minutes = estimateMinutesWithConcurrency(
-          estimateSequentialSeconds(estimateTasks),
-          ctx.concurrency,
-        );
-        const timeLabel = ctx.concurrency > 1
-          ? `~${minutes} min (\u00d7${ctx.concurrency})`
-          : `~${minutes} min`;
-
-        listrTask.title = `estimate \u2014 ${estimateTasks.length} files \u00b7 ${symbols} symbols \u00b7 ${formatTokenCount(inputTokens)} in / ${formatTokenCount(outputTokens)} out \u00b7 ${timeLabel}`;
+        listrTask.title = `estimate \u2014 ${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
         ctx.phaseDurations.estimate = Date.now() - estStart;
         const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
         log.info(estCompleted, 'phase completed');
@@ -423,17 +415,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
           tiers[result.tier]++;
         }
 
-        const evalTasks = triageTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
-        const triageMinutes = estimateMinutesWithConcurrency(
-          estimateSequentialSeconds(evalTasks),
-          ctx.concurrency,
-        );
-        const { inputTokens: triageIn, outputTokens: triageOut } = estimateTasksTokens(ctx.projectRoot, evalTasks);
-        const timeLabel = ctx.concurrency > 1
-          ? `~${triageMinutes} min (\u00d7${ctx.concurrency})`
-          : `~${triageMinutes} min`;
-
-        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate \u00b7 ${formatTokenCount(triageIn)} in / ${formatTokenCount(triageOut)} out \u00b7 ${timeLabel}`;
+        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate`;
         const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
         log.info(triageSummary, 'triage summary');
         rl?.info(triageSummary, 'triage summary');
