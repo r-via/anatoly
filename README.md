@@ -8,7 +8,7 @@
 
 **The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
 
-Named after [Anatoly Shmondenko](https://www.youtube.com/@vladimirfitness) -- the Ukrainian powerlifter who disguises himself as a scrawny cleaning man, politely asks *"Can I clean here?"*, then casually one-arms 290 kg while bodybuilders stare. Same energy: a humble CLI that walks into your codebase with a mop and deadlifts your entire tech debt off the rack.
+Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) who politely asks *"Can I clean here?"* — then deadlifts the entire rack.
 
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
