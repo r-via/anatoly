@@ -179,15 +179,23 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     await store.rebuild();
   }
 
+  // If the vector store is empty but cache has entries, the DB was reset
+  // (e.g. legacy table dropped during migration). Purge cache so all files
+  // get re-indexed instead of being skipped as "already indexed".
+  const storeStats = await store.stats();
+  let cache = loadRagCache(projectRoot, cacheSuffix);
+  if (storeStats.totalCards === 0 && Object.keys(cache.entries).length > 0) {
+    onLog?.('vector store empty but cache exists — purging stale cache');
+    cache = { entries: {} };
+    saveRagCache(projectRoot, cache, cacheSuffix);
+  }
+
   // Pre-warm code embedding model (always needed)
   await embedCode('');
   // Pre-warm NLP embedding model only in dual mode (may be a different model)
   if (dualMode) {
     await embedNlp('');
   }
-
-  // Pre-load cache for the entire indexing run
-  const cache = loadRagCache(projectRoot, cacheSuffix);
 
   // Garbage-collect stale entries: remove cards for files no longer in the project
   const currentFiles = new Set(tasks.map((t) => t.file));
