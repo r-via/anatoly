@@ -5,7 +5,7 @@ import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 
-const TABLE_NAME = 'function_cards';
+const DEFAULT_TABLE_NAME = 'function_cards';
 
 /**
  * Validate that an ID is a 16-char hex string (as produced by buildFunctionId).
@@ -50,13 +50,15 @@ export interface UpsertOptions {
 export class VectorStore {
   private dbPath: string;
   private projectRoot: string;
+  private tableName: string;
   private db: Connection | null = null;
   private table: Table | null = null;
   private onLog: (message: string) => void = () => {};
   private _hasDualEmbedding = false;
 
-  constructor(projectRoot: string, onLog?: (message: string) => void) {
+  constructor(projectRoot: string, tableName?: string, onLog?: (message: string) => void) {
     this.projectRoot = projectRoot;
+    this.tableName = tableName ?? DEFAULT_TABLE_NAME;
     this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
     if (onLog) this.onLog = onLog;
   }
@@ -71,8 +73,23 @@ export class VectorStore {
     this.db = await connect(this.dbPath);
 
     const tableNames = await this.db.tableNames();
-    if (tableNames.includes(TABLE_NAME)) {
-      this.table = await this.db.openTable(TABLE_NAME);
+
+    // Migration: if mode-specific table doesn't exist but legacy 'function_cards' does,
+    // copy rows from legacy table to the new mode-specific table and drop the legacy.
+    if (this.tableName !== DEFAULT_TABLE_NAME
+      && !tableNames.includes(this.tableName)
+      && tableNames.includes(DEFAULT_TABLE_NAME)) {
+      this.onLog(`migrating legacy table function_cards → ${this.tableName}`);
+      const legacyTable = await this.db.openTable(DEFAULT_TABLE_NAME);
+      const rows = await legacyTable.query().toArray();
+      if (rows.length > 0) {
+        this.table = await this.db.createTable(this.tableName, rows);
+      }
+      await this.db.dropTable(DEFAULT_TABLE_NAME);
+    }
+
+    if (tableNames.includes(this.tableName) || this.table) {
+      if (!this.table) this.table = await this.db.openTable(this.tableName);
 
       // Detect dimension or schema mismatch and auto-rebuild
       try {
@@ -143,7 +160,7 @@ export class VectorStore {
 
     if (!this.table) {
       // Create table with first batch
-      this.table = await this.db.createTable(TABLE_NAME, rows);
+      this.table = await this.db.createTable(this.tableName, rows);
       if (nlpEmbeddings) this._hasDualEmbedding = true;
       return;
     }
@@ -343,7 +360,7 @@ export class VectorStore {
   async rebuild(): Promise<void> {
     if (!this.db) throw new Error('VectorStore not initialized');
     try {
-      await this.db.dropTable(TABLE_NAME);
+      await this.db.dropTable(this.tableName);
     } catch {
       // Table might not exist
     }
@@ -354,7 +371,10 @@ export class VectorStore {
   /** Rebuild the index and clear the RAG cache so all files are re-indexed. */
   private async rebuildAndClearCache(): Promise<void> {
     await this.rebuild();
-    const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', 'cache.json');
+    // Derive cache file from table name: 'function_cards_lite' → 'cache_lite.json'
+    const suffix = this.tableName.replace('function_cards_', '');
+    const cacheFile = suffix !== this.tableName ? `cache_${suffix}.json` : 'cache.json';
+    const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', cacheFile);
     atomicWriteJson(cachePath, { entries: {} });
   }
 

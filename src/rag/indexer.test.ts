@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   buildFunctionId,
   extractSignature,
@@ -6,6 +9,8 @@ import {
   extractCalledInternals,
   buildFunctionCards,
   needsReindex,
+  loadRagCache,
+  saveRagCache,
 } from './indexer.js';
 import type { RagCache } from './indexer.js';
 import type { SymbolInfo, Task } from '../schemas/task.js';
@@ -233,5 +238,86 @@ describe('needsReindex', () => {
   it('returns false when file hash matches cache', () => {
     const cache: RagCache = { entries: { 'abc123def4567890': 'same_hash' } };
     expect(needsReindex(cache, card, 'same_hash')).toBe(false);
+  });
+});
+
+describe('loadRagCache with cacheSuffix', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = resolve(tmpdir(), `anatoly-test-${Date.now()}`);
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('loads cache_lite.json when cacheSuffix is "lite"', () => {
+    const cache: RagCache = { entries: { abc123def4567890: 'hash1' } };
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache_lite.json'), JSON.stringify(cache));
+
+    const result = loadRagCache(tmpRoot, 'lite');
+    expect(result.entries).toEqual({ abc123def4567890: 'hash1' });
+  });
+
+  it('loads cache.json when no suffix provided', () => {
+    const cache: RagCache = { entries: { abc123def4567890: 'hash2' } };
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(cache));
+
+    const result = loadRagCache(tmpRoot);
+    expect(result.entries).toEqual({ abc123def4567890: 'hash2' });
+  });
+
+  it('falls back to legacy cache.json when mode-specific cache does not exist', () => {
+    const cache: RagCache = { entries: { abc123def4567890: 'legacy' } };
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(cache));
+
+    const result = loadRagCache(tmpRoot, 'lite');
+    expect(result.entries).toEqual({ abc123def4567890: 'legacy' });
+  });
+
+  it('does not fall back when mode-specific cache exists', () => {
+    const legacy: RagCache = { entries: { abc123def4567890: 'legacy' } };
+    const modeSpecific: RagCache = { entries: { abc123def4567890: 'mode' } };
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(legacy));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache_advanced.json'), JSON.stringify(modeSpecific));
+
+    const result = loadRagCache(tmpRoot, 'advanced');
+    expect(result.entries).toEqual({ abc123def4567890: 'mode' });
+  });
+
+  it('returns empty cache when no files exist', () => {
+    const result = loadRagCache(tmpRoot, 'lite');
+    expect(result.entries).toEqual({});
+  });
+});
+
+describe('saveRagCache with cacheSuffix', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = resolve(tmpdir(), `anatoly-test-${Date.now()}`);
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('saves to cache_lite.json when suffix is "lite"', () => {
+    const cache: RagCache = { entries: { abc123def4567890: 'saved' } };
+    saveRagCache(tmpRoot, cache, 'lite');
+
+    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'cache_lite.json');
+    expect(existsSync(filePath)).toBe(true);
+  });
+
+  it('saves to cache.json when no suffix', () => {
+    const cache: RagCache = { entries: { abc123def4567890: 'saved' } };
+    saveRagCache(tmpRoot, cache);
+
+    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'cache.json');
+    expect(existsSync(filePath)).toBe(true);
   });
 });

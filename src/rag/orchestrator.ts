@@ -10,6 +10,8 @@ import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 
+export type RagMode = 'lite' | 'advanced';
+
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
@@ -19,6 +21,8 @@ export interface RagIndexOptions {
   dualEmbedding?: boolean;
   /** Resolved embedding models (from hardware detection). Configures code/NLP model selection. */
   resolvedModels?: ResolvedModels;
+  /** RAG mode determines table name and cache file. */
+  ragMode?: RagMode;
   rebuild?: boolean;
   concurrency?: number;
   verbose?: boolean;
@@ -150,9 +154,16 @@ export async function processFileForDualIndex(
  * When dualEmbedding is enabled, also generates NLP summaries via LLM
  * and computes NLP embeddings for hybrid search.
  */
+/** Derive LanceDB table name and cache suffix from RAG mode. */
+export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffix: string } {
+  return { tableName: `function_cards_${mode}`, cacheSuffix: mode };
+}
+
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
   const dualMode = !!(options.dualEmbedding && options.indexModel);
+  const effectiveMode = options.ragMode ?? 'lite';
+  const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
   setEmbeddingLogger(onLog);
 
@@ -161,7 +172,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     configureModels(options.resolvedModels);
   }
 
-  const store = new VectorStore(projectRoot, onLog);
+  const store = new VectorStore(projectRoot, tableName, onLog);
   await store.init();
 
   if (rebuild) {
@@ -176,7 +187,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
 
   // Pre-load cache for the entire indexing run
-  const cache = loadRagCache(projectRoot);
+  const cache = loadRagCache(projectRoot, cacheSuffix);
 
   // Garbage-collect stale entries: remove cards for files no longer in the project
   const currentFiles = new Set(tasks.map((t) => t.file));
@@ -255,7 +266,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   // Single atomic cache write for all results
   if (results.length > 0) {
-    saveRagCache(projectRoot, cache);
+    saveRagCache(projectRoot, cache, cacheSuffix);
   }
 
   const stats = await store.stats();

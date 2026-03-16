@@ -27,8 +27,15 @@ vi.mock('./embeddings.js', () => ({
   EMBEDDING_MODEL: 'jinaai/jina-embeddings-v2-base-code',
 }));
 
+const vectorStoreConstructorSpy = vi.hoisted(() => vi.fn());
+
 vi.mock('./vector-store.js', () => {
   class MockVectorStore {
+    tableName: string;
+    constructor(projectRoot: string, tableName?: string, onLog?: unknown) {
+      this.tableName = tableName ?? 'function_cards';
+      vectorStoreConstructorSpy(projectRoot, tableName, onLog);
+    }
     init = vi.fn().mockResolvedValue(undefined);
     rebuild = vi.fn().mockResolvedValue(undefined);
     upsert = vi.fn().mockResolvedValue(undefined);
@@ -70,8 +77,8 @@ vi.mock('../core/worker-pool.js', () => ({
   runWorkerPool: workerPoolSpy,
 }));
 
-import { indexProject, processFileForIndex } from './orchestrator.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards } from './indexer.js';
+import { indexProject, processFileForIndex, ragModeArtifacts } from './orchestrator.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
 import type { FunctionCard } from './types.js';
@@ -269,5 +276,100 @@ describe('processFileForIndex', () => {
     expect(result.cards).toEqual([card]);
     expect(result.embeddings).toEqual([embedding]);
     expect(result.task.file).toBe('src/a.ts');
+  });
+});
+
+describe('ragModeArtifacts', () => {
+  it('returns lite table name and cache suffix for lite mode', () => {
+    const result = ragModeArtifacts('lite');
+    expect(result.tableName).toBe('function_cards_lite');
+    expect(result.cacheSuffix).toBe('lite');
+  });
+
+  it('returns advanced table name and cache suffix for advanced mode', () => {
+    const result = ragModeArtifacts('advanced');
+    expect(result.tableName).toBe('function_cards_advanced');
+    expect(result.cacheSuffix).toBe('advanced');
+  });
+});
+
+describe('indexProject ragMode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vectorStoreConstructorSpy.mockClear();
+    workerPoolSpy.mockResolvedValue({ completed: 0, errored: 0, skipped: 0 });
+  });
+
+  it('creates VectorStore with function_cards_lite table when ragMode is lite', async () => {
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      ragMode: 'lite',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(vectorStoreConstructorSpy).toHaveBeenCalledWith(
+      '/tmp/test',
+      'function_cards_lite',
+      expect.any(Function),
+    );
+  });
+
+  it('creates VectorStore with function_cards_advanced table when ragMode is advanced', async () => {
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      ragMode: 'advanced',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(vectorStoreConstructorSpy).toHaveBeenCalledWith(
+      '/tmp/test',
+      'function_cards_advanced',
+      expect.any(Function),
+    );
+  });
+
+  it('defaults to function_cards_lite when ragMode is not specified', async () => {
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(vectorStoreConstructorSpy).toHaveBeenCalledWith(
+      '/tmp/test',
+      'function_cards_lite',
+      expect.any(Function),
+    );
+  });
+
+  it('passes cacheSuffix to loadRagCache and saveRagCache', async () => {
+    // Make workerPool invoke the handler so cards are produced and cache is saved
+    workerPoolSpy.mockImplementation(async (opts: WorkerPoolOptions<Task>) => {
+      for (const item of opts.items) {
+        await opts.handler(item, 0);
+      }
+      return { completed: opts.items.length, errored: 0, skipped: 0 };
+    });
+
+    const card = makeCard('foo', 'src/a.ts');
+    vi.mocked(buildFunctionCards).mockReturnValue([card]);
+    vi.mocked(needsReindex).mockReturnValue(true);
+    vi.mocked(embedCards).mockResolvedValue([[0.1]]);
+
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      ragMode: 'advanced',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(loadRagCache).toHaveBeenCalledWith('/tmp/test', 'advanced');
+    expect(saveRagCache).toHaveBeenCalledWith('/tmp/test', expect.any(Object), 'advanced');
   });
 });

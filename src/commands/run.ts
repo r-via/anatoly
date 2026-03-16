@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { resolve, join } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
@@ -14,7 +15,7 @@ import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
-import { indexProject, type RagIndexResult } from '../rag/index.js';
+import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
 import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
 import { detectHardware, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
@@ -37,7 +38,7 @@ import { buildProjectTree } from '../core/project-tree.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
-import type { AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 
 interface RunContext {
   projectRoot: string;
@@ -50,6 +51,8 @@ interface RunContext {
   fileFilter?: string;
   noCache: boolean;
   enableRag: boolean;
+  ragMode: 'lite' | 'advanced' | 'auto';
+  resolvedRagMode?: RagMode;
   rebuildRag?: boolean;
   shouldOpen?: boolean;
   triageEnabled: boolean;
@@ -92,6 +95,25 @@ export function registerRunCommand(program: Command): void {
     .description('Execute full audit pipeline: scan → estimate → review → report')
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
     .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
+    .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
+    .option('--file <glob>', 'restrict scope to matching files')
+    .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
+    .option('--no-rag', 'disable semantic RAG cross-file analysis')
+    .option('--lite', 'force lite RAG mode (Jina dual embedding)')
+    .option('--advanced', 'force advanced RAG mode (nomic-embed-code sidecar)')
+    .option('--rebuild-rag', 'force full RAG re-indexation')
+    .option('--dual-embedding', 'enable dual code+NLP embedding for RAG')
+    .option('--no-dual-embedding', 'disable dual embedding (code-only)')
+    .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
+    .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
+    .option('--no-triage', 'disable triage, review all files with full agent')
+    .option('--deliberation', 'enable Opus deliberation pass after axis merge')
+    .option('--no-deliberation', 'disable deliberation pass')
+    .option('--no-badge', 'skip README badge injection after audit')
+    .option('--badge-verdict', 'include audit verdict in README badge')
+    .option('--open', 'open report in default app after generation')
+    .option('--plain', 'disable log-update, linear sequential output')
+    .option('--verbose', 'show detailed operation logs')
     .action(async (cmdOpts: { runId?: string; axes?: string }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -115,6 +137,16 @@ export function registerRunCommand(program: Command): void {
 
       const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
 
+      // Validate --lite / --advanced mutual exclusivity
+      if (parentOpts.lite && parentOpts.advanced) {
+        console.error('error: --lite and --advanced are mutually exclusive');
+        process.exitCode = 2;
+        return;
+      }
+      const ragMode: 'lite' | 'advanced' | 'auto' = parentOpts.lite ? 'lite'
+        : parentOpts.advanced ? 'advanced'
+        : 'auto';
+
       // CLI model overrides take precedence over config
       if (parentOpts.codeModel) config.rag.code_model = parentOpts.codeModel as string;
       if (parentOpts.nlpModel) config.rag.nlp_model = parentOpts.nlpModel as string;
@@ -135,6 +167,7 @@ export function registerRunCommand(program: Command): void {
         fileFilter: parentOpts.file as string | undefined,
         noCache: parentOpts.cache === false,
         enableRag: parentOpts.rag !== false && config.rag.enabled,
+        ragMode,
         rebuildRag: parentOpts.rebuildRag as boolean | undefined,
         shouldOpen: parentOpts.open as boolean | undefined,
         triageEnabled: parentOpts.triage !== false,
@@ -256,6 +289,83 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
+interface SetupTableData {
+  config: { key: string; value: string }[];
+  axes: { key: string; value: string }[];
+  pipeline: { phase: string; detail: string }[];
+}
+
+function renderSetupTable(data: SetupTableData, plain: boolean): void {
+  const allKeys = [
+    ...data.config.map(r => r.key),
+    ...data.axes.map(r => r.key),
+    ...data.pipeline.map(r => r.phase),
+  ];
+  const keyWidth = Math.max(...allKeys.map(k => k.length));
+
+  const allValues = [
+    ...data.config.map(r => r.value),
+    ...data.axes.map(r => r.value),
+    ...data.pipeline.map(r => r.detail),
+  ];
+  const valWidth = Math.max(...allValues.map(v => v.length));
+
+  // inner width = 2 (left pad) + keyWidth + 2 (gap) + valWidth + 1 (right pad)
+  const innerWidth = 2 + keyWidth + 2 + valWidth + 1;
+
+  if (plain) {
+    console.log(chalk.dim('  config'));
+    for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}  ${r.value}`);
+    console.log(chalk.dim('  axes'));
+    for (const r of data.axes) console.log(`    ${r.key.padEnd(keyWidth)}  ${r.value}`);
+    console.log(chalk.dim('  pipeline'));
+    for (const r of data.pipeline) console.log(`    \u2714 ${r.phase.padEnd(keyWidth)}  ${r.detail}`);
+    console.log('');
+    return;
+  }
+
+  const d = chalk.dim;
+  const line = (char: string, n: number) => char.repeat(n);
+
+  const sectionBorder = (label: string, left: string, right: string) => {
+    const labelPart = ` ${label} `;
+    const dashes = innerWidth - labelPart.length;
+    return d(`  ${left}${labelPart}${line('\u2500', dashes)}${right}`);
+  };
+
+  const kvRow = (key: string, value: string) =>
+    `  ${d('\u2502')}  ${key.padEnd(keyWidth)}  ${value.padEnd(valWidth)} ${d('\u2502')}`;
+
+  const pipelineRow = (phase: string, detail: string) =>
+    `  ${d('\u2502')}  ${chalk.green('\u2714')} ${phase.padEnd(keyWidth)}  ${detail.padEnd(valWidth - 2)} ${d('\u2502')}`;
+
+  // config section
+  console.log(sectionBorder('config', '\u250c', '\u2510'));
+  for (const r of data.config) console.log(kvRow(r.key, r.value));
+
+  // axes section
+  console.log(sectionBorder('axes', '\u251c', '\u2524'));
+  for (const r of data.axes) console.log(kvRow(r.key, r.value));
+
+  // pipeline section
+  console.log(sectionBorder('pipeline', '\u251c', '\u2524'));
+  for (const r of data.pipeline) console.log(pipelineRow(r.phase, r.detail));
+
+  // bottom border
+  console.log(d(`  \u2514${line('\u2500', innerWidth)}\u2518`));
+  console.log('');
+}
+
+function waitForEnter(): Promise<void> {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(chalk.dim('  press enter to proceed '), () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
+
 interface SetupResult {
   files: number;
   tasks: Task[];
@@ -276,166 +386,176 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let depMeta: DependencyMeta | undefined;
   let allTasks: Task[] = [];
   let projectTree: string | undefined;
-  let scanFilesScanned = 0;
+  const configRows: { key: string; value: string }[] = [];
+  const pipelineRows: { phase: string; detail: string }[] = [];
 
-  const setupRunner = new Listr([
-    {
-      title: 'config',
-      task: async (_c: unknown, listrTask: { title: string }) => {
-        // Detect hardware, auto-start sidecar if GPU available, then resolve models
-        if (ctx.enableRag) {
-          const hardware = detectHardware();
-          const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+  // --- Phase: config ---
+  if (ctx.enableRag) {
+    const hardware = detectHardware();
+    const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
 
-          // Try to start the sidecar BEFORE resolving models so detectSidecar() finds it
-          if (hardware.hasGpu && ctx.config.rag.code_model === 'auto') {
-            listrTask.title = 'config — loading embed sidecar (nomic-embed-code 7B)...';
-            await ensureSidecar(logFn, (sec) => {
-              listrTask.title = `config — loading embed sidecar (nomic-embed-code 7B)... ${sec}s`;
-            });
-          }
+    // --lite: skip sidecar entirely, force ONNX path
+    // --advanced: always try sidecar, error if unavailable
+    // auto: try sidecar when GPU available (existing behavior)
+    const shouldStartSidecar = ctx.ragMode === 'advanced'
+      || (ctx.ragMode === 'auto' && hardware.hasGpu && ctx.config.rag.code_model === 'auto');
 
-          ctx.resolvedModels = await resolveEmbeddingModels(
-            ctx.config.rag,
-            hardware,
-            logFn,
-          );
+    if (ctx.ragMode === 'lite') {
+      // Force Jina ONNX — skip sidecar detection entirely
+      if (ctx.config.rag.code_model === 'auto') {
+        ctx.config.rag.code_model = 'jinaai/jina-embeddings-v2-base-code';
+      }
+    } else if (shouldStartSidecar) {
+      if (!ctx.plain && process.stdout.isTTY) {
+        process.stdout.write(chalk.dim('  loading embed sidecar (nomic-embed-code 7B)...'));
+        await ensureSidecar(logFn, (sec) => {
+          process.stdout.write(`\r\x1b[K${chalk.dim(`  loading embed sidecar (nomic-embed-code 7B)... ${sec}s`)}`);
+        });
+        process.stdout.write('\r\x1b[K');
+      } else {
+        await ensureSidecar(logFn);
+      }
+    }
 
-          // nomic-embed-code 7B captures code + semantics natively in 3584d —
-          // dual embedding (code + NLP) is redundant and wastes Claude API calls.
-          // Auto-disable dual when sidecar is active; keep dual for ONNX fallback
-          // where Jina (code-only) benefits from MiniLM (NLP) as second signal.
-          if (ctx.resolvedModels.codeRuntime === 'sidecar' && ctx.dualEmbedding) {
-            ctx.dualEmbedding = false;
-            logFn?.('dual embedding disabled — nomic-embed-code 7B encodes code + semantics natively');
-          }
+    ctx.resolvedModels = await resolveEmbeddingModels(
+      ctx.config.rag,
+      hardware,
+      logFn,
+    );
 
-          rl?.info({
-            hardware: {
-              memoryGB: hardware.totalMemoryGB,
-              cpuCores: hardware.cpuCores,
-              gpu: hardware.hasGpu ? hardware.gpuType : 'none',
-            },
-            models: ctx.resolvedModels,
-          }, 'hardware detection');
-        }
+    // --advanced requires sidecar to be running
+    if (ctx.ragMode === 'advanced' && ctx.resolvedModels.codeRuntime !== 'sidecar') {
+      console.error('error: --advanced requires the embed sidecar (nomic-embed-code)');
+      console.error('  start manually: python scripts/embed-server.py');
+      console.error('  or use --lite for Jina ONNX fallback');
+      process.exitCode = 2;
+      return { files: 0, tasks: [], triageMap, usageGraph, depMeta, projectTree };
+    }
 
-        const ragLabel = ctx.enableRag
-          ? ctx.resolvedModels?.codeRuntime === 'sidecar'
-            ? 'nomic-7B'
-            : (ctx.dualEmbedding ? 'dual (jina + miniLM)' : 'on')
-          : 'off';
-        const parts = [
-          shortModelName(ctx.config.llm.model),
-          `concurrency ${ctx.concurrency}`,
-          `rag ${ragLabel}`,
-          `cache ${ctx.noCache ? 'off' : 'on'}`,
-          ...(ctx.deliberation ? [`deliberation ${shortModelName(ctx.config.llm.deliberation_model)}`] : []),
-        ];
-        if (ctx.fileFilter) parts.push(`filter ${ctx.fileFilter}`);
-        parts.push(`run ${ctx.runId}`);
+    // nomic-embed-code 7B captures code + semantics natively in 3584d —
+    // dual embedding (code + NLP) is redundant and wastes Claude API calls.
+    // Auto-disable dual when sidecar is active; keep dual for ONNX fallback
+    // where Jina (code-only) benefits from MiniLM (NLP) as second signal.
+    if (ctx.resolvedModels.codeRuntime === 'sidecar' && ctx.dualEmbedding) {
+      ctx.dualEmbedding = false;
+      logFn?.('dual embedding disabled — nomic-embed-code 7B encodes code + semantics natively');
+    }
 
-        listrTask.title = `config \u2014 ${parts.join(' \u00b7 ')}`;
-        depMeta = loadDependencyMeta(ctx.projectRoot);
+    // Resolve effective RAG mode for table/cache selection
+    ctx.resolvedRagMode = ctx.ragMode === 'auto'
+      ? (ctx.resolvedModels.codeRuntime === 'sidecar' ? 'advanced' : 'lite')
+      : ctx.ragMode;
+
+    rl?.info({
+      hardware: {
+        memoryGB: hardware.totalMemoryGB,
+        cpuCores: hardware.cpuCores,
+        gpu: hardware.hasGpu ? hardware.gpuType : 'none',
       },
-    },
-    {
-      title: 'scan',
-      task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-        const scanStart = Date.now();
-        log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
-        rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
-        const scanResult = await scanProject(ctx.projectRoot, ctx.config);
-        const scanDuration = Date.now() - scanStart;
-        ctx.phaseDurations.scan = scanDuration;
-        scanFilesScanned = scanResult.filesScanned;
-        listrTask.title = `scan \u2014 ${scanResult.filesScanned} files`;
-        const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
-        log.info(scanCompleted, 'phase completed');
-        rl?.info(scanCompleted, 'phase completed');
+      models: ctx.resolvedModels,
+      ragMode: ctx.resolvedRagMode,
+    }, 'hardware detection');
+  }
 
-        if (ctx.verbose) {
-          listrTask.output = `${scanResult.filesNew} new / ${scanResult.filesCached} cached`;
-          log.debug({ filesScanned: scanResult.filesScanned, filesNew: scanResult.filesNew, filesCached: scanResult.filesCached }, 'scan complete');
-        }
-      },
-      rendererOptions: { persistentOutput: !!ctx.verbose },
-    },
-    {
-      title: 'estimate',
-      task: (_c: unknown, listrTask: { title: string }) => {
-        const estStart = Date.now();
-        log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
-        rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
-        allTasks = loadTasks(ctx.projectRoot);
+  const ragModePrefix = ctx.ragMode !== 'auto' ? `${ctx.ragMode} ` : '';
+  const ragLabel = ctx.enableRag
+    ? ctx.resolvedModels?.codeRuntime === 'sidecar'
+      ? `${ragModePrefix}nomic-7B`
+      : (ctx.dualEmbedding ? `${ragModePrefix}dual (jina + miniLM)` : `${ragModePrefix}on`)
+    : 'off';
+  configRows.push(
+    { key: 'concurrency', value: String(ctx.concurrency) },
+    { key: 'rag', value: ragLabel },
+    { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
+  );
+  if (ctx.fileFilter) configRows.push({ key: 'filter', value: ctx.fileFilter });
+  configRows.push({ key: 'run', value: ctx.runId });
+  depMeta = loadDependencyMeta(ctx.projectRoot);
 
-        // When a file filter is active, scope estimate to matching files only
-        const estimateTasks = ctx.fileFilter
-          ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
-          : allTasks;
-        const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
-        estimateFiles = estimateTasks.length;
+  // --- Build axes rows (resolve model per axis) ---
+  const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
+  const axesRows: { key: string; value: string }[] = evaluators.map(e => ({
+    key: e.id as string,
+    value: shortModelName(resolveAxisModel(e, ctx.config)),
+  }));
+  if (ctx.deliberation) {
+    axesRows.push({ key: 'deliberation', value: shortModelName(ctx.config.llm.deliberation_model) });
+  }
 
-        listrTask.title = `estimate \u2014 ${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
-        ctx.phaseDurations.estimate = Date.now() - estStart;
-        const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
-        log.info(estCompleted, 'phase completed');
-        rl?.info(estCompleted, 'phase completed');
-      },
-    },
-    {
-      title: 'triage',
-      task: (_c: unknown, listrTask: { title: string }) => {
-        if (!ctx.triageEnabled) {
-          listrTask.title = 'triage \u2014 disabled (--no-triage)';
-          return;
-        }
+  // --- Phase: scan ---
+  const scanStart = Date.now();
+  log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
+  rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
+  const scanResult = await scanProject(ctx.projectRoot, ctx.config);
+  const scanDuration = Date.now() - scanStart;
+  ctx.phaseDurations.scan = scanDuration;
+  pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files` });
+  const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
+  log.info(scanCompleted, 'phase completed');
+  rl?.info(scanCompleted, 'phase completed');
+  if (ctx.verbose) {
+    log.debug({ filesScanned: scanResult.filesScanned, filesNew: scanResult.filesNew, filesCached: scanResult.filesCached }, 'scan complete');
+  }
 
-        const tiers = { skip: 0, evaluate: 0 };
+  // --- Phase: estimate ---
+  const estStart = Date.now();
+  log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
+  rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
+  allTasks = loadTasks(ctx.projectRoot);
+  const estimateTasks = ctx.fileFilter
+    ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+    : allTasks;
+  const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
+  estimateFiles = estimateTasks.length;
+  pipelineRows.push({ phase: 'estimate', detail: `${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens` });
+  ctx.phaseDurations.estimate = Date.now() - estStart;
+  const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
+  log.info(estCompleted, 'phase completed');
+  rl?.info(estCompleted, 'phase completed');
 
-        // When a file filter is active, only triage matching files
-        const triageTasks = ctx.fileFilter
-          ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
-          : allTasks;
+  // --- Phase: triage ---
+  if (!ctx.triageEnabled) {
+    pipelineRows.push({ phase: 'triage', detail: 'disabled (--no-triage)' });
+  } else {
+    const tiers = { skip: 0, evaluate: 0 };
+    const triageTasks = ctx.fileFilter
+      ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+      : allTasks;
 
-        for (const task of triageTasks) {
-          const absPath = resolve(ctx.projectRoot, task.file);
-          let source: string;
-          try {
-            source = readFileSync(absPath, 'utf-8');
-          } catch {
-            // File unreadable — treat as evaluate
-            triageMap.set(task.file, { tier: 'evaluate', reason: 'unreadable' });
-            tiers.evaluate++;
-            continue;
-          }
+    for (const task of triageTasks) {
+      const absPath = resolve(ctx.projectRoot, task.file);
+      let source: string;
+      try {
+        source = readFileSync(absPath, 'utf-8');
+      } catch {
+        triageMap.set(task.file, { tier: 'evaluate', reason: 'unreadable' });
+        tiers.evaluate++;
+        continue;
+      }
 
-          const result = triageFile(task, source);
-          triageMap.set(task.file, result);
-          tiers[result.tier]++;
-        }
+      const result = triageFile(task, source);
+      triageMap.set(task.file, result);
+      tiers[result.tier]++;
+    }
 
-        listrTask.title = `triage \u2014 ${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate`;
-        const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
-        log.info(triageSummary, 'triage summary');
-        rl?.info(triageSummary, 'triage summary');
-      },
-    },
-    {
-      title: 'usage graph',
-      task: (_c: unknown, listrTask: { title: string }) => {
-        usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
-        projectTree = buildProjectTree(allTasks.map((t) => t.file));
-        listrTask.title = `usage graph \u2014 ${usageGraph.usages.size} edges`;
-      },
-    },
-  ], {
-    concurrent: false,
-    renderer: ctx.plain ? 'simple' : 'default',
-    fallbackRenderer: 'simple',
-  });
+    pipelineRows.push({ phase: 'triage', detail: `${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate` });
+    const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
+    log.info(triageSummary, 'triage summary');
+    rl?.info(triageSummary, 'triage summary');
+  }
 
-  await setupRunner.run();
+  // --- Phase: usage graph ---
+  usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
+  projectTree = buildProjectTree(allTasks.map((t) => t.file));
+  pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
+
+  // Render setup summary table
+  renderSetupTable({ config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
+
+  // Wait for confirmation before proceeding to review
+  if (process.stdin.isTTY && !ctx.interrupted) {
+    await waitForEnter();
+  }
 
   ctx.allTasks = allTasks;
   ctx.triageMap = triageMap;
@@ -476,6 +596,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         dualEmbedding: ctx.dualEmbedding,
         indexModel: ctx.config.llm.index_model,
         resolvedModels: ctx.resolvedModels,
+        ragMode: ctx.resolvedRagMode,
         onLog: (msg) => { listrTask.output = msg; },
         onProgress: (current, total) => {
           listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;

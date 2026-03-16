@@ -206,17 +206,36 @@ export async function applyNlpSummaries(
   return { enrichedCards, nlpEmbeddings };
 }
 
+function cachePath(projectRoot: string, cacheSuffix?: string): string {
+  const file = cacheSuffix ? `cache_${cacheSuffix}.json` : 'cache.json';
+  return resolve(projectRoot, '.anatoly', 'rag', file);
+}
+
 /**
  * Load the RAG cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
+ * When cacheSuffix is provided, loads cache_<suffix>.json instead of cache.json.
  */
-export function loadRagCache(projectRoot: string): RagCache {
-  const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
-  if (!existsSync(cachePath)) {
+export function loadRagCache(projectRoot: string, cacheSuffix?: string): RagCache {
+  const path = cachePath(projectRoot, cacheSuffix);
+
+  // Migration: if mode-specific cache doesn't exist, try legacy cache.json
+  if (cacheSuffix && !existsSync(path)) {
+    const legacyPath = cachePath(projectRoot);
+    if (existsSync(legacyPath)) {
+      try {
+        return JSON.parse(readFileSync(legacyPath, 'utf-8')) as RagCache;
+      } catch {
+        return { entries: {} };
+      }
+    }
+  }
+
+  if (!existsSync(path)) {
     return { entries: {} };
   }
   try {
-    return JSON.parse(readFileSync(cachePath, 'utf-8')) as RagCache;
+    return JSON.parse(readFileSync(path, 'utf-8')) as RagCache;
   } catch {
     return { entries: {} };
   }
@@ -224,8 +243,8 @@ export function loadRagCache(projectRoot: string): RagCache {
 
 /**
  * Save the RAG cache to disk atomically.
+ * When cacheSuffix is provided, saves to cache_<suffix>.json instead of cache.json.
  */
-export function saveRagCache(projectRoot: string, cache: RagCache): void {
-  const cachePath = resolve(projectRoot, '.anatoly', 'rag', 'cache.json');
-  atomicWriteJson(cachePath, cache);
+export function saveRagCache(projectRoot: string, cache: RagCache, cacheSuffix?: string): void {
+  atomicWriteJson(cachePath(projectRoot, cacheSuffix), cache);
 }

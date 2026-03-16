@@ -108,15 +108,17 @@ export function registerResetCommand(program: Command): void {
         }
       }
 
-      // Clean RAG: drop LanceDB table via API, then remove directory
+      // Clean RAG: drop LanceDB tables via API, then remove directory
       const ragDir = resolve(anatolyDir, 'rag');
       if (existsSync(ragDir)) {
-        try {
-          const store = new VectorStore(projectRoot);
-          await store.init();
-          await store.rebuild();
-        } catch {
-          // LanceDB cleanup failed — fall through to rmSync
+        for (const tableName of ['function_cards_lite', 'function_cards_advanced', 'function_cards']) {
+          try {
+            const store = new VectorStore(projectRoot, tableName);
+            await store.init();
+            await store.rebuild();
+          } catch {
+            // LanceDB cleanup failed — fall through to rmSync
+          }
         }
         rmSync(ragDir, { recursive: true, force: true });
         cleaned++;
