@@ -58,9 +58,9 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ### Negative
 
-- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code via sentence-transformers sidecar is ~4.7 GB but provides significantly better embeddings.
-- **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With the sentence-transformers sidecar on GPU, this is much faster with native batching support.
-- **768-dim vectors are larger than some cloud alternatives.** OpenAI's `text-embedding-3-small` offers 512-dim or 1536-dim options. The 768-dim models strike a good balance between quality and storage.
+- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code 7B via sentence-transformers sidecar is ~14 GB but provides significantly better embeddings.
+- **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With the sentence-transformers sidecar on GPU, this is much faster.
+- **3584-dim vectors (7B model) are larger than cloud alternatives.** The ONNX fallback uses 768-dim. Both are larger than OpenAI's 512-dim option, but the quality difference justifies the storage.
 
 ## Alternatives Considered
 
@@ -70,7 +70,25 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 | **Voyage Code 3** | Best-in-class code embeddings, but API-only. Same cost/privacy concerns as OpenAI. |
 | **No RAG (grep-only duplication)** | Grep can find exact string matches but completely misses renamed variables, refactored logic, and cross-file patterns. The duplication axis would be severely limited. |
 | **ChromaDB** | Requires a separate server process or in-process Python. LanceDB is a native embedded store with a Node.js SDK, better suited to a CLI tool. |
+| **Ollama** | Community port (`manutic/nomic-embed-code`) suffered from GGML_ASSERT crashes in Ollama 0.13+. Replaced by direct sentence-transformers sidecar for stability. |
+
+## Embedding Strategy: Single vs Dual
+
+Anatoly supports two embedding modes, auto-selected based on available hardware:
+
+| Mode | Model | Dim | GPU | Dual NLP | Quality |
+|------|-------|-----|-----|----------|---------|
+| **nomic-7B** (sidecar) | `nomic-ai/nomic-embed-code` | 3584d | Required (14 GB VRAM) | No — 7B encodes code + semantics natively | Best |
+| **dual** (ONNX fallback) | Jina v2 (code) + MiniLM (NLP) | 768d + 384d | Not needed | Yes — compensates Jina's code-only focus | Good |
+
+**Why disable dual when using nomic-7B?**
+
+The 7B model is trained on CodeSearchNet (query → code search). Its 3584-dim hidden state captures both syntactic structure and semantic intent in a single vector. Adding a MiniLM NLP vector would be redundant and waste Claude API calls (required to generate NLP summaries for each function).
+
+The dual mode remains valuable for the ONNX fallback: Jina v2 is a pure code embedder that doesn't understand natural language intent, so the MiniLM NLP vector adds a complementary semantic signal.
+
+**Auto-selection:** when the sidecar is running, `dual_embedding` is automatically set to `false` regardless of the config value.
 
 ## Notes
 
-The embedding model is now auto-selected at startup based on hardware and sidecar availability. When a GPU and the sentence-transformers sidecar are detected, Anatoly uses `nomic-ai/nomic-embed-code` for higher-quality embeddings; otherwise it falls back to `jinaai/jina-embeddings-v2-base-code` (ONNX). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless for users. Run `./scripts/setup-embeddings.sh` to set up GPU-accelerated embeddings, or the sidecar auto-starts with `anatoly run`.
+The embedding model is auto-selected at startup based on hardware and sidecar availability. When a GPU is detected, Anatoly starts the sentence-transformers sidecar (`nomic-ai/nomic-embed-code`, 7B, 3584d) and disables dual embedding. Without GPU, it falls back to Jina v2 (ONNX, 768d) with optional dual MiniLM NLP embedding. The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless. Run `./scripts/setup-embeddings.sh` to set up, or the sidecar auto-starts with `anatoly run`.

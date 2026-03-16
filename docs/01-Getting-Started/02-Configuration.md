@@ -56,10 +56,10 @@ llm:
 
 rag:
   enabled: true             # Enable semantic RAG cross-file analysis
-  dual_embedding: false     # Enable dual code+NLP embedding for hybrid search
-  code_model: auto          # Code embedding model ('auto' = best available: sentence-transformers sidecar or Jina ONNX)
-  nlp_model: auto           # NLP embedding model ('auto' = all-MiniLM-L6-v2 ONNX)
-  code_weight: 0.6          # Hybrid search weighting (0-1, default: 0.6 = 60% code, 40% NLP)
+  dual_embedding: true      # Dual code+NLP embedding (auto-disabled when nomic-embed-code 7B sidecar is active)
+  code_model: auto          # Code embedding model ('auto' = nomic-embed-code 7B via sidecar if GPU, else Jina ONNX)
+  nlp_model: auto           # NLP embedding model ('auto' = all-MiniLM-L6-v2 ONNX, only used in dual mode)
+  code_weight: 0.6          # Hybrid search weighting (0-1, only used in dual mode)
 
 logging:
   level: "warn"             # Log level: fatal, error, warn, info, debug, trace
@@ -131,10 +131,10 @@ The six axes are: `utility`, `duplication`, `correction`, `overengineering`, `te
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable local RAG indexing and semantic search |
-| `dual_embedding` | boolean | `false` | Enable dual code+NLP embedding for hybrid search |
-| `code_model` | string | `"auto"` | Code embedding model. `auto` selects Nomic Embed Code (sidecar) if GPU available, otherwise Jina v2 (ONNX) |
-| `nlp_model` | string | `"auto"` | NLP embedding model. `auto` selects all-MiniLM-L6-v2 (ONNX) |
-| `code_weight` | number | `0.6` | Hybrid search weighting (0-1). Higher = more weight on code similarity |
+| `dual_embedding` | boolean | `true` | Dual code+NLP embedding. Auto-disabled when nomic-embed-code 7B sidecar is active (the 7B model encodes code + semantics natively) |
+| `code_model` | string | `"auto"` | Code embedding model. `auto` selects Nomic Embed Code 7B (sidecar, 3584d) if GPU available, otherwise Jina v2 (ONNX, 768d) |
+| `nlp_model` | string | `"auto"` | NLP embedding model (only used in dual mode). `auto` selects all-MiniLM-L6-v2 (ONNX, 384d) |
+| `code_weight` | number | `0.6` | Hybrid search weighting (only used in dual mode). Higher = more weight on code similarity |
 
 ### logging
 

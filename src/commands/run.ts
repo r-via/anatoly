@@ -300,6 +300,16 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
             hardware,
             logFn,
           );
+
+          // nomic-embed-code 7B captures code + semantics natively in 3584d —
+          // dual embedding (code + NLP) is redundant and wastes Claude API calls.
+          // Auto-disable dual when sidecar is active; keep dual for ONNX fallback
+          // where Jina (code-only) benefits from MiniLM (NLP) as second signal.
+          if (ctx.resolvedModels.codeRuntime === 'sidecar' && ctx.dualEmbedding) {
+            ctx.dualEmbedding = false;
+            logFn?.('dual embedding disabled — nomic-embed-code 7B encodes code + semantics natively');
+          }
+
           rl?.info({
             hardware: {
               memoryGB: hardware.totalMemoryGB,
@@ -311,7 +321,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         }
 
         const ragLabel = ctx.enableRag
-          ? (ctx.dualEmbedding ? 'dual' : 'on')
+          ? ctx.resolvedModels?.codeRuntime === 'sidecar'
+            ? 'nomic-7B'
+            : (ctx.dualEmbedding ? 'dual (jina + miniLM)' : 'on')
           : 'off';
         const parts = [
           shortModelName(ctx.config.llm.model),
