@@ -16,8 +16,8 @@ function findPython(projectRoot: string): string {
     if (existsSync(venvPy)) return venvPy;
   }
 
-  // Project .venv/ (created by setup-embeddings.sh)
-  const dotVenvPy = resolve(projectRoot, '.venv', 'bin', 'python');
+  // Anatoly's dedicated venv (created by setup-embeddings.sh)
+  const dotVenvPy = resolve(projectRoot, '.anatoly', '.venv', 'bin', 'python');
   if (existsSync(dotVenvPy)) return dotVenvPy;
 
   // Fallback to system python

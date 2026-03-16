@@ -8,7 +8,7 @@
 #
 # Venv strategy:
 #   - If VIRTUAL_ENV is set (venv already active), uses it as-is
-#   - Otherwise, creates/reuses .venv/ in the project root
+#   - Otherwise, creates/reuses .anatoly/.venv/ (isolated from project venv)
 #   - The embed-server.py sidecar always runs from this venv
 #
 set -euo pipefail
@@ -18,7 +18,7 @@ SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SIDECAR_SCRIPT="${SCRIPT_DIR}/embed-server.py"
-VENV_DIR="${PROJECT_ROOT}/.venv"
+VENV_DIR="${PROJECT_ROOT}/.anatoly/.venv"
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -139,7 +139,7 @@ if [[ "${1:-}" == "--check" ]]; then
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
       VENV_LABEL=" (active venv)"
     elif [[ "$PYTHON" == "${VENV_DIR}/bin/python" ]]; then
-      VENV_LABEL=" (.venv)"
+      VENV_LABEL=" (.anatoly/.venv)"
     fi
     ok   "Python: ${PYVER}${VENV_LABEL}"
 
