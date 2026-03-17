@@ -25,7 +25,7 @@ npx anatoly run   # one command, full codebase audit
 ## What is Anatoly?
 
 <p align="center">
-  <video src="assets/anims/demo.webm" autoplay loop muted playsinline alt="Anatoly demo"></video>
+  <img src="assets/anims/demo.gif" alt="Anatoly demo"/>
 </p>
 
 Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report.
