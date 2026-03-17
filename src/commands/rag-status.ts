@@ -14,7 +14,7 @@ async function getStoreForMode(
 ): Promise<{ store: VectorStore; stats: RagStats }> {
   const { tableName } = ragModeArtifacts(mode);
   const store = new VectorStore(projectRoot, tableName);
-  await store.initReadOnly();
+  await store.init();
   const stats = await store.stats();
   return { store, stats };
 }

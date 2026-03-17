@@ -3,8 +3,6 @@ import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
-import { atomicWriteJson } from '../utils/cache.js';
-
 const DEFAULT_TABLE_NAME = 'function_cards';
 
 /**
@@ -68,19 +66,18 @@ export class VectorStore {
     return this._hasDualEmbedding;
   }
 
-  /**
-   * Open the store in read-only mode: connect and open existing table without
-   * any mutations (no mkdir, no legacy cleanup, no dimension rebuild).
-   * Safe to call from diagnostic commands like rag-status.
-   */
-  async initReadOnly(): Promise<void> {
-    const { existsSync } = await import('node:fs');
-    if (!existsSync(this.dbPath)) return;
+  async init(): Promise<void> {
+    mkdirSync(this.dbPath, { recursive: true });
+    this.onLog(`vector-store: connecting to ${this.dbPath} (table: ${this.tableName})`);
     this.db = await connect(this.dbPath);
+
     const tableNames = await this.db.tableNames();
+    this.onLog(`vector-store: existing tables: ${tableNames.length > 0 ? tableNames.join(', ') : '(none)'}`);
+
     if (tableNames.includes(this.tableName)) {
       this.table = await this.db.openTable(this.tableName);
-      // Detect dual embedding without modifying anything
+
+      // Detect whether NLP vectors are present (dual embedding)
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0 && 'nlp_vector' in sample[0]) {
@@ -90,69 +87,7 @@ export class VectorStore {
           }
         }
       } catch {
-        // Read-only: ignore errors
-      }
-    }
-  }
-
-  async init(): Promise<void> {
-    mkdirSync(this.dbPath, { recursive: true });
-    this.onLog(`vector-store: connecting to ${this.dbPath} (table: ${this.tableName})`);
-    this.db = await connect(this.dbPath);
-
-    const tableNames = await this.db.tableNames();
-    this.onLog(`vector-store: existing tables: ${tableNames.length > 0 ? tableNames.join(', ') : '(none)'}`);
-
-    // Clean up legacy table if mode-specific tables are now in use
-    if (this.tableName !== DEFAULT_TABLE_NAME && tableNames.includes(DEFAULT_TABLE_NAME)) {
-      try {
-        await this.db.dropTable(DEFAULT_TABLE_NAME);
-        this.onLog('dropped legacy function_cards table — mode-specific tables are now used');
-      } catch {
-        // Best-effort cleanup
-      }
-    }
-
-    if (tableNames.includes(this.tableName)) {
-      this.table = await this.db.openTable(this.tableName);
-
-      // Detect dimension or schema mismatch and auto-rebuild
-      try {
-        const sample = await this.table.query().limit(1).toArray();
-        if (sample.length > 0) {
-          const storedCodeDim = toNumberArray(sample[0].vector).length;
-          const expectedCodeDim = getCodeDim();
-          if (storedCodeDim !== expectedCodeDim) {
-            this.onLog(`dimension mismatch: code vectors ${storedCodeDim}-dim vs model ${expectedCodeDim}-dim — rebuilding index`);
-            await this.rebuildAndClearCache();
-            return;
-          }
-
-          // Detect whether NLP vectors are present and check their dimension
-          const hasNlpColumn = 'nlp_vector' in sample[0];
-          if (hasNlpColumn) {
-            const nlpVec = toNumberArray(sample[0].nlp_vector);
-            const hasRealNlp = nlpVec.length > 0 && nlpVec.some((v) => v !== 0);
-            if (hasRealNlp) {
-              const expectedNlpDim = getNlpDim();
-              if (nlpVec.length !== expectedNlpDim) {
-                this.onLog(`dimension mismatch: NLP vectors ${nlpVec.length}-dim vs model ${expectedNlpDim}-dim — rebuilding index`);
-                await this.rebuildAndClearCache();
-                return;
-              }
-              this._hasDualEmbedding = true;
-            }
-          }
-        }
-      } catch (err) {
-        // Schema mismatch (e.g. nlp_vector column present/absent) — rebuild
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('not in schema')) {
-          this.onLog(`schema mismatch detected — rebuilding index: ${msg}`);
-          await this.rebuildAndClearCache();
-          return;
-        }
-        // Other errors: table may be empty, proceed normally
+        // Table may be empty or have unexpected schema — proceed normally
       }
     }
   }
@@ -392,16 +327,6 @@ export class VectorStore {
     }
     this.table = null;
     this._hasDualEmbedding = false;
-  }
-
-  /** Rebuild the index and clear the RAG cache so all files are re-indexed. */
-  private async rebuildAndClearCache(): Promise<void> {
-    await this.rebuild();
-    // Derive cache file from table name: 'function_cards_lite' → 'cache_lite.json'
-    const suffix = this.tableName.replace('function_cards_', '');
-    const cacheFile = suffix !== this.tableName ? `cache_${suffix}.json` : 'cache.json';
-    const cachePath = resolve(this.projectRoot, '.anatoly', 'rag', cacheFile);
-    atomicWriteJson(cachePath, { entries: {} });
   }
 
   /**
