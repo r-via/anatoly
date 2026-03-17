@@ -11,3 +11,6 @@ coverage/
 *.tsbuildinfo
 .temp
 *compiled.*
+*.tape
+demo.gif
+demo.webm
