@@ -126,7 +126,7 @@ export function getLogger(): Logger {
  */
 export function createFileLogger(filePath: string): Logger {
   mkdirSync(dirname(filePath), { recursive: true });
-  _fileDestination = pino.destination({ dest: filePath, sync: false });
+  _fileDestination = pino.destination({ dest: filePath, sync: true });
   return pino({ level: 'debug' }, _fileDestination);
 }
 
