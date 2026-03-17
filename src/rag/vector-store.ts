@@ -93,7 +93,7 @@ export class VectorStore {
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0) {
-          const storedCodeDim = (sample[0].vector as number[]).length;
+          const storedCodeDim = toNumberArray(sample[0].vector).length;
           const expectedCodeDim = getCodeDim();
           if (storedCodeDim !== expectedCodeDim) {
             this.onLog(`dimension mismatch: code vectors ${storedCodeDim}-dim vs model ${expectedCodeDim}-dim — rebuilding index`);
@@ -104,8 +104,8 @@ export class VectorStore {
           // Detect whether NLP vectors are present and check their dimension
           const hasNlpColumn = 'nlp_vector' in sample[0];
           if (hasNlpColumn) {
-            const nlpVec = sample[0].nlp_vector as number[];
-            const hasRealNlp = nlpVec.some((v) => v !== 0);
+            const nlpVec = toNumberArray(sample[0].nlp_vector);
+            const hasRealNlp = nlpVec.length > 0 && nlpVec.some((v) => v !== 0);
             if (hasRealNlp) {
               const expectedNlpDim = getNlpDim();
               if (nlpVec.length !== expectedNlpDim) {
@@ -238,7 +238,7 @@ export class VectorStore {
     if (matches.length === 0) return [];
 
     const queryCard = rowToCard(matches[0]);
-    const embedding = matches[0].vector as number[];
+    const embedding = toNumberArray(matches[0].vector);
     const results = await this.search(embedding, limit + 1, minScore);
 
     // Exclude self-matches: same ID (exact) or same file+name (stale entries from re-indexation)
@@ -271,11 +271,11 @@ export class VectorStore {
     if (matches.length === 0) return [];
 
     const queryCard = rowToCard(matches[0]);
-    const codeEmbedding = matches[0].vector as number[];
-    const nlpEmbedding = matches[0].nlp_vector as number[] | undefined;
+    const codeEmbedding = toNumberArray(matches[0].vector);
+    const nlpEmbedding = toNumberArray(matches[0].nlp_vector);
 
     // If no NLP vector or it's all zeros, fall back to code-only search
-    if (!nlpEmbedding || nlpEmbedding.every((v) => v === 0)) {
+    if (nlpEmbedding.length === 0 || nlpEmbedding.every((v) => v === 0)) {
       return this.searchById(functionId, limit, minScore);
     }
 
@@ -429,6 +429,20 @@ export class VectorStore {
  */
 function distanceToCosineSimilarity(distance: number): number {
   return Math.max(-1, Math.min(1, 1 - distance / 2));
+}
+
+/**
+ * Convert a LanceDB Arrow FloatVector to a plain number[].
+ * LanceDB returns vectors as Apache Arrow FloatVector objects, which lack
+ * standard Array methods like .every() and .some(). Array.from() safely
+ * converts any iterable (including FloatVector) to a real number[].
+ */
+function toNumberArray(vec: unknown): number[] {
+  if (Array.isArray(vec)) return vec;
+  if (vec && typeof (vec as Iterable<number>)[Symbol.iterator] === 'function') {
+    return Array.from(vec as Iterable<number>);
+  }
+  return [];
 }
 
 function safeParseJsonArray(value: unknown): string[] {

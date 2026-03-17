@@ -258,7 +258,7 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
         topCandidate: results.length > 0 ? `${results[0].card.name}@${results[0].card.filePath}` : null,
       }, 'RAG pre-resolve result');
     } catch (err) {
-      contextLogger().debug({ symbol: symbol.name, file: task.file, err: String(err) }, 'RAG lookup failed for symbol');
+      contextLogger().warn({ symbol: symbol.name, file: task.file, err: String(err) }, 'RAG lookup failed for symbol');
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results: null });
     }
   }

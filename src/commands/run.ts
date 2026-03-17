@@ -546,7 +546,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // Wait for confirmation before proceeding to review
-  if (process.stdin.isTTY && !ctx.interrupted) {
+  if (process.stdin.isTTY && !ctx.plain && !ctx.interrupted) {
     await waitForEnter();
   }
 
@@ -736,10 +736,12 @@ async function runReviewPhase(
         listrTask.title = `review — ${completedCount}/${evaluateTotal}${findingsNote}`;
       };
 
-      // Animate spinner while files are being processed
-      const spinInterval = setInterval(() => {
-        if (display.hasActiveFiles) listrTask.output = display.render();
-      }, 80);
+      // Animate spinner while files are being processed (skip in plain mode to avoid console spam)
+      const spinInterval = ctx.plain
+        ? null
+        : setInterval(() => {
+            if (display.hasActiveFiles) listrTask.output = display.render();
+          }, 80);
 
       try {
       await runWorkerPool({
@@ -862,6 +864,13 @@ async function runReviewPhase(
             };
             log.debug(reviewFields, 'file review completed');
             ctx.runLog?.info(reviewFields, 'file review completed');
+            if (ctx.plain) {
+              const findings = countReviewFindings(result.review);
+              const verdict = result.review.verdict;
+              const dur = (result.durationMs / 1000).toFixed(1);
+              const note = findings > 0 ? ` | ${findings} findings` : '';
+              listrTask.output = `${filePath} → ${verdict}${note} (${dur}s)`;
+            }
           } catch (error) {
             if (ctx.interrupted) return;
 
@@ -882,7 +891,7 @@ async function runReviewPhase(
         },
       });
       } finally {
-        clearInterval(spinInterval);
+        if (spinInterval) clearInterval(spinInterval);
       }
 
       const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
@@ -968,10 +977,8 @@ function runReportPhase(ctx: RunContext): void {
       includeVerdict: ctx.badge.verdict,
       link: ctx.badge.link,
     });
-    if (badgeResult.injected) {
-      const verb = badgeResult.updated ? 'updated' : 'added';
-      const hint = badgeResult.updated ? '' : ' (disable with --no-badge)';
-      console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
+    if (badgeResult.injected && !badgeResult.updated) {
+      console.log(`  badge        ${chalk.green('added')} in README.md (disable with --no-badge)`);
     }
   }
   console.log('');
