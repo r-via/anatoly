@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "dev": "tsx src/index.ts",
+    "prebuild": "node scripts/sync-motd.js",
     "build": "tsup",
     "test": "vitest run",
     "lint": "eslint src/",

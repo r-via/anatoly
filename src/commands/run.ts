@@ -26,7 +26,6 @@ import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
-import { pkgVersion } from '../utils/version.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
@@ -39,6 +38,7 @@ import { ReviewProgressDisplay, countReviewFindings } from './review-display.js'
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
+import { printBanner } from '../utils/banner.js';
 
 interface RunContext {
   projectRoot: string;
@@ -292,12 +292,13 @@ interface SetupTableData {
 }
 
 function renderSetupTable(data: SetupTableData, plain: boolean): void {
-  const allKeys = [
-    ...data.config.map(r => r.key),
-    ...data.axes.map(r => r.key),
-    ...data.pipeline.map(r => r.phase),
-  ];
-  const keyWidth = Math.max(...allKeys.map(k => k.length));
+  const checkPrefix = 2; // "✔ " visible chars prepended to pipeline phase
+  // keyWidth must fit the longest key, including pipeline phases with their ✔ prefix
+  const keyWidth = Math.max(
+    ...data.config.map(r => r.key.length),
+    ...data.axes.map(r => r.key.length),
+    ...data.pipeline.map(r => r.phase.length + checkPrefix),
+  );
 
   const allValues = [
     ...data.config.map(r => r.value),
@@ -306,16 +307,17 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
   ];
   const valWidth = Math.max(...allValues.map(v => v.length));
 
-  // inner width = 2 (left pad) + keyWidth + 2 (gap) + valWidth + 1 (right pad)
-  const innerWidth = 2 + keyWidth + 2 + valWidth + 1;
+  const gap = 4; // spacing between key and value columns
+  // inner width = 3 (left pad) + keyWidth + gap + valWidth + 2 (right pad)
+  const innerWidth = 3 + keyWidth + gap + valWidth + 2;
 
   if (plain) {
-    console.log(chalk.dim('  config'));
-    for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}  ${r.value}`);
-    console.log(chalk.dim('  axes'));
-    for (const r of data.axes) console.log(`    ${r.key.padEnd(keyWidth)}  ${r.value}`);
-    console.log(chalk.dim('  pipeline'));
-    for (const r of data.pipeline) console.log(`    \u2714 ${r.phase.padEnd(keyWidth)}  ${r.detail}`);
+    console.log(chalk.dim('  Configuration'));
+    for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
+    console.log(chalk.dim('  Evaluation Axes'));
+    for (const r of data.axes) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
+    console.log(chalk.dim('  Pipeline Summary'));
+    for (const r of data.pipeline) console.log(`    \u2714 ${r.phase.padEnd(keyWidth)}${' '.repeat(gap)}${r.detail}`);
     console.log('');
     return;
   }
@@ -323,29 +325,39 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const d = chalk.dim;
   const line = (char: string, n: number) => char.repeat(n);
 
-  const sectionBorder = (label: string, left: string, right: string) => {
+  const sectionBorder = (label: string, color: (s: string) => string, left: string, right: string) => {
     const labelPart = ` ${label} `;
     const dashes = innerWidth - labelPart.length;
-    return d(`  ${left}${labelPart}${line('\u2500', dashes)}${right}`);
+    return d(`  ${left}`) + color(labelPart) + d(`${line('\u2500', dashes)}${right}`);
   };
 
   const kvRow = (key: string, value: string) =>
-    `  ${d('\u2502')}  ${key.padEnd(keyWidth)}  ${value.padEnd(valWidth)} ${d('\u2502')}`;
+    `  ${d('\u2502')}   ${key.padEnd(keyWidth)}${' '.repeat(gap)}${value.padEnd(valWidth)}  ${d('\u2502')}`;
 
+  const checkMark = chalk.green('\u2714');
+  // ✔ + space = checkPrefix visible chars; shrink phase pad to compensate
   const pipelineRow = (phase: string, detail: string) =>
-    `  ${d('\u2502')}  ${chalk.green('\u2714')} ${phase.padEnd(keyWidth)}  ${detail.padEnd(valWidth - 2)} ${d('\u2502')}`;
+    `  ${d('\u2502')}   ${checkMark} ${phase.padEnd(keyWidth - checkPrefix)}${' '.repeat(gap)}${detail.padEnd(valWidth)}  ${d('\u2502')}`;
+
+  const emptyRow = `  ${d('\u2502')}${' '.repeat(innerWidth)}${d('\u2502')}`;
 
   // config section
-  console.log(sectionBorder('config', '\u250c', '\u2510'));
+  console.log(sectionBorder('Configuration', chalk.cyan, '\u250c', '\u2510'));
+  console.log(emptyRow);
   for (const r of data.config) console.log(kvRow(r.key, r.value));
+  console.log(emptyRow);
 
   // axes section
-  console.log(sectionBorder('axes', '\u251c', '\u2524'));
+  console.log(sectionBorder('Evaluation Axes', chalk.magenta, '\u251c', '\u2524'));
+  console.log(emptyRow);
   for (const r of data.axes) console.log(kvRow(r.key, r.value));
+  console.log(emptyRow);
 
   // pipeline section
-  console.log(sectionBorder('pipeline', '\u251c', '\u2524'));
+  console.log(sectionBorder('Pipeline Summary', chalk.blue, '\u251c', '\u2524'));
+  console.log(emptyRow);
   for (const r of data.pipeline) console.log(pipelineRow(r.phase, r.detail));
+  console.log(emptyRow);
 
   // bottom border
   console.log(d(`  \u2514${line('\u2500', innerWidth)}\u2518`));
@@ -374,7 +386,7 @@ interface SetupResult {
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const log = getLogger();
   const rl = ctx.runLog;
-  console.log(chalk.bold(`anatoly v${pkgVersion}`));
+  printBanner();
 
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
@@ -414,11 +426,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     }, 'hardware detection');
   }
 
-  const ragModePrefix = ctx.ragMode !== 'auto' ? `${ctx.ragMode} ` : '';
   const ragLabel = ctx.enableRag
     ? ctx.resolvedRagMode === 'advanced'
-      ? `${ragModePrefix}nomic-7B`
-      : (ctx.dualEmbedding ? `${ragModePrefix}dual (jina + miniLM)` : `${ragModePrefix}on`)
+      ? `advanced — nomic-7B`
+      : (ctx.dualEmbedding ? `lite — dual (jina + miniLM)` : `lite — jina`)
     : 'off';
   configRows.push(
     { key: 'concurrency', value: String(ctx.concurrency) },
