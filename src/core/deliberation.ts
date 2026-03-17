@@ -6,16 +6,19 @@ import { contextLogger } from '../utils/log-context.js';
 // Deliberation response schema — what Opus returns
 // ---------------------------------------------------------------------------
 
+const AxisVerdictSchema = z.object({
+  correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']).optional(),
+  utility: z.enum(['USED', 'DEAD', 'LOW_VALUE', '-']).optional(),
+  duplication: z.enum(['UNIQUE', 'DUPLICATE', '-']).optional(),
+  overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE', '-']).optional(),
+  tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']).optional(),
+  confidence: z.int().min(0).max(100),
+});
+
 export const DeliberatedSymbolSchema = z.object({
   name: z.string(),
-  original: z.object({
-    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']),
-    confidence: z.int().min(0).max(100),
-  }),
-  deliberated: z.object({
-    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']),
-    confidence: z.int().min(0).max(100),
-  }),
+  original: AxisVerdictSchema,
+  deliberated: AxisVerdictSchema,
   reasoning: z.string().min(10),
 });
 
@@ -40,23 +43,23 @@ export function buildDeliberationSystemPrompt(): string {
 
 You receive a ReviewFile (merged from 6 independent axis evaluators) and the original source code. Your job is to:
 
-1. **Verify inter-axis coherence** — do the combined findings make sense together?
-2. **Filter residual false positives** — reclassify NEEDS_FIX → OK when the finding is incorrect.
-3. **Protect confirmed ERRORs** — do NOT downgrade ERROR findings unless you are extremely confident (≥ 95) the original assessment was wrong.
-4. **Adjust confidences** — raise or lower confidence based on cross-axis evidence.
-5. **Remove invalid actions** — list action IDs that should be removed due to reclassification.
-6. **Recompute verdict** — based on your adjusted symbols.
-7. **Challenge duplication findings** — two functions with similar structure but different semantic contracts (different invariants, different callers, intentional divergence) are NOT true duplicates. Reclassify DUPLICATE → UNIQUE when the differences reflect intentional design rather than copy-paste.
+1. **Deliberate each symbol holistically** — consider ALL axis findings for a symbol together (correction, utility, duplication, overengineering, tests). A symbol may have findings on multiple axes — address them all in a single deliberation entry.
+2. **Verify inter-axis coherence** — do the combined findings make sense together? (e.g., if a symbol is DEAD, flagging it as OVER is pointless)
+3. **Filter residual false positives** — reclassify findings when the original assessment is incorrect.
+4. **Protect confirmed ERRORs** — do NOT downgrade ERROR corrections unless you are extremely confident (≥ 95) the original was wrong.
+5. **Challenge duplication findings** — two functions with similar structure but different semantic contracts are NOT true duplicates. Reclassify DUPLICATE → UNIQUE when differences reflect intentional design.
+6. **Remove invalid actions** — list action IDs that should be removed due to reclassification.
+7. **Recompute verdict** — based on your adjusted symbols.
 
 ## Strict rules
 
-- You MUST NOT add new findings or new symbols. You can only modify existing ones.
-- You MUST NOT add new actions. You can only remove existing ones.
-- ONLY deliberate symbols that have findings (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). SKIP symbols that are clean across all axes (OK, USED, UNIQUE, LEAN, GOOD, or '-'). Do NOT include clean symbols in your output.
-- For each deliberated symbol, you MUST provide reasoning (min 10 chars) explaining your decision.
+- ONLY deliberate symbols that have at least one finding (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). SKIP clean symbols entirely.
+- For each deliberated symbol, include ALL axes that have findings in both original and deliberated (omit axes that are clean or '-').
+- You MUST NOT add new findings, symbols, or actions.
+- For each deliberated symbol, you MUST provide reasoning (min 10 chars) covering all axes together.
 - When reclassifying, your deliberated confidence MUST be ≥ 85.
 - When keeping a finding unchanged, copy original values to deliberated.
-- ERROR → OK reclassification is only allowed if your confidence is ≥ 95.
+- ERROR → OK reclassification requires confidence ≥ 95.
 - Provide global reasoning explaining your overall assessment.
 
 ## Output format
@@ -68,9 +71,9 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
   "symbols": [
     {
       "name": "symbolName",
-      "original": { "correction": "NEEDS_FIX", "confidence": 72 },
-      "deliberated": { "correction": "OK", "confidence": 90 },
-      "reasoning": "The pattern is safe in the installed version of the library..."
+      "original": { "utility": "DEAD", "correction": "NEEDS_FIX", "confidence": 72 },
+      "deliberated": { "utility": "DEAD", "correction": "OK", "confidence": 88 },
+      "reasoning": "Utility DEAD is correct (exported but unused). Correction reclassified: the pattern is safe in Commander v14..."
     }
   ],
   "removed_actions": [1, 3],
@@ -94,15 +97,14 @@ ${fileContent}
 
 ## Instructions
 
-Review the merged findings above. ONLY deliberate symbols that have findings — skip clean symbols entirely (do not include them in the output). Remove action IDs that are no longer valid after reclassification. Recompute the verdict based on your final assessments.
+Deliberate ONLY symbols with findings — skip clean symbols. For each symbol, address ALL its axis findings together in one entry (e.g., if a symbol is DEAD + NEEDS_FIX, deliberate both in the same entry). Recompute the verdict.
 
-Remember:
-- ONLY output symbols with findings (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). Do NOT output clean symbols.
-- Do NOT add new findings or symbols
-- Do NOT add new actions
-- Protect ERROR findings (require ≥ 95 confidence to downgrade)
-- Your deliberated confidence must be ≥ 85 for any reclassification
-- Copy original values to deliberated when you agree with the finding`;
+Rules:
+- Only include axes with findings in original/deliberated (omit clean axes)
+- Do NOT add new findings, symbols, or actions
+- Protect ERROR (require ≥ 95 confidence to downgrade)
+- Reclassification requires confidence ≥ 85
+- Copy original values when you agree with the finding`;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,30 +189,35 @@ export function applyDeliberation(
     const delib = deliberatedMap.get(sym.name);
     if (!delib) return sym;
 
-    const originalCorrection = delib.original.correction;
-    const newCorrection = delib.deliberated.correction;
     const newConfidence = delib.deliberated.confidence;
+    const changes: string[] = [];
+    const updated = { ...sym, confidence: newConfidence };
 
-    // Protect ERROR: only allow downgrade if Opus confidence ≥ 95
-    if (originalCorrection === 'ERROR' && newCorrection !== 'ERROR' && newConfidence < 95) {
-      return {
-        ...sym,
-        detail: `${sym.detail} (deliberated: ERROR protected — Opus confidence ${newConfidence} < 95)`,
-      };
+    // Apply each axis reclassification
+    const axisKeys = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
+    for (const axis of axisKeys) {
+      const orig = delib.original[axis];
+      const deliberated = delib.deliberated[axis];
+      if (!orig || !deliberated) continue;
+
+      // Protect ERROR corrections: only allow downgrade if confidence ≥ 95
+      if (axis === 'correction' && orig === 'ERROR' && deliberated !== 'ERROR' && newConfidence < 95) {
+        changes.push(`${axis}: ERROR protected (confidence ${newConfidence} < 95)`);
+        continue;
+      }
+
+      if (orig !== deliberated) {
+        changes.push(`${axis}: ${orig} → ${deliberated}`);
+      }
+      (updated as Record<string, unknown>)[axis] = deliberated;
     }
 
-    // Apply reclassification
-    const correctionChanged = originalCorrection !== newCorrection;
-    const enrichedDetail = correctionChanged
-      ? `${sym.detail} (deliberated: ${originalCorrection} → ${newCorrection} — ${delib.reasoning})`
-      : `${sym.detail} (deliberated: confirmed — ${delib.reasoning})`;
+    const changesSummary = changes.length > 0
+      ? `reclassified: ${changes.join(', ')}`
+      : 'confirmed';
+    updated.detail = `${sym.detail} (deliberated: ${changesSummary} — ${delib.reasoning})`;
 
-    return {
-      ...sym,
-      correction: newCorrection,
-      confidence: newConfidence,
-      detail: enrichedDetail,
-    };
+    return updated;
   });
 
   const actions = review.actions.filter((a) => !removedActionIds.has(a.id));
@@ -219,8 +226,13 @@ export function applyDeliberation(
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
   const verdict = recomputeVerdict(symbols, deliberation.verdict);
 
-  const reclassified = deliberation.symbols.filter(
-    (s) => s.original.correction !== s.deliberated.correction,
+  const axisKeys = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
+  const reclassified = deliberation.symbols.filter((s) =>
+    axisKeys.some((axis) => {
+      const orig = s.original[axis];
+      const delib = s.deliberated[axis];
+      return orig && delib && orig !== delib;
+    }),
   ).length;
 
   contextLogger().debug(

@@ -285,7 +285,7 @@ describe('applyDeliberation', () => {
     expect(result.verdict).toBe('CLEAN');
     expect(result.symbols[0].correction).toBe('OK');
     expect(result.symbols[0].confidence).toBe(90);
-    expect(result.symbols[0].detail).toContain('deliberated: NEEDS_FIX → OK');
+    expect(result.symbols[0].detail).toContain('correction: NEEDS_FIX → OK');
     expect(result.actions).toHaveLength(0);
   });
 
