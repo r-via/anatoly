@@ -37,4 +37,8 @@ export interface RagStats {
   lastIndexed: string | null;
   /** Whether the index contains NLP vectors (dual code+NLP embedding). */
   dualEmbedding: boolean;
+  /** Actual code vector dimension stored in the table. */
+  codeDim?: number;
+  /** Actual NLP vector dimension stored in the table (when dual embedding). */
+  nlpDim?: number;
 }

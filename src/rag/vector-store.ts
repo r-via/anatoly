@@ -363,11 +363,33 @@ export class VectorStore {
       return d > max ? d : max;
     }, '');
 
+    // Read actual vector dimensions from a sample row
+    let codeDim: number | undefined;
+    let nlpDim: number | undefined;
+    if (totalCards > 0) {
+      try {
+        const sample = await this.table.query().limit(1).toArray();
+        if (sample.length > 0) {
+          codeDim = toNumberArray(sample[0].vector).length || undefined;
+          if ('nlp_vector' in sample[0]) {
+            const nv = toNumberArray(sample[0].nlp_vector);
+            if (nv.length > 0 && nv.some((v) => v !== 0)) {
+              nlpDim = nv.length;
+            }
+          }
+        }
+      } catch {
+        // Ignore — dimensions are optional metadata
+      }
+    }
+
     return {
       totalCards,
       totalFiles: files.size,
       lastIndexed: lastIndexed || null,
       dualEmbedding: this._hasDualEmbedding,
+      codeDim,
+      nlpDim,
     };
   }
 }
