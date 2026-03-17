@@ -2,32 +2,32 @@ import { describe, it, expect } from 'vitest';
 import { createProgram } from '../cli.js';
 
 describe('hook command registration', () => {
-  it('registers hook command with post-edit, stop, and init subcommands', () => {
+  it('registers hook command with on-edit, on-stop, and init subcommands', () => {
     const program = createProgram();
     const hookCmd = program.commands.find((c) => c.name() === 'hook');
     expect(hookCmd).toBeDefined();
     expect(hookCmd!.description()).toBe('Claude Code integration hooks (internal)');
 
     const subcommands = hookCmd!.commands.map((c) => c.name());
-    expect(subcommands).toContain('post-edit');
-    expect(subcommands).toContain('stop');
+    expect(subcommands).toContain('on-edit');
+    expect(subcommands).toContain('on-stop');
     expect(subcommands).toContain('init');
   });
 
-  it('post-edit subcommand has correct description', () => {
+  it('on-edit subcommand has correct description', () => {
     const program = createProgram();
     const hookCmd = program.commands.find((c) => c.name() === 'hook');
-    const postEdit = hookCmd!.commands.find((c) => c.name() === 'post-edit');
-    expect(postEdit).toBeDefined();
-    expect(postEdit!.description()).toContain('PostToolUse');
+    const onEdit = hookCmd!.commands.find((c) => c.name() === 'on-edit');
+    expect(onEdit).toBeDefined();
+    expect(onEdit!.description()).toContain('PostToolUse');
   });
 
-  it('stop subcommand has correct description', () => {
+  it('on-stop subcommand has correct description', () => {
     const program = createProgram();
     const hookCmd = program.commands.find((c) => c.name() === 'hook');
-    const stop = hookCmd!.commands.find((c) => c.name() === 'stop');
-    expect(stop).toBeDefined();
-    expect(stop!.description()).toContain('Stop hook');
+    const onStop = hookCmd!.commands.find((c) => c.name() === 'on-stop');
+    expect(onStop).toBeDefined();
+    expect(onStop!.description()).toContain('Stop hook');
   });
 
   it('init subcommand has correct description', () => {
@@ -74,7 +74,7 @@ describe('hook init template', () => {
             hooks: [
               {
                 type: 'command',
-                command: 'npx anatoly hook post-edit',
+                command: 'npx anatoly hook on-edit',
                 async: true,
               },
             ],
@@ -85,7 +85,7 @@ describe('hook init template', () => {
             hooks: [
               {
                 type: 'command',
-                command: 'npx anatoly hook stop',
+                command: 'npx anatoly hook on-stop',
                 timeout: 180,
               },
             ],

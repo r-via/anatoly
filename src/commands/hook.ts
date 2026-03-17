@@ -50,9 +50,9 @@ export function registerHookCommand(program: Command): void {
     .description('Claude Code integration hooks (internal)')
     .addHelpText('after', '\nThese subcommands are designed for Claude Code hooks, not direct user invocation.');
 
-  // --- hook post-edit ---
+  // --- hook on-edit ---
   hookCmd
-    .command('post-edit')
+    .command('on-edit')
     .description('PostToolUse hook: queue background review for edited file')
     .action(async () => {
       const projectRoot = resolve('.');
@@ -145,9 +145,9 @@ export function registerHookCommand(program: Command): void {
       process.exit(0);
     });
 
-  // --- hook stop ---
+  // --- hook on-stop ---
   hookCmd
-    .command('stop')
+    .command('on-stop')
     .description('Stop hook: wait for reviews, inject findings as feedback')
     .action(async () => {
       const projectRoot = resolve('.');
@@ -175,7 +175,7 @@ export function registerHookCommand(program: Command): void {
 
       // Anti-loop: check stop_count against max_stop_iterations
       if (state.stop_count >= maxStopIterations) {
-        getLogger().warn({ stopCount: state.stop_count, maxStopIterations }, 'hook stop: max iterations reached, exiting silently');
+        getLogger().warn({ stopCount: state.stop_count, maxStopIterations }, 'hook on-stop: max iterations reached, exiting silently');
         process.exit(0);
       }
 
@@ -194,7 +194,7 @@ export function registerHookCommand(program: Command): void {
         const remaining = timeoutMs - elapsed;
 
         if (remaining <= 0) {
-          getLogger().warn({ file }, 'hook stop: timeout waiting for review');
+          getLogger().warn({ file }, 'hook on-stop: timeout waiting for review');
           state.reviews[file] = { ...review, status: 'timeout' };
           continue;
         }
@@ -204,7 +204,7 @@ export function registerHookCommand(program: Command): void {
 
         // Check if process is still running
         if (isProcessRunning(review.pid)) {
-          getLogger().warn({ file }, 'hook stop: review still running after timeout');
+          getLogger().warn({ file }, 'hook on-stop: review still running after timeout');
           state.reviews[file] = { ...review, status: 'timeout' };
         } else {
           state.reviews[file] = { ...review, status: 'done' };
@@ -302,7 +302,7 @@ export function registerHookCommand(program: Command): void {
               hooks: [
                 {
                   type: 'command',
-                  command: 'npx anatoly hook post-edit',
+                  command: 'npx anatoly hook on-edit',
                   async: true,
                 },
               ],
@@ -313,7 +313,7 @@ export function registerHookCommand(program: Command): void {
               hooks: [
                 {
                   type: 'command',
-                  command: 'npx anatoly hook stop',
+                  command: 'npx anatoly hook on-stop',
                   timeout: 180,
                 },
               ],

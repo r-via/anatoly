@@ -4,15 +4,97 @@ Anatoly integrates directly with [Claude Code](https://docs.anthropic.com/en/doc
 
 ## Table of Contents
 
+- [What are Claude Code Hooks?](#what-are-claude-code-hooks)
 - [Overview](#overview)
 - [Initialization](#initialization)
 - [How It Works](#how-it-works)
-  - [PostToolUse Hook (post-edit)](#posttooluse-hook-post-edit)
-  - [Stop Hook](#stop-hook)
+  - [PostToolUse Hook (on-edit)](#posttooluse-hook-on-edit)
+  - [Stop Hook (on-stop)](#stop-hook-on-stop)
 - [Hook State](#hook-state)
 - [Anti-Loop Protection](#anti-loop-protection)
 - [Configuration](#configuration)
 - [Disabling Hooks](#disabling-hooks)
+
+---
+
+## What are Claude Code Hooks?
+
+Claude Code hooks are shell commands that execute automatically at specific points in Claude Code's lifecycle. They let external tools observe and control what Claude Code does -- inspecting tool calls, blocking actions, or injecting context.
+
+### Hook events
+
+Claude Code fires hooks on several events. The ones Anatoly uses:
+
+| Event | When it fires | Blocking? | Matcher |
+|-------|---------------|-----------|---------|
+| **PreToolUse** | Before a tool executes | Yes | Tool name (`Bash`, `Edit\|Write`, ...) |
+| **PostToolUse** | After a tool succeeds | No | Tool name |
+| **Stop** | When Claude Code finishes responding | Yes | None |
+
+Other events exist (`SessionStart`, `UserPromptSubmit`, `Notification`, etc.) but are not used by Anatoly.
+
+### Configuration
+
+Hooks live in `.claude/settings.json` under a `hooks` key. Each event maps to an array of matcher groups, each containing a `hooks` array of handlers:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "my-script.sh",
+            "async": true,
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- **`matcher`** -- regex matched against the tool name (for tool events) or event source.
+- **`type`** -- handler type. Anatoly uses `"command"` (shell command).
+- **`async`** -- if `true`, the hook runs in the background and does not block Claude Code.
+- **`timeout`** -- maximum execution time in seconds (default: 600).
+
+### Protocol
+
+**Input:** Claude Code sends a JSON payload on **stdin** with event context:
+
+```json
+{
+  "session_id": "abc123",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": { "file_path": "src/foo.ts", "old_string": "...", "new_string": "..." }
+}
+```
+
+For `Stop` events, the payload includes a `stop_hook_active` flag indicating whether this is a re-entry after a previous block.
+
+**Output:** The hook communicates back via **exit code** and **stdout**:
+
+| Exit code | Meaning | Stdout |
+|-----------|---------|--------|
+| **0** | Success | Optional JSON parsed by Claude Code |
+| **2** | Block | stderr message shown to Claude |
+| Other | Non-blocking error | Ignored (logged in verbose mode) |
+
+To block Claude Code from finishing (Stop event) or to reject a tool call (PreToolUse), the hook exits 0 and writes a JSON decision to stdout:
+
+```json
+{
+  "decision": "block",
+  "reason": "Explanation injected into Claude's context"
+}
+```
+
+The `"block"` decision prevents Claude Code from completing and feeds the `reason` back as instructions, prompting Claude to address the issue before trying again.
 
 ---
 
@@ -22,8 +104,8 @@ The integration uses two Claude Code hook types:
 
 | Hook | Trigger | Anatoly Command | Behavior |
 |------|---------|-----------------|----------|
-| **PostToolUse** | After each `Edit` or `Write` tool call | `anatoly hook post-edit` | Spawns a background review for the edited file |
-| **Stop** | When Claude Code is about to finish | `anatoly hook stop` | Waits for pending reviews, blocks with findings if issues are detected |
+| **PostToolUse** | After each `Edit` or `Write` tool call | `anatoly hook on-edit` | Spawns a background review for the edited file |
+| **Stop** | When Claude Code is about to finish | `anatoly hook on-stop` | Waits for pending reviews, blocks with findings if issues are detected |
 
 The result is a closed-loop workflow: Claude writes code, Anatoly audits it silently in the background, and any findings are fed back as actionable instructions before Claude finishes.
 
@@ -46,7 +128,7 @@ This creates or updates `.claude/settings.json` with the required hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "npx anatoly hook post-edit",
+            "command": "npx anatoly hook on-edit",
             "async": true
           }
         ]
@@ -57,7 +139,7 @@ This creates or updates `.claude/settings.json` with the required hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "npx anatoly hook stop",
+            "command": "npx anatoly hook on-stop",
             "timeout": 180
           }
         ]
@@ -71,7 +153,7 @@ If `.claude/settings.json` already contains a `hooks` key, the init command prin
 
 ## How It Works
 
-### PostToolUse Hook (post-edit)
+### PostToolUse Hook (on-edit)
 
 Triggered after every `Edit` or `Write` tool call. The hook runs asynchronously so it does not block Claude Code.
 
@@ -91,7 +173,7 @@ Triggered after every `Edit` or `Write` tool call. The hook runs asynchronously 
 
 The review runs entirely in the background. Claude Code is not blocked at any point.
 
-### Stop Hook
+### Stop Hook (on-stop)
 
 Triggered when Claude Code is about to finish its task. This hook is **synchronous** -- it blocks Claude Code until it completes (up to the 180-second timeout).
 

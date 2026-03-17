@@ -460,8 +460,8 @@ No command-specific options.
 
 Creates a `.claude/settings.json` with two hook registrations:
 
-- **PostToolUse** hook (async): triggers `npx anatoly hook post-edit` after every `Edit` or `Write` tool use. Launches a background single-file review for the changed file.
-- **Stop** hook (sync, 180s timeout): triggers `npx anatoly hook stop` when Claude Code finishes its task. Waits for pending reviews, collects findings, and returns a `block` decision with the findings as the reason if issues are detected.
+- **PostToolUse** hook (async): triggers `npx anatoly hook on-edit` after every `Edit` or `Write` tool use. Launches a background single-file review for the changed file.
+- **Stop** hook (sync, 180s timeout): triggers `npx anatoly hook on-stop` when Claude Code finishes its task. Waits for pending reviews, collects findings, and returns a `block` decision with the findings as the reason if issues are detected.
 
 If `.claude/settings.json` already has a `hooks` key, the command prints the configuration for manual merging instead of overwriting.
 
@@ -471,8 +471,8 @@ The following subcommands are designed for Claude Code hooks and are not intende
 
 | Subcommand | Trigger | Description |
 |------------|---------|-------------|
-| `hook post-edit` | PostToolUse | Reads stdin JSON, extracts `file_path`, spawns a detached background review. Skips non-TS files, deleted files, files under active lock, and files with unchanged SHA-256 hashes. |
-| `hook stop` | Stop | Waits up to 120s for running reviews. Filters findings by `min_confidence` from config. Outputs `{"decision":"block","reason":"..."}` if issues found. Includes anti-loop protection via `stop_count` and `max_stop_iterations`. |
+| `hook on-edit` | PostToolUse | Reads stdin JSON, extracts `file_path`, spawns a detached background review. Skips non-TS files, deleted files, files under active lock, and files with unchanged SHA-256 hashes. |
+| `hook on-stop` | Stop | Waits up to 120s for running reviews. Filters findings by `min_confidence` from config. Outputs `{"decision":"block","reason":"..."}` if issues found. Includes anti-loop protection via `stop_count` and `max_stop_iterations`. |
 
 ### Examples
 
@@ -481,6 +481,6 @@ The following subcommands are designed for Claude Code hooks and are not intende
 anatoly hook init
 
 # The hook subcommands are invoked by Claude Code, not directly:
-# npx anatoly hook post-edit  (stdin: JSON with tool_input.file_path)
-# npx anatoly hook stop       (stdin: JSON with stop_hook_active flag)
+# npx anatoly hook on-edit  (stdin: JSON with tool_input.file_path)
+# npx anatoly hook on-stop   (stdin: JSON with stop_hook_active flag)
 ```
