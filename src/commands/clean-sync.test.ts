@@ -129,18 +129,13 @@ describe('fix-sync integration', () => {
       `- [ ] <!-- ${act2} --> **[medium]** Fix B`,
     ].join('\n');
 
-    let index = [
+    const index = [
       '## Shards',
       '- [ ] [report.1.md](./report.1.md) (1 file)',
-      '',
-      '## Checklist',
-      `- [ ] <!-- ${act1} --> Fix A`,
-      `- [ ] <!-- ${act2} --> Fix B`,
     ].join('\n');
 
-    // Sync both actions
+    // Sync both actions in shard
     shard = checkAction(checkAction(shard, act1).content, act2).content;
-    index = checkAction(checkAction(index, act1).content, act2).content;
 
     expect(allActionsChecked(shard)).toBe(true);
 

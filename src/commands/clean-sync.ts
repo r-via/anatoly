@@ -102,20 +102,10 @@ export function registerCleanSyncCommand(program: Command): void {
       // Sync index: find report.md in the same directory as the shard
       const shardDir = dirname(absShardPath);
       const indexPath = join(shardDir, 'report.md');
-      let indexChecked = 0;
       let shardFullyDone = false;
 
       if (existsSync(indexPath)) {
         let indexContent = readFileSync(indexPath, 'utf-8');
-
-        // Check completed actions in the Checklist section of report.md
-        for (const story of completedStories) {
-          const result = checkAction(indexContent, story.actId);
-          if (result.changed) {
-            indexContent = result.content;
-            indexChecked++;
-          }
-        }
 
         // If ALL shard actions are checked, check the shard line in report.md
         if (allActionsChecked(shardContent)) {
@@ -127,15 +117,12 @@ export function registerCleanSyncCommand(program: Command): void {
           }
         }
 
-        if (indexChecked > 0 || shardFullyDone) {
+        if (shardFullyDone) {
           writeFileSync(indexPath, indexContent);
         }
       }
 
       console.log(chalk.green(`Synced ${shardChecked} action(s) in ${basename(reportFile)}`));
-      if (indexChecked > 0) {
-        console.log(chalk.green(`Synced ${indexChecked} action(s) in report.md Checklist`));
-      }
       if (shardFullyDone) {
         console.log(chalk.green(`All actions done — checked shard in report.md`));
       }

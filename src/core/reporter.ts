@@ -310,28 +310,6 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('');
   }
 
-  // Checklist — aggregated actions from all shards, sorted by severity then file
-  if (data.actions.length > 0) {
-    const sevIcon: Record<string, string> = { high: '\u{1F534}', medium: '\u{1F7E0}', low: '\u{1F7E1}' };
-    const sorted = [...data.actions].sort((a, b) => {
-      const sevOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
-      const sevDiff = (sevOrder[a.severity] ?? 2) - (sevOrder[b.severity] ?? 2);
-      if (sevDiff !== 0) return sevDiff;
-      return a.file.localeCompare(b.file);
-    });
-
-    lines.push('## Checklist');
-    lines.push('');
-    for (const a of sorted) {
-      const actId = makeActId(a.file, a.id);
-      const icon = sevIcon[a.severity] ?? '\u{1F7E1}';
-      const src = a.source ? `${a.source} \u00B7 ` : '';
-      const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
-      lines.push(`- [ ] <!-- ${actId} --> ${icon} **[${src}${a.severity}]** \`${a.file}\`: ${a.description}${target}`);
-    }
-    lines.push('');
-  }
-
   // Error files (compact)
   if (data.errorFiles.length > 0) {
     lines.push('## Files in Error');

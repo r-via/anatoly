@@ -47,7 +47,15 @@ export function mergeAxisResults(
   });
 
   const symbols = detectContradictions(rawSymbols, bestPractices);
-  const actions = mergeActions(results);
+
+  // Collect LLM-generated actions, then synthesize from findings
+  const llmActions = mergeActions(results);
+  const synthesized = synthesizeActionsFromSymbols(symbols);
+  // Dedup: LLM actions take priority over synthesized for same target symbol
+  const existingTargets = new Set(llmActions.map((a) => a.target_symbol).filter(Boolean));
+  const uniqueSynthesized = synthesized.filter((a) => !existingTargets.has(a.target_symbol));
+  const actions = [...llmActions, ...uniqueSynthesized].map((a, i) => ({ ...a, id: i + 1 }));
+
   const fileLevel = mergeFileLevels(results);
   const verdict = computeVerdict(symbols);
   const axisMeta = buildAxisMeta(results);
@@ -199,6 +207,77 @@ function mergeActions(results: AxisResult[]): Action[] {
   );
   // Re-assign IDs sequentially
   return allActions.map((a, i) => ({ ...a, id: i + 1 }));
+}
+
+/**
+ * Synthesize actions from merged symbol findings.
+ * Generates actions for DEAD, DUPLICATE, OVER, and LOW_VALUE findings
+ * that axes don't produce on their own.
+ */
+function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
+  const actions: Action[] = [];
+
+  for (const sym of symbols) {
+    if (sym.confidence < 30) continue;
+
+    if (sym.utility === 'DEAD') {
+      actions.push({
+        id: 0,
+        description: `Remove dead code: \`${sym.name}\` is exported but unused`,
+        severity: sym.confidence >= 80 ? 'high' : 'medium',
+        effort: 'trivial',
+        category: sym.confidence >= 80 ? 'quickwin' : 'refactor',
+        source: 'utility',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
+
+    if (sym.duplication === 'DUPLICATE') {
+      const t = sym.duplicate_target;
+      const desc = t
+        ? `Deduplicate: \`${sym.name}\` duplicates \`${t.symbol}\` in \`${t.file}\``
+        : `Deduplicate: \`${sym.name}\` has duplicate implementations`;
+      actions.push({
+        id: 0,
+        description: desc,
+        severity: sym.confidence >= 80 ? 'high' : 'medium',
+        effort: 'small',
+        category: 'refactor',
+        source: 'duplication',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
+
+    if (sym.overengineering === 'OVER') {
+      actions.push({
+        id: 0,
+        description: `Simplify: \`${sym.name}\` is over-engineered`,
+        severity: 'medium',
+        effort: 'small',
+        category: 'hygiene',
+        source: 'overengineering',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
+
+    if (sym.utility === 'LOW_VALUE') {
+      actions.push({
+        id: 0,
+        description: `Consider removing low-value code: \`${sym.name}\``,
+        severity: 'low',
+        effort: 'trivial',
+        category: 'hygiene',
+        source: 'utility',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
+  }
+
+  return actions;
 }
 
 function mergeFileLevels(results: AxisResult[]) {
