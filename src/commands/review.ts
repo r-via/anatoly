@@ -127,7 +127,7 @@ export function registerReviewCommand(program: Command): void {
                     abortController: activeAbort,
                     runDir: resolve(projectRoot, '.anatoly'),
                     depMeta,
-                    deliberation: config.llm.deliberation,
+                    deliberation: config.llm.deliberation ?? true,
                     onAxisComplete: (axisId) => {
                       display.markAxisDone(fp.file, axisId);
                     },

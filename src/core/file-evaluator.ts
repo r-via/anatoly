@@ -160,7 +160,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes);
 
   // --- Deliberation pass (optional) ---
-  if (opts.deliberation && config.llm.deliberation) {
+  if (opts.deliberation !== false) {
     if (needsDeliberation(review)) {
       try {
         const deliberationModel = resolveDeliberationModel(config);

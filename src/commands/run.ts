@@ -176,7 +176,7 @@ export function registerRunCommand(program: Command): void {
         triageEnabled: parentOpts.triage !== false,
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
-          : config.llm.deliberation,
+          : config.llm.deliberation ?? true,
         dualEmbedding: ragMode !== 'advanced',
         interrupted: false,
         activeAborts: new Set(),
