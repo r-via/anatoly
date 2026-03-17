@@ -56,7 +56,7 @@ Assesses the quality and coverage of tests for each symbol.
 
 ### Best Practices
 
-A file-level (not symbol-level) evaluation against 17 TypeScript best-practice rules. Each rule is scored PASS/WARN/FAIL with a severity tier (CRITIQUE/HAUTE/MOYENNE).
+A file-level (not symbol-level) evaluation against 17 TypeScript best-practice rules. Each rule is scored PASS/WARN/FAIL with a severity tier (CRITICAL/HIGH/MEDIUM).
 
 - **Input:** file source, file context (auto-detected: react-component, api-handler, utility, test, config, general), file stats (line count, symbol count), dependency metadata, project tree
 - **Output:** overall score 0-10, per-rule status array, code suggestions (with optional before/after snippets)

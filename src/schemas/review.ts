@@ -64,7 +64,7 @@ export const FileLevelSchema = z.object({
 // Best Practices (new axis, v2)
 // ---------------------------------------------------------------------------
 
-export const BestPracticesRuleSeveritySchema = z.enum(['CRITIQUE', 'HAUTE', 'MOYENNE']);
+export const BestPracticesRuleSeveritySchema = z.enum(['CRITICAL', 'HIGH', 'MEDIUM']);
 
 export const BestPracticesRuleStatusSchema = z.enum(['PASS', 'WARN', 'FAIL']);
 

@@ -50,8 +50,8 @@ describe('ReviewFileSchema', () => {
       best_practices: {
         score: 8.5,
         rules: [
-          { rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HAUTE' },
-          { rule_id: 2, rule_name: 'No any', status: 'WARN', severity: 'CRITIQUE', detail: 'Found 1 any usage' },
+          { rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HIGH' },
+          { rule_id: 2, rule_name: 'No any', status: 'WARN', severity: 'CRITICAL', detail: 'Found 1 any usage' },
         ],
         suggestions: [{ description: 'Replace any with unknown', before: 'any', after: 'unknown' }],
       },
@@ -136,8 +136,8 @@ describe('BestPracticesSchema', () => {
     const bp = {
       score: 7.5,
       rules: [
-        { rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HAUTE' },
-        { rule_id: 2, rule_name: 'No any', status: 'FAIL', severity: 'CRITIQUE', detail: '3 any usages', lines: 'L10-L20' },
+        { rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HIGH' },
+        { rule_id: 2, rule_name: 'No any', status: 'FAIL', severity: 'CRITICAL', detail: '3 any usages', lines: 'L10-L20' },
       ],
       suggestions: [{ description: 'Use unknown instead of any' }],
     };
@@ -152,7 +152,7 @@ describe('BestPracticesSchema', () => {
   it('should default suggestions to empty array', () => {
     const bp = {
       score: 10,
-      rules: [{ rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HAUTE' }],
+      rules: [{ rule_id: 1, rule_name: 'Strict mode', status: 'PASS', severity: 'HIGH' }],
     };
     const result = BestPracticesSchema.parse(bp);
     expect(result.suggestions).toEqual([]);
@@ -166,17 +166,17 @@ describe('BestPracticesSchema', () => {
 
 describe('BestPracticesRuleSchema', () => {
   it('should validate a valid rule', () => {
-    const rule = { rule_id: 13, rule_name: 'Security', status: 'FAIL', severity: 'CRITIQUE', detail: 'Hardcoded secret' };
+    const rule = { rule_id: 13, rule_name: 'Security', status: 'FAIL', severity: 'CRITICAL', detail: 'Hardcoded secret' };
     expect(BestPracticesRuleSchema.safeParse(rule).success).toBe(true);
   });
 
   it('should reject rule_id outside 1-17', () => {
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 0, rule_name: 'X', status: 'PASS', severity: 'MOYENNE' }).success).toBe(false);
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 18, rule_name: 'X', status: 'PASS', severity: 'MOYENNE' }).success).toBe(false);
+    expect(BestPracticesRuleSchema.safeParse({ rule_id: 0, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' }).success).toBe(false);
+    expect(BestPracticesRuleSchema.safeParse({ rule_id: 18, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' }).success).toBe(false);
   });
 
   it('should reject invalid status', () => {
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 1, rule_name: 'X', status: 'INVALID', severity: 'MOYENNE' }).success).toBe(false);
+    expect(BestPracticesRuleSchema.safeParse({ rule_id: 1, rule_name: 'X', status: 'INVALID', severity: 'MEDIUM' }).success).toBe(false);
   });
 
   it('should reject invalid severity', () => {

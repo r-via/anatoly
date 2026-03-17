@@ -11,7 +11,7 @@ const BestPracticesRuleResponseSchema = z.object({
   rule_id: z.int().min(1).max(17),
   rule_name: z.string(),
   status: z.enum(['PASS', 'WARN', 'FAIL']),
-  severity: z.enum(['CRITIQUE', 'HAUTE', 'MOYENNE']),
+  severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM']),
   detail: z.string().optional(),
   lines: z.string().optional(),
 });

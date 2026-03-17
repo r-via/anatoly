@@ -514,7 +514,7 @@ describe('renderShard', () => {
         symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
         best_practices: {
           score: 7.5,
-          rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITIQUE' as const }],
+          rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITICAL' as const }],
           suggestions: [],
         },
       }),

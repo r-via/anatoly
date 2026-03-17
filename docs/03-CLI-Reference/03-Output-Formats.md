@@ -108,7 +108,7 @@ Each symbol (function, class, method, type, constant, variable, enum, hook) rece
 | `rules` | BestPracticesRule[] | Per-rule evaluation (17 rules) |
 | `suggestions` | BestPracticesSuggestion[] | Concrete before/after improvement suggestions |
 
-Each rule has: `rule_id` (1--17), `rule_name`, `status` (`PASS`, `WARN`, `FAIL`), `severity` (`CRITIQUE`, `HAUTE`, `MOYENNE`), optional `detail` and `lines`.
+Each rule has: `rule_id` (1--17), `rule_name`, `status` (`PASS`, `WARN`, `FAIL`), `severity` (`CRITICAL`, `HIGH`, `MEDIUM`), optional `detail` and `lines`.
 
 ### AxisMetaEntry (v2)
 
@@ -178,7 +178,7 @@ Each rule has: `rule_id` (1--17), `rule_name`, `status` (`PASS`, `WARN`, `FAIL`)
   "best_practices": {
     "score": 9,
     "rules": [
-      { "rule_id": 9, "rule_name": "JSDoc on public exports", "status": "WARN", "severity": "MOYENNE", "detail": "legacyHelper missing JSDoc" }
+      { "rule_id": 9, "rule_name": "JSDoc on public exports", "status": "WARN", "severity": "MEDIUM", "detail": "legacyHelper missing JSDoc" }
     ],
     "suggestions": [
       { "description": "Add JSDoc to exported function legacyHelper" }

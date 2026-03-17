@@ -153,7 +153,7 @@ describe('evaluateFile', () => {
   it('should extract best_practices data when present', async () => {
     const bpData = {
       score: 8,
-      rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITIQUE' as const }],
+      rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITICAL' as const }],
       suggestions: [],
     };
 

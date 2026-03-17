@@ -114,10 +114,10 @@ const sampleReviewV2: ReviewFile = {
   best_practices: {
     score: 7.75,
     rules: [
-      { rule_id: 2, rule_name: 'No `any`', status: 'WARN', severity: 'CRITIQUE', detail: 'program.opts() returns implicit any' },
-      { rule_id: 7, rule_name: 'File size', status: 'PASS', severity: 'HAUTE' },
-      { rule_id: 9, rule_name: 'JSDoc on exports', status: 'FAIL', severity: 'MOYENNE', detail: 'registerEstimateCommand has no JSDoc', lines: 'L8' },
-      { rule_id: 12, rule_name: 'Async/Error handling', status: 'PASS', severity: 'HAUTE', detail: 'Commander v14 handles async rejections natively' },
+      { rule_id: 2, rule_name: 'No `any`', status: 'WARN', severity: 'CRITICAL', detail: 'program.opts() returns implicit any' },
+      { rule_id: 7, rule_name: 'File size', status: 'PASS', severity: 'HIGH' },
+      { rule_id: 9, rule_name: 'JSDoc on exports', status: 'FAIL', severity: 'MEDIUM', detail: 'registerEstimateCommand has no JSDoc', lines: 'L8' },
+      { rule_id: 12, rule_name: 'Async/Error handling', status: 'PASS', severity: 'HIGH', detail: 'Commander v14 handles async rejections natively' },
     ],
     suggestions: [
       {

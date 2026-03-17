@@ -218,7 +218,7 @@ describe('mergeAxisResults', () => {
   it('should include best_practices when provided', () => {
     const bp: BestPractices = {
       score: 8.5,
-      rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS', severity: 'CRITIQUE' }],
+      rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS', severity: 'CRITICAL' }],
       suggestions: [],
     };
 

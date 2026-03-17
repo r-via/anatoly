@@ -10,23 +10,23 @@ Start from 10.0 and subtract penalties per rule violation:
 
 | # | Rule | Severity | Penalty |
 |---|------|----------|---------|
-| 1 | Strict mode (tsconfig strict: true) | HAUTE | -1 pt |
-| 2 | No `any` (explicit or implicit) | CRITIQUE | -3 pts |
-| 3 | Discriminated unions (prefer tagged unions over type assertions) | MOYENNE | -0.5 pt |
-| 4 | Utility types (Pick, Omit, Partial, Required, Record) | MOYENNE | -0.5 pt |
-| 5 | Immutability (readonly, as const where appropriate) | MOYENNE | -0.5 pt |
-| 6 | Interface vs Type (consistent convention within project) | MOYENNE | -0.5 pt |
-| 7 | File size (< 300 lines preferred) | HAUTE | -1 pt |
-| 8 | ESLint compliance (no obvious lint violations) | HAUTE | -1 pt |
-| 9 | JSDoc on public exports (except test files) | MOYENNE | -0.5 pt |
-| 10 | Modern 2026 practices (no deprecated APIs, modern syntax) | MOYENNE | -0.5 pt |
-| 11 | Import organization (grouped, no circular, no side-effect imports) | MOYENNE | -0.5 pt |
-| 12 | Async/Promises/Error handling (no unhandled rejections, proper try-catch — consider framework version capabilities) | HAUTE | -1 pt |
-| 13 | Security (no hardcoded secrets, no eval, no command injection) | CRITIQUE | -4 pts |
-| 14 | Performance (no obvious N+1, unnecessary re-renders, sync I/O in async) | MOYENNE | -0.5 pt |
-| 15 | Testability (dependency injection, low coupling, pure functions) | MOYENNE | -0.5 pt |
-| 16 | TypeScript 5.5+ features (satisfies, const type params, using) | MOYENNE | -0.5 pt |
-| 17 | Context-adapted rules (React/API/Utility-specific best practices) | MOYENNE | -0.5 pt |
+| 1 | Strict mode (tsconfig strict: true) | HIGH | -1 pt |
+| 2 | No `any` (explicit or implicit) | CRITICAL | -3 pts |
+| 3 | Discriminated unions (prefer tagged unions over type assertions) | MEDIUM | -0.5 pt |
+| 4 | Utility types (Pick, Omit, Partial, Required, Record) | MEDIUM | -0.5 pt |
+| 5 | Immutability (readonly, as const where appropriate) | MEDIUM | -0.5 pt |
+| 6 | Interface vs Type (consistent convention within project) | MEDIUM | -0.5 pt |
+| 7 | File size (< 300 lines preferred) | HIGH | -1 pt |
+| 8 | ESLint compliance (no obvious lint violations) | HIGH | -1 pt |
+| 9 | JSDoc on public exports (except test files) | MEDIUM | -0.5 pt |
+| 10 | Modern 2026 practices (no deprecated APIs, modern syntax) | MEDIUM | -0.5 pt |
+| 11 | Import organization (grouped, no circular, no side-effect imports) | MEDIUM | -0.5 pt |
+| 12 | Async/Promises/Error handling (no unhandled rejections, proper try-catch — consider framework version capabilities) | HIGH | -1 pt |
+| 13 | Security (no hardcoded secrets, no eval, no command injection) | CRITICAL | -4 pts |
+| 14 | Performance (no obvious N+1, unnecessary re-renders, sync I/O in async) | MEDIUM | -0.5 pt |
+| 15 | Testability (dependency injection, low coupling, pure functions) | MEDIUM | -0.5 pt |
+| 16 | TypeScript 5.5+ features (satisfies, const type params, using) | MEDIUM | -0.5 pt |
+| 17 | Context-adapted rules (React/API/Utility-specific best practices) | MEDIUM | -0.5 pt |
 
 ## Rules for evaluation
 
@@ -51,7 +51,7 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
       "rule_id": 1,
       "rule_name": "Strict mode",
       "status": "PASS | WARN | FAIL",
-      "severity": "CRITIQUE | HAUTE | MOYENNE",
+      "severity": "CRITICAL | HIGH | MEDIUM",
       "detail": "Explanation (optional)",
       "lines": "L10-L20 (optional)"
     }

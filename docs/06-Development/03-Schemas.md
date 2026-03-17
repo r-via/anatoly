@@ -110,7 +110,7 @@ Suggested remediation steps, each with:
 
 ### Best Practices (v2)
 
-File-level evaluation against 17 rules (IDs 1-17). Each rule has a status (`PASS`, `WARN`, `FAIL`) and a severity (`CRITIQUE`, `HAUTE`, `MOYENNE`). The overall score is 0-10.
+File-level evaluation against 17 rules (IDs 1-17). Each rule has a status (`PASS`, `WARN`, `FAIL`) and a severity (`CRITICAL`, `HIGH`, `MEDIUM`). The overall score is 0-10.
 
 ### Axis Meta
 
