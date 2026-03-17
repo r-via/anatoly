@@ -26,6 +26,7 @@ const mockUsageGraph: UsageGraph = {
     // MAX_WIDTH has 0 importers → DEAD
   ]),
   typeOnlyUsages: new Map(),
+  intraFileRefs: new Map(),
 };
 
 function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {

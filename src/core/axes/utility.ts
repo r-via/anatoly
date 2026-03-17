@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery } from '../axis-evaluator.js';
 import { resolveAxisModel } from '../axis-evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
 import utilitySystemPrompt from './prompts/utility.system.md';
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,12 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
         const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
         const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
         if (importers.length === 0 && typeImporters.length === 0) {
-          parts.push(`- ${sym.name} (exported): imported by 0 files — LIKELY DEAD`);
+          const transitiveRefs = getTransitiveUsage(ctx.usageGraph!, sym.name, ctx.task.file);
+          if (transitiveRefs.length > 0) {
+            parts.push(`- ${sym.name} (exported): not directly imported, but TRANSITIVELY USED by ${transitiveRefs.join(', ')} (which ${transitiveRefs.length > 1 ? 'are' : 'is'} imported)`);
+          } else {
+            parts.push(`- ${sym.name} (exported): imported by 0 files — LIKELY DEAD`);
+          }
         } else if (importers.length > 0) {
           parts.push(`- ${sym.name} (exported): runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}${typeImporters.length > 0 ? ` (also type-imported by ${typeImporters.length})` : ''}`);
         } else {

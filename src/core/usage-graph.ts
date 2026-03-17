@@ -9,6 +9,8 @@ export interface UsageGraph {
   usages: Map<string, Set<string>>;
   /** "symbolName::filePath" → Set<files that type-only import this symbol from this file> */
   typeOnlyUsages: Map<string, Set<string>>;
+  /** "symbolName::filePath" → Set<exported symbol names in the same file that reference this symbol in their body> */
+  intraFileRefs: Map<string, Set<string>>;
 }
 
 /**
@@ -190,6 +192,58 @@ function buildExportMap(tasks: Task[]): Map<string, Set<string>> {
   return map;
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Build intra-file reference graph: for each exported symbol, find which
+ * other exported symbols in the same file reference it in their body.
+ * This enables transitive usage detection — if symbol A is imported
+ * externally and references symbol B in its body, B is transitively alive.
+ */
+function buildIntraFileGraph(
+  projectRoot: string,
+  tasks: Task[],
+): Map<string, Set<string>> {
+  const intra = new Map<string, Set<string>>();
+
+  for (const task of tasks) {
+    const exported = task.symbols.filter((s) => s.exported);
+    if (exported.length < 2) continue;
+
+    const absPath = resolve(projectRoot, task.file);
+    let source: string;
+    try {
+      source = readFileSync(absPath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    const lines = source.split('\n');
+
+    for (const candidate of exported) {
+      for (const referencer of exported) {
+        if (candidate.name === referencer.name) continue;
+
+        const body = lines.slice(referencer.line_start - 1, referencer.line_end).join('\n');
+        const re = new RegExp(`\\b${escapeRegExp(candidate.name)}\\b`);
+        if (re.test(body)) {
+          const key = `${candidate.name}::${task.file}`;
+          let set = intra.get(key);
+          if (!set) {
+            set = new Set<string>();
+            intra.set(key, set);
+          }
+          set.add(referencer.name);
+        }
+      }
+    }
+  }
+
+  return intra;
+}
+
 /**
  * Build a usage graph by scanning all import statements across the project.
  * Runs in a single local pass (no API calls).
@@ -251,11 +305,14 @@ export function buildUsageGraph(
     }
   }
 
+  const intraFileRefs = buildIntraFileGraph(projectRoot, tasks);
+
   contextLogger().debug(
     {
       files: tasks.length,
       runtimeImports: usages.size,
       typeImports: typeOnlyUsages.size,
+      intraFileRefs: intraFileRefs.size,
       totalExports,
       orphanCount,
       durationMs: Date.now() - startTime,
@@ -263,7 +320,7 @@ export function buildUsageGraph(
     'usage graph built',
   );
 
-  return { usages, typeOnlyUsages };
+  return { usages, typeOnlyUsages, intraFileRefs };
 }
 
 /**
@@ -290,4 +347,22 @@ export function getTypeOnlySymbolUsage(
   const key = `${symbolName}::${filePath}`;
   const set = graph.typeOnlyUsages.get(key);
   return set ? [...set].sort() : [];
+}
+
+/**
+ * Get exported symbols in the same file that reference the given symbol in their body.
+ * Only returns referencers that are themselves alive (imported by other files).
+ */
+export function getTransitiveUsage(
+  graph: UsageGraph,
+  symbolName: string,
+  filePath: string,
+): string[] {
+  const key = `${symbolName}::${filePath}`;
+  const refs = graph.intraFileRefs.get(key);
+  if (!refs) return [];
+  return [...refs].filter((ref) => {
+    const refKey = `${ref}::${filePath}`;
+    return graph.usages.has(refKey) || graph.typeOnlyUsages.has(refKey);
+  }).sort();
 }
