@@ -238,6 +238,13 @@ export function applyDeliberation(
     verdict,
     symbols,
     actions,
+    deliberation: {
+      verdict_before: review.verdict,
+      verdict_after: verdict,
+      reclassified,
+      actions_removed: deliberation.removed_actions.length,
+      reasoning: deliberation.reasoning,
+    },
   };
 }
 

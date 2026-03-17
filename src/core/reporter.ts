@@ -482,6 +482,44 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     }
   }
 
+  // Deliberation summary
+  {
+    const deliberated = data.reviews.filter((r) => r.deliberation);
+    if (deliberated.length > 0) {
+      const totalReclassified = deliberated.reduce((sum, r) => sum + r.deliberation!.reclassified, 0);
+      const totalActionsRemoved = deliberated.reduce((sum, r) => sum + r.deliberation!.actions_removed, 0);
+      const verdictChanges = deliberated.filter((r) => r.deliberation!.verdict_before !== r.deliberation!.verdict_after);
+
+      lines.push('## Deliberation');
+      lines.push('');
+      lines.push(`| Metric | Value |`);
+      lines.push(`|--------|-------|`);
+      lines.push(`| Files deliberated | ${deliberated.length} |`);
+      lines.push(`| Symbols reclassified | ${totalReclassified} |`);
+      lines.push(`| Actions removed | ${totalActionsRemoved} |`);
+      lines.push(`| Verdict changes | ${verdictChanges.length} |`);
+      lines.push('');
+
+      if (verdictChanges.length > 0) {
+        lines.push('**Verdict changes:**');
+        lines.push('');
+        for (const r of verdictChanges) {
+          lines.push(`- \`${r.file}\`: ${r.deliberation!.verdict_before} → ${r.deliberation!.verdict_after}`);
+        }
+        lines.push('');
+      }
+
+      if (totalReclassified > 0) {
+        lines.push('**Reclassified files:**');
+        lines.push('');
+        for (const r of deliberated.filter((r) => r.deliberation!.reclassified > 0)) {
+          lines.push(`- \`${r.file}\`: ${r.deliberation!.reclassified} symbol(s) — ${r.deliberation!.reasoning.slice(0, 120)}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
   // --- Appendix: static methodology reference ---
   lines.push('---');
   lines.push('');

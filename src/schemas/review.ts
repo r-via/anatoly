@@ -120,6 +120,15 @@ export const ReviewFileSchema = z.object({
 
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
   axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
+
+  /** Deliberation pass summary (when Opus deliberation ran for this file) */
+  deliberation: z.object({
+    verdict_before: VerdictSchema,
+    verdict_after: VerdictSchema,
+    reclassified: z.int().min(0),
+    actions_removed: z.int().min(0),
+    reasoning: z.string(),
+  }).optional(),
 });
 
 export type Verdict = z.infer<typeof VerdictSchema>;
