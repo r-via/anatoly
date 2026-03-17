@@ -52,9 +52,10 @@ You receive a ReviewFile (merged from 6 independent axis evaluators) and the ori
 
 - You MUST NOT add new findings or new symbols. You can only modify existing ones.
 - You MUST NOT add new actions. You can only remove existing ones.
-- For each symbol, you MUST provide reasoning (min 10 chars) explaining your decision.
+- ONLY deliberate symbols that have findings (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). SKIP symbols that are clean across all axes (OK, USED, UNIQUE, LEAN, GOOD, or '-'). Do NOT include clean symbols in your output.
+- For each deliberated symbol, you MUST provide reasoning (min 10 chars) explaining your decision.
 - When reclassifying, your deliberated confidence MUST be ≥ 85.
-- When keeping the original assessment unchanged, copy original values to deliberated.
+- When keeping a finding unchanged, copy original values to deliberated.
 - ERROR → OK reclassification is only allowed if your confidence is ≥ 95.
 - Provide global reasoning explaining your overall assessment.
 
@@ -93,14 +94,15 @@ ${fileContent}
 
 ## Instructions
 
-Review the merged findings above. For EACH symbol in the review, output your deliberation with original and deliberated correction+confidence. Remove action IDs that are no longer valid after reclassification. Recompute the verdict based on your final assessments.
+Review the merged findings above. ONLY deliberate symbols that have findings — skip clean symbols entirely (do not include them in the output). Remove action IDs that are no longer valid after reclassification. Recompute the verdict based on your final assessments.
 
 Remember:
+- ONLY output symbols with findings (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). Do NOT output clean symbols.
 - Do NOT add new findings or symbols
 - Do NOT add new actions
 - Protect ERROR findings (require ≥ 95 confidence to downgrade)
 - Your deliberated confidence must be ≥ 85 for any reclassification
-- Copy original values to deliberated when you agree with the assessment`;
+- Copy original values to deliberated when you agree with the finding`;
 }
 
 // ---------------------------------------------------------------------------
