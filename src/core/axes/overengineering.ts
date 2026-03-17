@@ -47,6 +47,15 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
+  if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
+    parts.push('## Installed Dependencies');
+    parts.push('');
+    for (const dep of ctx.fileDeps.deps) {
+      parts.push(`- ${dep.name}: ${dep.version}`);
+    }
+    parts.push('');
+  }
+
   if (ctx.projectTree) {
     parts.push('## Project Structure');
     parts.push('');

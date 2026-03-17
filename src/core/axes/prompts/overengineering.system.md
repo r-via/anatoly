@@ -10,8 +10,11 @@ Evaluate whether each symbol is LEAN (appropriately complex), OVER (unnecessaril
 2. OVER = unnecessary abstractions, premature generalization, overly complex patterns for a simple task (confidence: 80+).
 3. ACCEPTABLE = some complexity but justified by requirements (confidence: 85+).
 4. Signs of overengineering: unnecessary generics, factory patterns for single use, deep inheritance hierarchies, abstract classes with single implementation, excessive configuration for simple behavior.
-5. A function doing one thing well is LEAN, even if it's long.
-6. Do NOT evaluate other axes — only overengineering.
+5. **NIH (Not Invented Here)**: flag code that reimplements what a well-known library does natively.
+   - **Installed dep reimplemented** → OVER. Example: hand-rolled debounce when `lodash` is in deps, manual retry loop when `p-retry` is installed.
+   - **Well-known lib not installed** → ACCEPTABLE with a suggestion in the detail. Example: "Manual glob matching could be replaced by `micromatch` (npm, 30M/week)". Only suggest widely-adopted libraries (>1M weekly downloads). Do NOT suggest libs for trivial 2-3 line helpers.
+6. A function doing one thing well is LEAN, even if it's long.
+7. Do NOT evaluate other axes — only overengineering.
 
 ## Output format
 
