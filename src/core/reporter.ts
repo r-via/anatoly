@@ -12,6 +12,15 @@ export interface TriageStats {
   estimatedTimeSaved: number;
 }
 
+export interface RunStats {
+  runId: string;
+  durationMs: number;
+  costUsd: number;
+  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
+  phaseDurations: Record<string, number>;
+  degradedReviews: number;
+}
+
 export interface ReportData {
   reviews: ReviewFile[];
   globalVerdict: Verdict;
@@ -254,7 +263,7 @@ export function buildShards(data: ReportData): ShardInfo[] {
 /**
  * Render the compact index (report.md) — always < ~100 lines.
  */
-export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats): string {
+export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats, runStats?: RunStats): string {
   const lines: string[] = [];
 
   lines.push('# Anatoly Audit Report');
@@ -345,6 +354,50 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('');
     lines.push(`Estimated time saved: **${triageStats.estimatedTimeSaved.toFixed(1)} min**`);
     lines.push('');
+  }
+
+  // Run Statistics
+  if (runStats) {
+    lines.push('## Run Statistics');
+    lines.push('');
+    const durationMin = (runStats.durationMs / 60_000).toFixed(1);
+    lines.push(`| Metric | Value |`);
+    lines.push(`|--------|-------|`);
+    lines.push(`| Run ID | \`${runStats.runId}\` |`);
+    lines.push(`| Duration | ${durationMin} min |`);
+    lines.push(`| API cost | $${runStats.costUsd.toFixed(2)} |`);
+    if (runStats.degradedReviews > 0) {
+      lines.push(`| Degraded reviews | ${runStats.degradedReviews} |`);
+    }
+    lines.push('');
+
+    // Phase durations
+    const phases = Object.entries(runStats.phaseDurations);
+    if (phases.length > 0) {
+      lines.push('**Phase durations:**');
+      lines.push('');
+      lines.push('| Phase | Duration |');
+      lines.push('|-------|----------|');
+      for (const [phase, ms] of phases) {
+        const dur = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+        lines.push(`| ${phase} | ${dur} |`);
+      }
+      lines.push('');
+    }
+
+    // Per-axis stats
+    const axes = Object.entries(runStats.axisStats);
+    if (axes.length > 0) {
+      lines.push('**Per-axis breakdown:**');
+      lines.push('');
+      lines.push('| Axis | Calls | Duration | Cost | Tokens (in/out) |');
+      lines.push('|------|-------|----------|------|-----------------|');
+      for (const [axis, s] of axes) {
+        const dur = (s.totalDurationMs / 1000).toFixed(1);
+        lines.push(`| ${axis} | ${s.calls} | ${dur}s | $${s.totalCostUsd.toFixed(2)} | ${s.totalInputTokens} / ${s.totalOutputTokens} |`);
+      }
+      lines.push('');
+    }
   }
 
   // Methodology
@@ -570,6 +623,7 @@ export function generateReport(
   errorFiles?: string[],
   runDir?: string,
   triageStats?: TriageStats,
+  runStats?: RunStats,
 ): { reportPath: string; data: ReportData } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
@@ -579,7 +633,7 @@ export function generateReport(
   const reportPath = join(baseDir, 'report.md');
 
   // Write index
-  writeFileSync(reportPath, renderIndex(data, shards, triageStats));
+  writeFileSync(reportPath, renderIndex(data, shards, triageStats, runStats));
 
   // Write shards
   for (const shard of shards) {

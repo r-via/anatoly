@@ -949,7 +949,16 @@ function runReportPhase(ctx: RunContext): void {
     };
   }
 
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats);
+  const totalDurationMs = Date.now() - ctx.startTime;
+  const runStats: import('../core/reporter.js').RunStats = {
+    runId: ctx.runId,
+    durationMs: totalDurationMs,
+    costUsd: ctx.totalCostUsd,
+    axisStats: ctx.axisStats,
+    phaseDurations: ctx.phaseDurations,
+    degradedReviews: ctx.degradedReviews,
+  };
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats);
 
   if (ctx.config.output?.max_runs) {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
