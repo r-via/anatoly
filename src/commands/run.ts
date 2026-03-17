@@ -9,7 +9,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
+import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
@@ -87,6 +87,8 @@ interface RunContext {
   runLog?: import('../utils/logger.js').Logger;
   /** CLI axes filter — restricts which axes are evaluated (intersection with config) */
   axesFilter?: AxisId[];
+  /** Dry-run mode — show what would happen without executing reviews */
+  dryRun: boolean;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -110,6 +112,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--open', 'open report in default app after generation')
+    .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
     .action(async (cmdOpts: { runId?: string; axes?: string }) => {
@@ -189,6 +192,7 @@ export function registerRunCommand(program: Command): void {
         degradedReviews: 0,
         axisStats: {},
         axesFilter,
+        dryRun: parentOpts.dryRun as boolean ?? false,
       };
 
       // Create per-run ndjson log file at debug level
@@ -212,6 +216,7 @@ export function registerRunCommand(program: Command): void {
       try {
         await runWithContext({ runId, phase: 'setup' }, async () => {
         const setup = await runSetupPhase(ctx);
+        if (ctx.dryRun) return;
         if (ctx.interrupted) {
           console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatDuration(Date.now() - ctx.startTime)}`);
           return;
@@ -528,6 +533,25 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // Render setup summary table
   renderSetupTable({ config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
 
+  // Dry-run: show summary and exit before review
+  if (ctx.dryRun) {
+    const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
+    const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, allTasks);
+    const seqSeconds = evalTasks.reduce((sum, t) => sum + estimateFileSeconds(t.symbols?.length ?? 0), 0);
+    const estMinutes = estimateMinutesWithConcurrency(seqSeconds, ctx.concurrency);
+
+    console.log('');
+    console.log(chalk.bold('dry run') + ' — no files were reviewed');
+    console.log('');
+    console.log(`  files        ${allTasks.length}`);
+    console.log(`  evaluate     ${evalTasks.length}`);
+    console.log(`  skip         ${allTasks.length - evalTasks.length}`);
+    console.log(`  tokens       ${formatTokenCount(inputTokens + outputTokens)}`);
+    console.log(`  est. time    ~${estMinutes} min (concurrency ${ctx.concurrency})`);
+    console.log('');
+    return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree };
+  }
+
   // Wait for confirmation before proceeding to review
   if (process.stdin.isTTY && !ctx.interrupted) {
     await waitForEnter();
@@ -823,19 +847,28 @@ async function runReviewPhase(
               s.totalInputTokens += at.inputTokens;
               s.totalOutputTokens += at.outputTokens;
             }
+            const symbolCount = task.symbols?.length ?? 0;
             const reviewFields = {
               file: filePath,
               verdict: result.review.verdict,
               tier: triage?.tier ?? 'evaluate',
+              symbolCount,
               costUsd: result.costUsd,
               durationMs: result.durationMs,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
               cacheReadTokens: result.cacheReadTokens,
               cacheCreationTokens: result.cacheCreationTokens,
+              axisTiming: result.axisTiming.map((at) => ({
+                axisId: at.axisId,
+                durationMs: at.durationMs,
+                costUsd: at.costUsd,
+                inputTokens: at.inputTokens,
+                outputTokens: at.outputTokens,
+              })),
             };
             log.debug(reviewFields, 'file review completed');
-            ctx.runLog?.debug(reviewFields, 'file review completed');
+            ctx.runLog?.info(reviewFields, 'file review completed');
           } catch (error) {
             if (ctx.interrupted) return;
 
@@ -934,6 +967,8 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   console.log(`  reviews      ${chalk.cyan(resolve(ctx.runDir, 'reviews') + '/')}`);
   console.log(`  transcripts  ${chalk.cyan(resolve(ctx.runDir, 'logs') + '/')}`);
   console.log(`  log          ${chalk.cyan(resolve(ctx.runDir, 'anatoly.ndjson'))}`);
+  console.log('');
+  console.log(chalk.dim(`  $${ctx.totalCostUsd.toFixed(2)} in API calls · $0.00 with Claude Code`));
 
   if (ctx.shouldOpen) openFile(reportPath);
 

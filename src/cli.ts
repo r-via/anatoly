@@ -48,6 +48,7 @@ export function createProgram(): Command {
     .option('--no-deliberation', 'disable deliberation pass (overrides config)')
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
+    .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--log-level <level>', 'set log level (fatal, error, warn, info, debug, trace)')
     .option('--log-file <path>', 'write logs to file in ndjson format');
 
