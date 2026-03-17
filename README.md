@@ -52,7 +52,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
-- **Auto-clean via Ralph** — `anatoly clean` parses a report shard into Ralph artifacts (prd.json + CLAUDE.md), then `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
+- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — our own implementation of the autonomous dev-loop pattern. `anatoly clean` parses a report shard into Ralph artifacts (prd.json + CLAUDE.md), then `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for the evaluation axes.
