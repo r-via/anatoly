@@ -949,10 +949,9 @@ function runReportPhase(ctx: RunContext): void {
     };
   }
 
-  const totalDurationMs = Date.now() - ctx.startTime;
   const runStats: import('../core/reporter.js').RunStats = {
     runId: ctx.runId,
-    durationMs: totalDurationMs,
+    durationMs: Date.now() - ctx.startTime,
     costUsd: ctx.totalCostUsd,
     axisStats: ctx.axisStats,
     phaseDurations: ctx.phaseDurations,

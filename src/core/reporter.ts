@@ -400,8 +400,120 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     }
   }
 
-  // Methodology
-  lines.push('## Methodology');
+  // Axis Summary — per-axis verdict distribution computed from reviews
+  {
+    const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
+    const totalSymbols = reliable.length;
+
+    if (totalSymbols > 0) {
+      lines.push('## Axis Summary');
+      lines.push('');
+
+      // Utility
+      const utilUsed = reliable.filter((s) => s.utility === 'USED').length;
+      const utilDead = reliable.filter((s) => s.utility === 'DEAD').length;
+      const utilLow = reliable.filter((s) => s.utility === 'LOW_VALUE').length;
+      const utilSkip = reliable.filter((s) => s.utility === '-').length;
+      const utilTotal = utilUsed + utilDead + utilLow;
+      if (utilTotal > 0) {
+        lines.push(`**Utility** — ${utilTotal} symbols evaluated${utilSkip > 0 ? `, ${utilSkip} skipped` : ''}`);
+        lines.push('');
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (utilUsed > 0) lines.push(`| USED | ${utilUsed} | ${((utilUsed / utilTotal) * 100).toFixed(0)}% |`);
+        if (utilDead > 0) lines.push(`| DEAD | ${utilDead} | ${((utilDead / utilTotal) * 100).toFixed(0)}% |`);
+        if (utilLow > 0) lines.push(`| LOW_VALUE | ${utilLow} | ${((utilLow / utilTotal) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+
+      // Duplication
+      const dupUnique = reliable.filter((s) => s.duplication === 'UNIQUE').length;
+      const dupDup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
+      const dupSkip = reliable.filter((s) => s.duplication === '-').length;
+      const dupTotal = dupUnique + dupDup;
+      if (dupTotal > 0) {
+        lines.push(`**Duplication** — ${dupTotal} symbols evaluated${dupSkip > 0 ? `, ${dupSkip} skipped` : ''}`);
+        lines.push('');
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (dupUnique > 0) lines.push(`| UNIQUE | ${dupUnique} | ${((dupUnique / dupTotal) * 100).toFixed(0)}% |`);
+        if (dupDup > 0) lines.push(`| DUPLICATE | ${dupDup} | ${((dupDup / dupTotal) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+
+      // Correction
+      const corOk = reliable.filter((s) => s.correction === 'OK').length;
+      const corFix = reliable.filter((s) => s.correction === 'NEEDS_FIX').length;
+      const corErr = reliable.filter((s) => s.correction === 'ERROR').length;
+      const corSkip = reliable.filter((s) => s.correction === '-').length;
+      const corTotal = corOk + corFix + corErr;
+      if (corTotal > 0) {
+        lines.push(`**Correction** — ${corTotal} symbols evaluated${corSkip > 0 ? `, ${corSkip} skipped` : ''}`);
+        lines.push('');
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (corOk > 0) lines.push(`| OK | ${corOk} | ${((corOk / corTotal) * 100).toFixed(0)}% |`);
+        if (corFix > 0) lines.push(`| NEEDS_FIX | ${corFix} | ${((corFix / corTotal) * 100).toFixed(0)}% |`);
+        if (corErr > 0) lines.push(`| ERROR | ${corErr} | ${((corErr / corTotal) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+
+      // Overengineering
+      const ovLean = reliable.filter((s) => s.overengineering === 'LEAN').length;
+      const ovOver = reliable.filter((s) => s.overengineering === 'OVER').length;
+      const ovAcc = reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length;
+      const ovSkip = reliable.filter((s) => s.overengineering === '-').length;
+      const ovTotal = ovLean + ovOver + ovAcc;
+      if (ovTotal > 0) {
+        lines.push(`**Overengineering** — ${ovTotal} symbols evaluated${ovSkip > 0 ? `, ${ovSkip} skipped` : ''}`);
+        lines.push('');
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (ovLean > 0) lines.push(`| LEAN | ${ovLean} | ${((ovLean / ovTotal) * 100).toFixed(0)}% |`);
+        if (ovAcc > 0) lines.push(`| ACCEPTABLE | ${ovAcc} | ${((ovAcc / ovTotal) * 100).toFixed(0)}% |`);
+        if (ovOver > 0) lines.push(`| OVER | ${ovOver} | ${((ovOver / ovTotal) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+
+      // Tests
+      const testGood = reliable.filter((s) => s.tests === 'GOOD').length;
+      const testWeak = reliable.filter((s) => s.tests === 'WEAK').length;
+      const testNone = reliable.filter((s) => s.tests === 'NONE').length;
+      const testSkip = reliable.filter((s) => s.tests === '-').length;
+      const testTotal = testGood + testWeak + testNone;
+      if (testTotal > 0) {
+        lines.push(`**Tests** — ${testTotal} symbols evaluated${testSkip > 0 ? `, ${testSkip} skipped` : ''}`);
+        lines.push('');
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (testGood > 0) lines.push(`| GOOD | ${testGood} | ${((testGood / testTotal) * 100).toFixed(0)}% |`);
+        if (testWeak > 0) lines.push(`| WEAK | ${testWeak} | ${((testWeak / testTotal) * 100).toFixed(0)}% |`);
+        if (testNone > 0) lines.push(`| NONE | ${testNone} | ${((testNone / testTotal) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+
+      // Best Practices (file-level)
+      const bpReviews = data.reviews.filter((r) => r.best_practices);
+      if (bpReviews.length > 0) {
+        const scores = bpReviews.map((r) => r.best_practices!.score);
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const min = Math.min(...scores);
+        const max = Math.max(...scores);
+        lines.push(`**Best Practices** — ${bpReviews.length} files evaluated`);
+        lines.push('');
+        lines.push('| Metric | Value |');
+        lines.push('|--------|-------|');
+        lines.push(`| Average score | ${avg.toFixed(1)}/10 |`);
+        lines.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
+        lines.push('');
+      }
+    }
+  }
+
+  // --- Appendix: static methodology reference ---
+  lines.push('---');
+  lines.push('');
+  lines.push('## Appendix: Methodology');
   lines.push('');
   lines.push('Each file is evaluated through 6 independent axis evaluators running in parallel.');
   lines.push('Every symbol (function, class, variable, type) is analysed individually and receives a rating per axis along with a confidence score (0–100).');

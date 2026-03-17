@@ -379,7 +379,7 @@ describe('renderIndex', () => {
     const shards = buildShards(data);
     const md = renderIndex(data, shards);
     const lineCount = md.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(130);
+    expect(lineCount).toBeLessThanOrEqual(200);
   });
 
   it('should include error files section', () => {
@@ -392,7 +392,7 @@ describe('renderIndex', () => {
   it('should include Methodology section with axis pipeline description', () => {
     const data = aggregateReviews([makeReview()]);
     const md = renderIndex(data, []);
-    expect(md).toContain('## Methodology');
+    expect(md).toContain('## Appendix: Methodology');
     expect(md).toContain('6 independent axis evaluators');
     expect(md).toContain('Utility');
     expect(md).toContain('Duplication');
@@ -429,8 +429,8 @@ describe('renderIndex', () => {
     const stats: TriageStats = { total: 100, skip: 30, evaluate: 70, estimatedTimeSaved: 15.0 };
     const md = renderIndex(data, shards, stats);
     const lineCount = md.split('\n').length;
-    // Allow a bit more room for the triage section
-    expect(lineCount).toBeLessThanOrEqual(140);
+    // Allow room for axis summary + triage + appendix
+    expect(lineCount).toBeLessThanOrEqual(210);
   });
 });
 
