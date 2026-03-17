@@ -172,6 +172,9 @@ export async function runSingleTurnQuery<T>(
     transcript: transcriptLines.join('\n'),
   });
 
+  // Capture the user prompt in the transcript (SDK does not stream it back)
+  transcriptLines.push(`## User\n\n${userMessage}\n`);
+
   // --- Attempt 1 ---
   const initial = await execQuery({
     prompt: userMessage,

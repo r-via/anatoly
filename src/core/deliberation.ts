@@ -9,11 +9,11 @@ import { contextLogger } from '../utils/log-context.js';
 export const DeliberatedSymbolSchema = z.object({
   name: z.string(),
   original: z.object({
-    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
+    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']),
     confidence: z.int().min(0).max(100),
   }),
   deliberated: z.object({
-    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
+    correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR', '-']),
     confidence: z.int().min(0).max(100),
   }),
   reasoning: z.string().min(10),
