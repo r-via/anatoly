@@ -261,6 +261,142 @@ export function buildShards(data: ReportData): ShardInfo[] {
 }
 
 /**
+ * Render the Axis Summary section — per-axis verdict distribution.
+ * Uses a single-pass accumulator instead of repeated filter calls.
+ */
+function renderAxisSummary(data: ReportData): string[] {
+  const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
+  const totalSymbols = reliable.length;
+  const minEvaluated = Math.max(1, Math.round(totalSymbols * 0.1));
+
+  // Single-pass counting across all axes
+  const counts = {
+    utility: { USED: 0, DEAD: 0, LOW_VALUE: 0 },
+    duplication: { UNIQUE: 0, DUPLICATE: 0 },
+    correction: { OK: 0, NEEDS_FIX: 0, ERROR: 0 },
+    overengineering: { LEAN: 0, ACCEPTABLE: 0, OVER: 0 },
+    tests: { GOOD: 0, WEAK: 0, NONE: 0 },
+  };
+  for (const s of reliable) {
+    if (s.utility in counts.utility) counts.utility[s.utility as keyof typeof counts.utility]++;
+    if (s.duplication in counts.duplication) counts.duplication[s.duplication as keyof typeof counts.duplication]++;
+    if (s.correction in counts.correction) counts.correction[s.correction as keyof typeof counts.correction]++;
+    if (s.overengineering in counts.overengineering) counts.overengineering[s.overengineering as keyof typeof counts.overengineering]++;
+    if (s.tests in counts.tests) counts.tests[s.tests as keyof typeof counts.tests]++;
+  }
+
+  const lines: string[] = [];
+  const axisSections: string[] = [];
+
+  const renderAxis = (name: string, verdicts: { label: string; count: number }[]) => {
+    const evalTotal = verdicts.reduce((sum, v) => sum + v.count, 0);
+    if (evalTotal < minEvaluated) return;
+    axisSections.push(`**${name}** — ${evalTotal} symbols evaluated`);
+    axisSections.push('');
+    axisSections.push('| Verdict | Count | % |');
+    axisSections.push('|---------|-------|---|');
+    for (const v of verdicts) {
+      if (v.count > 0) {
+        axisSections.push(`| ${v.label} | ${v.count} | ${((v.count / evalTotal) * 100).toFixed(0)}% |`);
+      }
+    }
+    axisSections.push('');
+  };
+
+  renderAxis('Utility', [
+    { label: 'USED', count: counts.utility.USED },
+    { label: 'DEAD', count: counts.utility.DEAD },
+    { label: 'LOW_VALUE', count: counts.utility.LOW_VALUE },
+  ]);
+  renderAxis('Duplication', [
+    { label: 'UNIQUE', count: counts.duplication.UNIQUE },
+    { label: 'DUPLICATE', count: counts.duplication.DUPLICATE },
+  ]);
+  renderAxis('Correction', [
+    { label: 'OK', count: counts.correction.OK },
+    { label: 'NEEDS_FIX', count: counts.correction.NEEDS_FIX },
+    { label: 'ERROR', count: counts.correction.ERROR },
+  ]);
+  renderAxis('Overengineering', [
+    { label: 'LEAN', count: counts.overengineering.LEAN },
+    { label: 'ACCEPTABLE', count: counts.overengineering.ACCEPTABLE },
+    { label: 'OVER', count: counts.overengineering.OVER },
+  ]);
+  renderAxis('Tests', [
+    { label: 'GOOD', count: counts.tests.GOOD },
+    { label: 'WEAK', count: counts.tests.WEAK },
+    { label: 'NONE', count: counts.tests.NONE },
+  ]);
+
+  // Best Practices (file-level, separate logic)
+  const bpReviews = data.reviews.filter((r) => r.best_practices);
+  if (bpReviews.length > 0) {
+    const scores = bpReviews.map((r) => r.best_practices!.score);
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    axisSections.push(`**Best Practices** — ${bpReviews.length} files evaluated`);
+    axisSections.push('');
+    axisSections.push('| Metric | Value |');
+    axisSections.push('|--------|-------|');
+    axisSections.push(`| Average score | ${avg.toFixed(1)}/10 |`);
+    axisSections.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
+    axisSections.push('');
+  }
+
+  if (axisSections.length > 0) {
+    lines.push('## Axis Summary');
+    lines.push('');
+    lines.push(...axisSections);
+  }
+
+  return lines;
+}
+
+/**
+ * Render the Deliberation summary section.
+ */
+function renderDeliberationSummary(data: ReportData): string[] {
+  const lines: string[] = [];
+  const deliberated = data.reviews.filter((r) => r.deliberation);
+  if (deliberated.length === 0) return lines;
+
+  const totalReclassified = deliberated.reduce((sum, r) => sum + r.deliberation!.reclassified, 0);
+  const totalActionsRemoved = deliberated.reduce((sum, r) => sum + r.deliberation!.actions_removed, 0);
+  const verdictChanges = deliberated.filter((r) => r.deliberation!.verdict_before !== r.deliberation!.verdict_after);
+
+  lines.push('## Deliberation');
+  lines.push('');
+  lines.push(`| Metric | Value |`);
+  lines.push(`|--------|-------|`);
+  lines.push(`| Files deliberated | ${deliberated.length} |`);
+  lines.push(`| Symbols reclassified | ${totalReclassified} |`);
+  lines.push(`| Actions removed | ${totalActionsRemoved} |`);
+  lines.push(`| Verdict changes | ${verdictChanges.length} |`);
+  lines.push('');
+
+  if (verdictChanges.length > 0) {
+    lines.push('**Verdict changes:**');
+    lines.push('');
+    for (const r of verdictChanges) {
+      lines.push(`- \`${r.file}\`: ${r.deliberation!.verdict_before} → ${r.deliberation!.verdict_after}`);
+    }
+    lines.push('');
+  }
+
+  if (totalReclassified > 0) {
+    lines.push('**Reclassified files:**');
+    lines.push('');
+    for (const r of deliberated.filter((r) => r.deliberation!.reclassified > 0)) {
+      lines.push(`- \`${r.file}\`: ${r.deliberation!.reclassified} symbol(s) — ${r.deliberation!.reasoning}`);
+    }
+    lines.push('');
+  }
+
+  return lines;
+}
+
+/**
  * Render the compact index (report.md) — always < ~100 lines.
  */
 export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats, runStats?: RunStats): string {
@@ -400,125 +536,8 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     }
   }
 
-  // Axis Summary — per-axis verdict distribution computed from reviews.
-  // Only show axes where a meaningful portion of symbols were evaluated
-  // (axes not included in --axes filter will have nearly all '-' verdicts).
-  {
-    const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
-    const totalSymbols = reliable.length;
-    // Axis is considered "ran" if > 10% of symbols have a real verdict
-    const minEvaluated = Math.max(1, Math.round(totalSymbols * 0.1));
-
-    const axisSections: string[] = [];
-
-    // Helper to render one axis section
-    const renderAxis = (
-      name: string,
-      verdicts: { label: string; count: number }[],
-    ) => {
-      const evalTotal = verdicts.reduce((sum, v) => sum + v.count, 0);
-      if (evalTotal < minEvaluated) return;
-      axisSections.push(`**${name}** — ${evalTotal} symbols evaluated`);
-      axisSections.push('');
-      axisSections.push('| Verdict | Count | % |');
-      axisSections.push('|---------|-------|---|');
-      for (const v of verdicts) {
-        if (v.count > 0) {
-          axisSections.push(`| ${v.label} | ${v.count} | ${((v.count / evalTotal) * 100).toFixed(0)}% |`);
-        }
-      }
-      axisSections.push('');
-    };
-
-    renderAxis('Utility', [
-      { label: 'USED', count: reliable.filter((s) => s.utility === 'USED').length },
-      { label: 'DEAD', count: reliable.filter((s) => s.utility === 'DEAD').length },
-      { label: 'LOW_VALUE', count: reliable.filter((s) => s.utility === 'LOW_VALUE').length },
-    ]);
-
-    renderAxis('Duplication', [
-      { label: 'UNIQUE', count: reliable.filter((s) => s.duplication === 'UNIQUE').length },
-      { label: 'DUPLICATE', count: reliable.filter((s) => s.duplication === 'DUPLICATE').length },
-    ]);
-
-    renderAxis('Correction', [
-      { label: 'OK', count: reliable.filter((s) => s.correction === 'OK').length },
-      { label: 'NEEDS_FIX', count: reliable.filter((s) => s.correction === 'NEEDS_FIX').length },
-      { label: 'ERROR', count: reliable.filter((s) => s.correction === 'ERROR').length },
-    ]);
-
-    renderAxis('Overengineering', [
-      { label: 'LEAN', count: reliable.filter((s) => s.overengineering === 'LEAN').length },
-      { label: 'ACCEPTABLE', count: reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length },
-      { label: 'OVER', count: reliable.filter((s) => s.overengineering === 'OVER').length },
-    ]);
-
-    renderAxis('Tests', [
-      { label: 'GOOD', count: reliable.filter((s) => s.tests === 'GOOD').length },
-      { label: 'WEAK', count: reliable.filter((s) => s.tests === 'WEAK').length },
-      { label: 'NONE', count: reliable.filter((s) => s.tests === 'NONE').length },
-    ]);
-
-    // Best Practices (file-level, separate logic)
-    const bpReviews = data.reviews.filter((r) => r.best_practices);
-    if (bpReviews.length > 0) {
-      const scores = bpReviews.map((r) => r.best_practices!.score);
-      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      const min = Math.min(...scores);
-      const max = Math.max(...scores);
-      axisSections.push(`**Best Practices** — ${bpReviews.length} files evaluated`);
-      axisSections.push('');
-      axisSections.push('| Metric | Value |');
-      axisSections.push('|--------|-------|');
-      axisSections.push(`| Average score | ${avg.toFixed(1)}/10 |`);
-      axisSections.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
-      axisSections.push('');
-    }
-
-    if (axisSections.length > 0) {
-      lines.push('## Axis Summary');
-      lines.push('');
-      lines.push(...axisSections);
-    }
-  }
-
-  // Deliberation summary
-  {
-    const deliberated = data.reviews.filter((r) => r.deliberation);
-    if (deliberated.length > 0) {
-      const totalReclassified = deliberated.reduce((sum, r) => sum + r.deliberation!.reclassified, 0);
-      const totalActionsRemoved = deliberated.reduce((sum, r) => sum + r.deliberation!.actions_removed, 0);
-      const verdictChanges = deliberated.filter((r) => r.deliberation!.verdict_before !== r.deliberation!.verdict_after);
-
-      lines.push('## Deliberation');
-      lines.push('');
-      lines.push(`| Metric | Value |`);
-      lines.push(`|--------|-------|`);
-      lines.push(`| Files deliberated | ${deliberated.length} |`);
-      lines.push(`| Symbols reclassified | ${totalReclassified} |`);
-      lines.push(`| Actions removed | ${totalActionsRemoved} |`);
-      lines.push(`| Verdict changes | ${verdictChanges.length} |`);
-      lines.push('');
-
-      if (verdictChanges.length > 0) {
-        lines.push('**Verdict changes:**');
-        lines.push('');
-        for (const r of verdictChanges) {
-          lines.push(`- \`${r.file}\`: ${r.deliberation!.verdict_before} → ${r.deliberation!.verdict_after}`);
-        }
-        lines.push('');
-      }
-
-      if (totalReclassified > 0) {
-        lines.push('**Reclassified files:**');
-        lines.push('');
-        for (const r of deliberated.filter((r) => r.deliberation!.reclassified > 0)) {
-          lines.push(`- \`${r.file}\`: ${r.deliberation!.reclassified} symbol(s) — ${r.deliberation!.reasoning.slice(0, 120)}`);
-        }
-        lines.push('');
-      }
-    }
-  }
+  lines.push(...renderAxisSummary(data));
+  lines.push(...renderDeliberationSummary(data));
 
   // --- Appendix: static methodology reference ---
   lines.push('---');
