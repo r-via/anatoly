@@ -68,6 +68,33 @@ export class VectorStore {
     return this._hasDualEmbedding;
   }
 
+  /**
+   * Open the store in read-only mode: connect and open existing table without
+   * any mutations (no mkdir, no legacy cleanup, no dimension rebuild).
+   * Safe to call from diagnostic commands like rag-status.
+   */
+  async initReadOnly(): Promise<void> {
+    const { existsSync } = await import('node:fs');
+    if (!existsSync(this.dbPath)) return;
+    this.db = await connect(this.dbPath);
+    const tableNames = await this.db.tableNames();
+    if (tableNames.includes(this.tableName)) {
+      this.table = await this.db.openTable(this.tableName);
+      // Detect dual embedding without modifying anything
+      try {
+        const sample = await this.table.query().limit(1).toArray();
+        if (sample.length > 0 && 'nlp_vector' in sample[0]) {
+          const nlpVec = toNumberArray(sample[0].nlp_vector);
+          if (nlpVec.length > 0 && nlpVec.some((v) => v !== 0)) {
+            this._hasDualEmbedding = true;
+          }
+        }
+      } catch {
+        // Read-only: ignore errors
+      }
+    }
+  }
+
   async init(): Promise<void> {
     mkdirSync(this.dbPath, { recursive: true });
     this.onLog(`vector-store: connecting to ${this.dbPath} (table: ${this.tableName})`);
