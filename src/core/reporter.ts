@@ -400,113 +400,85 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     }
   }
 
-  // Axis Summary — per-axis verdict distribution computed from reviews
+  // Axis Summary — per-axis verdict distribution computed from reviews.
+  // Only show axes where a meaningful portion of symbols were evaluated
+  // (axes not included in --axes filter will have nearly all '-' verdicts).
   {
     const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
     const totalSymbols = reliable.length;
+    // Axis is considered "ran" if > 10% of symbols have a real verdict
+    const minEvaluated = Math.max(1, Math.round(totalSymbols * 0.1));
 
-    if (totalSymbols > 0) {
+    const axisSections: string[] = [];
+
+    // Helper to render one axis section
+    const renderAxis = (
+      name: string,
+      verdicts: { label: string; count: number }[],
+    ) => {
+      const evalTotal = verdicts.reduce((sum, v) => sum + v.count, 0);
+      if (evalTotal < minEvaluated) return;
+      axisSections.push(`**${name}** — ${evalTotal} symbols evaluated`);
+      axisSections.push('');
+      axisSections.push('| Verdict | Count | % |');
+      axisSections.push('|---------|-------|---|');
+      for (const v of verdicts) {
+        if (v.count > 0) {
+          axisSections.push(`| ${v.label} | ${v.count} | ${((v.count / evalTotal) * 100).toFixed(0)}% |`);
+        }
+      }
+      axisSections.push('');
+    };
+
+    renderAxis('Utility', [
+      { label: 'USED', count: reliable.filter((s) => s.utility === 'USED').length },
+      { label: 'DEAD', count: reliable.filter((s) => s.utility === 'DEAD').length },
+      { label: 'LOW_VALUE', count: reliable.filter((s) => s.utility === 'LOW_VALUE').length },
+    ]);
+
+    renderAxis('Duplication', [
+      { label: 'UNIQUE', count: reliable.filter((s) => s.duplication === 'UNIQUE').length },
+      { label: 'DUPLICATE', count: reliable.filter((s) => s.duplication === 'DUPLICATE').length },
+    ]);
+
+    renderAxis('Correction', [
+      { label: 'OK', count: reliable.filter((s) => s.correction === 'OK').length },
+      { label: 'NEEDS_FIX', count: reliable.filter((s) => s.correction === 'NEEDS_FIX').length },
+      { label: 'ERROR', count: reliable.filter((s) => s.correction === 'ERROR').length },
+    ]);
+
+    renderAxis('Overengineering', [
+      { label: 'LEAN', count: reliable.filter((s) => s.overengineering === 'LEAN').length },
+      { label: 'ACCEPTABLE', count: reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length },
+      { label: 'OVER', count: reliable.filter((s) => s.overengineering === 'OVER').length },
+    ]);
+
+    renderAxis('Tests', [
+      { label: 'GOOD', count: reliable.filter((s) => s.tests === 'GOOD').length },
+      { label: 'WEAK', count: reliable.filter((s) => s.tests === 'WEAK').length },
+      { label: 'NONE', count: reliable.filter((s) => s.tests === 'NONE').length },
+    ]);
+
+    // Best Practices (file-level, separate logic)
+    const bpReviews = data.reviews.filter((r) => r.best_practices);
+    if (bpReviews.length > 0) {
+      const scores = bpReviews.map((r) => r.best_practices!.score);
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const min = Math.min(...scores);
+      const max = Math.max(...scores);
+      axisSections.push(`**Best Practices** — ${bpReviews.length} files evaluated`);
+      axisSections.push('');
+      axisSections.push('| Metric | Value |');
+      axisSections.push('|--------|-------|');
+      axisSections.push(`| Average score | ${avg.toFixed(1)}/10 |`);
+      axisSections.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
+      axisSections.push('');
+    }
+
+    if (axisSections.length > 0) {
       lines.push('## Axis Summary');
       lines.push('');
-
-      // Utility
-      const utilUsed = reliable.filter((s) => s.utility === 'USED').length;
-      const utilDead = reliable.filter((s) => s.utility === 'DEAD').length;
-      const utilLow = reliable.filter((s) => s.utility === 'LOW_VALUE').length;
-      const utilSkip = reliable.filter((s) => s.utility === '-').length;
-      const utilTotal = utilUsed + utilDead + utilLow;
-      if (utilTotal > 0) {
-        lines.push(`**Utility** — ${utilTotal} symbols evaluated${utilSkip > 0 ? `, ${utilSkip} skipped` : ''}`);
-        lines.push('');
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (utilUsed > 0) lines.push(`| USED | ${utilUsed} | ${((utilUsed / utilTotal) * 100).toFixed(0)}% |`);
-        if (utilDead > 0) lines.push(`| DEAD | ${utilDead} | ${((utilDead / utilTotal) * 100).toFixed(0)}% |`);
-        if (utilLow > 0) lines.push(`| LOW_VALUE | ${utilLow} | ${((utilLow / utilTotal) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-
-      // Duplication
-      const dupUnique = reliable.filter((s) => s.duplication === 'UNIQUE').length;
-      const dupDup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
-      const dupSkip = reliable.filter((s) => s.duplication === '-').length;
-      const dupTotal = dupUnique + dupDup;
-      if (dupTotal > 0) {
-        lines.push(`**Duplication** — ${dupTotal} symbols evaluated${dupSkip > 0 ? `, ${dupSkip} skipped` : ''}`);
-        lines.push('');
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (dupUnique > 0) lines.push(`| UNIQUE | ${dupUnique} | ${((dupUnique / dupTotal) * 100).toFixed(0)}% |`);
-        if (dupDup > 0) lines.push(`| DUPLICATE | ${dupDup} | ${((dupDup / dupTotal) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-
-      // Correction
-      const corOk = reliable.filter((s) => s.correction === 'OK').length;
-      const corFix = reliable.filter((s) => s.correction === 'NEEDS_FIX').length;
-      const corErr = reliable.filter((s) => s.correction === 'ERROR').length;
-      const corSkip = reliable.filter((s) => s.correction === '-').length;
-      const corTotal = corOk + corFix + corErr;
-      if (corTotal > 0) {
-        lines.push(`**Correction** — ${corTotal} symbols evaluated${corSkip > 0 ? `, ${corSkip} skipped` : ''}`);
-        lines.push('');
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (corOk > 0) lines.push(`| OK | ${corOk} | ${((corOk / corTotal) * 100).toFixed(0)}% |`);
-        if (corFix > 0) lines.push(`| NEEDS_FIX | ${corFix} | ${((corFix / corTotal) * 100).toFixed(0)}% |`);
-        if (corErr > 0) lines.push(`| ERROR | ${corErr} | ${((corErr / corTotal) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-
-      // Overengineering
-      const ovLean = reliable.filter((s) => s.overengineering === 'LEAN').length;
-      const ovOver = reliable.filter((s) => s.overengineering === 'OVER').length;
-      const ovAcc = reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length;
-      const ovSkip = reliable.filter((s) => s.overengineering === '-').length;
-      const ovTotal = ovLean + ovOver + ovAcc;
-      if (ovTotal > 0) {
-        lines.push(`**Overengineering** — ${ovTotal} symbols evaluated${ovSkip > 0 ? `, ${ovSkip} skipped` : ''}`);
-        lines.push('');
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (ovLean > 0) lines.push(`| LEAN | ${ovLean} | ${((ovLean / ovTotal) * 100).toFixed(0)}% |`);
-        if (ovAcc > 0) lines.push(`| ACCEPTABLE | ${ovAcc} | ${((ovAcc / ovTotal) * 100).toFixed(0)}% |`);
-        if (ovOver > 0) lines.push(`| OVER | ${ovOver} | ${((ovOver / ovTotal) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-
-      // Tests
-      const testGood = reliable.filter((s) => s.tests === 'GOOD').length;
-      const testWeak = reliable.filter((s) => s.tests === 'WEAK').length;
-      const testNone = reliable.filter((s) => s.tests === 'NONE').length;
-      const testSkip = reliable.filter((s) => s.tests === '-').length;
-      const testTotal = testGood + testWeak + testNone;
-      if (testTotal > 0) {
-        lines.push(`**Tests** — ${testTotal} symbols evaluated${testSkip > 0 ? `, ${testSkip} skipped` : ''}`);
-        lines.push('');
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (testGood > 0) lines.push(`| GOOD | ${testGood} | ${((testGood / testTotal) * 100).toFixed(0)}% |`);
-        if (testWeak > 0) lines.push(`| WEAK | ${testWeak} | ${((testWeak / testTotal) * 100).toFixed(0)}% |`);
-        if (testNone > 0) lines.push(`| NONE | ${testNone} | ${((testNone / testTotal) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-
-      // Best Practices (file-level)
-      const bpReviews = data.reviews.filter((r) => r.best_practices);
-      if (bpReviews.length > 0) {
-        const scores = bpReviews.map((r) => r.best_practices!.score);
-        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const min = Math.min(...scores);
-        const max = Math.max(...scores);
-        lines.push(`**Best Practices** — ${bpReviews.length} files evaluated`);
-        lines.push('');
-        lines.push('| Metric | Value |');
-        lines.push('|--------|-------|');
-        lines.push(`| Average score | ${avg.toFixed(1)}/10 |`);
-        lines.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
-        lines.push('');
-      }
+      lines.push(...axisSections);
     }
   }
 
