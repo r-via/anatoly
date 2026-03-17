@@ -24,6 +24,10 @@ npx anatoly run   # one command, full codebase audit
 
 ## What is Anatoly?
 
+<p align="center">
+  <video src="assets/anims/demo.webm" autoplay loop muted playsinline alt="Anatoly demo"></video>
+</p>
+
 Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report.
 
 This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions, and cross-reference exports, imports, and test coverage -- then it must **prove** each finding with evidence before reporting it.
@@ -68,6 +72,22 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js -- 
 - Node.js >= 20.19
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 
+### Optional but recommended: GPU-accelerated embeddings
+
+By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on CPU. For significantly better duplication detection, set up the **embed sidecar** which runs a 7B parameter model (`nomic-ai/nomic-embed-code`, 3584d) on GPU via sentence-transformers:
+
+**Requirements:** Python >= 3.9, a GPU (CUDA, Metal, or ROCm), ~14 GB disk for the model
+
+```bash
+# One-time setup: installs torch + sentence-transformers + downloads the model
+npx anatoly setup-embeddings
+
+# Check status anytime
+npx anatoly setup-embeddings --check
+```
+
+The sidecar starts automatically with `anatoly run` when setup is detected.
+
 ## Getting Started
 
 ```bash
@@ -100,6 +120,9 @@ npx anatoly rag-status           # Show RAG index stats (includes dual embedding
 npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state
 npx anatoly hook init            # Generate Claude Code hooks configuration
+npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
+npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (sentence-transformers)
+npx anatoly setup-embeddings --check  # Check embedding setup status
 ```
 
 > See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference and all CLI flags.

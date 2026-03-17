@@ -46,6 +46,7 @@ You receive a ReviewFile (merged from 6 independent axis evaluators) and the ori
 4. **Adjust confidences** — raise or lower confidence based on cross-axis evidence.
 5. **Remove invalid actions** — list action IDs that should be removed due to reclassification.
 6. **Recompute verdict** — based on your adjusted symbols.
+7. **Challenge duplication findings** — two functions with similar structure but different semantic contracts (different invariants, different callers, intentional divergence) are NOT true duplicates. Reclassify DUPLICATE → UNIQUE when the differences reflect intentional design rather than copy-paste.
 
 ## Strict rules
 

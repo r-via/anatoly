@@ -15,6 +15,8 @@ import {
   registerCleanCommand,
   registerCleanRunCommand,
   registerCleanSyncCommand,
+  registerSetupEmbeddingsCommand,
+  registerInitCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -87,6 +89,14 @@ export function createProgram(): Command {
   registerCleanCommand(program);
   registerCleanRunCommand(program);
   registerCleanSyncCommand(program);
+  registerSetupEmbeddingsCommand(program);
+  registerInitCommand(program);
+
+  // Sign-off after every command
+  program.hook('postAction', () => {
+    console.log('');
+    console.log(chalk.dim.italic('"I train only with mop!" ;D'));
+  });
 
   return program;
 }

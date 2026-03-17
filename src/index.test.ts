@@ -30,9 +30,11 @@ describe('CLI program', () => {
         'clean',
         'clean-sync',
         'clean-run',
+        'setup-embeddings',
+        'init',
       ]),
     );
-    expect(commandNames).toHaveLength(14);
+    expect(commandNames).toHaveLength(16);
   });
 
   it('should register all global options', () => {

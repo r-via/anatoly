@@ -392,6 +392,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const log = getLogger();
   const rl = ctx.runLog;
   printBanner();
+  await new Promise((r) => setTimeout(r, 3000));
 
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();

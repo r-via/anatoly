@@ -12,7 +12,8 @@ Evaluate whether each symbol is UNIQUE or a DUPLICATE of another function in the
 4. No similar functions found = UNIQUE (confidence: 95).
 5. If DUPLICATE, you MUST provide duplicate_target with file, symbol, and similarity description.
 6. Compare the actual source code of both functions — do not rely solely on names or signatures.
-7. Do NOT evaluate other axes — only duplication.
+7. Two functions with similar structure but DIFFERENT semantic contracts (different parameters that change behavior, different invariants, different callers with different expectations) should be UNIQUE even if they share >80% of their implementation. Note the similarity in detail but do not flag as DUPLICATE. Structural similarity alone is not duplication — the functions must be interchangeable.
+8. Do NOT evaluate other axes — only duplication.
 
 ## Output format
 
