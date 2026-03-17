@@ -61,6 +61,29 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for the evaluation axes.
 
+### Six-Axis System
+
+Every file is evaluated through six independent axes, running in parallel. Each axis focuses on a single dimension of code quality:
+
+| Axis | Default Model | Verdicts | What it detects |
+|------|---------------|----------|-----------------|
+| **Utility** | Haiku | `USED` `DEAD` `LOW_VALUE` | Dead or unused exports, low-value code |
+| **Duplication** | Haiku | `UNIQUE` `DUPLICATE` | Semantically similar functions across the codebase |
+| **Correction** | Sonnet | `OK` `NEEDS_FIX` `ERROR` | Bugs, logic errors, async issues (two-pass with dependency verification) |
+| **Overengineering** | Haiku | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
+| **Tests** | Haiku | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
+| **Best Practices** | Sonnet | Score 0-10, 17 rules | TypeScript best-practice violations (context-aware) |
+
+Run specific axes with `--axes`:
+
+```bash
+npx anatoly run --axes utility              # single axis
+npx anatoly run --axes correction,tests     # multiple axes
+npx anatoly run                             # all six (default)
+```
+
+> Each axis is crash-isolated — if one fails, the other five still produce results. See [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for scoring model, merger logic, and model configuration.
+
 ## Target Audience
 
 Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js -- especially those producing large amounts of AI-generated code with tools like Claude Code, Cursor, or Windsurf. Designed for projects from 20 to 1,000+ TypeScript files.

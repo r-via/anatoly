@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
@@ -172,13 +172,14 @@ export function registerReviewCommand(program: Command): void {
         if (interrupted) {
           console.log(`interrupted — ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
         } else {
+          const rel = (p: string) => relative(process.cwd(), p) || '.';
           const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
           const logsDir = resolve(projectRoot, '.anatoly', 'logs');
           console.log('');
           console.log(chalk.bold('review complete') + ` — ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
           console.log('');
-          console.log(`  reviews      ${chalk.cyan(reviewsDir)}`);
-          console.log(`  transcripts  ${chalk.cyan(logsDir)}`);
+          console.log(`  reviews      ${chalk.cyan(rel(reviewsDir) + '/')}`);
+          console.log(`  transcripts  ${chalk.cyan(rel(logsDir) + '/')}`);
         }
       } finally {
         process.removeListener('SIGINT', onSigint);

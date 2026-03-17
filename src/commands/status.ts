@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
@@ -84,18 +84,19 @@ export function registerStatusCommand(program: Command): void {
       }
 
       // Show report/reviews paths
+      const rel = (p: string) => relative(process.cwd(), p) || '.';
       if (latestRunDir) {
         const reportInRun = resolve(latestRunDir, 'report.md');
         if (existsSync(reportInRun)) {
-          console.log(`  report      ${chalk.cyan(reportInRun)}`);
+          console.log(`  report      ${chalk.cyan(rel(reportInRun))}`);
         }
-        console.log(`  reviews     ${chalk.cyan(resolve(latestRunDir, 'reviews') + '/')}`);
+        console.log(`  reviews     ${chalk.cyan(rel(resolve(latestRunDir, 'reviews')) + '/')}`);
       } else {
         const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
         if (existsSync(reportPath)) {
-          console.log(`  report      ${chalk.cyan(reportPath)}`);
+          console.log(`  report      ${chalk.cyan(rel(reportPath))}`);
         }
-        console.log(`  reviews     ${chalk.cyan(resolve(projectRoot, '.anatoly', 'reviews') + '/')}`);
+        console.log(`  reviews     ${chalk.cyan(rel(resolve(projectRoot, '.anatoly', 'reviews')) + '/')}`);
       }
     });
 }

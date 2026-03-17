@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { Listr } from 'listr2';
@@ -89,6 +89,8 @@ interface RunContext {
   axesFilter?: AxisId[];
   /** Dry-run mode — show what would happen without executing reviews */
   dryRun: boolean;
+  /** Badge config for post-report injection */
+  badge: { enabled: boolean; verdict: boolean; link?: string };
 }
 
 export function registerRunCommand(program: Command): void {
@@ -193,6 +195,11 @@ export function registerRunCommand(program: Command): void {
         axisStats: {},
         axesFilter,
         dryRun: parentOpts.dryRun as boolean ?? false,
+        badge: {
+          enabled: parentOpts.badge !== false && config.badge.enabled,
+          verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
+          link: config.badge.link,
+        },
       };
 
       // Create per-run ndjson log file at debug level
@@ -240,22 +247,7 @@ export function registerRunCommand(program: Command): void {
         }
 
         await runWithContext({ phase: 'report' }, async () => {
-        const reportData = runReportPhase(ctx);
-
-        // Badge injection — post-report, still under lock
-        if (parentOpts.badge !== false && config.badge.enabled) {
-          const badgeResult = injectBadge({
-            projectRoot,
-            verdict: reportData.globalVerdict,
-            includeVerdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
-            link: config.badge.link,
-          });
-          if (badgeResult.injected) {
-            const verb = badgeResult.updated ? 'updated' : 'added';
-            const hint = badgeResult.updated ? '' : ' (disable with --no-badge)';
-            console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
-          }
-        }
+        runReportPhase(ctx);
         });
 
         if (ctx.lockPath) releaseLock(ctx.lockPath);
@@ -915,7 +907,7 @@ async function runReviewPhase(
   rl?.info(reviewCompleted, 'phase completed');
 }
 
-function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/review.js').Verdict } {
+function runReportPhase(ctx: RunContext): void {
   const log = getLogger();
   const rl = ctx.runLog;
   const reportStart = Date.now();
@@ -964,10 +956,24 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
   console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
   console.log('');
   console.log(`  run          ${ctx.runId}`);
-  console.log(`  report       ${chalk.cyan(reportPath)}`);
-  console.log(`  reviews      ${chalk.cyan(resolve(ctx.runDir, 'reviews') + '/')}`);
-  console.log(`  transcripts  ${chalk.cyan(resolve(ctx.runDir, 'logs') + '/')}`);
-  console.log(`  log          ${chalk.cyan(resolve(ctx.runDir, 'anatoly.ndjson'))}`);
+  const rel = (p: string) => relative(process.cwd(), p) || '.';
+  console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
+  console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
+  console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
+  console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
+  if (ctx.badge.enabled) {
+    const badgeResult = injectBadge({
+      projectRoot: ctx.projectRoot,
+      verdict: data.globalVerdict,
+      includeVerdict: ctx.badge.verdict,
+      link: ctx.badge.link,
+    });
+    if (badgeResult.injected) {
+      const verb = badgeResult.updated ? 'updated' : 'added';
+      const hint = badgeResult.updated ? '' : ' (disable with --no-badge)';
+      console.log(`  badge        ${chalk.green(verb)} in README.md${hint}`);
+    }
+  }
   console.log('');
   console.log(chalk.dim(`  $${ctx.totalCostUsd.toFixed(2)} in API calls · $0.00 with Claude Code`));
 
@@ -1022,5 +1028,4 @@ function runReportPhase(ctx: RunContext): { globalVerdict: import('../schemas/re
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
 
-  return { globalVerdict: data.globalVerdict };
 }

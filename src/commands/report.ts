@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, relative } from 'node:path';
 import { generateReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -37,7 +37,7 @@ export function registerReportCommand(program: Command): void {
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
         const { reportPath, data } = generateReport(projectRoot, errorFiles, runDir);
-        printReportSummary(data, reportPath, resolve(runDir, 'reviews') + '/');
+        printReportSummary(data, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/
@@ -50,7 +50,7 @@ export function registerReportCommand(program: Command): void {
         }
 
         const { reportPath, data } = generateReport(projectRoot, errorFiles);
-        printReportSummary(data, reportPath, resolve(projectRoot, '.anatoly', 'reviews') + '/');
+        printReportSummary(data, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
         if (shouldOpen) openFile(reportPath);
       }
     });
@@ -83,6 +83,7 @@ function printReportSummary(
     console.log(`  Errors:            ${data.errorFiles.length}`);
   }
   console.log('');
-  console.log(`Report: ${chalk.cyan(reportPath)}`);
-  console.log(`Details: ${chalk.cyan(reviewsPath)}`);
+  const rel = (p: string) => relative(process.cwd(), p) || '.';
+  console.log(`Report: ${chalk.cyan(rel(reportPath))}`);
+  console.log(`Details: ${chalk.cyan(rel(reviewsPath) + '/')}`);
 }
