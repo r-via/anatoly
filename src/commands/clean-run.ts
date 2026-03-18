@@ -158,6 +158,37 @@ export function registerCleanRunCommand(program: Command): void {
         process.exit(1);
       }
 
+      // --- Branch isolation: ensure we never run on main ---
+      const prd = JSON.parse(readFileSync(prdPath, 'utf-8'));
+      const branchName: string = prd.branchName;
+      if (!branchName) {
+        console.error(chalk.red('No branchName found in prd.json — aborting.'));
+        process.exit(1);
+      }
+
+      const currentBranch = execSync('git branch --show-current', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
+      if (currentBranch !== branchName) {
+        try {
+          // Try to checkout existing branch, or create from current HEAD
+          execSync(`git checkout ${branchName} 2>/dev/null || git checkout -b ${branchName}`, {
+            cwd: projectRoot,
+            stdio: 'pipe',
+            shell: '/bin/bash',
+          });
+        } catch {
+          console.error(chalk.red(`Failed to checkout branch ${branchName} — aborting.`));
+          process.exit(1);
+        }
+        const verified = execSync('git branch --show-current', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
+        if (verified !== branchName) {
+          console.error(chalk.red(`Branch verification failed: expected ${branchName}, got ${verified}`));
+          process.exit(1);
+        }
+        console.log(chalk.green(`\u2713 On branch ${branchName}`));
+      } else {
+        console.log(chalk.green(`\u2713 Already on branch ${branchName}`));
+      }
+
       console.log('');
       console.log(chalk.blue(`Ralph clean loop \u2014 ${maxIterations} iterations max`));
       console.log('');
@@ -170,7 +201,17 @@ export function registerCleanRunCommand(program: Command): void {
         lastGoodSha: getGitSha(projectRoot),
       };
 
+      const PROTECTED_BRANCHES = new Set(['main', 'master']);
+
       for (let i = 1; i <= maxIterations; i++) {
+        // Per-iteration guard: abort if somehow back on a protected branch
+        const iterBranch = execSync('git branch --show-current', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
+        if (PROTECTED_BRANCHES.has(iterBranch)) {
+          console.error(chalk.red(`ABORT: detected protected branch "${iterBranch}" at iteration ${i} — refusing to continue.`));
+          process.exitCode = 1;
+          return;
+        }
+
         console.log('===============================================================');
         console.log(`  Ralph Iteration ${i} of ${maxIterations}`);
         console.log('===============================================================');
