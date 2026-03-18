@@ -392,6 +392,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         vectorStore: store,
         docsDir: options.docsDir,
         cacheSuffix,
+        chunkModel: options.indexModel,
         onLog,
       });
     } catch (err) {

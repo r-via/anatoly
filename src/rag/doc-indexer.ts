@@ -6,11 +6,15 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
+import { z } from 'zod';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { embedNlp } from './embeddings.js';
+import { extractJson } from '../utils/extract-json.js';
+import { contextLogger } from '../utils/log-context.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
-// Doc section cache (SHA-256 per doc file)
+// Doc section cache (stored in cache_{lite|advanced}.json → docEntries key)
 // ---------------------------------------------------------------------------
 
 interface DocCacheEntry {
@@ -61,97 +65,168 @@ export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docE
 export interface DocSection {
   /** Relative path to the doc file (from project root). */
   filePath: string;
-  /** H2 heading text (without the ## prefix). */
+  /** Section title (from Haiku semantic chunking). */
   heading: string;
-  /** Prose-only content (code blocks stripped). */
+  /** Prose-only content for NLP embedding (code/tables stripped). */
+  embedText: string;
+  /** Full content including code/tables (injected into LLM prompt at review time). */
   content: string;
-  /** Line number of the H2 heading (1-based). */
-  lineStart: number;
-  /** Last line number of the section (1-based). */
-  lineEnd: number;
 }
 
 // ---------------------------------------------------------------------------
-// Parsing
+// Haiku semantic chunking
 // ---------------------------------------------------------------------------
 
-/**
- * Strip fenced code blocks from markdown text, keeping only prose.
- */
-export function stripCodeBlocks(text: string): string {
-  return text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]+`/g, '');
-}
+const ChunkSchema = z.object({
+  title: z.string(),
+  content: z.string(),
+});
+
+const ChunkResponseSchema = z.object({
+  sections: z.array(ChunkSchema),
+});
+
+const CHUNK_SYSTEM_PROMPT = `You are a documentation analyzer. Given a markdown document, split it into semantic sections. Each section should cover ONE distinct concept or topic.
+
+Rules:
+- Each section needs a short descriptive title (not the original heading — describe the concept)
+- Each section contains the FULL original text for that concept (do not summarize, do not truncate)
+- Strip fenced code blocks (\`\`\`...\`\`\`), markdown tables (| ... |), JSON/YAML blocks, shell examples, and HTML tags from the content. Keep only prose text and bullet lists.
+- Skip sections that would have less than 50 characters of prose after stripping
+- Preserve the order of the original document
+- A long H2 section with multiple sub-topics should be split into multiple sections
+- A short H2 section that is part of a larger concept can be merged with adjacent sections
+
+Respond ONLY with a JSON object. No markdown fences, no explanation.
+
+Output format:
+{ "sections": [{ "title": "...", "content": "..." }, ...] }`;
 
 /**
- * Build a deterministic 16-char hex ID for a doc section.
+ * Use Haiku to semantically chunk a doc file into sections.
+ * Falls back to H2-based mechanical splitting if Haiku fails.
  */
-export function buildDocSectionId(filePath: string, heading: string): string {
-  const input = `doc:${filePath}:${heading}`;
-  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+async function chunkDocWithHaiku(
+  filePath: string,
+  source: string,
+  model: string,
+  projectRoot: string,
+): Promise<DocSection[]> {
+  const log = contextLogger();
+
+  try {
+    const result = await query({
+      model,
+      systemPrompt: CHUNK_SYSTEM_PROMPT,
+      prompt: `Document: \`${filePath}\`\n\n${source}`,
+      options: { maxTurns: 1 },
+      cwd: projectRoot,
+    });
+
+    if (result.type !== 'result') {
+      log?.warn({ file: filePath }, 'doc chunking: Haiku returned non-result');
+      return fallbackParseH2(filePath, source);
+    }
+
+    const jsonText = extractJson(
+      result.subMessages
+        .filter((m): m is { role: 'assistant'; message: string } => m.role === 'assistant')
+        .map((m) => m.message)
+        .join(''),
+    );
+
+    if (!jsonText) {
+      log?.warn({ file: filePath }, 'doc chunking: no JSON in Haiku response');
+      return fallbackParseH2(filePath, source);
+    }
+
+    const parsed = ChunkResponseSchema.safeParse(JSON.parse(jsonText));
+    if (!parsed.success) {
+      log?.warn({ file: filePath, err: parsed.error.message }, 'doc chunking: schema validation failed');
+      return fallbackParseH2(filePath, source);
+    }
+
+    return parsed.data.sections
+      .filter((s) => s.content.trim().length >= 50)
+      .map((s) => ({
+        filePath,
+        heading: s.title,
+        embedText: s.content.trim(),
+        content: s.content.trim(),
+      }));
+  } catch (err) {
+    log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku call failed');
+    return fallbackParseH2(filePath, source);
+  }
 }
 
-/**
- * Parse a markdown file into H2 sections.
- * Each section runs from one ## heading to the next ## heading (or EOF).
- */
-export function parseDocSections(filePath: string, source: string): DocSection[] {
+// ---------------------------------------------------------------------------
+// Fallback: mechanical H2 parsing (no LLM)
+// ---------------------------------------------------------------------------
+
+function stripNonProse(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, '')     // fenced code blocks
+    .replace(/`[^`\n]+`/g, '')           // inline code
+    .replace(/^\|.*\|$/gm, '')           // markdown tables
+    .replace(/^>\s.*$/gm, '')            // blockquotes
+    .replace(/<[^>]+>/g, '')             // HTML tags
+    .replace(/^---+$/gm, '')             // horizontal rules
+    .replace(/^\s*\n/gm, '\n')           // collapse blank lines
+    .trim();
+}
+
+function fallbackParseH2(filePath: string, source: string): DocSection[] {
   const sections: DocSection[] = [];
   const lines = source.split('\n');
 
   let currentHeading: string | null = null;
-  let currentLineStart = 0;
   const contentLines: string[] = [];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (const line of lines) {
     const h2Match = line.match(/^##\s+(.+)/);
 
     if (h2Match) {
-      // Flush previous section
       if (currentHeading !== null) {
-        const rawContent = contentLines.join('\n').trim();
-        const prose = stripCodeBlocks(rawContent).trim();
-        if (prose.length > 0) {
-          sections.push({
-            filePath,
-            heading: currentHeading,
-            content: prose,
-            lineStart: currentLineStart,
-            lineEnd: i, // line before this heading
-          });
+        const raw = contentLines.join('\n').trim();
+        const prose = stripNonProse(raw);
+        if (prose.length >= 50) {
+          sections.push({ filePath, heading: currentHeading, embedText: prose, content: raw });
         }
         contentLines.length = 0;
       }
-
       currentHeading = h2Match[1].trim();
-      currentLineStart = i + 1; // 1-based
     } else if (currentHeading !== null) {
-      // Skip H3+ headings from content lines but include their text
       contentLines.push(line);
     }
   }
 
-  // Flush last section
   if (currentHeading !== null) {
-    const rawContent = contentLines.join('\n').trim();
-    const prose = stripCodeBlocks(rawContent).trim();
-    if (prose.length > 0) {
-      sections.push({
-        filePath,
-        heading: currentHeading,
-        content: prose,
-        lineStart: currentLineStart,
-        lineEnd: lines.length,
-      });
+    const raw = contentLines.join('\n').trim();
+    const prose = stripNonProse(raw);
+    if (prose.length >= 50) {
+      sections.push({ filePath, heading: currentHeading, embedText: prose, content: raw });
     }
   }
 
   return sections;
 }
 
-/**
- * Collect all markdown files from the docs directory and parse them into sections.
- */
+// ---------------------------------------------------------------------------
+// Public helpers (kept for backward compat / tests)
+// ---------------------------------------------------------------------------
+
+export function stripCodeBlocks(text: string): string {
+  return stripNonProse(text);
+}
+
+export function buildDocSectionId(filePath: string, heading: string): string {
+  const input = `doc:${filePath}:${heading}`;
+  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+}
+
+export const parseDocSections = fallbackParseH2;
+
 export function collectDocSections(projectRoot: string, docsDir: string = 'docs'): DocSection[] {
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) return [];
@@ -162,7 +237,7 @@ export function collectDocSections(projectRoot: string, docsDir: string = 'docs'
   for (const absPath of files) {
     const relPath = relative(projectRoot, absPath);
     const source = readFileSync(absPath, 'utf-8');
-    sections.push(...parseDocSections(relPath, source));
+    sections.push(...fallbackParseH2(relPath, source));
   }
 
   return sections;
@@ -177,20 +252,19 @@ export interface DocIndexOptions {
   vectorStore: VectorStore;
   docsDir?: string;
   cacheSuffix?: string;
+  /** Model for semantic chunking (e.g. 'haiku'). If omitted, falls back to H2 parsing. */
+  chunkModel?: string;
   onLog: (message: string) => void;
 }
 
 /**
- * Parse /docs/ into H2 sections, embed prose via NLP model,
- * and upsert as type='doc_section' cards in the vector store.
+ * Parse /docs/ into semantic sections (via Haiku or H2 fallback),
+ * embed prose via NLP model, and upsert as type='doc_section' cards.
  *
  * Uses SHA-256 per doc file to skip unchanged files.
- * When a file changes, all its old sections are removed and new ones are indexed.
- *
- * Returns the number of NEW doc sections indexed (0 = all cached).
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -207,7 +281,6 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
   const newCache: DocCacheData = {};
 
-  // Determine which files changed
   const changedFiles: Array<{ relPath: string; source: string }> = [];
   let cachedCount = 0;
 
@@ -218,7 +291,6 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     const cached = cache[relPath];
 
     if (cached && cached.sha === sha) {
-      // Unchanged — carry forward cache entry
       newCache[relPath] = cached;
       cachedCount++;
     } else {
@@ -227,9 +299,9 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   }
 
   // Remove stale sections for deleted/changed files
-  const staleFiles = Object.keys(cache).filter(f => !newCache[f]);
+  const staleFiles = Object.keys(cache).filter((f) => !newCache[f]);
   for (const staleFile of staleFiles) {
-    const staleIds = cache.entries[staleFile]?.sectionIds ?? [];
+    const staleIds = cache[staleFile]?.sectionIds ?? [];
     if (staleIds.length > 0) {
       await vectorStore.deleteDocSections(staleIds);
     }
@@ -241,13 +313,17 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     return 0;
   }
 
-  onLog(`rag: indexing doc sections from ${changedFiles.length} changed files (${cachedCount} cached)`);
+  const method = chunkModel ? `Haiku (${chunkModel})` : 'H2 fallback';
+  onLog(`rag: chunking ${changedFiles.length} doc files via ${method} (${cachedCount} cached)`);
 
   let totalIndexed = 0;
 
   for (const { relPath, source } of changedFiles) {
     const sha = computeDocSha(source);
-    const sections = parseDocSections(relPath, source);
+
+    const sections = chunkModel
+      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot)
+      : fallbackParseH2(relPath, source);
 
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
@@ -260,12 +336,10 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
     for (const section of sections) {
       const id = buildDocSectionId(section.filePath, section.heading);
-      const summary = section.content.slice(0, 400);
-      cards.push({ id, filePath: section.filePath, name: section.heading, summary });
+      cards.push({ id, filePath: section.filePath, name: section.heading, summary: section.embedText.slice(0, 400) });
       sectionIds.push(id);
 
-      const embedText = `${section.heading}\n${section.content}`;
-      nlpEmbeddings.push(await embedNlp(embedText));
+      nlpEmbeddings.push(await embedNlp(section.embedText));
     }
 
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
