@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
 import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, embedNlp, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
@@ -15,6 +15,7 @@ import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections } from './doc-indexer.js';
+import { swapSidecarModel } from './embed-sidecar.js';
 
 export type RagMode = 'lite' | 'advanced';
 
@@ -128,6 +129,7 @@ export async function processFileForDualIndex(
   cache: { entries: Record<string, string> },
   indexModel: string,
   nlpSummaryCache?: NlpSummaryCache,
+  deferNlpEmbeddings?: boolean,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -184,6 +186,12 @@ export async function processFileForDualIndex(
         nlpCacheUpdates[card.id] = { bodyHash, summary };
       }
     }
+  }
+
+  if (deferNlpEmbeddings) {
+    // Enrich cards but skip NLP embedding (deferred until sidecar model swap)
+    const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(built.toIndex, mergedSummaries);
+    return { task, cards: enrichedCards, embeddings: codeEmbeddings, nlpFailedIds, nlpCacheUpdates };
   }
 
   // Apply all NLP summaries (cached + new) and generate NLP embeddings
@@ -246,11 +254,15 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveRagCache(projectRoot, cache, cacheSuffix);
   }
 
+  // Detect sidecar-NLP mode: NLP embeddings via sidecar require sequential model swap
+  const sidecarNlp = dualMode && options.resolvedModels?.nlpRuntime === 'sidecar';
+
   // Pre-warm code embedding model (always needed)
   // Use a non-empty string — nomic-embed-code crashes on empty input
   await embedCode('function warmup() {}');
-  // Pre-warm NLP embedding model only in dual mode (may be a different model)
-  if (dualMode) {
+  // Pre-warm NLP embedding model only in dual mode with ONNX NLP
+  // (sidecar-NLP mode defers NLP embedding until after model swap)
+  if (dualMode && !sidecarNlp) {
     await embedNlp('warmup');
   }
 
@@ -303,7 +315,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, sidecarNlp)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -315,6 +327,22 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onProgress?.(fileCounter, tasksToIndex.length);
     },
   });
+
+  // Sidecar-NLP mode: swap model and generate deferred NLP embeddings
+  if (sidecarNlp && results.length > 0) {
+    onLog?.(`rag: swapping sidecar to NLP model (${options.resolvedModels!.nlpModel})...`);
+    const swapped = await swapSidecarModel(options.resolvedModels!.nlpModel, onLog);
+    if (swapped) {
+      onLog?.(`rag: generating NLP embeddings for ${results.reduce((n, r) => n + r.cards.length, 0)} cards...`);
+      for (const result of results) {
+        if (result.cards.length > 0) {
+          result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
+        }
+      }
+    } else {
+      onLog?.('rag: sidecar model swap failed — NLP embeddings skipped');
+    }
+  }
 
   // Batch upsert all accumulated results sequentially
   onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);

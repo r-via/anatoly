@@ -100,6 +100,7 @@ export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFla
 
 export const SIDECAR_DEFAULT_PORT = 11435;
 export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code';
+export const SIDECAR_NLP_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
 
 export interface SidecarStatus {
   running: boolean;
@@ -193,6 +194,13 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     minMemoryGB: 14,
     requiresGpu: true,
   },
+  [SIDECAR_NLP_MODEL]: {
+    dim: 768,
+    runtime: 'sidecar',
+    description: 'Nomic Embed Text v1.5 (768d, sentence-transformers)',
+    minMemoryGB: 4,
+    requiresGpu: true,
+  },
 };
 
 export interface ResolvedModels {
@@ -218,11 +226,12 @@ export async function resolveEmbeddingModels(
 ): Promise<ResolvedModels> {
   const sidecar = await detectSidecar();
   const codeModel = resolveCodeModel(config.code_model, hardware, sidecar, onLog);
-  const nlpModel = resolveNlpModel(config.nlp_model, onLog);
 
   // Use sidecar-reported dimension if available (more accurate than registry)
   const codeDim = (sidecar.running && sidecar.dim) ? sidecar.dim : (MODEL_REGISTRY[codeModel]?.dim ?? 768);
   const codeRuntime = MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx';
+
+  const nlpModel = resolveNlpModel(config.nlp_model, codeRuntime, onLog);
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
   const nlpRuntime = MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx';
 
@@ -255,9 +264,16 @@ function resolveCodeModel(
 
 function resolveNlpModel(
   configured: string,
+  codeRuntime: 'onnx' | 'sidecar',
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;
+
+  // When code model uses sidecar (GPU), use sidecar NLP model for higher quality
+  if (codeRuntime === 'sidecar') {
+    onLog?.(`NLP model: ${MODEL_REGISTRY[SIDECAR_NLP_MODEL]!.description} (GPU via sidecar)`);
+    return SIDECAR_NLP_MODEL;
+  }
 
   const model = 'Xenova/all-MiniLM-L6-v2';
   onLog?.(`NLP model: ${MODEL_REGISTRY[model]!.description}`);

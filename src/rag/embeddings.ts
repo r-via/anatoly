@@ -180,9 +180,13 @@ export async function embedCode(text: string): Promise<number[]> {
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Uses ONNX (NLP model is always ONNX — sidecar is code-only).
+ * Routes to sidecar when nlpRuntime is 'sidecar' (GPU-accelerated),
+ * otherwise uses ONNX (MiniLM).
  */
 export async function embedNlp(text: string): Promise<number[]> {
+  if (nlpRuntime === 'sidecar') {
+    return embedViaSidecar(text);
+  }
   const model = await getNlpEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
   return Array.from(output.data as Float32Array);

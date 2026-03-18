@@ -9,6 +9,7 @@ Usage:
 Endpoints:
     POST /embed   { "input": "text" }        → { "embedding": [...], "dim": 768 }
     POST /embed   { "input": ["a", "b"] }    → { "embeddings": [[...], [...]], "dim": 768 }
+    POST /load    { "model": "model-name" }   → swap model at runtime (frees GPU, loads new)
     GET  /health                              → { "status": "ok", "model": "...", "device": "..." }
     POST /shutdown                            → graceful exit
 """
@@ -43,8 +44,9 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 else:
     device = "cpu"
 
-print(f"[embed-server] loading {args.model} on {device}...", flush=True)
-model = SentenceTransformer(args.model, device=device)
+current_model = args.model
+print(f"[embed-server] loading {current_model} on {device}...", flush=True)
+model = SentenceTransformer(current_model, device=device)
 dim = model.get_sentence_embedding_dimension()
 
 idle_label = f", idle timeout {args.idle_timeout}s" if args.idle_timeout > 0 else ""
@@ -94,15 +96,50 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         touch_activity()
         if self.path == "/health":
-            self._send_json(200, {"status": "ok", "model": args.model, "device": device, "dim": dim})
+            self._send_json(200, {"status": "ok", "model": current_model, "device": device, "dim": dim})
         else:
             self._send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        global model, dim, current_model
         touch_activity()
         if self.path == "/shutdown":
             self._send_json(200, {"status": "shutting down"})
             threading.Thread(target=lambda: server.shutdown(), daemon=True).start()
+            return
+
+        if self.path == "/load":
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "invalid JSON"})
+                return
+
+            new_model_name = data.get("model")
+            if not new_model_name:
+                self._send_json(400, {"error": "missing 'model' field"})
+                return
+
+            if new_model_name == current_model:
+                self._send_json(200, {"status": "ok", "model": current_model, "dim": dim})
+                return
+
+            print(f"[embed-server] unloading {current_model}...", flush=True)
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            print(f"[embed-server] loading {new_model_name} on {device}...", flush=True)
+            try:
+                model = SentenceTransformer(new_model_name, device=device)
+                dim = model.get_sentence_embedding_dimension()
+                current_model = new_model_name
+                print(f"[embed-server] ready — {current_model} {dim}d on {device}", flush=True)
+                self._send_json(200, {"status": "ok", "model": current_model, "dim": dim})
+            except Exception as e:
+                self._send_json(500, {"error": f"failed to load {new_model_name}: {str(e)}"})
             return
 
         if self.path != "/embed":

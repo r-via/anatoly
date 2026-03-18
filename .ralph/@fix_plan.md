@@ -248,7 +248,7 @@
   > Parse /docs/ into H2 sections, embed prose-only text via NLP model, store as type='doc_section' cards in LanceDB.
   > AC: Given /docs/ with 20 files ~80 H2 sections, When RAG index runs, Then ~80 doc section cards indexed with NLP vectors. And duplication axis still returns only function cards.
 
-- [ ] Story 27.3: Advanced mode — nomic-embed-text in sidecar
+- [x] Story 27.3: Advanced mode — nomic-embed-text in sidecar
   > Sequential GPU model swap: nomic-code for code, then nomic-text for summaries+docs. Update setup-embeddings to download both models.
   > AC: Given advanced mode with GPU, When RAG index runs, Then code vectors = nomic-code (3584d), NLP vectors = nomic-text (768d). And sidecar swaps without OOM. And setup-embeddings downloads both models.
 
@@ -1323,6 +1323,17 @@
   > AC: Given `npm run typecheck && npm run build && npm run test`, Then tout passe après fixes.
   > AC: Given un run anatoly sur un scope de test, Then 6 axes existants OK + documentation axis produit des findings.
   > Spec: _bmad-output/implementation-artifacts/26-4-adversarial-code-review.md
+
+- [x] Story 27.3: Advanced mode — nomic-embed-text in sidecar (2026-03-18)
+  - embed-server.py: POST /load endpoint for runtime model swap (unload GPU → load new)
+  - hardware-detect.ts: SIDECAR_NLP_MODEL constant, nomic-embed-text-v1.5 in MODEL_REGISTRY (768d, sidecar)
+  - resolveNlpModel picks sidecar NLP model when code uses sidecar
+  - embeddings.ts: embedNlp() routes to sidecar when nlpRuntime === 'sidecar'
+  - embed-sidecar.ts: swapSidecarModel() calls /load with 180s timeout
+  - indexer.ts: enrichCardsWithSummaries() + generateNlpEmbeddings() split helpers
+  - orchestrator.ts: sequential model swap — Phase 1: code embeddings + NLP summaries, Phase 2: swap → NLP embeddings
+  - setup-embeddings.sh: downloads both nomic-code and nomic-text models
+  - 659 tests passing, typecheck clean, build succeeds
 
 ## Notes
 - **Epic 25b DONE:** axes-filter.ts created, parseAxesOption + warnDisabledAxes exported, --axes option on run/review/watch

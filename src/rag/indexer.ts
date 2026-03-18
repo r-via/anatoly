@@ -228,6 +228,59 @@ export async function applyNlpSummaries(
   return { enrichedCards, nlpEmbeddings, nlpFailedIds };
 }
 
+/**
+ * Enrich function cards with NLP summary data without generating embeddings.
+ * Used in sidecar-NLP mode where NLP embedding is deferred until after model swap.
+ */
+export function enrichCardsWithSummaries(
+  cards: FunctionCard[],
+  nlpSummaries: Map<string, NlpSummary>,
+): { enrichedCards: FunctionCard[]; nlpFailedIds: Set<string> } {
+  const enrichedCards: FunctionCard[] = [];
+  const nlpFailedIds = new Set<string>();
+
+  for (const card of cards) {
+    const summary = nlpSummaries.get(card.id);
+    if (summary) {
+      enrichedCards.push({
+        ...card,
+        summary: summary.summary,
+        keyConcepts: summary.keyConcepts,
+        behavioralProfile: summary.behavioralProfile,
+      });
+    } else {
+      enrichedCards.push(card);
+      nlpFailedIds.add(card.id);
+    }
+  }
+
+  return { enrichedCards, nlpFailedIds };
+}
+
+/**
+ * Generate NLP embeddings for enriched function cards.
+ * Cards without a summary get a zero-vector so they don't
+ * falsely activate hybrid NLP search.
+ */
+export async function generateNlpEmbeddings(
+  cards: FunctionCard[],
+): Promise<number[][]> {
+  const nlpDimSize = getNlpDim();
+  const zeroVector = new Array(nlpDimSize).fill(0);
+  const nlpEmbeddings: number[][] = [];
+
+  for (const card of cards) {
+    if (card.summary) {
+      const nlpText = buildEmbedNlp(card.name, card.summary, card.keyConcepts ?? [], card.behavioralProfile ?? '');
+      nlpEmbeddings.push(await embedNlp(nlpText));
+    } else {
+      nlpEmbeddings.push([...zeroVector]);
+    }
+  }
+
+  return nlpEmbeddings;
+}
+
 function cachePath(projectRoot: string, cacheSuffix?: string): string {
   const file = cacheSuffix ? `cache_${cacheSuffix}.json` : 'cache.json';
   return resolve(projectRoot, '.anatoly', 'rag', file);

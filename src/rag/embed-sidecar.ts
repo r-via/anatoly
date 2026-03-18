@@ -253,6 +253,45 @@ export async function stopSidecar(): Promise<void> {
   removeSidecarPid();
 }
 
+/**
+ * Swap the sidecar's loaded model at runtime via the /load endpoint.
+ * Frees GPU memory from the current model and loads the new one.
+ * Returns true if the swap succeeded, false on error.
+ */
+export async function swapSidecarModel(
+  newModel: string,
+  onLog?: (message: string) => void,
+): Promise<boolean> {
+  const url = getSidecarUrl();
+  onLog?.(`swapping sidecar model to ${newModel}...`);
+
+  try {
+    const controller = new AbortController();
+    // Model loading can take 30-120s for large models
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+    const res = await fetch(`${url}/load`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: newModel }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const body = await res.text();
+      onLog?.(`sidecar model swap failed (${res.status}): ${body}`);
+      return false;
+    }
+
+    const data = await res.json() as { status: string; model: string; dim: number };
+    onLog?.(`sidecar model swapped: ${data.model} (${data.dim}d)`);
+    return true;
+  } catch (err) {
+    onLog?.(`sidecar model swap error: ${(err as Error).message}`);
+    return false;
+  }
+}
+
 async function waitForReady(
   timeoutMs: number,
   onProgress?: (elapsedSec: number) => void,

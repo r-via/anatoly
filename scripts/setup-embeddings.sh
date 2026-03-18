@@ -14,6 +14,7 @@
 set -euo pipefail
 
 MODEL="nomic-ai/nomic-embed-code"
+NLP_MODEL="nomic-ai/nomic-embed-text-v1.5"
 SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -157,7 +158,7 @@ if [[ "${1:-}" == "--check" ]]; then
       warn "torch: not installed"
     fi
 
-    # Check if model is cached + measure load time
+    # Check if models are cached + measure load time
     if check_package "$PYTHON" "sentence_transformers"; then
       MODEL_RESULT=$("$PYTHON" -c "
 import time
@@ -176,9 +177,31 @@ except:
       MODEL_TIME=$(echo "$MODEL_RESULT" | cut -d' ' -f3)
 
       if [[ "$MODEL_OK" == "yes" ]]; then
-        ok   "Model: ${MODEL} (${MODEL_DIM}d, loaded in ${MODEL_TIME}s)"
+        ok   "Code model: ${MODEL} (${MODEL_DIM}d, loaded in ${MODEL_TIME}s)"
       else
-        warn "Model: ${MODEL} not downloaded yet"
+        warn "Code model: ${MODEL} not downloaded yet"
+      fi
+
+      NLP_RESULT=$("$PYTHON" -c "
+import time
+from sentence_transformers import SentenceTransformer
+try:
+    t0 = time.time()
+    m = SentenceTransformer('${NLP_MODEL}')
+    dt = time.time() - t0
+    print(f'yes {m.get_sentence_embedding_dimension()} {dt:.1f}')
+except:
+    print('no 0 0')
+" 2>/dev/null || echo "no 0 0")
+
+      NLP_OK=$(echo "$NLP_RESULT" | cut -d' ' -f1)
+      NLP_DIM=$(echo "$NLP_RESULT" | cut -d' ' -f2)
+      NLP_TIME=$(echo "$NLP_RESULT" | cut -d' ' -f3)
+
+      if [[ "$NLP_OK" == "yes" ]]; then
+        ok   "NLP model: ${NLP_MODEL} (${NLP_DIM}d, loaded in ${NLP_TIME}s)"
+      else
+        warn "NLP model: ${NLP_MODEL} not downloaded yet"
       fi
     fi
   else
@@ -203,7 +226,7 @@ fi
 echo ""
 info "═══════════════════════════════════════════════"
 info "  Anatoly — Embedding Setup"
-info "  (sentence-transformers + ${MODEL})"
+info "  (sentence-transformers + ${MODEL} + ${NLP_MODEL})"
 info "═══════════════════════════════════════════════"
 echo ""
 
@@ -253,7 +276,7 @@ else
   ok "sentence-transformers installed"
 fi
 
-# Step 5: Download the model
+# Step 5: Download the code model
 info "Downloading ${MODEL} (first time only, ~14 GB)..."
 "$PYTHON" -c "
 from sentence_transformers import SentenceTransformer
@@ -261,6 +284,15 @@ model = SentenceTransformer('${MODEL}')
 print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')
 "
 ok "Model ${MODEL} ready"
+
+# Step 5b: Download the NLP model (used for dual-embedding / advanced mode)
+info "Downloading ${NLP_MODEL} (first time only, ~250 MB)..."
+"$PYTHON" -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('${NLP_MODEL}')
+print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')
+"
+ok "Model ${NLP_MODEL} ready"
 
 # Step 6: Sanity check via sidecar
 info "Running embedding sanity check..."
