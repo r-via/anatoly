@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
 import { toOutputName } from '../utils/cache.js';
-import { MOTD_LINES } from '../utils/banner.js';
+
 
 export interface TriageStats {
   total: number;
@@ -417,12 +417,8 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   const lines: string[] = [];
 
   lines.push('<p align="center">');
-  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/search.png" width="120" alt="Anatoly" />');
+  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg" width="200" alt="Anatoly" />');
   lines.push('</p>');
-  lines.push('');
-  lines.push('```');
-  for (const line of MOTD_LINES) lines.push(line);
-  lines.push('```');
   lines.push('');
   lines.push('# Anatoly Audit Report');
   lines.push('');
