@@ -93,20 +93,34 @@ export function getNlpDim(): number {
 // Sidecar embedding via HTTP API (sentence-transformers)
 // ---------------------------------------------------------------------------
 
-async function embedViaSidecar(text: string): Promise<number[]> {
+async function embedViaSidecar(text: string, retries = 2): Promise<number[]> {
   const url = getSidecarUrl();
-  const res = await fetch(`${url}/embed`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input: text }),
-  });
 
-  if (!res.ok) {
-    throw new Error(`embed sidecar failed (${res.status}): ${await res.text()}`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${url}/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`embed sidecar failed (${res.status}): ${await res.text()}`);
+      }
+
+      const data = await res.json() as { embedding: number[] };
+      return data.embedding;
+    } catch (err) {
+      if (attempt < retries) {
+        // Sidecar may be briefly unavailable after model swap
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
   }
 
-  const data = await res.json() as { embedding: number[] };
-  return data.embedding;
+  throw new Error('embedViaSidecar: unreachable');
 }
 
 /** Embed via ONNX (Jina fallback). Always uses Jina regardless of codeModelId. */
