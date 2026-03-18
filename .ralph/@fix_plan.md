@@ -256,7 +256,7 @@
   > Replace docs-resolver with RAG NLP search. Match function summaries against doc sections. MAX_SECTIONS=5, MAX_LINES_PER_SECTION=100, MAX_DOC_TOKENS=4000.
   > AC: Given src/core/reporter.ts evaluated, When documentation axis runs, Then NLP search matches 05-Reporter.md (not Scanner/Estimator/Triage). And docs_coverage.matched_doc_pages contains 05-Reporter.md.
 
-- [ ] Story 27.5: Deliberation memory for documentation reclassifications
+- [x] Story 27.5: Deliberation memory for documentation reclassifications
   > Persist doc reclassifications in deliberation-memory.json. Inject into documentation axis prompt to avoid re-flagging.
   > AC: Given symbol reclassified UNDOCUMENTED→DOCUMENTED by deliberation, When next run evaluates same file, Then symbol is not re-flagged.
 
