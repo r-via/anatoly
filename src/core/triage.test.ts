@@ -187,7 +187,7 @@ describe('generateSkipReview', () => {
       expect(sym.overengineering).toBe('LEAN');
       expect(sym.utility).toBe('USED');
       expect(sym.duplication).toBe('UNIQUE');
-      expect(sym.tests).toBe('NONE');
+      expect(sym.tests).toBe('-');
       expect(sym.confidence).toBe(100);
       expect(sym.detail).toContain('auto-skipped by triage');
       expect(sym.detail).toContain('type-only');
