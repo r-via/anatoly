@@ -46,7 +46,7 @@ else:
 
 current_model = args.model
 print(f"[embed-server] loading {current_model} on {device}...", flush=True)
-model = SentenceTransformer(current_model, device=device)
+model = SentenceTransformer(current_model, device=device, trust_remote_code=True)
 dim = model.get_sentence_embedding_dimension()
 
 idle_label = f", idle timeout {args.idle_timeout}s" if args.idle_timeout > 0 else ""
@@ -133,7 +133,7 @@ class Handler(BaseHTTPRequestHandler):
 
             print(f"[embed-server] loading {new_model_name} on {device}...", flush=True)
             try:
-                model = SentenceTransformer(new_model_name, device=device)
+                model = SentenceTransformer(new_model_name, device=device, trust_remote_code=True)
                 dim = model.get_sentence_embedding_dimension()
                 current_model = new_model_name
                 print(f"[embed-server] ready — {current_model} {dim}d on {device}", flush=True)

@@ -13,8 +13,14 @@
 #
 set -euo pipefail
 
+# Suppress HuggingFace warnings
+export HF_HUB_DISABLE_TELEMETRY=1
+export TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+export HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+export HF_HUB_VERBOSITY=error
+
 MODEL="nomic-ai/nomic-embed-code"
-NLP_MODEL="nomic-ai/nomic-embed-text-v1.5"
+NLP_MODEL="Qwen/Qwen3-Embedding-8B"
 SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -187,7 +193,7 @@ import time
 from sentence_transformers import SentenceTransformer
 try:
     t0 = time.time()
-    m = SentenceTransformer('${NLP_MODEL}')
+    m = SentenceTransformer('${NLP_MODEL}', trust_remote_code=True)
     dt = time.time() - t0
     print(f'yes {m.get_sentence_embedding_dimension()} {dt:.1f}')
 except:
@@ -276,28 +282,53 @@ else
   ok "sentence-transformers installed"
 fi
 
-# Step 5: Download the code model
-info "Downloading ${MODEL} (first time only, ~14 GB)..."
-"$PYTHON" -c "
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('${MODEL}')
-print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')
-"
-ok "Model ${MODEL} ready"
+# Step 5: Download/verify the code model
+CODE_CACHED=$("$PYTHON" -W ignore -c "
+import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
+from huggingface_hub import try_to_load_from_cache
+result = try_to_load_from_cache('${MODEL}', 'config.json')
+print('yes' if result is not None and result != '' else 'no')
+" 2>/dev/null || echo "no")
 
-# Step 5b: Download the NLP model (used for dual-embedding / advanced mode)
-info "Downloading ${NLP_MODEL} (first time only, ~250 MB)..."
-"$PYTHON" -c "
+if [[ "$CODE_CACHED" == "yes" ]]; then
+  info "Loading ${MODEL} (cached)..."
+else
+  info "Downloading ${MODEL} (~27 GB, first time only)..."
+fi
+"$PYTHON" -W ignore -c "
+import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
 from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('${NLP_MODEL}')
-print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')
-"
-ok "Model ${NLP_MODEL} ready"
+model = SentenceTransformer('${MODEL}', trust_remote_code=True)
+print(f'  {model.get_sentence_embedding_dimension()}d')
+" 2>&1 | grep -v "^Warning:"
+ok "Code model ready: ${MODEL}"
+
+# Step 5b: Download/verify the NLP model
+NLP_CACHED=$("$PYTHON" -W ignore -c "
+import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
+from huggingface_hub import try_to_load_from_cache
+result = try_to_load_from_cache('${NLP_MODEL}', 'config.json')
+print('yes' if result is not None and result != '' else 'no')
+" 2>/dev/null || echo "no")
+
+if [[ "$NLP_CACHED" == "yes" ]]; then
+  info "Loading ${NLP_MODEL} (cached)..."
+else
+  info "Downloading ${NLP_MODEL} (~16 GB, first time only)..."
+fi
+"$PYTHON" -W ignore -c "
+import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('${NLP_MODEL}', trust_remote_code=True)
+print(f'  {model.get_sentence_embedding_dimension()}d')
+" 2>&1 | grep -v "^Warning:"
+ok "NLP model ready: ${NLP_MODEL}"
 
 # Step 6: Sanity check via sidecar
 info "Running embedding sanity check..."
-"$PYTHON" "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
+"$PYTHON" -W ignore "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
 SIDECAR_PID=$!
+trap 'kill "$SIDECAR_PID" 2>/dev/null || true; exit 1' INT TERM
 
 # Wait for sidecar to be ready (model loading)
 READY=false
@@ -332,27 +363,35 @@ else
 fi
 
 # Step 7: Write readiness flag for anatoly run --rag-advanced auto-detection
-DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}').get_sentence_embedding_dimension())" 2>/dev/null)
+CODE_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null)
+NLP_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${NLP_MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null)
 FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
 mkdir -p "$(dirname "$FLAG_FILE")"
 cat > "$FLAG_FILE" <<ENDJSON
 {
-  "model": "${MODEL}",
-  "dim": ${DIM:-3584},
+  "code_model": "${MODEL}",
+  "nlp_model": "${NLP_MODEL}",
+  "dim_code": ${CODE_DIM:-3584},
+  "dim_nlp": ${NLP_DIM:-4096},
   "device": "${GPU}",
   "python": "${PYTHON}",
   "setup_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 ENDJSON
-ok "Readiness flag written to ${FLAG_FILE}"
+ok "Readiness flag written"
 
 echo ""
-ok "═══════════════════════════════════════════════"
-ok "  Setup complete! Anatoly will use ${MODEL}"
-ok "  for GPU-accelerated code embeddings."
-ok "═══════════════════════════════════════════════"
+echo "  ═══════════════════════════════════════════════"
 echo ""
-info "The embed sidecar starts automatically with 'anatoly run'."
-info "To start it manually:  $PYTHON scripts/embed-server.py"
-info "To check status:       ./scripts/setup-embeddings.sh --check"
+ok "Setup complete!"
+echo ""
+echo "  Code model  ${MODEL} (${CODE_DIM:-3584}d)"
+echo "  NLP model   ${NLP_MODEL} (${NLP_DIM:-4096}d)"
+echo "  Device      ${GPU}"
+echo "  Config      .anatoly/embeddings-ready.json"
+echo ""
+echo "  ═══════════════════════════════════════════════"
+echo ""
+info "The embed sidecar starts automatically with 'npx anatoly run'."
+info "To check status:  npx anatoly setup-embeddings --check"
 echo ""
