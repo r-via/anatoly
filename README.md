@@ -10,7 +10,7 @@
 
 Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) who politely asks *"Can I clean here?"* — then deadlifts the entire rack.
 
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: Apache--2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
 ```bash
 npx anatoly run   # one command, full codebase audit
@@ -246,7 +246,7 @@ Please follow the existing code style and ensure all CI checks pass.
 
 ## License
 
-[Apache-2.0](https://opensource.org/licenses/Apache-2.0)
+[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0)
 
 ## Contact & Support
 
