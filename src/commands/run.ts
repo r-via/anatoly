@@ -219,6 +219,30 @@ export function registerRunCommand(program: Command): void {
         const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
         ctx.runLog = createFileLogger(runLogPath);
         ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
+
+        // Dump run configuration for traceability
+        const runConfig = {
+          runId,
+          timestamp: new Date().toISOString(),
+          projectRoot,
+          concurrency,
+          ragMode: ctx.ragMode,
+          dualEmbedding: ctx.dualEmbedding,
+          enableRag: ctx.enableRag,
+          noCache: ctx.noCache,
+          rebuildRag: ctx.rebuildRag,
+          deliberation: ctx.deliberation,
+          dryRun: ctx.dryRun,
+          axesFilter: ctx.axesFilter ?? null,
+          fileFilter: ctx.fileFilter ?? null,
+          badge: ctx.badge,
+          config: {
+            llm: ctx.config.llm,
+            rag: ctx.config.rag,
+            scan: ctx.config.scan,
+          },
+        };
+        writeFileSync(join(ctx.runDir, 'run-config.json'), JSON.stringify(runConfig, null, 2));
       }
 
       const onSigint = () => {
