@@ -1,6 +1,7 @@
 import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { atomicWriteJson } from '../utils/cache.js';
+import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +66,9 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
         renameSync(legacyPath, legacyPath + '.bak');
         return parsed;
       }
-    } catch { /* migration failed — continue to normal load */ }
+    } catch (err) {
+      contextLogger().warn({ legacyPath, err }, 'deliberation memory migration failed');
+    }
   }
 
   try {
@@ -74,7 +77,11 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
     if (parsed.version === 1 && Array.isArray(parsed.false_positives)) {
       return parsed;
     }
-  } catch { /* file missing or corrupted */ }
+  } catch (err) {
+    if (existsSync(memPath)) {
+      contextLogger().warn({ memPath, err }, 'deliberation memory file corrupted');
+    }
+  }
   return { version: 1, false_positives: [] };
 }
 

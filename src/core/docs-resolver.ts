@@ -98,9 +98,10 @@ export function resolveRelevantDocs(
   const mapping = config.documentation.module_mapping;
   const docs: RelevantDoc[] = [];
 
-  // 1. Config-driven mapping (primary)
+  // 1. Config-driven mapping (primary) — sort longest prefix first for specificity
   if (mapping) {
-    for (const [modulePrefix, docDirs] of Object.entries(mapping)) {
+    const sortedEntries = Object.entries(mapping).sort((a, b) => b[0].length - a[0].length);
+    for (const [modulePrefix, docDirs] of sortedEntries) {
       if (filePath.startsWith(modulePrefix)) {
         for (const docDir of docDirs) {
           if (docs.length >= MAX_PAGES) break;
@@ -203,7 +204,7 @@ function loadDoc(fullPath: string, docsDir: string): RelevantDoc | null {
     const raw = readFileSync(fullPath, 'utf-8');
     const lines = raw.split('\n');
     const truncated = lines.length > MAX_LINES_PER_PAGE
-      ? lines.slice(0, MAX_LINES_PER_PAGE).join('\n') + '\n\n<!-- truncated at 300 lines -->'
+      ? lines.slice(0, MAX_LINES_PER_PAGE).join('\n') + `\n\n<!-- truncated at ${MAX_LINES_PER_PAGE} lines -->`
       : raw;
     return {
       path: relative(docsDir, fullPath),

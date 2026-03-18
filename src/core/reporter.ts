@@ -800,7 +800,8 @@ export function renderShard(shard: ShardInfo): string {
     lines.push('## Documentation Coverage');
     lines.push('');
     for (const review of docReviews) {
-      const dc = review.docs_coverage!;
+      const dc = review.docs_coverage;
+      if (!dc) continue;
       const issues = dc.concepts.filter((c) => c.status !== 'COVERED');
       lines.push(`### \`${review.file}\` — ${dc.score_pct}% covered`);
       lines.push('');
