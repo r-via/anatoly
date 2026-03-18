@@ -189,7 +189,7 @@ export function registerRunCommand(program: Command): void {
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
           : config.llm.deliberation ?? true,
-        dualEmbedding: ragMode !== 'advanced',
+        dualEmbedding: true,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -453,7 +453,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     const needsSidecar = ctx.ragMode === 'advanced'
       || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
     ctx.resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
-    ctx.dualEmbedding = ctx.resolvedRagMode === 'lite';
+    ctx.dualEmbedding = true; // always dual: code + NLP embeddings in both modes
 
     rl?.info({
       hardware: {
