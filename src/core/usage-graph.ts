@@ -200,6 +200,9 @@ function escapeRegExp(s: string): string {
  * Strip comments and string literals from source code to avoid false-positive
  * symbol matches inside documentation or string content.
  * Template literal expressions (`${...}`) are preserved since they contain real code.
+ *
+ * Known limitation: nested template literals (e.g. `outer ${`inner`}`) are not
+ * handled correctly by regex alone — residual content may cause false positives.
  */
 function stripCommentsAndStrings(source: string): string {
   return source

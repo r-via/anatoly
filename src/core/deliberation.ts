@@ -135,7 +135,9 @@ export function needsDeliberation(review: ReviewFile): boolean {
       s.utility === 'DEAD' ||
       s.utility === 'LOW_VALUE' ||
       s.duplication === 'DUPLICATE' ||
-      s.overengineering === 'OVER',
+      s.overengineering === 'OVER' ||
+      s.tests === 'WEAK' ||
+      s.tests === 'NONE',
   );
   if (hasFindings) {
     log.debug({ file: review.file, reason: 'has-findings' }, 'deliberation needed');
@@ -294,7 +296,12 @@ function recomputeVerdict(
   for (const s of symbols) {
     if (s.correction === 'ERROR') hasError = true;
     if (s.correction === 'NEEDS_FIX') hasFinding = true;
-    if (s.utility === 'DEAD' || s.duplication === 'DUPLICATE' || s.overengineering === 'OVER') {
+    if (
+      s.utility === 'DEAD' || s.utility === 'LOW_VALUE' ||
+      s.duplication === 'DUPLICATE' ||
+      s.overengineering === 'OVER' ||
+      s.tests === 'WEAK' || s.tests === 'NONE'
+    ) {
       hasFinding = true;
     }
   }

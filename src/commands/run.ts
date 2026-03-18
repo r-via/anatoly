@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve, join, relative } from 'node:path';
+import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { Listr } from 'listr2';
@@ -1098,7 +1098,7 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
 
   // Find the most recent previous run (excludes current run which is not yet in listRuns)
   const allRuns = listRuns(projectRoot);
-  const currentRunId = currentRunDir.split('/').at(-1);
+  const currentRunId = basename(currentRunDir);
   const previousRuns = allRuns.filter((id) => id !== currentRunId);
   if (previousRuns.length === 0) return;
 
@@ -1115,8 +1115,8 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
       try {
         copyFileSync(src, dst);
         copied++;
-      } catch {
-        // Non-fatal — report will simply omit this file
+      } catch (err) {
+        getLogger().debug({ src, err }, 'failed to copy cached review (non-fatal)');
       }
     }
   }
