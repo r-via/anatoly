@@ -382,6 +382,20 @@ export class VectorStore {
   }
 
   /**
+   * Delete specific doc section cards by their IDs.
+   */
+  async deleteDocSections(ids: string[]): Promise<void> {
+    if (!this.table || ids.length === 0) return;
+    for (const id of ids) {
+      try {
+        await this.table.delete(`id = '${id}' AND type = 'doc_section'`);
+      } catch {
+        // May not exist
+      }
+    }
+  }
+
+  /**
    * Get function cards for a specific file (excludes doc_section rows).
    */
   async getCardsByFile(filePath: string): Promise<FunctionCard[]> {

@@ -2,12 +2,51 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, relative } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { embedNlp } from './embeddings.js';
 import type { VectorStore } from './vector-store.js';
+
+// ---------------------------------------------------------------------------
+// Doc section cache (SHA-256 per doc file)
+// ---------------------------------------------------------------------------
+
+interface DocCacheEntry {
+  /** SHA-256 of the full doc file content. */
+  sha: string;
+  /** Section IDs indexed from this file. */
+  sectionIds: string[];
+}
+
+interface DocCache {
+  entries: Record<string, DocCacheEntry>;
+}
+
+function docCachePath(projectRoot: string, suffix: string): string {
+  return resolve(projectRoot, '.anatoly', 'rag', `doc_cache_${suffix}.json`);
+}
+
+function computeDocSha(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+export function loadDocCache(projectRoot: string, suffix: string): DocCache {
+  const path = docCachePath(projectRoot, suffix);
+  if (!existsSync(path)) return { entries: {} };
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return { entries: {} };
+  }
+}
+
+export function saveDocCache(projectRoot: string, suffix: string, cache: DocCache): void {
+  const path = docCachePath(projectRoot, suffix);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(cache, null, 2));
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,6 +170,7 @@ export interface DocIndexOptions {
   projectRoot: string;
   vectorStore: VectorStore;
   docsDir?: string;
+  cacheSuffix?: string;
   onLog: (message: string) => void;
 }
 
@@ -138,36 +178,97 @@ export interface DocIndexOptions {
  * Parse /docs/ into H2 sections, embed prose via NLP model,
  * and upsert as type='doc_section' cards in the vector store.
  *
- * Returns the number of doc sections indexed.
+ * Uses SHA-256 per doc file to skip unchanged files.
+ * When a file changes, all its old sections are removed and new ones are indexed.
+ *
+ * Returns the number of NEW doc sections indexed (0 = all cached).
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', onLog } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog } = options;
 
-  const sections = collectDocSections(projectRoot, docsDir);
-  if (sections.length === 0) {
-    onLog('rag: no doc sections found');
+  const absDocsDir = resolve(projectRoot, docsDir);
+  if (!existsSync(absDocsDir)) {
+    onLog('rag: no docs/ directory found');
     return 0;
   }
 
-  onLog(`rag: indexing ${sections.length} doc sections from ${docsDir}/`);
-
-  // Build card-like records and NLP embeddings
-  const cards: Array<{ id: string; filePath: string; name: string; summary: string }> = [];
-  const nlpEmbeddings: number[][] = [];
-
-  for (const section of sections) {
-    const id = buildDocSectionId(section.filePath, section.heading);
-    // Truncate content for summary field (max ~400 chars)
-    const summary = section.content.slice(0, 400);
-    cards.push({ id, filePath: section.filePath, name: section.heading, summary });
-
-    // Embed the full prose content via NLP model
-    const embedText = `${section.heading}\n${section.content}`;
-    nlpEmbeddings.push(await embedNlp(embedText));
+  const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
+  if (files.length === 0) {
+    onLog('rag: no doc files found');
+    return 0;
   }
 
-  await vectorStore.upsertDocSections(cards, nlpEmbeddings);
-  onLog(`rag: indexed ${sections.length} doc sections`);
+  const cache = loadDocCache(projectRoot, cacheSuffix);
+  const newCache: DocCache = { entries: {} };
 
-  return sections.length;
+  // Determine which files changed
+  const changedFiles: Array<{ relPath: string; source: string }> = [];
+  let cachedCount = 0;
+
+  for (const absPath of files) {
+    const relPath = relative(projectRoot, absPath);
+    const source = readFileSync(absPath, 'utf-8');
+    const sha = computeDocSha(source);
+    const cached = cache.entries[relPath];
+
+    if (cached && cached.sha === sha) {
+      // Unchanged — carry forward cache entry
+      newCache.entries[relPath] = cached;
+      cachedCount++;
+    } else {
+      changedFiles.push({ relPath, source });
+    }
+  }
+
+  // Remove stale sections for deleted/changed files
+  const staleFiles = Object.keys(cache.entries).filter(f => !newCache.entries[f]);
+  for (const staleFile of staleFiles) {
+    const staleIds = cache.entries[staleFile]?.sectionIds ?? [];
+    if (staleIds.length > 0) {
+      await vectorStore.deleteDocSections(staleIds);
+    }
+  }
+
+  if (changedFiles.length === 0) {
+    onLog(`rag: doc sections up to date (${cachedCount} files cached)`);
+    saveDocCache(projectRoot, cacheSuffix, newCache);
+    return 0;
+  }
+
+  onLog(`rag: indexing doc sections from ${changedFiles.length} changed files (${cachedCount} cached)`);
+
+  let totalIndexed = 0;
+
+  for (const { relPath, source } of changedFiles) {
+    const sha = computeDocSha(source);
+    const sections = parseDocSections(relPath, source);
+
+    if (sections.length === 0) {
+      newCache.entries[relPath] = { sha, sectionIds: [] };
+      continue;
+    }
+
+    const cards: Array<{ id: string; filePath: string; name: string; summary: string }> = [];
+    const nlpEmbeddings: number[][] = [];
+    const sectionIds: string[] = [];
+
+    for (const section of sections) {
+      const id = buildDocSectionId(section.filePath, section.heading);
+      const summary = section.content.slice(0, 400);
+      cards.push({ id, filePath: section.filePath, name: section.heading, summary });
+      sectionIds.push(id);
+
+      const embedText = `${section.heading}\n${section.content}`;
+      nlpEmbeddings.push(await embedNlp(embedText));
+    }
+
+    await vectorStore.upsertDocSections(cards, nlpEmbeddings);
+    newCache.entries[relPath] = { sha, sectionIds };
+    totalIndexed += sections.length;
+  }
+
+  saveDocCache(projectRoot, cacheSuffix, newCache);
+  onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
+
+  return totalIndexed;
 }
