@@ -506,7 +506,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     : allTasks;
   const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
   estimateFiles = estimateTasks.length;
-  pipelineRows.push({ phase: 'estimate', detail: `${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens` });
+  // Estimate row is pushed after triage so we can include the calibrated ETA
+  const estimateTokenLabel = `${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   ctx.phaseDurations.estimate = Date.now() - estStart;
   const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
   log.info(estCompleted, 'phase completed');
@@ -557,7 +558,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const docsTree = buildDocsTree(ctx.projectRoot, ctx.config.documentation?.docs_path ?? 'docs');
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
-  // --- Calibrated ETA ---
+  // --- Calibrated ETA (merged into the estimate pipeline row) ---
   const calibration = loadCalibration(ctx.projectRoot);
   const activeAxes = evaluators.map(e => e.id);
   const evalFileCount = ctx.triageEnabled
@@ -566,7 +567,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency);
   const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
   const calLabel = hasCal ? 'calibrated' : 'default';
-  pipelineRows.push({ phase: 'est. review', detail: `${formatCalibratedTime(calibratedMin)} (${calLabel})` });
+  pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
   // Render setup summary table
   renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
