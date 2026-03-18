@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve, join, relative, basename } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { Listr } from 'listr2';
@@ -18,12 +18,13 @@ import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
+import type { ReviewFile } from '../schemas/review.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
@@ -799,6 +800,7 @@ async function runReviewPhase(
             pm.updateFileStatus(filePath, 'IN_PROGRESS');
             const skipReview = generateSkipReview(task, triage.reason);
             writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
+            cacheReview(ctx.projectRoot, skipReview);
             pm.updateFileStatus(filePath, 'DONE');
             ctx.filesReviewed++;
             ctx.reviewCounts.skipped++;
@@ -865,6 +867,7 @@ async function runReviewPhase(
             );
 
             writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
+            cacheReview(ctx.projectRoot, result.review);
             writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
             pm.updateFileStatus(filePath, 'DONE');
             ctx.filesReviewed++;
@@ -1102,7 +1105,7 @@ function runReportPhase(ctx: RunContext): void {
 }
 
 /**
- * Copy .rev.json files for CACHED files from the most recent previous run
+ * Copy .rev.json files for CACHED files from the accumulative cache
  * into the current runDir/reviews directory.
  *
  * This ensures the report always reflects the full project state, not just
@@ -1113,20 +1116,13 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
   const cachedFiles = Object.values(progress.files).filter((f) => f.status === 'CACHED');
   if (cachedFiles.length === 0) return;
 
-  // Find the most recent previous run (excludes current run which is not yet in listRuns)
-  const allRuns = listRuns(projectRoot);
-  const currentRunId = basename(currentRunDir);
-  const previousRuns = allRuns.filter((id) => id !== currentRunId);
-  if (previousRuns.length === 0) return;
-
-  const previousRunId = previousRuns.at(-1)!;
-  const previousReviewsDir = resolve(projectRoot, '.anatoly', 'runs', previousRunId, 'reviews');
+  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
   const currentReviewsDir = join(currentRunDir, 'reviews');
 
   let copied = 0;
   for (const fp of cachedFiles) {
     const baseName = toOutputName(fp.file);
-    const src = join(previousReviewsDir, `${baseName}.rev.json`);
+    const src = join(cacheReviewsDir, `${baseName}.rev.json`);
     const dst = join(currentReviewsDir, `${baseName}.rev.json`);
     if (existsSync(src) && !existsSync(dst)) {
       try {
@@ -1139,6 +1135,22 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
   }
 
   if (copied > 0) {
-    getLogger().info({ copied, previousRunId }, 'copied cached reviews from previous run');
+    getLogger().info({ copied }, 'copied cached reviews into current run');
+  }
+}
+
+/**
+ * Persist a .rev.json into the accumulative cache directory.
+ * Always overwrites — the latest review is the source of truth.
+ */
+function cacheReview(projectRoot: string, review: ReviewFile): void {
+  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
+  mkdirSync(cacheReviewsDir, { recursive: true });
+  const baseName = toOutputName(review.file);
+  const dst = join(cacheReviewsDir, `${baseName}.rev.json`);
+  try {
+    writeFileSync(dst, JSON.stringify(review, null, 2) + '\n');
+  } catch (err) {
+    getLogger().debug({ dst, err }, 'failed to cache review (non-fatal)');
   }
 }
