@@ -160,7 +160,10 @@ export async function ensureSidecar(
 
   // Already running? After cleanStaleSidecar, any survivor is truly external.
   const status = await detectSidecar();
-  if (status.running) return true;
+  if (status.running) {
+    onLog?.(`sidecar already running — ${status.model ?? 'unknown'} (${status.dim ?? '?'}d) on ${status.device ?? '?'}`);
+    return true;
+  }
 
   // Spawn the sidecar — script ships with the anatoly package
   const scriptPath = resolve(PKG_ROOT, 'scripts', 'embed-server.py');
