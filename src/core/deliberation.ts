@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
-import { recordFalsePositive } from './correction-memory.js';
+import { recordReclassification } from './correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -217,10 +217,11 @@ export function applyDeliberation(
       if (orig !== deliberated) {
         changes.push(`${axis}: ${orig} → ${deliberated}`);
 
-        // Record correction downgrades as false positives for future runs
-        if (projectRoot && axis === 'correction' && (orig === 'NEEDS_FIX' || orig === 'ERROR') && deliberated === 'OK') {
-          recordFalsePositive(projectRoot, {
-            pattern: `[deliberation] ${sym.name}: ${orig} → OK`,
+        // Record any reclassification as a false positive for future runs
+        if (projectRoot) {
+          recordReclassification(projectRoot, {
+            pattern: `[deliberation] ${sym.name}: ${axis} ${orig} → ${deliberated}`,
+            axis,
             original_detail: sym.detail,
             reason: `Deliberation reclassified: ${delib.reasoning}`,
           });

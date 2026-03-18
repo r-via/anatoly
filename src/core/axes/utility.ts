@@ -4,6 +4,7 @@ import { runSingleTurnQuery } from '../axis-evaluator.js';
 import { resolveAxisModel } from '../axis-evaluator.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
 import utilitySystemPrompt from './prompts/utility.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (utility axis only)
@@ -91,7 +92,12 @@ export class UtilityEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildUtilitySystemPrompt();
-    const userMessage = buildUtilityUserMessage(ctx);
+    let userMessage = buildUtilityUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'utility');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<UtilityResponse>(
       {

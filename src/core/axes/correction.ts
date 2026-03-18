@@ -4,7 +4,7 @@ import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
 import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import correctionSystemPrompt from './prompts/correction.system.md';
-import { formatMemoryForPrompt, recordFalsePositive } from '../correction-memory.js';
+import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (correction axis only)
@@ -248,8 +248,9 @@ function applyVerification(
     if (v.verified_correction !== v.original_correction) {
       // Record as false positive for future runs
       const depName = detectImplicatedDep(sym.detail, ctx.fileDeps);
-      recordFalsePositive(ctx.projectRoot, {
+      recordReclassification(ctx.projectRoot, {
         pattern: summarizePattern(sym.detail),
+        axis: 'correction',
         dependency: depName,
         original_detail: sym.detail,
         reason: v.reason,
@@ -320,8 +321,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
     let userMessage = buildCorrectionUserMessage(ctx);
 
     // Inject known false positives from memory into the prompt
-    const depNames = ctx.fileDeps?.deps.map((d) => d.name);
-    const memorySection = formatMemoryForPrompt(ctx.projectRoot, depNames);
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'correction');
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

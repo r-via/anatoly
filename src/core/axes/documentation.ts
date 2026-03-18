@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import documentationSystemPrompt from './prompts/documentation.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for LLM response (documentation axis)
@@ -103,7 +104,12 @@ export class DocumentationEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildDocumentationSystemPrompt();
-    const userMessage = buildDocumentationUserMessage(ctx);
+    let userMessage = buildDocumentationUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'documentation');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<DocumentationResponse>(
       {

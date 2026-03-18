@@ -3,6 +3,7 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import { getSymbolUsage } from '../usage-graph.js';
 import testsSystemPrompt from './prompts/tests.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (tests axis only)
@@ -127,7 +128,12 @@ export class TestsEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildTestsSystemPrompt();
-    const userMessage = buildTestsUserMessage(ctx);
+    let userMessage = buildTestsUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'tests');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<TestsResponse>(
       {

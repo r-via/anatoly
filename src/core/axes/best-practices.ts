@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import bestPracticesSystemPrompt from './prompts/best-practices.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
@@ -139,7 +140,12 @@ export class BestPracticesEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildBestPracticesSystemPrompt();
-    const userMessage = buildBestPracticesUserMessage(ctx);
+    let userMessage = buildBestPracticesUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'best_practices');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<BestPracticesResponse>(
       {

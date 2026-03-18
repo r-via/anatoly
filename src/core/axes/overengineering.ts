@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
 import overengineeringSystemPrompt from './prompts/overengineering.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (overengineering axis only)
@@ -92,7 +93,12 @@ export class OverengineeringEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildOverengineeringSystemPrompt();
-    const userMessage = buildOverengineeringUserMessage(ctx);
+    let userMessage = buildOverengineeringUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'overengineering');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<OverengineeringResponse>(
       {

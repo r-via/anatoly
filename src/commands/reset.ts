@@ -39,7 +39,7 @@ function countResetItems(anatolyDir: string): { dirs: string[]; files: string[];
     dirs.push('rag');
   }
 
-  for (const file of ['progress.json', 'report.md', 'anatoly.lock', 'correction-memory.json']) {
+  for (const file of ['progress.json', 'report.md', 'anatoly.lock', 'deliberation-memory.json', 'correction-memory.json']) {
     if (existsSync(resolve(anatolyDir, file))) {
       files.push(file);
     }
@@ -153,11 +153,13 @@ export function registerResetCommand(program: Command): void {
         cleaned++;
       }
 
-      // Remove correction memory
-      const corrMemPath = resolve(anatolyDir, 'correction-memory.json');
-      if (existsSync(corrMemPath)) {
-        rmSync(corrMemPath);
-        cleaned++;
+      // Remove deliberation memory (and legacy correction memory)
+      for (const memFile of ['deliberation-memory.json', 'correction-memory.json']) {
+        const memPath = resolve(anatolyDir, memFile);
+        if (existsSync(memPath)) {
+          rmSync(memPath);
+          cleaned++;
+        }
       }
 
       console.log(`  cleared ${chalk.bold(String(cleaned))} item(s) from .anatoly/`);

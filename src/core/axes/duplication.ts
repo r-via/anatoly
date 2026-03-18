@@ -6,6 +6,7 @@ import { runSingleTurnQuery } from '../axis-evaluator.js';
 import { resolveAxisModel } from '../axis-evaluator.js';
 import { contextLogger } from '../../utils/log-context.js';
 import duplicationSystemPrompt from './prompts/duplication.system.md';
+import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (duplication axis only)
@@ -147,7 +148,12 @@ export class DuplicationEvaluator implements AxisEvaluator {
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildDuplicationSystemPrompt();
-    const userMessage = buildDuplicationUserMessage(ctx);
+    let userMessage = buildDuplicationUserMessage(ctx);
+
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'duplication');
+    if (memorySection) {
+      userMessage += '\n' + memorySection;
+    }
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<DuplicationResponse>(
       {
