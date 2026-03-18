@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
@@ -19,7 +19,7 @@ import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js
 import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, resolveRunDir, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { formatTokenSummary } from '../utils/format.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -957,6 +957,10 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
     degradedReviews: ctx.degradedReviews,
   };
+  // Copy cached reviews from previous run into current runDir so the report is complete.
+  // Files with status CACHED have an unchanged SHA-256 — their .rev.json is still valid.
+  copyCachedReviews(ctx.projectRoot, ctx.runDir, pm);
+
   const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats);
 
   if (ctx.config.output?.max_runs) {
@@ -1043,4 +1047,46 @@ function runReportPhase(ctx: RunContext): void {
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
 
+}
+
+/**
+ * Copy .rev.json files for CACHED files from the most recent previous run
+ * into the current runDir/reviews directory.
+ *
+ * This ensures the report always reflects the full project state, not just
+ * the files that were re-reviewed in this run.
+ */
+function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: ProgressManager): void {
+  const progress = pm.getProgress();
+  const cachedFiles = Object.values(progress.files).filter((f) => f.status === 'CACHED');
+  if (cachedFiles.length === 0) return;
+
+  // Find the most recent previous run (excludes current run which is not yet in listRuns)
+  const allRuns = listRuns(projectRoot);
+  const currentRunId = currentRunDir.split('/').at(-1);
+  const previousRuns = allRuns.filter((id) => id !== currentRunId);
+  if (previousRuns.length === 0) return;
+
+  const previousRunId = previousRuns.at(-1)!;
+  const previousReviewsDir = resolve(projectRoot, '.anatoly', 'runs', previousRunId, 'reviews');
+  const currentReviewsDir = join(currentRunDir, 'reviews');
+
+  let copied = 0;
+  for (const fp of cachedFiles) {
+    const baseName = toOutputName(fp.file);
+    const src = join(previousReviewsDir, `${baseName}.rev.json`);
+    const dst = join(currentReviewsDir, `${baseName}.rev.json`);
+    if (existsSync(src) && !existsSync(dst)) {
+      try {
+        copyFileSync(src, dst);
+        copied++;
+      } catch {
+        // Non-fatal — report will simply omit this file
+      }
+    }
+  }
+
+  if (copied > 0) {
+    getLogger().info({ copied, previousRunId }, 'copied cached reviews from previous run');
+  }
 }
