@@ -20,32 +20,38 @@ interface DocCacheEntry {
   sectionIds: string[];
 }
 
-interface DocCache {
-  entries: Record<string, DocCacheEntry>;
+export interface DocCacheData {
+  [filePath: string]: DocCacheEntry;
 }
 
-function docCachePath(projectRoot: string, suffix: string): string {
-  return resolve(projectRoot, '.anatoly', 'rag', `doc_cache_${suffix}.json`);
+function ragCachePath(projectRoot: string, suffix: string): string {
+  return resolve(projectRoot, '.anatoly', 'rag', `cache_${suffix}.json`);
 }
 
 function computeDocSha(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-export function loadDocCache(projectRoot: string, suffix: string): DocCache {
-  const path = docCachePath(projectRoot, suffix);
-  if (!existsSync(path)) return { entries: {} };
+export function loadDocCacheFromRagCache(projectRoot: string, suffix: string): DocCacheData {
+  const path = ragCachePath(projectRoot, suffix);
+  if (!existsSync(path)) return {};
   try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
+    const data = JSON.parse(readFileSync(path, 'utf-8'));
+    return data.docEntries ?? {};
   } catch {
-    return { entries: {} };
+    return {};
   }
 }
 
-export function saveDocCache(projectRoot: string, suffix: string, cache: DocCache): void {
-  const path = docCachePath(projectRoot, suffix);
+export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docEntries: DocCacheData): void {
+  const path = ragCachePath(projectRoot, suffix);
+  let data: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try { data = JSON.parse(readFileSync(path, 'utf-8')); } catch { /* ignore */ }
+  }
+  data.docEntries = docEntries;
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(cache, null, 2));
+  writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +204,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     return 0;
   }
 
-  const cache = loadDocCache(projectRoot, cacheSuffix);
-  const newCache: DocCache = { entries: {} };
+  const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
+  const newCache: DocCacheData = {};
 
   // Determine which files changed
   const changedFiles: Array<{ relPath: string; source: string }> = [];
@@ -209,11 +215,11 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     const relPath = relative(projectRoot, absPath);
     const source = readFileSync(absPath, 'utf-8');
     const sha = computeDocSha(source);
-    const cached = cache.entries[relPath];
+    const cached = cache[relPath];
 
     if (cached && cached.sha === sha) {
       // Unchanged — carry forward cache entry
-      newCache.entries[relPath] = cached;
+      newCache[relPath] = cached;
       cachedCount++;
     } else {
       changedFiles.push({ relPath, source });
@@ -221,7 +227,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   }
 
   // Remove stale sections for deleted/changed files
-  const staleFiles = Object.keys(cache.entries).filter(f => !newCache.entries[f]);
+  const staleFiles = Object.keys(cache).filter(f => !newCache[f]);
   for (const staleFile of staleFiles) {
     const staleIds = cache.entries[staleFile]?.sectionIds ?? [];
     if (staleIds.length > 0) {
@@ -231,7 +237,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
   if (changedFiles.length === 0) {
     onLog(`rag: doc sections up to date (${cachedCount} files cached)`);
-    saveDocCache(projectRoot, cacheSuffix, newCache);
+    saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
     return 0;
   }
 
@@ -244,7 +250,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     const sections = parseDocSections(relPath, source);
 
     if (sections.length === 0) {
-      newCache.entries[relPath] = { sha, sectionIds: [] };
+      newCache[relPath] = { sha, sectionIds: [] };
       continue;
     }
 
@@ -263,11 +269,11 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     }
 
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
-    newCache.entries[relPath] = { sha, sectionIds };
+    newCache[relPath] = { sha, sectionIds };
     totalIndexed += sections.length;
   }
 
-  saveDocCache(projectRoot, cacheSuffix, newCache);
+  saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
 
   return totalIndexed;
