@@ -264,7 +264,7 @@
   > Show doc section count, NLP model info, and summary coverage in rag-status output.
   > AC: Given fully indexed project, When rag-status runs, Then shows function cards AND doc section stats. And --docs lists all indexed doc sections.
 
-- [ ] Story 27.7: Adversarial Code Review — Validation complète de l'Epic 27
+- [x] Story 27.7: Adversarial Code Review — Validation complète de l'Epic 27
   > Review adversariale BMAD : vérifier file lists, tâches [x], ACs, non-régressions, intégration RAG dual-vector. Min 3 issues, fix HIGH/MEDIUM.
   > AC: Given stories 27.1-27.6 complètes, When chaque claim vérifié contre git + code, Then aucune tâche [x] non implémentée, aucun AC manquant.
   > AC: Given npm run typecheck && build && test, Then tout passe.
