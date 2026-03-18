@@ -14,7 +14,7 @@ import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
-import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime } from '../core/calibration.js';
+import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
@@ -44,7 +44,6 @@ import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
-import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 
 interface RunContext {
   projectRoot: string;
