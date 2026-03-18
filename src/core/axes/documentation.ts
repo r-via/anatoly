@@ -67,18 +67,22 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  if (ctx.docsTree) {
-    parts.push('## Documentation Directory');
-    parts.push('');
-    parts.push('```');
-    parts.push(ctx.docsTree);
-    parts.push('```');
-    parts.push('');
+  const hasRelevantDocs = ctx.relevantDocs && ctx.relevantDocs.length > 0;
 
-    if (ctx.relevantDocs && ctx.relevantDocs.length > 0) {
+  if (ctx.docsTree || hasRelevantDocs) {
+    if (ctx.docsTree) {
+      parts.push('## Documentation Directory');
+      parts.push('');
+      parts.push('```');
+      parts.push(ctx.docsTree);
+      parts.push('```');
+      parts.push('');
+    }
+
+    if (hasRelevantDocs) {
       parts.push('## Relevant Documentation Pages');
       parts.push('');
-      for (const doc of ctx.relevantDocs) {
+      for (const doc of ctx.relevantDocs!) {
         parts.push(`### \`${doc.path}\``);
         parts.push('');
         parts.push(doc.content);

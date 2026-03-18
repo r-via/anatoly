@@ -382,6 +382,19 @@ export class VectorStore {
   }
 
   /**
+   * Get function cards for a specific file (excludes doc_section rows).
+   */
+  async getCardsByFile(filePath: string): Promise<FunctionCard[]> {
+    if (!this.table) return [];
+    const rows = await this.table
+      .query()
+      .where(`filePath = '${sanitizeFilePath(filePath)}'`)
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type'])
+      .toArray();
+    return rows.filter(r => r.type !== 'doc_section').map(rowToCard);
+  }
+
+  /**
    * List all cards (without embedding vectors).
    */
   async listAll(): Promise<FunctionCard[]> {

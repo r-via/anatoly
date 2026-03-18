@@ -252,7 +252,7 @@
   > Sequential GPU model swap: nomic-code for code, then nomic-text for summaries+docs. Update setup-embeddings to download both models.
   > AC: Given advanced mode with GPU, When RAG index runs, Then code vectors = nomic-code (3584d), NLP vectors = nomic-text (768d). And sidecar swaps without OOM. And setup-embeddings downloads both models.
 
-- [ ] Story 27.4: Documentation axis — semantic doc matching
+- [x] Story 27.4: Documentation axis — semantic doc matching
   > Replace docs-resolver with RAG NLP search. Match function summaries against doc sections. MAX_SECTIONS=5, MAX_LINES_PER_SECTION=100, MAX_DOC_TOKENS=4000.
   > AC: Given src/core/reporter.ts evaluated, When documentation axis runs, Then NLP search matches 05-Reporter.md (not Scanner/Estimator/Triage). And docs_coverage.matched_doc_pages contains 05-Reporter.md.
 
@@ -1333,6 +1333,13 @@
   - indexer.ts: enrichCardsWithSummaries() + generateNlpEmbeddings() split helpers
   - orchestrator.ts: sequential model swap — Phase 1: code embeddings + NLP summaries, Phase 2: swap → NLP embeddings
   - setup-embeddings.sh: downloads both nomic-code and nomic-text models
+  - 659 tests passing, typecheck clean, build succeeds
+
+- [x] Story 27.4: Documentation axis — semantic doc matching (2026-03-18)
+  - vector-store.ts: getCardsByFile() queries function cards for a specific file
+  - docs-resolver.ts: resolveRelevantDocsViaRag() — semantic search using function summaries as query, RAG_MAX_SECTIONS=5, RAG_MAX_LINES_PER_SECTION=100, RAG_MAX_DOC_TOKENS=4000
+  - file-evaluator.ts: uses RAG NLP search when vectorStore.hasDualEmbedding, falls back to convention-based
+  - documentation.ts: handles relevantDocs even when docsTree is null (RAG can find docs independently)
   - 659 tests passing, typecheck clean, build succeeds
 
 ## Notes

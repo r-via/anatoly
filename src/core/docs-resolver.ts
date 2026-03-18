@@ -3,12 +3,19 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, relative, dirname, basename, sep } from 'node:path';
+import { join, relative, dirname, basename, sep, extname } from 'node:path';
 import type { RelevantDoc } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
+import type { VectorStore } from '../rag/vector-store.js';
+import { embedNlp } from '../rag/embeddings.js';
 
 const MAX_PAGES = 3;
 const MAX_LINES_PER_PAGE = 300;
+
+// RAG-based doc matching limits
+export const RAG_MAX_SECTIONS = 5;
+export const RAG_MAX_LINES_PER_SECTION = 100;
+export const RAG_MAX_DOC_TOKENS = 4000;
 
 // ---------------------------------------------------------------------------
 // buildDocsTree — recursive listing of docs dir as ASCII tree
@@ -214,6 +221,124 @@ function loadDoc(fullPath: string, docsDir: string): RelevantDoc | null {
       path: relative(docsDir, fullPath),
       content: truncated,
     };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// resolveRelevantDocsViaRag — semantic doc matching using RAG NLP search
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve documentation sections relevant to a source file using RAG NLP search.
+ * Matches function summaries from the vector store against indexed doc sections.
+ *
+ * Falls back to file-path-based query when no function summaries are available.
+ * Applies RAG_MAX_SECTIONS, RAG_MAX_LINES_PER_SECTION, and RAG_MAX_DOC_TOKENS limits.
+ */
+export async function resolveRelevantDocsViaRag(
+  filePath: string,
+  vectorStore: VectorStore,
+  projectRoot: string,
+): Promise<RelevantDoc[]> {
+  // 1. Get function cards for this file to build a semantic query
+  const cards = await vectorStore.getCardsByFile(filePath);
+  const summaries = cards.map(c => c.summary).filter(Boolean);
+
+  // Build query from summaries or fall back to file name
+  const queryText = summaries.length > 0
+    ? summaries.join('. ')
+    : `Module: ${basename(filePath, extname(filePath))}`;
+
+  // 2. Embed query and search doc sections
+  const queryEmbedding = await embedNlp(queryText);
+  const results = await vectorStore.searchDocSections(queryEmbedding, RAG_MAX_SECTIONS);
+
+  if (results.length === 0) return [];
+
+  // 3. Load full section content from disk and apply limits
+  const docs: RelevantDoc[] = [];
+  let totalChars = 0;
+  const maxChars = RAG_MAX_DOC_TOKENS * 4; // ~4 chars per token
+
+  for (const result of results) {
+    if (docs.length >= RAG_MAX_SECTIONS) break;
+
+    const content = loadDocSection(
+      projectRoot,
+      result.card.filePath,
+      result.card.name,
+      RAG_MAX_LINES_PER_SECTION,
+    );
+
+    if (!content) continue;
+
+    // Check total token budget
+    if (totalChars + content.length > maxChars) {
+      const remaining = maxChars - totalChars;
+      if (remaining < 100) break;
+      docs.push({
+        path: result.card.filePath,
+        content: content.slice(0, remaining) + '\n<!-- truncated to fit token budget -->',
+      });
+      break;
+    }
+
+    totalChars += content.length;
+    docs.push({ path: result.card.filePath, content });
+  }
+
+  return docs;
+}
+
+/**
+ * Load a specific H2 section from a doc file by heading text.
+ * Returns the section content (up to maxLines) or null if not found.
+ */
+function loadDocSection(
+  projectRoot: string,
+  filePath: string,
+  heading: string,
+  maxLines: number,
+): string | null {
+  const absPath = join(projectRoot, filePath);
+  if (!existsSync(absPath)) return null;
+
+  try {
+    const source = readFileSync(absPath, 'utf-8');
+    const lines = source.split('\n');
+
+    // Find the H2 heading
+    let startLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(/^##\s+(.+)/);
+      if (match && match[1].trim() === heading) {
+        startLine = i;
+        break;
+      }
+    }
+
+    if (startLine < 0) return null;
+
+    // Find the end of the section (next H2 or EOF)
+    let endLine = lines.length;
+    for (let i = startLine + 1; i < lines.length; i++) {
+      if (lines[i].match(/^##\s+/)) {
+        endLine = i;
+        break;
+      }
+    }
+
+    const cappedEnd = Math.min(endLine, startLine + maxLines);
+    const sectionLines = lines.slice(startLine, cappedEnd);
+    const content = sectionLines.join('\n').trim();
+
+    if (endLine - startLine > maxLines) {
+      return content + `\n<!-- truncated at ${maxLines} lines -->`;
+    }
+
+    return content;
   } catch {
     return null;
   }
