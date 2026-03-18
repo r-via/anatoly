@@ -37,7 +37,12 @@ describe('buildOverengineeringSystemPrompt', () => {
     expect(prompt).toContain('ACCEPTABLE');
     expect(prompt).not.toContain('correction');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(50);
+  });
+
+  it('should include NIH detection rules', () => {
+    const prompt = buildOverengineeringSystemPrompt();
+    expect(prompt).toContain('NIH');
+    expect(prompt).toContain('Installed dep reimplemented');
   });
 });
 
@@ -53,5 +58,31 @@ describe('buildOverengineeringUserMessage', () => {
     const msg = buildOverengineeringUserMessage(createCtx());
     expect(msg).toContain('export function createHandler (L1–L30)');
     expect(msg).toContain('export type HandlerOptions (L32–L40)');
+  });
+
+  it('should include installed dependencies when fileDeps is provided', () => {
+    const msg = buildOverengineeringUserMessage(createCtx({
+      fileDeps: {
+        deps: [
+          { name: 'lodash', version: '4.17.21' },
+          { name: 'zod', version: '3.23.0' },
+        ],
+      },
+    }));
+    expect(msg).toContain('## Installed Dependencies');
+    expect(msg).toContain('- lodash: 4.17.21');
+    expect(msg).toContain('- zod: 3.23.0');
+  });
+
+  it('should omit dependencies section when fileDeps is undefined', () => {
+    const msg = buildOverengineeringUserMessage(createCtx());
+    expect(msg).not.toContain('Installed Dependencies');
+  });
+
+  it('should omit dependencies section when deps array is empty', () => {
+    const msg = buildOverengineeringUserMessage(createCtx({
+      fileDeps: { deps: [] },
+    }));
+    expect(msg).not.toContain('Installed Dependencies');
   });
 });

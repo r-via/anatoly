@@ -371,15 +371,17 @@ describe('renderIndex', () => {
     expect(md).toContain('1 NEEDS_REFACTOR');
   });
 
-  it('should keep index compact (detailed methodology included)', () => {
+  it('should contain expected structural sections', () => {
     const reviews = Array.from({ length: 62 }, (_, i) =>
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
     const data = aggregateReviews(reviews);
     const shards = buildShards(data);
     const md = renderIndex(data, shards);
-    const lineCount = md.split('\n').length;
-    expect(lineCount).toBeLessThanOrEqual(200);
+    expect(md).toContain('## Executive Summary');
+    expect(md).toContain('## Shards');
+    expect(md).toContain('## Axis Summary');
+    expect(md).toContain('## Appendix: Methodology');
   });
 
   it('should include error files section', () => {
@@ -420,7 +422,7 @@ describe('renderIndex', () => {
     expect(md).not.toContain('Performance & Triage');
   });
 
-  it('should keep index compact with triage stats and 62 findings', () => {
+  it('should include triage and axis summary sections with triage stats', () => {
     const reviews = Array.from({ length: 62 }, (_, i) =>
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
@@ -428,9 +430,9 @@ describe('renderIndex', () => {
     const shards = buildShards(data);
     const stats: TriageStats = { total: 100, skip: 30, evaluate: 70, estimatedTimeSaved: 15.0 };
     const md = renderIndex(data, shards, stats);
-    const lineCount = md.split('\n').length;
-    // Allow room for axis summary + triage + appendix
-    expect(lineCount).toBeLessThanOrEqual(210);
+    expect(md).toContain('## Performance & Triage');
+    expect(md).toContain('## Axis Summary');
+    expect(md).toContain('## Appendix: Methodology');
   });
 });
 

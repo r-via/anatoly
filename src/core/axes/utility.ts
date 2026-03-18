@@ -57,7 +57,7 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
         const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
         const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
         if (importers.length === 0 && typeImporters.length === 0) {
-          const transitiveRefs = getTransitiveUsage(ctx.usageGraph!, sym.name, ctx.task.file);
+          const transitiveRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
           if (transitiveRefs.length > 0) {
             parts.push(`- ${sym.name} (exported): not directly imported, but TRANSITIVELY USED by ${transitiveRefs.join(', ')} (which ${transitiveRefs.length > 1 ? 'are' : 'is'} imported)`);
           } else {

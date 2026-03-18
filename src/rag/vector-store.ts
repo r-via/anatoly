@@ -53,6 +53,8 @@ export class VectorStore {
   private table: Table | null = null;
   private onLog: (message: string) => void = () => {};
   private _hasDualEmbedding = false;
+  private _cachedCodeDim: number | undefined;
+  private _cachedNlpDim: number | undefined;
 
   constructor(projectRoot: string, tableName?: string, onLog?: (message: string) => void) {
     this.projectRoot = projectRoot;
@@ -77,13 +79,29 @@ export class VectorStore {
     if (tableNames.includes(this.tableName)) {
       this.table = await this.db.openTable(this.tableName);
 
-      // Detect whether NLP vectors are present (dual embedding)
+      // Detect dual embedding and warn on dimension mismatches
       try {
         const sample = await this.table.query().limit(1).toArray();
-        if (sample.length > 0 && 'nlp_vector' in sample[0]) {
-          const nlpVec = toNumberArray(sample[0].nlp_vector);
-          if (nlpVec.length > 0 && nlpVec.some((v) => v !== 0)) {
-            this._hasDualEmbedding = true;
+        if (sample.length > 0) {
+          // Cache and warn if stored code vector dimension doesn't match current model
+          const storedCodeDim = toNumberArray(sample[0].vector).length;
+          if (storedCodeDim > 0) this._cachedCodeDim = storedCodeDim;
+          const expectedCodeDim = getCodeDim();
+          if (storedCodeDim > 0 && storedCodeDim !== expectedCodeDim) {
+            this.onLog(`⚠️ dimension mismatch: stored code vectors are ${storedCodeDim}-dim but current model expects ${expectedCodeDim}-dim — run 'anatoly rag-index --rebuild' to fix`);
+          }
+
+          if ('nlp_vector' in sample[0]) {
+            const nlpVec = toNumberArray(sample[0].nlp_vector);
+            if (nlpVec.length > 0 && nlpVec.some((v) => v !== 0)) {
+              this._hasDualEmbedding = true;
+              this._cachedNlpDim = nlpVec.length;
+              // Warn if stored NLP vector dimension doesn't match current model
+              const expectedNlpDim = getNlpDim();
+              if (nlpVec.length !== expectedNlpDim) {
+                this.onLog(`⚠️ dimension mismatch: stored NLP vectors are ${nlpVec.length}-dim but current model expects ${expectedNlpDim}-dim — run 'anatoly rag-index --rebuild' to fix`);
+              }
+            }
           }
         }
       } catch {
@@ -327,6 +345,8 @@ export class VectorStore {
     }
     this.table = null;
     this._hasDualEmbedding = false;
+    this._cachedCodeDim = undefined;
+    this._cachedNlpDim = undefined;
   }
 
   /**
@@ -363,33 +383,13 @@ export class VectorStore {
       return d > max ? d : max;
     }, '');
 
-    // Read actual vector dimensions from a sample row
-    let codeDim: number | undefined;
-    let nlpDim: number | undefined;
-    if (totalCards > 0) {
-      try {
-        const sample = await this.table.query().limit(1).toArray();
-        if (sample.length > 0) {
-          codeDim = toNumberArray(sample[0].vector).length || undefined;
-          if ('nlp_vector' in sample[0]) {
-            const nv = toNumberArray(sample[0].nlp_vector);
-            if (nv.length > 0 && nv.some((v) => v !== 0)) {
-              nlpDim = nv.length;
-            }
-          }
-        }
-      } catch {
-        // Ignore — dimensions are optional metadata
-      }
-    }
-
     return {
       totalCards,
       totalFiles: files.size,
       lastIndexed: lastIndexed || null,
       dualEmbedding: this._hasDualEmbedding,
-      codeDim,
-      nlpDim,
+      codeDim: this._cachedCodeDim,
+      nlpDim: this._cachedNlpDim,
     };
   }
 }

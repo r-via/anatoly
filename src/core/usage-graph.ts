@@ -197,6 +197,26 @@ function escapeRegExp(s: string): string {
 }
 
 /**
+ * Strip comments and string literals from source code to avoid false-positive
+ * symbol matches inside documentation or string content.
+ * Template literal expressions (`${...}`) are preserved since they contain real code.
+ */
+function stripCommentsAndStrings(source: string): string {
+  return source
+    // Remove single-line comments
+    .replace(/\/\/.*$/gm, '')
+    // Remove multi-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    // Remove template literal static parts but keep ${...} expressions:
+    // Replace `text ${expr} text` → ` ${expr} ` (strip static text, keep interpolations)
+    .replace(/`(?:[^`\\$]|\\.|\$(?!\{))*`/g, '""')
+    // Remove double-quoted strings
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+    // Remove single-quoted strings
+    .replace(/'(?:[^'\\]|\\.)*'/g, '""');
+}
+
+/**
  * Build intra-file reference graph: for each exported symbol, find which
  * other exported symbols in the same file reference it in their body.
  * This enables transitive usage detection — if symbol A is imported
@@ -226,7 +246,8 @@ function buildIntraFileGraph(
       for (const referencer of exported) {
         if (candidate.name === referencer.name) continue;
 
-        const body = lines.slice(referencer.line_start - 1, referencer.line_end).join('\n');
+        const rawBody = lines.slice(referencer.line_start - 1, referencer.line_end).join('\n');
+        const body = stripCommentsAndStrings(rawBody);
         const re = new RegExp(`\\b${escapeRegExp(candidate.name)}\\b`);
         if (re.test(body)) {
           const key = `${candidate.name}::${task.file}`;

@@ -48,10 +48,15 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   parts.push('');
 
   if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
+    const MAX_DEPS = 40;
+    const deps = ctx.fileDeps.deps.slice(0, MAX_DEPS);
     parts.push('## Installed Dependencies');
     parts.push('');
-    for (const dep of ctx.fileDeps.deps) {
+    for (const dep of deps) {
       parts.push(`- ${dep.name}: ${dep.version}`);
+    }
+    if (ctx.fileDeps.deps.length > MAX_DEPS) {
+      parts.push(`- ... and ${ctx.fileDeps.deps.length - MAX_DEPS} more`);
     }
     parts.push('');
   }

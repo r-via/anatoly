@@ -32,6 +32,10 @@ export const DeliberationResponseSchema = z.object({
 export type DeliberationResponse = z.infer<typeof DeliberationResponseSchema>;
 export type DeliberatedSymbol = z.infer<typeof DeliberatedSymbolSchema>;
 
+/** Axes that deliberation can reclassify — shared between apply and count logic. */
+const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
+type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
+
 // ---------------------------------------------------------------------------
 // Prompt builders
 // ---------------------------------------------------------------------------
@@ -119,7 +123,7 @@ Rules:
  *
  * Returns `true` (deliberate) when:
  *   - any symbol has correction NEEDS_FIX or ERROR
- *   - any symbol has utility DEAD, duplication DUPLICATE, or overengineering OVER
+ *   - any symbol has utility DEAD or LOW_VALUE, duplication DUPLICATE, or overengineering OVER
  *   - verdict is CLEAN but any symbol confidence < 70
  */
 export function needsDeliberation(review: ReviewFile): boolean {
@@ -129,6 +133,7 @@ export function needsDeliberation(review: ReviewFile): boolean {
       s.correction === 'NEEDS_FIX' ||
       s.correction === 'ERROR' ||
       s.utility === 'DEAD' ||
+      s.utility === 'LOW_VALUE' ||
       s.duplication === 'DUPLICATE' ||
       s.overengineering === 'OVER',
   );
@@ -193,9 +198,8 @@ export function applyDeliberation(
     const changes: string[] = [];
     const updated = { ...sym, confidence: newConfidence };
 
-    // Apply each axis reclassification
-    const axisKeys = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
-    for (const axis of axisKeys) {
+    // Apply each axis reclassification using typed setter
+    for (const axis of DELIBERATION_AXES) {
       const orig = delib.original[axis];
       const deliberated = delib.deliberated[axis];
       if (!orig || !deliberated) continue;
@@ -209,7 +213,7 @@ export function applyDeliberation(
       if (orig !== deliberated) {
         changes.push(`${axis}: ${orig} → ${deliberated}`);
       }
-      (updated as Record<string, unknown>)[axis] = deliberated;
+      setAxisValue(updated, axis, deliberated);
     }
 
     const changesSummary = changes.length > 0
@@ -226,9 +230,8 @@ export function applyDeliberation(
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
   const verdict = recomputeVerdict(symbols, deliberation.verdict);
 
-  const axisKeys = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
   const reclassified = deliberation.symbols.filter((s) =>
-    axisKeys.some((axis) => {
+    DELIBERATION_AXES.some((axis) => {
       const orig = s.original[axis];
       const delib = s.deliberated[axis];
       return orig && delib && orig !== delib;
@@ -260,6 +263,21 @@ export function applyDeliberation(
       reasoning: deliberation.reasoning,
     },
   };
+}
+
+/** Type-safe setter for axis values on a SymbolReview, avoiding `as Record<string, unknown>`. */
+function setAxisValue(
+  sym: ReviewFile['symbols'][number],
+  axis: DeliberationAxis,
+  value: string,
+): void {
+  switch (axis) {
+    case 'correction': sym.correction = value as typeof sym.correction; break;
+    case 'utility': sym.utility = value as typeof sym.utility; break;
+    case 'duplication': sym.duplication = value as typeof sym.duplication; break;
+    case 'overengineering': sym.overengineering = value as typeof sym.overengineering; break;
+    case 'tests': sym.tests = value as typeof sym.tests; break;
+  }
 }
 
 /**
