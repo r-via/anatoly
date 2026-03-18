@@ -398,6 +398,7 @@ function waitForEnter(): Promise<void> {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     rl.question(chalk.dim('  press enter to proceed '), () => {
       rl.close();
+      process.stdout.write('\x1b[1A\x1b[2K');
       resolve();
     });
   });
