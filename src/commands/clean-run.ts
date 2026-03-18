@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
+import { isLockActive } from '../utils/lock.js';
 import { parseUncheckedActions, DISCOVERED_ACT_ID } from './clean.js';
 
 const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
@@ -116,6 +117,13 @@ export function registerCleanRunCommand(program: Command): void {
     .option('-n, --iterations <n>', 'max Ralph iterations', '10')
     .action((reportFile: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const absPath = resolve(projectRoot, reportFile);
       const maxIterations = parseInt(opts.iterations, 10) || 10;
 

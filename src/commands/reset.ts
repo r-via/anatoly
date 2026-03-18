@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { rmSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
+import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 import { VectorStore } from '../rag/vector-store.js';
 
@@ -54,6 +55,13 @@ export function registerResetCommand(program: Command): void {
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
     .action(async (opts: { yes?: boolean }) => {
       const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const anatolyDir = resolve(projectRoot, '.anatoly');
 
       if (!existsSync(anatolyDir)) {

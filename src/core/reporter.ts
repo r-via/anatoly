@@ -417,7 +417,7 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   const lines: string[] = [];
 
   lines.push('<p align="center">');
-  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg" width="200" alt="Anatoly" />');
+  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg" width="400" alt="Anatoly" />');
   lines.push('</p>');
   lines.push('');
   lines.push('# Anatoly Audit Report');

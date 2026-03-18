@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename, dirname, join } from 'node:path';
 import chalk from 'chalk';
+import { isLockActive } from '../utils/lock.js';
 import { DISCOVERED_ACT_ID } from './clean.js';
 
 interface PrdStory {
@@ -57,6 +58,13 @@ export function registerCleanSyncCommand(program: Command): void {
     .description('Sync completed clean tasks from prd.json back to the shard and index reports')
     .action((reportFile: string) => {
       const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const absShardPath = resolve(projectRoot, reportFile);
 
       if (!existsSync(absShardPath)) {

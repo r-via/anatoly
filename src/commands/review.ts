@@ -3,7 +3,7 @@ import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
-import { acquireLock, releaseLock } from '../utils/lock.js';
+import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
@@ -23,6 +23,13 @@ export function registerReviewCommand(program: Command): void {
     .option('--axes <list>', 'comma-separated list of axes to evaluate (e.g. correction,tests)')
     .action(async (cmdOpts: { axes?: string }) => {
       const projectRoot = resolve('.');
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const plain = parentOpts.plain === true || !process.stdout.isTTY;

@@ -7,6 +7,7 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { verdictColor } from '../utils/format.js';
+import { isLockActive } from '../utils/lock.js';
 
 export function registerReportCommand(program: Command): void {
   program
@@ -15,6 +16,13 @@ export function registerReportCommand(program: Command): void {
     .option('--run <id>', 'generate report from a specific run (default: latest)')
     .action((cmdOpts: { run?: string }) => {
       const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before generating a report.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const parentOpts = program.opts();
       const shouldOpen = parentOpts.open as boolean | undefined;
 

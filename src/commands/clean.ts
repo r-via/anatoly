@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import chalk from 'chalk';
+import { isLockActive } from '../utils/lock.js';
 
 /**
  * A parsed unchecked action from a shard report.
@@ -217,6 +218,13 @@ export function registerCleanCommand(program: Command): void {
     .description('Generate Ralph artifacts from a shard report for autonomous clean loop')
     .action((reportFile: string) => {
       const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const absPath = resolve(projectRoot, reportFile);
 
       if (!existsSync(absPath)) {

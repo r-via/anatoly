@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
+import { isLockActive } from '../utils/lock.js';
 import { listRuns } from '../utils/run-id.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 
@@ -19,6 +20,13 @@ export function registerCleanRunsCommand(program: Command): void {
 
 async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
   const projectRoot = process.cwd();
+
+  if (isLockActive(projectRoot)) {
+    console.error(chalk.red('A run is currently in progress. Wait for it to finish before running this command.'));
+    process.exitCode = 1;
+    return;
+  }
+
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
 
   const runs = listRuns(projectRoot);
