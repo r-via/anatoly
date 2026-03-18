@@ -650,15 +650,18 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Spawn sidecar if advanced mode, resolve embedding models, then index
   const needsSidecar = ctx.resolvedRagMode === 'advanced';
   if (needsSidecar) {
+    const sidecarMsg = 'loading embed sidecar (code model)';
     const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
     if (!ctx.plain && process.stdout.isTTY) {
-      process.stdout.write(chalk.dim('  loading embed sidecar (nomic-embed-code 7B)...'));
+      process.stdout.write(chalk.dim(`  ${sidecarMsg}...`));
       await ensureSidecar(logFn, (sec) => {
-        process.stdout.write(`\r\x1b[K${chalk.dim(`  loading embed sidecar (nomic-embed-code 7B)... ${sec}s`)}`);
+        process.stdout.write(`\r\x1b[K${chalk.dim(`  ${sidecarMsg}... ${sec}s`)}`);
       });
       process.stdout.write('\r\x1b[K');
     } else {
+      log.info(sidecarMsg);
       await ensureSidecar(logFn);
+      log.info('sidecar ready');
     }
   }
 
