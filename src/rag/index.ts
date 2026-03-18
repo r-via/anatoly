@@ -15,3 +15,5 @@ export { detectHardware, detectSidecar, resolveEmbeddingModels, getSidecarUrl, g
 export type { HardwareProfile, SidecarStatus, ModelInfo, ResolvedModels } from './hardware-detect.js';
 export { indexProject, processFileForIndex, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
+export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks } from './doc-indexer.js';
+export type { DocSection, DocIndexOptions } from './doc-indexer.js';

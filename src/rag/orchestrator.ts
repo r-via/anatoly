@@ -14,6 +14,7 @@ import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
+import { indexDocSections } from './doc-indexer.js';
 
 export type RagMode = 'lite' | 'advanced';
 
@@ -28,6 +29,8 @@ export interface RagIndexOptions {
   resolvedModels?: ResolvedModels;
   /** RAG mode determines table name and cache file. */
   ragMode?: RagMode;
+  /** Directory containing markdown docs for doc section indexing (default: 'docs'). */
+  docsDir?: string;
   rebuild?: boolean;
   concurrency?: number;
   verbose?: boolean;
@@ -44,6 +47,8 @@ export interface RagIndexResult {
   totalFiles: number;
   /** Whether dual embedding (code + NLP) was used during indexing. */
   dualEmbedding: boolean;
+  /** Number of doc sections indexed from /docs/. */
+  docSectionsIndexed: number;
 }
 
 /**
@@ -350,6 +355,21 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     }
   }
 
+  // Index doc sections from /docs/ (dual mode only — needs NLP embeddings)
+  let docSectionsIndexed = 0;
+  if (dualMode) {
+    try {
+      docSectionsIndexed = await indexDocSections({
+        projectRoot,
+        vectorStore: store,
+        docsDir: options.docsDir,
+        onLog,
+      });
+    } catch (err) {
+      onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+    }
+  }
+
   const stats = await store.stats();
 
   log.debug(
@@ -360,6 +380,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       totalCards: stats.totalCards,
       totalFiles: stats.totalFiles,
       dualEmbedding: dualMode,
+      docSectionsIndexed,
     },
     'RAG index summary',
   );
@@ -371,5 +392,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     totalCards: stats.totalCards,
     totalFiles: stats.totalFiles,
     dualEmbedding: dualMode,
+    docSectionsIndexed,
   };
 }

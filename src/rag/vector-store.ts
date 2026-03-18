@@ -42,6 +42,8 @@ interface VectorRow {
   lastIndexed: string;
   vector: number[];
   nlp_vector: number[];
+  /** Discriminator: 'function' (default) or 'doc_section'. */
+  type: string;
 }
 
 /** Options for upserting cards with optional NLP embeddings. */
@@ -138,6 +140,7 @@ export class VectorStore {
       vector: embeddings[i],
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
       nlp_vector: nlpEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
+      type: 'function',
     }));
 
     if (!this.table) {
@@ -175,6 +178,7 @@ export class VectorStore {
       .toArray();
 
     return results.flatMap((row) => {
+      if (row.type === 'doc_section') return [];
       const score = distanceToCosineSimilarity(row._distance ?? 0);
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
@@ -182,6 +186,7 @@ export class VectorStore {
 
   /**
    * Search for similar functions by NLP embedding vector.
+   * Excludes doc_section rows (use searchDocSections for those).
    */
   async searchByNlpVector(
     queryEmbedding: number[],
@@ -197,9 +202,36 @@ export class VectorStore {
       .toArray();
 
     return results.flatMap((row: Record<string, unknown>) => {
+      if (row.type === 'doc_section') return [];
       const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
+  }
+
+  /**
+   * Search doc sections by NLP embedding vector.
+   * Returns only type='doc_section' cards — used by the documentation axis.
+   */
+  async searchDocSections(
+    queryEmbedding: number[],
+    limit: number = 5,
+    minScore: number = 0.50,
+  ): Promise<SimilarityResult[]> {
+    if (!this.table) return [];
+
+    const results = await this.table
+      .vectorSearch(queryEmbedding)
+      .column('nlp_vector')
+      .limit(limit * 3)
+      .toArray();
+
+    return results
+      .filter((row: Record<string, unknown>) => row.type === 'doc_section')
+      .flatMap((row: Record<string, unknown>) => {
+        const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
+        return score >= minScore ? [{ card: rowToCard(row), score }] : [];
+      })
+      .slice(0, limit);
   }
 
   /**
@@ -302,6 +334,51 @@ export class VectorStore {
     // Sort by hybrid score descending, take top N
     hybridResults.sort((a, b) => b.score - a.score);
     return hybridResults.slice(0, limit);
+  }
+
+  /**
+   * Upsert doc section cards with NLP embedding vectors into the store.
+   * Code vectors are set to zero (doc sections are NLP-only).
+   */
+  async upsertDocSections(
+    sections: Array<{ id: string; filePath: string; name: string; summary: string }>,
+    nlpEmbeddings: number[][],
+  ): Promise<void> {
+    if (sections.length === 0) return;
+    if (!this.db) throw new Error('VectorStore not initialized');
+
+    const rows: VectorRow[] = sections.map((sec, i) => ({
+      id: sec.id,
+      filePath: sec.filePath,
+      name: sec.name,
+      summary: sec.summary,
+      keyConcepts: '[]',
+      signature: '',
+      behavioralProfile: '',
+      complexityScore: 0,
+      calledInternals: '[]',
+      lastIndexed: new Date().toISOString(),
+      vector: new Array(getCodeDim()).fill(0),
+      nlp_vector: nlpEmbeddings[i],
+      type: 'doc_section',
+    }));
+
+    if (!this.table) {
+      this.onLog(`vector-store: creating table ${this.tableName} (${rows.length} doc section rows)`);
+      this.table = await this.db.createTable(this.tableName, rows);
+      return;
+    }
+
+    // Delete existing doc sections for the same files, then add new ones
+    const files = [...new Set(sections.map((s) => s.filePath))];
+    for (const file of files) {
+      try {
+        await this.table.delete(`filePath = '${sanitizeFilePath(file)}' AND type = 'doc_section'`);
+      } catch {
+        // Might not exist or table might not have type column yet
+      }
+    }
+    await this.table.add(rows);
   }
 
   /**

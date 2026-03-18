@@ -244,7 +244,7 @@
   > Generate 1-sentence semantic summary per function card via Haiku batch calls, cached by content hash.
   > AC: Given 300 functions, When RAG index runs, Then all have non-empty summary. And re-run with no changes generates 0 new summaries. And modifying one function regenerates only that summary.
 
-- [ ] Story 27.2: Doc section extraction and indexing
+- [x] Story 27.2: Doc section extraction and indexing
   > Parse /docs/ into H2 sections, embed prose-only text via NLP model, store as type='doc_section' cards in LanceDB.
   > AC: Given /docs/ with 20 files ~80 H2 sections, When RAG index runs, Then ~80 doc section cards indexed with NLP vectors. And duplication axis still returns only function cards.
 

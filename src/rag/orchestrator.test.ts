@@ -64,6 +64,13 @@ vi.mock('./indexer.js', () => ({
   extractFunctionBody: vi.fn().mockReturnValue('export function foo() { return 1; }'),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
   saveRagCache: vi.fn(),
+  loadNlpSummaryCache: vi.fn().mockReturnValue({ entries: {} }),
+  saveNlpSummaryCache: vi.fn(),
+  computeBodyHash: vi.fn().mockReturnValue('0000000000000000'),
+}));
+
+vi.mock('./doc-indexer.js', () => ({
+  indexDocSections: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock('./nlp-summarizer.js', () => ({
