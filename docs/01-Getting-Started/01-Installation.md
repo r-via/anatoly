@@ -84,7 +84,7 @@ scan --> estimate --> triage --> usage graph --> index --> review --> deliberate
 
 6. **RAG index** -- Local code embeddings (768-dim vectors) are computed with Jina Embeddings V2 Base Code and stored in LanceDB. This enables semantic duplication detection across files. Zero API cost.
 
-7. **Review** -- Each file in the `evaluate` tier is reviewed by Claude agents running all six axes in parallel (correction, overengineering, utility, duplication, tests, best practices). The agent can grep the project, read other files, and query the RAG index. Findings must include evidence.
+7. **Review** -- Each file in the `evaluate` tier is reviewed by Claude agents running all seven axes in parallel (correction, overengineering, utility, duplication, tests, best practices, documentation). The agent can grep the project, read other files, and query the RAG index. Findings must include evidence.
 
 8. **Report** -- Reviews are aggregated into a Markdown report with a per-file summary, severity-sorted findings, and a global verdict.
 

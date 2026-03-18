@@ -1,6 +1,6 @@
-# Six-Axis Evaluation System
+# Seven-Axis Evaluation System
 
-Anatoly evaluates every file through six independent axis evaluators, each focused on a single dimension of code quality. The axes run in parallel for each file, and their results are merged into a unified `ReviewFile`.
+Anatoly evaluates every file through seven independent axis evaluators, each focused on a single dimension of code quality. The axes run in parallel for each file, and their results are merged into a unified `ReviewFile`.
 
 ## Axes at a Glance
 
@@ -12,6 +12,7 @@ Anatoly evaluates every file through six independent axis evaluators, each focus
 | Overengineering | `overengineering` | Haiku | `LEAN`, `OVER`, `ACCEPTABLE` | Flag excessive complexity |
 | Tests | `tests` | Haiku | `GOOD`, `WEAK`, `NONE` | Assess test coverage quality |
 | Best Practices | `best_practices` | Sonnet | Score 0-10, 17 rules | Evaluate adherence to TypeScript best practices |
+| Documentation | `documentation` | Haiku | `DOCUMENTED`, `PARTIAL`, `UNDOCUMENTED` | Detect JSDoc gaps and /docs/ desynchronization |
 
 ## Per-Axis Details
 
@@ -62,6 +63,14 @@ A file-level (not symbol-level) evaluation against 17 TypeScript best-practice r
 - **Output:** overall score 0-10, per-rule status array, code suggestions (with optional before/after snippets)
 - **Key feature:** file context detection adjusts which rules are most relevant (e.g., React-specific patterns only flagged for `.tsx` files)
 
+### Documentation
+
+Detects JSDoc documentation gaps on exported symbols and evaluates concept coverage against `/docs/` pages.
+
+- **Input:** file source, symbol list, docs directory tree (ASCII, built once per run), relevant documentation pages (resolved via config mapping or filename convention, max 3 pages x 300 lines)
+- **Output:** per-symbol verdict (`DOCUMENTED` / `PARTIAL` / `UNDOCUMENTED`), confidence 0-100, detail string, optional `docs_coverage` with per-concept status (`COVERED` / `PARTIAL` / `MISSING` / `OUTDATED`)
+- **Key feature:** two-level evaluation: (1) JSDoc inline per symbol — checks for description, params, return type; (2) `/docs/` concept coverage — matches source module to documentation pages via `documentation.module_mapping` config or directory name convention. Gracefully degrades when no `/docs/` directory exists (evaluates JSDoc only).
+
 ## Scoring Model
 
 Each symbol-level axis produces three key fields:
@@ -81,15 +90,17 @@ After all axes complete, the `mergeAxisResults` function in `axis-merger.ts` com
 
 1. **Build axis map:** index each axis's results by symbol name for O(1) lookup
 2. **Merge per symbol:** for each symbol in the task, look up its result from each axis. Missing results (axis did not return data for that symbol) fall back to safe defaults:
-   - utility: `USED`, duplication: `UNIQUE`, correction: `OK`, overengineering: `LEAN`, tests: `NONE`
+   - utility: `USED`, duplication: `UNIQUE`, correction: `OK`, overengineering: `LEAN`, tests: `NONE`, documentation: `DOCUMENTED`
 3. **Apply coherence rules:**
    - If utility = `DEAD`, force tests = `NONE` (no point testing dead code)
+   - If utility = `DEAD`, force documentation = `UNDOCUMENTED` (no point documenting dead code)
    - If correction = `ERROR`, force overengineering = `ACCEPTABLE` (complexity is secondary to correctness)
 4. **Detect contradictions:** cross-reference correction findings against best_practices results. If best_practices Rule 12 (Async/Promises/Error handling) passes but correction flags an async-related NEEDS_FIX, the correction confidence is capped at 55 (below the 60 verdict threshold).
 5. **Merge actions:** collect actions from all axes, tag each with its source axis, and re-assign sequential IDs.
 6. **Compute verdict:**
    - Any symbol with correction = `ERROR` (above confidence threshold) produces `CRITICAL`
-   - Any symbol with `NEEDS_FIX`, `DEAD`, `DUPLICATE`, or `OVER` produces `NEEDS_REFACTOR`
+   - Any symbol with `NEEDS_FIX`, `DEAD`, `DUPLICATE`, `OVER`, or `UNDOCUMENTED` (exported) produces `NEEDS_REFACTOR`
+   - 3 or more symbols with `PARTIAL` documentation produces `NEEDS_REFACTOR`
    - Otherwise: `CLEAN`
 7. **Build axis metadata:** record model, cost, and duration per axis in the `axis_meta` field
 
@@ -104,7 +115,7 @@ Each axis evaluator runs inside `Promise.allSettled`, meaning a failure in one a
 - The file's review is marked as "degraded" in run metrics (`degradedReviews` counter)
 - The transcript records the failure alongside the successful axes' transcripts
 
-This design ensures that a transient API error or model timeout on one axis (e.g., best_practices) does not block the remaining five axes from producing useful results.
+This design ensures that a transient API error or model timeout on one axis (e.g., best_practices) does not block the remaining six axes from producing useful results.
 
 ## Model Configuration
 
@@ -114,4 +125,4 @@ Each axis has a `defaultModel` property (`'haiku'` or `'sonnet'`). The effective
 2. Fast model pool: if `defaultModel` is `'haiku'`, use `llm.fast_model` (falls back to `llm.index_model`)
 3. Standard model: if `defaultModel` is `'sonnet'`, use `llm.model`
 
-This allows cost optimization by routing lightweight axes (utility, duplication, overengineering, tests) to cheaper models while using more capable models for correction and best_practices.
+This allows cost optimization by routing lightweight axes (utility, duplication, overengineering, tests, documentation) to cheaper models while using more capable models for correction and best_practices.

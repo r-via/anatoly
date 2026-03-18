@@ -80,11 +80,11 @@ Each file is evaluated by 6 independent axis evaluators, so:
 estimatedCalls = files * AXIS_COUNT
 ```
 
-The 6 axes are split between two model tiers:
+The 7 axes are split between two model tiers:
 
 | Tier | Axes | Count |
 |------|------|-------|
-| Haiku (fast/cheap) | utility, duplication, overengineering, tests | 4 |
+| Haiku (fast/cheap) | utility, duplication, overengineering, tests, documentation | 5 |
 | Sonnet (deep/costly) | correction, best_practices | 2 |
 
 ## Full Project Estimate

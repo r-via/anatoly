@@ -40,7 +40,7 @@ It performs five tasks:
 
 ### 1. Inter-Axis Coherence Verification
 
-Checks whether the combined findings from all six axes make sense together. For example, if the utility axis says a function is `DEAD` but the correction axis flagged a bug in it, the deliberation judge determines which assessment better reflects reality.
+Checks whether the combined findings from all seven axes make sense together. For example, if the utility axis says a function is `DEAD` but the correction axis flagged a bug in it, the deliberation judge determines which assessment better reflects reality.
 
 ### 2. False Positive Filtering
 

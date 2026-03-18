@@ -53,7 +53,7 @@ Optional per-file coverage statistics (statements, branches, functions, lines --
 
 **File:** `src/schemas/review.ts`
 
-The Review schema is the richest schema in the project. It captures the full result of evaluating a file across all six axes.
+The Review schema is the richest schema in the project. It captures the full result of evaluating a file across all seven axes.
 
 ### ReviewFile (top level)
 
@@ -72,9 +72,9 @@ ReviewFileSchema = z.object({
 });
 ```
 
-### The Six Axes
+### The Seven Axes
 
-Each symbol is evaluated on five per-symbol axes, plus one file-level axis:
+Each symbol is evaluated on six per-symbol axes, plus one file-level axis:
 
 | Axis | Field | Values | Meaning |
 |------|-------|--------|---------|
@@ -83,11 +83,12 @@ Each symbol is evaluated on five per-symbol axes, plus one file-level axis:
 | **Utility** | `utility` | `USED`, `DEAD`, `LOW_VALUE` | Whether the symbol is actually used |
 | **Duplication** | `duplication` | `UNIQUE`, `DUPLICATE` | Near-duplicate detection |
 | **Tests** | `tests` | `GOOD`, `WEAK`, `NONE` | Test coverage quality |
+| **Documentation** | `documentation` | `DOCUMENTED`, `PARTIAL`, `UNDOCUMENTED` | JSDoc coverage on exports |
 | **Best Practices** | (file-level) | Score 0-10 + rules | Adherence to 17 best-practice rules |
 
 ### SymbolReview
 
-Per-symbol review data. Includes all five per-symbol axis values plus:
+Per-symbol review data. Includes all six per-symbol axis values plus:
 
 - `confidence` (0-100): the evaluator's confidence in the assessment
 - `detail` (min 10 chars): human-readable explanation

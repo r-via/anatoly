@@ -124,7 +124,32 @@ Each axis can be individually toggled and assigned a model override.
 | `enabled` | boolean | `true` | Whether this axis runs during review |
 | `model` | string | *(uses llm.model)* | Override the model for this specific axis |
 
-The six axes are: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`.
+The seven axes are: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation`.
+
+### documentation
+
+Configuration for the documentation evaluation axis.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `docs_path` | string | `"docs"` | Path to the project documentation directory (relative to project root) |
+| `module_mapping` | object | *(none)* | Map source directories to documentation pages for concept coverage |
+
+Example with module mapping:
+
+```yaml
+documentation:
+  docs_path: docs
+  module_mapping:
+    src/core/scanner.ts:
+      - docs/02-Architecture/01-Pipeline-Overview.md
+    src/core/axes:
+      - docs/04-Core-Modules/04-Axis-Evaluators.md
+```
+
+When `module_mapping` is not configured, the docs-resolver falls back to directory name convention matching (e.g., `src/core/` matches `docs/**/core*.md`). Up to 3 documentation pages (max 300 lines each) are resolved per file.
+
+When no `/docs/` directory exists, only JSDoc inline evaluation is performed (graceful degradation).
 
 ### rag
 

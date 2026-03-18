@@ -29,7 +29,7 @@ Every finding must be **proven with evidence** before it appears in the report. 
 
 Anatoly is not a linter. It is not a rule engine. It does not enforce a style guide.
 
-Anatoly is an **autonomous audit agent** that conducts a structured investigation across six axes:
+Anatoly is an **autonomous audit agent** that conducts a structured investigation across seven axes:
 
 | Axis | What it investigates |
 |------|---------------------|
@@ -39,6 +39,7 @@ Anatoly is an **autonomous audit agent** that conducts a structured investigatio
 | **Duplication** | Copy-paste patterns, semantic duplicates across files (via RAG) |
 | **Tests** | Missing test coverage, untested edge cases |
 | **Best practices** | TypeScript idioms, error handling, naming, performance |
+| **Documentation** | JSDoc gaps on exports, /docs/ desynchronization |
 
 Each axis runs independently with its own agent call. Findings are merged, deduplicated, and optionally passed through an Opus deliberation pass that detects inter-axis incoherence and filters residual false positives.
 

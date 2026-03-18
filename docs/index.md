@@ -22,7 +22,7 @@
 | Document | Description |
 |----------|-------------|
 | [Pipeline Overview](02-Architecture/01-Pipeline-Overview.md) | End-to-end audit pipeline: scan, estimate, triage, evaluate, report |
-| [Six-Axis System](02-Architecture/02-Six-Axis-System.md) | The six evaluation axes (correctness, security, performance, etc.) |
+| [Seven-Axis System](02-Architecture/02-Seven-Axis-System.md) | The seven evaluation axes (utility, duplication, correction, overengineering, tests, best practices, documentation) |
 | [RAG Engine](02-Architecture/03-RAG-Engine.md) | Semantic retrieval-augmented generation for evidence gathering |
 | [Usage Graph](02-Architecture/04-Usage-Graph.md) | Dependency and usage graph construction |
 | [Deliberation Pass](02-Architecture/05-Deliberation-Pass.md) | Multi-turn deliberation for confident findings |
