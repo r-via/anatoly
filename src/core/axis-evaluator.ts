@@ -48,6 +48,8 @@ export interface AxisContext {
   projectTree?: string;
   /** Content of the associated test file (e.g. foo.test.ts for foo.ts), if it exists */
   testFileContent?: string;
+  /** Relative path of the resolved test file (e.g. "src/foo.test.ts") */
+  testFileName?: string;
 }
 
 export interface AxisSymbolResult {

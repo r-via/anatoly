@@ -11,6 +11,7 @@ import * as axisEvaluatorModule from './axis-evaluator.js';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(() => 'export function doWork() { return 42; }\n'),
+  existsSync: vi.fn(() => false),
 }));
 
 // ---------------------------------------------------------------------------

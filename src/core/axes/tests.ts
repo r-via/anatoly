@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
+import { getSymbolUsage } from '../usage-graph.js';
 import testsSystemPrompt from './prompts/tests.system.md';
 
 // ---------------------------------------------------------------------------
@@ -47,14 +48,20 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  // Inject test file content if available
+  // Inject test file content if available (truncate to avoid blowing context)
+  const MAX_TEST_LINES = 500;
   if (ctx.testFileContent) {
-    const testFileName = ctx.task.file.replace(/\.ts$/, '.test.ts');
-    parts.push(`## Test File: \`${testFileName}\``);
+    const displayName = ctx.testFileName ?? ctx.task.file.replace(/(\.\w+)$/, '.test$1');
+    const testLines = ctx.testFileContent.split('\n');
+    const truncated = testLines.length > MAX_TEST_LINES;
+    parts.push(`## Test File: \`${displayName}\``);
     parts.push('');
     parts.push('```typescript');
-    parts.push(ctx.testFileContent);
+    parts.push(truncated ? testLines.slice(0, MAX_TEST_LINES).join('\n') : ctx.testFileContent);
     parts.push('```');
+    if (truncated) {
+      parts.push(`*(truncated — ${testLines.length} lines total, showing first ${MAX_TEST_LINES})*`);
+    }
     parts.push('');
   } else {
     parts.push('## Test File');
@@ -81,9 +88,9 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
   if (ctx.usageGraph) {
     const callers: string[] = [];
     for (const s of ctx.task.symbols) {
-      const usage = ctx.usageGraph.usages.get(`${ctx.task.file}:${s.name}`);
-      if (usage && usage.importedBy.length > 0) {
-        callers.push(`- \`${s.name}\` is imported by: ${usage.importedBy.map((f) => `\`${f}\``).join(', ')}`);
+      const importers = getSymbolUsage(ctx.usageGraph, s.name, ctx.task.file);
+      if (importers.length > 0) {
+        callers.push(`- \`${s.name}\` is imported by: ${importers.map((f) => `\`${f}\``).join(', ')}`);
       }
     }
     if (callers.length > 0) {

@@ -426,7 +426,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     if (typeof pkg.name === 'string' && typeof pkg.version === 'string') {
       projectInfo = { name: pkg.name, version: pkg.version };
     }
-  } catch { /* already validated in action handler */ }
+  } catch (err) {
+    getLogger().debug({ err }, 'failed to read package.json for project info');
+  }
 
   // --- Phase: config ---
   if (ctx.enableRag) {

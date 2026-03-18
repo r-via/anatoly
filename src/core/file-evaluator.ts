@@ -94,14 +94,21 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   // Resolve associated test file (foo.ts → foo.test.ts or foo.spec.ts)
   let testFileContent: string | undefined;
+  let testFileName: string | undefined;
   const ext = extname(task.file);
   const base = basename(task.file, ext);
   const dir = dirname(task.file);
   if (!base.endsWith('.test') && !base.endsWith('.spec')) {
     for (const suffix of ['.test', '.spec']) {
-      const testPath = resolve(projectRoot, dir, `${base}${suffix}${ext}`);
+      const relTestPath = `${dir}/${base}${suffix}${ext}`;
+      const testPath = resolve(projectRoot, relTestPath);
       if (existsSync(testPath)) {
-        try { testFileContent = readFileSync(testPath, 'utf-8'); } catch { /* skip */ }
+        try {
+          testFileContent = readFileSync(testPath, 'utf-8');
+          testFileName = relTestPath;
+        } catch (err) {
+          contextLogger().debug({ testPath, err }, 'failed to read test file');
+        }
         break;
       }
     }
@@ -117,6 +124,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     fileDeps,
     projectTree: opts.projectTree,
     testFileContent,
+    testFileName,
   };
 
   const startTime = Date.now();
