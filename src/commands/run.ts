@@ -680,7 +680,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       });
 
       const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
-      listrTask.title = `RAG index${dualLabel} — ${ragResult.cardsIndexed} new / ${ragResult.totalCards} cards, ${ragResult.filesIndexed} new / ${ragResult.totalFiles} files`;
+      const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
+      listrTask.title = `RAG index${dualLabel} — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${docLabel}`;
     },
     rendererOptions: { outputBar: 1 as const },
   }], {
