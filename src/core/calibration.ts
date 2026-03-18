@@ -47,7 +47,7 @@ export function loadCalibration(projectRoot: string): CalibrationData {
   if (existsSync(path)) {
     try {
       const data = JSON.parse(readFileSync(path, 'utf-8')) as CalibrationData;
-      if (data.version === 1 && data.axes) return data;
+      if (data.version === 1 && typeof data.axes === 'object' && data.axes !== null) return data;
     } catch {
       // Corrupt file — fall through to defaults
     }
@@ -94,10 +94,14 @@ export function recalibrateFromRuns(projectRoot: string): CalibrationData {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
   if (!existsSync(runsDir)) return loadCalibration(projectRoot);
 
-  const runDirs = readdirSync(runsDir).filter(d => d !== 'latest');
+  // Only use the most recent runs to bound I/O and keep calibration fresh
+  const MAX_CALIBRATION_RUNS = 20;
+  const allRunDirs = readdirSync(runsDir).filter(d => d !== 'latest').sort();
+  const runDirs = allRunDirs.slice(-MAX_CALIBRATION_RUNS);
 
   // Collect per-axis average-per-file durations from each run
   const perAxisSamples: Record<string, number[]> = {};
+  let skipped = 0;
 
   for (const dir of runDirs) {
     const metricsPath = join(runsDir, dir, 'run-metrics.json');
@@ -112,8 +116,13 @@ export function recalibrateFromRuns(projectRoot: string): CalibrationData {
         }
       }
     } catch {
-      // Skip unreadable metrics
+      skipped++;
     }
+  }
+
+  if (skipped > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(`calibration: skipped ${skipped} unreadable run-metrics.json file(s)`);
   }
 
   const axes: Record<string, AxisCalibration> = {};
@@ -155,11 +164,12 @@ export function estimateCalibratedMinutes(
 ): number {
   if (fileCount === 0 || activeAxes.length === 0) return 0;
 
-  // Sum per-axis median per file to get total ms per file
+  // Axes run in parallel per file — wall time is the slowest axis, not the sum
   let msPerFile = 0;
   for (const axisId of activeAxes) {
     const cal = calibration.axes[axisId];
-    msPerFile += cal?.medianMs ?? DEFAULT_MEDIANS[axisId] ?? 20_000;
+    const axisMs = cal?.medianMs ?? DEFAULT_MEDIANS[axisId] ?? 20_000;
+    if (axisMs > msPerFile) msPerFile = axisMs;
   }
 
   const totalMs = msPerFile * fileCount;

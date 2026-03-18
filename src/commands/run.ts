@@ -407,7 +407,6 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const log = getLogger();
   const rl = ctx.runLog;
   printBanner();
-  await new Promise((r) => setTimeout(r, 3000));
 
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
@@ -1094,8 +1093,8 @@ function runReportPhase(ctx: RunContext): void {
     const updatedCalibration = recalibrateFromRuns(ctx.projectRoot);
     saveCalibration(ctx.projectRoot, updatedCalibration);
     log.debug({ calibration: updatedCalibration.axes }, 'calibration updated');
-  } catch {
-    log.warn({ runId: ctx.runId }, 'failed to update calibration');
+  } catch (err) {
+    log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
   }
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
