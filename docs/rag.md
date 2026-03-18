@@ -8,9 +8,9 @@ Anatoly's RAG (Retrieval-Augmented Generation) module detects **cross-file seman
 flowchart LR
     subgraph Indexing["Indexing Phase"]
         AST["tree-sitter AST"] --> Cards["Function Cards"]
-        Cards --> CodeEmbed["Code Embedding<br/><small>Jina v2 (768d)</small>"]
+        Cards --> CodeEmbed["Code Embedding<br/><small>nomic-embed-code (3584d) / Jina v2 (768d)</small>"]
         Cards --> NLP["NLP Summaries<br/><small>Haiku LLM</small>"]
-        NLP --> NlpEmbed["NLP Embedding<br/><small>MiniLM (384d)</small>"]
+        NLP --> NlpEmbed["NLP Embedding<br/><small>Qwen3-Embedding-8B (4096d) / MiniLM (384d)</small>"]
     end
 
     subgraph Store["LanceDB"]
@@ -31,14 +31,23 @@ flowchart LR
 
 ## Embedding Models
 
-Anatoly uses **two separate specialized models** for dual embedding:
+Anatoly uses **two separate specialized models** for dual embedding, with model selection based on available hardware:
 
-| Role | Default Model | Dimensions | Optimized For |
-|------|--------------|------------|---------------|
+**Advanced mode (GPU sidecar):**
+
+| Role | Model | Dimensions | Optimized For |
+|------|-------|------------|---------------|
+| Code | `nomic-ai/nomic-embed-code` | 3584 | Code search, syntactic + semantic structure |
+| NLP | `Qwen/Qwen3-Embedding-8B` | 4096 | Natural language semantic similarity |
+
+**Lite mode (ONNX, no GPU required):**
+
+| Role | Model | Dimensions | Optimized For |
+|------|-------|------------|---------------|
 | Code | `jinaai/jina-embeddings-v2-base-code` | 768 | Source code structure, syntax patterns |
 | NLP | `Xenova/all-MiniLM-L6-v2` | 384 | Natural language semantic similarity |
 
-Both models run locally via `@xenova/transformers` (ONNX/WASM) — no external API calls for embedding.
+Advanced mode models run via the sentence-transformers sidecar on GPU. Lite mode models run locally via `@xenova/transformers` (ONNX/WASM). No external API calls for embedding in either mode.
 
 ### Why two models?
 
@@ -60,7 +69,7 @@ rag:
 ```
 
 ```bash
-anatoly run --code-model jinaai/jina-embeddings-v2-base-code --nlp-model Xenova/all-MiniLM-L6-v2
+anatoly run --code-model nomic-ai/nomic-embed-code --nlp-model Qwen/Qwen3-Embedding-8B
 ```
 
 When set to `auto` (default), Anatoly detects available hardware at startup and selects the best compatible model.
@@ -82,9 +91,9 @@ Current model resolution:
 | Hardware | Code Model | NLP Model |
 |----------|-----------|-----------|
 | Any (ONNX runtime) | `jina-v2-base-code` (768d, 161M params) | `all-MiniLM-L6-v2` (384d, ~22M params) |
-| GPU + 16GB+ RAM | `nomic-embed-code` eligible (7B, GGUF) — *pending GGUF runtime integration* | `all-MiniLM-L6-v2` |
+| GPU + 16GB+ RAM | `nomic-embed-code` (7B, 3584d) | `Qwen3-Embedding-8B` (8B, 4096d) |
 
-The architecture is ready for `nomic-ai/nomic-embed-code` (7B) when GGUF runtime support is added. The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
+Both advanced models are downloaded by `setup-embeddings` and run via the sentence-transformers sidecar. The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
 
 ## Indexing Pipeline
 
@@ -117,7 +126,7 @@ function signature(args: Type): ReturnType
 <function body, truncated to 1500 chars>
 ```
 
-This produces a 768-dimensional vector (with Jina v2) stored in the `vector` column of LanceDB.
+This produces a 3584-dimensional vector (with nomic-embed-code) or 768-dimensional vector (with Jina v2 in lite mode) stored in the `vector` column of LanceDB.
 
 ### 3. NLP summarization (dual mode)
 
@@ -140,7 +149,7 @@ Concepts: API, user-data, caching, retry, error-handling
 Behavior: async
 ```
 
-This produces a 384-dimensional vector (with MiniLM) stored in the `nlp_vector` column.
+This produces a 4096-dimensional vector (with Qwen3-Embedding-8B) or 384-dimensional vector (with MiniLM in lite mode) stored in the `nlp_vector` column.
 
 ### 5. Incremental indexing
 

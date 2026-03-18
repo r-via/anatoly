@@ -328,8 +328,8 @@ anatoly — rag-status
   hardware   cuda (32GB RAM)
   sidecar    running on cuda
   runtime    sidecar
-  code model manutic/nomic-embed-code (768d)
-  nlp model  Xenova/all-MiniLM-L6-v2 (384d)
+  code model nomic-ai/nomic-embed-code (3584d)
+  nlp model  Qwen/Qwen3-Embedding-8B (4096d)
 
   cards      1024
   files      128

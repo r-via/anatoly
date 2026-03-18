@@ -58,7 +58,7 @@ rag:
   enabled: true             # Enable semantic RAG cross-file analysis
   dual_embedding: true      # Dual code+NLP embedding (auto-disabled when nomic-embed-code 7B sidecar is active)
   code_model: auto          # Code embedding model ('auto' = nomic-embed-code 7B via sidecar if GPU, else Jina ONNX)
-  nlp_model: auto           # NLP embedding model ('auto' = all-MiniLM-L6-v2 ONNX, only used in dual mode)
+  nlp_model: auto           # NLP embedding model ('auto' = Qwen3-Embedding-8B via sidecar, else all-MiniLM-L6-v2 ONNX)
   code_weight: 0.6          # Hybrid search weighting (0-1, only used in dual mode)
 
 logging:
@@ -158,7 +158,7 @@ When no `/docs/` directory exists, only JSDoc inline evaluation is performed (gr
 | `enabled` | boolean | `true` | Enable local RAG indexing and semantic search |
 | `dual_embedding` | boolean | `true` | Dual code+NLP embedding. Auto-disabled when nomic-embed-code 7B sidecar is active (the 7B model encodes code + semantics natively) |
 | `code_model` | string | `"auto"` | Code embedding model. `auto` selects Nomic Embed Code 7B (sidecar, 3584d) if GPU available, otherwise Jina v2 (ONNX, 768d) |
-| `nlp_model` | string | `"auto"` | NLP embedding model (only used in dual mode). `auto` selects all-MiniLM-L6-v2 (ONNX, 384d) |
+| `nlp_model` | string | `"auto"` | NLP embedding model (only used in dual mode). `auto` selects Qwen3-Embedding-8B (sidecar, 4096d) if GPU available, otherwise all-MiniLM-L6-v2 (ONNX, 384d) |
 | `code_weight` | number | `0.6` | Hybrid search weighting (only used in dual mode). Higher = more weight on code similarity |
 
 ### logging

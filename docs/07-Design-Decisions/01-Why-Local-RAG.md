@@ -78,17 +78,17 @@ Anatoly supports two embedding modes, auto-selected based on available hardware:
 
 | Mode | Model | Dim | GPU | Dual NLP | Quality |
 |------|-------|-----|-----|----------|---------|
-| **nomic-7B** (sidecar) | `nomic-ai/nomic-embed-code` | 3584d | Required (14 GB VRAM) | No — 7B encodes code + semantics natively | Best |
-| **dual** (ONNX fallback) | Jina v2 (code) + MiniLM (NLP) | 768d + 384d | Not needed | Yes — compensates Jina's code-only focus | Good |
+| **advanced** (sidecar) | nomic-embed-code (code) + Qwen3-Embedding-8B (NLP) | 3584d + 4096d | Required (14 GB VRAM) | Yes — dedicated NLP model for semantics | Best |
+| **lite** (ONNX fallback) | Jina v2 (code) + MiniLM (NLP) | 768d + 384d | Not needed | Yes — compensates Jina's code-only focus | Good |
 
-**Why disable dual when using nomic-7B?**
+**Why two tiers of models?**
 
-The 7B model is trained on CodeSearchNet (query → code search). Its 3584-dim hidden state captures both syntactic structure and semantic intent in a single vector. Adding a MiniLM NLP vector would be redundant and waste Claude API calls (required to generate NLP summaries for each function).
+In advanced mode, the nomic-embed-code 7B model handles code embedding (3584d) while Qwen3-Embedding-8B provides a dedicated NLP embedding (4096d) for semantic intent. This dual-sidecar approach gives the best quality across both dimensions.
 
-The dual mode remains valuable for the ONNX fallback: Jina v2 is a pure code embedder that doesn't understand natural language intent, so the MiniLM NLP vector adds a complementary semantic signal.
+In lite mode (ONNX fallback), Jina v2 is a pure code embedder that doesn't understand natural language intent, so the MiniLM NLP vector (384d) adds a complementary semantic signal.
 
-**Auto-selection:** when the sidecar is running, `dual_embedding` is automatically set to `false` regardless of the config value.
+**Auto-selection:** when the sidecar is running, advanced mode models (nomic-embed-code + Qwen3-Embedding-8B) are used automatically.
 
 ## Notes
 
-The embedding model is auto-selected at startup based on hardware and sidecar availability. When a GPU is detected, Anatoly starts the sentence-transformers sidecar (`nomic-ai/nomic-embed-code`, 7B, 3584d) and disables dual embedding. Without GPU, it falls back to Jina v2 (ONNX, 768d) with optional dual MiniLM NLP embedding. The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless. Run `./scripts/setup-embeddings.sh` to set up, or the sidecar auto-starts with `anatoly run`.
+The embedding models are auto-selected at startup based on hardware and sidecar availability. When a GPU is detected, Anatoly starts the sentence-transformers sidecar with `nomic-ai/nomic-embed-code` (3584d) for code and `Qwen/Qwen3-Embedding-8B` (4096d) for NLP. Without GPU, it falls back to Jina v2 (ONNX, 768d) for code with optional dual MiniLM NLP embedding (384d). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless. Run `npx anatoly setup-embeddings` to set up both models, or the sidecar auto-starts with `anatoly run`.

@@ -98,12 +98,12 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js -- 
 
 ### Optional but recommended: GPU-accelerated embeddings
 
-By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on CPU. For significantly better duplication detection, set up the **embed sidecar** which runs a 7B parameter model (`nomic-ai/nomic-embed-code`, 3584d) on GPU via sentence-transformers:
+By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on CPU. For significantly better duplication detection, set up the **embed sidecar** which runs `nomic-ai/nomic-embed-code` (3584d) for code and `Qwen/Qwen3-Embedding-8B` (4096d) for NLP on GPU via sentence-transformers:
 
 **Requirements:** Python >= 3.9, a GPU (CUDA, Metal, or ROCm), ~14 GB disk for the model
 
 ```bash
-# One-time setup: installs torch + sentence-transformers + downloads the model
+# One-time setup: installs torch + sentence-transformers + downloads code and NLP models
 npx anatoly setup-embeddings
 
 # Check status anytime
@@ -160,7 +160,7 @@ npx anatoly run --no-rag         # Skip RAG indexing
 
 By default, Anatoly uses **code-only embedding** -- function bodies are embedded directly using a code-specific model (Jina v2 by default) for structural similarity matching. This catches duplicates that look alike syntactically.
 
-Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text with a dedicated NLP model (all-MiniLM-L6-v2 by default).
+Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text with a dedicated NLP model (Qwen3-Embedding-8B via sidecar, or all-MiniLM-L6-v2 via ONNX in lite mode).
 
 During duplication search, both scores are combined:
 
@@ -180,13 +180,13 @@ rag:
   enabled: true
   dual_embedding: true   # Enable NLP summaries + hybrid search
   code_model: auto        # 'auto' = hardware-based selection (default: jina-v2-base-code)
-  nlp_model: auto         # 'auto' = all-MiniLM-L6-v2 (384d, optimized for text similarity)
+  nlp_model: auto         # 'auto' = Qwen3-Embedding-8B (4096d) via sidecar, else all-MiniLM-L6-v2 (384d)
   code_weight: 0.6        # 60% code similarity, 40% NLP similarity (default)
 ```
 
 ```bash
 # CLI overrides
-npx anatoly run --dual-embedding --code-model jinaai/jina-embeddings-v2-base-code --nlp-model Xenova/all-MiniLM-L6-v2
+npx anatoly run --dual-embedding --code-model nomic-ai/nomic-embed-code --nlp-model Qwen/Qwen3-Embedding-8B
 ```
 
 Using separate specialized models (code model for structure, NLP model for semantics) produces better results than a single general-purpose model for both tasks.

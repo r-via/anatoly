@@ -128,7 +128,8 @@ The embedding and search pipeline runs 100% locally with no external API calls, 
 
 - **Code embedding (ONNX):** `@xenova/transformers` runs on CPU — no network, no cost
 - **Code embedding (sidecar):** Nomic Embed Code runs on local GPU via sentence-transformers sidecar — no network, no cost
-- **NLP embedding:** `all-MiniLM-L6-v2` via `@xenova/transformers` — always local ONNX
+- **NLP embedding (sidecar):** `Qwen3-Embedding-8B` runs on local GPU via sentence-transformers sidecar — no network, no cost
+- **NLP embedding (ONNX):** `all-MiniLM-L6-v2` via `@xenova/transformers` — always local ONNX
 - **Storage:** LanceDB is an embedded database with no server component
 - **Search:** vector similarity is computed locally
 
