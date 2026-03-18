@@ -94,6 +94,11 @@ function printReportSummary(
   const testsWeak = allSymbols.filter((s) => s.tests === 'WEAK').length;
   if (testsNone + testsWeak > 0) console.log(`  Tests:             ${testsNone + testsWeak}  (${testsNone} untested, ${testsWeak} weak)`);
 
+  // Documentation summary
+  const docUndoc = allSymbols.filter((s) => s.exported && s.documentation === 'UNDOCUMENTED').length;
+  const docPartial = allSymbols.filter((s) => s.documentation === 'PARTIAL').length;
+  if (docUndoc + docPartial > 0) console.log(`  Documentation:     ${docUndoc + docPartial}  (${docUndoc} undocumented, ${docPartial} partial)`);
+
   // Best practices summary
   const bpFails = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'FAIL').length ?? 0), 0);
   const bpWarns = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'WARN').length ?? 0), 0);

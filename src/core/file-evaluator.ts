@@ -173,13 +173,20 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
   }
 
-  // Extract best_practices data from the dedicated evaluator
+  // Extract best_practices and docs_coverage data from dedicated evaluators
   let bestPractices: BestPractices | undefined;
+  let docsCoverage: import('../schemas/review.js').DocsCoverage | undefined;
   for (const r of successResults) {
     if (r.axisId === 'best_practices') {
       const bpResult = r as AxisResult & { _bestPractices?: BestPractices };
       if (bpResult._bestPractices) {
         bestPractices = bpResult._bestPractices;
+      }
+    }
+    if (r.axisId === 'documentation') {
+      const docResult = r as AxisResult & { _docsCoverage?: import('../schemas/review.js').DocsCoverage };
+      if (docResult._docsCoverage) {
+        docsCoverage = docResult._docsCoverage;
       }
     }
   }
@@ -191,7 +198,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
 
   const enabledAxes = opts.evaluators.map((e) => e.id);
-  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes);
+  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes, docsCoverage);
 
   // --- Deliberation pass (optional) ---
   if (opts.deliberation !== false) {

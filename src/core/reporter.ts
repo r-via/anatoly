@@ -717,12 +717,12 @@ export function renderShard(shard: ShardInfo): string {
     for (const review of filesWithFindings) {
       lines.push(`### \`${review.file}\``);
       lines.push('');
-      lines.push('| Symbol | Lines | Correction | Utility | Duplication | Over-eng. | Tests | Conf. |');
-      lines.push('|--------|-------|------------|---------|-------------|-----------|-------|-------|');
+      lines.push('| Symbol | Lines | Correction | Utility | Duplication | Over-eng. | Tests | Doc | Conf. |');
+      lines.push('|--------|-------|------------|---------|-------------|-----------|-------|-----|-------|');
       const actionable = review.symbols.filter((s) => s.confidence >= 30 && hasActionableIssue(s));
       for (const s of actionable) {
         lines.push(
-          `| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${s.correction} | ${s.utility} | ${s.duplication} | ${s.overengineering} | ${s.tests} | ${s.confidence}% |`,
+          `| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${s.correction} | ${s.utility} | ${s.duplication} | ${s.overengineering} | ${s.tests} | ${s.documentation} | ${s.confidence}% |`,
         );
       }
       lines.push('');
@@ -787,6 +787,26 @@ export function renderShard(shard: ShardInfo): string {
       // Add detail for WEAK symbols (they have specific improvement hints)
       for (const s of weakSymbols) {
         lines.push(`  - ${s.name}: ${s.detail.replace(/^\[WEAK\]\s*/, '')}`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Documentation Coverage section — concepts from docs_coverage
+  const docReviews = shard.files.filter((r) =>
+    r.docs_coverage?.concepts.some((c) => c.status !== 'COVERED'),
+  );
+  if (docReviews.length > 0) {
+    lines.push('## Documentation Coverage');
+    lines.push('');
+    for (const review of docReviews) {
+      const dc = review.docs_coverage!;
+      const issues = dc.concepts.filter((c) => c.status !== 'COVERED');
+      lines.push(`### \`${review.file}\` — ${dc.score_pct}% covered`);
+      lines.push('');
+      for (const c of issues) {
+        const docRef = c.doc_path ? ` → \`${c.doc_path}\`` : '';
+        lines.push(`- [ ] **${c.name}** — ${c.status}${docRef}: ${c.detail}`);
       }
       lines.push('');
     }

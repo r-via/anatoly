@@ -37,6 +37,7 @@ export function mergeAxisResults(
   bestPractices?: BestPractices,
   failedAxes: AxisId[] = [],
   enabledAxes?: AxisId[],
+  docsCoverage?: import('../schemas/review.js').DocsCoverage,
 ): ReviewFile {
   const axisMap = buildAxisMap(results);
   const failedSet = new Set(failedAxes);
@@ -82,6 +83,7 @@ export function mergeAxisResults(
     actions,
     file_level: fileLevel,
     ...(bestPractices ? { best_practices: bestPractices } : {}),
+    ...(docsCoverage ? { docs_coverage: docsCoverage } : {}),
     ...(Object.keys(axisMeta).length > 0 ? { axis_meta: axisMeta } : {}),
   };
 }

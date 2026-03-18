@@ -120,6 +120,17 @@ export const ReviewFileSchema = z.object({
   /** Best practices evaluation (v2 only) */
   best_practices: BestPracticesSchema.optional(),
 
+  /** Documentation concept coverage (v2 only) */
+  docs_coverage: z.object({
+    concepts: z.array(z.object({
+      name: z.string(),
+      status: z.enum(['COVERED', 'PARTIAL', 'MISSING', 'OUTDATED']),
+      doc_path: z.string().nullable(),
+      detail: z.string(),
+    })),
+    score_pct: z.number().min(0).max(100),
+  }).optional(),
+
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
   axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
 
@@ -146,3 +157,4 @@ export type BestPracticesSuggestion = z.infer<typeof BestPracticesSuggestionSche
 export type BestPractices = z.infer<typeof BestPracticesSchema>;
 export type AxisMetaEntry = z.infer<typeof AxisMetaEntrySchema>;
 export type ReviewFile = z.infer<typeof ReviewFileSchema>;
+export type DocsCoverage = NonNullable<ReviewFile['docs_coverage']>;
