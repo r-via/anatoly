@@ -109,6 +109,24 @@ describe('DeliberationResponseSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('should accept documentation axis in verdict', () => {
+    const input = {
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        {
+          name: 'foo',
+          original: { documentation: 'UNDOCUMENTED', confidence: 95 },
+          deliberated: { documentation: 'DOCUMENTED', confidence: 90 },
+          reasoning: 'Self-descriptive type does not need JSDoc',
+        },
+      ],
+      removed_actions: [],
+      reasoning: 'Documentation reclassified for self-descriptive types',
+    };
+    const result = DeliberationResponseSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
   it('should default removed_actions to empty array', () => {
     const input = {
       verdict: 'CLEAN',
@@ -243,6 +261,26 @@ describe('needsDeliberation', () => {
       verdict: 'CLEAN',
       symbols: [
         { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 65, detail: 'Low confidence symbol', duplicate_target: undefined },
+      ],
+    });
+    expect(needsDeliberation(review)).toBe(true);
+  });
+
+  it('should return true for symbol with UNDOCUMENTED', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 95, detail: 'No JSDoc comment', duplicate_target: undefined },
+      ],
+    });
+    expect(needsDeliberation(review)).toBe(true);
+  });
+
+  it('should return true for symbol with PARTIAL documentation', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'PARTIAL', confidence: 85, detail: 'Incomplete JSDoc', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -404,6 +442,31 @@ describe('applyDeliberation', () => {
     const result = applyDeliberation(review, deliberation);
     expect(result.symbols[1].detail).toBe('Also fine code');
     expect(result.symbols[1].confidence).toBe(90);
+  });
+
+  it('should reclassify UNDOCUMENTED to DOCUMENTED', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 95, detail: 'No JSDoc comment', duplicate_target: undefined },
+      ],
+    });
+
+    const deliberation = makeDeliberationResponse({
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'doWork',
+          original: { documentation: 'UNDOCUMENTED', confidence: 95 },
+          deliberated: { documentation: 'DOCUMENTED', confidence: 90 },
+          reasoning: 'Self-descriptive type with clear field names, JSDoc not needed',
+        },
+      ],
+    });
+
+    const result = applyDeliberation(review, deliberation);
+    expect(result.symbols[0].documentation).toBe('DOCUMENTED');
+    expect(result.symbols[0].detail).toContain('documentation: UNDOCUMENTED → DOCUMENTED');
   });
 
   it('should apply Opus verdict', () => {

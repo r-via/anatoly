@@ -17,6 +17,7 @@ const AxisVerdictSchema = z.object({
   duplication: z.enum(['UNIQUE', 'DUPLICATE', '-']).optional(),
   overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE', '-']).optional(),
   tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']).optional(),
+  documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED', '-']).optional(),
   confidence: z.int().min(0).max(100),
 });
 
@@ -38,7 +39,7 @@ export type DeliberationResponse = z.infer<typeof DeliberationResponseSchema>;
 export type DeliberatedSymbol = z.infer<typeof DeliberatedSymbolSchema>;
 
 /** Axes that deliberation can reclassify — shared between apply and count logic. */
-const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests'] as const;
+const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation'] as const;
 type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ export function buildDeliberationSystemPrompt(): string {
 
 You receive a ReviewFile (merged from 6 independent axis evaluators) and the original source code. Your job is to:
 
-1. **Deliberate each symbol holistically** — consider ALL axis findings for a symbol together (correction, utility, duplication, overengineering, tests). A symbol may have findings on multiple axes — address them all in a single deliberation entry.
+1. **Deliberate each symbol holistically** — consider ALL axis findings for a symbol together (correction, utility, duplication, overengineering, tests, documentation). A symbol may have findings on multiple axes — address them all in a single deliberation entry.
 2. **Verify inter-axis coherence** — do the combined findings make sense together? (e.g., if a symbol is DEAD, flagging it as OVER is pointless)
 3. **Filter residual false positives** — reclassify findings when the original assessment is incorrect.
 4. **Protect confirmed ERRORs** — do NOT downgrade ERROR corrections unless you are extremely confident (≥ 95) the original was wrong.
@@ -62,7 +63,7 @@ You receive a ReviewFile (merged from 6 independent axis evaluators) and the ori
 
 ## Strict rules
 
-- ONLY deliberate symbols that have at least one finding (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE). SKIP clean symbols entirely.
+- ONLY deliberate symbols that have at least one finding (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE, UNDOCUMENTED, PARTIAL). SKIP clean symbols entirely.
 - For each deliberated symbol, include ALL axes that have findings in both original and deliberated (omit axes that are clean or '-').
 - You MUST NOT add new findings, symbols, or actions.
 - For each deliberated symbol, you MUST provide reasoning (min 10 chars) covering all axes together.
@@ -80,9 +81,9 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
   "symbols": [
     {
       "name": "symbolName",
-      "original": { "utility": "DEAD", "correction": "NEEDS_FIX", "confidence": 72 },
-      "deliberated": { "utility": "DEAD", "correction": "OK", "confidence": 88 },
-      "reasoning": "Utility DEAD is correct (exported but unused). Correction reclassified: the pattern is safe in Commander v14..."
+      "original": { "utility": "DEAD", "correction": "NEEDS_FIX", "documentation": "UNDOCUMENTED", "confidence": 72 },
+      "deliberated": { "utility": "DEAD", "correction": "OK", "documentation": "DOCUMENTED", "confidence": 88 },
+      "reasoning": "Utility DEAD is correct. Correction reclassified: pattern safe in Commander v14. Documentation reclassified: self-descriptive type with clear field names."
     }
   ],
   "removed_actions": [1, 3],
@@ -142,7 +143,9 @@ export function needsDeliberation(review: ReviewFile): boolean {
       s.duplication === 'DUPLICATE' ||
       s.overengineering === 'OVER' ||
       s.tests === 'WEAK' ||
-      s.tests === 'NONE',
+      s.tests === 'NONE' ||
+      s.documentation === 'UNDOCUMENTED' ||
+      s.documentation === 'PARTIAL',
   );
   if (hasFindings) {
     log.debug({ file: review.file, reason: 'has-findings' }, 'deliberation needed');
@@ -295,6 +298,7 @@ function setAxisValue(
     case 'duplication': sym.duplication = value as typeof sym.duplication; break;
     case 'overengineering': sym.overengineering = value as typeof sym.overengineering; break;
     case 'tests': sym.tests = value as typeof sym.tests; break;
+    case 'documentation': sym.documentation = value as typeof sym.documentation; break;
   }
 }
 
@@ -316,7 +320,8 @@ function recomputeVerdict(
       s.utility === 'DEAD' || s.utility === 'LOW_VALUE' ||
       s.duplication === 'DUPLICATE' ||
       s.overengineering === 'OVER' ||
-      s.tests === 'WEAK' || s.tests === 'NONE'
+      s.tests === 'WEAK' || s.tests === 'NONE' ||
+      s.documentation === 'UNDOCUMENTED'
     ) {
       hasFinding = true;
     }
