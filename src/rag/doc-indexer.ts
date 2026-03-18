@@ -7,10 +7,10 @@ import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { z } from 'zod';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { embedNlp } from './embeddings.js';
 import { extractJson } from '../utils/extract-json.js';
 import { contextLogger } from '../utils/log-context.js';
+import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
@@ -115,38 +115,17 @@ async function chunkDocWithHaiku(
   const log = contextLogger();
 
   try {
-    const result = await query({
-      model,
-      systemPrompt: CHUNK_SYSTEM_PROMPT,
-      prompt: `Document: \`${filePath}\`\n\n${source}`,
-      options: { maxTurns: 1 },
-      cwd: projectRoot,
-    });
-
-    if (result.type !== 'result') {
-      log?.warn({ file: filePath }, 'doc chunking: Haiku returned non-result');
-      return fallbackParseH2(filePath, source);
-    }
-
-    const jsonText = extractJson(
-      result.subMessages
-        .filter((m): m is { role: 'assistant'; message: string } => m.role === 'assistant')
-        .map((m) => m.message)
-        .join(''),
+    const result = await runSingleTurnQuery(
+      {
+        systemPrompt: CHUNK_SYSTEM_PROMPT,
+        userMessage: `Document: \`${filePath}\`\n\n${source}`,
+        model,
+        projectRoot,
+      },
+      ChunkResponseSchema,
     );
 
-    if (!jsonText) {
-      log?.warn({ file: filePath }, 'doc chunking: no JSON in Haiku response');
-      return fallbackParseH2(filePath, source);
-    }
-
-    const parsed = ChunkResponseSchema.safeParse(JSON.parse(jsonText));
-    if (!parsed.success) {
-      log?.warn({ file: filePath, err: parsed.error.message }, 'doc chunking: schema validation failed');
-      return fallbackParseH2(filePath, source);
-    }
-
-    return parsed.data.sections
+    return result.data.sections
       .filter((s) => s.content.trim().length >= 50)
       .map((s) => ({
         filePath,
@@ -155,7 +134,7 @@ async function chunkDocWithHaiku(
         content: s.content.trim(),
       }));
   } catch (err) {
-    log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku call failed');
+    log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku call failed, using H2 fallback');
     return fallbackParseH2(filePath, source);
   }
 }
