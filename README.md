@@ -42,22 +42,23 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 ## Key Features
 
-- **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status
-- **Evidence-based review** — the agent must grep/read to prove every finding before reporting it
-- **7-axis analysis** — correction, overengineering, utility, duplication, tests, best practices, documentation — all axes run in parallel per file
-- **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
-- **Pre-computed usage graph** — one-pass import resolution across all files, eliminating ~90% of redundant tool calls
-- **Local code embeddings** — Jina Embeddings V2 Base Code (768-dim) computed locally, stored in LanceDB — zero API cost for RAG indexing
-- **RAG semantic duplication** — local code embeddings + optional dual code+NLP embedding for hybrid similarity search via LanceDB
-- **Opus deliberation** — senior-auditor pass (enabled by default, disable with `--no-deliberation`) detects inter-axis incoherence and filters residual false positives
-- **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs)
-- **Deliberation memory** — persistent false-positive registry prevents repeated flags across runs, covers all axes
-- **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
-- **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
-- **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
+- **7-axis analysis** — correction, overengineering, utility, duplication, tests, best practices, documentation — all axes run in parallel per file, each crash-isolated
+- **Evidence-based review** — the agent must grep/read to prove every finding before reporting it — no guesswork, no hallucinated issues
+- **Opus deliberation** — senior-auditor pass (Opus) reviews merged results, detects inter-axis incoherence, and filters residual false positives. Enabled by default
+- **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs) to eliminate API-misunderstanding false positives
+- **Deliberation memory** — persistent reclassification registry prevents repeated false positives across runs, covers all axes
+- **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
+- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
-- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — our own implementation of the autonomous dev-loop pattern. `anatoly clean` parses a report shard into Ralph artifacts (prd.json + CLAUDE.md), then `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
-- **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines
+- **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
+- **Pre-computed usage graph** — one-pass import resolution across all files with transitive intra-file references, eliminating ~90% of redundant tool calls
+- **Local code embeddings** — Jina v2 (768d) on CPU or nomic-embed-code (3584d) + Qwen3-Embedding-8B (4096d) on GPU — zero API cost for RAG indexing
+- **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status
+- **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions, and checkboxes for Ralph consumption
+- **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost. Second run on unchanged codebase costs $0
+- **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
+- **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
+- **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines, colored cost display
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for the evaluation axes.
 
