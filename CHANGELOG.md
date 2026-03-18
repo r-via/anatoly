@@ -1,5 +1,88 @@
 # Changelog
 
+## [0.6.0] - 2026-03-18
+
+### Features
+
+- **Documentation axis (7th axis)** — evaluates JSDoc coverage on exports and /docs/ synchronization (`DOCUMENTED` / `PARTIAL` / `UNDOCUMENTED` verdicts) — Epic 26
+- **Deliberation memory** — generalize correction memory into deliberation memory covering all axes, persistent across runs
+- **Deliberation feeds learning loop** — deliberation results now feed back into correction memory for continuous improvement
+- **Calibrated ETA** — `estimate` and pipeline summary display calibrated per-axis timing based on historical runs
+- **Branch isolation** — `clean-run` enforces branch isolation before launching the Ralph loop
+- **Run lock** — block concurrent commands while a run is in progress
+- **Dry-run improvements** — phase-based estimate, calibrated per-axis timing, skip runDir creation in dry-run mode
+- **NIH detection** — overengineering axis detects Not Invented Here patterns
+- **Holistic deliberation** — deliberation covers all axes per symbol holistically with transitive usage-graph refs
+- **Tests axis enrichment** — test file content, callers, and project tree injected into tests axis context
+- **Run Statistics & Axis Summary** — new report sections for run metrics and per-axis verdict distribution
+- **`init` & `setup-embeddings` commands** — one-command project setup and GPU embedding installation
+- **`--dry-run` mode** — simulate scan, estimate, triage without API calls
+- **`--axes` CLI option** — run specific axes (e.g. `--axes correction,tests`)
+- **RAG observability** — `rag-status` shows both lite+advanced indexes with correct dimensions
+- **Sentence-transformers sidecar** — replace Ollama with sentence-transformers for GPU-accelerated embeddings (nomic-embed-code 7B, 3584d)
+- **Dual code+NLP embedding** — hybrid similarity search with configurable code/NLP weight
+- **Hardware detection** — auto-select embedding models based on available hardware (RAM, GPU)
+- **Demo GIF** — animated demo in README
+
+### Fixes
+
+- **Documentation axis** — default median calibration (60s/file), merge pipeline integration, prefix matching, memory logging
+- **Adversarial review** — wire docsTree, fix 6→7-axis refs
+- **Accumulative cache** — cached reviews copied into current runDir for complete reports
+- **Best practices** — FAILs now count as findings and trigger NEEDS_REFACTOR
+- **Tests axis** — findings trigger NEEDS_REFACTOR, path safety, confidence filter, usageGraph access fix
+- **Calibration** — use max(axis) for parallel model, remove 3s sleep, cap runs
+- **Deliberation** — only reviews symbols with findings, skips clean ones; always active by default
+- **Report** — hide non-executed axes, show full deliberation reasoning (remove 120-char truncation)
+- **RAG** — resolve Arrow FloatVector crash, ONNX fallback always uses Jina
+- **Severity labels** — replace French labels with English (CRITIQUE→CRITICAL, HAUTE→HIGH, MOYENNE→MEDIUM)
+- **Sidecar** — loading progress spinner, correct model dimensions, venv isolation
+
+### Licensing
+
+- **AGPL-3.0** — migrate from Apache-2.0 to AGPL-3.0
+- **Dual-licensing framework** — add commercial license option with CLA
+
+### Refactoring
+
+- Rename hook subcommands to `on-edit`/`on-stop`
+- Rename `fix`/`fix-sync` commands to `clean`/`clean-sync`
+- Remove auto-migration from VectorStore, add `initReadOnly`
+- Replace `--dual-embedding` with `--rag-lite` / `--rag-advanced`
+
+---
+
+## [0.5.1] - 2026-03-15
+
+### Features
+
+- Colored MOTD banner at startup
+- Sidecar lifecycle overhaul — cleanup, scoped spawn, idle timeout
+- Show RAG file count in setup summary table
+- List available axes in `--axes` help text
+- Auto-disable dual embedding when nomic-7B sidecar is active
+- Show sidecar loading progress in CLI spinner with elapsed time
+- Harden Ralph clean loop with circuit breaker, anti-placeholder guards, and adaptive PRD
+
+### Fixes
+
+- Resolve pre-existing TypeScript compilation errors
+- Review progress counter matches triage evaluate count
+- Exclude NLP-failed cards from cache so they get retried
+- Purge RAG cache when vector store is empty
+- Remove Arrow table migration — drop legacy table instead
+- ONNX fallback always uses Jina, not the sidecar model
+- Correct nomic-embed-code dimension to 3584d
+- Use correct model ID `nomic-ai/nomic-embed-code`
+- Move embedding venv to `.anatoly/.venv` to avoid project collision
+
+### Refactoring
+
+- Simplify estimate and triage CLI output
+- Replace `--dual-embedding` with `--rag-lite` / `--rag-advanced`
+
+---
+
 ## [0.5.0] - 2026-03-15
 
 ### Features
