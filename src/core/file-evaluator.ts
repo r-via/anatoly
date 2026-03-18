@@ -216,7 +216,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
           DeliberationResponseSchema,
         );
 
-        review = applyDeliberation(review, deliberationResult.data);
+        review = applyDeliberation(review, deliberationResult.data, projectRoot);
         totalCost += deliberationResult.costUsd;
         totalInputTokens += deliberationResult.inputTokens;
         totalOutputTokens += deliberationResult.outputTokens;

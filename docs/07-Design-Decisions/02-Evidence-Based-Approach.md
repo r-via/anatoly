@@ -43,6 +43,15 @@ The verification pass can:
 
 When a finding is overturned, it is recorded in a **correction memory** file (`.anatoly/correction-memory.json`) so that the same false positive pattern is not repeated in future runs. This memory is injected into Pass 1 prompts as known false positives, creating a learning loop.
 
+### Deliberation feedback loop
+
+The Opus deliberation pass (which runs after all axes are merged) can also reclassify correction findings. When deliberation downgrades a NEEDS_FIX or ERROR to OK, the false positive is recorded in correction memory with the deliberation reasoning. This means the correction memory has two sources:
+
+1. **Pass 2 verification** — findings overturned by checking library README documentation
+2. **Opus deliberation** — findings overturned by holistic cross-axis review
+
+Both feed into the same `.anatoly/correction-memory.json` file and are injected into future Pass 1 prompts, preventing recurrence. The correction memory is cleared on `anatoly reset`.
+
 ### Axis-level evidence requirements
 
 | Axis | Evidence source | What the model receives |
@@ -51,8 +60,9 @@ When a finding is overturned, it is recorded in a **correction memory** file (`.
 | **Duplication** | RAG vector search (`src/rag/`) | Top-N semantically similar functions with signatures, complexity scores, and source snippets (up to 50 lines each) |
 | **Correction** | Dependency metadata + README verification | Library versions from package.json; targeted README sections from node_modules in Pass 2 |
 | **Overengineering** | File content + symbol metadata | Full source with AST-extracted symbol boundaries, export status, and kind classification |
-| **Tests** | File content + project structure | Source code with symbol list; test file co-location patterns |
-| **Best practices** | File content + project tree | Source code with full project directory tree for import pattern analysis |
+| **Tests** | Test file content + usage graph + project tree | Actual test file content (`.test.ts`), symbol callers from usage graph, project tree for architectural context |
+| **Best practices** | File content + project tree + dependencies | Source code with full project directory tree for import pattern analysis |
+| **Documentation** | Docs directory tree + relevant doc pages | JSDoc on symbols + concept coverage against `/docs/` pages resolved by path matching |
 
 ## Consequences
 

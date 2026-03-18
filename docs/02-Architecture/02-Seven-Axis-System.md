@@ -39,6 +39,7 @@ Identifies bugs, logic errors, and correctness issues. This is the only axis tha
 - **Input:** file source, symbol list, project dependency metadata (package names + versions), known false positives from correction memory
 - **Output:** per-symbol verdict (`OK` / `NEEDS_FIX` / `ERROR`), confidence 0-100, detail string, plus `actions` (with severity: CRITICAL/MAJOR/MINOR)
 - **Two-pass verification:** when Pass 1 flags any symbol as NEEDS_FIX or ERROR and the file imports external dependencies, a Pass 2 re-evaluates those findings against the actual README documentation of the implicated libraries. Findings contradicted by library docs are reclassified to OK. False positives are recorded in correction memory (`.anatoly/correction-memory.json`) for future runs.
+- **Deliberation feedback:** when the Opus deliberation pass reclassifies a correction finding (NEEDS_FIX/ERROR → OK), the false positive is also recorded in correction memory with the deliberation reasoning, preventing recurrence in future runs.
 
 ### Overengineering
 

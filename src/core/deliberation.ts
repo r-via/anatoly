@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
+import { recordFalsePositive } from './correction-memory.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -185,6 +186,7 @@ export function needsDeliberation(review: ReviewFile): boolean {
 export function applyDeliberation(
   review: ReviewFile,
   deliberation: DeliberationResponse,
+  projectRoot?: string,
 ): ReviewFile {
   const deliberatedMap = new Map(
     deliberation.symbols.map((s) => [s.name, s]),
@@ -214,6 +216,15 @@ export function applyDeliberation(
 
       if (orig !== deliberated) {
         changes.push(`${axis}: ${orig} → ${deliberated}`);
+
+        // Record correction downgrades as false positives for future runs
+        if (projectRoot && axis === 'correction' && (orig === 'NEEDS_FIX' || orig === 'ERROR') && deliberated === 'OK') {
+          recordFalsePositive(projectRoot, {
+            pattern: `[deliberation] ${sym.name}: ${orig} → OK`,
+            original_detail: sym.detail,
+            reason: `Deliberation reclassified: ${delib.reasoning}`,
+          });
+        }
       }
       setAxisValue(updated, axis, deliberated);
     }
