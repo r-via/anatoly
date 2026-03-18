@@ -76,7 +76,9 @@ function hasActionableIssue(s: SymbolReview): boolean {
     s.correction === 'ERROR' ||
     s.utility === 'DEAD' ||
     s.duplication === 'DUPLICATE' ||
-    s.overengineering === 'OVER'
+    s.overengineering === 'OVER' ||
+    s.tests === 'WEAK' ||
+    s.tests === 'NONE'
   );
 }
 
@@ -652,24 +654,30 @@ export function renderShard(shard: ShardInfo): string {
   // Findings table
   lines.push('## Findings');
   lines.push('');
-  lines.push('| File | Verdict | Utility | Duplicate | Over Engineered | Errors | BP Score | Confidence | Details |');
-  lines.push('|------|---------|-----------|-----------|-----------------|--------|----------|------------|---------|');
+  lines.push('| File | Verdict | Utility | Duplicate | Over Eng. | Errors | Tests | BP Score | Conf. | Details |');
+  lines.push('|------|---------|---------|-----------|-----------|--------|-------|----------|-------|---------|');
+
+  // Helper: return count or '-' if the axis was not evaluated (all symbols have '-' for that axis)
+  const axisCount = (reliable: SymbolReview[], axis: keyof SymbolReview, ...values: string[]) => {
+    const allSkipped = reliable.every((s) => s[axis] === '-');
+    if (allSkipped) return '-';
+    return String(reliable.filter((s) => values.includes(s[axis] as string)).length);
+  };
 
   for (const review of shard.files) {
     const reliable = review.symbols.filter((s) => s.confidence >= 30);
-    const dead = reliable.filter((s) => s.utility === 'DEAD').length;
-    const dup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
-    const over = reliable.filter((s) => s.overengineering === 'OVER').length;
-    const errors = reliable.filter(
-      (s) => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR',
-    ).length;
+    const dead = axisCount(reliable, 'utility', 'DEAD');
+    const dup = axisCount(reliable, 'duplication', 'DUPLICATE');
+    const over = axisCount(reliable, 'overengineering', 'OVER');
+    const errors = axisCount(reliable, 'correction', 'NEEDS_FIX', 'ERROR');
+    const tests = axisCount(reliable, 'tests', 'WEAK', 'NONE');
     const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
     const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
     const outputName = toOutputName(review.file);
     const link = `[details](./reviews/${outputName}.rev.md)`;
     const fileVerdict = computeFileVerdict(review);
     lines.push(
-      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${bpScore} | ${maxConf}% | ${link} |`,
+      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${tests} | ${bpScore} | ${maxConf}% | ${link} |`,
     );
   }
   lines.push('');
@@ -730,6 +738,34 @@ export function renderShard(shard: ShardInfo): string {
     }
   }
 
+  // Tests section — one checkbox per file, symbols listed as context
+  const testReviews = shard.files.filter((r) =>
+    r.symbols.some((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE')),
+  );
+  if (testReviews.length > 0) {
+    lines.push('## Tests');
+    lines.push('');
+    for (const review of testReviews) {
+      const testSymbols = review.symbols.filter((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE'));
+      const noneSymbols = testSymbols.filter((s) => s.tests === 'NONE');
+      const weakSymbols = testSymbols.filter((s) => s.tests === 'WEAK');
+      const summary = [noneSymbols.length > 0 ? `${noneSymbols.length} untested` : '', weakSymbols.length > 0 ? `${weakSymbols.length} weak` : ''].filter(Boolean).join(', ');
+
+      const testFile = review.file.replace(/\.ts$/, '.test.ts');
+      const hasTestFile = review.symbols.some((s) => s.tests === 'GOOD' || s.tests === 'WEAK');
+      const action = hasTestFile ? `Improve \`${testFile}\`` : `Create \`${testFile}\``;
+
+      lines.push(`- [ ] \`${review.file}\` — ${summary}`);
+      lines.push(`  ${action} covering: ${testSymbols.map((s) => s.name).join(', ')}`);
+
+      // Add detail for WEAK symbols (they have specific improvement hints)
+      for (const s of weakSymbols) {
+        lines.push(`  - ${s.name}: ${s.detail.replace(/^\[WEAK\]\s*/, '')}`);
+      }
+      lines.push('');
+    }
+  }
+
   // Best Practices section — rendered from review data, not actions
   const bpReviews = shard.files.filter((r) => r.best_practices && r.best_practices.suggestions.length > 0);
   if (bpReviews.length > 0) {
@@ -765,7 +801,7 @@ export function generateReport(
   runDir?: string,
   triageStats?: TriageStats,
   runStats?: RunStats,
-): { reportPath: string; data: ReportData } {
+): { reportPath: string; data: ReportData; shards: ShardInfo[] } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
@@ -781,5 +817,5 @@ export function generateReport(
     writeFileSync(join(baseDir, `report.${shard.index}.md`), renderShard(shard));
   }
 
-  return { reportPath, data };
+  return { reportPath, data, shards };
 }

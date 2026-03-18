@@ -36,8 +36,8 @@ export function registerReportCommand(program: Command): void {
 
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
-        const { reportPath, data } = generateReport(projectRoot, errorFiles, runDir);
-        printReportSummary(data, reportPath, resolve(runDir, 'reviews'));
+        const { reportPath, data, shards } = generateReport(projectRoot, errorFiles, runDir);
+        printReportSummary(data, shards, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/
@@ -49,8 +49,8 @@ export function registerReportCommand(program: Command): void {
           }
         }
 
-        const { reportPath, data } = generateReport(projectRoot, errorFiles);
-        printReportSummary(data, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
+        const { reportPath, data, shards } = generateReport(projectRoot, errorFiles);
+        printReportSummary(data, shards, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
         if (shouldOpen) openFile(reportPath);
       }
     });
@@ -58,6 +58,7 @@ export function registerReportCommand(program: Command): void {
 
 function printReportSummary(
   data: ReturnType<typeof generateReport>['data'],
+  shards: ReturnType<typeof generateReport>['shards'],
   reportPath: string,
   reviewsPath: string,
 ): void {
@@ -78,6 +79,14 @@ function printReportSummary(
   if (totalDead > 0) console.log(`  Utility:           ${totalDead}  (high: ${dc.high}, medium: ${dc.medium}, low: ${dc.low})`);
   if (totalDup > 0) console.log(`  Duplicates:        ${totalDup}  (high: ${dup.high}, medium: ${dup.medium}, low: ${dup.low})`);
   if (totalOver > 0) console.log(`  Over-engineering:  ${totalOver}  (high: ${ov.high}, medium: ${ov.medium}, low: ${ov.low})`);
+
+  // Tests summary
+  const allSymbols = data.reviews.flatMap((r) => r.symbols);
+  const testsNone = allSymbols.filter((s) => s.tests === 'NONE').length;
+  const testsWeak = allSymbols.filter((s) => s.tests === 'WEAK').length;
+  if (testsNone + testsWeak > 0) console.log(`  Tests:             ${testsNone + testsWeak}  (${testsNone} untested, ${testsWeak} weak)`);
+
+  console.log(`  Findings:          ${data.findingFiles.length} files`);
   console.log(`  Clean:             ${data.cleanFiles.length}`);
   if (data.errorFiles.length > 0) {
     console.log(`  Errors:            ${data.errorFiles.length}`);
@@ -85,5 +94,11 @@ function printReportSummary(
   console.log('');
   const rel = (p: string) => relative(process.cwd(), p) || '.';
   console.log(`Report: ${chalk.cyan(rel(reportPath))}`);
+  if (shards.length > 0) {
+    const reportDir = reportPath.replace(/report\.md$/, '');
+    for (const shard of shards) {
+      console.log(`  shard ${shard.index}  ${chalk.cyan(rel(reportDir + `report.${shard.index}.md`))} (${shard.files.length} files)`);
+    }
+  }
   console.log(`Details: ${chalk.cyan(rel(reviewsPath) + '/')}`);
 }

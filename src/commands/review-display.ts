@@ -83,6 +83,7 @@ export function countReviewFindings(review: ReviewFile, minConfidence: number = 
     if (s.duplication === 'DUPLICATE') findings++;
     if (s.overengineering === 'OVER') findings++;
     if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') findings++;
+    if (s.tests === 'WEAK' || s.tests === 'NONE') findings++;
   }
   return findings;
 }
