@@ -160,29 +160,49 @@ export function recalibrateFromRuns(projectRoot: string): CalibrationData {
  * Estimate total review duration in minutes for a set of files,
  * using calibration data for active axes with concurrency factor.
  */
+/** Estimated deliberation time per file (Opus pass, ~45s median) */
+const DELIBERATION_MS_PER_FILE = 45_000;
+/** Fraction of files that typically require deliberation (~60%) */
+const DELIBERATION_FILE_RATIO = 0.6;
+/** Estimated RAG indexing overhead in ms (lite ~30s, advanced ~5min) */
+const RAG_INDEX_MS = 300_000;
+
 export function estimateCalibratedMinutes(
   calibration: CalibrationData,
   fileCount: number,
   activeAxes: string[],
   concurrency: number,
   concurrencyEfficiency = 0.75,
+  options?: { rag?: boolean; deliberation?: boolean },
 ): number {
   if (fileCount === 0 || activeAxes.length === 0) return 0;
 
-  // Axes run in parallel per file — wall time is the slowest axis, not the sum
-  let msPerFile = 0;
+  // Phase 1: RAG indexing — fixed overhead, runs once before reviews
+  const ragMs = options?.rag !== false ? RAG_INDEX_MS : 0;
+
+  // Phase 2: Axis evaluation — axes run in parallel per file, wall time = slowest axis
+  let slowestAxisMs = 0;
   for (const axisId of activeAxes) {
     const cal = calibration.axes[axisId];
     const axisMs = cal?.medianMs ?? DEFAULT_MEDIANS[axisId] ?? 20_000;
-    if (axisMs > msPerFile) msPerFile = axisMs;
+    if (axisMs > slowestAxisMs) slowestAxisMs = axisMs;
+  }
+  const reviewTotalMs = slowestAxisMs * fileCount;
+  const reviewMs = concurrency > 1
+    ? reviewTotalMs / (concurrency * concurrencyEfficiency)
+    : reviewTotalMs;
+
+  // Phase 3: Deliberation — runs after axes, per file with findings
+  let deliberationMs = 0;
+  if (options?.deliberation !== false) {
+    const filesWithFindings = Math.ceil(fileCount * DELIBERATION_FILE_RATIO);
+    const deliberationTotalMs = DELIBERATION_MS_PER_FILE * filesWithFindings;
+    deliberationMs = concurrency > 1
+      ? deliberationTotalMs / (concurrency * concurrencyEfficiency)
+      : deliberationTotalMs;
   }
 
-  const totalMs = msPerFile * fileCount;
-  const effectiveMs = concurrency > 1
-    ? totalMs / (concurrency * concurrencyEfficiency)
-    : totalMs;
-
-  return Math.ceil(effectiveMs / 60_000);
+  return Math.ceil((ragMs + reviewMs + deliberationMs) / 60_000);
 }
 
 /**

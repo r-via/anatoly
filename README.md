@@ -49,9 +49,9 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Pre-computed usage graph** — one-pass import resolution across all files, eliminating ~90% of redundant tool calls
 - **Local code embeddings** — Jina Embeddings V2 Base Code (768-dim) computed locally, stored in LanceDB — zero API cost for RAG indexing
 - **RAG semantic duplication** — local code embeddings + optional dual code+NLP embedding for hybrid similarity search via LanceDB
-- **Opus deliberation** — optional senior-auditor pass detects inter-axis incoherence and filters residual false positives
+- **Opus deliberation** — senior-auditor pass (enabled by default, disable with `--no-deliberation`) detects inter-axis incoherence and filters residual false positives
 - **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs)
-- **Correction memory** — persistent false-positive registry prevents repeated flags across runs
+- **Deliberation memory** — persistent false-positive registry prevents repeated flags across runs, covers all axes
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
@@ -147,6 +147,11 @@ npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
 npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (sentence-transformers)
 npx anatoly setup-embeddings --check  # Check embedding setup status
+
+# Useful flags
+npx anatoly run --dry-run        # Simulate: scan, estimate, triage — no API calls
+npx anatoly run --no-deliberation # Skip the Opus deliberation pass
+npx anatoly run --no-rag         # Skip RAG indexing
 ```
 
 > See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference and all CLI flags.

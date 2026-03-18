@@ -150,6 +150,7 @@ export function registerRunCommand(program: Command): void {
         return;
       }
 
+      const dryRun = parentOpts.dryRun as boolean ?? false;
       const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
 
       // Validate --lite / --advanced mutual exclusivity
@@ -175,7 +176,7 @@ export function registerRunCommand(program: Command): void {
         projectRoot,
         config,
         runId,
-        runDir: createRunDir(projectRoot, runId),
+        runDir: dryRun ? '' : createRunDir(projectRoot, runId),
         concurrency,
         plain,
         verbose: parentOpts.verbose as boolean | undefined,
@@ -206,7 +207,7 @@ export function registerRunCommand(program: Command): void {
         degradedReviews: 0,
         axisStats: {},
         axesFilter,
-        dryRun: parentOpts.dryRun as boolean ?? false,
+        dryRun,
         badge: {
           enabled: parentOpts.badge !== false && config.badge.enabled,
           verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
@@ -214,10 +215,12 @@ export function registerRunCommand(program: Command): void {
         },
       };
 
-      // Create per-run ndjson log file at debug level
-      const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
-      ctx.runLog = createFileLogger(runLogPath);
-      ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
+      // Create per-run ndjson log file at debug level (skip in dry-run)
+      if (!ctx.dryRun) {
+        const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
+        ctx.runLog = createFileLogger(runLogPath);
+        ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
+      }
 
       const onSigint = () => {
         if (ctx.interrupted) {
@@ -569,7 +572,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const evalFileCount = ctx.triageEnabled
     ? [...triageMap.values()].filter(t => t.tier === 'evaluate').length
     : estimateTasks.length;
-  const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency);
+  const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
   const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
   const calLabel = hasCal ? 'calibrated' : 'default';
   pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
@@ -581,9 +584,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.dryRun) {
     const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
     const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, allTasks);
-    const activeAxes = evaluators.map((e) => e.id);
-    const calibration = loadCalibration(ctx.projectRoot);
-    const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, activeAxes, ctx.concurrency);
+    const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
 
     console.log('');
     console.log(chalk.bold('dry run') + ' — no files were reviewed');

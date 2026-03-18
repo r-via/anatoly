@@ -67,8 +67,16 @@ export function resolveRunDir(projectRoot: string, runId?: string): string | nul
       statSync(latestDir);
       return latestDir;
     } catch {
-      return null;
+      // latest pointer is stale — fall through to recovery
     }
+  }
+
+  // Recovery: latest pointer missing or broken — find most recent run and repair
+  const runs = listRuns(projectRoot);
+  if (runs.length > 0) {
+    const mostRecent = runs[runs.length - 1];
+    updateLatestPointer(runsDir, mostRecent);
+    return join(runsDir, mostRecent);
   }
 
   return null;
