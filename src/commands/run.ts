@@ -13,7 +13,8 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
+import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
+import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
@@ -580,8 +581,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.dryRun) {
     const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
     const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, allTasks);
-    const seqSeconds = evalTasks.reduce((sum, t) => sum + estimateFileSeconds(t.symbols?.length ?? 0), 0);
-    const estMinutes = estimateMinutesWithConcurrency(seqSeconds, ctx.concurrency);
+    const activeAxes = evaluators.map((e) => e.id);
+    const calibration = loadCalibration(ctx.projectRoot);
+    const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, activeAxes, ctx.concurrency);
 
     console.log('');
     console.log(chalk.bold('dry run') + ' — no files were reviewed');
@@ -590,7 +592,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     console.log(`  evaluate     ${evalTasks.length}`);
     console.log(`  skip         ${allTasks.length - evalTasks.length}`);
     console.log(`  tokens       ${formatTokenCount(inputTokens + outputTokens)}`);
-    console.log(`  est. time    ~${estMinutes} min (concurrency ${ctx.concurrency})`);
+    console.log(`  est. time    ${formatCalibratedTime(estMinutes)} (concurrency ${ctx.concurrency})`);
     console.log('');
     return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree };
   }
