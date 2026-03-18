@@ -104,8 +104,12 @@ export function computeFileVerdict(review: ReviewFile): Verdict {
   const hasConfirmedIssue = symbols.some(
     (s) => s.confidence >= 60 && hasActionableIssue(s),
   );
+  if (hasConfirmedIssue) return 'NEEDS_REFACTOR';
 
-  return hasConfirmedIssue ? 'NEEDS_REFACTOR' : 'CLEAN';
+  // Best practices FAILs also trigger NEEDS_REFACTOR
+  if (review.best_practices?.rules.some((r) => r.status === 'FAIL')) return 'NEEDS_REFACTOR';
+
+  return 'CLEAN';
 }
 
 /**

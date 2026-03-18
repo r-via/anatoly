@@ -91,7 +91,7 @@ export function generateSkipReview(task: Task, reason: string): ReviewFile {
     overengineering: 'LEAN' as const,
     utility: 'USED' as const,
     duplication: 'UNIQUE' as const,
-    tests: 'NONE' as const,
+    tests: '-' as const,
     confidence: 100,
     detail,
     duplicate_target: undefined,

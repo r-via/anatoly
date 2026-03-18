@@ -86,6 +86,11 @@ function printReportSummary(
   const testsWeak = allSymbols.filter((s) => s.tests === 'WEAK').length;
   if (testsNone + testsWeak > 0) console.log(`  Tests:             ${testsNone + testsWeak}  (${testsNone} untested, ${testsWeak} weak)`);
 
+  // Best practices summary
+  const bpFails = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'FAIL').length ?? 0), 0);
+  const bpWarns = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'WARN').length ?? 0), 0);
+  if (bpFails + bpWarns > 0) console.log(`  Best practices:    ${bpFails + bpWarns}  (${bpFails} fail, ${bpWarns} warn)`);
+
   console.log(`  Findings:          ${data.findingFiles.length} files`);
   console.log(`  Clean:             ${data.cleanFiles.length}`);
   if (data.errorFiles.length > 0) {

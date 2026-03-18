@@ -85,5 +85,9 @@ export function countReviewFindings(review: ReviewFile, minConfidence: number = 
     if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') findings++;
     if (s.tests === 'WEAK' || s.tests === 'NONE') findings++;
   }
+  // Best practices FAILs count as findings
+  if (review.best_practices) {
+    findings += review.best_practices.rules.filter((r) => r.status === 'FAIL').length;
+  }
   return findings;
 }
