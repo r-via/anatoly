@@ -100,7 +100,7 @@ export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFla
 
 export const SIDECAR_DEFAULT_PORT = 11435;
 export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code';
-export const SIDECAR_NLP_MODEL = 'nomic-ai/nomic-embed-text-v1.5';
+export const SIDECAR_NLP_MODEL = 'Qwen/Qwen3-Embedding-8B';
 
 export interface SidecarStatus {
   running: boolean;
@@ -195,10 +195,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     requiresGpu: true,
   },
   [SIDECAR_NLP_MODEL]: {
-    dim: 768,
+    dim: 4096,
     runtime: 'sidecar',
-    description: 'Nomic Embed Text v1.5 (768d, sentence-transformers)',
-    minMemoryGB: 4,
+    description: 'Qwen3 Embedding 8B (4096d, sentence-transformers)',
+    minMemoryGB: 16,
     requiresGpu: true,
   },
 };
