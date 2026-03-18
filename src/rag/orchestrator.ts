@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache, extractFunctionBody } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
+import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, embedNlp, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
@@ -57,6 +58,8 @@ export interface IndexedFileResult {
   nlpEmbeddings?: number[][];
   /** Card IDs where NLP summarization failed (zero vector). Excluded from cache. */
   nlpFailedIds?: Set<string>;
+  /** NLP summary cache entries produced during this file's processing. */
+  nlpCacheUpdates?: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }>;
 }
 
 /**
@@ -119,6 +122,7 @@ export async function processFileForDualIndex(
   task: Task,
   cache: { entries: Record<string, string> },
   indexModel: string,
+  nlpSummaryCache?: NlpSummaryCache,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -133,17 +137,52 @@ export async function processFileForDualIndex(
     return symbol ? extractFunctionBody(built.source, symbol) : card.signature;
   });
 
-  // Generate NLP summaries via LLM
-  const nlpSummaries = await generateNlpSummaries(
-    built.toIndex,
-    functionBodies,
-    task.file,
-    indexModel,
-    projectRoot,
-  );
+  // Partition functions into cached (reuse summary) and uncached (need LLM)
+  const mergedSummaries = new Map<string, import('./nlp-summarizer.js').NlpSummary>();
+  const uncachedCards: FunctionCard[] = [];
+  const uncachedBodies: string[] = [];
+  const nlpCacheUpdates: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }> = {};
 
-  // Apply NLP summaries and generate NLP embeddings
-  const { enrichedCards, nlpEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, nlpSummaries);
+  for (let i = 0; i < built.toIndex.length; i++) {
+    const card = built.toIndex[i];
+    const body = functionBodies[i];
+    const bodyHash = computeBodyHash(body);
+    const cached = nlpSummaryCache?.entries[card.id];
+
+    if (cached && cached.bodyHash === bodyHash) {
+      // Reuse cached summary — no LLM call needed
+      mergedSummaries.set(card.id, cached.summary);
+      nlpCacheUpdates[card.id] = cached;
+    } else {
+      uncachedCards.push(card);
+      uncachedBodies.push(body);
+    }
+  }
+
+  // Generate NLP summaries via LLM only for uncached functions
+  if (uncachedCards.length > 0) {
+    const newSummaries = await generateNlpSummaries(
+      uncachedCards,
+      uncachedBodies,
+      task.file,
+      indexModel,
+      projectRoot,
+    );
+
+    // Merge new summaries and build cache entries
+    for (let i = 0; i < uncachedCards.length; i++) {
+      const card = uncachedCards[i];
+      const summary = newSummaries.get(card.id);
+      if (summary) {
+        mergedSummaries.set(card.id, summary);
+        const bodyHash = computeBodyHash(uncachedBodies[i]);
+        nlpCacheUpdates[card.id] = { bodyHash, summary };
+      }
+    }
+  }
+
+  // Apply all NLP summaries (cached + new) and generate NLP embeddings
+  const { enrichedCards, nlpEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
 
   return {
     task,
@@ -151,6 +190,7 @@ export async function processFileForDualIndex(
     embeddings: codeEmbeddings,
     nlpEmbeddings,
     nlpFailedIds,
+    nlpCacheUpdates,
   };
 }
 
@@ -240,6 +280,9 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     });
   });
 
+  // Load NLP summary cache for per-function body-hash caching (dual mode only)
+  const nlpSummaryCache = dualMode ? loadNlpSummaryCache(projectRoot, cacheSuffix) : undefined;
+
   // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
   let fileCounter = 0;
@@ -255,7 +298,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -295,6 +338,16 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Single atomic cache write for all results
   if (results.length > 0) {
     saveRagCache(projectRoot, cache, cacheSuffix);
+
+    // Merge and save NLP summary cache updates (dual mode only)
+    if (nlpSummaryCache) {
+      for (const result of results) {
+        if (result.nlpCacheUpdates) {
+          Object.assign(nlpSummaryCache.entries, result.nlpCacheUpdates);
+        }
+      }
+      saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
+    }
   }
 
   const stats = await store.stats();

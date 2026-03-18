@@ -16,6 +16,22 @@ export interface RagCache {
   entries: Record<string, string>;
 }
 
+// ---------------------------------------------------------------------------
+// NLP Summary Cache — per-function caching keyed by body content hash
+// ---------------------------------------------------------------------------
+
+export interface NlpSummaryCacheEntry {
+  /** SHA-256 of the function body at time of summarization. */
+  bodyHash: string;
+  /** Cached NLP summary for this function. */
+  summary: NlpSummary;
+}
+
+export interface NlpSummaryCache {
+  /** Map of functionId → cached summary entry. */
+  entries: Record<string, NlpSummaryCacheEntry>;
+}
+
 /**
  * Build a deterministic ID for a function based on file path and line range.
  */
@@ -217,6 +233,11 @@ function cachePath(projectRoot: string, cacheSuffix?: string): string {
   return resolve(projectRoot, '.anatoly', 'rag', file);
 }
 
+function nlpCachePath(projectRoot: string, cacheSuffix?: string): string {
+  const file = cacheSuffix ? `nlp_summary_cache_${cacheSuffix}.json` : 'nlp_summary_cache.json';
+  return resolve(projectRoot, '.anatoly', 'rag', file);
+}
+
 /**
  * Load the RAG cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
@@ -253,4 +274,38 @@ export function loadRagCache(projectRoot: string, cacheSuffix?: string): RagCach
  */
 export function saveRagCache(projectRoot: string, cache: RagCache, cacheSuffix?: string): void {
   atomicWriteJson(cachePath(projectRoot, cacheSuffix), cache);
+}
+
+// ---------------------------------------------------------------------------
+// NLP Summary Cache I/O
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a SHA-256 hash of a function body for NLP summary cache invalidation.
+ */
+export function computeBodyHash(body: string): string {
+  return createHash('sha256').update(body).digest('hex').slice(0, 16);
+}
+
+/**
+ * Load the NLP summary cache from disk.
+ * Returns a fresh empty cache if file doesn't exist or is corrupted.
+ */
+export function loadNlpSummaryCache(projectRoot: string, cacheSuffix?: string): NlpSummaryCache {
+  const path = nlpCachePath(projectRoot, cacheSuffix);
+  if (!existsSync(path)) {
+    return { entries: {} };
+  }
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as NlpSummaryCache;
+  } catch {
+    return { entries: {} };
+  }
+}
+
+/**
+ * Save the NLP summary cache to disk atomically.
+ */
+export function saveNlpSummaryCache(projectRoot: string, cache: NlpSummaryCache, cacheSuffix?: string): void {
+  atomicWriteJson(nlpCachePath(projectRoot, cacheSuffix), cache);
 }

@@ -15,8 +15,11 @@ import {
   needsReindex,
   loadRagCache,
   saveRagCache,
+  loadNlpSummaryCache,
+  saveNlpSummaryCache,
+  computeBodyHash,
 } from './indexer.js';
-import type { RagCache } from './indexer.js';
+import type { RagCache, NlpSummaryCache } from './indexer.js';
 import type { SymbolInfo, Task } from '../schemas/task.js';
 
 describe('buildFunctionId', () => {
@@ -323,5 +326,118 @@ describe('saveRagCache with cacheSuffix', () => {
 
     const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'cache.json');
     expect(existsSync(filePath)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NLP Summary Cache
+// ---------------------------------------------------------------------------
+
+describe('computeBodyHash', () => {
+  it('returns a deterministic 16-char hex string', () => {
+    const hash = computeBodyHash('function add(a, b) { return a + b; }');
+    expect(hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(computeBodyHash('function add(a, b) { return a + b; }')).toBe(hash);
+  });
+
+  it('returns different hashes for different bodies', () => {
+    const hash1 = computeBodyHash('function add(a, b) { return a + b; }');
+    const hash2 = computeBodyHash('function sub(a, b) { return a - b; }');
+    expect(hash1).not.toBe(hash2);
+  });
+});
+
+describe('loadNlpSummaryCache', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = resolve(tmpdir(), `anatoly-test-nlp-${Date.now()}`);
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('returns empty cache when file does not exist', () => {
+    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    expect(cache.entries).toEqual({});
+  });
+
+  it('loads existing NLP summary cache', () => {
+    const data: NlpSummaryCache = {
+      entries: {
+        abc123: {
+          bodyHash: 'deadbeef01234567',
+          summary: { summary: 'Adds two numbers', keyConcepts: ['math'], behavioralProfile: 'pure' },
+        },
+      },
+    };
+    writeFileSync(
+      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json'),
+      JSON.stringify(data),
+    );
+
+    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    expect(cache.entries['abc123'].bodyHash).toBe('deadbeef01234567');
+    expect(cache.entries['abc123'].summary.summary).toBe('Adds two numbers');
+  });
+
+  it('returns empty cache for corrupted file', () => {
+    writeFileSync(
+      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json'),
+      'not json',
+    );
+    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    expect(cache.entries).toEqual({});
+  });
+});
+
+describe('saveNlpSummaryCache', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = resolve(tmpdir(), `anatoly-test-nlp-${Date.now()}`);
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('saves to nlp_summary_cache_<suffix>.json', () => {
+    const cache: NlpSummaryCache = {
+      entries: {
+        fn1: {
+          bodyHash: 'hash1',
+          summary: { summary: 'test', keyConcepts: ['a'], behavioralProfile: 'utility' },
+        },
+      },
+    };
+    saveNlpSummaryCache(tmpRoot, cache, 'advanced');
+
+    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json');
+    expect(existsSync(filePath)).toBe(true);
+
+    const loaded = loadNlpSummaryCache(tmpRoot, 'advanced');
+    expect(loaded.entries['fn1'].summary.summary).toBe('test');
+  });
+
+  it('round-trips correctly', () => {
+    const cache: NlpSummaryCache = {
+      entries: {
+        fn1: {
+          bodyHash: 'aabb',
+          summary: { summary: 'first', keyConcepts: ['x', 'y'], behavioralProfile: 'async' },
+        },
+        fn2: {
+          bodyHash: 'ccdd',
+          summary: { summary: 'second', keyConcepts: ['z'], behavioralProfile: 'pure' },
+        },
+      },
+    };
+    saveNlpSummaryCache(tmpRoot, cache, 'lite');
+    const loaded = loadNlpSummaryCache(tmpRoot, 'lite');
+    expect(loaded).toEqual(cache);
   });
 });
