@@ -33,6 +33,7 @@ export const AxesConfigSchema = z.object({
   overengineering: AxisConfigSchema.default({ enabled: true }),
   tests: AxisConfigSchema.default({ enabled: true }),
   best_practices: AxisConfigSchema.default({ enabled: true }),
+  documentation: AxisConfigSchema.default({ enabled: true }),
 });
 
 export const LlmConfigSchema = z.object({
@@ -54,6 +55,7 @@ export const LlmConfigSchema = z.object({
     overengineering: { enabled: true },
     tests: { enabled: true },
     best_practices: { enabled: true },
+    documentation: { enabled: true },
   }),
 });
 
@@ -77,6 +79,11 @@ export const LoggingConfigSchema = z.object({
   level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('warn'),
   file: z.string().optional(),
   pretty: z.boolean().default(true),
+});
+
+export const DocumentationConfigSchema = z.object({
+  docs_path: z.string().default('docs'),
+  module_mapping: z.record(z.string(), z.array(z.string())).optional(),
 });
 
 export const OutputConfigSchema = z.object({
@@ -112,6 +119,7 @@ export const ConfigSchema = z.object({
       overengineering: { enabled: true },
       tests: { enabled: true },
       best_practices: { enabled: true },
+      documentation: { enabled: true },
     },
   }),
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
@@ -122,6 +130,7 @@ export const ConfigSchema = z.object({
     verdict: false,
     link: 'https://github.com/r-via/anatoly',
   }),
+  documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
 });
 
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;

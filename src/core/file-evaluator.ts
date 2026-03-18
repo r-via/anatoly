@@ -11,6 +11,7 @@ import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
+import { resolveRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
 import {
@@ -38,6 +39,8 @@ export interface EvaluateFileOptions {
   depMeta?: DependencyMeta;
   projectTree?: string;
   deliberation?: boolean;
+  /** ASCII tree of docs/ directory for documentation axis */
+  docsTree?: string | null;
   /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - codeWeight. */
   codeWeight?: number;
   onAxisComplete?: (axisId: AxisId) => void;
@@ -114,6 +117,11 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }
   }
 
+  // Resolve relevant docs for documentation axis
+  const relevantDocs = opts.docsTree
+    ? resolveRelevantDocs(task.file, opts.docsTree, config, projectRoot)
+    : undefined;
+
   const ctx: AxisContext = {
     task,
     fileContent,
@@ -125,6 +133,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     projectTree: opts.projectTree,
     testFileContent,
     testFileName,
+    docsTree: opts.docsTree ?? undefined,
+    relevantDocs,
   };
 
   const startTime = Date.now();

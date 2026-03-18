@@ -42,6 +42,7 @@ function makeSymbol(overrides: Record<string, unknown> = {}) {
     utility: 'USED' as const,
     duplication: 'UNIQUE' as const,
     tests: 'GOOD' as const,
+    documentation: '-' as const,
     confidence: 85,
     detail: 'This function is well-implemented and tested.',
     duplicate_target: undefined,
@@ -395,12 +396,13 @@ describe('renderIndex', () => {
     const data = aggregateReviews([makeReview()]);
     const md = renderIndex(data, []);
     expect(md).toContain('## Appendix: Methodology');
-    expect(md).toContain('6 independent axis evaluators');
+    expect(md).toContain('7 independent axis evaluators');
     expect(md).toContain('Utility');
     expect(md).toContain('Duplication');
     expect(md).toContain('Correction');
     expect(md).toContain('Overengineering');
     expect(md).toContain('Tests');
+    expect(md).toContain('Documentation');
     expect(md).toContain('Best Practices');
     expect(md).toContain('haiku');
     expect(md).toContain('sonnet');

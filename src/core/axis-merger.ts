@@ -15,6 +15,7 @@ const AXIS_DEFAULTS: Record<AxisId, string> = {
   overengineering: 'LEAN',
   tests: 'NONE',
   best_practices: 'N/A',
+  documentation: 'DOCUMENTED',
 };
 
 // ---------------------------------------------------------------------------
@@ -174,6 +175,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     utility: resolveAxis('utility', utility, ['USED', 'DEAD', 'LOW_VALUE'] as const, 'USED'),
     duplication: resolveAxis('duplication', duplication, ['UNIQUE', 'DUPLICATE'] as const, 'UNIQUE'),
     tests: resolveAxis('tests', tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
+    documentation: resolveAxis('documentation', axisMap.get('documentation')?.get(sym.name), ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'] as const, 'DOCUMENTED'),
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,
@@ -196,6 +198,11 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
   // ERROR corrections make complexity assessment moot
   if (result.correction === 'ERROR' && result.overengineering !== 'ACCEPTABLE') {
     result = { ...result, overengineering: 'ACCEPTABLE' };
+  }
+
+  // DEAD code doesn't need documentation
+  if (result.utility === 'DEAD' && result.documentation !== 'UNDOCUMENTED') {
+    result = { ...result, documentation: 'UNDOCUMENTED' };
   }
 
   return result;
@@ -275,6 +282,32 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
         target_lines: `L${sym.line_start}-L${sym.line_end}`,
       });
     }
+
+    if (sym.documentation === 'UNDOCUMENTED' && sym.exported) {
+      actions.push({
+        id: 0,
+        description: `Add JSDoc documentation for exported symbol: \`${sym.name}\``,
+        severity: 'medium',
+        effort: 'trivial',
+        category: 'hygiene',
+        source: 'documentation',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
+
+    if (sym.documentation === 'PARTIAL') {
+      actions.push({
+        id: 0,
+        description: `Complete JSDoc documentation for: \`${sym.name}\``,
+        severity: 'low',
+        effort: 'trivial',
+        category: 'hygiene',
+        source: 'documentation',
+        target_symbol: sym.name,
+        target_lines: `L${sym.line_start}-L${sym.line_end}`,
+      });
+    }
   }
 
   return actions;
@@ -341,6 +374,7 @@ const VERDICT_CONFIDENCE_THRESHOLD = 60;
 function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {
   let hasCorrection = false;
   let hasFinding = false;
+  let partialDocCount = 0;
 
   for (const s of symbols) {
     if (s.confidence < VERDICT_CONFIDENCE_THRESHOLD) continue;
@@ -349,7 +383,15 @@ function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | '
     if (s.utility === 'DEAD' || s.duplication === 'DUPLICATE' || s.overengineering === 'OVER') {
       hasFinding = true;
     }
+    if (s.documentation === 'UNDOCUMENTED' && s.exported) {
+      hasFinding = true;
+    }
+    if (s.documentation === 'PARTIAL') {
+      partialDocCount++;
+    }
   }
+
+  if (partialDocCount >= 3) hasFinding = true;
 
   if (hasCorrection || hasFinding) return 'NEEDS_REFACTOR';
   return 'CLEAN';

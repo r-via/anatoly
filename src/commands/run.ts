@@ -33,6 +33,7 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
+import { buildDocsTree } from '../core/docs-resolver.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
@@ -241,7 +242,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) return;
 
         await runWithContext({ phase: 'review' }, async () => {
-        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree);
+        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree);
         });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
@@ -402,6 +403,7 @@ interface SetupResult {
   usageGraph?: UsageGraph;
   depMeta?: DependencyMeta;
   projectTree?: string;
+  docsTree?: string | null;
 }
 
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
@@ -552,6 +554,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // --- Phase: usage graph ---
   const usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
+  const docsTree = buildDocsTree(ctx.projectRoot, ctx.config.documentation?.docs_path ?? 'docs');
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
   // --- Calibrated ETA ---
@@ -584,7 +587,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     console.log(`  tokens       ${formatTokenCount(inputTokens + outputTokens)}`);
     console.log(`  est. time    ~${estMinutes} min (concurrency ${ctx.concurrency})`);
     console.log('');
-    return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree };
+    return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree };
   }
 
   // Wait for confirmation before proceeding to review
@@ -595,7 +598,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.allTasks = allTasks;
   ctx.triageMap = triageMap;
 
-  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree };
+  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree };
 }
 
 interface RagContext {
@@ -712,6 +715,7 @@ async function runReviewPhase(
   ragContext: RagContext,
   depMeta?: DependencyMeta,
   projectTree?: string,
+  docsTree?: string | null,
 ): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;

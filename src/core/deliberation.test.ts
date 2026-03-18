@@ -31,6 +31,7 @@ function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
         utility: 'USED',
         duplication: 'UNIQUE',
         tests: 'GOOD',
+        documentation: '-',
         confidence: 95,
         detail: 'All good',
         duplicate_target: undefined,
@@ -176,8 +177,8 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'CLEAN',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 95, detail: 'Clean symbol ok', duplicate_target: undefined },
-        { name: 'b', kind: 'function', exported: true, line_start: 6, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 98, detail: 'Clean symbol ok', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 95, detail: 'Clean symbol ok', duplicate_target: undefined },
+        { name: 'b', kind: 'function', exported: true, line_start: 6, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 98, detail: 'Clean symbol ok', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(false);
@@ -187,7 +188,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 80, detail: 'Has a bug here', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 80, detail: 'Has a bug here', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -197,7 +198,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'CRITICAL',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 90, detail: 'Critical error found', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 90, detail: 'Critical error found', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -207,7 +208,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'DEAD', duplication: 'UNIQUE', tests: 'NONE', confidence: 85, detail: 'Dead code found', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'DEAD', duplication: 'UNIQUE', tests: 'NONE', documentation: '-', confidence: 85, detail: 'Dead code found', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -217,7 +218,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'DUPLICATE', tests: 'GOOD', confidence: 85, detail: 'Duplicated elsewhere', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'DUPLICATE', tests: 'GOOD', documentation: '-', confidence: 85, detail: 'Duplicated elsewhere', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -227,7 +228,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'OVER', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 85, detail: 'Over-engineered stuff', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'OVER', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 85, detail: 'Over-engineered stuff', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -237,7 +238,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'CLEAN',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 65, detail: 'Low confidence symbol', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 65, detail: 'Low confidence symbol', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(true);
@@ -247,7 +248,7 @@ describe('needsDeliberation', () => {
     const review = makeReview({
       verdict: 'CLEAN',
       symbols: [
-        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 80, detail: 'Medium confidence ok', duplicate_target: undefined },
+        { name: 'a', kind: 'function', exported: true, line_start: 1, line_end: 5, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 80, detail: 'Medium confidence ok', duplicate_target: undefined },
       ],
     });
     expect(needsDeliberation(review)).toBe(false);
@@ -263,7 +264,7 @@ describe('applyDeliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
       symbols: [
-        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 72, detail: 'Possible bug here', duplicate_target: undefined },
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 72, detail: 'Possible bug here', duplicate_target: undefined },
       ],
       actions: [{ id: 1, description: 'Fix the bug', severity: 'high', effort: 'small', category: 'refactor', target_symbol: 'doWork', target_lines: 'L1-L10' }],
     });
@@ -293,7 +294,7 @@ describe('applyDeliberation', () => {
     const review = makeReview({
       verdict: 'CRITICAL',
       symbols: [
-        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 90, detail: 'Critical error here', duplicate_target: undefined },
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 90, detail: 'Critical error here', duplicate_target: undefined },
       ],
     });
 
@@ -320,7 +321,7 @@ describe('applyDeliberation', () => {
     const review = makeReview({
       verdict: 'CRITICAL',
       symbols: [
-        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 90, detail: 'Critical error here', duplicate_target: undefined },
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 90, detail: 'Critical error here', duplicate_target: undefined },
       ],
     });
 
@@ -380,8 +381,8 @@ describe('applyDeliberation', () => {
   it('should leave unmentioned symbols unchanged', () => {
     const review = makeReview({
       symbols: [
-        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 95, detail: 'All good stuff', duplicate_target: undefined },
-        { name: 'helper', kind: 'function', exported: false, line_start: 11, line_end: 20, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', confidence: 90, detail: 'Also fine code', duplicate_target: undefined },
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 95, detail: 'All good stuff', duplicate_target: undefined },
+        { name: 'helper', kind: 'function', exported: false, line_start: 11, line_end: 20, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 90, detail: 'Also fine code', duplicate_target: undefined },
       ],
     });
 

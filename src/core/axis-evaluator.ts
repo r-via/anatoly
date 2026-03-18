@@ -35,7 +35,8 @@ export type AxisId =
   | 'correction'
   | 'overengineering'
   | 'tests'
-  | 'best_practices';
+  | 'best_practices'
+  | 'documentation';
 
 export interface AxisContext {
   task: Task;
@@ -50,6 +51,15 @@ export interface AxisContext {
   testFileContent?: string;
   /** Relative path of the resolved test file (e.g. "src/foo.test.ts") */
   testFileName?: string;
+  /** ASCII tree of docs/ directory (null if no docs dir) */
+  docsTree?: string | null;
+  /** Relevant documentation pages resolved for the current file */
+  relevantDocs?: RelevantDoc[];
+}
+
+export interface RelevantDoc {
+  path: string;
+  content: string;
 }
 
 export interface AxisSymbolResult {

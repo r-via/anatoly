@@ -7,6 +7,7 @@ import { CorrectionEvaluator } from './correction.js';
 import { OverengineeringEvaluator } from './overengineering.js';
 import { TestsEvaluator } from './tests.js';
 import { BestPracticesEvaluator } from './best-practices.js';
+import { DocumentationEvaluator } from './documentation.js';
 
 /**
  * All available evaluators in execution order.
@@ -18,6 +19,7 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
   new OverengineeringEvaluator(),
   new TestsEvaluator(),
   new BestPracticesEvaluator(),
+  new DocumentationEvaluator(),
 ];
 
 /**
@@ -44,4 +46,5 @@ export const ALL_AXIS_IDS: readonly AxisId[] = [
   'overengineering',
   'tests',
   'best_practices',
+  'documentation',
 ] as const;

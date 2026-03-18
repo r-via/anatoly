@@ -304,4 +304,113 @@ describe('mergeAxisResults', () => {
     expect(review.symbols[0].duplication).toBe('DUPLICATE');
     expect(review.symbols[0].duplicate_target).toEqual(target);
   });
+
+  it('should apply coherence rule: DEAD utility → documentation=UNDOCUMENTED', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [makeSymbol('doWork', { value: 'DEAD' })]),
+      makeAxisResult('documentation', [makeSymbol('doWork', { value: 'DOCUMENTED' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.symbols[0].documentation).toBe('UNDOCUMENTED');
+  });
+
+  it('should not override documentation when utility is USED', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [makeSymbol('doWork', { value: 'USED' })]),
+      makeAxisResult('documentation', [makeSymbol('doWork', { value: 'PARTIAL' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.symbols[0].documentation).toBe('PARTIAL');
+  });
+
+  it('should synthesize action for UNDOCUMENTED exported symbol', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [makeSymbol('doWork', { value: 'UNDOCUMENTED' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    const docActions = review.actions.filter((a) => a.source === 'documentation');
+    expect(docActions).toHaveLength(1);
+    expect(docActions[0].description).toContain('Add JSDoc');
+    expect(docActions[0].severity).toBe('medium');
+    expect(docActions[0].effort).toBe('trivial');
+  });
+
+  it('should synthesize action for PARTIAL documentation', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [
+        makeSymbol('doWork', { value: 'PARTIAL' }),
+        makeSymbol('Helper', { value: 'PARTIAL', line_start: 22, line_end: 50 }),
+      ]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    const docActions = review.actions.filter((a) => a.source === 'documentation');
+    expect(docActions).toHaveLength(2);
+    expect(docActions[0].description).toContain('Complete JSDoc');
+    expect(docActions[0].severity).toBe('low');
+  });
+
+  it('should not synthesize action for DOCUMENTED symbols', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [makeSymbol('doWork', { value: 'DOCUMENTED' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    const docActions = review.actions.filter((a) => a.source === 'documentation');
+    expect(docActions).toHaveLength(0);
+  });
+
+  it('should compute verdict NEEDS_REFACTOR for UNDOCUMENTED exported symbol', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [makeSymbol('doWork', { value: 'UNDOCUMENTED', confidence: 85 })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.verdict).toBe('NEEDS_REFACTOR');
+  });
+
+  it('should compute verdict NEEDS_REFACTOR when 3+ PARTIAL symbols', () => {
+    const task: Task = {
+      ...mockTask,
+      symbols: [
+        { name: 'fn1', kind: 'function', exported: true, line_start: 1, line_end: 10 },
+        { name: 'fn2', kind: 'function', exported: true, line_start: 12, line_end: 20 },
+        { name: 'fn3', kind: 'function', exported: true, line_start: 22, line_end: 30 },
+      ],
+    };
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [
+        makeSymbol('fn1', { value: 'PARTIAL', confidence: 80 }),
+        makeSymbol('fn2', { value: 'PARTIAL', confidence: 80, line_start: 12, line_end: 20 }),
+        makeSymbol('fn3', { value: 'PARTIAL', confidence: 80, line_start: 22, line_end: 30 }),
+      ]),
+    ];
+
+    const review = mergeAxisResults(task, results);
+    expect(review.verdict).toBe('NEEDS_REFACTOR');
+  });
+
+  it('should compute verdict CLEAN when only 2 PARTIAL symbols', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('documentation', [
+        makeSymbol('doWork', { value: 'PARTIAL', confidence: 80 }),
+        makeSymbol('Helper', { value: 'PARTIAL', confidence: 80, line_start: 22, line_end: 50 }),
+      ]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.verdict).toBe('CLEAN');
+  });
+
+  it('should default documentation to DOCUMENTED when axis missing', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [makeSymbol('doWork', { value: 'USED' })]),
+    ];
+
+    const review = mergeAxisResults(mockTask, results);
+    expect(review.symbols[0].documentation).toBe('DOCUMENTED');
+  });
 });

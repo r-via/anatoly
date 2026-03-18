@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
 import { toOutputName } from '../utils/cache.js';
+import { MOTD_LINES } from '../utils/banner.js';
 
 export interface TriageStats {
   total: number;
@@ -78,7 +79,9 @@ function hasActionableIssue(s: SymbolReview): boolean {
     s.duplication === 'DUPLICATE' ||
     s.overengineering === 'OVER' ||
     s.tests === 'WEAK' ||
-    s.tests === 'NONE'
+    s.tests === 'NONE' ||
+    (s.documentation === 'UNDOCUMENTED' && s.exported) ||
+    s.documentation === 'PARTIAL'
   );
 }
 
@@ -280,6 +283,7 @@ function renderAxisSummary(data: ReportData): string[] {
     correction: { OK: 0, NEEDS_FIX: 0, ERROR: 0 },
     overengineering: { LEAN: 0, ACCEPTABLE: 0, OVER: 0 },
     tests: { GOOD: 0, WEAK: 0, NONE: 0 },
+    documentation: { DOCUMENTED: 0, PARTIAL: 0, UNDOCUMENTED: 0 },
   };
   for (const s of reliable) {
     if (s.utility in counts.utility) counts.utility[s.utility as keyof typeof counts.utility]++;
@@ -287,6 +291,7 @@ function renderAxisSummary(data: ReportData): string[] {
     if (s.correction in counts.correction) counts.correction[s.correction as keyof typeof counts.correction]++;
     if (s.overengineering in counts.overengineering) counts.overengineering[s.overengineering as keyof typeof counts.overengineering]++;
     if (s.tests in counts.tests) counts.tests[s.tests as keyof typeof counts.tests]++;
+    if (s.documentation in counts.documentation) counts.documentation[s.documentation as keyof typeof counts.documentation]++;
   }
 
   const lines: string[] = [];
@@ -330,6 +335,11 @@ function renderAxisSummary(data: ReportData): string[] {
     { label: 'GOOD', count: counts.tests.GOOD },
     { label: 'WEAK', count: counts.tests.WEAK },
     { label: 'NONE', count: counts.tests.NONE },
+  ]);
+  renderAxis('Documentation', [
+    { label: 'DOCUMENTED', count: counts.documentation.DOCUMENTED },
+    { label: 'PARTIAL', count: counts.documentation.PARTIAL },
+    { label: 'UNDOCUMENTED', count: counts.documentation.UNDOCUMENTED },
   ]);
 
   // Best Practices (file-level, separate logic)
@@ -406,6 +416,14 @@ function renderDeliberationSummary(data: ReportData): string[] {
 export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats, runStats?: RunStats): string {
   const lines: string[] = [];
 
+  lines.push('<p align="center">');
+  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/search.png" width="120" alt="Anatoly" />');
+  lines.push('</p>');
+  lines.push('');
+  lines.push('```');
+  for (const line of MOTD_LINES) lines.push(line);
+  lines.push('```');
+  lines.push('');
   lines.push('# Anatoly Audit Report');
   lines.push('');
   lines.push('## Executive Summary');
@@ -548,7 +566,7 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push('');
   lines.push('## Appendix: Methodology');
   lines.push('');
-  lines.push('Each file is evaluated through 6 independent axis evaluators running in parallel.');
+  lines.push('Each file is evaluated through 7 independent axis evaluators running in parallel.');
   lines.push('Every symbol (function, class, variable, type) is analysed individually and receives a rating per axis along with a confidence score (0–100).');
   lines.push('Findings with confidence < 30 are discarded; those with confidence < 60 are excluded from verdict computation.');
   lines.push('');
@@ -562,6 +580,7 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE | Is the implementation unnecessarily complex? |');
   lines.push('| Tests | haiku | GOOD / WEAK / NONE | Does this symbol have adequate test coverage? |');
   lines.push('| Best Practices | sonnet | Score 0–10 (17 rules) | Does the file follow TypeScript best practices? |');
+  lines.push('| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with JSDoc? |');
   lines.push('');
   lines.push('### Rating Criteria');
   lines.push('');
@@ -593,6 +612,12 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push('- **GOOD**: Meaningful unit tests covering happy path and edge cases.');
   lines.push('- **WEAK**: Tests exist but are superficial, missing edge cases, or testing implementation details rather than behavior.');
   lines.push('- **NONE**: No test file or test cases found for this symbol. Types/interfaces with no runtime behavior default to GOOD.');
+  lines.push('');
+  lines.push('**Documentation** — Evaluates JSDoc coverage on exported symbols and optional /docs/ concept coverage.');
+  lines.push('');
+  lines.push('- **DOCUMENTED**: Symbol has a complete JSDoc comment covering description, params, and return type.');
+  lines.push('- **PARTIAL**: JSDoc exists but is incomplete (missing params, outdated description, or lacking return type).');
+  lines.push('- **UNDOCUMENTED**: No JSDoc documentation found for an exported symbol. Types and interfaces default to DOCUMENTED.');
   lines.push('');
   lines.push('**Best Practices** — File-level evaluation against 17 TypeGuard v2 rules. Starts at 10/10, penalties subtracted per violation:');
   lines.push('');
@@ -635,6 +660,7 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push('After individual evaluation, coherence rules reconcile contradictions:');
   lines.push('');
   lines.push('- If utility = DEAD, tests is forced to NONE (no point testing dead code).');
+  lines.push('- If utility = DEAD, documentation is forced to UNDOCUMENTED (no point documenting dead code).');
   lines.push('- If correction = ERROR, overengineering is forced to ACCEPTABLE (complexity is secondary to correctness).');
   lines.push('');
 
@@ -656,8 +682,8 @@ export function renderShard(shard: ShardInfo): string {
   // Findings table
   lines.push('## Findings');
   lines.push('');
-  lines.push('| File | Verdict | Utility | Duplicate | Over Eng. | Errors | Tests | BP Score | Conf. | Details |');
-  lines.push('|------|---------|---------|-----------|-----------|--------|-------|----------|-------|---------|');
+  lines.push('| File | Verdict | Utility | Duplicate | Over Eng. | Errors | Tests | Doc | BP Score | Conf. | Details |');
+  lines.push('|------|---------|---------|-----------|-----------|--------|-------|-----|----------|-------|---------|');
 
   // Helper: return count or '-' if the axis was not evaluated (all symbols have '-' for that axis)
   const axisCount = (reliable: SymbolReview[], axis: keyof SymbolReview, ...values: string[]) => {
@@ -673,13 +699,14 @@ export function renderShard(shard: ShardInfo): string {
     const over = axisCount(reliable, 'overengineering', 'OVER');
     const errors = axisCount(reliable, 'correction', 'NEEDS_FIX', 'ERROR');
     const tests = axisCount(reliable, 'tests', 'WEAK', 'NONE');
+    const doc = axisCount(reliable, 'documentation', 'PARTIAL', 'UNDOCUMENTED');
     const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
     const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
     const outputName = toOutputName(review.file);
     const link = `[details](./reviews/${outputName}.rev.md)`;
     const fileVerdict = computeFileVerdict(review);
     lines.push(
-      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${tests} | ${bpScore} | ${maxConf}% | ${link} |`,
+      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${tests} | ${doc} | ${bpScore} | ${maxConf}% | ${link} |`,
     );
   }
   lines.push('');

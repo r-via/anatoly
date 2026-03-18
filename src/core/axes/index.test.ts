@@ -8,10 +8,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
 }
 
 describe('getEnabledEvaluators', () => {
-  it('should return all 6 evaluators with default config', () => {
+  it('should return all 7 evaluators with default config', () => {
     const config = makeConfig();
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(6);
+    expect(evaluators).toHaveLength(7);
     expect(evaluators.map((e) => e.id)).toEqual([...ALL_AXIS_IDS]);
   });
 
@@ -20,7 +20,7 @@ describe('getEnabledEvaluators', () => {
       llm: { axes: { utility: { enabled: false }, best_practices: { enabled: false } } },
     });
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(4);
+    expect(evaluators).toHaveLength(5);
     expect(evaluators.map((e) => e.id)).not.toContain('utility');
     expect(evaluators.map((e) => e.id)).not.toContain('best_practices');
   });
@@ -28,7 +28,7 @@ describe('getEnabledEvaluators', () => {
   it('should keep axis enabled when config is missing for that axis', () => {
     const config = makeConfig({ llm: { axes: {} } });
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(6);
+    expect(evaluators).toHaveLength(7);
   });
 
   it('should return empty when all axes disabled', () => {
@@ -41,6 +41,7 @@ describe('getEnabledEvaluators', () => {
           overengineering: { enabled: false },
           tests: { enabled: false },
           best_practices: { enabled: false },
+          documentation: { enabled: false },
         },
       },
     });
@@ -67,15 +68,15 @@ describe('getEnabledEvaluators', () => {
   it('should return all enabled axes when axesFilter is undefined', () => {
     const config = makeConfig();
     const evaluators = getEnabledEvaluators(config, undefined);
-    expect(evaluators).toHaveLength(6);
+    expect(evaluators).toHaveLength(7);
   });
 });
 
 describe('ALL_AXIS_IDS', () => {
-  it('should contain exactly 6 axis IDs', () => {
-    expect(ALL_AXIS_IDS).toHaveLength(6);
+  it('should contain exactly 7 axis IDs', () => {
+    expect(ALL_AXIS_IDS).toHaveLength(7);
     expect(ALL_AXIS_IDS).toEqual([
-      'utility', 'duplication', 'correction', 'overengineering', 'tests', 'best_practices',
+      'utility', 'duplication', 'correction', 'overengineering', 'tests', 'best_practices', 'documentation',
     ]);
   });
 });
