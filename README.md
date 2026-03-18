@@ -48,6 +48,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs) to eliminate API-misunderstanding false positives
 - **Deliberation memory** — persistent reclassification registry prevents repeated false positives across runs, covers all axes
 - **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
+- **RAG-powered documentation review** — function summaries (Haiku) and `/docs/` sections are embedded as NLP vectors. The documentation axis matches source files to relevant doc pages by semantic similarity — no manual mapping, no convention-based path matching
 - **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
