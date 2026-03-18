@@ -210,16 +210,18 @@ export async function ensureSidecar(
  * - We adopted it (detected running, no handle): HTTP shutdown only
  */
 export async function stopSidecar(): Promise<void> {
-  if (!managedByUs) return;
+  // Stop both managed and adopted sidecars to free RAM for subsequent phases
+  const wasManaged = managedByUs;
 
+  // Always attempt HTTP shutdown — works for both managed and adopted sidecars
   try {
     await fetch(`${getSidecarUrl()}/shutdown`, { method: 'POST' }).catch(() => {});
   } catch {
-    // Ignore
+    // Ignore — server may already be gone
   }
 
   if (sidecarProcess) {
-    // We have a process handle — wait for exit or force kill
+    // We have a process handle — wait for exit or force kill (2s timeout)
     await new Promise<void>((resolve) => {
       const proc = sidecarProcess!;
       const onExit = () => { clearTimeout(killTimer); resolve(); };
@@ -228,16 +230,22 @@ export async function stopSidecar(): Promise<void> {
       const killTimer = setTimeout(() => {
         if (!proc.killed) {
           proc.kill('SIGKILL');
-          const reapTimer = setTimeout(() => resolve(), 2000);
+          const reapTimer = setTimeout(() => resolve(), 1000);
           proc.once('exit', () => { clearTimeout(reapTimer); resolve(); });
         } else {
           resolve();
         }
-      }, 8000);
+      }, 2000);
     });
-  } else {
+  } else if (wasManaged) {
     // Adopted sidecar (no handle) — give HTTP shutdown time to take effect
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
+  } else {
+    // Not managed by us — kill any project sidecars found via pgrep
+    const pids = findProjectSidecars();
+    for (const pid of pids) {
+      await killProcess(pid);
+    }
   }
 
   sidecarProcess = null;

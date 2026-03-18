@@ -688,16 +688,18 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     fallbackRenderer: 'simple',
   });
 
-  await ragRunner.run();
-
-  // Sidecar is only needed for embedding — free GPU memory immediately
-  await stopSidecar();
+  try {
+    await ragRunner.run();
+  } finally {
+    // Sidecar is only needed for embedding — free GPU/RAM immediately
+    // Must run even if indexing throws to avoid leaking the process
+    await stopSidecar();
+  }
 
   const ragDuration = Date.now() - ragStart;
   ctx.phaseDurations['rag-index'] = ragDuration;
 
   if (ctx.interrupted) {
-    await stopSidecar();
     console.log('interrupted — rag indexing incomplete');
     if (ctx.lockPath) { releaseLock(ctx.lockPath); ctx.lockPath = undefined; }
     return { ragEnabled: false };
