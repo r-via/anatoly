@@ -1277,7 +1277,7 @@
   > AC: Given `npm run typecheck && npm run build && npm run test`, Then tout passe.
   > Spec: _bmad-output/implementation-artifacts/26-2-core-integration-evaluator-merger-reporter.md
 
-- [ ] Story 26.3: Documentation Meta — L'axe se documente lui-même
+- [x] Story 26.3: Documentation Meta — L'axe se documente lui-même
   > Renommer Six-Axis → Seven-Axis dans /docs/, ajouter DocumentationEvaluator section, mettre à jour PRD et config docs.
   > AC: Given `docs/02-Architecture/`, When inspecté, Then contient `02-Seven-Axis-System.md` avec section documentation.
   > AC: Given PRD Section 6.1, When inspecté, Then contient 7 axes incluant documentation.
@@ -1307,6 +1307,14 @@
   - `scripts/sync-motd.js`: MOTD_LINES exported for report header
   - New tests: documentation.test.ts (10), docs-resolver.test.ts (10), axis-merger documentation (10)
   - 52 test files, 640 tests total, typecheck clean, build succeeds (397.97 KB)
+
+- [x] Story 26.3: Documentation Meta — L'axe se documente lui-même (2026-03-18)
+  - Renamed `docs/02-Architecture/02-Six-Axis-System.md` → `02-Seven-Axis-System.md` with Documentation axis section
+  - Updated `docs/04-Core-Modules/04-Axis-Evaluators.md`: DocumentationEvaluator section, 7 axes table, context fields, coherence rules
+  - Updated PRD: 6.1 → "Les 7 axes", 6.2 schema + documentation field, v0.6.0 delivered, Deliberation "7 axes"
+  - Updated `docs/01-Getting-Started/02-Configuration.md`: documentation section with docs_path, module_mapping, YAML example
+  - Updated 9 docs files: Vision, Installation, Deliberation, Estimator, Schemas, index.md — all "six" → "seven"
+  - Zero code changes — documentation-only story
 
 ## Notes
 - **Epic 25b DONE:** axes-filter.ts created, parseAxesOption + warnDisabledAxes exported, --axes option on run/review/watch
