@@ -9,19 +9,17 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateProject, estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
+import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, estimateMinutesWithConcurrency } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
-import { getCodeModelId, getNlpModelId } from '../rag/embeddings.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, resolveRunDir, listRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
-import { formatTokenSummary } from '../utils/format.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
@@ -39,6 +37,7 @@ import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
+import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 
 interface RunContext {
   projectRoot: string;
@@ -412,10 +411,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
-  let usageGraph: UsageGraph | undefined;
-  let depMeta: DependencyMeta | undefined;
   let allTasks: Task[] = [];
-  let projectTree: string | undefined;
   const configRows: { key: string; value: string }[] = [];
   const pipelineRows: { phase: string; detail: string }[] = [];
 
@@ -471,7 +467,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   );
   if (ctx.fileFilter) configRows.push({ key: 'filter', value: ctx.fileFilter });
   configRows.push({ key: 'run', value: ctx.runId });
-  depMeta = loadDependencyMeta(ctx.projectRoot);
+  const depMeta = loadDependencyMeta(ctx.projectRoot);
 
   // --- Build axes rows (resolve model per axis) ---
   const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
@@ -554,9 +550,20 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // --- Phase: usage graph ---
-  usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
-  projectTree = buildProjectTree(allTasks.map((t) => t.file));
+  const usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
+  const projectTree = buildProjectTree(allTasks.map((t) => t.file));
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
+
+  // --- Calibrated ETA ---
+  const calibration = loadCalibration(ctx.projectRoot);
+  const activeAxes = evaluators.map(e => e.id);
+  const evalFileCount = ctx.triageEnabled
+    ? [...triageMap.values()].filter(t => t.tier === 'evaluate').length
+    : estimateTasks.length;
+  const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency);
+  const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
+  const calLabel = hasCal ? 'calibrated' : 'default';
+  pipelineRows.push({ phase: 'est. review', detail: `${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
   // Render setup summary table
   renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
@@ -1080,6 +1087,15 @@ function runReportPhase(ctx: RunContext): void {
     writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
   } catch {
     log.warn({ runId: ctx.runId }, 'failed to write run-metrics.json');
+  }
+
+  // Recalibrate axis timing from all historical runs (including this one)
+  try {
+    const updatedCalibration = recalibrateFromRuns(ctx.projectRoot);
+    saveCalibration(ctx.projectRoot, updatedCalibration);
+    log.debug({ calibration: updatedCalibration.axes }, 'calibration updated');
+  } catch {
+    log.warn({ runId: ctx.runId }, 'failed to update calibration');
   }
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
