@@ -466,8 +466,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   const ragLabel = ctx.enableRag
     ? ctx.resolvedRagMode === 'advanced'
-      ? `advanced — nomic-7B`
-      : (ctx.dualEmbedding ? `lite — dual (jina + miniLM)` : `lite — jina`)
+      ? `advanced — code: nomic-7B / nlp: Qwen3-8B`
+      : (ctx.dualEmbedding ? `lite — code: jina-v2 / nlp: MiniLM` : `lite — code: jina-v2`)
     : 'off';
   configRows.push(
     { key: 'concurrency', value: String(ctx.concurrency) },
