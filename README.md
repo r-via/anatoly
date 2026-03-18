@@ -44,7 +44,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 - **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status
 - **Evidence-based review** — the agent must grep/read to prove every finding before reporting it
-- **6-axis analysis** — correction, overengineering, utility, duplication, tests, best practices — all axes run in parallel per file
+- **7-axis analysis** — correction, overengineering, utility, duplication, tests, best practices, documentation — all axes run in parallel per file
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
 - **Pre-computed usage graph** — one-pass import resolution across all files, eliminating ~90% of redundant tool calls
 - **Local code embeddings** — Jina Embeddings V2 Base Code (768-dim) computed locally, stored in LanceDB — zero API cost for RAG indexing
@@ -59,11 +59,11 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — our own implementation of the autonomous dev-loop pattern. `anatoly clean` parses a report shard into Ralph artifacts (prd.json + CLAUDE.md), then `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines
 
-> See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for the evaluation axes.
+> See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for the evaluation axes.
 
-### Six-Axis System
+### Seven-Axis System
 
-Every file is evaluated through six independent axes, running in parallel. Each axis focuses on a single dimension of code quality:
+Every file is evaluated through seven independent axes, running in parallel. Each axis focuses on a single dimension of code quality:
 
 | Axis | Default Model | Verdicts | What it detects |
 |------|---------------|----------|-----------------|
@@ -73,16 +73,17 @@ Every file is evaluated through six independent axes, running in parallel. Each 
 | **Overengineering** | Haiku | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
 | **Tests** | Haiku | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
 | **Best Practices** | Sonnet | Score 0-10, 17 rules | TypeScript best-practice violations (context-aware) |
+| **Documentation** | Haiku | `DOCUMENTED` `PARTIAL` `UNDOCUMENTED` | JSDoc gaps on exports, /docs/ desynchronization |
 
 Run specific axes with `--axes`:
 
 ```bash
 npx anatoly run --axes utility              # single axis
 npx anatoly run --axes correction,tests     # multiple axes
-npx anatoly run                             # all six (default)
+npx anatoly run                             # all seven (default)
 ```
 
-> Each axis is crash-isolated — if one fails, the other five still produce results. See [Six-Axis System](docs/02-Architecture/02-Six-Axis-System.md) for scoring model, merger logic, and model configuration.
+> Each axis is crash-isolated — if one fails, the other six still produce results. See [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for scoring model, merger logic, and model configuration.
 
 ## Target Audience
 
@@ -194,7 +195,7 @@ Using separate specialized models (code model for structure, NLP model for seman
 | Section | Highlights |
 |---------|------------|
 | [Getting Started](docs/01-Getting-Started/) | [Vision](docs/01-Getting-Started/00-Vision.md), [Installation](docs/01-Getting-Started/01-Installation.md), [Configuration](docs/01-Getting-Started/02-Configuration.md) |
-| [Architecture](docs/02-Architecture/) | [Pipeline](docs/02-Architecture/01-Pipeline-Overview.md), [6-Axis System](docs/02-Architecture/02-Six-Axis-System.md), [RAG Engine](docs/02-Architecture/03-RAG-Engine.md), [Usage Graph](docs/02-Architecture/04-Usage-Graph.md), [Deliberation](docs/02-Architecture/05-Deliberation-Pass.md) |
+| [Architecture](docs/02-Architecture/) | [Pipeline](docs/02-Architecture/01-Pipeline-Overview.md), [7-Axis System](docs/02-Architecture/02-Seven-Axis-System.md), [RAG Engine](docs/02-Architecture/03-RAG-Engine.md), [Usage Graph](docs/02-Architecture/04-Usage-Graph.md), [Deliberation](docs/02-Architecture/05-Deliberation-Pass.md) |
 | [CLI Reference](docs/03-CLI-Reference/) | [Commands](docs/03-CLI-Reference/01-Commands.md), [Global Options](docs/03-CLI-Reference/02-Global-Options.md), [Output Formats](docs/03-CLI-Reference/03-Output-Formats.md) |
 | [Core Modules](docs/04-Core-Modules/) | [Scanner](docs/04-Core-Modules/01-Scanner.md), [Estimator](docs/04-Core-Modules/02-Estimator.md), [Triage](docs/04-Core-Modules/03-Triage.md), [Evaluators](docs/04-Core-Modules/04-Axis-Evaluators.md), [Reporter](docs/04-Core-Modules/05-Reporter.md), [Worker Pool](docs/04-Core-Modules/06-Worker-Pool.md) |
 | [Integration](docs/05-Integration/) | [Claude Code Hooks](docs/05-Integration/01-Claude-Code-Hooks.md), [CI/CD](docs/05-Integration/02-CI-CD.md), [Watch Mode](docs/05-Integration/03-Watch-Mode.md) |

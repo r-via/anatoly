@@ -12,7 +12,7 @@ The question was whether to use a cloud-hosted embedding API (OpenAI, Cohere, Vo
 
 ### Forces
 
-- **Cost:** Anatoly already makes heavy use of the Claude API for its 6-axis evaluation pipeline (6 LLM calls per file). Adding embedding API calls for every function in the codebase would compound costs significantly.
+- **Cost:** Anatoly already makes heavy use of the Claude API for its 7-axis evaluation pipeline (7 LLM calls per file). Adding embedding API calls for every function in the codebase would compound costs significantly.
 - **Privacy:** Users audit proprietary codebases. Sending every function body to a third-party embedding API is a non-starter for many enterprise teams.
 - **Offline capability:** Developers frequently work on planes, trains, or behind firewalls. The RAG index should build and query without network access.
 - **Latency:** Embedding hundreds of functions through a remote API introduces network round-trips. Local inference eliminates this.

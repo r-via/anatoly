@@ -1,6 +1,6 @@
 # Deliberation Pass
 
-The deliberation pass is an optional validation phase where a stronger model (typically Claude Opus) reviews the merged output of all six axis evaluators. Its purpose is to catch inter-axis contradictions, filter residual false positives, and ensure the final verdict is coherent.
+The deliberation pass is an optional validation phase where a stronger model (typically Claude Opus) reviews the merged output of all seven axis evaluators. Its purpose is to catch inter-axis contradictions, filter residual false positives, and ensure the final verdict is coherent.
 
 ## When It Runs
 

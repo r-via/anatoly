@@ -87,7 +87,7 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
 
 export function buildDeliberationUserMessage(review: ReviewFile, fileContent: string): string {
   const reviewJson = JSON.stringify(review, null, 2);
-  return `## Merged ReviewFile (from 6 axis evaluators)
+  return `## Merged ReviewFile (from 7 axis evaluators)
 
 \`\`\`json
 ${reviewJson}

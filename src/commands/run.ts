@@ -844,6 +844,7 @@ async function runReviewPhase(
                   ragEnabled: ragContext.ragEnabled,
                   depMeta,
                   projectTree,
+                  docsTree,
                   deliberation: ctx.deliberation,
                   codeWeight: ctx.config.rag.code_weight,
                   onAxisComplete: (axisId) => {

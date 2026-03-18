@@ -7,7 +7,7 @@ The triage module (`src/core/triage.ts`) classifies each scanned file into one o
 | Tier | Effect |
 |------|--------|
 | `skip` | File is auto-reviewed as CLEAN. No LLM calls are made. |
-| `evaluate` | File enters the full 6-axis evaluation pipeline. |
+| `evaluate` | File enters the full 7-axis evaluation pipeline. |
 
 There is no "fast" vs "deep" distinction within the evaluate tier. All non-skip files go through the same axis evaluator pipeline.
 

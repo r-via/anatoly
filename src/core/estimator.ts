@@ -24,10 +24,10 @@ export const SECONDS_PER_SYMBOL = 0.8;
 export const CONCURRENCY_EFFICIENCY = 0.75;
 
 /** Number of axis evaluators per file */
-export const AXIS_COUNT = 6;
+export const AXIS_COUNT = 7;
 
 /** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */
-export const HAIKU_AXES = 4; // utility, duplication, overengineering, tests
+export const HAIKU_AXES = 5; // utility, duplication, overengineering, tests, documentation
 export const SONNET_AXES = 2; // correction, best_practices
 
 export interface EstimateResult {

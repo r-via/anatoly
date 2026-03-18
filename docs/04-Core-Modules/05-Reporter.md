@@ -76,7 +76,7 @@ When triage statistics are provided, a table shows the skip/evaluate split with 
 ### Methodology
 
 A comprehensive reference section documenting:
-- The 6-axis evaluation model.
+- The 7-axis evaluation model.
 - Rating criteria and values for each axis.
 - The 17 best practices rules with severity and penalty values.
 - Severity classification rules (high/medium/low).

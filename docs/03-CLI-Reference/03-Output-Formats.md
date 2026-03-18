@@ -61,7 +61,7 @@ Each reviewed file produces a `.rev.json` file containing the full structured re
 
 ### SymbolReview
 
-Each symbol (function, class, method, type, constant, variable, enum, hook) receives independent ratings across five axes:
+Each symbol (function, class, method, type, constant, variable, enum, hook) receives independent ratings across six per-symbol axes:
 
 | Field | Type | Values |
 |-------|------|--------|
@@ -75,6 +75,7 @@ Each symbol (function, class, method, type, constant, variable, enum, hook) rece
 | `utility` | enum | `USED`, `DEAD`, `LOW_VALUE` |
 | `duplication` | enum | `UNIQUE`, `DUPLICATE` |
 | `tests` | enum | `GOOD`, `WEAK`, `NONE` |
+| `documentation` | enum | `DOCUMENTED`, `PARTIAL`, `UNDOCUMENTED` |
 | `confidence` | integer | 0--100, reliability of the assessment |
 | `detail` | string | Pipe-delimited per-axis explanation (min 10 chars) |
 | `duplicate_target` | object? | `{ file, symbol, similarity }` when duplication is `DUPLICATE` |
@@ -88,7 +89,7 @@ Each symbol (function, class, method, type, constant, variable, enum, hook) rece
 | `severity` | enum | `high`, `medium`, `low` |
 | `effort` | enum | `trivial`, `small`, `large` |
 | `category` | enum | `quickwin`, `refactor`, `hygiene` |
-| `source` | enum? | Originating axis: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices` |
+| `source` | enum? | Originating axis: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation` |
 | `target_symbol` | string? | Symbol the action targets |
 | `target_lines` | string? | Line range (e.g., `L42-L58`) |
 

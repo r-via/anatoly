@@ -132,7 +132,7 @@ describe('estimateProject', () => {
     expect(result.inputTokens).toBeGreaterThan(0);
     expect(result.outputTokens).toBeGreaterThan(0);
     expect(result.estimatedMinutes).toBeGreaterThan(0);
-    expect(result.estimatedCalls).toBe(AXIS_COUNT); // 6 axes per file
+    expect(result.estimatedCalls).toBe(AXIS_COUNT); // 7 axes per file
   });
 
   it('should handle deleted source files gracefully', () => {
@@ -217,6 +217,6 @@ describe('constants', () => {
     expect(BASE_SECONDS).toBe(4);
     expect(SECONDS_PER_SYMBOL).toBe(0.8);
     expect(CONCURRENCY_EFFICIENCY).toBe(0.75);
-    expect(AXIS_COUNT).toBe(6);
+    expect(AXIS_COUNT).toBe(7);
   });
 });

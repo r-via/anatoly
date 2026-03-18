@@ -18,7 +18,7 @@ Require every axis evaluator to produce evidence-backed findings. The agent must
 
 ### How it works in practice
 
-Anatoly's review pipeline operates on six independent axes, each responsible for a specific dimension of code quality. Every axis evaluator follows the same evidence contract:
+Anatoly's review pipeline operates on seven independent axes, each responsible for a specific dimension of code quality. Every axis evaluator follows the same evidence contract:
 
 1. **Pre-computed context is injected into the prompt.** Rather than asking the LLM to "go look things up," Anatoly pre-computes the evidence and hands it to the model. The usage graph tells the utility axis exactly which files import each symbol. The RAG index tells the duplication axis which functions are semantically similar. Dependency metadata tells the correction axis which library versions are in use.
 
