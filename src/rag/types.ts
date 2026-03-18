@@ -45,4 +45,17 @@ export interface RagStats {
   codeDim?: number;
   /** Actual NLP vector dimension stored in the table (when dual embedding). */
   nlpDim?: number;
+  /** Number of doc_section rows in the index. */
+  docSections: number;
+  /** Number of function cards that have a non-empty summary. */
+  cardsWithSummary: number;
+}
+
+/** A doc section entry for listing purposes. */
+export interface DocSectionEntry {
+  id: string;
+  filePath: string;
+  name: string;
+  summary: string;
+  lastIndexed: string;
 }

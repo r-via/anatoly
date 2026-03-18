@@ -25,21 +25,28 @@ async function getStoreForMode(
 
 function printStats(mode: string, stats: RagStats, resolved: { codeModel: string; codeDim: number; nlpModel: string; nlpDim: number }): void {
   console.log(chalk.bold(`  ${mode} index`));
-  console.log(`    cards      ${stats.totalCards}`);
-  console.log(`    files      ${stats.totalFiles}`);
-  console.log(`    mode       ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
+  console.log(`    cards        ${stats.totalCards}`);
+  console.log(`    files        ${stats.totalFiles}`);
+  if (stats.docSections > 0) {
+    console.log(`    doc sections ${stats.docSections}`);
+  }
+  if (stats.totalCards > 0) {
+    const pct = Math.round((stats.cardsWithSummary / stats.totalCards) * 100);
+    console.log(`    summaries    ${stats.cardsWithSummary}/${stats.totalCards} (${pct}%)`);
+  }
+  console.log(`    mode         ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
   const codeDimLabel = stats.codeDim && stats.codeDim !== resolved.codeDim
     ? `${stats.codeDim}d`
     : `${resolved.codeDim}d`;
-  console.log(`    code model ${chalk.dim(resolved.codeModel)} (${codeDimLabel})`);
+  console.log(`    code model   ${chalk.dim(resolved.codeModel)} (${codeDimLabel})`);
   if (stats.dualEmbedding) {
     const nlpDimLabel = stats.nlpDim && stats.nlpDim !== resolved.nlpDim
       ? `${stats.nlpDim}d`
       : `${resolved.nlpDim}d`;
-    console.log(`    nlp model  ${chalk.dim(resolved.nlpModel)} (${nlpDimLabel})`);
+    console.log(`    nlp model    ${chalk.dim(resolved.nlpModel)} (${nlpDimLabel})`);
   }
   if (stats.lastIndexed) {
-    console.log(`    indexed    ${stats.lastIndexed}`);
+    console.log(`    indexed      ${stats.lastIndexed}`);
   }
   console.log('');
 }
@@ -49,8 +56,9 @@ export function registerRagStatusCommand(program: Command): void {
     .command('rag-status [function]')
     .description('Show RAG index status, or inspect function cards')
     .option('--all', 'list all indexed function cards')
+    .option('--docs', 'list all indexed doc sections')
     .option('--json', 'output as JSON')
-    .action(async (functionName: string | undefined, opts: { all?: boolean; json?: boolean }, cmd: Command) => {
+    .action(async (functionName: string | undefined, opts: { all?: boolean; docs?: boolean; json?: boolean }, cmd: Command) => {
       const projectRoot = resolve('.');
 
       // Resolve models so vector store dimension checks use correct values
@@ -69,8 +77,8 @@ export function registerRagStatusCommand(program: Command): void {
         : ragAdvanced ? ['advanced']
         : ['lite', 'advanced'];
 
-      // For function search or --all, use the first available mode
-      if (functionName || opts.all) {
+      // For function search, --all, or --docs, use the first available mode
+      if (functionName || opts.all || opts.docs) {
         let vectorStore: VectorStore | undefined;
         for (const mode of modes) {
           const { store, stats } = await getStoreForMode(projectRoot, mode);
@@ -105,6 +113,38 @@ export function registerRagStatusCommand(program: Command): void {
             console.log(`  complexity  ${card.complexityScore}/5`);
             if (card.calledInternals.length > 0) {
               console.log(`  calls       ${card.calledInternals.join(', ')}`);
+            }
+            console.log('');
+          }
+          return;
+        }
+
+        // --docs
+        if (opts.docs) {
+          const sections = await vectorStore.listDocSections();
+          if (sections.length === 0) {
+            console.log('No doc sections indexed.');
+            return;
+          }
+
+          if (opts.json) {
+            console.log(JSON.stringify(sections, null, 2));
+            return;
+          }
+
+          const byFile = new Map<string, typeof sections>();
+          for (const sec of sections) {
+            const list = byFile.get(sec.filePath) ?? [];
+            list.push(sec);
+            byFile.set(sec.filePath, list);
+          }
+
+          console.log(chalk.bold(`${sections.length} doc sections indexed:`));
+          console.log('');
+          for (const [file, fileSections] of byFile) {
+            console.log(chalk.bold(file));
+            for (const sec of fileSections) {
+              console.log(`  ${sec.name}`);
             }
             console.log('');
           }
@@ -154,7 +194,7 @@ export function registerRagStatusCommand(program: Command): void {
         console.log('  No cards indexed. Run `anatoly run` first.');
       }
 
-      console.log(chalk.dim('  Use --all to list all cards, or pass a function name to inspect.'));
+      console.log(chalk.dim('  Use --all to list all cards, --docs to list doc sections.'));
       console.log(chalk.dim('  Use --lite or --advanced to filter by index.'));
     });
 }

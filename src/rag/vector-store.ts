@@ -5,7 +5,7 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import type { FunctionCard, SimilarityResult, RagStats } from './types.js';
+import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
 const DEFAULT_TABLE_NAME = 'function_cards';
 
@@ -401,9 +401,29 @@ export class VectorStore {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed'])
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type'])
       .toArray();
-    return rows.map(rowToCard);
+    return rows.filter((r) => r.type !== 'doc_section').map(rowToCard);
+  }
+
+  /**
+   * List all doc_section rows in the index.
+   */
+  async listDocSections(): Promise<DocSectionEntry[]> {
+    if (!this.table) return [];
+    const rows = await this.table
+      .query()
+      .select(['id', 'filePath', 'name', 'summary', 'lastIndexed', 'type'])
+      .toArray();
+    return rows
+      .filter((r) => r.type === 'doc_section')
+      .map((r) => ({
+        id: r.id as string,
+        filePath: r.filePath as string,
+        name: r.name as string,
+        summary: r.summary as string,
+        lastIndexed: r.lastIndexed as string,
+      }));
   }
 
   /**
@@ -460,22 +480,35 @@ export class VectorStore {
    */
   async stats(): Promise<RagStats> {
     if (!this.table) {
-      return { totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false };
+      return { totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false, docSections: 0, cardsWithSummary: 0 };
     }
 
-    const totalCards = await this.table.countRows();
-
-    // Fetch only filePath and lastIndexed for aggregation
+    // Fetch filePath, lastIndexed, type, and summary for aggregation
     const rows = await this.table
       .query()
-      .select(['filePath', 'lastIndexed'])
+      .select(['filePath', 'lastIndexed', 'type', 'summary'])
       .toArray();
 
-    const files = new Set(rows.map((r) => r.filePath as string));
-    const lastIndexed = rows.reduce((max, r) => {
-      const d = r.lastIndexed as string;
-      return d > max ? d : max;
-    }, '');
+    let docSections = 0;
+    let cardsWithSummary = 0;
+    const files = new Set<string>();
+    let lastIndexed = '';
+
+    for (const r of rows) {
+      const fp = r.filePath as string;
+      const ts = r.lastIndexed as string;
+      if (ts > lastIndexed) lastIndexed = ts;
+
+      if (r.type === 'doc_section') {
+        docSections++;
+      } else {
+        files.add(fp);
+        const summary = r.summary as string | undefined;
+        if (summary && summary.length > 0) cardsWithSummary++;
+      }
+    }
+
+    const totalCards = rows.length - docSections;
 
     return {
       totalCards,
@@ -484,6 +517,8 @@ export class VectorStore {
       dualEmbedding: this._hasDualEmbedding,
       codeDim: this._cachedCodeDim,
       nlpDim: this._cachedNlpDim,
+      docSections,
+      cardsWithSummary,
     };
   }
 }
