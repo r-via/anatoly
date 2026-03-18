@@ -47,6 +47,22 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
+  // Inject test file content if available
+  if (ctx.testFileContent) {
+    const testFileName = ctx.task.file.replace(/\.ts$/, '.test.ts');
+    parts.push(`## Test File: \`${testFileName}\``);
+    parts.push('');
+    parts.push('```typescript');
+    parts.push(ctx.testFileContent);
+    parts.push('```');
+    parts.push('');
+  } else {
+    parts.push('## Test File');
+    parts.push('');
+    parts.push('No test file found for this source file.');
+    parts.push('');
+  }
+
   if (ctx.task.coverage) {
     parts.push('## Coverage Data');
     parts.push('');
@@ -58,6 +74,33 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
     parts.push(`| Branches | ${c.branches_covered} | ${c.branches_total} | ${pct(c.branches_covered, c.branches_total)}% |`);
     parts.push(`| Functions | ${c.functions_covered} | ${c.functions_total} | ${pct(c.functions_covered, c.functions_total)}% |`);
     parts.push(`| Lines | ${c.lines_covered} | ${c.lines_total} | ${pct(c.lines_covered, c.lines_total)}% |`);
+    parts.push('');
+  }
+
+  // Inject callers from usage graph for business context
+  if (ctx.usageGraph) {
+    const callers: string[] = [];
+    for (const s of ctx.task.symbols) {
+      const usage = ctx.usageGraph.usages.get(`${ctx.task.file}:${s.name}`);
+      if (usage && usage.importedBy.length > 0) {
+        callers.push(`- \`${s.name}\` is imported by: ${usage.importedBy.map((f) => `\`${f}\``).join(', ')}`);
+      }
+    }
+    if (callers.length > 0) {
+      parts.push('## Symbol Usage (callers)');
+      parts.push('');
+      for (const c of callers) parts.push(c);
+      parts.push('');
+    }
+  }
+
+  // Inject project tree for architectural context
+  if (ctx.projectTree) {
+    parts.push('## Project Structure');
+    parts.push('');
+    parts.push('```');
+    parts.push(ctx.projectTree);
+    parts.push('```');
     parts.push('');
   }
 

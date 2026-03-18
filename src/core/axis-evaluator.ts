@@ -46,6 +46,8 @@ export interface AxisContext {
   preResolvedRag?: PreResolvedRag;
   fileDeps?: FileDependencyContext;
   projectTree?: string;
+  /** Content of the associated test file (e.g. foo.test.ts for foo.ts), if it exists */
+  testFileContent?: string;
 }
 
 export interface AxisSymbolResult {

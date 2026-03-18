@@ -119,6 +119,12 @@ export function registerRunCommand(program: Command): void {
     .option('--verbose', 'show detailed operation logs')
     .action(async (cmdOpts: { runId?: string; axes?: string }) => {
       const projectRoot = resolve('.');
+      if (!existsSync(resolve(projectRoot, 'package.json'))) {
+        console.error(`error: no package.json found in ${projectRoot}`);
+        console.error('Are you at the root of your project?');
+        process.exitCode = 2;
+        return;
+      }
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
@@ -283,6 +289,7 @@ function formatDuration(ms: number): string {
 }
 
 interface SetupTableData {
+  project?: { name: string; version: string };
   config: { key: string; value: string }[];
   axes: { key: string; value: string }[];
   pipeline: { phase: string; detail: string }[];
@@ -309,6 +316,11 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const innerWidth = 3 + keyWidth + gap + valWidth + 2;
 
   if (plain) {
+    if (data.project) {
+      console.log(chalk.dim('  Project Info'));
+      console.log(`    ${'name'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.name}`);
+      console.log(`    ${'version'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.version}`);
+    }
     console.log(chalk.dim('  Configuration'));
     for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
     console.log(chalk.dim('  Evaluation Axes'));
@@ -338,8 +350,20 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
 
   const emptyRow = `  ${d('\u2502')}${' '.repeat(innerWidth)}${d('\u2502')}`;
 
-  // config section
-  console.log(sectionBorder('Configuration', chalk.cyan, '\u250c', '\u2510'));
+  // project info section
+  if (data.project) {
+    console.log(sectionBorder('Project Info', chalk.green, '\u250c', '\u2510'));
+    console.log(emptyRow);
+    console.log(kvRow('name', data.project.name));
+    console.log(kvRow('version', data.project.version));
+    console.log(emptyRow);
+
+    // config section (connected to project info)
+    console.log(sectionBorder('Configuration', chalk.cyan, '\u251c', '\u2524'));
+  } else {
+    // config section (top of box)
+    console.log(sectionBorder('Configuration', chalk.cyan, '\u250c', '\u2510'));
+  }
   console.log(emptyRow);
   for (const r of data.config) console.log(kvRow(r.key, r.value));
   console.log(emptyRow);
@@ -394,6 +418,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let projectTree: string | undefined;
   const configRows: { key: string; value: string }[] = [];
   const pipelineRows: { phase: string; detail: string }[] = [];
+
+  // --- Read project info from package.json ---
+  let projectInfo: { name: string; version: string } | undefined;
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    if (typeof pkg.name === 'string' && typeof pkg.version === 'string') {
+      projectInfo = { name: pkg.name, version: pkg.version };
+    }
+  } catch { /* already validated in action handler */ }
 
   // --- Phase: config ---
   if (ctx.enableRag) {
@@ -524,7 +557,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
   // Render setup summary table
-  renderSetupTable({ config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
+  renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
 
   // Dry-run: show summary and exit before review
   if (ctx.dryRun) {
@@ -994,7 +1027,9 @@ function runReportPhase(ctx: RunContext): void {
     }
   }
   console.log('');
-  console.log(chalk.dim(`  $${ctx.totalCostUsd.toFixed(2)} in API calls · $0.00 with Claude Code`));
+  const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
+  const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
+  console.log(`  ${chalk.bold('Cost:')} ${costColor(costStr)} in API calls · ${chalk.green.bold('$0.00')} with Claude Code`);
 
   if (ctx.shouldOpen) openFile(reportPath);
 

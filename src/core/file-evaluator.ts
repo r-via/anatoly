@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, basename, dirname, extname } from 'node:path';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
 import type { Task } from '../schemas/task.js';
@@ -92,6 +92,21 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
 
+  // Resolve associated test file (foo.ts → foo.test.ts or foo.spec.ts)
+  let testFileContent: string | undefined;
+  const ext = extname(task.file);
+  const base = basename(task.file, ext);
+  const dir = dirname(task.file);
+  if (!base.endsWith('.test') && !base.endsWith('.spec')) {
+    for (const suffix of ['.test', '.spec']) {
+      const testPath = resolve(projectRoot, dir, `${base}${suffix}${ext}`);
+      if (existsSync(testPath)) {
+        try { testFileContent = readFileSync(testPath, 'utf-8'); } catch { /* skip */ }
+        break;
+      }
+    }
+  }
+
   const ctx: AxisContext = {
     task,
     fileContent,
@@ -101,6 +116,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     preResolvedRag,
     fileDeps,
     projectTree: opts.projectTree,
+    testFileContent,
   };
 
   const startTime = Date.now();
