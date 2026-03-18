@@ -31,7 +31,7 @@ const DEFAULT_MEDIANS: Record<string, number> = {
   utility: 13_500,
   overengineering: 19_000,
   tests: 21_700,
-  documentation: 25_000,
+  documentation: 60_000,
   correction: 83_000,
   best_practices: 117_100,
 };
