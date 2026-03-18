@@ -54,11 +54,11 @@ describe('computeFileVerdict', () => {
     expect(computeFileVerdict(makeReview())).toBe('CLEAN');
   });
 
-  it('should return CLEAN when only issue is tests: NONE', () => {
+  it('should return NEEDS_REFACTOR when only issue is tests: NONE', () => {
     const review = makeReview({
       symbols: [makeSymbol({ tests: 'NONE', confidence: 90 })],
     });
-    expect(computeFileVerdict(review)).toBe('CLEAN');
+    expect(computeFileVerdict(review)).toBe('NEEDS_REFACTOR');
   });
 
   it('should return NEEDS_REFACTOR for dead code with confidence >= 60', () => {

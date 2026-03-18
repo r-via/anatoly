@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'node:fs';
-import { resolve, relative } from 'node:path';
+import { resolve, relative, dirname, join } from 'node:path';
 import { generateReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -80,8 +80,8 @@ function printReportSummary(
   if (totalDup > 0) console.log(`  Duplicates:        ${totalDup}  (high: ${dup.high}, medium: ${dup.medium}, low: ${dup.low})`);
   if (totalOver > 0) console.log(`  Over-engineering:  ${totalOver}  (high: ${ov.high}, medium: ${ov.medium}, low: ${ov.low})`);
 
-  // Tests summary
-  const allSymbols = data.reviews.flatMap((r) => r.symbols);
+  // Tests summary (only count reliable symbols, consistent with other axes)
+  const allSymbols = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
   const testsNone = allSymbols.filter((s) => s.tests === 'NONE').length;
   const testsWeak = allSymbols.filter((s) => s.tests === 'WEAK').length;
   if (testsNone + testsWeak > 0) console.log(`  Tests:             ${testsNone + testsWeak}  (${testsNone} untested, ${testsWeak} weak)`);
@@ -95,9 +95,9 @@ function printReportSummary(
   const rel = (p: string) => relative(process.cwd(), p) || '.';
   console.log(`Report: ${chalk.cyan(rel(reportPath))}`);
   if (shards.length > 0) {
-    const reportDir = reportPath.replace(/report\.md$/, '');
+    const reportDir = dirname(reportPath);
     for (const shard of shards) {
-      console.log(`  shard ${shard.index}  ${chalk.cyan(rel(reportDir + `report.${shard.index}.md`))} (${shard.files.length} files)`);
+      console.log(`  shard ${shard.index}  ${chalk.cyan(rel(join(reportDir, `report.${shard.index}.md`)))} (${shard.files.length} files)`);
     }
   }
   console.log(`Details: ${chalk.cyan(rel(reviewsPath) + '/')}`);

@@ -68,7 +68,7 @@ export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] 
 }
 
 /**
- * Determine if a symbol has an actionable issue (excluding tests-only).
+ * Determine if a symbol has an actionable issue on any axis (including tests).
  */
 function hasActionableIssue(s: SymbolReview): boolean {
   return (
@@ -94,7 +94,6 @@ function isDegradedReview(review: ReviewFile): boolean {
 
 /**
  * Recompute file verdict from symbols — standardizes the LLM's verdict.
- * tests: NONE alone never triggers NEEDS_REFACTOR.
  * Low-confidence findings (< 60) are ignored for verdict purposes.
  */
 export function computeFileVerdict(review: ReviewFile): Verdict {
@@ -123,7 +122,6 @@ export function computeGlobalVerdict(reviews: ReviewFile[]): Verdict {
 
 /**
  * Classify a symbol finding into a severity level based on the axes.
- * tests: NONE/WEAK is hygiene, not a severity finding.
  */
 function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
   if (s.correction === 'ERROR') return 'high';
@@ -751,7 +749,8 @@ export function renderShard(shard: ShardInfo): string {
       const weakSymbols = testSymbols.filter((s) => s.tests === 'WEAK');
       const summary = [noneSymbols.length > 0 ? `${noneSymbols.length} untested` : '', weakSymbols.length > 0 ? `${weakSymbols.length} weak` : ''].filter(Boolean).join(', ');
 
-      const testFile = review.file.replace(/\.ts$/, '.test.ts');
+      const extMatch = review.file.match(/(\.\w+)$/);
+      const testFile = extMatch ? review.file.replace(extMatch[0], `.test${extMatch[0]}`) : `${review.file}.test.ts`;
       const hasTestFile = review.symbols.some((s) => s.tests === 'GOOD' || s.tests === 'WEAK');
       const action = hasTestFile ? `Improve \`${testFile}\`` : `Create \`${testFile}\``;
 
