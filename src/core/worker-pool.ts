@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 /**
  * A concurrency-limited worker pool that processes items through an async handler.
  * Workers run in parallel up to the concurrency limit; when one finishes,

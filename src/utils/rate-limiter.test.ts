@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { describe, it, expect, vi } from 'vitest';
 import { retryWithBackoff, isRateLimitError, calculateBackoff } from './rate-limiter.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';

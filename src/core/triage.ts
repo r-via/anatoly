@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';

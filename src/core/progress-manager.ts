@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { resolve } from 'node:path';
 import type { Progress, FileProgress, FileStatus } from '../schemas/progress.js';
 import { readProgress, atomicWriteJson } from '../utils/cache.js';

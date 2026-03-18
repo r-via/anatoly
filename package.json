@@ -20,7 +20,8 @@
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "postinstall": "node scripts/download-model.js"
+    "postinstall": "node scripts/download-model.js",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "repository": {
     "type": "git",
@@ -34,7 +35,7 @@
     "claude",
     "agent"
   ],
-  "author": "",
+  "author": "Rémi Viau <remi.viau@gmail.com>",
   "license": "AGPL-3.0",
   "bugs": {
     "url": "https://github.com/r-via/anatoly/issues"

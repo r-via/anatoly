@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { readFileSync } from 'node:fs';
 import { resolve, dirname, relative } from 'node:path';
 import { existsSync } from 'node:fs';

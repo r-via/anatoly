@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pre-commit hook: verify SPDX license headers on staged .ts files in src/
+
+MISSING=()
+
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep '^src/.*\.ts$'); do
+  if ! head -1 "$file" | grep -q "SPDX-License-Identifier"; then
+    MISSING+=("$file")
+  fi
+done
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "ERROR: Missing SPDX license header in staged .ts files:"
+  echo ""
+  for f in "${MISSING[@]}"; do
+    echo "  $f"
+  done
+  echo ""
+  echo "Add this header at the top of each file:"
+  echo ""
+  echo "  // SPDX-License-Identifier: AGPL-3.0-only"
+  echo "  // Copyright (c) 2025-present Rémi Viau"
+  echo "  // See LICENSE and COMMERCIAL.md for licensing details."
+  echo ""
+  exit 1
+fi

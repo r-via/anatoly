@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { isInteractive, confirm } from './confirm.js';
 import { createInterface } from 'node:readline';

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';

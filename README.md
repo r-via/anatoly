@@ -242,11 +242,20 @@ Tests are co-located with source files (`*.test.ts`) and use Vitest.
 4. Commit with a descriptive message
 5. Open a Pull Request
 
+By contributing, you agree to the [Contributor License Agreement](CLA.md).
+This is necessary because Anatoly uses dual licensing (AGPL-3.0 + commercial).
+
 Please follow the existing code style and ensure all CI checks pass.
 
 ## License
 
-[AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0)
+Anatoly is dual-licensed:
+
+- **Open source** — [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0):
+  free for open source, personal, and academic use.
+- **Commercial** — a proprietary license is available for companies that
+  cannot comply with AGPL-3.0. See [COMMERCIAL.md](COMMERCIAL.md) for
+  details.
 
 ## Contact & Support
 

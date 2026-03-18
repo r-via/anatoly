@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import type { AxisId } from '../core/axis-evaluator.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { getLogger } from './logger.js';

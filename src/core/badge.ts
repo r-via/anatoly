@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { readFileSync, writeFileSync, constants, accessSync } from 'node:fs';
 import { join } from 'node:path';
 import { getLogger } from '../utils/logger.js';

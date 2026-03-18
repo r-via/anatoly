@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 export { registerScanCommand } from './scan.js';
 export { registerEstimateCommand } from './estimate.js';
 export { registerReviewCommand } from './review.js';

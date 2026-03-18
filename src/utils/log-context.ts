@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getLogger } from './logger.js';
 import type { Logger } from './logger.js';

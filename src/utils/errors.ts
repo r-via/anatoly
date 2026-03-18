@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 export const ERROR_CODES = {
   CONFIG_INVALID: 'CONFIG_INVALID',
   CONFIG_NOT_FOUND: 'CONFIG_NOT_FOUND',

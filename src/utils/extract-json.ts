@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 /**
  * Extract a JSON object from a string that may contain markdown fences or surrounding text.
  * Returns the raw JSON string or null if no valid JSON structure is found.

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
 import type { Command } from 'commander';
 import { rmSync, existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,7 +13,7 @@ import { VectorStore } from '../rag/vector-store.js';
 /**
  * Count items that will be deleted during reset, for the confirmation summary.
  */
-function countResetItems(anatolyDir: string): { dirs: string[]; files: string[]; total: number } {
+function countResetItems(anatolyDir: string, keepRag: boolean): { dirs: string[]; files: string[]; total: number } {
   const dirs: string[] = [];
   const files: string[] = [];
 
@@ -34,9 +38,11 @@ function countResetItems(anatolyDir: string): { dirs: string[]; files: string[];
   }
 
   // Check RAG directory
-  const ragDir = resolve(anatolyDir, 'rag');
-  if (existsSync(ragDir)) {
-    dirs.push('rag');
+  if (!keepRag) {
+    const ragDir = resolve(anatolyDir, 'rag');
+    if (existsSync(ragDir)) {
+      dirs.push('rag');
+    }
   }
 
   for (const file of ['progress.json', 'report.md', 'anatoly.lock', 'deliberation-memory.json', 'correction-memory.json']) {
@@ -53,7 +59,8 @@ export function registerResetCommand(program: Command): void {
     .command('reset')
     .description('Clear all cache, reviews, logs, tasks, report, and RAG index')
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
-    .action(async (opts: { yes?: boolean }) => {
+    .option('--no-rag', 'keep the RAG index (embeddings are slow to rebuild)')
+    .action(async (opts: { yes?: boolean; rag?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -70,7 +77,8 @@ export function registerResetCommand(program: Command): void {
         return;
       }
 
-      const { dirs, files, total } = countResetItems(anatolyDir);
+      const keepRag = opts.rag === false;
+      const { dirs, files, total } = countResetItems(anatolyDir, keepRag);
 
       if (total === 0) {
         console.log('anatoly — reset');
@@ -117,19 +125,21 @@ export function registerResetCommand(program: Command): void {
       }
 
       // Clean RAG: drop LanceDB tables via API, then remove directory
-      const ragDir = resolve(anatolyDir, 'rag');
-      if (existsSync(ragDir)) {
-        for (const tableName of ['function_cards_lite', 'function_cards_advanced', 'function_cards']) {
-          try {
-            const store = new VectorStore(projectRoot, tableName);
-            await store.init();
-            await store.rebuild();
-          } catch {
-            // LanceDB cleanup failed — fall through to rmSync
+      if (!keepRag) {
+        const ragDir = resolve(anatolyDir, 'rag');
+        if (existsSync(ragDir)) {
+          for (const tableName of ['function_cards_lite', 'function_cards_advanced', 'function_cards']) {
+            try {
+              const store = new VectorStore(projectRoot, tableName);
+              await store.init();
+              await store.rebuild();
+            } catch {
+              // LanceDB cleanup failed — fall through to rmSync
+            }
           }
+          rmSync(ragDir, { recursive: true, force: true });
+          cleaned++;
         }
-        rmSync(ragDir, { recursive: true, force: true });
-        cleaned++;
       }
 
       // Remove progress.json
