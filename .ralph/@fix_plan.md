@@ -260,7 +260,7 @@
   > Persist doc reclassifications in deliberation-memory.json. Inject into documentation axis prompt to avoid re-flagging.
   > AC: Given symbol reclassified UNDOCUMENTED→DOCUMENTED by deliberation, When next run evaluates same file, Then symbol is not re-flagged.
 
-- [ ] Story 27.6: rag-status shows doc sections and NLP stats
+- [x] Story 27.6: rag-status shows doc sections and NLP stats
   > Show doc section count, NLP model info, and summary coverage in rag-status output.
   > AC: Given fully indexed project, When rag-status runs, Then shows function cards AND doc section stats. And --docs lists all indexed doc sections.
 
