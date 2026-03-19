@@ -382,11 +382,15 @@ except:
 fi
 
 # ---------------------------------------------------------------------------
-# --ab-test mode (placeholder — implemented in Story 28.2)
+# --ab-test mode
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--ab-test" ]]; then
-  err "A/B test not yet implemented (Story 28.2)"
-  exit 1
+  AB_SCRIPT="${SCRIPT_DIR}/embedding-ab-test.sh"
+  if [[ ! -f "$AB_SCRIPT" ]]; then
+    err "embedding-ab-test.sh not found at ${AB_SCRIPT}"
+    exit 1
+  fi
+  exec bash "$AB_SCRIPT"
 fi
 
 # ---------------------------------------------------------------------------

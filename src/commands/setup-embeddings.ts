@@ -26,9 +26,9 @@ function findSetupScript(): string {
 export function registerSetupEmbeddingsCommand(program: Command): void {
   program
     .command('setup-embeddings')
-    .description('Install sentence-transformers + nomic-embed-code for GPU-accelerated embeddings')
+    .description('Install embedding backends (lite/fp16/gguf) for GPU-accelerated embeddings')
     .option('--check', 'check current embedding setup status without installing')
-    .option('--ab-test', 'run A/B test to determine optimal quantization config')
+    .option('--ab-test', 'run A/B test comparing bf16 vs GGUF embedding quality')
     .action((opts: { check?: boolean; abTest?: boolean }) => {
       const script = findSetupScript();
       const args: string[] = [];
