@@ -358,89 +358,82 @@ if [[ "${1:-}" == "--check" ]]; then
       fi
       ok "Both containers ready"
 
-      # Code samples
-      CODE_SAMPLES=(
-        'export function evaluateFile(task, axes, ctx) { const results = []; for (const axis of axes) { results.push(await axis.evaluate(task, ctx)); } return mergeAxisResults(task, results); }'
-        'export class ProgressManager { private writeQueue = Promise.resolve(); updateFileStatus(file, status) { this.writeQueue = this.writeQueue.then(() => atomicWriteJson(this.path, this.data)); } }'
-        'export function mergeSymbol(name, axisResults, graph) { const correction = axisResults.get("correction")?.correction ?? "-"; return { name, correction, confidence: Math.min(...values) }; }'
-        'export function loadConfig(root) { const path = resolve(root, "anatoly.config.yaml"); if (!existsSync(path)) return defaults; const parsed = yaml.parse(readFileSync(path, "utf-8")); return ConfigSchema.parse(parsed); }'
-        'export function parseFile(filePath, content) { const parser = getParser(lang); const tree = parser.parse(content); const symbols = []; const cursor = tree.walk(); return { filePath, symbols }; }'
-        'export async function searchByIdHybrid(store, id, k, weight) { const card = await store.getById(id); const code = await store.searchByVector(card.vector, k); const nlp = await store.searchByNlpVector(card.nlp_vector, k); return merge(code, nlp, weight); }'
-        'export function generateReport(root, errors, runDir) { const reviews = loadReviews(runDir); const verdict = computeGlobalVerdict(reviews); const markdown = renderIndex({ reviews, verdict }); writeFileSync(reportPath, markdown); return { reportPath, data }; }'
-        'async function runWorkerPool(tasks, concurrency, worker) { let next = 0; async function run() { while (next < tasks.length) { const i = next++; await worker(tasks[i], i); } } await Promise.all(Array.from({ length: concurrency }, run)); }'
-        'export function applyDeliberation(review, delib) { const symbols = review.symbols.map(sym => { const d = delib.symbols.find(s => s.name === sym.name); return d ? { ...sym, confidence: d.deliberated.confidence } : sym; }); return { symbols, verdict: recompute(symbols) }; }'
-        'export function extractImports(content, filePath) { const edges = []; const re = /import\\s*\\{([^}]+)\\}\\s*from\\s*["\x27]([^"\x27]+)["\x27]/g; let m; while ((m = re.exec(content))) { edges.push({ from: filePath, to: resolve(m[2]) }); } return edges; }'
-      )
+      # Load samples from JSON file (realistic long functions + doc sections)
+      SAMPLES_FILE="${SCRIPT_DIR}/check-samples.json"
+      if [[ ! -f "$SAMPLES_FILE" ]]; then
+        err "check-samples.json not found at ${SAMPLES_FILE}"
+        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
+        echo ""; exit 1
+      fi
 
-      # NLP samples
-      NLP_SAMPLES=(
-        'The Anatoly pipeline processes TypeScript projects through six sequential phases: scan, estimate, triage, RAG index, review, and report.'
-        'The deliberation pass is the quality gate. After all axes evaluate a file, their results are merged. If findings exist, Claude Opus reviews them.'
-        'The RAG engine provides semantic search for duplication and documentation axes via LanceDB with function cards and documentation sections.'
-        'The correction axis uses a two-pass approach. Pass 1 detects bugs. Pass 2 verifies against library documentation to reduce false positives.'
-        'The usage graph tracks import relationships between TypeScript files enabling the utility axis to determine if exports are actually used.'
-        'The test axis evaluates quality of existing test coverage checking for behavioral testing edge cases and meaningful assertions.'
-        'The best practices axis evaluates files against 17 TypeScript rules organized by severity including no-any and security checks.'
-        'Reports are split into shards of 10 files each. Each shard contains findings table actions and checkbox items for tracking fixes.'
-        'Anatoly maintains calibration data recording per-axis median durations from previous runs to drive dry-run time estimates.'
-        'Configuration in anatoly.config.yaml is validated against a Zod schema controlling axes models concurrency and RAG mode.'
-      )
+      CODE_COUNT=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['code']))" 2>/dev/null)
+      NLP_COUNT=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['nlp']))" 2>/dev/null)
 
       # Test code embeddings
+      info "Code embeddings (${CODE_COUNT} samples)..."
       CODE_PASS=0
       CODE_FAIL=0
-      for i in $(seq 0 9); do
-        SAMPLE="${CODE_SAMPLES[$i]}"
-        LABEL=$(echo "$SAMPLE" | grep -oP '(function|class|async function)\s+\K\w+' | head -1)
-        [[ -z "$LABEL" ]] && LABEL="sample$((i+1))"
+      for i in $(seq 0 $((CODE_COUNT-1))); do
+        SAMPLE_JSON=$(python3 -c "import json; print(json.dumps(json.load(open('${SAMPLES_FILE}'))['code'][$i]))" 2>/dev/null)
+        LABEL=$(python3 -c "
+import json, re
+s = json.load(open('${SAMPLES_FILE}'))['code'][$i]
+m = re.search(r'(?:function|class|async function)\s+(\w+)', s)
+print(m.group(1) if m else 'sample${i}')
+" 2>/dev/null)
+        CHARS=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['code'][$i]))" 2>/dev/null)
+
         T0=$(date +%s%N)
-        RESP=$(curl -sf "http://127.0.0.1:${CODE_PORT}/embedding" \
+        RESP=$(curl -sf --max-time 120 "http://127.0.0.1:${CODE_PORT}/embedding" \
           -H "Content-Type: application/json" \
-          -d "{\"input\": $(echo "$SAMPLE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" 2>/dev/null)
+          -d "{\"input\": ${SAMPLE_JSON}}" 2>/dev/null)
         T1=$(date +%s%N)
         DT=$(( (T1 - T0) / 1000000 ))
 
         if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
           DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
-          printf "    [%2d/10] ${GREEN}✓${NC} %4dms  %s (%sd)\n" "$((i+1))" "$DT" "$LABEL" "$DIM"
+          printf "    [%2d/%d] ${GREEN}✓${NC} %5dms  %-25s (%s chars → %sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$LABEL" "$CHARS" "$DIM"
           CODE_PASS=$((CODE_PASS+1))
         else
-          printf "    [%2d/10] ${RED}✗${NC} %4dms  %s\n" "$((i+1))" "$DT" "$LABEL"
+          printf "    [%2d/%d] ${RED}✗${NC} %5dms  %-25s (%s chars)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$LABEL" "$CHARS"
           CODE_FAIL=$((CODE_FAIL+1))
         fi
       done
       if [[ $CODE_FAIL -eq 0 ]]; then
-        ok "Code embeddings: ${CODE_PASS}/10 passed"
+        ok "Code embeddings: ${CODE_PASS}/${CODE_COUNT} passed"
       else
-        err "Code embeddings: ${CODE_PASS}/10 passed, ${CODE_FAIL} failed"
+        err "Code embeddings: ${CODE_PASS}/${CODE_COUNT} passed, ${CODE_FAIL} failed"
       fi
 
       # Test NLP embeddings
+      info "NLP embeddings (${NLP_COUNT} samples)..."
       NLP_PASS=0
       NLP_FAIL=0
-      for i in $(seq 0 9); do
-        SAMPLE="${NLP_SAMPLES[$i]}"
-        LABEL=$(echo "$SAMPLE" | cut -c1-50)
+      for i in $(seq 0 $((NLP_COUNT-1))); do
+        SAMPLE_JSON=$(python3 -c "import json; print(json.dumps(json.load(open('${SAMPLES_FILE}'))['nlp'][$i]))" 2>/dev/null)
+        LABEL=$(python3 -c "import json; s=json.load(open('${SAMPLES_FILE}'))['nlp'][$i]; print(s[:50])" 2>/dev/null)
+        CHARS=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['nlp'][$i]))" 2>/dev/null)
+
         T0=$(date +%s%N)
-        RESP=$(curl -sf "http://127.0.0.1:${NLP_PORT}/embedding" \
+        RESP=$(curl -sf --max-time 120 "http://127.0.0.1:${NLP_PORT}/embedding" \
           -H "Content-Type: application/json" \
-          -d "{\"input\": $(echo "$SAMPLE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" 2>/dev/null)
+          -d "{\"input\": ${SAMPLE_JSON}}" 2>/dev/null)
         T1=$(date +%s%N)
         DT=$(( (T1 - T0) / 1000000 ))
 
         if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
           DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
-          printf "    [%2d/10] ${GREEN}✓${NC} %4dms  %s... (%sd)\n" "$((i+1))" "$DT" "$LABEL" "$DIM"
+          printf "    [%2d/%d] ${GREEN}✓${NC} %5dms  %-50s (%s chars → %sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "${LABEL}..." "$CHARS" "$DIM"
           NLP_PASS=$((NLP_PASS+1))
         else
-          printf "    [%2d/10] ${RED}✗${NC} %4dms  %s...\n" "$((i+1))" "$DT" "$LABEL"
+          printf "    [%2d/%d] ${RED}✗${NC} %5dms  %-50s (%s chars)\n" "$((i+1))" "$NLP_COUNT" "$DT" "${LABEL}..." "$CHARS"
           NLP_FAIL=$((NLP_FAIL+1))
         fi
       done
       if [[ $NLP_FAIL -eq 0 ]]; then
-        ok "NLP embeddings: ${NLP_PASS}/10 passed"
+        ok "NLP embeddings: ${NLP_PASS}/${NLP_COUNT} passed"
       else
-        err "NLP embeddings: ${NLP_PASS}/10 passed, ${NLP_FAIL} failed"
+        err "NLP embeddings: ${NLP_PASS}/${NLP_COUNT} passed, ${NLP_FAIL} failed"
       fi
 
       # Cleanup
