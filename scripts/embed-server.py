@@ -15,7 +15,6 @@ Endpoints:
 """
 
 import argparse
-import gc
 import json
 import signal
 import threading
@@ -30,8 +29,6 @@ def parse_args():
     p = argparse.ArgumentParser(description="Anatoly embedding sidecar")
     p.add_argument("--port", type=int, default=11435)
     p.add_argument("--model", default="nomic-ai/nomic-embed-code")
-    p.add_argument("--quantize", action="store_true",
-                   help="load model in 8-bit quantization (requires bitsandbytes)")
     p.add_argument("--idle-timeout", type=int, default=300,
                    help="auto-shutdown after N seconds of inactivity (0 = disabled)")
     return p.parse_args()
@@ -48,23 +45,8 @@ else:
     device = "cpu"
 
 current_model = args.model
-current_quantized = args.quantize
-
-
-def load_st_model(name: str, quantize: bool = False):
-    """Load a SentenceTransformer model, optionally in 8-bit."""
-    if quantize:
-        from transformers import BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
-        print(f"[embed-server] loading {name} on {device} (int8)...", flush=True)
-        return SentenceTransformer(name, trust_remote_code=True,
-                                   model_kwargs={"quantization_config": bnb_config, "device_map": {"": 0}})
-    else:
-        print(f"[embed-server] loading {name} on {device} (bf16)...", flush=True)
-        return SentenceTransformer(name, device=device, trust_remote_code=True)
-
-
-model = load_st_model(current_model, current_quantized)
+print(f"[embed-server] loading {current_model} on {device}...", flush=True)
+model = SentenceTransformer(current_model, device=device, trust_remote_code=True)
 dim = model.get_sentence_embedding_dimension()
 
 idle_label = f", idle timeout {args.idle_timeout}s" if args.idle_timeout > 0 else ""
@@ -114,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         touch_activity()
         if self.path == "/health":
-            self._send_json(200, {"status": "ok", "model": current_model, "device": device, "dim": dim, "quantized": current_quantized})
+            self._send_json(200, {"status": "ok", "model": current_model, "device": device, "dim": dim})
         else:
             self._send_json(404, {"error": "not found"})
 
@@ -136,30 +118,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             new_model_name = data.get("model")
-            new_quantize = data.get("quantize", False)
             if not new_model_name:
                 self._send_json(400, {"error": "missing 'model' field"})
                 return
 
-            if new_model_name == current_model and new_quantize == current_quantized:
+            if new_model_name == current_model:
                 self._send_json(200, {"status": "ok", "model": current_model, "dim": dim})
                 return
 
             print(f"[embed-server] unloading {current_model}...", flush=True)
             del model
-            gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            time.sleep(1)  # let CUDA reclaim memory
 
+            print(f"[embed-server] loading {new_model_name} on {device}...", flush=True)
             try:
-                model = load_st_model(new_model_name, new_quantize)
+                model = SentenceTransformer(new_model_name, device=device, trust_remote_code=True)
                 dim = model.get_sentence_embedding_dimension()
                 current_model = new_model_name
-                current_quantized = new_quantize
-                prec = "int8" if new_quantize else "bf16"
-                print(f"[embed-server] ready — {current_model} {dim}d on {device} ({prec})", flush=True)
-                self._send_json(200, {"status": "ok", "model": current_model, "dim": dim, "quantized": new_quantize})
+                print(f"[embed-server] ready — {current_model} {dim}d on {device}", flush=True)
+                self._send_json(200, {"status": "ok", "model": current_model, "dim": dim})
             except Exception as e:
                 self._send_json(500, {"error": f"failed to load {new_model_name}: {str(e)}"})
             return
