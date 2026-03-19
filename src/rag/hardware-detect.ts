@@ -73,11 +73,20 @@ export function detectHardware(): HardwareProfile {
 // ---------------------------------------------------------------------------
 
 export interface EmbeddingsReadyFlag {
-  model: string;
-  dim: number;
+  model?: string;
+  dim?: number;
+  code_model?: string;
+  nlp_model?: string;
+  dim_code?: number;
+  dim_nlp?: number;
   device: string;
   python: string;
-  setup_at: string;
+  setup_at?: string;
+  checked_at?: string;
+  code_quantize?: boolean;
+  nlp_quantize?: boolean;
+  code_precision?: string;
+  nlp_precision?: string;
 }
 
 /**

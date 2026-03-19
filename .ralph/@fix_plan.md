@@ -271,6 +271,29 @@
   > AC: Given run --axes documentation, Then summaries non vides, doc sections indexées, matching sémantique correct.
   > AC: Given run --axes duplication, Then aucune doc section dans les candidats — non-régression.
 
+### Epic 28 : Tiered Embedding Backend — GGUF/Docker acceleration
+> Goal: Add GGUF/Docker backend (llama.cpp) for GPU-accelerated embeddings with dual-model simultaneous loading (~10 GB VRAM). Setup auto-detects VRAM, runs A/B test, selects optimal tier (lite/advanced-fp16/advanced-gguf). Runtime reads embeddings-ready.json and routes to the right backend.
+
+- [ ] Story 28.1: Setup — détection VRAM, download GGUF, pull Docker
+  > Preflight dependency check, VRAM detection, GGUF download from official HF repos, Docker image pull, tier selection logic.
+  > AC: Given GPU ≥ 12 GB + Docker, When setup-embeddings runs, Then GGUF models downloaded, Docker image pulled, tier determined, embeddings-ready.json written.
+  > AC: Given no GPU, When setup-embeddings runs, Then lite selected, no GGUF download.
+
+- [ ] Story 28.2: A/B test — bf16 vs GGUF quality comparison
+  > Compare sentence-transformers bf16 vs Docker llama.cpp GGUF on 10 code + 10 NLP samples. Measure cosine similarity, VRAM, latency, ranking preservation.
+  > AC: Given ≥ 24 GB VRAM + Docker, When --ab-test runs, Then bf16 and GGUF compared, recommendation written to embeddings-ready.json.
+  > AC: Given GGUF sim > 0.99 and ranking preserved, Then backend set to advanced-gguf.
+
+- [ ] Story 28.3: Runtime — routing backend selon embeddings-ready.json
+  > embed-sidecar.ts reads backend from embeddings-ready.json. Docker lifecycle for gguf, Python sidecar for fp16, ONNX in-process for lite. Fallback chain with warnings.
+  > AC: Given backend=advanced-gguf, When anatoly run starts, Then Docker container starts with both GGUF models, embeds correctly, stops at end.
+  > AC: Given Docker unavailable at runtime, Then fallback to fp16 or lite with warning.
+
+- [ ] Story 28.4: Adversarial Code Review — Validation complète de l'Epic 28
+  > BMAD adversarial review: preflight, file lists, tasks [x], ACs, non-regression, integration tests (tier selection, A/B test, runtime routing), auto-fix, final validation.
+  > AC: Given stories 28.1-28.3 complete, When each claim verified, Then no task [x] not implemented, no AC missing.
+  > AC: Given all 3 backends tested, Then embeddings produced correctly, no orphan processes, fallback works.
+
 ## Completed
 
 - [x] Story 1.1: Initialisation du projet et structure CLI (2026-02-23)

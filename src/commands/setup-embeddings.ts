@@ -28,9 +28,12 @@ export function registerSetupEmbeddingsCommand(program: Command): void {
     .command('setup-embeddings')
     .description('Install sentence-transformers + nomic-embed-code for GPU-accelerated embeddings')
     .option('--check', 'check current embedding setup status without installing')
-    .action((opts: { check?: boolean }) => {
+    .option('--ab-test', 'run A/B test to determine optimal quantization config')
+    .action((opts: { check?: boolean; abTest?: boolean }) => {
       const script = findSetupScript();
-      const args = opts.check ? ['--check'] : [];
+      const args: string[] = [];
+      if (opts.abTest) args.push('--ab-test');
+      else if (opts.check) args.push('--check');
       execFileSync('bash', [script, ...args], { stdio: 'inherit' });
     });
 }

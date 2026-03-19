@@ -264,9 +264,11 @@ export async function stopSidecar(): Promise<void> {
 export async function swapSidecarModel(
   newModel: string,
   onLog?: (message: string) => void,
+  quantize?: boolean,
 ): Promise<boolean> {
   const url = getSidecarUrl();
-  onLog?.(`swapping sidecar model to ${newModel}...`);
+  const prec = quantize ? 'int8' : 'bf16';
+  onLog?.(`swapping sidecar model to ${newModel} (${prec})...`);
 
   try {
     const controller = new AbortController();
@@ -275,7 +277,7 @@ export async function swapSidecarModel(
     const res = await fetch(`${url}/load`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: newModel }),
+      body: JSON.stringify({ model: newModel, quantize: quantize ?? false }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -286,8 +288,8 @@ export async function swapSidecarModel(
       return false;
     }
 
-    const data = await res.json() as { status: string; model: string; dim: number };
-    onLog?.(`sidecar model swapped: ${data.model} (${data.dim}d)`);
+    const data = await res.json() as { status: string; model: string; dim: number; quantized?: boolean };
+    onLog?.(`sidecar model swapped: ${data.model} (${data.dim}d, ${data.quantized ? 'int8' : 'bf16'})`);
     return true;
   } catch (err) {
     onLog?.(`sidecar model swap error: ${(err as Error).message}`);
