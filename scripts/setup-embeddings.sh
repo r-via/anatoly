@@ -35,10 +35,10 @@ VENV_DIR="${PROJECT_ROOT}/.anatoly/.venv"
 MODELS_DIR="${PROJECT_ROOT}/.anatoly/models"
 
 # GGUF Docker backend constants
-GGUF_DOCKER_IMAGE="ghcr.io/ggerganov/llama.cpp:server-cuda"
+GGUF_DOCKER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
 GGUF_CODE_MODEL_FILE="nomic-embed-code.Q5_K_M.gguf"
 GGUF_NLP_MODEL_FILE="Qwen3-Embedding-8B-Q5_K_M.gguf"
-GGUF_CODE_HF_REPO="nomic-ai/nomic-embed-code-v1-GGUF"
+GGUF_CODE_HF_REPO="nomic-ai/nomic-embed-code-GGUF"
 GGUF_NLP_HF_REPO="Qwen/Qwen3-Embedding-8B-GGUF"
 GGUF_MIN_VRAM_GB=12
 
@@ -425,7 +425,58 @@ if has_docker; then
     info "  Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
   fi
 else
-  info "Docker: not available (optional — needed for GGUF backend)"
+  if [[ "$GPU" == "cuda" ]] && [[ "$VRAM_GB" -ge "$GGUF_MIN_VRAM_GB" ]]; then
+    warn "Docker not found. Required for advanced-gguf backend (best performance)."
+    echo ""
+    info "Docker enables GGUF quantized models (~10 GB VRAM for both models"
+    info "loaded simultaneously, instead of ~28 GB with bf16 swap)."
+    echo ""
+    read -r -p "  Install Docker + NVIDIA Container Toolkit now? (requires sudo) [y/N] " INSTALL_DOCKER
+    if [[ "${INSTALL_DOCKER,,}" == "y" ]]; then
+      info "Installing Docker (official repository)..."
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq ca-certificates curl
+      sudo install -m 0755 -d /etc/apt/keyrings
+      sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      sudo chmod a+r /etc/apt/keyrings/docker.asc
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+        $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      # Add current user to docker group (avoids sudo for docker commands)
+      sudo usermod -aG docker "$USER"
+      ok "Docker installed"
+
+      info "Installing NVIDIA Container Toolkit..."
+      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+      curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq nvidia-container-toolkit
+      sudo nvidia-ctk runtime configure --runtime=docker
+      sudo systemctl restart docker
+      ok "NVIDIA Container Toolkit installed"
+
+      # Re-check
+      if has_docker; then
+        DOCKER_OK="true"
+        ok "Docker: available"
+        if has_nvidia_container_toolkit; then
+          TOOLKIT_OK="true"
+          ok "NVIDIA Container Toolkit: verified"
+        fi
+      else
+        warn "Docker installed but not available yet."
+        info "You may need to log out and log back in (for docker group), then re-run setup."
+      fi
+    else
+      info "Skipping Docker install. Falling back to advanced-fp16 (Python sidecar)."
+    fi
+  else
+    info "Docker: not available (optional — needed for GGUF backend)"
+  fi
 fi
 
 # Step 2: Determine tier
