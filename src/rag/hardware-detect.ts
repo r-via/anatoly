@@ -181,7 +181,7 @@ export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code';
 export const SIDECAR_NLP_MODEL = 'Qwen/Qwen3-Embedding-8B';
 
 // GGUF Docker backend constants
-export const GGUF_DOCKER_IMAGE = 'ghcr.io/ggerganov/llama.cpp:server-cuda';
+export const GGUF_DOCKER_IMAGE = 'ghcr.io/ggml-org/llama.cpp:server-cuda';
 export const GGUF_CODE_PORT = 11435;
 export const GGUF_NLP_PORT = 11436;
 export const GGUF_CODE_MODEL_FILE = 'nomic-embed-code.Q5_K_M.gguf';

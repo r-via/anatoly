@@ -23,7 +23,7 @@ MODELS_DIR="${PROJECT_ROOT}/.anatoly/models"
 VENV_DIR="${PROJECT_ROOT}/.anatoly/.venv"
 
 # Docker / model config
-GGUF_DOCKER_IMAGE="ghcr.io/ggerganov/llama.cpp:server-cuda"
+GGUF_DOCKER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
 GGUF_CODE_MODEL="nomic-embed-code.Q5_K_M.gguf"
 GGUF_NLP_MODEL="Qwen3-Embedding-8B-Q5_K_M.gguf"
 GGUF_CODE_PORT=11437  # Use non-default ports to avoid conflicts
@@ -300,7 +300,8 @@ print(json.dumps(results))
 kill "$SIDECAR_PID" 2>/dev/null || true
 wait "$SIDECAR_PID" 2>/dev/null || true
 SIDECAR_PID=""
-sleep 3
+info "Cooling down (releasing VRAM)..."
+sleep 10
 
 # Restart GGUF containers for comparison
 info "Restarting GGUF Docker containers for comparison..."
