@@ -319,62 +319,46 @@ if [[ "${1:-}" == "--check" ]]; then
       warn "torch: not installed"
     fi
 
-    # Check if models are cached + measure load time
-    if check_package "$PYTHON" "sentence_transformers"; then
-      MODEL_RESULT=$("$PYTHON" -c "
-import time
-from sentence_transformers import SentenceTransformer
-try:
-    t0 = time.time()
-    m = SentenceTransformer('${MODEL}')
-    dt = time.time() - t0
-    print(f'yes {m.get_sentence_embedding_dimension()} {dt:.1f}')
-except:
-    print('no 0 0')
-" 2>/dev/null || echo "no 0 0")
-
-      MODEL_OK=$(echo "$MODEL_RESULT" | cut -d' ' -f1)
-      MODEL_DIM=$(echo "$MODEL_RESULT" | cut -d' ' -f2)
-      MODEL_TIME=$(echo "$MODEL_RESULT" | cut -d' ' -f3)
-
-      if [[ "$MODEL_OK" == "yes" ]]; then
-        ok   "Code model: ${MODEL} (${MODEL_DIM}d, loaded in ${MODEL_TIME}s)"
+    # Backend-specific checks
+    if [[ "$TIER" == "advanced-gguf" ]]; then
+      info "Backend: advanced-gguf (Docker llama.cpp)"
+      if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
+        ok   "Docker image: ${GGUF_DOCKER_IMAGE}"
       else
-        warn "Code model: ${MODEL} not downloaded yet"
+        warn "Docker image not pulled: ${GGUF_DOCKER_IMAGE}"
+        info "  Run: npx anatoly setup-embeddings"
       fi
-
-      NLP_RESULT=$("$PYTHON" -c "
-import time
-from sentence_transformers import SentenceTransformer
-try:
-    t0 = time.time()
-    m = SentenceTransformer('${NLP_MODEL}', trust_remote_code=True)
-    dt = time.time() - t0
-    print(f'yes {m.get_sentence_embedding_dimension()} {dt:.1f}')
-except:
-    print('no 0 0')
-" 2>/dev/null || echo "no 0 0")
-
-      NLP_OK=$(echo "$NLP_RESULT" | cut -d' ' -f1)
-      NLP_DIM=$(echo "$NLP_RESULT" | cut -d' ' -f2)
-      NLP_TIME=$(echo "$NLP_RESULT" | cut -d' ' -f3)
-
-      if [[ "$NLP_OK" == "yes" ]]; then
-        ok   "NLP model: ${NLP_MODEL} (${NLP_DIM}d, loaded in ${NLP_TIME}s)"
+    elif [[ "$TIER" == "advanced-fp16" ]]; then
+      info "Backend: advanced-fp16 (Python sidecar)"
+      if check_package "$PYTHON" "sentence_transformers"; then
+        ok   "sentence-transformers: ready"
+        CODE_CACHED=$("$PYTHON" -W ignore -c "
+import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
+from huggingface_hub import try_to_load_from_cache
+r = try_to_load_from_cache('${MODEL}', 'config.json')
+print('yes' if r and r != '' else 'no')
+" 2>/dev/null || echo "no")
+        NLP_CACHED=$("$PYTHON" -W ignore -c "
+import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
+from huggingface_hub import try_to_load_from_cache
+r = try_to_load_from_cache('${NLP_MODEL}', 'config.json')
+print('yes' if r and r != '' else 'no')
+" 2>/dev/null || echo "no")
+        [[ "$CODE_CACHED" == "yes" ]] && ok "Code model: ${MODEL} (cached)" || warn "Code model: not downloaded"
+        [[ "$NLP_CACHED" == "yes" ]] && ok "NLP model: ${NLP_MODEL} (cached)" || warn "NLP model: not downloaded"
+      fi
+      if sidecar_running; then
+        HEALTH=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/health" 2>/dev/null)
+        DEVICE=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('device','?'))" 2>/dev/null || echo "?")
+        ok   "Sidecar: running on port ${SIDECAR_PORT} (device: ${DEVICE})"
       else
-        warn "NLP model: ${NLP_MODEL} not downloaded yet"
+        info "Sidecar: not running (auto-started by anatoly run)"
       fi
+    else
+      info "Backend: lite (ONNX CPU, no GPU acceleration)"
     fi
   else
     warn "Python: 3.9+ not found"
-  fi
-
-  if sidecar_running; then
-    HEALTH=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/health" 2>/dev/null)
-    DEVICE=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('device','?'))" 2>/dev/null || echo "?")
-    ok   "Sidecar: running on port ${SIDECAR_PORT} (device: ${DEVICE})"
-  else
-    info "Sidecar: not running (auto-started by anatoly run)"
   fi
 
   echo ""
