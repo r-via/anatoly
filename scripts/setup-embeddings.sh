@@ -277,32 +277,181 @@ if [[ "${1:-}" == "--check" ]]; then
   echo "  ─────────────────────────────────"
 
   if [[ "$BACKEND" == "advanced-gguf" ]]; then
-    # GGUF checks: Docker, Toolkit, image, models
-    if [[ "$DOCKER_OK" == "true" ]]; then
-      ok   "Docker: available"
-    else
-      err  "Docker: not available"
-    fi
-    if [[ "$TOOLKIT_OK" == "true" ]]; then
-      ok   "NVIDIA Container Toolkit: available"
-    else
-      err  "NVIDIA Container Toolkit: not found"
-    fi
+    GGUF_CHECK_PASS=true
+
+    # Prerequisites
+    if [[ "$DOCKER_OK" == "true" ]]; then ok "Docker: available"; else err "Docker: not available"; GGUF_CHECK_PASS=false; fi
+    if [[ "$TOOLKIT_OK" == "true" ]]; then ok "NVIDIA Container Toolkit: available"; else err "NVIDIA Container Toolkit: not found"; GGUF_CHECK_PASS=false; fi
     if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
       ok   "Docker image: ${GGUF_DOCKER_IMAGE}"
     else
-      warn "Docker image not pulled"
-      info "  Run: npx anatoly setup-embeddings"
+      warn "Docker image not pulled — run: npx anatoly setup-embeddings"
+      GGUF_CHECK_PASS=false
     fi
     if [[ -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
       ok   "Code GGUF: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
     else
-      warn "Code GGUF: not downloaded"
+      warn "Code GGUF: not downloaded"; GGUF_CHECK_PASS=false
     fi
     if [[ -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
       ok   "NLP GGUF: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
     else
-      warn "NLP GGUF: not downloaded"
+      warn "NLP GGUF: not downloaded"; GGUF_CHECK_PASS=false
+    fi
+
+    # Live embedding test (only if prerequisites pass)
+    if [[ "$GGUF_CHECK_PASS" == "true" ]]; then
+      echo "  ─────────────────────────────────"
+      info "Live embedding test (10 code + 10 NLP samples)"
+
+      CODE_PORT=11435
+      NLP_PORT=11436
+      CODE_CONTAINER="anatoly-check-code-$$"
+      NLP_CONTAINER="anatoly-check-nlp-$$"
+      trap 'docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null; exit 1' INT TERM
+
+      # Start code container
+      info "Starting code container (port ${CODE_PORT})..."
+      docker run -d --rm --name "$CODE_CONTAINER" \
+        --gpus all \
+        -v "${MODELS_DIR}:/models:ro" \
+        -p ${CODE_PORT}:8080 \
+        "$GGUF_DOCKER_IMAGE" \
+        --model "/models/${GGUF_CODE_MODEL_FILE}" \
+        --embedding --port 8080 --host 0.0.0.0 >/dev/null 2>&1
+
+      # Start NLP container
+      info "Starting NLP container (port ${NLP_PORT})..."
+      docker run -d --rm --name "$NLP_CONTAINER" \
+        --gpus all \
+        -v "${MODELS_DIR}:/models:ro" \
+        -p ${NLP_PORT}:8080 \
+        "$GGUF_DOCKER_IMAGE" \
+        --model "/models/${GGUF_NLP_MODEL_FILE}" \
+        --embedding --port 8080 --host 0.0.0.0 >/dev/null 2>&1
+
+      # Wait for both containers
+      CODE_READY=false
+      NLP_READY=false
+      for i in $(seq 1 60); do
+        if [[ "$CODE_READY" == "false" ]] && curl -sf "http://127.0.0.1:${CODE_PORT}/health" &>/dev/null; then
+          CODE_READY=true
+        fi
+        if [[ "$NLP_READY" == "false" ]] && curl -sf "http://127.0.0.1:${NLP_PORT}/health" &>/dev/null; then
+          NLP_READY=true
+        fi
+        if [[ "$CODE_READY" == "true" ]] && [[ "$NLP_READY" == "true" ]]; then break; fi
+        sleep 2
+      done
+
+      if [[ "$CODE_READY" == "false" ]]; then
+        err "Code container failed to start"
+        docker logs "$CODE_CONTAINER" 2>&1 | tail -5
+        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
+        echo ""; exit 1
+      fi
+      if [[ "$NLP_READY" == "false" ]]; then
+        err "NLP container failed to start"
+        docker logs "$NLP_CONTAINER" 2>&1 | tail -5
+        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
+        echo ""; exit 1
+      fi
+      ok "Both containers ready"
+
+      # Code samples
+      CODE_SAMPLES=(
+        'export function evaluateFile(task, axes, ctx) { const results = []; for (const axis of axes) { results.push(await axis.evaluate(task, ctx)); } return mergeAxisResults(task, results); }'
+        'export class ProgressManager { private writeQueue = Promise.resolve(); updateFileStatus(file, status) { this.writeQueue = this.writeQueue.then(() => atomicWriteJson(this.path, this.data)); } }'
+        'export function mergeSymbol(name, axisResults, graph) { const correction = axisResults.get("correction")?.correction ?? "-"; return { name, correction, confidence: Math.min(...values) }; }'
+        'export function loadConfig(root) { const path = resolve(root, "anatoly.config.yaml"); if (!existsSync(path)) return defaults; const parsed = yaml.parse(readFileSync(path, "utf-8")); return ConfigSchema.parse(parsed); }'
+        'export function parseFile(filePath, content) { const parser = getParser(lang); const tree = parser.parse(content); const symbols = []; const cursor = tree.walk(); return { filePath, symbols }; }'
+        'export async function searchByIdHybrid(store, id, k, weight) { const card = await store.getById(id); const code = await store.searchByVector(card.vector, k); const nlp = await store.searchByNlpVector(card.nlp_vector, k); return merge(code, nlp, weight); }'
+        'export function generateReport(root, errors, runDir) { const reviews = loadReviews(runDir); const verdict = computeGlobalVerdict(reviews); const markdown = renderIndex({ reviews, verdict }); writeFileSync(reportPath, markdown); return { reportPath, data }; }'
+        'async function runWorkerPool(tasks, concurrency, worker) { let next = 0; async function run() { while (next < tasks.length) { const i = next++; await worker(tasks[i], i); } } await Promise.all(Array.from({ length: concurrency }, run)); }'
+        'export function applyDeliberation(review, delib) { const symbols = review.symbols.map(sym => { const d = delib.symbols.find(s => s.name === sym.name); return d ? { ...sym, confidence: d.deliberated.confidence } : sym; }); return { symbols, verdict: recompute(symbols) }; }'
+        'export function extractImports(content, filePath) { const edges = []; const re = /import\\s*\\{([^}]+)\\}\\s*from\\s*["\x27]([^"\x27]+)["\x27]/g; let m; while ((m = re.exec(content))) { edges.push({ from: filePath, to: resolve(m[2]) }); } return edges; }'
+      )
+
+      # NLP samples
+      NLP_SAMPLES=(
+        'The Anatoly pipeline processes TypeScript projects through six sequential phases: scan, estimate, triage, RAG index, review, and report.'
+        'The deliberation pass is the quality gate. After all axes evaluate a file, their results are merged. If findings exist, Claude Opus reviews them.'
+        'The RAG engine provides semantic search for duplication and documentation axes via LanceDB with function cards and documentation sections.'
+        'The correction axis uses a two-pass approach. Pass 1 detects bugs. Pass 2 verifies against library documentation to reduce false positives.'
+        'The usage graph tracks import relationships between TypeScript files enabling the utility axis to determine if exports are actually used.'
+        'The test axis evaluates quality of existing test coverage checking for behavioral testing edge cases and meaningful assertions.'
+        'The best practices axis evaluates files against 17 TypeScript rules organized by severity including no-any and security checks.'
+        'Reports are split into shards of 10 files each. Each shard contains findings table actions and checkbox items for tracking fixes.'
+        'Anatoly maintains calibration data recording per-axis median durations from previous runs to drive dry-run time estimates.'
+        'Configuration in anatoly.config.yaml is validated against a Zod schema controlling axes models concurrency and RAG mode.'
+      )
+
+      # Test code embeddings
+      CODE_PASS=0
+      CODE_FAIL=0
+      for i in $(seq 0 9); do
+        SAMPLE="${CODE_SAMPLES[$i]}"
+        LABEL=$(echo "$SAMPLE" | grep -oP '(function|class|async function)\s+\K\w+' | head -1)
+        [[ -z "$LABEL" ]] && LABEL="sample$((i+1))"
+        T0=$(date +%s%N)
+        RESP=$(curl -sf "http://127.0.0.1:${CODE_PORT}/embedding" \
+          -H "Content-Type: application/json" \
+          -d "{\"input\": $(echo "$SAMPLE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" 2>/dev/null)
+        T1=$(date +%s%N)
+        DT=$(( (T1 - T0) / 1000000 ))
+
+        if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
+          DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
+          printf "    [%2d/10] ${GREEN}✓${NC} %4dms  %s (%sd)\n" "$((i+1))" "$DT" "$LABEL" "$DIM"
+          CODE_PASS=$((CODE_PASS+1))
+        else
+          printf "    [%2d/10] ${RED}✗${NC} %4dms  %s\n" "$((i+1))" "$DT" "$LABEL"
+          CODE_FAIL=$((CODE_FAIL+1))
+        fi
+      done
+      if [[ $CODE_FAIL -eq 0 ]]; then
+        ok "Code embeddings: ${CODE_PASS}/10 passed"
+      else
+        err "Code embeddings: ${CODE_PASS}/10 passed, ${CODE_FAIL} failed"
+      fi
+
+      # Test NLP embeddings
+      NLP_PASS=0
+      NLP_FAIL=0
+      for i in $(seq 0 9); do
+        SAMPLE="${NLP_SAMPLES[$i]}"
+        LABEL=$(echo "$SAMPLE" | cut -c1-50)
+        T0=$(date +%s%N)
+        RESP=$(curl -sf "http://127.0.0.1:${NLP_PORT}/embedding" \
+          -H "Content-Type: application/json" \
+          -d "{\"input\": $(echo "$SAMPLE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))')}" 2>/dev/null)
+        T1=$(date +%s%N)
+        DT=$(( (T1 - T0) / 1000000 ))
+
+        if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
+          DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
+          printf "    [%2d/10] ${GREEN}✓${NC} %4dms  %s... (%sd)\n" "$((i+1))" "$DT" "$LABEL" "$DIM"
+          NLP_PASS=$((NLP_PASS+1))
+        else
+          printf "    [%2d/10] ${RED}✗${NC} %4dms  %s...\n" "$((i+1))" "$DT" "$LABEL"
+          NLP_FAIL=$((NLP_FAIL+1))
+        fi
+      done
+      if [[ $NLP_FAIL -eq 0 ]]; then
+        ok "NLP embeddings: ${NLP_PASS}/10 passed"
+      else
+        err "NLP embeddings: ${NLP_PASS}/10 passed, ${NLP_FAIL} failed"
+      fi
+
+      # Cleanup
+      docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" >/dev/null 2>&1 || true
+      trap - INT TERM
+
+      if [[ $CODE_FAIL -gt 0 ]] || [[ $NLP_FAIL -gt 0 ]]; then
+        err "Embedding check failed"
+        echo ""; exit 1
+      fi
+      ok "All 20 embeddings verified"
     fi
 
   elif [[ "$BACKEND" == "advanced-fp16" ]]; then
