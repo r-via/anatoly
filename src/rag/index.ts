@@ -17,3 +17,4 @@ export { indexProject, processFileForIndex, processFileForDualIndex, ragModeArti
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
 export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks } from './doc-indexer.js';
 export type { DocSection, DocIndexOptions } from './doc-indexer.js';
+export { startGgufContainers, stopGgufContainers, areGgufContainersRunning } from './docker-gguf.js';

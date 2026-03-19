@@ -273,26 +273,39 @@
 
 ### Epic 28 : Tiered Embedding Backend — GGUF/Docker acceleration
 > Goal: Add GGUF/Docker backend (llama.cpp) for GPU-accelerated embeddings with dual-model simultaneous loading (~10 GB VRAM). Setup auto-detects VRAM, runs A/B test, selects optimal tier (lite/advanced-fp16/advanced-gguf). Runtime reads embeddings-ready.json and routes to the right backend.
+>
+> **CRITICAL CONSTRAINT — DO NOT USE llama-cpp-python:**
+> The GGUF backend MUST use the official Docker container `ghcr.io/ggml-org/llama.cpp:server-cuda`.
+> DO NOT use llama-cpp-python, bitsandbytes, compressed-tensors, llmcompressor, or any Python quantization library.
+> The existing Python sidecar (embed-server.py) is ONLY for the advanced-fp16 backend (sentence-transformers).
+> The GGUF backend is a Docker container exposing an HTTP `/embedding` endpoint — TypeScript calls it via fetch().
+> GGUF models are already downloaded in `.anatoly/models/*.gguf` (official from nomic-ai and Qwen HuggingFace repos).
 
-- [ ] Story 28.1: Setup — détection VRAM, download GGUF, pull Docker
-  > Preflight dependency check, VRAM detection, GGUF download from official HF repos, Docker image pull, tier selection logic.
-  > AC: Given GPU ≥ 12 GB + Docker, When setup-embeddings runs, Then GGUF models downloaded, Docker image pulled, tier determined, embeddings-ready.json written.
-  > AC: Given no GPU, When setup-embeddings runs, Then lite selected, no GGUF download.
+- [x] Story 28.1: Setup — détection VRAM, download GGUF, pull Docker
+  > Preflight dependency check (nvidia-smi, docker, nvidia-container-toolkit), VRAM detection, GGUF download from official HF repos, Docker image pull.
+  > **CONSTRAINT:** GGUF backend = Docker container `ghcr.io/ggml-org/llama.cpp:server-cuda`. NOT llama-cpp-python.
+  > AC: Given GPU ≥ 12 GB + Docker + NVIDIA Container Toolkit, When setup-embeddings runs, Then GGUF models downloaded to .anatoly/models/, Docker image pulled, tier determined, embeddings-ready.json written with backend field.
+  > AC: Given no GPU, When setup-embeddings runs, Then lite selected, no GGUF download, no Docker pull.
+  > AC: Given GPU but no Docker, When setup-embeddings runs, Then advanced-fp16 selected (existing sidecar), no GGUF.
 
-- [ ] Story 28.2: A/B test — bf16 vs GGUF quality comparison
+- [x] Story 28.2: A/B test — bf16 vs GGUF quality comparison
   > Compare sentence-transformers bf16 vs Docker llama.cpp GGUF on 10 code + 10 NLP samples. Measure cosine similarity, VRAM, latency, ranking preservation.
-  > AC: Given ≥ 24 GB VRAM + Docker, When --ab-test runs, Then bf16 and GGUF compared, recommendation written to embeddings-ready.json.
+  > **CONSTRAINT:** GGUF embeddings MUST come from Docker container `/embedding` endpoint, NOT from llama-cpp-python. Start Docker container, POST to /embedding, compare vectors, stop container.
+  > AC: Given ≥ 24 GB VRAM + Docker, When --ab-test runs, Then bf16 embeddings from sentence-transformers AND GGUF embeddings from Docker container compared, recommendation written to embeddings-ready.json.
   > AC: Given GGUF sim > 0.99 and ranking preserved, Then backend set to advanced-gguf.
 
-- [ ] Story 28.3: Runtime — routing backend selon embeddings-ready.json
-  > embed-sidecar.ts reads backend from embeddings-ready.json. Docker lifecycle for gguf, Python sidecar for fp16, ONNX in-process for lite. Fallback chain with warnings.
-  > AC: Given backend=advanced-gguf, When anatoly run starts, Then Docker container starts with both GGUF models, embeds correctly, stops at end.
-  > AC: Given Docker unavailable at runtime, Then fallback to fp16 or lite with warning.
+- [x] Story 28.3: Runtime — routing backend selon embeddings-ready.json
+  > embed-sidecar.ts reads backend from embeddings-ready.json. Docker lifecycle for gguf (docker run/stop), Python sidecar for fp16, ONNX in-process for lite. Fallback chain with warnings.
+  > **CONSTRAINT:** advanced-gguf = `docker run --gpus all -v .anatoly/models:/models ghcr.io/ggml-org/llama.cpp:server-cuda --model /models/<model>.gguf --embedding --port 8080`. Two containers on separate ports (code + NLP) loaded simultaneously. TypeScript calls `fetch("http://127.0.0.1:<port>/embedding")`. At end of run: `docker stop`. NO Python involved for GGUF backend.
+  > AC: Given backend=advanced-gguf, When anatoly run starts, Then two Docker containers start (code port 11435, NLP port 11436), both GGUF models loaded simultaneously (~10 GB VRAM total), embeddings produced via HTTP /embedding endpoint, containers stopped at end of run.
+  > AC: Given Docker unavailable at runtime, Then fallback to fp16 (Python sidecar) or lite (ONNX) with warning log.
 
 - [ ] Story 28.4: Adversarial Code Review — Validation complète de l'Epic 28
   > BMAD adversarial review: preflight, file lists, tasks [x], ACs, non-regression, integration tests (tier selection, A/B test, runtime routing), auto-fix, final validation.
+  > **VERIFY:** No llama-cpp-python, bitsandbytes, or Python quantization imports anywhere in codebase. GGUF backend is Docker-only.
   > AC: Given stories 28.1-28.3 complete, When each claim verified, Then no task [x] not implemented, no AC missing.
-  > AC: Given all 3 backends tested, Then embeddings produced correctly, no orphan processes, fallback works.
+  > AC: Given all 3 backends tested, Then embeddings produced correctly, no orphan Docker containers, fallback works.
+  > AC: Given `grep -r "llama_cpp\|bitsandbytes\|compressed.tensors" src/ scripts/`, Then zero matches.
 
 ## Completed
 

@@ -21,8 +21,9 @@ import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
-import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
+import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
+import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -302,6 +303,7 @@ export function registerRunCommand(program: Command): void {
         process.exitCode = 2;
       } finally {
         await stopSidecar(); // no-op if already stopped after RAG phase
+        await stopGgufContainers(); // no-op if no containers running
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
       }
@@ -647,11 +649,37 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   log.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
-  // Spawn sidecar if advanced mode, resolve embedding models, then index
-  const needsSidecar = ctx.resolvedRagMode === 'advanced';
+  // Detect hardware and determine backend BEFORE starting any embedding server
+  const hardware = detectHardware();
+  const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
+  const resolveLogFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
+  const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+
+  // Start the appropriate embedding backend based on detected tier
+  if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {
+    const ggufMsg = 'starting GGUF Docker containers';
+    let started = false;
+    if (!ctx.plain && process.stdout.isTTY) {
+      process.stdout.write(chalk.dim(`  ${ggufMsg}...`));
+      started = await startGgufContainers(ctx.projectRoot, logFn, (sec) => {
+        process.stdout.write(`\r\x1b[K${chalk.dim(`  ${ggufMsg}... ${sec}s`)}`);
+      });
+      process.stdout.write('\r\x1b[K');
+    } else {
+      log.info(ggufMsg);
+      started = await startGgufContainers(ctx.projectRoot, logFn);
+    }
+    if (!started) {
+      log.warn('GGUF containers failed to start — falling back to fp16 sidecar');
+      effectiveBackend = hardware.hasGpu ? 'advanced-fp16' : 'lite';
+    }
+  }
+
+  // Fallback: start Python sidecar for advanced-fp16
+  const needsSidecar = effectiveBackend === 'advanced-fp16' && ctx.resolvedRagMode === 'advanced';
   if (needsSidecar) {
     const sidecarMsg = 'loading embed sidecar (code model)';
-    const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
     if (!ctx.plain && process.stdout.isTTY) {
       process.stdout.write(chalk.dim(`  ${sidecarMsg}...`));
       await ensureSidecar(logFn, (sec) => {
@@ -665,11 +693,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     }
   }
 
-  // Resolve models now that sidecar may be running
-  const hardware = detectHardware();
-  const resolveLogFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-  const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
-  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn, readyFlag);
+  // Resolve models with the effective backend (handles GGUF/sidecar/ONNX routing)
+  const effectiveFlag = readyFlag
+    ? { ...readyFlag, backend: effectiveBackend }
+    : { device: 'cpu', python: 'python3', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
+  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn, effectiveFlag);
 
   if (needsSidecar && ctx.resolvedModels.codeRuntime !== 'sidecar') {
     await stopSidecar();
@@ -720,9 +748,10 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   try {
     await ragRunner.run();
   } finally {
-    // Sidecar is only needed for embedding — free GPU/RAM immediately
-    // Must run even if indexing throws to avoid leaking the process
+    // Embedding backends are only needed during indexing — free GPU/RAM immediately.
+    // Must run even if indexing throws to avoid leaking processes/containers.
     await stopSidecar();
+    await stopGgufContainers(logFn);
   }
 
   const ragDuration = Date.now() - ragStart;
