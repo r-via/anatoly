@@ -300,7 +300,7 @@
   > AC: Given backend=advanced-gguf, When anatoly run starts, Then two Docker containers start (code port 11435, NLP port 11436), both GGUF models loaded simultaneously (~10 GB VRAM total), embeddings produced via HTTP /embedding endpoint, containers stopped at end of run.
   > AC: Given Docker unavailable at runtime, Then fallback to fp16 (Python sidecar) or lite (ONNX) with warning log.
 
-- [ ] Story 28.4: Adversarial Code Review — Validation complète de l'Epic 28
+- [x] Story 28.4: Adversarial Code Review — Validation complète de l'Epic 28
   > BMAD adversarial review: preflight, file lists, tasks [x], ACs, non-regression, integration tests (tier selection, A/B test, runtime routing), auto-fix, final validation.
   > **VERIFY:** No llama-cpp-python, bitsandbytes, or Python quantization imports anywhere in codebase. GGUF backend is Docker-only.
   > AC: Given stories 28.1-28.3 complete, When each claim verified, Then no task [x] not implemented, no AC missing.
