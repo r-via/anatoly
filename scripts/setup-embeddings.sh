@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 #
-# setup-embeddings.sh — Install sentence-transformers + nomic-embed-code for Anatoly.
+# setup-embeddings.sh — Install embedding backends for Anatoly.
+#
+# Backends (tiered):
+#   lite          — ONNX in-process (Jina 768d, CPU, always available)
+#   advanced-fp16 — Python sidecar (sentence-transformers bf16 on GPU)
+#   advanced-gguf — Docker llama.cpp server-cuda (GGUF Q5_K_M on GPU)
 #
 # Usage:
-#   ./scripts/setup-embeddings.sh           # Install deps + download model
+#   ./scripts/setup-embeddings.sh           # Install deps + download models + detect tier
 #   ./scripts/setup-embeddings.sh --check   # Check status only (no install)
+#   ./scripts/setup-embeddings.sh --ab-test # Run A/B test (bf16 vs GGUF)
 #
 # Venv strategy:
 #   - If VIRTUAL_ENV is set (venv already active), uses it as-is
@@ -26,6 +32,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SIDECAR_SCRIPT="${SCRIPT_DIR}/embed-server.py"
 VENV_DIR="${PROJECT_ROOT}/.anatoly/.venv"
+MODELS_DIR="${PROJECT_ROOT}/.anatoly/models"
+
+# GGUF Docker backend constants
+GGUF_DOCKER_IMAGE="ghcr.io/ggerganov/llama.cpp:server-cuda"
+GGUF_CODE_MODEL_FILE="nomic-embed-code.Q5_K_M.gguf"
+GGUF_NLP_MODEL_FILE="Qwen3-Embedding-8B-Q5_K_M.gguf"
+GGUF_CODE_HF_REPO="nomic-ai/nomic-embed-code-v1-GGUF"
+GGUF_NLP_HF_REPO="Qwen/Qwen3-Embedding-8B-GGUF"
+GGUF_MIN_VRAM_GB=12
 
 # ---------------------------------------------------------------------------
 # Colors
@@ -54,6 +69,106 @@ detect_gpu() {
   else
     echo "none"
   fi
+}
+
+# Detect total VRAM in GB (NVIDIA only, returns 0 for non-NVIDIA)
+detect_vram_gb() {
+  if ! command -v nvidia-smi &>/dev/null; then
+    echo "0"
+    return
+  fi
+  local mib
+  mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+  if [[ -z "$mib" ]] || [[ "$mib" == "0" ]]; then
+    echo "0"
+    return
+  fi
+  echo $(( mib / 1024 ))
+}
+
+# ---------------------------------------------------------------------------
+# Docker / NVIDIA Container Toolkit detection
+# ---------------------------------------------------------------------------
+has_docker() {
+  command -v docker &>/dev/null && docker info &>/dev/null 2>&1
+}
+
+has_nvidia_container_toolkit() {
+  # Check nvidia-container-cli first (fast)
+  if command -v nvidia-container-cli &>/dev/null; then
+    return 0
+  fi
+  # Fallback: check if nvidia runtime is registered in Docker
+  if docker info 2>/dev/null | grep -q "nvidia"; then
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# GGUF model download helpers
+# ---------------------------------------------------------------------------
+download_gguf_model() {
+  local filename="$1"
+  local hf_repo="$2"
+  local target="${MODELS_DIR}/${filename}"
+
+  if [[ -f "$target" ]]; then
+    local size_mb
+    size_mb=$(du -m "$target" | cut -f1)
+    ok "GGUF model present: ${filename} (${size_mb} MB)"
+    return 0
+  fi
+
+  mkdir -p "${MODELS_DIR}"
+  info "Downloading GGUF model: ${filename} from ${hf_repo}..."
+
+  # Use huggingface-cli if available (supports resume), else curl
+  if command -v huggingface-cli &>/dev/null; then
+    huggingface-cli download "${hf_repo}" "${filename}" --local-dir "${MODELS_DIR}" --local-dir-use-symlinks False
+  elif command -v curl &>/dev/null; then
+    curl -L -o "$target" \
+      "https://huggingface.co/${hf_repo}/resolve/main/${filename}" \
+      --progress-bar
+  else
+    err "Neither huggingface-cli nor curl found — cannot download GGUF model"
+    return 1
+  fi
+
+  if [[ -f "$target" ]]; then
+    local size_mb
+    size_mb=$(du -m "$target" | cut -f1)
+    ok "GGUF model downloaded: ${filename} (${size_mb} MB)"
+  else
+    err "GGUF download failed: ${filename}"
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Tier selection logic
+# ---------------------------------------------------------------------------
+# Returns: "lite", "advanced-fp16", or "advanced-gguf"
+select_tier() {
+  local gpu="$1"
+  local vram_gb="$2"
+  local docker_ok="$3"
+  local toolkit_ok="$4"
+
+  # No GPU → lite
+  if [[ "$gpu" == "none" ]]; then
+    echo "lite"
+    return
+  fi
+
+  # GPU + Docker + NVIDIA toolkit + enough VRAM → GGUF candidate
+  if [[ "$docker_ok" == "true" ]] && [[ "$toolkit_ok" == "true" ]] && [[ "$vram_gb" -ge "$GGUF_MIN_VRAM_GB" ]]; then
+    echo "advanced-gguf"
+    return
+  fi
+
+  # GPU but no Docker or insufficient VRAM → fp16 sidecar
+  echo "advanced-fp16"
 }
 
 # ---------------------------------------------------------------------------
@@ -134,10 +249,50 @@ if [[ "${1:-}" == "--check" ]]; then
   echo "  ─────────────────────────────────"
 
   GPU=$(detect_gpu)
+  VRAM_GB=$(detect_vram_gb)
   if [[ "$GPU" == "none" ]]; then
     warn "GPU: not detected — embeddings will run on CPU (slower)"
   else
-    ok   "GPU: $GPU"
+    ok   "GPU: $GPU (${VRAM_GB} GB VRAM)"
+  fi
+
+  # Docker / NVIDIA Container Toolkit status
+  if has_docker; then
+    ok   "Docker: available"
+    if has_nvidia_container_toolkit; then
+      ok   "NVIDIA Container Toolkit: available"
+    else
+      warn "NVIDIA Container Toolkit: not found (needed for GGUF backend)"
+    fi
+  else
+    info "Docker: not available (needed for GGUF backend)"
+  fi
+
+  # GGUF models
+  if [[ -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
+    ok   "GGUF code model: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
+  else
+    info "GGUF code model: not downloaded"
+  fi
+  if [[ -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
+    ok   "GGUF NLP model: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
+  else
+    info "GGUF NLP model: not downloaded"
+  fi
+
+  # Tier recommendation
+  DOCKER_OK="false"
+  TOOLKIT_OK="false"
+  if has_docker; then DOCKER_OK="true"; fi
+  if has_docker && has_nvidia_container_toolkit; then TOOLKIT_OK="true"; fi
+  TIER=$(select_tier "$GPU" "$VRAM_GB" "$DOCKER_OK" "$TOOLKIT_OK")
+  info "Recommended tier: ${TIER}"
+
+  # Existing flag
+  FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+  if [[ -f "$FLAG_FILE" ]]; then
+    CURRENT_BACKEND=$(python3 -c "import json; print(json.load(open('$FLAG_FILE')).get('backend','(not set)'))" 2>/dev/null || echo "(unreadable)")
+    ok   "Current backend: ${CURRENT_BACKEND} (from embeddings-ready.json)"
   fi
 
   if PYTHON=$(get_python); then
@@ -227,157 +382,239 @@ except:
 fi
 
 # ---------------------------------------------------------------------------
+# --ab-test mode (placeholder — implemented in Story 28.2)
+# ---------------------------------------------------------------------------
+if [[ "${1:-}" == "--ab-test" ]]; then
+  err "A/B test not yet implemented (Story 28.2)"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Main install flow
 # ---------------------------------------------------------------------------
 echo ""
 info "═══════════════════════════════════════════════"
 info "  Anatoly — Embedding Setup"
-info "  (sentence-transformers + ${MODEL} + ${NLP_MODEL})"
 info "═══════════════════════════════════════════════"
 echo ""
 
-# Step 1: GPU check
+# Step 1: Hardware detection
 GPU=$(detect_gpu)
+VRAM_GB=$(detect_vram_gb)
+DOCKER_OK="false"
+TOOLKIT_OK="false"
+
 if [[ "$GPU" == "none" ]]; then
   warn "No GPU detected — embeddings will run on CPU (slower but functional)"
 else
-  ok "GPU detected: ${GPU}"
+  ok "GPU detected: ${GPU} (${VRAM_GB} GB VRAM)"
 fi
 
-# Step 2: Python + venv
-if ! PYTHON=$(ensure_venv); then
-  err "Python 3.9+ required but not found."
-  err "Install Python: https://www.python.org/downloads/"
-  exit 1
-fi
-ok "Python: $("$PYTHON" --version 2>&1)"
-
-# Step 3: Install torch (GPU-aware)
-if check_package "$PYTHON" "torch"; then
-  TORCHVER=$("$PYTHON" -c "import torch; print(torch.__version__)" 2>/dev/null)
-  ok "torch already installed: ${TORCHVER}"
+if has_docker; then
+  DOCKER_OK="true"
+  ok "Docker: available"
+  if [[ "$GPU" == "cuda" ]] && has_nvidia_container_toolkit; then
+    TOOLKIT_OK="true"
+    ok "NVIDIA Container Toolkit: available"
+  elif [[ "$GPU" == "cuda" ]]; then
+    warn "NVIDIA Container Toolkit: not found"
+    info "  Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+  fi
 else
-  info "Installing torch..."
-  case "$GPU" in
-    cuda)
-      "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/cu124
-      ;;
-    rocm)
-      "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/rocm6.2
-      ;;
-    *)
-      "$PYTHON" -m pip install -q torch
-      ;;
-  esac
-  ok "torch installed"
+  info "Docker: not available (optional — needed for GGUF backend)"
 fi
 
-# Step 4: Install sentence-transformers
-if check_package "$PYTHON" "sentence_transformers"; then
-  STVER=$("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)
-  ok "sentence-transformers already installed: ${STVER}"
-else
-  info "Installing sentence-transformers..."
-  "$PYTHON" -m pip install -q sentence-transformers
-  ok "sentence-transformers installed"
-fi
+# Step 2: Determine tier
+TIER=$(select_tier "$GPU" "$VRAM_GB" "$DOCKER_OK" "$TOOLKIT_OK")
+echo ""
+info "Selected tier: ${TIER}"
+echo ""
 
-# Step 5: Download/verify the code model
-CODE_CACHED=$("$PYTHON" -W ignore -c "
+# Step 3: Setup fp16 backend (Python sidecar — for advanced-fp16 AND as fallback for advanced-gguf)
+PYTHON=""
+CODE_DIM="768"
+NLP_DIM="384"
+
+if [[ "$TIER" == "advanced-fp16" ]] || [[ "$TIER" == "advanced-gguf" ]]; then
+  # Python + venv
+  if ! PYTHON=$(ensure_venv); then
+    if [[ "$TIER" == "advanced-gguf" ]]; then
+      warn "Python 3.9+ not found — fp16 fallback will not be available"
+    else
+      err "Python 3.9+ required but not found."
+      err "Install Python: https://www.python.org/downloads/"
+      exit 1
+    fi
+  fi
+
+  if [[ -n "$PYTHON" ]]; then
+    ok "Python: $("$PYTHON" --version 2>&1)"
+
+    # Install torch (GPU-aware)
+    if check_package "$PYTHON" "torch"; then
+      TORCHVER=$("$PYTHON" -c "import torch; print(torch.__version__)" 2>/dev/null)
+      ok "torch already installed: ${TORCHVER}"
+    else
+      info "Installing torch..."
+      case "$GPU" in
+        cuda)
+          "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/cu124
+          ;;
+        rocm)
+          "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/rocm6.2
+          ;;
+        *)
+          "$PYTHON" -m pip install -q torch
+          ;;
+      esac
+      ok "torch installed"
+    fi
+
+    # Install sentence-transformers
+    if check_package "$PYTHON" "sentence_transformers"; then
+      STVER=$("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)
+      ok "sentence-transformers already installed: ${STVER}"
+    else
+      info "Installing sentence-transformers..."
+      "$PYTHON" -m pip install -q sentence-transformers
+      ok "sentence-transformers installed"
+    fi
+
+    # Download/verify the code model
+    CODE_CACHED=$("$PYTHON" -W ignore -c "
 import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
 from huggingface_hub import try_to_load_from_cache
 result = try_to_load_from_cache('${MODEL}', 'config.json')
 print('yes' if result is not None and result != '' else 'no')
 " 2>/dev/null || echo "no")
 
-if [[ "$CODE_CACHED" == "yes" ]]; then
-  info "Loading ${MODEL} (cached)..."
-else
-  info "Downloading ${MODEL} (~27 GB, first time only)..."
-fi
-"$PYTHON" -W ignore -c "
+    if [[ "$CODE_CACHED" == "yes" ]]; then
+      info "Loading ${MODEL} (cached)..."
+    else
+      info "Downloading ${MODEL} (~27 GB, first time only)..."
+    fi
+    "$PYTHON" -W ignore -c "
 import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('${MODEL}', trust_remote_code=True)
 print(f'  {model.get_sentence_embedding_dimension()}d')
 " 2>&1 | grep -v "^Warning:"
-ok "Code model ready: ${MODEL}"
+    ok "Code model ready: ${MODEL}"
 
-# Step 5b: Download/verify the NLP model
-NLP_CACHED=$("$PYTHON" -W ignore -c "
+    # Download/verify the NLP model
+    NLP_CACHED=$("$PYTHON" -W ignore -c "
 import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
 from huggingface_hub import try_to_load_from_cache
 result = try_to_load_from_cache('${NLP_MODEL}', 'config.json')
 print('yes' if result is not None and result != '' else 'no')
 " 2>/dev/null || echo "no")
 
-if [[ "$NLP_CACHED" == "yes" ]]; then
-  info "Loading ${NLP_MODEL} (cached)..."
-else
-  info "Downloading ${NLP_MODEL} (~16 GB, first time only)..."
-fi
-"$PYTHON" -W ignore -c "
+    if [[ "$NLP_CACHED" == "yes" ]]; then
+      info "Loading ${NLP_MODEL} (cached)..."
+    else
+      info "Downloading ${NLP_MODEL} (~16 GB, first time only)..."
+    fi
+    "$PYTHON" -W ignore -c "
 import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('${NLP_MODEL}', trust_remote_code=True)
 print(f'  {model.get_sentence_embedding_dimension()}d')
 " 2>&1 | grep -v "^Warning:"
-ok "NLP model ready: ${NLP_MODEL}"
+    ok "NLP model ready: ${NLP_MODEL}"
 
-# Step 6: Sanity check via sidecar
-info "Running embedding sanity check..."
-"$PYTHON" -W ignore "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
-SIDECAR_PID=$!
-trap 'kill "$SIDECAR_PID" 2>/dev/null || true; exit 1' INT TERM
+    # Sanity check via sidecar
+    info "Running embedding sanity check..."
+    "$PYTHON" -W ignore "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
+    SIDECAR_PID=$!
+    trap 'kill "$SIDECAR_PID" 2>/dev/null || true; exit 1' INT TERM
 
-# Wait for sidecar to be ready (model loading)
-READY=false
-for i in $(seq 1 30); do
-  if sidecar_running; then
-    READY=true
-    break
+    # Wait for sidecar to be ready (model loading)
+    READY=false
+    for i in $(seq 1 30); do
+      if sidecar_running; then
+        READY=true
+        break
+      fi
+      sleep 2
+    done
+
+    if [[ "$READY" == "true" ]]; then
+      RESPONSE=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/embed" \
+        -H "Content-Type: application/json" \
+        -d '{"input": "function hello() { return world; }"}' 2>/dev/null)
+
+      if echo "$RESPONSE" | grep -q '"embedding"'; then
+        ok "Embedding sanity check passed"
+      else
+        err "Sanity check failed — sidecar returned unexpected response"
+        kill "$SIDECAR_PID" 2>/dev/null || true
+        exit 1
+      fi
+
+      # Shut down the test sidecar
+      curl -sf -X POST "http://127.0.0.1:${SIDECAR_PORT}/shutdown" &>/dev/null || true
+      wait "$SIDECAR_PID" 2>/dev/null || true
+    else
+      err "Sidecar failed to start within 60s"
+      kill "$SIDECAR_PID" 2>/dev/null || true
+      exit 1
+    fi
+
+    # Get dimensions
+    CODE_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null || echo "3584")
+    NLP_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${NLP_MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null || echo "4096")
   fi
-  sleep 2
-done
-
-if [[ "$READY" == "true" ]]; then
-  RESPONSE=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/embed" \
-    -H "Content-Type: application/json" \
-    -d '{"input": "function hello() { return world; }"}' 2>/dev/null)
-
-  if echo "$RESPONSE" | grep -q '"embedding"'; then
-    ok "Embedding sanity check passed"
-  else
-    err "Sanity check failed — sidecar returned unexpected response"
-    kill "$SIDECAR_PID" 2>/dev/null || true
-    exit 1
-  fi
-
-  # Shut down the test sidecar
-  curl -sf -X POST "http://127.0.0.1:${SIDECAR_PORT}/shutdown" &>/dev/null || true
-  wait "$SIDECAR_PID" 2>/dev/null || true
-else
-  err "Sidecar failed to start within 60s"
-  kill "$SIDECAR_PID" 2>/dev/null || true
-  exit 1
 fi
 
-# Step 7: Write readiness flag for anatoly run --rag-advanced auto-detection
-CODE_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null)
-NLP_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${NLP_MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null)
+# Step 4: Setup GGUF backend (Docker llama.cpp — for advanced-gguf tier)
+if [[ "$TIER" == "advanced-gguf" ]]; then
+  echo ""
+  info "Setting up GGUF Docker backend..."
+
+  # Download GGUF models if not present
+  download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO"
+  download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO"
+
+  # Pull Docker image
+  info "Pulling Docker image: ${GGUF_DOCKER_IMAGE}..."
+  if docker pull "$GGUF_DOCKER_IMAGE"; then
+    ok "Docker image ready: ${GGUF_DOCKER_IMAGE}"
+  else
+    warn "Docker pull failed — falling back to advanced-fp16"
+    TIER="advanced-fp16"
+  fi
+fi
+
+# Step 5: Write readiness flag
 FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
 mkdir -p "$(dirname "$FLAG_FILE")"
-cat > "$FLAG_FILE" <<ENDJSON
-{
-  "code_model": "${MODEL}",
-  "nlp_model": "${NLP_MODEL}",
-  "dim_code": ${CODE_DIM:-3584},
-  "dim_nlp": ${NLP_DIM:-4096},
-  "device": "${GPU}",
-  "python": "${PYTHON}",
-  "setup_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-ENDJSON
+
+# Build the JSON manually to handle optional fields cleanly
+FLAG_JSON="{"
+FLAG_JSON+="\"code_model\": \"${MODEL}\","
+FLAG_JSON+="\"nlp_model\": \"${NLP_MODEL}\","
+FLAG_JSON+="\"dim_code\": ${CODE_DIM:-768},"
+FLAG_JSON+="\"dim_nlp\": ${NLP_DIM:-384},"
+FLAG_JSON+="\"device\": \"${GPU}\","
+FLAG_JSON+="\"python\": \"${PYTHON:-}\","
+FLAG_JSON+="\"backend\": \"${TIER}\","
+FLAG_JSON+="\"vram_gb\": ${VRAM_GB},"
+FLAG_JSON+="\"setup_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+
+if [[ "$TIER" == "advanced-gguf" ]]; then
+  FLAG_JSON+=",\"gguf_code_model\": \"${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}\""
+  FLAG_JSON+=",\"gguf_nlp_model\": \"${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}\""
+fi
+
+FLAG_JSON+="}"
+
+# Pretty-print via python if available, else write raw
+if command -v python3 &>/dev/null; then
+  echo "$FLAG_JSON" | python3 -m json.tool > "$FLAG_FILE"
+else
+  echo "$FLAG_JSON" > "$FLAG_FILE"
+fi
+
 ok "Readiness flag written"
 
 echo ""
@@ -385,13 +622,28 @@ echo "  ════════════════════════
 echo ""
 ok "Setup complete!"
 echo ""
-echo "  Code model  ${MODEL} (${CODE_DIM:-3584}d)"
-echo "  NLP model   ${NLP_MODEL} (${NLP_DIM:-4096}d)"
-echo "  Device      ${GPU}"
+echo "  Backend   ${TIER}"
+echo "  Device    ${GPU} (${VRAM_GB} GB VRAM)"
+if [[ "$TIER" == "advanced-fp16" ]] || [[ "$TIER" == "advanced-gguf" ]]; then
+  echo "  Code model  ${MODEL} (${CODE_DIM:-3584}d)"
+  echo "  NLP model   ${NLP_MODEL} (${NLP_DIM:-4096}d)"
+fi
+if [[ "$TIER" == "advanced-gguf" ]]; then
+  echo "  GGUF code   ${GGUF_CODE_MODEL_FILE}"
+  echo "  GGUF NLP    ${GGUF_NLP_MODEL_FILE}"
+  echo "  Docker      ${GGUF_DOCKER_IMAGE}"
+fi
 echo "  Config      .anatoly/embeddings-ready.json"
 echo ""
 echo "  ═══════════════════════════════════════════════"
 echo ""
-info "The embed sidecar starts automatically with 'npx anatoly run'."
+if [[ "$TIER" == "advanced-gguf" ]]; then
+  info "GGUF Docker containers start automatically with 'npx anatoly run'."
+  info "fp16 sidecar available as fallback if Docker is unavailable."
+elif [[ "$TIER" == "advanced-fp16" ]]; then
+  info "The embed sidecar starts automatically with 'npx anatoly run'."
+else
+  info "Using ONNX CPU embeddings (no GPU setup needed)."
+fi
 info "To check status:  npx anatoly setup-embeddings --check"
 echo ""

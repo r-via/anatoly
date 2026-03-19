@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { MODEL_REGISTRY, getSidecarUrl, type ResolvedModels } from './hardware-detect.js';
+import { MODEL_REGISTRY, getSidecarUrl, GGUF_CODE_PORT, GGUF_NLP_PORT, type ResolvedModels } from './hardware-detect.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -25,8 +25,8 @@ const MAX_CODE_CHARS = 1500;
 
 let codeModelId = DEFAULT_CODE_MODEL;
 let nlpModelId = DEFAULT_NLP_MODEL;
-let codeRuntime: 'onnx' | 'sidecar' = 'onnx';
-let nlpRuntime: 'onnx' | 'sidecar' = 'onnx';
+let codeRuntime: 'onnx' | 'sidecar' | 'gguf' = 'onnx';
+let nlpRuntime: 'onnx' | 'sidecar' | 'gguf' = 'onnx';
 let codeDim = MODEL_REGISTRY[DEFAULT_CODE_MODEL]?.dim ?? 768;
 let nlpDim = MODEL_REGISTRY[DEFAULT_NLP_MODEL]?.dim ?? 384;
 
@@ -178,14 +178,50 @@ function getNlpEmbedder(): Promise<any> {
 // Embedding functions
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GGUF Docker embedding via HTTP API (llama.cpp server-cuda)
+// ---------------------------------------------------------------------------
+
+async function embedViaGguf(text: string, port: number, retries = 2): Promise<number[]> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/embedding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`GGUF container failed (${res.status}): ${await res.text()}`);
+      }
+
+      const data = await res.json() as { results: Array<{ embedding: number[] }> };
+      if (data.results?.[0]?.embedding) {
+        return data.results[0].embedding;
+      }
+      // llama.cpp may also return flat embedding array
+      const flat = data as unknown as { embedding: number[] };
+      if (flat.embedding) return flat.embedding;
+      throw new Error('GGUF container returned unexpected response format');
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('embedViaGguf: unreachable');
+}
+
 /**
  * Generate a code embedding vector for the given text.
- * Routes to sidecar when available. In sidecar mode, errors are NOT
- * silently swallowed — they propagate so the caller can handle them.
- * This prevents dimension mismatches (sidecar 3584d vs ONNX 768d)
- * from corrupting the vector store.
+ * Routes to GGUF Docker, sidecar, or ONNX based on configured runtime.
  */
 export async function embedCode(text: string): Promise<number[]> {
+  if (codeRuntime === 'gguf') {
+    return embedViaGguf(text, GGUF_CODE_PORT);
+  }
   if (codeRuntime === 'sidecar') {
     return embedViaSidecar(text);
   }
@@ -194,10 +230,12 @@ export async function embedCode(text: string): Promise<number[]> {
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Routes to sidecar when nlpRuntime is 'sidecar' (GPU-accelerated),
- * otherwise uses ONNX (MiniLM).
+ * Routes to GGUF Docker, sidecar, or ONNX based on configured runtime.
  */
 export async function embedNlp(text: string): Promise<number[]> {
+  if (nlpRuntime === 'gguf') {
+    return embedViaGguf(text, GGUF_NLP_PORT);
+  }
   if (nlpRuntime === 'sidecar') {
     return embedViaSidecar(text);
   }

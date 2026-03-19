@@ -11,8 +11,8 @@ export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionB
 export type { RagCache, NlpSummaryCache, NlpSummaryCacheEntry } from './indexer.js';
 export { generateNlpSummaries } from './nlp-summarizer.js';
 export type { NlpSummary } from './nlp-summarizer.js';
-export { detectHardware, detectSidecar, resolveEmbeddingModels, getSidecarUrl, getSidecarPort, SIDECAR_MODEL, SIDECAR_NLP_MODEL, SIDECAR_DEFAULT_PORT, MODEL_REGISTRY } from './hardware-detect.js';
-export type { HardwareProfile, SidecarStatus, ModelInfo, ResolvedModels } from './hardware-detect.js';
+export { detectHardware, detectSidecar, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, getSidecarUrl, getSidecarPort, SIDECAR_MODEL, SIDECAR_NLP_MODEL, SIDECAR_DEFAULT_PORT, MODEL_REGISTRY, GGUF_DOCKER_IMAGE, GGUF_CODE_PORT, GGUF_NLP_PORT, GGUF_CODE_MODEL_FILE, GGUF_NLP_MODEL_FILE, GGUF_MIN_VRAM_GB } from './hardware-detect.js';
+export type { HardwareProfile, SidecarStatus, ModelInfo, ResolvedModels, EmbeddingBackend, EmbeddingsReadyFlag } from './hardware-detect.js';
 export { indexProject, processFileForIndex, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
 export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks } from './doc-indexer.js';

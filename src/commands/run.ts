@@ -668,7 +668,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Resolve models now that sidecar may be running
   const hardware = detectHardware();
   const resolveLogFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn);
+  const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
+  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn, readyFlag);
 
   if (needsSidecar && ctx.resolvedModels.codeRuntime !== 'sidecar') {
     await stopSidecar();

@@ -9,7 +9,7 @@ import { VectorStore, getCodeModelId, getNlpModelId, ragModeArtifacts } from '..
 import type { RagMode } from '../rag/index.js';
 import type { RagStats } from '../rag/types.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { detectHardware, resolveEmbeddingModels } from '../rag/hardware-detect.js';
+import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
 import { configureModels } from '../rag/embeddings.js';
 
 async function getStoreForMode(
@@ -64,7 +64,8 @@ export function registerRagStatusCommand(program: Command): void {
       // Resolve models so vector store dimension checks use correct values
       const config = loadConfig(projectRoot);
       const hardware = detectHardware();
-      const resolved = await resolveEmbeddingModels(config.rag, hardware);
+      const readyFlag = readEmbeddingsReadyFlag(projectRoot);
+      const resolved = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag);
       configureModels(resolved);
 
       // Read --rag-lite / --rag-advanced from parent (global) options

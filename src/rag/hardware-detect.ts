@@ -16,6 +16,9 @@ export interface HardwareProfile {
   cpuCores: number;
   hasGpu: boolean;
   gpuType?: 'cuda' | 'metal' | 'rocm';
+  vramGB?: number;
+  hasDocker?: boolean;
+  hasNvidiaContainerToolkit?: boolean;
 }
 
 /**
@@ -65,12 +68,70 @@ export function detectHardware(): HardwareProfile {
     }
   }
 
-  return { totalMemoryGB, cpuCores, hasGpu, gpuType };
+  // Detect VRAM (NVIDIA only for now)
+  let vramGB: number | undefined;
+  if (gpuType === 'cuda') {
+    vramGB = detectVramGB();
+  }
+
+  // Detect Docker + NVIDIA Container Toolkit
+  const hasDocker = detectDocker();
+  const hasNvidiaContainerToolkit = hasDocker && gpuType === 'cuda' ? detectNvidiaContainerToolkit() : false;
+
+  return { totalMemoryGB, cpuCores, hasGpu, gpuType, vramGB, hasDocker, hasNvidiaContainerToolkit };
+}
+
+/**
+ * Detect total VRAM in GB via nvidia-smi.
+ * Returns undefined if nvidia-smi is unavailable.
+ */
+export function detectVramGB(): number | undefined {
+  try {
+    const output = execSync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits', {
+      encoding: 'utf-8',
+      timeout: 5000,
+    }).trim();
+    // nvidia-smi returns MiB — convert to GB
+    const mib = parseInt(output.split('\n')[0]!, 10);
+    if (isNaN(mib)) return undefined;
+    return Math.round(mib / 1024 * 10) / 10;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Check if Docker is available on this system. */
+export function detectDocker(): boolean {
+  try {
+    execSync('docker --version', { stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Check if NVIDIA Container Toolkit is installed (needed for --gpus flag). */
+export function detectNvidiaContainerToolkit(): boolean {
+  try {
+    execSync('nvidia-container-cli --version', { stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch {
+    // Fallback: check if nvidia runtime is registered in Docker
+    try {
+      const output = execSync('docker info', { encoding: 'utf-8', timeout: 10000 });
+      return output.includes('nvidia');
+    } catch {
+      return false;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Embeddings readiness flag (written by setup-embeddings.sh)
 // ---------------------------------------------------------------------------
+
+/** Embedding backend type — determines runtime embedding strategy. */
+export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf';
 
 export interface EmbeddingsReadyFlag {
   model?: string;
@@ -87,6 +148,14 @@ export interface EmbeddingsReadyFlag {
   nlp_quantize?: boolean;
   code_precision?: string;
   nlp_precision?: string;
+  /** Embedding backend: lite (ONNX), advanced-fp16 (Python sidecar), advanced-gguf (Docker llama.cpp). */
+  backend?: EmbeddingBackend;
+  /** VRAM detected in GB at setup time. */
+  vram_gb?: number;
+  /** Path to GGUF code model file (for advanced-gguf backend). */
+  gguf_code_model?: string;
+  /** Path to GGUF NLP model file (for advanced-gguf backend). */
+  gguf_nlp_model?: string;
 }
 
 /**
@@ -110,6 +179,15 @@ export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFla
 export const SIDECAR_DEFAULT_PORT = 11435;
 export const SIDECAR_MODEL = 'nomic-ai/nomic-embed-code';
 export const SIDECAR_NLP_MODEL = 'Qwen/Qwen3-Embedding-8B';
+
+// GGUF Docker backend constants
+export const GGUF_DOCKER_IMAGE = 'ghcr.io/ggerganov/llama.cpp:server-cuda';
+export const GGUF_CODE_PORT = 11435;
+export const GGUF_NLP_PORT = 11436;
+export const GGUF_CODE_MODEL_FILE = 'nomic-embed-code.Q5_K_M.gguf';
+export const GGUF_NLP_MODEL_FILE = 'Qwen3-Embedding-8B-Q5_K_M.gguf';
+/** Minimum VRAM (GB) required for GGUF dual-model loading. */
+export const GGUF_MIN_VRAM_GB = 12;
 
 export interface SidecarStatus {
   running: boolean;
@@ -166,7 +244,7 @@ export async function detectSidecar(): Promise<SidecarStatus> {
 /** Known embedding model metadata. */
 export interface ModelInfo {
   dim: number;
-  runtime: 'onnx' | 'sidecar';
+  runtime: 'onnx' | 'sidecar' | 'gguf';
   description: string;
   minMemoryGB: number;
   requiresGpu?: boolean;
@@ -210,21 +288,57 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     minMemoryGB: 16,
     requiresGpu: true,
   },
+  // GGUF Docker backends (same base models, quantized Q5_K_M)
+  'nomic-embed-code-gguf': {
+    dim: 3584,
+    runtime: 'gguf',
+    description: 'Nomic Embed Code Q5_K_M (3584d, llama.cpp Docker)',
+    minMemoryGB: 6,
+    requiresGpu: true,
+  },
+  'qwen3-embedding-8b-gguf': {
+    dim: 4096,
+    runtime: 'gguf',
+    description: 'Qwen3 Embedding 8B Q5_K_M (4096d, llama.cpp Docker)',
+    minMemoryGB: 6,
+    requiresGpu: true,
+  },
 };
 
 export interface ResolvedModels {
   codeModel: string;
   codeDim: number;
-  codeRuntime: 'onnx' | 'sidecar';
+  codeRuntime: 'onnx' | 'sidecar' | 'gguf';
   nlpModel: string;
   nlpDim: number;
-  nlpRuntime: 'onnx' | 'sidecar';
+  nlpRuntime: 'onnx' | 'sidecar' | 'gguf';
+  backend: EmbeddingBackend;
+}
+
+/**
+ * Determine the backend tier from embeddings-ready.json.
+ * Returns the backend field if set, or infers from available infrastructure.
+ */
+export function determineBackend(
+  flag: EmbeddingsReadyFlag | null,
+  hardware: HardwareProfile,
+): EmbeddingBackend {
+  // Explicit backend from setup
+  if (flag?.backend) return flag.backend;
+
+  // Infer from hardware: GPU + Docker + toolkit → gguf, GPU → fp16, else → lite
+  if (hardware.hasGpu && hardware.hasDocker && hardware.hasNvidiaContainerToolkit && (hardware.vramGB ?? 0) >= GGUF_MIN_VRAM_GB) {
+    return 'advanced-gguf';
+  }
+  if (hardware.hasGpu) return 'advanced-fp16';
+  return 'lite';
 }
 
 /**
  * Resolve embedding models based on config, hardware, and sidecar availability.
  *
  * When config value is 'auto', picks the best model the hardware can run:
+ * - If backend is advanced-gguf → use GGUF Docker containers
  * - If the embed sidecar is running → use it (GPU-accelerated via sentence-transformers)
  * - Otherwise → fall back to Jina v2 (ONNX, CPU)
  */
@@ -232,19 +346,21 @@ export async function resolveEmbeddingModels(
   config: { code_model: string; nlp_model: string },
   hardware: HardwareProfile,
   onLog?: (message: string) => void,
+  readyFlag?: EmbeddingsReadyFlag | null,
 ): Promise<ResolvedModels> {
+  const backend = determineBackend(readyFlag ?? null, hardware);
   const sidecar = await detectSidecar();
-  const codeModel = resolveCodeModel(config.code_model, hardware, sidecar, onLog);
+  const codeModel = resolveCodeModel(config.code_model, hardware, sidecar, onLog, backend);
 
   // Use sidecar-reported dimension if available (more accurate than registry)
   const codeDim = (sidecar.running && sidecar.dim) ? sidecar.dim : (MODEL_REGISTRY[codeModel]?.dim ?? 768);
-  const codeRuntime = MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx';
+  const codeRuntime: 'onnx' | 'sidecar' | 'gguf' = backend === 'advanced-gguf' && config.code_model === 'auto' ? 'gguf' : (MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx');
 
   const nlpModel = resolveNlpModel(config.nlp_model, codeRuntime, onLog);
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
-  const nlpRuntime = MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx';
+  const nlpRuntime: 'onnx' | 'sidecar' | 'gguf' = backend === 'advanced-gguf' && config.nlp_model === 'auto' ? 'gguf' : (MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx');
 
-  return { codeModel, codeDim, codeRuntime, nlpModel, nlpDim, nlpRuntime };
+  return { codeModel, codeDim, codeRuntime, nlpModel, nlpDim, nlpRuntime, backend };
 }
 
 function resolveCodeModel(
@@ -252,8 +368,15 @@ function resolveCodeModel(
   hardware: HardwareProfile,
   sidecar: SidecarStatus,
   onLog?: (message: string) => void,
+  backend?: EmbeddingBackend,
 ): string {
   if (configured !== 'auto') return configured;
+
+  // GGUF Docker backend — use the GGUF model key
+  if (backend === 'advanced-gguf') {
+    onLog?.(`backend: advanced-gguf — ${MODEL_REGISTRY['nomic-embed-code-gguf']!.description}`);
+    return 'nomic-embed-code-gguf';
+  }
 
   // Prefer embed sidecar when running (GPU-accelerated sentence-transformers)
   if (sidecar.running) {
@@ -273,10 +396,16 @@ function resolveCodeModel(
 
 function resolveNlpModel(
   configured: string,
-  codeRuntime: 'onnx' | 'sidecar',
+  codeRuntime: 'onnx' | 'sidecar' | 'gguf',
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;
+
+  // GGUF Docker backend — use GGUF NLP model
+  if (codeRuntime === 'gguf') {
+    onLog?.(`NLP model: ${MODEL_REGISTRY['qwen3-embedding-8b-gguf']!.description} (Docker)`);
+    return 'qwen3-embedding-8b-gguf';
+  }
 
   // When code model uses sidecar (GPU), use sidecar NLP model for higher quality
   if (codeRuntime === 'sidecar') {
