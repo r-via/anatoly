@@ -76,10 +76,11 @@ trap cleanup EXIT INT TERM
 # Helpers
 # ---------------------------------------------------------------------------
 get_python() {
-  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-    echo "${VIRTUAL_ENV}/bin/python"
-  elif [[ -f "${VENV_DIR}/bin/python" ]]; then
+  # Prefer the anatoly venv, then active venv (if valid), then system python3
+  if [[ -f "${VENV_DIR}/bin/python" ]]; then
     echo "${VENV_DIR}/bin/python"
+  elif [[ -n "${VIRTUAL_ENV:-}" ]] && [[ -x "${VIRTUAL_ENV}/bin/python" ]]; then
+    echo "${VIRTUAL_ENV}/bin/python"
   else
     echo "python3"
   fi
@@ -232,32 +233,12 @@ SIDECAR_URL = 'http://127.0.0.1:${SIDECAR_PORT}'
 GGUF_CODE_PORT = ${GGUF_CODE_PORT}
 GGUF_NLP_PORT = ${GGUF_NLP_PORT}
 
-# Test samples: 10 code + 10 NLP
-CODE_SAMPLES = [
-    'function add(a: number, b: number): number { return a + b; }',
-    'async function fetchUser(id: string): Promise<User> { const res = await fetch(\"/api/users/\" + id); return res.json(); }',
-    'const memoize = <T>(fn: (...args: any[]) => T): ((...args: any[]) => T) => { const cache = new Map(); return (...args) => { const key = JSON.stringify(args); if (cache.has(key)) return cache.get(key); const result = fn(...args); cache.set(key, result); return result; }; };',
-    'class EventEmitter { private listeners = new Map<string, Function[]>(); on(event: string, fn: Function) { if (!this.listeners.has(event)) this.listeners.set(event, []); this.listeners.get(event)!.push(fn); } emit(event: string, ...args: any[]) { for (const fn of this.listeners.get(event) ?? []) fn(...args); } }',
-    'export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T { let timer: NodeJS.Timeout; return ((...args: any[]) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); }) as T; }',
-    'function quickSort(arr: number[]): number[] { if (arr.length <= 1) return arr; const pivot = arr[0]; const left = arr.slice(1).filter(x => x <= pivot); const right = arr.slice(1).filter(x => x > pivot); return [...quickSort(left), pivot, ...quickSort(right)]; }',
-    'interface Repository<T> { findById(id: string): Promise<T | null>; findAll(): Promise<T[]>; save(entity: T): Promise<void>; delete(id: string): Promise<void>; }',
-    'const pipe = <T>(...fns: ((arg: T) => T)[]): ((arg: T) => T) => (arg: T) => fns.reduce((acc, fn) => fn(acc), arg);',
-    'async function retry<T>(fn: () => Promise<T>, maxRetries: number, delay: number): Promise<T> { for (let i = 0; i < maxRetries; i++) { try { return await fn(); } catch (e) { if (i === maxRetries - 1) throw e; await new Promise(r => setTimeout(r, delay * (2 ** i))); } } throw new Error(\"unreachable\"); }',
-    'function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T { const result = { ...target }; for (const key of Object.keys(source)) { if (source[key] && typeof source[key] === \"object\" && !Array.isArray(source[key])) { result[key as keyof T] = deepMerge(target[key as keyof T] as any, source[key] as any); } else { result[key as keyof T] = source[key] as any; } } return result; }',
-]
-
-NLP_SAMPLES = [
-    'Function: add. Purpose: Adds two numbers together and returns the sum.',
-    'Function: fetchUser. Purpose: Fetches a user from the API by ID, returns a Promise of User.',
-    'Function: memoize. Purpose: Higher-order function that caches results of expensive function calls.',
-    'Class: EventEmitter. Purpose: Pub/sub event system with typed event names and listener management.',
-    'Function: debounce. Purpose: Rate-limits function calls by delaying execution until a pause in invocations.',
-    'Function: quickSort. Purpose: Recursive divide-and-conquer sorting algorithm with O(n log n) average case.',
-    'Interface: Repository. Purpose: Generic CRUD repository pattern for data access abstraction.',
-    'Function: pipe. Purpose: Composes multiple unary functions into a single pipeline from left to right.',
-    'Function: retry. Purpose: Retries an async function with exponential backoff on failure.',
-    'Function: deepMerge. Purpose: Recursively merges two objects, handling nested object properties.',
-]
+# Load realistic samples from check-samples.json
+SAMPLES_FILE = '${SCRIPT_DIR}/check-samples.json'
+with open(SAMPLES_FILE) as f:
+    _samples = json.load(f)
+CODE_SAMPLES = _samples['code']
+NLP_SAMPLES = _samples['nlp']
 
 def cosine_sim(a, b):
     a, b = np.array(a), np.array(b)
@@ -365,31 +346,11 @@ import requests
 GGUF_CODE_PORT = ${GGUF_CODE_PORT}
 GGUF_NLP_PORT = ${GGUF_NLP_PORT}
 
-CODE_SAMPLES = [
-    'function add(a: number, b: number): number { return a + b; }',
-    'async function fetchUser(id: string): Promise<User> { const res = await fetch(\"/api/users/\" + id); return res.json(); }',
-    'const memoize = <T>(fn: (...args: any[]) => T): ((...args: any[]) => T) => { const cache = new Map(); return (...args) => { const key = JSON.stringify(args); if (cache.has(key)) return cache.get(key); const result = fn(...args); cache.set(key, result); return result; }; };',
-    'class EventEmitter { private listeners = new Map<string, Function[]>(); on(event: string, fn: Function) { if (!this.listeners.has(event)) this.listeners.set(event, []); this.listeners.get(event)!.push(fn); } emit(event: string, ...args: any[]) { for (const fn of this.listeners.get(event) ?? []) fn(...args); } }',
-    'export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T { let timer: NodeJS.Timeout; return ((...args: any[]) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); }) as T; }',
-    'function quickSort(arr: number[]): number[] { if (arr.length <= 1) return arr; const pivot = arr[0]; const left = arr.slice(1).filter(x => x <= pivot); const right = arr.slice(1).filter(x => x > pivot); return [...quickSort(left), pivot, ...quickSort(right)]; }',
-    'interface Repository<T> { findById(id: string): Promise<T | null>; findAll(): Promise<T[]>; save(entity: T): Promise<void>; delete(id: string): Promise<void>; }',
-    'const pipe = <T>(...fns: ((arg: T) => T)[]): ((arg: T) => T) => (arg: T) => fns.reduce((acc, fn) => fn(acc), arg);',
-    'async function retry<T>(fn: () => Promise<T>, maxRetries: number, delay: number): Promise<T> { for (let i = 0; i < maxRetries; i++) { try { return await fn(); } catch (e) { if (i === maxRetries - 1) throw e; await new Promise(r => setTimeout(r, delay * (2 ** i))); } } throw new Error(\"unreachable\"); }',
-    'function deepMerge<T extends Record<string, any>>(target: T, source: Partial<T>): T { const result = { ...target }; for (const key of Object.keys(source)) { if (source[key] && typeof source[key] === \"object\" && !Array.isArray(source[key])) { result[key as keyof T] = deepMerge(target[key as keyof T] as any, source[key] as any); } else { result[key as keyof T] = source[key] as any; } } return result; }',
-]
-
-NLP_SAMPLES = [
-    'Function: add. Purpose: Adds two numbers together and returns the sum.',
-    'Function: fetchUser. Purpose: Fetches a user from the API by ID, returns a Promise of User.',
-    'Function: memoize. Purpose: Higher-order function that caches results of expensive function calls.',
-    'Class: EventEmitter. Purpose: Pub/sub event system with typed event names and listener management.',
-    'Function: debounce. Purpose: Rate-limits function calls by delaying execution until a pause in invocations.',
-    'Function: quickSort. Purpose: Recursive divide-and-conquer sorting algorithm with O(n log n) average case.',
-    'Interface: Repository. Purpose: Generic CRUD repository pattern for data access abstraction.',
-    'Function: pipe. Purpose: Composes multiple unary functions into a single pipeline from left to right.',
-    'Function: retry. Purpose: Retries an async function with exponential backoff on failure.',
-    'Function: deepMerge. Purpose: Recursively merges two objects, handling nested object properties.',
-]
+SAMPLES_FILE = '${SCRIPT_DIR}/check-samples.json'
+with open(SAMPLES_FILE) as f:
+    _samples = json.load(f)
+CODE_SAMPLES = _samples['code']
+NLP_SAMPLES = _samples['nlp']
 
 def cosine_sim(a, b):
     a, b = np.array(a), np.array(b)
