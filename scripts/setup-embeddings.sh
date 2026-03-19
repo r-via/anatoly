@@ -485,12 +485,137 @@ echo ""
 info "Selected tier: ${TIER}"
 echo ""
 
-# Step 3: Setup fp16 backend (Python sidecar — for advanced-fp16 AND as fallback for advanced-gguf)
+# Step 3: Setup GGUF backend (Docker llama.cpp) if tier is advanced-gguf
+if [[ "$TIER" == "advanced-gguf" ]]; then
+  echo ""
+  info "Setting up GGUF backend (Docker llama.cpp)..."
+
+  # Download GGUF models if not already present
+  mkdir -p "$MODELS_DIR"
+  for GGUF_FILE in "$GGUF_CODE_MODEL_FILE" "$GGUF_NLP_MODEL_FILE"; do
+    if [[ "$GGUF_FILE" == "$GGUF_CODE_MODEL_FILE" ]]; then
+      GGUF_REPO="$GGUF_CODE_HF_REPO"
+      GGUF_LABEL="Code"
+    else
+      GGUF_REPO="$GGUF_NLP_HF_REPO"
+      GGUF_LABEL="NLP"
+    fi
+    GGUF_PATH="${MODELS_DIR}/${GGUF_FILE}"
+    if [[ -f "$GGUF_PATH" ]]; then
+      GGUF_SIZE=$(du -m "$GGUF_PATH" | cut -f1)
+      ok "${GGUF_LABEL} GGUF cached: ${GGUF_FILE} (${GGUF_SIZE} MB)"
+    else
+      info "Downloading ${GGUF_FILE} from ${GGUF_REPO}..."
+      if ! PYTHON_TMP=$(get_python 2>/dev/null); then
+        PYTHON_TMP="python3"
+      fi
+      "$PYTHON_TMP" -W ignore -c "
+import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
+from huggingface_hub import hf_hub_download
+hf_hub_download('${GGUF_REPO}', '${GGUF_FILE}', local_dir='${MODELS_DIR}')
+" 2>&1 | grep -v "^Warning:"
+      ok "Downloaded ${GGUF_FILE}"
+    fi
+  done
+
+  # Pull Docker image
+  info "Pulling Docker image ${GGUF_DOCKER_IMAGE}..."
+  if docker pull "$GGUF_DOCKER_IMAGE" 2>&1; then
+    ok "Docker image ready"
+  else
+    err "Failed to pull Docker image"
+    warn "Falling back to advanced-fp16"
+    TIER="advanced-fp16"
+  fi
+
+  if [[ "$TIER" == "advanced-gguf" ]]; then
+    # Test GGUF containers
+    info "Testing GGUF code container..."
+    CONTAINER_NAME="anatoly-gguf-test-$$"
+    docker run -d --rm --name "$CONTAINER_NAME" \
+      --gpus all \
+      -v "${MODELS_DIR}:/models:ro" \
+      -p 11435:8080 \
+      "$GGUF_DOCKER_IMAGE" \
+      --model "/models/${GGUF_CODE_MODEL_FILE}" \
+      --embedding --port 8080 --host 0.0.0.0 2>/dev/null
+
+    READY=false
+    for i in $(seq 1 60); do
+      if curl -sf "http://127.0.0.1:11435/health" &>/dev/null; then
+        READY=true
+        break
+      fi
+      sleep 2
+    done
+
+    if [[ "$READY" == "true" ]]; then
+      RESPONSE=$(curl -sf "http://127.0.0.1:11435/embedding" \
+        -H "Content-Type: application/json" \
+        -d '{"input": "function hello() { return world; }"}' 2>/dev/null)
+      if echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
+        CODE_DIM=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
+        ok "GGUF code embedding OK (${CODE_DIM}d)"
+      else
+        err "GGUF code embedding failed"
+        TIER="advanced-fp16"
+      fi
+    else
+      err "GGUF code container failed to start within 120s"
+      TIER="advanced-fp16"
+    fi
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    sleep 2
+
+    if [[ "$TIER" == "advanced-gguf" ]]; then
+      NLP_DIM="4096"
+      CODE_DIM="${CODE_DIM:-3584}"
+
+      # Write config and finish
+      FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+      mkdir -p "$(dirname "$FLAG_FILE")"
+      cat > "$FLAG_FILE" <<ENDJSON
+{
+  "backend": "advanced-gguf",
+  "code_model": "${MODEL}",
+  "nlp_model": "${NLP_MODEL}",
+  "dim_code": ${CODE_DIM},
+  "dim_nlp": ${NLP_DIM},
+  "device": "${GPU}",
+  "docker_image": "${GGUF_DOCKER_IMAGE}",
+  "code_gguf": "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}",
+  "nlp_gguf": "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}",
+  "setup_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+ENDJSON
+      ok "Config written to .anatoly/embeddings-ready.json"
+      echo ""
+      echo "  ═══════════════════════════════════════════════"
+      echo ""
+      ok "Setup complete! Backend: advanced-gguf"
+      echo ""
+      echo "  Code:    ${MODEL} → GGUF Q5_K_M (${CODE_DIM}d)"
+      echo "  NLP:     ${NLP_MODEL} → GGUF Q5_K_M (${NLP_DIM}d)"
+      echo "  Docker:  ${GGUF_DOCKER_IMAGE}"
+      echo "  Models:  .anatoly/models/"
+      echo "  Config:  .anatoly/embeddings-ready.json"
+      echo ""
+      echo "  ═══════════════════════════════════════════════"
+      echo ""
+      info "Both models load simultaneously (~10 GB VRAM). No swap needed."
+      info "The containers start automatically with 'npx anatoly run'."
+      echo ""
+      exit 0
+    fi
+  fi
+fi
+
+# Step 4: Setup fp16 backend (Python sidecar — for advanced-fp16 or lite)
 PYTHON=""
 CODE_DIM="768"
 NLP_DIM="384"
 
-if [[ "$TIER" == "advanced-fp16" ]] || [[ "$TIER" == "advanced-gguf" ]]; then
+if [[ "$TIER" == "advanced-fp16" ]]; then
   # Python + venv
   if ! PYTHON=$(ensure_venv); then
     if [[ "$TIER" == "advanced-gguf" ]]; then
