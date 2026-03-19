@@ -251,87 +251,71 @@ if [[ "${1:-}" == "--check" ]]; then
   GPU=$(detect_gpu)
   VRAM_GB=$(detect_vram_gb)
   if [[ "$GPU" == "none" ]]; then
-    warn "GPU: not detected — embeddings will run on CPU (slower)"
+    warn "GPU: not detected"
   else
     ok   "GPU: $GPU (${VRAM_GB} GB VRAM)"
   fi
 
-  # Docker / NVIDIA Container Toolkit status
-  if has_docker; then
-    ok   "Docker: available"
-    if has_nvidia_container_toolkit; then
-      ok   "NVIDIA Container Toolkit: available"
-    else
-      warn "NVIDIA Container Toolkit: not found (needed for GGUF backend)"
-    fi
-  else
-    info "Docker: not available (needed for GGUF backend)"
-  fi
-
-  # GGUF models
-  if [[ -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
-    ok   "GGUF code model: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
-  else
-    info "GGUF code model: not downloaded"
-  fi
-  if [[ -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
-    ok   "GGUF NLP model: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
-  else
-    info "GGUF NLP model: not downloaded"
-  fi
-
-  # Tier recommendation
+  # Determine tier
   DOCKER_OK="false"
   TOOLKIT_OK="false"
   if has_docker; then DOCKER_OK="true"; fi
   if has_docker && has_nvidia_container_toolkit; then TOOLKIT_OK="true"; fi
   TIER=$(select_tier "$GPU" "$VRAM_GB" "$DOCKER_OK" "$TOOLKIT_OK")
-  info "Recommended tier: ${TIER}"
 
-  # Existing flag
+  # Existing config
   FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+  CURRENT_BACKEND=""
   if [[ -f "$FLAG_FILE" ]]; then
-    CURRENT_BACKEND=$(python3 -c "import json; print(json.load(open('$FLAG_FILE')).get('backend','(not set)'))" 2>/dev/null || echo "(unreadable)")
-    ok   "Current backend: ${CURRENT_BACKEND} (from embeddings-ready.json)"
+    CURRENT_BACKEND=$(python3 -c "import json; print(json.load(open('$FLAG_FILE')).get('backend',''))" 2>/dev/null || echo "")
   fi
 
-  if PYTHON=$(get_python); then
-    PYVER=$("$PYTHON" --version 2>&1)
-    VENV_LABEL=""
-    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-      VENV_LABEL=" (active venv)"
-    elif [[ "$PYTHON" == "${VENV_DIR}/bin/python" ]]; then
-      VENV_LABEL=" (.anatoly/.venv)"
-    fi
-    ok   "Python: ${PYVER}${VENV_LABEL}"
+  # Use configured backend if set, otherwise recommended tier
+  BACKEND="${CURRENT_BACKEND:-$TIER}"
+  info "Backend: ${BACKEND}$([ -n "$CURRENT_BACKEND" ] && echo " (configured)" || echo " (recommended)")"
 
-    if check_package "$PYTHON" "sentence_transformers"; then
-      STVER=$("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)
-      ok   "sentence-transformers: $STVER"
+  echo "  ─────────────────────────────────"
+
+  if [[ "$BACKEND" == "advanced-gguf" ]]; then
+    # GGUF checks: Docker, Toolkit, image, models
+    if [[ "$DOCKER_OK" == "true" ]]; then
+      ok   "Docker: available"
     else
-      warn "sentence-transformers: not installed"
+      err  "Docker: not available"
     fi
-
-    if check_package "$PYTHON" "torch"; then
-      TORCHVER=$("$PYTHON" -c "import torch; print(f'{torch.__version__} (CUDA: {torch.cuda.is_available()})')" 2>/dev/null)
-      ok   "torch: $TORCHVER"
+    if [[ "$TOOLKIT_OK" == "true" ]]; then
+      ok   "NVIDIA Container Toolkit: available"
     else
-      warn "torch: not installed"
+      err  "NVIDIA Container Toolkit: not found"
+    fi
+    if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
+      ok   "Docker image: ${GGUF_DOCKER_IMAGE}"
+    else
+      warn "Docker image not pulled"
+      info "  Run: npx anatoly setup-embeddings"
+    fi
+    if [[ -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
+      ok   "Code GGUF: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
+    else
+      warn "Code GGUF: not downloaded"
+    fi
+    if [[ -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
+      ok   "NLP GGUF: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
+    else
+      warn "NLP GGUF: not downloaded"
     fi
 
-    # Backend-specific checks
-    if [[ "$TIER" == "advanced-gguf" ]]; then
-      info "Backend: advanced-gguf (Docker llama.cpp)"
-      if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
-        ok   "Docker image: ${GGUF_DOCKER_IMAGE}"
+  elif [[ "$BACKEND" == "advanced-fp16" ]]; then
+    # fp16 checks: Python, torch, sentence-transformers, models, sidecar
+    if PYTHON=$(get_python); then
+      ok   "Python: $("$PYTHON" --version 2>&1)"
+      if check_package "$PYTHON" "torch"; then
+        ok "torch: $("$PYTHON" -c "import torch; print(f'{torch.__version__} (CUDA: {torch.cuda.is_available()})')" 2>/dev/null)"
       else
-        warn "Docker image not pulled: ${GGUF_DOCKER_IMAGE}"
-        info "  Run: npx anatoly setup-embeddings"
+        warn "torch: not installed"
       fi
-    elif [[ "$TIER" == "advanced-fp16" ]]; then
-      info "Backend: advanced-fp16 (Python sidecar)"
       if check_package "$PYTHON" "sentence_transformers"; then
-        ok   "sentence-transformers: ready"
+        ok "sentence-transformers: $("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)"
         CODE_CACHED=$("$PYTHON" -W ignore -c "
 import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
 from huggingface_hub import try_to_load_from_cache
@@ -346,19 +330,21 @@ print('yes' if r and r != '' else 'no')
 " 2>/dev/null || echo "no")
         [[ "$CODE_CACHED" == "yes" ]] && ok "Code model: ${MODEL} (cached)" || warn "Code model: not downloaded"
         [[ "$NLP_CACHED" == "yes" ]] && ok "NLP model: ${NLP_MODEL} (cached)" || warn "NLP model: not downloaded"
+      else
+        warn "sentence-transformers: not installed"
       fi
       if sidecar_running; then
-        HEALTH=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/health" 2>/dev/null)
-        DEVICE=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('device','?'))" 2>/dev/null || echo "?")
-        ok   "Sidecar: running on port ${SIDECAR_PORT} (device: ${DEVICE})"
+        ok   "Sidecar: running on port ${SIDECAR_PORT}"
       else
         info "Sidecar: not running (auto-started by anatoly run)"
       fi
     else
-      info "Backend: lite (ONNX CPU, no GPU acceleration)"
+      warn "Python 3.9+: not found"
     fi
+
   else
-    warn "Python: 3.9+ not found"
+    # lite: minimal check
+    ok   "ONNX runtime: bundled (no external dependencies)"
   fi
 
   echo ""
