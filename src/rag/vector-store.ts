@@ -428,13 +428,21 @@ export class VectorStore {
 
     if (vectors.length === 0) return null;
 
-    // Average all NLP vectors
+    // Average all NLP vectors and L2-normalize for cosine similarity
     const dim = vectors[0].length;
     const avg = new Array(dim).fill(0);
     for (const vec of vectors) {
       for (let i = 0; i < dim; i++) avg[i] += vec[i];
     }
     for (let i = 0; i < dim; i++) avg[i] /= vectors.length;
+
+    // L2-normalize so cosine distance thresholds behave consistently
+    let norm = 0;
+    for (let i = 0; i < dim; i++) norm += avg[i] * avg[i];
+    norm = Math.sqrt(norm);
+    if (norm > 0) {
+      for (let i = 0; i < dim; i++) avg[i] /= norm;
+    }
     return avg;
   }
 
