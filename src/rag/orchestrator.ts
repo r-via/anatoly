@@ -41,6 +41,8 @@ export interface RagIndexOptions {
   /** Called when indexing transitions between phases. */
   onPhase?: (phase: 'code' | 'nlp' | 'upsert' | 'doc') => void;
   isInterrupted: () => boolean;
+  /** Full path to conversations/ dir for LLM conversation dumps. */
+  conversationDir?: string;
 }
 
 export interface RagIndexResult {
@@ -133,6 +135,7 @@ export async function processFileForDualIndex(
   indexModel: string,
   nlpSummaryCache?: NlpSummaryCache,
   deferNlpEmbeddings?: boolean,
+  conversationDir?: string,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -177,6 +180,7 @@ export async function processFileForDualIndex(
       task.file,
       indexModel,
       projectRoot,
+      conversationDir,
     );
 
     // Merge new summaries and build cache entries
@@ -313,7 +317,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -407,6 +411,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileStart,
         onFileDone,
         isInterrupted,
+        conversationDir: options.conversationDir,
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);

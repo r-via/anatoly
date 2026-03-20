@@ -748,6 +748,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           onFileStart: (file) => { ragDisplay.trackFile(file); },
           onFileDone: (file) => { ragDisplay.untrackFile(file); },
           isInterrupted: () => ctx.interrupted,
+          conversationDir: join(ctx.runDir, 'conversations'),
         });
       } finally {
         if (spinInterval) clearInterval(spinInterval);

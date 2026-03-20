@@ -2,12 +2,10 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKResultSuccess, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
-import { extractJson } from '../utils/extract-json.js';
+import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +78,7 @@ export async function generateNlpSummaries(
   filePath: string,
   model: string,
   projectRoot: string,
+  conversationDir?: string,
 ): Promise<Map<string, NlpSummary>> {
   const result = new Map<string, NlpSummary>();
   if (cards.length === 0) return result;
@@ -88,21 +87,22 @@ export async function generateNlpSummaries(
   const userMessage = buildUserMessage(filePath, cards, functionBodies);
 
   try {
-    const responseText = await execNlpQuery(userMessage, model, projectRoot);
-    const jsonStr = extractJson(responseText);
-    if (!jsonStr) {
-      log.warn({ filePath, reason: 'no JSON in response' }, 'NLP summarization failed');
-      return result;
-    }
-
-    const parsed = NlpResponseSchema.safeParse(JSON.parse(jsonStr));
-    if (!parsed.success) {
-      log.warn({ filePath, errors: parsed.error.issues.length, issues: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`) }, 'NLP summarization validation failed');
-      return result;
-    }
+    const fileSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
+    const response = await runSingleTurnQuery(
+      {
+        systemPrompt: SYSTEM_PROMPT,
+        userMessage,
+        model,
+        projectRoot,
+        abortController: new AbortController(),
+        conversationDir,
+        conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
+      },
+      NlpResponseSchema,
+    );
 
     // Match response functions to cards by name
-    for (const fn of parsed.data.functions) {
+    for (const fn of response.data.functions) {
       const card = cards.find((c) => c.name === fn.name);
       if (card) {
         result.set(card.id, {
@@ -117,42 +117,4 @@ export async function generateNlpSummaries(
   }
 
   return result;
-}
-
-// ---------------------------------------------------------------------------
-// Internal: lightweight SDK query for summarization
-// ---------------------------------------------------------------------------
-
-async function execNlpQuery(
-  prompt: string,
-  model: string,
-  projectRoot: string,
-): Promise<string> {
-  const q = query({
-    prompt,
-    options: {
-      systemPrompt: SYSTEM_PROMPT,
-      model,
-      cwd: projectRoot,
-      allowedTools: [],
-      maxTurns: 1,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-    },
-  });
-
-  let resultText = '';
-
-  for await (const message of q) {
-    if (message.type === 'result') {
-      if (message.subtype === 'success') {
-        resultText = (message as SDKResultSuccess).result;
-      } else {
-        const errorResult = message as SDKResultError;
-        throw new Error(`NLP summarization SDK error: ${errorResult.errors?.join(', ') ?? errorResult.subtype}`);
-      }
-    }
-  }
-
-  return resultText;
 }

@@ -111,6 +111,7 @@ async function chunkDocWithHaiku(
   model: string,
   projectRoot: string,
   abortController?: AbortController,
+  conversationDir?: string,
 ): Promise<DocSection[]> {
   const log = contextLogger();
   const ac = abortController ?? new AbortController();
@@ -123,6 +124,7 @@ async function chunkDocWithHaiku(
     const prose = stripNonProse(source);
     if (prose.length < 50) return [];
     try {
+      const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
       const result = await runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
@@ -130,6 +132,8 @@ async function chunkDocWithHaiku(
           model,
           projectRoot,
           abortController: ac,
+          conversationDir,
+          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
         },
         ChunkResponseSchema,
       );
@@ -159,6 +163,8 @@ async function chunkDocWithHaiku(
     }
 
     try {
+      const sectionSlug = section.heading.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+      const docSlugForSection = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
       const result = await runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
@@ -166,6 +172,8 @@ async function chunkDocWithHaiku(
           model,
           projectRoot,
           abortController: ac,
+          conversationDir,
+          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlugForSection}__${sectionSlug}` : undefined,
         },
         ChunkResponseSchema,
       );
@@ -298,6 +306,8 @@ export interface DocIndexOptions {
   onLog: (message: string) => void;
   /** Check if the caller has requested interruption (Ctrl+C). */
   isInterrupted?: () => boolean;
+  /** Full path to conversations/ dir for LLM conversation dumps. */
+  conversationDir?: string;
 }
 
 /**
@@ -307,7 +317,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -376,7 +386,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
     const sections = chunkModel
-      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac)
+      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir)
       : fallbackParseH2(relPath, source);
 
     if (sections.length === 0) {
