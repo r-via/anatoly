@@ -20,6 +20,9 @@ import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
+import { createMiniRun } from '../utils/run-id.js';
+import { createFileLogger, flushFileLogger } from '../utils/logger.js';
+import { runWithContext } from '../utils/log-context.js';
 
 export function registerWatchCommand(program: Command): void {
   program
@@ -52,6 +55,9 @@ export function registerWatchCommand(program: Command): void {
       // Acquire lock to prevent conflicts with concurrent anatoly instances
       const lockPath = acquireLock(projectRoot);
 
+      const { runId, runDir, logPath, conversationDir } = createMiniRun(projectRoot, 'watch');
+      const runLog = createFileLogger(logPath);
+
       console.log(chalk.bold('anatoly — watch'));
       console.log(`  watching ${config.scan.include.join(', ')}`);
       console.log(`  press Ctrl+C to stop`);
@@ -64,6 +70,11 @@ export function registerWatchCommand(program: Command): void {
       }
 
       // Initial scan on startup — index all matching files before watching
+      runLog.info({
+        event: 'watch_start', runId,
+        patterns: config.scan.include, excludes: config.scan.exclude,
+      }, 'watch started');
+
       const scanResult = await scanProject(projectRoot, config);
       console.log(`  ${chalk.cyan('initial scan')} ${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)`);
       console.log('');
@@ -146,9 +157,11 @@ export function registerWatchCommand(program: Command): void {
             config,
             evaluators,
             abortController: new AbortController(),
-            runDir: resolve(projectRoot, '.anatoly'),
+            runDir,
+            conversationDir,
           });
           writeReviewOutput(projectRoot, result.review);
+          flushFileLogger();
 
           progress.files[relPath].status = 'DONE';
           progress.files[relPath].updated_at = new Date().toISOString();
@@ -252,6 +265,8 @@ export function registerWatchCommand(program: Command): void {
       const onSigint = () => {
         console.log('');
         console.log(`${chalk.yellow.bold('shutting down')} closing watcher`);
+        runLog.info({ event: 'watch_stop', runId }, 'watch stopped');
+        flushFileLogger();
         watcher.close();
         releaseLock(lockPath);
         process.exit(0);

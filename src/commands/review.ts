@@ -19,6 +19,9 @@ import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
+import { createMiniRun } from '../utils/run-id.js';
+import { createFileLogger, flushFileLogger } from '../utils/logger.js';
+import { runWithContext } from '../utils/log-context.js';
 
 export function registerReviewCommand(program: Command): void {
   program
@@ -60,7 +63,14 @@ export function registerReviewCommand(program: Command): void {
       };
       process.on('SIGINT', onSigint);
 
+      const { runId, runDir, logPath, conversationDir } = createMiniRun(projectRoot, 'review');
+      const runLog = createFileLogger(logPath);
+
       try {
+        await runWithContext({ runId, phase: 'review' }, async () => {
+        runLog.info({ event: 'phase_start', phase: 'review', runId }, 'review started');
+        const startMs = Date.now();
+
         // Auto-scan if no tasks exist
         const tasks = loadTasks(projectRoot);
         if (tasks.length === 0) {
@@ -84,6 +94,8 @@ export function registerReviewCommand(program: Command): void {
         if (pending.length === 0) {
           console.log('anatoly — review');
           console.log('  No pending files to review.');
+          runLog.info({ event: 'phase_end', phase: 'review', durationMs: Date.now() - startMs, filesReviewed: 0 }, 'review completed (no pending files)');
+          flushFileLogger();
           return;
         }
 
@@ -136,7 +148,8 @@ export function registerReviewCommand(program: Command): void {
                     config,
                     evaluators,
                     abortController: activeAbort,
-                    runDir: resolve(projectRoot, '.anatoly'),
+                    runDir,
+                    conversationDir,
                     depMeta,
                     deliberation: config.llm.deliberation ?? true,
                     onAxisComplete: (axisId) => {
@@ -180,6 +193,13 @@ export function registerReviewCommand(program: Command): void {
 
         await runner.run();
 
+        const durationMs = Date.now() - startMs;
+        runLog.info({
+          event: 'phase_end', phase: 'review', durationMs,
+          filesReviewed, filesErrored, totalFindings,
+        }, 'review completed');
+        flushFileLogger();
+
         if (interrupted) {
           console.log(`interrupted — ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
         } else {
@@ -192,6 +212,7 @@ export function registerReviewCommand(program: Command): void {
           console.log(`  reviews      ${chalk.cyan(rel(reviewsDir) + '/')}`);
           console.log(`  transcripts  ${chalk.cyan(rel(logsDir) + '/')}`);
         }
+        });
       } finally {
         process.removeListener('SIGINT', onSigint);
         releaseLock(lockPath);

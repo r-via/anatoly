@@ -8,12 +8,15 @@ import { join, resolve } from 'node:path';
 const RUN_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 
 /**
- * Generate a timestamp-based run ID: YYYY-MM-DD_HHmmss
+ * Generate a timestamp-based run ID.
+ * Without prefix: `YYYY-MM-DD_HHmmss`
+ * With prefix: `<prefix>-YYYY-MM-DD_HHmmss`
  */
-export function generateRunId(): string {
+export function generateRunId(prefix?: string): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return prefix ? `${prefix}-${ts}` : ts;
 }
 
 /**
@@ -33,11 +36,34 @@ export function createRunDir(projectRoot: string, runId: string): string {
 
   mkdirSync(join(runDir, 'logs'), { recursive: true });
   mkdirSync(join(runDir, 'reviews'), { recursive: true });
+  mkdirSync(join(runDir, 'conversations'), { recursive: true });
 
   // Update `latest` pointer (symlink preferred, file fallback for Windows)
   updateLatestPointer(runsDir, runId);
 
   return runDir;
+}
+
+/**
+ * Create a mini-run directory for standalone commands (scan, estimate, review, watch).
+ * Returns paths needed by the command — the caller creates the logger.
+ */
+export interface MiniRunPaths {
+  runId: string;
+  runDir: string;
+  logPath: string;
+  conversationDir: string;
+}
+
+export function createMiniRun(projectRoot: string, prefix: string): MiniRunPaths {
+  const runId = generateRunId(prefix);
+  const runDir = createRunDir(projectRoot, runId);
+  return {
+    runId,
+    runDir,
+    logPath: join(runDir, 'anatoly.ndjson'),
+    conversationDir: join(runDir, 'conversations'),
+  };
 }
 
 /**
