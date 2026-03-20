@@ -310,7 +310,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, false)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -322,6 +322,18 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onProgress?.(fileCounter, tasksToIndex.length);
     },
   });
+
+  // Batch NLP embeddings: all code embeddings are done, now generate NLP embeddings
+  // in a single pass. This avoids swapping GGUF containers back and forth per file.
+  if (dualMode && results.length > 0) {
+    onLog?.(`rag: generating NLP embeddings for ${results.length} files (batch)...`);
+    for (const result of results) {
+      if (result.cards.length > 0 && !result.nlpEmbeddings) {
+        result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
+      }
+    }
+    onLog?.('rag: NLP embeddings batch complete');
+  }
 
   // Batch upsert all accumulated results sequentially
   onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);
