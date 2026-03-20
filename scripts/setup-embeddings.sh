@@ -480,11 +480,11 @@ run_ab_test() {
     --slurpfile gguf "${AB_TMP}/gguf_code_vecs.jsonl" \
     --slurpfile tei "${AB_TMP}/tei_code_vecs.jsonl" '
     [range($gguf | length) | . as $i |
-      ([$gguf[$i], $tei[$i]] |
-        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
-        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
-         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
-      )]
+      $gguf[$i] as $a | $tei[$i] as $b |
+      ([range($a|length)] | map($a[.] * $b[.]) | add) /
+      (([range($a|length)] | map($a[.] * $a[.]) | add | sqrt) *
+       ([range($b|length)] | map($b[.] * $b[.]) | add | sqrt))
+    ]
   ')
   echo "$CODE_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
@@ -493,11 +493,11 @@ run_ab_test() {
     --slurpfile gguf "${AB_TMP}/gguf_nlp_vecs.jsonl" \
     --slurpfile tei "${AB_TMP}/tei_nlp_vecs.jsonl" '
     [range($gguf | length) | . as $i |
-      ([$gguf[$i], $tei[$i]] |
-        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
-        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
-         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
-      )]
+      $gguf[$i] as $a | $tei[$i] as $b |
+      ([range($a|length)] | map($a[.] * $b[.]) | add) /
+      (([range($a|length)] | map($a[.] * $a[.]) | add | sqrt) *
+       ([range($b|length)] | map($b[.] * $b[.]) | add | sqrt))
+    ]
   ')
   echo "$NLP_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
