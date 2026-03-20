@@ -38,8 +38,8 @@ export interface RagIndexOptions {
   onProgress?: (current: number, total: number) => void;
   onFileStart?: (file: string) => void;
   onFileDone?: (file: string) => void;
-  /** Called when indexing transitions between phases (code → nlp → upsert). */
-  onPhase?: (phase: 'code' | 'nlp' | 'upsert') => void;
+  /** Called when indexing transitions between phases. */
+  onPhase?: (phase: 'code' | 'nlp' | 'upsert' | 'doc') => void;
   isInterrupted: () => boolean;
 }
 
@@ -394,6 +394,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Index doc sections from /docs/ (dual mode only — needs NLP embeddings)
   let docSectionsIndexed = 0;
   if (dualMode) {
+    onPhase?.('doc');
     try {
       docSectionsIndexed = await indexDocSections({
         projectRoot,

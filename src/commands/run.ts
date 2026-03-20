@@ -693,22 +693,23 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const embedLabel = ctx.dualEmbedding
     ? `${codeModelShort} + ${nlpModelShort}`
     : codeModelShort;
-  // Phase gate: each phase creates a promise that resolves when the next phase starts.
-  let resolveCodePhase: () => void;
-  let resolveNlpPhase: () => void;
-  let resolveUpsertPhase: () => void;
-  const codePhaseComplete = new Promise<void>((r) => { resolveCodePhase = r; });
-  const nlpPhaseComplete = new Promise<void>((r) => { resolveNlpPhase = r; });
-  const upsertPhaseComplete = new Promise<void>((r) => { resolveUpsertPhase = r; });
+  // Phase gates: promises that resolve when each phase completes.
+  const phaseGates: Record<string, { resolve: () => void; promise: Promise<void> }> = {};
+  for (const name of ['code', 'nlp', 'upsert', 'doc', 'done']) {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => { resolve = r; });
+    phaseGates[name] = { resolve, promise };
+  }
 
   let codeTotal = 0;
   let nlpTotal = 0;
-  let ragPhase: 'code' | 'nlp' | 'upsert' = 'code';
-
-  // Track active task references for output updates
+  let ragPhase: string = 'code';
   let activeTask: { title: string; output: string } | null = null;
 
-  // Start indexProject in the background — the subtasks gate on phase transitions
+  const indexModel = ctx.config.llm.index_model;
+  const indexModelShort = shortModelName(indexModel);
+
+  // Start indexProject in the background — subtasks gate on phase transitions
   const indexPromise = indexProject({
     projectRoot: ctx.projectRoot,
     tasks,
@@ -716,7 +717,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     concurrency: ctx.concurrency,
     verbose: ctx.verbose,
     dualEmbedding: ctx.dualEmbedding,
-    indexModel: ctx.config.llm.index_model,
+    indexModel,
     resolvedModels: ctx.resolvedModels,
     ragMode: ctx.resolvedRagMode,
     onLog: (msg) => {
@@ -726,39 +727,35 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       if (!activeTask) return;
       if (ragPhase === 'code') {
         codeTotal = total;
-        activeTask.title = `code embeddings (${codeModelShort}) — ${current}/${total}`;
+        activeTask.title = `code indexing (${codeModelShort} + ${indexModelShort}) — ${current}/${total}`;
       } else if (ragPhase === 'nlp') {
         nlpTotal = total;
         activeTask.title = `NLP embeddings (${nlpModelShort}) — ${current}/${total}`;
       }
     },
     onPhase: (phase) => {
-      if (phase === 'nlp') {
-        ragPhase = 'nlp';
-        resolveCodePhase();
-      } else if (phase === 'upsert') {
-        ragPhase = 'upsert';
-        resolveNlpPhase();
-      }
+      // Resolve the previous phase gate
+      if (phase === 'nlp') phaseGates['code'].resolve();
+      else if (phase === 'upsert') phaseGates['nlp'].resolve();
+      else if (phase === 'doc') phaseGates['upsert'].resolve();
+      ragPhase = phase;
     },
     onFileStart: (file) => { if (activeTask) activeTask.output = file; },
     onFileDone: () => {},
     isInterrupted: () => ctx.interrupted,
   }).then((result) => {
     ragResult = result;
-    // If no NLP phase (non-dual mode), resolve both gates
-    resolveCodePhase();
-    resolveNlpPhase();
-    resolveUpsertPhase();
+    // Resolve all gates when indexing completes
+    for (const g of Object.values(phaseGates)) g.resolve();
   });
 
   const ragTasks: Array<{ title: string; task: (_c: unknown, t: { title: string; output: string }) => Promise<void>; rendererOptions?: Record<string, unknown> }> = [
     {
-      title: `code embeddings (${codeModelShort})`,
+      title: `code indexing (${codeModelShort} + ${indexModelShort})`,
       task: async (_c, listrTask) => {
         activeTask = listrTask;
-        await codePhaseComplete;
-        listrTask.title = `code embeddings (${codeModelShort}) — ${codeTotal} files`;
+        await phaseGates['code'].promise;
+        listrTask.title = `code indexing (${codeModelShort} + ${indexModelShort}) — ${codeTotal} files`;
         activeTask = null;
       },
       rendererOptions: { outputBar: ctx.concurrency as number },
@@ -770,26 +767,35 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       title: `NLP embeddings (${nlpModelShort})`,
       task: async (_c, listrTask) => {
         activeTask = listrTask;
-        await nlpPhaseComplete;
+        await phaseGates['nlp'].promise;
         listrTask.title = `NLP embeddings (${nlpModelShort}) — ${nlpTotal} files`;
         activeTask = null;
       },
       rendererOptions: { outputBar: ctx.concurrency as number },
     });
-  }
 
-  ragTasks.push({
-    title: 'saving to vector store',
-    task: async (_c, listrTask) => {
-      activeTask = listrTask;
-      await upsertPhaseComplete;
-      await indexPromise;
-      const dualLabel = ragResult?.dualEmbedding ? ' (dual)' : '';
-      const docLabel = ragResult?.docSectionsIndexed ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
-      listrTask.title = `indexed ${ragResult?.totalCards ?? 0} functions (${ragResult?.totalFiles ?? 0} files)${dualLabel}${docLabel}`;
-      activeTask = null;
-    },
-  });
+    ragTasks.push({
+      title: `doc indexing (${indexModelShort} + ${nlpModelShort})`,
+      task: async (_c, listrTask) => {
+        activeTask = listrTask;
+        await phaseGates['doc'].promise;
+        await indexPromise;
+        const docCount = ragResult?.docSectionsIndexed ?? 0;
+        listrTask.title = `doc indexing (${indexModelShort} + ${nlpModelShort}) — ${docCount} sections`;
+        activeTask = null;
+      },
+      rendererOptions: { outputBar: ctx.concurrency as number },
+    });
+  } else {
+    // Non-dual: just wait for completion
+    ragTasks.push({
+      title: 'finalizing',
+      task: async (_c, listrTask) => {
+        await indexPromise;
+        listrTask.title = `indexed ${ragResult?.totalCards ?? 0} functions (${ragResult?.totalFiles ?? 0} files)`;
+      },
+    });
+  }
 
   const ragRunner = new Listr([{
     title: `RAG index (${embedLabel})`,
