@@ -289,6 +289,7 @@ export function registerRunCommand(program: Command): void {
           process.exit(1);
         }
         ctx.interrupted = true;
+        ctx.renderer?.stop();
         flushFileLogger();
         for (const ac of ctx.activeAborts) ac.abort();
       };
@@ -808,9 +809,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         ragPhase = phase;
         // Complete previous phase task
         if (prevTaskId && prevTaskId !== nextTaskId) {
-          // Keep the last detail as completion summary
           const prevTask = state.tasks.find((t) => t.id === prevTaskId);
-          state.completeTask(prevTaskId, prevTask?.detail ?? 'done');
+          const detail = prevTask?.detail === '\u2014' ? 'done' : prevTask?.detail ?? 'done';
+          state.completeTask(prevTaskId, detail);
         }
         // Start next phase task
         if (nextTaskId) {
@@ -842,14 +843,17 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Remove upsert synthetic file
   state.activeFiles.delete('saving to LanceDB\u2026');
 
-  // Set final completion details on rag-code
+  // Set final completion details on all rag tasks
   if (ragResult) {
     state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
     if (ragResult.dualEmbedding) {
       state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
     }
+    state.completeTask('rag-upsert', 'done');
     if (ragResult.docSectionsIndexed > 0) {
       state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
+    } else if (ctx.dualEmbedding) {
+      state.completeTask('rag-doc', 'done');
     }
   }
 

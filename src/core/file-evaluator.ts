@@ -205,10 +205,13 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     } else {
       failedAxes.push(evaluator.id);
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
-      const errFields = settled.reason instanceof AnatolyError
-        ? settled.reason.toLogObject()
-        : { errorMessage: String(settled.reason) };
-      contextLogger().warn({ event: 'axis_failed', axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
+      // Suppress noisy warnings when the user interrupted via Ctrl+C
+      if (!abortController.signal.aborted) {
+        const errFields = settled.reason instanceof AnatolyError
+          ? settled.reason.toLogObject()
+          : { errorMessage: String(settled.reason) };
+        contextLogger().warn({ event: 'axis_failed', axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
+      }
     }
     transcriptParts.push(chunk);
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
@@ -272,10 +275,13 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         const failChunk = `# Deliberation Pass — FAILED\n\n${String(err)}\n`;
         transcriptParts.push(failChunk);
         opts.onTranscriptChunk?.(failChunk);
-        const errFields = err instanceof AnatolyError
-          ? err.toLogObject()
-          : { errorMessage: String(err) };
-        contextLogger().warn({ file: task.file, ...errFields }, 'deliberation failed');
+        // Suppress noisy warnings when the user interrupted via Ctrl+C
+        if (!abortController.signal.aborted) {
+          const errFields = err instanceof AnatolyError
+            ? err.toLogObject()
+            : { errorMessage: String(err) };
+          contextLogger().warn({ file: task.file, ...errFields }, 'deliberation failed');
+        }
       }
     } else {
       const skipChunk = '# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n';

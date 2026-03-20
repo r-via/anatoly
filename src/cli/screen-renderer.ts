@@ -7,7 +7,7 @@ import { printBanner } from '../utils/banner.js';
 import type { PipelineState, FileState } from './pipeline-state.js';
 
 const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
-const FLASH_DURATION_MS = 200;
+const FLASH_DURATION_MS = 2000;
 const SEPARATOR = '\u2500'.repeat(58);
 
 export class ScreenRenderer {
@@ -74,10 +74,11 @@ export class ScreenRenderer {
     const lines: string[] = [];
 
     // Zone 1 — Banner (cached)
+    lines.push('');
     lines.push(...this.bannerLines);
 
     // Zone 2 — Task list
-    lines.push('  Tasks');
+    lines.push(this.renderTasksHeader());
     lines.push(`  ${SEPARATOR}`);
     for (const task of this.state.tasks) {
       if (!task.visible) continue;
@@ -129,20 +130,21 @@ export class ScreenRenderer {
     }
   }
 
-  private renderCurrentFilesHeader(): string {
-    const title = '  Current files';
+  private renderTasksHeader(): string {
+    const title = '  Tasks';
     const sem = this.state.semaphore;
     const isUpsert = this.state.activeTaskId === 'rag-upsert';
-    if (sem && !isUpsert) {
+    if (sem && !isUpsert && this.state.phase !== 'summary') {
       const running = sem.running;
       const capacity = running + sem.available;
       const available = sem.available;
-      const agentStr = chalk.dim(`Agents: ${running}/${capacity} running \u00b7 ${available} available`);
-      const columns = process.stdout.columns || 100;
-      const padding = Math.max(1, columns - 17 - 40); // rough alignment
-      return title + ' '.repeat(padding) + agentStr;
+      return `${title} ${chalk.dim(`\u2014 Agents: ${running}/${capacity} running \u00b7 ${available} available`)}`;
     }
     return title;
+  }
+
+  private renderCurrentFilesHeader(): string {
+    return '  Current files';
   }
 
   private renderFileLine(file: FileState, maxPathWidth: number): string {
