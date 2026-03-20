@@ -1291,7 +1291,11 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
   }, 'run completed');
 
-  // Derive conversationStats from axisStats
+  // Derive conversationStats from axisStats + RAG metrics
+  // Note: RAG LLM calls (NLP summaries, doc chunking) emit llm_call events to the ndjson
+  // but their token/cost metrics are not yet aggregated here. Only review-phase axis
+  // evaluations are tracked in axisStats. RAG metrics aggregation requires plumbing
+  // cost data through generateNlpSummaries → processFileForDualIndex → RagIndexResult.
   const conversationStats = {
     total: 0,
     byPhase: {} as Record<string, number>,
@@ -1306,7 +1310,13 @@ function runReportPhase(ctx: RunContext): void {
   }
   if (conversationStats.total > 0) {
     conversationStats.byPhase.review = conversationStats.total;
-    conversationStats.byModel[ctx.config.llm.model] = conversationStats.total;
+    const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
+    for (const e of evaluators) {
+      const s = ctx.axisStats[e.id];
+      if (s) {
+        conversationStats.byModel[resolveAxisModel(e, ctx.config)] = (conversationStats.byModel[resolveAxisModel(e, ctx.config)] ?? 0) + s.calls;
+      }
+    }
   }
 
   // Write run-metrics.json
