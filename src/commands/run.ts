@@ -422,17 +422,14 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
   console.log('');
 }
 
-/** Number of lines the MOTD banner occupies (including trailing blank line). */
-const BANNER_LINES = 8;
-
 function waitForEnter(): Promise<void> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     rl.question(chalk.dim('  press enter to proceed '), () => {
       rl.close();
-      // Move cursor to just below the banner and clear everything after it.
-      // This removes the dashboard but keeps the MOTD visible.
-      process.stdout.write(`\x1b[${BANNER_LINES + 1};1H\x1b[J`);
+      // Clear entire screen, move cursor to top, reprint the MOTD banner
+      process.stdout.write('\x1b[2J\x1b[H');
+      printBanner();
       resolve();
     });
   });
