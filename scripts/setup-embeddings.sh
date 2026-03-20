@@ -302,6 +302,10 @@ run_ab_test() {
   NLP_COUNT=$(json_count_samples ".nlp" "$SAMPLES_FILE")
   log info "Samples: ${CODE_COUNT} code + ${NLP_COUNT} NLP"
 
+  # Temp directory for vector files (avoids ARG_MAX with large embeddings)
+  local AB_TMP="${PROJECT_ROOT}/.anatoly/ab-tmp"
+  mkdir -p "$AB_TMP"
+
   # --- Phase 0: Clean slate ---
   log info "Cleaning up existing containers..."
   docker_cleanup_all
@@ -319,6 +323,7 @@ run_ab_test() {
   if ! wait_for_gguf 180; then
     log error "GGUF containers failed — aborting A/B test"
     stop_gguf_containers
+    rm -rf "$AB_TMP"
     return 1
   fi
 
@@ -326,9 +331,9 @@ run_ab_test() {
   VRAM_GGUF=$(detect_vram_used_mib)
   log info "GGUF VRAM: $(( VRAM_GGUF - VRAM_BASELINE )) MiB (total: ${VRAM_GGUF} MiB)"
 
-  # Collect GGUF code embeddings
+  # Collect GGUF code embeddings — write vectors to file (one JSON array per line)
   log info "Getting GGUF code embeddings..."
-  local GGUF_CODE_VECS="[]"
+  : > "${AB_TMP}/gguf_code_vecs.jsonl"
   local GGUF_CODE_LATENCIES="[]"
   local GGUF_CODE_DIM=0
   for i in $(seq 0 $((CODE_COUNT - 1))); do
@@ -344,14 +349,14 @@ run_ab_test() {
     local VEC
     VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "[]")
     GGUF_CODE_DIM=$(embedding_dim "$VEC")
-    GGUF_CODE_VECS=$(echo "$GGUF_CODE_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    echo "$VEC" >> "${AB_TMP}/gguf_code_vecs.jsonl"
     GGUF_CODE_LATENCIES=$(echo "$GGUF_CODE_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$GGUF_CODE_DIM" >&2
   done
 
   # Collect GGUF NLP embeddings
   log info "Getting GGUF NLP embeddings..."
-  local GGUF_NLP_VECS="[]"
+  : > "${AB_TMP}/gguf_nlp_vecs.jsonl"
   local GGUF_NLP_LATENCIES="[]"
   local GGUF_NLP_DIM=0
   for i in $(seq 0 $((NLP_COUNT - 1))); do
@@ -367,15 +372,10 @@ run_ab_test() {
     local VEC
     VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "[]")
     GGUF_NLP_DIM=$(embedding_dim "$VEC")
-    GGUF_NLP_VECS=$(echo "$GGUF_NLP_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    echo "$VEC" >> "${AB_TMP}/gguf_nlp_vecs.jsonl"
     GGUF_NLP_LATENCIES=$(echo "$GGUF_NLP_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$GGUF_NLP_DIM" >&2
   done
-
-  # Save GGUF vectors to temp file
-  local GGUF_CACHE="${PROJECT_ROOT}/.anatoly/ab-gguf-cache.json"
-  jq -n --argjson code "$GGUF_CODE_VECS" --argjson nlp "$GGUF_NLP_VECS" \
-    '{code: $code, nlp: $nlp}' > "$GGUF_CACHE"
 
   stop_gguf_containers
   log info "Cooling down (releasing VRAM)..."
@@ -391,6 +391,7 @@ run_ab_test() {
   if ! wait_for_tei "$TEI_CODE_PORT" "code" 300; then
     log error "TEI code container failed — aborting A/B test"
     stop_tei_containers
+    rm -rf "$AB_TMP"
     return 1
   fi
 
@@ -399,7 +400,7 @@ run_ab_test() {
   log info "TEI code VRAM: $(( VRAM_TEI - VRAM_BASELINE )) MiB"
 
   log info "Getting TEI code embeddings..."
-  local TEI_CODE_VECS="[]"
+  : > "${AB_TMP}/tei_code_vecs.jsonl"
   local TEI_CODE_LATENCIES="[]"
   local TEI_CODE_DIM=0
   for i in $(seq 0 $((CODE_COUNT - 1))); do
@@ -415,7 +416,7 @@ run_ab_test() {
     local VEC
     VEC=$(extract_tei_embedding "$RESP" 2>/dev/null || echo "[]")
     TEI_CODE_DIM=$(embedding_dim "$VEC")
-    TEI_CODE_VECS=$(echo "$TEI_CODE_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    echo "$VEC" >> "${AB_TMP}/tei_code_vecs.jsonl"
     TEI_CODE_LATENCIES=$(echo "$TEI_CODE_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$TEI_CODE_DIM" >&2
   done
@@ -430,11 +431,12 @@ run_ab_test() {
   if ! wait_for_tei "$TEI_NLP_PORT" "NLP" 300; then
     log error "TEI NLP container failed — aborting A/B test"
     stop_tei_containers
+    rm -rf "$AB_TMP"
     return 1
   fi
 
   log info "Getting TEI NLP embeddings..."
-  local TEI_NLP_VECS="[]"
+  : > "${AB_TMP}/tei_nlp_vecs.jsonl"
   local TEI_NLP_LATENCIES="[]"
   local TEI_NLP_DIM=0
   for i in $(seq 0 $((NLP_COUNT - 1))); do
@@ -450,40 +452,50 @@ run_ab_test() {
     local VEC
     VEC=$(extract_tei_embedding "$RESP" 2>/dev/null || echo "[]")
     TEI_NLP_DIM=$(embedding_dim "$VEC")
-    TEI_NLP_VECS=$(echo "$TEI_NLP_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    echo "$VEC" >> "${AB_TMP}/tei_nlp_vecs.jsonl"
     TEI_NLP_LATENCIES=$(echo "$TEI_NLP_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$TEI_NLP_DIM" >&2
   done
 
   stop_tei_containers
 
+  # --- Assemble vector arrays from JSONL files ---
+  # jq --slurp reads each line as a JSON value and wraps them in an array
+  local GGUF_CODE_VECS GGUF_NLP_VECS TEI_CODE_VECS TEI_NLP_VECS
+  GGUF_CODE_VECS=$(jq -s '.' "${AB_TMP}/gguf_code_vecs.jsonl")
+  GGUF_NLP_VECS=$(jq -s '.' "${AB_TMP}/gguf_nlp_vecs.jsonl")
+  TEI_CODE_VECS=$(jq -s '.' "${AB_TMP}/tei_code_vecs.jsonl")
+  TEI_NLP_VECS=$(jq -s '.' "${AB_TMP}/tei_nlp_vecs.jsonl")
+
   # --- Phase C: Comparison ---
   log_separator
   log info "Phase C: Comparing GGUF vs TEI embeddings"
 
-  # Compute cosine similarities
-  local CODE_SIMS="[]"
-  local NLP_SIMS="[]"
-
+  # Compute cosine similarities — read vectors from files to avoid ARG_MAX
+  local CODE_SIMS NLP_SIMS
   log info "Computing code cosine similarities..."
-  for i in $(seq 0 $((CODE_COUNT - 1))); do
-    local GGUF_VEC TEI_VEC SIM
-    GGUF_VEC=$(echo "$GGUF_CODE_VECS" | jq -c ".[$i]")
-    TEI_VEC=$(echo "$TEI_CODE_VECS" | jq -c ".[$i]")
-    SIM=$(cosine_similarity "$GGUF_VEC" "$TEI_VEC")
-    CODE_SIMS=$(echo "$CODE_SIMS" | jq --argjson v "$SIM" '. + [$v]')
-    printf "    [%2d/%d] sim=%.6f\n" "$((i+1))" "$CODE_COUNT" "$SIM" >&2
-  done
+  CODE_SIMS=$(jq -s '
+    .[0] as $gguf | .[1] as $tei |
+    [range($gguf | length) | . as $i |
+      ([$gguf[$i], $tei[$i]] |
+        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
+        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
+         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
+      )]
+  ' "${AB_TMP}/gguf_code_vecs.jsonl" "${AB_TMP}/tei_code_vecs.jsonl")
+  echo "$CODE_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
   log info "Computing NLP cosine similarities..."
-  for i in $(seq 0 $((NLP_COUNT - 1))); do
-    local GGUF_VEC TEI_VEC SIM
-    GGUF_VEC=$(echo "$GGUF_NLP_VECS" | jq -c ".[$i]")
-    TEI_VEC=$(echo "$TEI_NLP_VECS" | jq -c ".[$i]")
-    SIM=$(cosine_similarity "$GGUF_VEC" "$TEI_VEC")
-    NLP_SIMS=$(echo "$NLP_SIMS" | jq --argjson v "$SIM" '. + [$v]')
-    printf "    [%2d/%d] sim=%.6f\n" "$((i+1))" "$NLP_COUNT" "$SIM" >&2
-  done
+  NLP_SIMS=$(jq -s '
+    .[0] as $gguf | .[1] as $tei |
+    [range($gguf | length) | . as $i |
+      ([$gguf[$i], $tei[$i]] |
+        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
+        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
+         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
+      )]
+  ' "${AB_TMP}/gguf_nlp_vecs.jsonl" "${AB_TMP}/tei_nlp_vecs.jsonl")
+  echo "$NLP_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
   # Compute averages and ranking preservation
   local AVG_CODE_SIM AVG_NLP_SIM
@@ -494,36 +506,22 @@ run_ab_test() {
   CODE_DIM_MATCH=$([[ "$GGUF_CODE_DIM" == "$TEI_CODE_DIM" ]] && echo "true" || echo "false")
   NLP_DIM_MATCH=$([[ "$GGUF_NLP_DIM" == "$TEI_NLP_DIM" ]] && echo "true" || echo "false")
 
-  # Ranking preservation: check top-3 for code samples
+  # Ranking preservation: check top-3 for code samples (read from files)
   log info "Checking ranking preservation..."
-  local RANKING_PRESERVED=0
-  local RANKING_TOTAL="$CODE_COUNT"
-
-  # Compute ranking via jq: for each sample, sort others by cosine sim, check top-3 match
-  for i in $(seq 0 $((CODE_COUNT - 1))); do
-    local GGUF_RANK TEI_RANK
-    GGUF_RANK=$(echo "$GGUF_CODE_VECS" | jq -c --argjson idx "$i" '
-      . as $vecs | [range(length)] | map(select(. != $idx)) |
-      map({idx: ., sim: (
-        [$vecs[$idx], $vecs[.]] |
-        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
-        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
-         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
-      )}) | sort_by(-.sim) | .[0:3] | map(.idx)
-    ')
-    TEI_RANK=$(echo "$TEI_CODE_VECS" | jq -c --argjson idx "$i" '
-      . as $vecs | [range(length)] | map(select(. != $idx)) |
-      map({idx: ., sim: (
-        [$vecs[$idx], $vecs[.]] |
-        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
-        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
-         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
-      )}) | sort_by(-.sim) | .[0:3] | map(.idx)
-    ')
-    if [[ "$GGUF_RANK" == "$TEI_RANK" ]]; then
-      RANKING_PRESERVED=$((RANKING_PRESERVED + 1))
-    fi
-  done
+  local RANKING_PRESERVED RANKING_TOTAL
+  RANKING_TOTAL="$CODE_COUNT"
+  RANKING_PRESERVED=$(jq -s '
+    def cosine(a;b):
+      ([range(a|length)] | map(a[.] * b[.]) | add) /
+      (([range(a|length)] | map(a[.] * a[.]) | add | sqrt) *
+       ([range(b|length)] | map(b[.] * b[.]) | add | sqrt));
+    def top3(vecs; idx):
+      [range(vecs|length)] | map(select(. != idx)) |
+      map({idx: ., sim: cosine(vecs[idx]; vecs[.])}) |
+      sort_by(-.sim) | .[0:3] | map(.idx);
+    .[0] as $gguf | .[1] as $tei |
+    [range($gguf|length)] | map(select(top3($gguf; .) == top3($tei; .))) | length
+  ' "${AB_TMP}/gguf_code_vecs.jsonl" "${AB_TMP}/tei_code_vecs.jsonl")
   log info "Ranking preserved: ${RANKING_PRESERVED}/${RANKING_TOTAL}"
 
   # Recommendation logic
@@ -555,7 +553,7 @@ run_ab_test() {
   AVG_TEI_CODE_LAT=$(echo "$TEI_CODE_LATENCIES" | jq 'add / length | round')
   AVG_TEI_NLP_LAT=$(echo "$TEI_NLP_LATENCIES" | jq 'add / length | round')
 
-  # Write results
+  # Write results — read vectors from files to avoid ARG_MAX
   jq -n \
     --arg test_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg gpu "$(detect_gpu)" \
@@ -618,7 +616,7 @@ run_ab_test() {
   log ok "A/B test results written to .anatoly/embedding-ab-results.json"
 
   # Clean up temp files
-  rm -f "$GGUF_CACHE"
+  rm -rf "$AB_TMP"
 
   # Display summary
   log_separator
