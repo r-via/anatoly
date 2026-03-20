@@ -5,7 +5,6 @@
 import type { Command } from 'commander';
 import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
-import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -17,8 +16,10 @@ import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
-import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { countReviewFindings } from '../utils/format.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { PipelineState } from '../cli/pipeline-state.js';
+import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -108,94 +109,84 @@ export function registerReviewCommand(program: Command): void {
           warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
         }
         const depMeta = loadDependencyMeta(projectRoot);
-        const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
         const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
-        display.setSemaphore(sdkSemaphore);
+        const axesTotal = evaluators.length;
 
-        const runner = new Listr([{
-          title: `review — 0/${total}`,
-          task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-            let completedCount = 0;
+        // Pipeline display
+        const state = new PipelineState();
+        state.setSemaphore(sdkSemaphore);
+        state.addTask('review', 'review');
+        state.setPhase('review');
+        state.startTask('review', `0/${total}`);
+        const renderer = new ScreenRenderer(state, { plain });
+        renderer.start();
 
-            const updateTitle = () => {
-              const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
-              listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
-            };
+        let completedCount = 0;
 
-            const spinInterval = setInterval(() => {
-              if (display.hasActiveFiles) listrTask.output = display.render();
-            }, 80);
+        const updateReviewTask = () => {
+          const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
+          state.updateTask('review', `${completedCount}/${total}${findingsNote}`);
+        };
 
-            try {
-            await runWorkerPool({
-              items: pending,
-              concurrency: 1,
-              isInterrupted: () => interrupted,
-              handler: async (fp) => {
-                const task = taskMap.get(fp.file);
-                if (!task) {
-                  completedCount++;
-                  updateTitle();
-                  return;
-                }
-
-                pm.updateFileStatus(fp.file, 'IN_PROGRESS');
-                display.trackFile(fp.file);
-
-                activeAbort = new AbortController();
-
-                try {
-                  const result = await evaluateFile({
-                    projectRoot,
-                    task,
-                    config,
-                    evaluators,
-                    abortController: activeAbort,
-                    runDir,
-                    conversationDir,
-                    depMeta,
-                    deliberation: config.llm.deliberation ?? true,
-                    semaphore: sdkSemaphore,
-                    onAxisComplete: (axisId) => {
-                      display.markAxisDone(fp.file, axisId);
-                    },
-                  });
-                  writeReviewOutput(projectRoot, result.review, runDir);
-                  writeTranscript(projectRoot, fp.file, result.transcript, runDir);
-                  pm.updateFileStatus(fp.file, 'DONE');
-                  filesReviewed++;
-                  totalFindings += countReviewFindings(result.review);
-                  completedCount++;
-                } catch (error) {
-                  if (interrupted) return;
-
-                  const message = error instanceof AnatolyError ? error.message : String(error);
-                  const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-
-                  pm.updateFileStatus(fp.file, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-                  filesErrored++;
-                  completedCount++;
-                } finally {
-                  activeAbort = undefined;
-                  display.untrackFile(fp.file);
-                  updateTitle();
-                }
-              },
-            });
-            } finally {
-              clearInterval(spinInterval);
+        await runWorkerPool({
+          items: pending,
+          concurrency: 1,
+          isInterrupted: () => interrupted,
+          handler: async (fp) => {
+            const task = taskMap.get(fp.file);
+            if (!task) {
+              completedCount++;
+              updateReviewTask();
+              return;
             }
 
-            const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
-            listrTask.title = `review — ${completedCount}/${total}${findingsNote}`;
+            pm.updateFileStatus(fp.file, 'IN_PROGRESS');
+            state.trackFile(fp.file, { axesTotal });
+
+            activeAbort = new AbortController();
+
+            try {
+              const result = await evaluateFile({
+                projectRoot,
+                task,
+                config,
+                evaluators,
+                abortController: activeAbort,
+                runDir,
+                conversationDir,
+                depMeta,
+                deliberation: config.llm.deliberation ?? true,
+                semaphore: sdkSemaphore,
+                onAxisComplete: () => {
+                  state.markAxisDone(fp.file);
+                },
+              });
+              writeReviewOutput(projectRoot, result.review, runDir);
+              writeTranscript(projectRoot, fp.file, result.transcript, runDir);
+              pm.updateFileStatus(fp.file, 'DONE');
+              filesReviewed++;
+              totalFindings += countReviewFindings(result.review);
+              completedCount++;
+            } catch (error) {
+              if (interrupted) return;
+
+              const message = error instanceof AnatolyError ? error.message : String(error);
+              const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+
+              pm.updateFileStatus(fp.file, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+              filesErrored++;
+              completedCount++;
+            } finally {
+              activeAbort = undefined;
+              state.untrackFile(fp.file);
+              updateReviewTask();
+            }
           },
-          rendererOptions: { outputBar: 1 as number },
-        }], {
-          renderer: plain ? 'simple' : 'default',
-          fallbackRenderer: 'simple',
         });
 
-        await runner.run();
+        const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
+        state.completeTask('review', `${completedCount}/${total}${findingsNote}`);
+        renderer.stop();
 
         const durationMs = Date.now() - startMs;
         runLog.info({
@@ -205,13 +196,13 @@ export function registerReviewCommand(program: Command): void {
         flushFileLogger();
 
         if (interrupted) {
-          console.log(`interrupted — ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
+          console.log(`interrupted \u2014 ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
         } else {
           const rel = (p: string) => relative(process.cwd(), p) || '.';
           const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
           const logsDir = resolve(projectRoot, '.anatoly', 'logs');
           console.log('');
-          console.log(chalk.bold('review complete') + ` — ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
+          console.log(chalk.bold('review complete') + ` \u2014 ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
           console.log('');
           console.log(`  reviews      ${chalk.cyan(rel(reviewsDir) + '/')}`);
           console.log(`  transcripts  ${chalk.cyan(rel(logsDir) + '/')}`);

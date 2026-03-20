@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { ReviewFileSchema, SymbolReviewSchema, ActionSchema, BestPracticesSchema, BestPracticesRuleSchema } from './review.js';
+import { ReviewFileSchema, SymbolReviewSchema, ActionSchema, BestPracticesSchema, BestPracticesRuleSchema, DocRecommendationSchema } from './review.js';
 
 const validSymbol = {
   name: 'useAuth',
@@ -185,6 +185,103 @@ describe('BestPracticesRuleSchema', () => {
 
   it('should reject invalid severity', () => {
     expect(BestPracticesRuleSchema.safeParse({ rule_id: 1, rule_name: 'X', status: 'PASS', severity: 'LOW' }).success).toBe(false);
+  });
+});
+
+describe('DocRecommendationSchema', () => {
+  it('should validate a missing_page recommendation', () => {
+    const rec = {
+      type: 'missing_page',
+      path_ideal: '.anatoly/docs/05-Modules/rag.md',
+      path_user: 'docs/architecture/rag-engine.md',
+      content_ref: '.anatoly/docs/05-Modules/rag.md',
+      rationale: 'Module src/rag/ has no dedicated documentation page',
+      priority: 'high',
+    };
+    expect(DocRecommendationSchema.safeParse(rec).success).toBe(true);
+  });
+
+  it('should validate a missing_section recommendation with section field', () => {
+    const rec = {
+      type: 'missing_section',
+      path_ideal: '.anatoly/docs/01-Getting-Started/04-Quick-Start.md',
+      path_user: 'docs/guides/getting-started.md',
+      content_ref: '.anatoly/docs/01-Getting-Started/04-Quick-Start.md',
+      rationale: 'Quick start section missing',
+      priority: 'medium',
+      section: '## First Run',
+    };
+    const result = DocRecommendationSchema.safeParse(rec);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.section).toBe('## First Run');
+    }
+  });
+
+  it('should reject invalid recommendation type', () => {
+    const rec = {
+      type: 'invalid_type',
+      path_ideal: '.anatoly/docs/foo.md',
+      path_user: 'docs/foo.md',
+      content_ref: '.anatoly/docs/foo.md',
+      rationale: 'test',
+      priority: 'low',
+    };
+    expect(DocRecommendationSchema.safeParse(rec).success).toBe(false);
+  });
+
+  it('should reject invalid priority', () => {
+    const rec = {
+      type: 'missing_page',
+      path_ideal: '.anatoly/docs/foo.md',
+      path_user: 'docs/foo.md',
+      content_ref: '.anatoly/docs/foo.md',
+      rationale: 'test',
+      priority: 'critical',
+    };
+    expect(DocRecommendationSchema.safeParse(rec).success).toBe(false);
+  });
+});
+
+describe('ReviewFileSchema doc_recommendations', () => {
+  it('should accept a review with doc_recommendations', () => {
+    const review = {
+      version: 2,
+      file: 'src/index.ts',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+      doc_recommendations: [
+        {
+          type: 'missing_page',
+          path_ideal: '.anatoly/docs/05-Modules/core.md',
+          path_user: 'docs/05-Modules/core.md',
+          content_ref: '.anatoly/docs/05-Modules/core.md',
+          rationale: 'Core module undocumented',
+          priority: 'high',
+        },
+      ],
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.doc_recommendations).toHaveLength(1);
+    }
+  });
+
+  it('should accept a review without doc_recommendations (backward compatible)', () => {
+    const review = {
+      version: 1,
+      file: 'src/index.ts',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.doc_recommendations).toBeUndefined();
+    }
   });
 });
 

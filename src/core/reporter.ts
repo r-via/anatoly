@@ -1053,7 +1053,7 @@ function renderDeliberationSummary(data: ReportData): string[] {
 /**
  * Render the master index (report.md) — navigation hub pointing to per-axis reports.
  */
-export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats): string {
+export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string): string {
   const lines: string[] = [];
 
   lines.push('<p align="center">');
@@ -1093,6 +1093,12 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
     if (totalDead > 0) lines.push(`| Utility | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
     if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
     if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
+    lines.push('');
+  }
+
+  // Documentation Reference section (Epic 29)
+  if (docReferenceSection) {
+    lines.push(docReferenceSection);
     lines.push('');
   }
 
@@ -1432,6 +1438,7 @@ export function generateReport(
   runDir?: string,
   triageStats?: TriageStats,
   runStats?: RunStats,
+  docReferenceSection?: string,
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
@@ -1442,7 +1449,7 @@ export function generateReport(
   const reportPath = join(baseDir, 'report.md');
 
   // Write master index
-  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats));
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection));
 
   // Write per-axis folders
   for (const report of axisReports) {

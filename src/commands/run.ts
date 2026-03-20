@@ -8,7 +8,6 @@ import { createInterface } from 'node:readline';
 import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
-import { Listr } from 'listr2';
 import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
@@ -17,7 +16,7 @@ import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds }
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
-import { generateReport, type TriageStats } from '../core/reporter.js';
+import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
@@ -40,10 +39,13 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
-import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { countReviewFindings } from '../utils/format.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
-import { RagProgressDisplay } from './rag-display.js';
+import { PipelineState } from '../cli/pipeline-state.js';
+import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { injectBadge } from '../core/badge.js';
+import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../core/doc-pipeline.js';
+import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
@@ -103,6 +105,16 @@ interface RunContext {
   badge: { enabled: boolean; verdict: boolean; link?: string };
   /** Global SDK concurrency semaphore — shared across RAG indexing and review phases */
   sdkSemaphore: Semaphore;
+  /** Pipeline display state — created after setup, shared across rag/review/report */
+  pipelineState?: PipelineState;
+  /** Screen renderer — created after setup */
+  renderer?: ScreenRenderer;
+  /** Skip doc scaffolding and generation (--no-docs) */
+  noDocs: boolean;
+  /** Doc pipeline result — set after doc scaffold + generation phases */
+  docPipelineResult?: DocPipelineResult;
+  /** Doc report result — set during report phase */
+  docReportResult?: DocReportResult;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -127,6 +139,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--open', 'open report in default app after generation')
+    .option('--no-docs', 'skip documentation scaffolding and generation')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
@@ -232,6 +245,7 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
+        noDocs: parentOpts.docs === false,
       };
 
       // Create per-run ndjson log file at debug level (skip in dry-run)
@@ -289,6 +303,23 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
+        // Initialize pipeline display
+        const pipelineState = new PipelineState();
+        pipelineState.setSemaphore(ctx.sdkSemaphore);
+        if (ctx.enableRag) {
+          pipelineState.addTask('rag-code', 'rag \u2014 code indexing');
+          if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'rag \u2014 nlp embeddings');
+          pipelineState.addTask('rag-upsert', 'rag \u2014 upsert');
+          if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'rag \u2014 doc indexing');
+        }
+        pipelineState.addTask('review', 'review');
+        pipelineState.addTask('report', 'report');
+        ctx.pipelineState = pipelineState;
+
+        const renderer = new ScreenRenderer(pipelineState, { plain: ctx.plain });
+        ctx.renderer = renderer;
+        renderer.start();
+
         ctx.lockPath = acquireLock(projectRoot);
         await runWithContext({ phase: 'rag-index' }, async () => {
         const ragContext = await runRagPhase(ctx, setup.tasks);
@@ -323,6 +354,7 @@ export function registerRunCommand(program: Command): void {
         }
         process.exitCode = 2;
       } finally {
+        ctx.renderer?.stop();
         await stopGgufContainers(); // no-op if no containers running
         await stopTeiContainers(); // no-op if no containers running
         flushFileLogger();
@@ -621,6 +653,23 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const docsTree = buildDocsTree(ctx.projectRoot, ctx.config.documentation?.docs_path ?? 'docs');
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
+  // --- Phase: doc scaffold ---
+  if (!ctx.noDocs) {
+    try {
+      const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+      const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, allTasks);
+      const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, allTasks, pkg);
+      ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
+      const docDetail = `${scaffoldResult.scaffoldResult.pagesCreated.length} new · ${genResult.cacheResult.fresh.length} cached · ${genResult.prompts.length} to generate`;
+      pipelineRows.push({ phase: 'doc scaffold', detail: docDetail });
+      log.info({ phase: 'doc-scaffold', pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length, pagesGenerated: genResult.pagesGenerated }, 'doc scaffold complete');
+      rl?.info({ phase: 'doc-scaffold', pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length, pagesGenerated: genResult.pagesGenerated }, 'doc scaffold complete');
+    } catch (err) {
+      log.warn({ err }, 'doc scaffold failed — continuing without documentation generation');
+      rl?.warn({ err }, 'doc scaffold failed');
+    }
+  }
+
   // --- Calibrated ETA (merged into the estimate pipeline row) ---
   const calibration = loadCalibration(ctx.projectRoot);
   const activeAxes = evaluators.map(e => e.id);
@@ -713,91 +762,90 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   let ragResult: RagIndexResult | undefined;
 
-  const codeModelShort = shortModelName(ctx.resolvedModels.codeModel);
-  const nlpModelShort = shortModelName(ctx.resolvedModels.nlpModel);
-  const embedLabel = ctx.dualEmbedding
-    ? `${codeModelShort} + ${nlpModelShort}`
-    : codeModelShort;
   const indexModel = ctx.config.llm.index_model;
-  const indexModelShort = shortModelName(indexModel);
   const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
   mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
   const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });
+  const state = ctx.pipelineState!;
   let ragPhase = 'code';
-  const phaseLabels: Record<string, string> = {
-    code: `code indexing (${codeModelShort} + ${indexModelShort})`,
-    nlp: `NLP embeddings (${nlpModelShort})`,
-    doc: `doc indexing (${indexModelShort} + ${nlpModelShort})`,
-    upsert: 'saving to LanceDB',
+  const ragPhaseToTaskId: Record<string, string> = {
+    code: 'rag-code',
+    nlp: 'rag-nlp',
+    upsert: 'rag-upsert',
+    doc: 'rag-doc',
   };
-  const ragDisplay = new RagProgressDisplay();
 
-  const ragRunner = new Listr([{
-    title: phaseLabels['code'],
-    task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      const spinInterval = ctx.plain
-        ? null
-        : setInterval(() => {
-            if (ragDisplay.hasContent) listrTask.output = ragDisplay.render();
-          }, 80);
-
-      try {
-        ragResult = await indexProject({
-          projectRoot: ctx.projectRoot,
-          tasks,
-          rebuild: ctx.rebuildRag,
-          concurrency: ctx.concurrency,
-          verbose: ctx.verbose,
-          dualEmbedding: ctx.dualEmbedding,
-          indexModel,
-          resolvedModels: ctx.resolvedModels,
-          ragMode: ctx.resolvedRagMode,
-          onLog: (msg) => {
-            ctx.runLog?.debug({ phase: 'rag-index' }, msg);
-            ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
-            if (ctx.plain) listrTask.output = msg;
-          },
-          onProgress: (current, total) => {
-            listrTask.title = `${phaseLabels[ragPhase]} — ${current}/${total}`;
-          },
-          onPhase: (phase) => {
-            const prevPhase = ragPhase;
-            ragPhase = phase;
-            listrTask.title = phaseLabels[phase] ?? phase;
-            // Mark the previous phase as complete (shown under the new title)
-            if (prevPhase !== phase) {
-              ragDisplay.completePhase(phaseLabels[prevPhase]);
-            }
-          },
-          onFileStart: (file) => { ragDisplay.trackFile(file); },
-          onFileDone: (file) => { ragDisplay.untrackFile(file); },
-          isInterrupted: () => ctx.interrupted,
-          conversationDir: join(ctx.runDir, 'conversations'),
-          semaphore: ctx.sdkSemaphore,
-        });
-      } finally {
-        if (spinInterval) clearInterval(spinInterval);
-      }
-
-      ragDisplay.completePhase(phaseLabels[ragPhase]);
-      listrTask.output = ragDisplay.render();
-      const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
-      const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
-      listrTask.title = `RAG index — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${dualLabel}${docLabel}`;
-    },
-    rendererOptions: { outputBar: 1 as number },
-  }], {
-    renderer: ctx.plain ? 'simple' : 'default',
-    fallbackRenderer: 'simple',
-  });
+  state.startTask('rag-code', '0/?');
 
   try {
-    await ragRunner.run();
+    ragResult = await indexProject({
+      projectRoot: ctx.projectRoot,
+      tasks,
+      rebuild: ctx.rebuildRag,
+      concurrency: ctx.concurrency,
+      verbose: ctx.verbose,
+      dualEmbedding: ctx.dualEmbedding,
+      indexModel,
+      resolvedModels: ctx.resolvedModels,
+      ragMode: ctx.resolvedRagMode,
+      onLog: (msg) => {
+        ctx.runLog?.debug({ phase: 'rag-index' }, msg);
+        ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
+        ctx.renderer?.logPlain(`[rag] ${msg}`);
+      },
+      onProgress: (current, total) => {
+        const taskId = ragPhaseToTaskId[ragPhase];
+        if (taskId) state.updateTask(taskId, `${current}/${total}`);
+      },
+      onPhase: (phase) => {
+        const prevTaskId = ragPhaseToTaskId[ragPhase];
+        const nextTaskId = ragPhaseToTaskId[phase];
+        ragPhase = phase;
+        // Complete previous phase task
+        if (prevTaskId && prevTaskId !== nextTaskId) {
+          // Keep the last detail as completion summary
+          const prevTask = state.tasks.find((t) => t.id === prevTaskId);
+          state.completeTask(prevTaskId, prevTask?.detail ?? 'done');
+        }
+        // Start next phase task
+        if (nextTaskId) {
+          state.startTask(nextTaskId);
+          // During upsert, show synthetic file entry
+          if (phase === 'upsert') {
+            state.trackFile('saving to LanceDB\u2026');
+          }
+        }
+      },
+      onFileStart: (file) => { state.trackFile(file); },
+      onFileDone: (file) => { state.untrackFile(file); },
+      isInterrupted: () => ctx.interrupted,
+      conversationDir: join(ctx.runDir, 'conversations'),
+      semaphore: ctx.sdkSemaphore,
+    });
   } finally {
     ragLogStream.end();
     // Free GPU/VRAM immediately — review uses pre-computed vectors from LanceDB.
     await stopGgufContainers(logFn);
     await stopTeiContainers();
+  }
+
+  // Complete final RAG phase task
+  const finalTaskId = ragPhaseToTaskId[ragPhase];
+  if (finalTaskId) {
+    state.completeTask(finalTaskId, finalTaskId === 'rag-upsert' ? 'done' : (state.tasks.find((t) => t.id === finalTaskId)?.detail ?? 'done'));
+  }
+  // Remove upsert synthetic file
+  state.activeFiles.delete('saving to LanceDB\u2026');
+
+  // Set final completion details on rag-code
+  if (ragResult) {
+    state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
+    if (ragResult.dualEmbedding) {
+      state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+    }
+    if (ragResult.docSectionsIndexed > 0) {
+      state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
+    }
   }
 
   const ragDuration = Date.now() - ragStart;
@@ -886,196 +934,175 @@ async function runReviewPhase(
   const evaluateTotal = ctx.triageEnabled
     ? reviewItems.filter((item) => triageMap.get(item.filePath)?.tier !== 'skip').length
     : reviewItems.length;
-  const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
-  display.setSemaphore(ctx.sdkSemaphore);
+  const state = ctx.pipelineState!;
+  const axesTotal = evaluators.length;
+  state.setPhase('review');
+  state.startTask('review', `0/${evaluateTotal}`);
 
-  const reviewRunner = new Listr([{
-    title: `review — 0/${evaluateTotal}`,
-    task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      let completedCount = 0;
+  let completedCount = 0;
 
-      const updateTitle = () => {
-        const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
-        listrTask.title = `review — ${completedCount}/${evaluateTotal}${findingsNote}`;
-      };
+  const updateReviewTask = () => {
+    const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+    state.updateTask('review', `${completedCount}/${evaluateTotal}${findingsNote}`);
+  };
 
-      // Animate spinner while files are being processed (skip in plain mode to avoid console spam)
-      const spinInterval = ctx.plain
-        ? null
-        : setInterval(() => {
-            if (display.hasActiveFiles) listrTask.output = display.render();
-          }, 80);
+  await runWorkerPool({
+    items: reviewItems,
+    concurrency: ctx.concurrency,
+    isInterrupted: () => ctx.interrupted,
+    handler: async (item, workerIndex) => {
+      const { filePath, task } = item;
+      await runWithContext({ file: filePath, worker: workerIndex }, async () => {
+      const triage = triageMap.get(filePath);
 
-      try {
-      await runWorkerPool({
-        items: reviewItems,
-        concurrency: ctx.concurrency,
-        isInterrupted: () => ctx.interrupted,
-        handler: async (item, workerIndex) => {
-          const { filePath, task } = item;
-          await runWithContext({ file: filePath, worker: workerIndex }, async () => {
-          const triage = triageMap.get(filePath);
-
-          // Handle skip-tier files: generate synthetic review, no API call
-          if (ctx.triageEnabled && triage?.tier === 'skip') {
-            pm.updateFileStatus(filePath, 'IN_PROGRESS');
-            const skipReview = generateSkipReview(task, triage.reason);
-            writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
-            cacheReview(ctx.projectRoot, skipReview);
-            pm.updateFileStatus(filePath, 'DONE');
-            ctx.filesReviewed++;
-            ctx.reviewCounts.skipped++;
-            rl?.info({ event: 'file_skip', file: filePath, reason: triage.reason }, 'file skipped');
-            return;
-          }
-
-          // Evaluate tier: run all axis evaluators in parallel
-          pm.updateFileStatus(filePath, 'IN_PROGRESS');
-          display.trackFile(filePath);
-          rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: evaluators.map((e) => e.id) }, 'file review started');
-          ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
-
-          let currentAbort = new AbortController();
-          ctx.activeAborts.add(currentAbort);
-
-          try {
-            const result = await retryWithBackoff(
-              async () => {
-                if (ctx.interrupted) throw new Error('interrupted');
-                if (currentAbort.signal.aborted) {
-                  ctx.activeAborts.delete(currentAbort);
-                  currentAbort = new AbortController();
-                  ctx.activeAborts.add(currentAbort);
-                }
-                // Prepare streaming transcript path
-                const logsDir = join(ctx.runDir, 'logs');
-                mkdirSync(logsDir, { recursive: true });
-                const logPath = join(logsDir, `${toOutputName(filePath)}.log`);
-
-                return evaluateFile({
-                  projectRoot: ctx.projectRoot,
-                  task,
-                  config: ctx.config,
-                  evaluators,
-                  abortController: currentAbort,
-                  runDir: ctx.runDir,
-                  usageGraph,
-                  vectorStore: ragContext.vectorStore,
-                  ragEnabled: ragContext.ragEnabled,
-                  depMeta,
-                  projectTree,
-                  docsTree,
-                  deliberation: ctx.deliberation,
-                  codeWeight: ctx.config.rag.code_weight,
-                  conversationDir: join(ctx.runDir, 'conversations'),
-                  semaphore: ctx.sdkSemaphore,
-                  onAxisComplete: (axisId) => {
-                    display.markAxisDone(filePath, axisId);
-                  },
-                  onTranscriptChunk: (chunk) => {
-                    appendFileSync(logPath, chunk);
-                  },
-                });
-              },
-              {
-                maxRetries: 5,
-                baseDelayMs: 5000,
-                maxDelayMs: 120_000,
-                jitterFactor: 0.2,
-                filePath,
-                isInterrupted: () => ctx.interrupted,
-                onRetry: (attempt, delayMs) => {
-                  rl?.info({ event: 'file_retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
-                  if (!ctx.verbose) return;
-                  const delaySec = (delayMs / 1000).toFixed(0);
-                  display.setRetryMessage(filePath, `retrying in ${delaySec}s (${attempt}/5)`);
-                },
-              },
-            );
-
-            writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
-            cacheReview(ctx.projectRoot, result.review);
-            writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
-            pm.updateFileStatus(filePath, 'DONE');
-            ctx.filesReviewed++;
-            ctx.reviewCounts.evaluated++;
-            completedCount++;
-            ctx.totalFindings += countReviewFindings(result.review, 60);
-            ctx.totalCostUsd += result.costUsd;
-            if (result.failedAxes.length > 0) {
-              ctx.degradedReviews++;
-            }
-            for (const at of result.axisTiming) {
-              const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 };
-              s.calls++;
-              s.totalDurationMs += at.durationMs;
-              s.totalCostUsd += at.costUsd;
-              s.totalInputTokens += at.inputTokens;
-              s.totalOutputTokens += at.outputTokens;
-            }
-            const symbolCount = task.symbols?.length ?? 0;
-            const reviewFields = {
-              file: filePath,
-              verdict: result.review.verdict,
-              tier: triage?.tier ?? 'evaluate',
-              symbolCount,
-              costUsd: result.costUsd,
-              durationMs: result.durationMs,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              cacheReadTokens: result.cacheReadTokens,
-              cacheCreationTokens: result.cacheCreationTokens,
-              axisTiming: result.axisTiming.map((at) => ({
-                axisId: at.axisId,
-                durationMs: at.durationMs,
-                costUsd: at.costUsd,
-                inputTokens: at.inputTokens,
-                outputTokens: at.outputTokens,
-              })),
-            };
-            log.debug(reviewFields, 'file review completed');
-            ctx.runLog?.info(reviewFields, 'file review completed');
-            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
-            if (ctx.plain) {
-              const findings = countReviewFindings(result.review);
-              const verdict = result.review.verdict;
-              const dur = (result.durationMs / 1000).toFixed(1);
-              const note = findings > 0 ? ` | ${findings} findings` : '';
-              listrTask.output = `${filePath} → ${verdict}${note} (${dur}s)`;
-            }
-          } catch (error) {
-            if (ctx.interrupted) return;
-
-            const message = error instanceof AnatolyError ? error.message : String(error);
-            const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-            pm.updateFileStatus(filePath, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
-            ctx.errorCount++;
-            ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
-            log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
-            ctx.runLog?.error({ file: filePath, code: errorCode, message }, 'file review failed');
-            completedCount++;
-          } finally {
-            ctx.activeAborts.delete(currentAbort);
-            display.untrackFile(filePath);
-            updateTitle();
-          }
-          });
-        },
-      });
-      } finally {
-        if (spinInterval) clearInterval(spinInterval);
+      // Handle skip-tier files: generate synthetic review, no API call
+      if (ctx.triageEnabled && triage?.tier === 'skip') {
+        pm.updateFileStatus(filePath, 'IN_PROGRESS');
+        const skipReview = generateSkipReview(task, triage.reason);
+        writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
+        cacheReview(ctx.projectRoot, skipReview);
+        pm.updateFileStatus(filePath, 'DONE');
+        ctx.filesReviewed++;
+        ctx.reviewCounts.skipped++;
+        rl?.info({ event: 'file_skip', file: filePath, reason: triage.reason }, 'file skipped');
+        return;
       }
 
-      const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
-      listrTask.title = `review — ${completedCount}/${evaluateTotal}${findingsNote}`;
+      // Evaluate tier: run all axis evaluators in parallel
+      pm.updateFileStatus(filePath, 'IN_PROGRESS');
+      state.trackFile(filePath, { axesTotal });
+      rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: evaluators.map((e) => e.id) }, 'file review started');
+      ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
+
+      let currentAbort = new AbortController();
+      ctx.activeAborts.add(currentAbort);
+
+      try {
+        const result = await retryWithBackoff(
+          async () => {
+            if (ctx.interrupted) throw new Error('interrupted');
+            if (currentAbort.signal.aborted) {
+              ctx.activeAborts.delete(currentAbort);
+              currentAbort = new AbortController();
+              ctx.activeAborts.add(currentAbort);
+            }
+            // Prepare streaming transcript path
+            const logsDir = join(ctx.runDir, 'logs');
+            mkdirSync(logsDir, { recursive: true });
+            const logPath = join(logsDir, `${toOutputName(filePath)}.log`);
+
+            return evaluateFile({
+              projectRoot: ctx.projectRoot,
+              task,
+              config: ctx.config,
+              evaluators,
+              abortController: currentAbort,
+              runDir: ctx.runDir,
+              usageGraph,
+              vectorStore: ragContext.vectorStore,
+              ragEnabled: ragContext.ragEnabled,
+              depMeta,
+              projectTree,
+              docsTree,
+              deliberation: ctx.deliberation,
+              codeWeight: ctx.config.rag.code_weight,
+              conversationDir: join(ctx.runDir, 'conversations'),
+              semaphore: ctx.sdkSemaphore,
+              onAxisComplete: () => {
+                state.markAxisDone(filePath);
+              },
+              onTranscriptChunk: (chunk) => {
+                appendFileSync(logPath, chunk);
+              },
+            });
+          },
+          {
+            maxRetries: 5,
+            baseDelayMs: 5000,
+            maxDelayMs: 120_000,
+            jitterFactor: 0.2,
+            filePath,
+            isInterrupted: () => ctx.interrupted,
+            onRetry: (attempt, delayMs) => {
+              rl?.info({ event: 'file_retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
+              const delaySec = (delayMs / 1000).toFixed(0);
+              state.setRetryMessage(filePath, `retry ${delaySec}s (${attempt}/5)`);
+            },
+          },
+        );
+
+        writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
+        cacheReview(ctx.projectRoot, result.review);
+        writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
+        pm.updateFileStatus(filePath, 'DONE');
+        ctx.filesReviewed++;
+        ctx.reviewCounts.evaluated++;
+        completedCount++;
+        ctx.totalFindings += countReviewFindings(result.review, 60);
+        ctx.totalCostUsd += result.costUsd;
+        if (result.failedAxes.length > 0) {
+          ctx.degradedReviews++;
+        }
+        for (const at of result.axisTiming) {
+          const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+          s.calls++;
+          s.totalDurationMs += at.durationMs;
+          s.totalCostUsd += at.costUsd;
+          s.totalInputTokens += at.inputTokens;
+          s.totalOutputTokens += at.outputTokens;
+        }
+        const symbolCount = task.symbols?.length ?? 0;
+        const reviewFields = {
+          file: filePath,
+          verdict: result.review.verdict,
+          tier: triage?.tier ?? 'evaluate',
+          symbolCount,
+          costUsd: result.costUsd,
+          durationMs: result.durationMs,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          cacheReadTokens: result.cacheReadTokens,
+          cacheCreationTokens: result.cacheCreationTokens,
+          axisTiming: result.axisTiming.map((at) => ({
+            axisId: at.axisId,
+            durationMs: at.durationMs,
+            costUsd: at.costUsd,
+            inputTokens: at.inputTokens,
+            outputTokens: at.outputTokens,
+          })),
+        };
+        log.debug(reviewFields, 'file review completed');
+        ctx.runLog?.info(reviewFields, 'file review completed');
+        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
+        if (ctx.plain) {
+          const findings = countReviewFindings(result.review);
+          const verdict = result.review.verdict;
+          const dur = (result.durationMs / 1000).toFixed(1);
+          const note = findings > 0 ? ` | ${findings} findings` : '';
+          ctx.renderer?.logPlain(`${filePath} \u2192 ${verdict}${note} (${dur}s)`);
+        }
+      } catch (error) {
+        if (ctx.interrupted) return;
+
+        const message = error instanceof AnatolyError ? error.message : String(error);
+        const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+        pm.updateFileStatus(filePath, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
+        ctx.errorCount++;
+        ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
+        log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
+        ctx.runLog?.error({ file: filePath, code: errorCode, message }, 'file review failed');
+        completedCount++;
+      } finally {
+        ctx.activeAborts.delete(currentAbort);
+        state.untrackFile(filePath);
+        updateReviewTask();
+      }
+      });
     },
-    rendererOptions: { outputBar: 1 as number },
-  }], {
-    renderer: ctx.plain ? 'simple' : 'default',
-    fallbackRenderer: 'simple',
   });
 
-  await reviewRunner.run();
+  const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+  state.completeTask('review', `${completedCount}/${evaluateTotal}${findingsNote}`);
   await pm.flush();
 
   const reviewDuration = Date.now() - reviewStart;
@@ -1135,27 +1162,44 @@ function runReportPhase(ctx: RunContext): void {
   // Files with status CACHED have an unchanged SHA-256 — their .rev.json is still valid.
   copyCachedReviews(ctx.projectRoot, ctx.runDir, pm);
 
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats);
+  // --- Doc report aggregation ---
+  let docReferenceSection: string | undefined;
+  if (!ctx.noDocs && ctx.docPipelineResult) {
+    try {
+      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
+      const idealPageCount = ctx.docPipelineResult.generation?.totalPages ?? 0;
+      const cacheResult = ctx.docPipelineResult.generation?.cacheResult;
+      const newPageSources = ctx.docPipelineResult.generation?.cacheResult.added.map(p => ({
+        page: p,
+        source: `scaffolded`,
+      }));
+      ctx.docReportResult = aggregateDocReport({
+        projectRoot: ctx.projectRoot,
+        projectTypes: ctx.docPipelineResult.scaffold.projectTypes,
+        reviews,
+        tasks: ctx.allTasks,
+        idealPageCount,
+        cacheResult,
+        newPageSources,
+        docsPath: ctx.config.documentation?.docs_path ?? 'docs',
+      });
+      docReferenceSection = ctx.docReportResult.renderedSection;
+      log.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict, recommendations: ctx.docReportResult.recommendations.length }, 'doc report aggregated');
+      rl?.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict }, 'doc report aggregated');
+    } catch (err) {
+      log.warn({ err }, 'doc report aggregation failed');
+      rl?.warn({ err }, 'doc report aggregation failed');
+    }
+  }
+
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
 
   if (ctx.config.output?.max_runs) {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
   }
 
-  console.log('');
-
-  const { skipped, evaluated } = ctx.reviewCounts;
-  const tierSummary = ctx.triageEnabled
-    ? ` (${skipped} skipped \u00b7 ${evaluated} evaluated)`
-    : '';
-  const duration = formatDuration(Date.now() - ctx.startTime);
-  console.log(chalk.bold('review complete') + ` — ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
-  console.log('');
-  console.log(`  run          ${ctx.runId}`);
-  const rel = (p: string) => relative(process.cwd(), p) || '.';
-  console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
-  console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
-  console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
-  console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
+  // Badge injection (before summary display)
+  let badgeNote = '';
   if (ctx.badge.enabled) {
     const badgeResult = injectBadge({
       projectRoot: ctx.projectRoot,
@@ -1164,13 +1208,52 @@ function runReportPhase(ctx: RunContext): void {
       link: ctx.badge.link,
     });
     if (badgeResult.injected && !badgeResult.updated) {
-      console.log(`  badge        ${chalk.green('added')} in README.md (disable with --no-badge)`);
+      badgeNote = ' (badge added in README.md)';
     }
   }
-  console.log('');
+
+  const { skipped, evaluated } = ctx.reviewCounts;
+  const tierSummary = ctx.triageEnabled
+    ? ` (${skipped} skipped \u00b7 ${evaluated} evaluated)`
+    : '';
+  const duration = formatDuration(Date.now() - ctx.startTime);
+  const rel = (p: string) => relative(process.cwd(), p) || '.';
   const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
   const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
-  console.log(`  ${chalk.bold('Cost:')} ${costColor(costStr)} in API calls · ${chalk.green.bold('$0.00')} with Claude Code`);
+
+  // Transition pipeline display to summary
+  const state = ctx.pipelineState;
+  if (state) {
+    state.completeTask('report', 'done');
+    state.setSummary({
+      headline: chalk.bold('review complete') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
+      paths: [
+        { key: 'run', value: ctx.runId },
+        { key: 'report', value: chalk.cyan(rel(reportPath)) },
+        { key: 'reviews', value: chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/') },
+        { key: 'transcripts', value: chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/') },
+        { key: 'log', value: chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson'))) },
+      ],
+      cost: `${chalk.bold('Cost:')} ${costColor(costStr)} in API calls \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`,
+    });
+  }
+
+  // Stop renderer — final frame will show summary
+  ctx.renderer?.stop();
+
+  // Plain mode: print summary to stdout
+  if (ctx.plain || !state) {
+    console.log('');
+    console.log(chalk.bold('review complete') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
+    console.log('');
+    console.log(`  run          ${ctx.runId}`);
+    console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
+    console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
+    console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
+    console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
+    console.log('');
+    console.log(`  ${chalk.bold('Cost:')} ${costColor(costStr)} in API calls \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`);
+  }
 
   if (ctx.shouldOpen) openFile(reportPath);
 

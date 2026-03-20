@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import chalk from 'chalk';
+import type { ReviewFile } from '../schemas/review.js';
 
 /**
  * Build a Unicode progress bar.
@@ -59,3 +60,20 @@ export function formatTokenSummary(
   return parts.join(' / ');
 }
 
+export function countReviewFindings(review: ReviewFile, minConfidence: number = 0): number {
+  let findings = 0;
+  for (const s of review.symbols) {
+    if (s.confidence < minConfidence) continue;
+    if (s.utility === 'DEAD') findings++;
+    if (s.duplication === 'DUPLICATE') findings++;
+    if (s.overengineering === 'OVER') findings++;
+    if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') findings++;
+    if (s.tests === 'WEAK' || s.tests === 'NONE') findings++;
+    if (s.exported && s.documentation === 'UNDOCUMENTED') findings++;
+    if (s.documentation === 'PARTIAL') findings++;
+  }
+  if (review.best_practices) {
+    findings += review.best_practices.rules.filter((r) => r.status === 'FAIL').length;
+  }
+  return findings;
+}

@@ -96,6 +96,31 @@ export const BestPracticesSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Documentation recommendations (Epic 29)
+// ---------------------------------------------------------------------------
+
+export const DocRecommendationTypeSchema = z.enum([
+  'missing_page',
+  'missing_section',
+  'outdated_content',
+  'empty_page',
+  'broken_link',
+  'missing_index_entry',
+  'missing_jsdoc',
+  'incomplete_jsdoc',
+]);
+
+export const DocRecommendationSchema = z.object({
+  type: DocRecommendationTypeSchema,
+  path_ideal: z.string(),
+  path_user: z.string(),
+  content_ref: z.string(),
+  rationale: z.string(),
+  priority: z.enum(['high', 'medium', 'low']),
+  section: z.string().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Axis metadata (v2)
 // ---------------------------------------------------------------------------
 
@@ -135,6 +160,9 @@ export const ReviewFileSchema = z.object({
     score_pct: z.number().min(0).max(100),
   }).optional(),
 
+  /** Documentation recommendations with dual paths (Epic 29) */
+  doc_recommendations: z.array(DocRecommendationSchema).optional(),
+
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
   axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
 
@@ -162,3 +190,4 @@ export type BestPractices = z.infer<typeof BestPracticesSchema>;
 export type AxisMetaEntry = z.infer<typeof AxisMetaEntrySchema>;
 export type ReviewFile = z.infer<typeof ReviewFileSchema>;
 export type DocsCoverage = NonNullable<ReviewFile['docs_coverage']>;
+export type DocRecommendation = z.infer<typeof DocRecommendationSchema>;
