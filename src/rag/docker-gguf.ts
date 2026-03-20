@@ -63,6 +63,7 @@ function runContainer(modelFile: string, hostPort: number): void {
     GGUF_DOCKER_IMAGE,
     '--model', `/models/${modelFile}`,
     '--embedding',
+    '--pooling', 'last',
     '--port', '8080',
   ];
 

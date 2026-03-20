@@ -59,6 +59,7 @@ start_gguf_container() {
     "$GGUF_DOCKER_IMAGE" \
     --model "/models/${model_file}" \
     --embedding \
+    --pooling last \
     --port 8080 \
     --host 0.0.0.0 \
     -ngl 999 >/dev/null
