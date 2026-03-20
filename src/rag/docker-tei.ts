@@ -13,7 +13,7 @@
 
 import { execFileSync, execSync } from 'node:child_process';
 
-export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:cuda-1.9';
+export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
 export const TEI_NLP_PORT = 11436;
 
