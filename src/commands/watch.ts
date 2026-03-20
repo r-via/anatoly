@@ -110,6 +110,9 @@ export function registerWatchCommand(program: Command): void {
         const absPath = resolve(projectRoot, relPath);
         if (!existsSync(absPath)) return; // File deleted — handled by unlink
 
+        await runWithContext({ runId, file: relPath }, async () => {
+        runLog.info({ event: 'file_change', file: relPath }, 'file changed');
+
         try {
           // Re-scan: hash + parse AST
           const hash = computeFileHash(absPath);
@@ -144,6 +147,7 @@ export function registerWatchCommand(program: Command): void {
 
           atomicWriteJson(progressPath, progress);
 
+          runLog.info({ event: 'file_scan', file: relPath, symbols: symbols.length }, 'file scanned');
           console.log(`  ${chalk.cyan('scanned')} ${relPath}`);
 
           // Auto-review
@@ -151,6 +155,7 @@ export function registerWatchCommand(program: Command): void {
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
+          runLog.info({ event: 'file_review_start', file: relPath }, 'file review started');
           const result = await evaluateFile({
             projectRoot,
             task,
@@ -161,6 +166,7 @@ export function registerWatchCommand(program: Command): void {
             conversationDir,
           });
           writeReviewOutput(projectRoot, result.review);
+          runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict }, 'file review completed');
           flushFileLogger();
 
           progress.files[relPath].status = 'DONE';
@@ -173,6 +179,9 @@ export function registerWatchCommand(program: Command): void {
           regenerateReport();
         } catch (error) {
           const message = error instanceof AnatolyError ? error.message : String(error);
+          const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
+          runLog.info({ event: 'file_review_error', file: relPath, errorCode, error: message }, 'file review error');
+          flushFileLogger();
 
           // Update progress to ERROR
           const progress: Progress = readProgress(progressPath) ?? {
@@ -195,10 +204,12 @@ export function registerWatchCommand(program: Command): void {
             console.log(`  ${chalk.red('error')} ${relPath}: ${message}`);
           }
         }
+        });
       };
 
       const handleUnlink = (filePath: string) => {
         const relPath = relative(projectRoot, resolve(projectRoot, filePath));
+        runLog.info({ event: 'file_delete', file: relPath }, 'file deleted');
 
         // Remove task file
         const taskFileName = `${toOutputName(relPath)}.task.json`;
