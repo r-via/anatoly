@@ -701,7 +701,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     code: `code indexing (${codeModelShort} + ${indexModelShort})`,
     nlp: `NLP embeddings (${nlpModelShort})`,
     doc: `doc indexing (${indexModelShort} + ${nlpModelShort})`,
-    upsert: 'saving',
+    upsert: 'saving to LanceDB',
   };
   const ragDisplay = new RagProgressDisplay();
 
