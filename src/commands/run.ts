@@ -769,6 +769,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     // Embedding backends are only needed during indexing — free GPU/RAM immediately.
     // Must run even if indexing throws to avoid leaking processes/containers.
     await stopGgufContainers(logFn);
+    await stopTeiContainers();
   }
 
   const ragDuration = Date.now() - ragStart;
