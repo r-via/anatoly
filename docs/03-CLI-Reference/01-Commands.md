@@ -444,6 +444,58 @@ anatoly reset --yes
 
 ---
 
+## setup-embeddings
+
+Set up, check, or validate GPU-accelerated embeddings using Docker llama.cpp GGUF containers.
+
+```
+anatoly setup-embeddings [--check] [--ab-test]
+```
+
+### Options
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--check` | boolean | Check current embedding setup status without installing. Reports model availability, Docker status, and VRAM. |
+| `--ab-test` | boolean | Run an A/B quality validation comparing GGUF Q5_K_M output against HuggingFace TEI fp16 reference vectors. Used during setup to verify quantization quality. |
+
+### Behavior
+
+**Default (no flags):** Full setup. Pulls Docker llama.cpp server-cuda images, downloads GGUF Q5_K_M quantized models (nomic-embed-code for code, Qwen3-Embedding-8B for NLP), and verifies downloads with SHA256 integrity checks. Requires Docker and an NVIDIA GPU with >= 12 GB VRAM.
+
+**`--check`:** Status check only. Reports whether Docker is available, GPU VRAM, which models are downloaded, and whether containers can start. No modifications made.
+
+**`--ab-test`:** Quality validation. Spins up HuggingFace TEI containers with fp16 reference models and compares their output against the GGUF quantized models. Used to verify that quantization does not degrade embedding quality beyond acceptable thresholds. Run this after setup to validate model integrity.
+
+### Output
+
+```
+anatoly -- setup-embeddings
+
+  docker     available
+  gpu        NVIDIA RTX 4090 (24 GB VRAM)
+
+  code model nomic-embed-code (GGUF Q5_K_M)  downloaded (SHA256 OK)
+  nlp model  Qwen3-Embedding-8B (GGUF Q5_K_M)  downloaded (SHA256 OK)
+
+  setup complete
+```
+
+### Examples
+
+```bash
+# Full setup
+npx anatoly setup-embeddings
+
+# Check status
+npx anatoly setup-embeddings --check
+
+# Validate GGUF quality
+npx anatoly setup-embeddings --ab-test
+```
+
+---
+
 ## hook init
 
 Generate Claude Code hooks configuration for the Anatoly autocorrection loop. Writes (or merges into) `.claude/settings.json`.

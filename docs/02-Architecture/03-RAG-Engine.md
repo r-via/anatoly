@@ -127,16 +127,16 @@ The `--rebuild-rag` flag drops the entire LanceDB table and clears the cache, fo
 The embedding and search pipeline runs 100% locally with no external API calls, regardless of runtime:
 
 - **Code embedding (ONNX):** `@xenova/transformers` runs on CPU — no network, no cost
-- **Code embedding (sidecar):** Nomic Embed Code runs on local GPU via sentence-transformers sidecar — no network, no cost
-- **NLP embedding (sidecar):** `Qwen3-Embedding-8B` runs on local GPU via sentence-transformers sidecar — no network, no cost
+- **Code embedding (GGUF):** Nomic Embed Code runs on local GPU via Docker llama.cpp container — no network, no cost
+- **NLP embedding (GGUF):** `Qwen3-Embedding-8B` runs on local GPU via Docker llama.cpp container — no network, no cost
 - **NLP embedding (ONNX):** `all-MiniLM-L6-v2` via `@xenova/transformers` — always local ONNX
 - **Storage:** LanceDB is an embedded database with no server component
 - **Search:** vector similarity is computed locally
 
 The only API cost in the RAG pipeline comes from NLP summarization in dual embedding mode (one LLM call per file, ~$0.001/file with Haiku). The axis evaluator LLM calls in the Review phase are separate.
 
-### GPU-accelerated embedding via sentence-transformers sidecar
+### GPU-accelerated embedding via Docker GGUF containers
 
-When a GPU and the sentence-transformers sidecar are available, Anatoly uses `nomic-ai/nomic-embed-code` for higher-quality code embeddings. Run `./scripts/setup-embeddings.sh` to set up, or the sidecar auto-starts with `anatoly run`.
+When a GPU and Docker are available, Anatoly uses `nomic-ai/nomic-embed-code` (GGUF Q5_K_M) for higher-quality code embeddings via llama.cpp server-cuda containers. Run `npx anatoly setup-embeddings` to set up. Containers start automatically with `anatoly run` when setup is detected.
 
 Use `npx anatoly rag-status` to verify which runtime and model are active.

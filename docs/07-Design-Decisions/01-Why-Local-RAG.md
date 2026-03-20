@@ -58,8 +58,8 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 
 ### Negative
 
-- **~30 MB model download** on first install (Jina ONNX). The optional Nomic Embed Code 7B via sentence-transformers sidecar is ~14 GB but provides significantly better embeddings.
-- **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With the sentence-transformers sidecar on GPU, this is much faster.
+- **~30 MB model download** on first install (Jina ONNX). The optional GGUF models for Docker llama.cpp containers provide significantly better embeddings.
+- **CPU-bound embedding (ONNX).** On machines without GPU acceleration, embedding a large codebase (1,000+ functions) can take 30-60 seconds. With Docker llama.cpp GGUF containers on GPU, this is much faster.
 - **3584-dim vectors (7B model) are larger than cloud alternatives.** The ONNX fallback uses 768-dim. Both are larger than OpenAI's 512-dim option, but the quality difference justifies the storage.
 
 ## Alternatives Considered
@@ -70,7 +70,7 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 | **Voyage Code 3** | Best-in-class code embeddings, but API-only. Same cost/privacy concerns as OpenAI. |
 | **No RAG (grep-only duplication)** | Grep can find exact string matches but completely misses renamed variables, refactored logic, and cross-file patterns. The duplication axis would be severely limited. |
 | **ChromaDB** | Requires a separate server process or in-process Python. LanceDB is a native embedded store with a Node.js SDK, better suited to a CLI tool. |
-| **Ollama** | Community port (`manutic/nomic-embed-code`) suffered from GGML_ASSERT crashes in Ollama 0.13+. Replaced by direct sentence-transformers sidecar for stability. |
+| **Ollama** | Community port (`manutic/nomic-embed-code`) suffered from GGML_ASSERT crashes in Ollama 0.13+. Replaced by Docker llama.cpp GGUF containers for stability. |
 
 ## Embedding Strategy: Single vs Dual
 
@@ -78,17 +78,17 @@ Anatoly supports two embedding modes, auto-selected based on available hardware:
 
 | Mode | Model | Dim | GPU | Dual NLP | Quality |
 |------|-------|-----|-----|----------|---------|
-| **advanced** (sidecar) | nomic-embed-code (code) + Qwen3-Embedding-8B (NLP) | 3584d + 4096d | Required (14 GB VRAM) | Yes — dedicated NLP model for semantics | Best |
+| **advanced-gguf** (Docker) | nomic-embed-code (code) + Qwen3-Embedding-8B (NLP) | 3584d + 4096d | Required (12 GB VRAM) | Yes — dedicated NLP model for semantics | Best |
 | **lite** (ONNX fallback) | Jina v2 (code) + MiniLM (NLP) | 768d + 384d | Not needed | Yes — compensates Jina's code-only focus | Good |
 
 **Why two tiers of models?**
 
-In advanced mode, the nomic-embed-code 7B model handles code embedding (3584d) while Qwen3-Embedding-8B provides a dedicated NLP embedding (4096d) for semantic intent. This dual-sidecar approach gives the best quality across both dimensions.
+In advanced-GGUF mode, the nomic-embed-code model handles code embedding (3584d) while Qwen3-Embedding-8B provides a dedicated NLP embedding (4096d) for semantic intent. These run as Docker llama.cpp server-cuda containers in sequential mode (~10 GB VRAM), giving the best quality across both dimensions.
 
 In lite mode (ONNX fallback), Jina v2 is a pure code embedder that doesn't understand natural language intent, so the MiniLM NLP vector (384d) adds a complementary semantic signal.
 
-**Auto-selection:** when the sidecar is running, advanced mode models (nomic-embed-code + Qwen3-Embedding-8B) are used automatically.
+**Auto-selection:** when Docker GGUF containers are available, advanced-GGUF mode models (nomic-embed-code + Qwen3-Embedding-8B) are used automatically.
 
 ## Notes
 
-The embedding models are auto-selected at startup based on hardware and sidecar availability. When a GPU is detected, Anatoly starts the sentence-transformers sidecar with `nomic-ai/nomic-embed-code` (3584d) for code and `Qwen/Qwen3-Embedding-8B` (4096d) for NLP. Without GPU, it falls back to Jina v2 (ONNX, 768d) for code with optional dual MiniLM NLP embedding (384d). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless. Run `npx anatoly setup-embeddings` to set up both models, or the sidecar auto-starts with `anatoly run`.
+The embedding models are auto-selected at startup based on hardware and Docker availability. When a GPU and Docker are available, Anatoly uses Docker llama.cpp server-cuda containers with GGUF Q5_K_M quantized `nomic-ai/nomic-embed-code` (3584d) for code and `Qwen/Qwen3-Embedding-8B` (4096d) for NLP. Models are loaded sequentially (one at a time, ~10 GB VRAM). Without GPU, it falls back to Jina v2 (ONNX, 768d) for code with optional dual MiniLM NLP embedding (384d). The vector store automatically detects dimension mismatches and rebuilds the index, so model switches are seamless. Run `npx anatoly setup-embeddings` to set up both models. Containers start automatically with `anatoly run`.

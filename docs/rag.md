@@ -33,7 +33,7 @@ flowchart LR
 
 Anatoly uses **two separate specialized models** for dual embedding, with model selection based on available hardware:
 
-**Advanced mode (GPU sidecar):**
+**Advanced-GGUF mode (Docker llama.cpp containers):**
 
 | Role | Model | Dimensions | Optimized For |
 |------|-------|------------|---------------|
@@ -47,7 +47,7 @@ Anatoly uses **two separate specialized models** for dual embedding, with model 
 | Code | `jinaai/jina-embeddings-v2-base-code` | 768 | Source code structure, syntax patterns |
 | NLP | `Xenova/all-MiniLM-L6-v2` | 384 | Natural language semantic similarity |
 
-Advanced mode models run via the sentence-transformers sidecar on GPU. Lite mode models run locally via `@xenova/transformers` (ONNX/WASM). No external API calls for embedding in either mode.
+Advanced-GGUF mode models run via Docker llama.cpp server-cuda containers on GPU. Lite mode models run locally via `@xenova/transformers` (ONNX). No external API calls for embedding in either mode.
 
 ### Why two models?
 
@@ -91,9 +91,9 @@ Current model resolution:
 | Hardware | Code Model | NLP Model |
 |----------|-----------|-----------|
 | Any (ONNX runtime) | `jina-v2-base-code` (768d, 161M params) | `all-MiniLM-L6-v2` (384d, ~22M params) |
-| GPU + 16GB+ RAM | `nomic-embed-code` (7B, 3584d) | `Qwen3-Embedding-8B` (8B, 4096d) |
+| GPU + 12GB+ VRAM + Docker | `nomic-embed-code` (GGUF Q5_K_M, 3584d) | `Qwen3-Embedding-8B` (GGUF Q5_K_M, 4096d) |
 
-Both advanced models are downloaded by `setup-embeddings` and run via the sentence-transformers sidecar. The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
+Both advanced models are downloaded by `setup-embeddings` (SHA256-verified) and run via Docker llama.cpp server-cuda containers in sequential mode (one model loaded at a time, ~10 GB VRAM). The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
 
 ## Indexing Pipeline
 
