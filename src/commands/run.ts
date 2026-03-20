@@ -90,6 +90,8 @@ interface RunContext {
   degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
+  /** Timeline of key events for run-metrics.json (phase + file level) */
+  timeline: Array<{ t: number; event: string; [k: string]: unknown }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
   runLog?: import('../utils/logger.js').Logger;
   /** CLI axes filter — restricts which axes are evaluated (intersection with config) */
@@ -207,6 +209,7 @@ export function registerRunCommand(program: Command): void {
         errorsByCode: {},
         degradedReviews: 0,
         axisStats: {},
+        timeline: [],
         axesFilter,
         dryRun,
         badge: {
@@ -528,6 +531,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const scanResult = await scanProject(ctx.projectRoot, ctx.config);
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
   pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files` });
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
@@ -549,6 +553,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // Estimate row is pushed after triage so we can include the calibrated ETA
   const estimateTokenLabel = `${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   ctx.phaseDurations.estimate = Date.now() - estStart;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'estimate', durationMs: ctx.phaseDurations.estimate });
   const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
   log.info(estCompleted, 'phase completed');
   rl?.info(estCompleted, 'phase completed');
@@ -778,6 +783,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   const ragDuration = Date.now() - ragStart;
   ctx.phaseDurations['rag-index'] = ragDuration;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'rag-index', durationMs: ragDuration });
 
   if (ctx.interrupted) {
     console.log('interrupted — rag indexing incomplete');
@@ -906,6 +912,7 @@ async function runReviewPhase(
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
           display.trackFile(filePath);
           rl?.info({ event: 'file_review_start', file: filePath }, 'file review started');
+          ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
 
           let currentAbort = new AbortController();
           ctx.activeAborts.add(currentAbort);
@@ -1006,6 +1013,7 @@ async function runReviewPhase(
             };
             log.debug(reviewFields, 'file review completed');
             ctx.runLog?.info(reviewFields, 'file review completed');
+            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
             if (ctx.plain) {
               const findings = countReviewFindings(result.review);
               const verdict = result.review.verdict;
@@ -1050,6 +1058,7 @@ async function runReviewPhase(
 
   const reviewDuration = Date.now() - reviewStart;
   ctx.phaseDurations.review = reviewDuration;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'review', durationMs: reviewDuration });
   const reviewCompleted = {
     phase: 'review', runId: ctx.runId, durationMs: reviewDuration,
     filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency,
@@ -1144,6 +1153,7 @@ function runReportPhase(ctx: RunContext): void {
 
   const reportDuration = Date.now() - reportStart;
   ctx.phaseDurations.report = reportDuration;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'report', durationMs: reportDuration });
   log.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
   rl?.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
 
@@ -1170,6 +1180,24 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
   }, 'run completed');
 
+  // Derive conversationStats from axisStats
+  const conversationStats = {
+    total: 0,
+    byPhase: {} as Record<string, number>,
+    byModel: {} as Record<string, number>,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+  };
+  for (const [, s] of Object.entries(ctx.axisStats)) {
+    conversationStats.total += s.calls;
+    conversationStats.totalInputTokens += s.totalInputTokens;
+    conversationStats.totalOutputTokens += s.totalOutputTokens;
+  }
+  if (conversationStats.total > 0) {
+    conversationStats.byPhase.review = conversationStats.total;
+    conversationStats.byModel[ctx.config.llm.model] = conversationStats.total;
+  }
+
   // Write run-metrics.json
   const metrics = {
     runId: ctx.runId,
@@ -1182,6 +1210,8 @@ function runReportPhase(ctx: RunContext): void {
     costUsd: ctx.totalCostUsd,
     phaseDurations: ctx.phaseDurations,
     axisStats: ctx.axisStats,
+    timeline: ctx.timeline.sort((a, b) => a.t - b.t),
+    conversationStats,
   };
   try {
     writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
