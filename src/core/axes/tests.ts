@@ -148,6 +148,7 @@ export class TestsEvaluator implements AxisEvaluator {
         abortController,
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__tests` : undefined,
+        semaphore: ctx.semaphore,
       },
       TestsResponseSchema,
     );

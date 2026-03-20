@@ -128,6 +128,7 @@ export class DocumentationEvaluator implements AxisEvaluator {
         abortController,
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__documentation` : undefined,
+        semaphore: ctx.semaphore,
       },
       DocumentationResponseSchema,
     );

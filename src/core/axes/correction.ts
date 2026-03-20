@@ -340,6 +340,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
         abortController,
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction` : undefined,
+        semaphore: ctx.semaphore,
       },
       CorrectionResponseSchema,
     );
@@ -368,6 +369,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
             abortController,
             conversationDir: ctx.conversationDir,
             conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction-verify` : undefined,
+            semaphore: ctx.semaphore,
           },
           VerificationResponseSchema,
         );

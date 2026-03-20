@@ -112,6 +112,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         abortController,
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__utility` : undefined,
+        semaphore: ctx.semaphore,
       },
       UtilityResponseSchema,
     );

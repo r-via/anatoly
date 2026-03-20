@@ -113,6 +113,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         abortController,
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__overengineering` : undefined,
+        semaphore: ctx.semaphore,
       },
       OverengineeringResponseSchema,
     );

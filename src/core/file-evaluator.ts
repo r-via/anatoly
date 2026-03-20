@@ -11,6 +11,7 @@ import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
+import type { Semaphore } from './sdk-semaphore.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
@@ -53,6 +54,8 @@ export interface EvaluateFileOptions {
   onAxisComplete?: (axisId: AxisId) => void;
   /** Stream transcript chunks to disk as each axis completes. */
   onTranscriptChunk?: (chunk: string) => void;
+  /** Global SDK concurrency semaphore — bounds total in-flight SDK calls */
+  semaphore?: Semaphore;
 }
 
 export interface AxisTiming {
@@ -171,6 +174,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     relevantDocs,
     conversationDir: opts.conversationDir,
     conversationFileSlug: fileSlug,
+    semaphore: opts.semaphore,
   };
 
   const startTime = Date.now();

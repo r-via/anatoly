@@ -41,6 +41,7 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { Semaphore } from '../core/sdk-semaphore.js';
 import { RagProgressDisplay } from './rag-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
@@ -506,7 +507,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       : (ctx.dualEmbedding ? `lite — code: jina-v2 / nlp: MiniLM` : `lite — code: jina-v2`)
     : 'off';
   configRows.push(
-    { key: 'concurrency', value: String(ctx.concurrency) },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.llm.sdk_concurrency} SDK slots` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );
@@ -871,6 +872,8 @@ async function runReviewPhase(
     ? reviewItems.filter((item) => triageMap.get(item.filePath)?.tier !== 'skip').length
     : reviewItems.length;
   const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
+  const sdkSemaphore = new Semaphore(ctx.config.llm.sdk_concurrency);
+  display.setSemaphore(sdkSemaphore);
 
   const reviewRunner = new Listr([{
     title: `review — 0/${evaluateTotal}`,
@@ -951,6 +954,7 @@ async function runReviewPhase(
                   deliberation: ctx.deliberation,
                   codeWeight: ctx.config.rag.code_weight,
                   conversationDir: join(ctx.runDir, 'conversations'),
+                  semaphore: sdkSemaphore,
                   onAxisComplete: (axisId) => {
                     display.markAxisDone(filePath, axisId);
                   },

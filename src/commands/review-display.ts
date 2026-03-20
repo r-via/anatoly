@@ -4,6 +4,7 @@
 
 import chalk from 'chalk';
 import type { AxisId } from '../core/axis-evaluator.js';
+import type { Semaphore } from '../core/sdk-semaphore.js';
 import type { ReviewFile } from '../schemas/review.js';
 
 const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
@@ -25,8 +26,13 @@ export interface ActiveFileState {
 export class ReviewProgressDisplay {
   private activeFiles = new Map<string, ActiveFileState>();
   private spinFrame = 0;
+  private semaphore?: Semaphore;
 
   constructor(private axisIds: AxisId[]) {}
+
+  setSemaphore(sem: Semaphore): void {
+    this.semaphore = sem;
+  }
 
   trackFile(filePath: string): void {
     this.activeFiles.set(filePath, { axes: new Set() });
@@ -59,6 +65,12 @@ export class ReviewProgressDisplay {
     const files = [...this.activeFiles.entries()];
     const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
     const lines: string[] = [];
+    if (this.semaphore) {
+      const running = this.semaphore.running;
+      const capacity = running + this.semaphore.available;
+      const available = this.semaphore.available;
+      lines.push(chalk.dim(`Agents: ${running}/${capacity} running · ${available} available`));
+    }
     for (const [file, state] of files) {
       const padded = file.padEnd(maxLen);
       if (state.retryMsg) {

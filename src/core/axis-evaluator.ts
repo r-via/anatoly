@@ -66,6 +66,8 @@ export interface AxisContext {
   conversationDir?: string;
   /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */
   conversationFileSlug?: string;
+  /** Global SDK concurrency semaphore — when set, passed to runSingleTurnQuery */
+  semaphore?: Semaphore;
 }
 
 export interface RelevantDoc {
