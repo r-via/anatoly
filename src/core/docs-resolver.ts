@@ -3,11 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, relative, dirname, basename, sep, extname } from 'node:path';
+import { join, relative, dirname, basename, sep } from 'node:path';
 import type { RelevantDoc } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
 import type { VectorStore } from '../rag/vector-store.js';
-import { embedNlp } from '../rag/embeddings.js';
 
 const MAX_PAGES = 3;
 const MAX_LINES_PER_PAGE = 300;
@@ -242,17 +241,12 @@ export async function resolveRelevantDocsViaRag(
   vectorStore: VectorStore,
   projectRoot: string,
 ): Promise<RelevantDoc[]> {
-  // 1. Get function cards for this file to build a semantic query
-  const cards = await vectorStore.getCardsByFile(filePath);
-  const summaries = cards.map(c => c.summary).filter(Boolean);
+  // 1. Use the pre-computed average NLP vector for this file's functions
+  //    No runtime embedding needed — vectors are already in LanceDB from the RAG phase.
+  const queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
+  if (!queryEmbedding) return [];
 
-  // Build query from summaries or fall back to file name
-  const queryText = summaries.length > 0
-    ? summaries.join('. ')
-    : `Module: ${basename(filePath, extname(filePath))}`;
-
-  // 2. Embed query and search doc sections
-  const queryEmbedding = await embedNlp(queryText);
+  // 2. Search doc sections by similarity
   const results = await vectorStore.searchDocSections(queryEmbedding, RAG_MAX_SECTIONS);
 
   if (results.length === 0) return [];

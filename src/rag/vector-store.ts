@@ -409,6 +409,36 @@ export class VectorStore {
   }
 
   /**
+   * Get the average NLP vector for all function cards in a file.
+   * Returns null if no cards or no NLP vectors are available.
+   */
+  async getAverageNlpVectorByFile(filePath: string): Promise<number[] | null> {
+    if (!this.table) return null;
+    const rows = await this.table
+      .query()
+      .where(`filePath = '${sanitizeFilePath(filePath)}' AND type != 'doc_section'`)
+      .select(['nlp_vector'])
+      .toArray();
+
+    if (rows.length === 0) return null;
+
+    const vectors = rows
+      .map((r) => toNumberArray(r.nlp_vector))
+      .filter((v) => v.some((x) => x !== 0)); // skip zero vectors
+
+    if (vectors.length === 0) return null;
+
+    // Average all NLP vectors
+    const dim = vectors[0].length;
+    const avg = new Array(dim).fill(0);
+    for (const vec of vectors) {
+      for (let i = 0; i < dim; i++) avg[i] += vec[i];
+    }
+    for (let i = 0; i < dim; i++) avg[i] /= vectors.length;
+    return avg;
+  }
+
+  /**
    * List all cards (without embedding vectors).
    */
   async listAll(): Promise<FunctionCard[]> {

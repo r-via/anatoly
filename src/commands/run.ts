@@ -769,9 +769,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     await ragRunner.run();
   } finally {
     ragLogStream.end();
-    // Note: GGUF containers are kept alive — the review phase needs them
-    // for RAG similarity queries (embedNlp in docs-resolver.ts).
-    // They are stopped in the global finally block after review completes.
+    // Free GPU/VRAM immediately — review uses pre-computed vectors from LanceDB.
+    await stopGgufContainers(logFn);
+    await stopTeiContainers();
   }
 
   const ragDuration = Date.now() - ragStart;
