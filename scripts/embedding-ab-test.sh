@@ -258,45 +258,87 @@ results = {
     'bf16_nlp_latency_ms': [],
 }
 
-# Get bf16 embeddings for all samples
+# Get bf16 CODE embeddings
 print('[info]  Getting bf16 code embeddings...')
 bf16_code = []
-for sample in CODE_SAMPLES:
+for i, sample in enumerate(CODE_SAMPLES):
     t0 = time.time()
     vec = embed_sidecar(sample)
-    results['bf16_code_latency_ms'].append(round((time.time() - t0) * 1000))
+    dt = round((time.time() - t0) * 1000)
+    results['bf16_code_latency_ms'].append(dt)
     bf16_code.append(vec)
+    print(f'    [{i+1:>2}/{len(CODE_SAMPLES)}] {dt}ms')
 
-# Swap to NLP model
-print('[info]  Swapping sidecar to NLP model...')
-r = requests.post(f'{SIDECAR_URL}/load', json={'model': 'Qwen/Qwen3-Embedding-8B', 'quantize': False}, timeout=300)
-r.raise_for_status()
-
-print('[info]  Getting bf16 NLP embeddings...')
-bf16_nlp = []
-for sample in NLP_SAMPLES:
-    t0 = time.time()
-    vec = embed_sidecar(sample)
-    results['bf16_nlp_latency_ms'].append(round((time.time() - t0) * 1000))
-    bf16_nlp.append(vec)
-
-# Shutdown sidecar to free VRAM
-print('[info]  Stopping bf16 sidecar...')
-try:
-    requests.post(f'{SIDECAR_URL}/shutdown', timeout=5)
-except:
-    pass
-import time as _time; _time.sleep(3)
-
-# Save bf16 embeddings for comparison after GGUF containers start
-bf16_data = {'code': bf16_code, 'nlp': bf16_nlp}
+# Save code embeddings
+bf16_data = {'code': bf16_code, 'nlp': []}
 with open('${PROJECT_ROOT}/.anatoly/ab-bf16-cache.json', 'w') as f:
     json.dump(bf16_data, f)
 
 print(json.dumps(results))
 " 2>&1 | tee /tmp/ab-step1.log
 
-# Kill sidecar to free VRAM
+# Kill sidecar to free VRAM for NLP model
+info "Stopping code sidecar..."
+kill "$SIDECAR_PID" 2>/dev/null || true
+wait "$SIDECAR_PID" 2>/dev/null || true
+SIDECAR_PID=""
+info "Cooling down (releasing VRAM)..."
+sleep 10
+
+# Start sidecar with NLP model
+info "Starting bf16 NLP sidecar (Qwen/Qwen3-Embedding-8B)..."
+"$PYTHON" -W ignore "$SIDECAR_SCRIPT" --port "$SIDECAR_PORT" --model "Qwen/Qwen3-Embedding-8B" &
+SIDECAR_PID=$!
+
+if ! wait_for_endpoint "http://127.0.0.1:${SIDECAR_PORT}/health" 180; then
+  err "bf16 NLP sidecar failed to start"
+  exit 1
+fi
+ok "bf16 NLP sidecar ready"
+
+# Get bf16 NLP embeddings
+"$PYTHON" -W ignore -c "
+import json, time, sys, os
+os.environ['HF_HUB_VERBOSITY'] = 'error'
+import numpy as np
+import requests
+
+SIDECAR_URL = 'http://127.0.0.1:${SIDECAR_PORT}'
+SAMPLES_FILE = '${SCRIPT_DIR}/check-samples.json'
+with open(SAMPLES_FILE) as f:
+    _samples = json.load(f)
+NLP_SAMPLES = _samples['nlp']
+
+def embed_sidecar(text):
+    r = requests.post(f'{SIDECAR_URL}/embed', json={'input': text}, timeout=30)
+    r.raise_for_status()
+    return r.json()['embedding']
+
+# Load previous code results
+with open('${PROJECT_ROOT}/.anatoly/ab-bf16-cache.json') as f:
+    bf16_data = json.load(f)
+
+results = {'bf16_nlp_latency_ms': []}
+
+print('[info]  Getting bf16 NLP embeddings...')
+bf16_nlp = []
+for i, sample in enumerate(NLP_SAMPLES):
+    t0 = time.time()
+    vec = embed_sidecar(sample)
+    dt = round((time.time() - t0) * 1000)
+    results['bf16_nlp_latency_ms'].append(dt)
+    bf16_nlp.append(vec)
+    print(f'    [{i+1:>2}/{len(NLP_SAMPLES)}] {dt}ms')
+
+bf16_data['nlp'] = bf16_nlp
+with open('${PROJECT_ROOT}/.anatoly/ab-bf16-cache.json', 'w') as f:
+    json.dump(bf16_data, f)
+
+print(json.dumps(results))
+" 2>&1 | tee /tmp/ab-step1b.log
+
+# Kill NLP sidecar to free VRAM
+info "Stopping NLP sidecar..."
 kill "$SIDECAR_PID" 2>/dev/null || true
 wait "$SIDECAR_PID" 2>/dev/null || true
 SIDECAR_PID=""
