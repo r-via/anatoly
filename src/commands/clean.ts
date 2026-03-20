@@ -3,10 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve, basename, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
+import { resolveRunDir } from '../utils/run-id.js';
+import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
 
 /**
  * A parsed unchecked action from a shard report.
@@ -73,11 +75,31 @@ export function parseUncheckedActions(content: string): CleanItem[] {
   return items;
 }
 
-function generatePrd(shardName: string, items: CleanItem[]): object {
+/**
+ * Resolve the axis shard files for a given axis in the latest run.
+ * Returns the contents of all shard.*.md files concatenated.
+ */
+function resolveAxisShards(projectRoot: string, axis: ReportAxisId): string | null {
+  const runDir = resolveRunDir(projectRoot);
+  if (!runDir) return null;
+
+  const axisDir = join(runDir, axis);
+  if (!existsSync(axisDir)) return null;
+
+  const shardFiles = readdirSync(axisDir)
+    .filter((f) => f.startsWith('shard.') && f.endsWith('.md'))
+    .sort();
+
+  if (shardFiles.length === 0) return null;
+
+  return shardFiles.map((f) => readFileSync(join(axisDir, f), 'utf-8')).join('\n');
+}
+
+function generatePrd(cleanName: string, items: CleanItem[]): object {
   return {
     project: 'Anatoly Clean',
-    branchName: `clean/anatoly-${shardName}`,
-    description: `Automated remediation of ${items.length} findings from ${shardName}.md`,
+    branchName: `clean/anatoly-${cleanName}`,
+    description: `Automated remediation of ${items.length} findings from ${cleanName}`,
     userStories: items.map((item, i) => ({
       id: `FIX-${String(i + 1).padStart(3, '0')}`,
       actId: item.actId,
@@ -95,7 +117,9 @@ function generatePrd(shardName: string, items: CleanItem[]): object {
   };
 }
 
-function generateClaudeMd(shardFile: string, cleanDir: string): string {
+function generateClaudeMd(cleanName: string, cleanDir: string, projectRoot: string): string {
+  const runDir = resolveRunDir(projectRoot);
+  const reviewsPath = runDir ? `${runDir}/reviews/` : '.anatoly/runs/*/reviews/';
   return `# Clean Agent Instructions
 
 ## Role
@@ -109,8 +133,7 @@ Your job is to clean audit findings one at a time.
 |------|------|---------|
 | PRD | \`${cleanDir}/prd.json\` | User stories — pick the first with \`"passes": false\` |
 | Progress | \`${cleanDir}/progress.txt\` | Learnings log — **read Codebase Patterns first** |
-| Source report | \`${shardFile}\` | The audit shard with original findings |
-| Reviews | \`.anatoly/runs/*/reviews/\` | Per-file \`.rev.md\` with axis-by-axis detail |
+| Reviews | \`${reviewsPath}\` | Per-file \`.rev.md\` with axis-by-axis detail |
 
 ## Workflow
 
@@ -218,9 +241,9 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
 
 export function registerCleanCommand(program: Command): void {
   program
-    .command('clean <report-file>')
-    .description('Generate Ralph artifacts from a shard report for autonomous clean loop')
-    .action((reportFile: string) => {
+    .command('clean <axis>')
+    .description('Generate Ralph artifacts from axis findings (axis name or "all")')
+    .action((axis: string) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -229,31 +252,54 @@ export function registerCleanCommand(program: Command): void {
         return;
       }
 
-      const absPath = resolve(projectRoot, reportFile);
-
-      if (!existsSync(absPath)) {
-        console.error(chalk.red(`File not found: ${reportFile}`));
+      const runDir = resolveRunDir(projectRoot);
+      if (!runDir) {
+        console.error(chalk.red('No run found. Run `anatoly run` first.'));
         process.exit(1);
       }
 
-      const content = readFileSync(absPath, 'utf-8');
-      const items = parseUncheckedActions(content);
+      let items: CleanItem[] = [];
+      let cleanName: string;
+
+      if (axis === 'all') {
+        cleanName = 'all';
+        for (const axisId of REPORT_AXIS_IDS) {
+          const content = resolveAxisShards(projectRoot, axisId);
+          if (content) {
+            items.push(...parseUncheckedActions(content));
+          }
+        }
+      } else {
+        // Validate axis name
+        const reportAxis = axis as ReportAxisId;
+        if (!REPORT_AXIS_IDS.includes(reportAxis)) {
+          console.error(chalk.red(`Unknown axis: ${axis}`));
+          console.error(`Valid axes: ${REPORT_AXIS_IDS.join(', ')}, all`);
+          process.exit(1);
+        }
+
+        cleanName = axis;
+        const content = resolveAxisShards(projectRoot, reportAxis);
+        if (!content) {
+          console.log(chalk.yellow(`No findings for axis "${axis}" in the latest run.`));
+          return;
+        }
+        items = parseUncheckedActions(content);
+      }
 
       if (items.length === 0) {
-        console.log(chalk.yellow('No unchecked actions found in the report file.'));
+        console.log(chalk.yellow('No unchecked actions found.'));
         return;
       }
 
-      // Derive shard name: report.1.md → report.1
-      const shardName = basename(reportFile, '.md');
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', cleanName);
       mkdirSync(cleanDir, { recursive: true });
 
       // Generate artifacts
-      const prd = generatePrd(shardName, items);
+      const prd = generatePrd(cleanName, items);
       writeFileSync(join(cleanDir, 'prd.json'), JSON.stringify(prd, null, 2));
 
-      writeFileSync(join(cleanDir, 'CLAUDE.md'), generateClaudeMd(reportFile, cleanDir));
+      writeFileSync(join(cleanDir, 'CLAUDE.md'), generateClaudeMd(cleanName, cleanDir, projectRoot));
 
       // Initialize progress.txt with Codebase Patterns section
       const progressPath = join(cleanDir, 'progress.txt');
@@ -261,12 +307,12 @@ export function registerCleanCommand(program: Command): void {
         writeFileSync(progressPath, `## Codebase Patterns\n\n---\n\n# Ralph Progress Log\nStarted: ${new Date().toISOString()}\n---\n`);
       }
 
-      console.log(chalk.green(`\u2713 Clean artifacts generated in .anatoly/clean/${shardName}/`));
+      console.log(chalk.green(`\u2713 Clean artifacts generated in .anatoly/clean/${cleanName}/`));
       console.log(`  prd.json      \u2014 ${items.length} user stories`);
       console.log(`  CLAUDE.md     \u2014 agent instructions`);
       console.log(`  progress.txt  \u2014 learnings log with Codebase Patterns section`);
       console.log('');
       console.log('To start the clean loop:');
-      console.log(chalk.cyan(`  npx anatoly clean-run ${reportFile}`));
+      console.log(chalk.cyan(`  npx anatoly clean-run ${axis}`));
     });
 }

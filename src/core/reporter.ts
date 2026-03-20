@@ -3,10 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
+import type { AxisId } from './axis-evaluator.js';
 import { toOutputName } from '../utils/cache.js';
 
 
@@ -271,10 +272,639 @@ export function buildShards(data: ReportData): ShardInfo[] {
   return shards;
 }
 
+// ---------------------------------------------------------------------------
+// Axis-based report types
+// ---------------------------------------------------------------------------
+
+/** The 7 report axes and their filesystem directory names. */
+export type ReportAxisId = 'correction' | 'utility' | 'duplication' | 'overengineering' | 'tests' | 'documentation' | 'best-practices';
+
+/** All report axis IDs in display order. */
+export const REPORT_AXIS_IDS: readonly ReportAxisId[] = [
+  'correction',
+  'utility',
+  'duplication',
+  'overengineering',
+  'tests',
+  'documentation',
+  'best-practices',
+] as const;
+
+/** Map AxisId (with underscore) to ReportAxisId (with hyphen for filesystem). */
+export function toReportAxisId(axisId: AxisId): ReportAxisId {
+  return axisId === 'best_practices' ? 'best-practices' : axisId as ReportAxisId;
+}
+
+/** Map ReportAxisId back to AxisId. */
+export function toAxisId(reportAxisId: ReportAxisId): AxisId {
+  return reportAxisId === 'best-practices' ? 'best_practices' : reportAxisId as AxisId;
+}
+
+/** Human-readable display name for an axis. */
+function axisDisplayName(axis: ReportAxisId): string {
+  const names: Record<ReportAxisId, string> = {
+    correction: 'Correction',
+    utility: 'Utility',
+    duplication: 'Duplication',
+    overengineering: 'Overengineering',
+    tests: 'Tests',
+    documentation: 'Documentation',
+    'best-practices': 'Best Practices',
+  };
+  return names[axis];
+}
+
+/** Model used by each axis. */
+function axisModel(axis: ReportAxisId): string {
+  const models: Record<ReportAxisId, string> = {
+    correction: 'sonnet',
+    utility: 'haiku',
+    duplication: 'haiku',
+    overengineering: 'haiku',
+    tests: 'haiku',
+    documentation: 'haiku',
+    'best-practices': 'sonnet',
+  };
+  return models[axis];
+}
+
+export interface AxisReport {
+  axis: ReportAxisId;
+  files: ReviewFile[];
+  actions: Array<Action & { file: string }>;
+  shards: ShardInfo[];
+}
+
 /**
- * Render the Axis Summary section — per-axis verdict distribution.
- * Uses a single-pass accumulator instead of repeated filter calls.
+ * Determine if a review has a finding on a specific axis.
  */
+export function hasAxisFinding(review: ReviewFile, axis: ReportAxisId): boolean {
+  const reliable = review.symbols.filter((s) => s.confidence >= 30);
+  switch (axis) {
+    case 'correction':
+      return reliable.some((s) => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR');
+    case 'utility':
+      return reliable.some((s) => s.utility === 'DEAD' || s.utility === 'LOW_VALUE');
+    case 'duplication':
+      return reliable.some((s) => s.duplication === 'DUPLICATE');
+    case 'overengineering':
+      return reliable.some((s) => s.overengineering === 'OVER');
+    case 'tests':
+      return reliable.some((s) => s.tests === 'WEAK' || s.tests === 'NONE');
+    case 'documentation':
+      return reliable.some((s) => s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported));
+    case 'best-practices':
+      return review.best_practices?.rules.some((r) => r.status === 'FAIL') ?? false;
+  }
+}
+
+/**
+ * Build axis-scoped reports: for each axis, filter files with findings on that axis,
+ * scope actions by source, and shard the result.
+ */
+export function buildAxisReports(data: ReportData): AxisReport[] {
+  const reports: AxisReport[] = [];
+
+  for (const axis of REPORT_AXIS_IDS) {
+    const files = data.reviews.filter((r) => hasAxisFinding(r, axis));
+    if (files.length === 0) continue;
+
+    const axisId = toAxisId(axis);
+    const actions = data.actions.filter((a) => a.source === axisId);
+    const sorted = sortFindingFiles(files);
+
+    const shards: ShardInfo[] = [];
+    for (let i = 0; i < sorted.length; i += SHARD_SIZE) {
+      const chunk = sorted.slice(i, i + SHARD_SIZE);
+      const chunkFileSet = new Set(chunk.map((f) => f.file));
+      const shardActions = actions.filter((a) => chunkFileSet.has(a.file));
+      const criticalCount = chunk.filter((f) => computeFileVerdict(f) === 'CRITICAL').length;
+      const refactorCount = chunk.filter((f) => computeFileVerdict(f) === 'NEEDS_REFACTOR').length;
+      shards.push({
+        index: shards.length + 1,
+        files: chunk,
+        actions: shardActions,
+        criticalCount,
+        refactorCount,
+      });
+    }
+
+    reports.push({ axis, files, actions, shards });
+  }
+
+  return reports;
+}
+
+// ---------------------------------------------------------------------------
+// Axis methodology — one per axis
+// ---------------------------------------------------------------------------
+
+function renderAxisMethodology(axis: ReportAxisId): string[] {
+  const lines: string[] = [];
+  lines.push('---');
+  lines.push('');
+  lines.push('## Methodology');
+  lines.push('');
+  lines.push(`**Model:** ${axisModel(axis)}`);
+  lines.push('');
+
+  switch (axis) {
+    case 'utility':
+      lines.push('Detects dead or low-value code using a pre-computed import/usage graph.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **USED**: The symbol is imported or referenced by at least one other file (exported) or used locally (non-exported).');
+      lines.push('- **DEAD**: The symbol is exported but imported by 0 files, or is a non-exported symbol with no local references. Likely safe to remove.');
+      lines.push('- **LOW_VALUE**: The symbol is used but provides negligible value (trivial wrapper, identity function, unnecessary indirection).');
+      break;
+
+    case 'duplication':
+      lines.push('Identifies code clones via RAG semantic vector search against the codebase index.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **UNIQUE**: No semantically similar function found, or similarity score < 0.75.');
+      lines.push('- **DUPLICATE**: Similarity score >= 0.85 with matching logic/behavior. The duplicate target file and symbol are reported.');
+      break;
+
+    case 'correction':
+      lines.push('Finds bugs, logic errors, incorrect types, and unsafe operations. Only flags real correctness issues, not style.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **OK**: No bugs or correctness issues found.');
+      lines.push('- **NEEDS_FIX**: A real bug, logic error, or type mismatch that would cause incorrect behavior at runtime.');
+      lines.push('- **ERROR**: A critical bug that would cause a crash, data loss, or security breach.');
+      break;
+
+    case 'overengineering':
+      lines.push('Evaluates whether complexity is justified by actual requirements.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **LEAN**: Implementation is minimal and appropriate for its purpose. A long function doing one thing well is still LEAN.');
+      lines.push('- **OVER**: Unnecessary abstractions, premature generalization, factory patterns for single use, excessive configuration for simple behavior.');
+      lines.push('- **ACCEPTABLE**: Some complexity present but justified by requirements.');
+      break;
+
+    case 'tests':
+      lines.push('Assesses test coverage quality using coverage data (when available) and test file analysis.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **GOOD**: Meaningful unit tests covering happy path and edge cases.');
+      lines.push('- **WEAK**: Tests exist but are superficial, missing edge cases, or testing implementation details rather than behavior.');
+      lines.push('- **NONE**: No test file or test cases found for this symbol. Types/interfaces with no runtime behavior default to GOOD.');
+      break;
+
+    case 'documentation':
+      lines.push('Evaluates JSDoc coverage on exported symbols and optional /docs/ concept coverage.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **DOCUMENTED**: Symbol has a complete JSDoc comment covering description, params, and return type.');
+      lines.push('- **PARTIAL**: JSDoc exists but is incomplete (missing params, outdated description, or lacking return type).');
+      lines.push('- **UNDOCUMENTED**: No JSDoc documentation found for an exported symbol. Types and interfaces default to DOCUMENTED.');
+      break;
+
+    case 'best-practices':
+      lines.push('File-level evaluation against 17 TypeGuard v2 rules. Starts at 10/10, penalties subtracted per violation:');
+      lines.push('');
+      lines.push('| # | Rule | Severity | Penalty |');
+      lines.push('|---|------|----------|---------|');
+      lines.push('| 1 | Strict mode (tsconfig strict: true) | HIGH | -1 pt |');
+      lines.push('| 2 | No `any` (explicit or implicit) | CRITICAL | -3 pts |');
+      lines.push('| 3 | Discriminated unions over type assertions | MEDIUM | -0.5 pt |');
+      lines.push('| 4 | Utility types (Pick, Omit, Partial, Record) | MEDIUM | -0.5 pt |');
+      lines.push('| 5 | Immutability (readonly, as const) | MEDIUM | -0.5 pt |');
+      lines.push('| 6 | Interface vs Type consistency | MEDIUM | -0.5 pt |');
+      lines.push('| 7 | File size < 300 lines | HIGH | -1 pt |');
+      lines.push('| 8 | ESLint compliance | HIGH | -1 pt |');
+      lines.push('| 9 | JSDoc on public exports | MEDIUM | -0.5 pt |');
+      lines.push('| 10 | Modern 2026 practices | MEDIUM | -0.5 pt |');
+      lines.push('| 11 | Import organization | MEDIUM | -0.5 pt |');
+      lines.push('| 12 | Async/Promises/Error handling | HIGH | -1 pt |');
+      lines.push('| 13 | Security (no secrets, eval, injection) | CRITICAL | -4 pts |');
+      lines.push('| 14 | Performance (no N+1, sync I/O) | MEDIUM | -0.5 pt |');
+      lines.push('| 15 | Testability (DI, low coupling) | MEDIUM | -0.5 pt |');
+      lines.push('| 16 | TypeScript 5.5+ features | MEDIUM | -0.5 pt |');
+      lines.push('| 17 | Context-adapted rules | MEDIUM | -0.5 pt |');
+      break;
+  }
+
+  lines.push('');
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Axis index renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the index for a single axis: stats, shard links, methodology.
+ */
+export function renderAxisIndex(report: AxisReport): string {
+  const lines: string[] = [];
+  const name = axisDisplayName(report.axis);
+
+  lines.push(`# ${name}`);
+  lines.push('');
+
+  // Stats
+  lines.push(`- **Files with findings:** ${report.files.length}`);
+  lines.push(`- **Actions:** ${report.actions.length}`);
+  lines.push('');
+
+  // Shard links
+  if (report.shards.length > 0) {
+    lines.push('## Shards');
+    lines.push('');
+    for (const shard of report.shards) {
+      const composition: string[] = [];
+      if (shard.criticalCount > 0) composition.push(`${shard.criticalCount} CRITICAL`);
+      if (shard.refactorCount > 0) composition.push(`${shard.refactorCount} NEEDS_REFACTOR`);
+      const desc = composition.length > 0 ? ` — ${composition.join(', ')}` : '';
+      lines.push(`- [ ] [shard.${shard.index}.md](./shard.${shard.index}.md) (${shard.files.length} files${desc})`);
+    }
+    lines.push('');
+  }
+
+  // Axis-specific verdict distribution
+  lines.push(...renderAxisVerdictDistribution(report));
+
+  // Methodology
+  lines.push(...renderAxisMethodology(report.axis));
+
+  lines.push(`*Generated: ${new Date().toISOString()}*`);
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+/**
+ * Render verdict distribution for a specific axis.
+ */
+function renderAxisVerdictDistribution(report: AxisReport): string[] {
+  const lines: string[] = [];
+  const reliable = report.files.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
+  if (reliable.length === 0) return lines;
+
+  lines.push('## Verdict Distribution');
+  lines.push('');
+
+  switch (report.axis) {
+    case 'utility': {
+      const used = reliable.filter((s) => s.utility === 'USED').length;
+      const dead = reliable.filter((s) => s.utility === 'DEAD').length;
+      const low = reliable.filter((s) => s.utility === 'LOW_VALUE').length;
+      const total = used + dead + low;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (used > 0) lines.push(`| USED | ${used} | ${((used / total) * 100).toFixed(0)}% |`);
+        if (dead > 0) lines.push(`| DEAD | ${dead} | ${((dead / total) * 100).toFixed(0)}% |`);
+        if (low > 0) lines.push(`| LOW_VALUE | ${low} | ${((low / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'duplication': {
+      const unique = reliable.filter((s) => s.duplication === 'UNIQUE').length;
+      const dup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
+      const total = unique + dup;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (unique > 0) lines.push(`| UNIQUE | ${unique} | ${((unique / total) * 100).toFixed(0)}% |`);
+        if (dup > 0) lines.push(`| DUPLICATE | ${dup} | ${((dup / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'correction': {
+      const ok = reliable.filter((s) => s.correction === 'OK').length;
+      const fix = reliable.filter((s) => s.correction === 'NEEDS_FIX').length;
+      const err = reliable.filter((s) => s.correction === 'ERROR').length;
+      const total = ok + fix + err;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (ok > 0) lines.push(`| OK | ${ok} | ${((ok / total) * 100).toFixed(0)}% |`);
+        if (fix > 0) lines.push(`| NEEDS_FIX | ${fix} | ${((fix / total) * 100).toFixed(0)}% |`);
+        if (err > 0) lines.push(`| ERROR | ${err} | ${((err / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'overengineering': {
+      const lean = reliable.filter((s) => s.overengineering === 'LEAN').length;
+      const acc = reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length;
+      const over = reliable.filter((s) => s.overengineering === 'OVER').length;
+      const total = lean + acc + over;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (lean > 0) lines.push(`| LEAN | ${lean} | ${((lean / total) * 100).toFixed(0)}% |`);
+        if (acc > 0) lines.push(`| ACCEPTABLE | ${acc} | ${((acc / total) * 100).toFixed(0)}% |`);
+        if (over > 0) lines.push(`| OVER | ${over} | ${((over / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'tests': {
+      const good = reliable.filter((s) => s.tests === 'GOOD').length;
+      const weak = reliable.filter((s) => s.tests === 'WEAK').length;
+      const none = reliable.filter((s) => s.tests === 'NONE').length;
+      const total = good + weak + none;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (good > 0) lines.push(`| GOOD | ${good} | ${((good / total) * 100).toFixed(0)}% |`);
+        if (weak > 0) lines.push(`| WEAK | ${weak} | ${((weak / total) * 100).toFixed(0)}% |`);
+        if (none > 0) lines.push(`| NONE | ${none} | ${((none / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'documentation': {
+      const doc = reliable.filter((s) => s.documentation === 'DOCUMENTED').length;
+      const partial = reliable.filter((s) => s.documentation === 'PARTIAL').length;
+      const undoc = reliable.filter((s) => s.documentation === 'UNDOCUMENTED').length;
+      const total = doc + partial + undoc;
+      if (total > 0) {
+        lines.push('| Verdict | Count | % |');
+        lines.push('|---------|-------|---|');
+        if (doc > 0) lines.push(`| DOCUMENTED | ${doc} | ${((doc / total) * 100).toFixed(0)}% |`);
+        if (partial > 0) lines.push(`| PARTIAL | ${partial} | ${((partial / total) * 100).toFixed(0)}% |`);
+        if (undoc > 0) lines.push(`| UNDOCUMENTED | ${undoc} | ${((undoc / total) * 100).toFixed(0)}% |`);
+        lines.push('');
+      }
+      break;
+    }
+    case 'best-practices': {
+      const bpReviews = report.files.filter((r) => r.best_practices);
+      if (bpReviews.length > 0) {
+        const scores = bpReviews.map((r) => r.best_practices!.score);
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const min = Math.min(...scores);
+        const max = Math.max(...scores);
+        lines.push('| Metric | Value |');
+        lines.push('|--------|-------|');
+        lines.push(`| Average score | ${avg.toFixed(1)}/10 |`);
+        lines.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
+        lines.push('');
+      }
+      break;
+    }
+  }
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Axis shard renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a shard for a specific axis — only shows findings relevant to that axis.
+ */
+export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
+  const lines: string[] = [];
+  const name = axisDisplayName(axis);
+
+  lines.push(`# ${name} — Shard ${shard.index}`);
+  lines.push('');
+
+  // Findings table — axis-specific columns
+  lines.push('## Findings');
+  lines.push('');
+
+  if (axis === 'best-practices') {
+    lines.push('| File | Verdict | BP Score | Details |');
+    lines.push('|------|---------|----------|---------|');
+    for (const review of shard.files) {
+      const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
+      const outputName = toOutputName(review.file);
+      const link = `[details](../reviews/${outputName}.rev.md)`;
+      const fileVerdict = computeFileVerdict(review);
+      lines.push(`| \`${review.file}\` | ${fileVerdict} | ${bpScore} | ${link} |`);
+    }
+  } else {
+    const header = axisShardHeader(axis);
+    lines.push(header.columns);
+    lines.push(header.separator);
+    for (const review of shard.files) {
+      const reliable = review.symbols.filter((s) => s.confidence >= 30);
+      const count = axisShardCount(axis, reliable);
+      const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
+      const outputName = toOutputName(review.file);
+      const link = `[details](../reviews/${outputName}.rev.md)`;
+      const fileVerdict = computeFileVerdict(review);
+      lines.push(`| \`${review.file}\` | ${fileVerdict} | ${count} | ${maxConf}% | ${link} |`);
+    }
+  }
+  lines.push('');
+
+  // Symbol-level details
+  const filesWithAxisFindings = shard.files.filter((r) => hasAxisFinding(r, axis));
+  if (filesWithAxisFindings.length > 0 && axis !== 'best-practices') {
+    lines.push('## Symbol Details');
+    lines.push('');
+    for (const review of filesWithAxisFindings) {
+      const actionable = review.symbols.filter((s) => s.confidence >= 30 && hasAxisSymbolFinding(s, axis));
+      if (actionable.length === 0) continue;
+      lines.push(`### \`${review.file}\``);
+      lines.push('');
+      lines.push(`| Symbol | Lines | ${axisDisplayName(axis)} | Conf. | Detail |`);
+      lines.push(`|--------|-------|${'-'.repeat(axisDisplayName(axis).length + 2)}|-------|--------|`);
+      for (const s of actionable) {
+        const value = axisSymbolValue(s, axis);
+        const detail = s.detail.length > 80 ? s.detail.slice(0, 77) + '...' : s.detail;
+        lines.push(`| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${value} | ${s.confidence}% | ${detail} |`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Best practices details
+  if (axis === 'best-practices') {
+    const bpReviews = shard.files.filter((r) => r.best_practices && r.best_practices.suggestions.length > 0);
+    if (bpReviews.length > 0) {
+      lines.push('## Details');
+      lines.push('');
+      for (const review of bpReviews) {
+        const bp = review.best_practices!;
+        lines.push(`### \`${review.file}\` — ${bp.score}/10`);
+        lines.push('');
+        // Failed rules
+        const failed = bp.rules.filter((r) => r.status === 'FAIL');
+        if (failed.length > 0) {
+          lines.push('**Failed rules:**');
+          lines.push('');
+          for (const r of failed) {
+            lines.push(`- Rule ${r.rule_id}: ${r.rule_name} (${r.severity})`);
+          }
+          lines.push('');
+        }
+        // Suggestions
+        for (const s of bp.suggestions) {
+          lines.push(`- ${s.description}`);
+          if (s.before && s.after) {
+            lines.push(`  - Before: \`${s.before}\``);
+            lines.push(`  - After: \`${s.after}\``);
+          }
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Actions by category (scoped to this axis)
+  if (shard.actions.length > 0) {
+    const byCategory: Record<Category, Array<Action & { file: string }>> = {
+      quickwin: [],
+      refactor: [],
+      hygiene: [],
+    };
+    for (const a of shard.actions) {
+      const cat = a.category ?? 'refactor';
+      byCategory[cat].push(a);
+    }
+
+    if (byCategory.quickwin.length > 0) {
+      lines.push('## Quick Wins');
+      lines.push('');
+      for (const a of byCategory.quickwin) renderAction(lines, a);
+      lines.push('');
+    }
+
+    if (byCategory.refactor.length > 0) {
+      lines.push('## Refactors');
+      lines.push('');
+      for (const a of byCategory.refactor) renderAction(lines, a);
+      lines.push('');
+    }
+
+    if (byCategory.hygiene.length > 0) {
+      lines.push('## Hygiene');
+      lines.push('');
+      for (const a of byCategory.hygiene) renderAction(lines, a);
+      lines.push('');
+    }
+  }
+
+  // Tests section (only in tests axis)
+  if (axis === 'tests') {
+    const testReviews = shard.files.filter((r) =>
+      r.symbols.some((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE')),
+    );
+    if (testReviews.length > 0) {
+      lines.push('## Test Improvements');
+      lines.push('');
+      for (const review of testReviews) {
+        const testSymbols = review.symbols.filter((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE'));
+        const noneSymbols = testSymbols.filter((s) => s.tests === 'NONE');
+        const weakSymbols = testSymbols.filter((s) => s.tests === 'WEAK');
+        const summary = [noneSymbols.length > 0 ? `${noneSymbols.length} untested` : '', weakSymbols.length > 0 ? `${weakSymbols.length} weak` : ''].filter(Boolean).join(', ');
+
+        const extMatch = review.file.match(/(\.\w+)$/);
+        const testFile = extMatch ? review.file.replace(extMatch[0], `.test${extMatch[0]}`) : `${review.file}.test.ts`;
+        const hasTestFile = review.symbols.some((s) => s.tests === 'GOOD' || s.tests === 'WEAK');
+        const action = hasTestFile ? `Improve \`${testFile}\`` : `Create \`${testFile}\``;
+
+        lines.push(`- [ ] \`${review.file}\` — ${summary}`);
+        lines.push(`  ${action} covering: ${testSymbols.map((s) => s.name).join(', ')}`);
+
+        for (const s of weakSymbols) {
+          lines.push(`  - ${s.name}: ${s.detail.replace(/^\[WEAK\]\s*/, '')}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  // Documentation Coverage section (only in documentation axis)
+  if (axis === 'documentation') {
+    const docReviews = shard.files.filter((r) =>
+      r.docs_coverage?.concepts.some((c) => c.status !== 'COVERED'),
+    );
+    if (docReviews.length > 0) {
+      lines.push('## Documentation Coverage');
+      lines.push('');
+      for (const review of docReviews) {
+        const dc = review.docs_coverage;
+        if (!dc) continue;
+        const issues = dc.concepts.filter((c) => c.status !== 'COVERED');
+        lines.push(`### \`${review.file}\` — ${dc.score_pct}% covered`);
+        lines.push('');
+        for (const c of issues) {
+          const docRef = c.doc_path ? ` → \`${c.doc_path}\`` : '';
+          lines.push(`- [ ] **${c.name}** — ${c.status}${docRef}: ${c.detail}`);
+        }
+        lines.push('');
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function axisShardHeader(axis: ReportAxisId): { columns: string; separator: string } {
+  const name = axisDisplayName(axis);
+  return {
+    columns: `| File | Verdict | ${name} | Conf. | Details |`,
+    separator: `|------|---------|${'-'.repeat(name.length + 2)}|-------|---------|`,
+  };
+}
+
+function axisShardCount(axis: ReportAxisId, reliable: SymbolReview[]): string {
+  switch (axis) {
+    case 'correction':
+      return String(reliable.filter((s) => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR').length);
+    case 'utility':
+      return String(reliable.filter((s) => s.utility === 'DEAD' || s.utility === 'LOW_VALUE').length);
+    case 'duplication':
+      return String(reliable.filter((s) => s.duplication === 'DUPLICATE').length);
+    case 'overengineering':
+      return String(reliable.filter((s) => s.overengineering === 'OVER').length);
+    case 'tests':
+      return String(reliable.filter((s) => s.tests === 'WEAK' || s.tests === 'NONE').length);
+    case 'documentation':
+      return String(reliable.filter((s) => s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported)).length);
+    case 'best-practices':
+      return '-';
+  }
+}
+
+function hasAxisSymbolFinding(s: SymbolReview, axis: ReportAxisId): boolean {
+  switch (axis) {
+    case 'correction': return s.correction === 'NEEDS_FIX' || s.correction === 'ERROR';
+    case 'utility': return s.utility === 'DEAD' || s.utility === 'LOW_VALUE';
+    case 'duplication': return s.duplication === 'DUPLICATE';
+    case 'overengineering': return s.overengineering === 'OVER';
+    case 'tests': return s.tests === 'WEAK' || s.tests === 'NONE';
+    case 'documentation': return s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported);
+    case 'best-practices': return false;
+  }
+}
+
+function axisSymbolValue(s: SymbolReview, axis: ReportAxisId): string {
+  switch (axis) {
+    case 'correction': return s.correction;
+    case 'utility': return s.utility;
+    case 'duplication': return s.duplication;
+    case 'overengineering': return s.overengineering;
+    case 'tests': return s.tests;
+    case 'documentation': return s.documentation;
+    case 'best-practices': return '-';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render Axis Summary for master index (compact)
+// ---------------------------------------------------------------------------
+
 function renderAxisSummary(data: ReportData): string[] {
   const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
   const totalSymbols = reliable.length;
@@ -414,10 +1044,14 @@ function renderDeliberationSummary(data: ReportData): string[] {
   return lines;
 }
 
+// ---------------------------------------------------------------------------
+// Master index renderer
+// ---------------------------------------------------------------------------
+
 /**
- * Render the compact index (report.md) — always < ~100 lines.
+ * Render the master index (report.md) — navigation hub pointing to per-axis reports.
  */
-export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?: TriageStats, runStats?: RunStats): string {
+export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats): string {
   const lines: string[] = [];
 
   lines.push('<p align="center">');
@@ -460,19 +1094,19 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
     lines.push('');
   }
 
-  // Shards or "all clean"
-  if (shards.length === 0) {
+  // Axes navigation or "all clean"
+  if (axisReports.length === 0) {
     lines.push('All files clean.');
     lines.push('');
   } else {
-    lines.push('## Shards');
+    lines.push('## Axes');
     lines.push('');
-    for (const shard of shards) {
-      const composition: string[] = [];
-      if (shard.criticalCount > 0) composition.push(`${shard.criticalCount} CRITICAL`);
-      if (shard.refactorCount > 0) composition.push(`${shard.refactorCount} NEEDS_REFACTOR`);
-      const desc = composition.length > 0 ? ` — ${composition.join(', ')}` : '';
-      lines.push(`- [ ] [report.${shard.index}.md](./report.${shard.index}.md) (${shard.files.length} files${desc})`);
+    lines.push('| Axis | Files | Shards | Link |');
+    lines.push('|------|-------|--------|------|');
+    for (const report of axisReports) {
+      const name = axisDisplayName(report.axis);
+      const link = `[${report.axis}/index.md](./${report.axis}/index.md)`;
+      lines.push(`| ${name} | ${report.files.length} | ${report.shards.length} | ${link} |`);
     }
     lines.push('');
   }
@@ -550,9 +1184,9 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
       lines.push('');
       lines.push('| Axis | Calls | Duration | Cost | Tokens (in/out) |');
       lines.push('|------|-------|----------|------|-----------------|');
-      for (const [axis, s] of axes) {
+      for (const [axisKey, s] of axes) {
         const dur = (s.totalDurationMs / 1000).toFixed(1);
-        lines.push(`| ${axis} | ${s.calls} | ${dur}s | $${s.totalCostUsd.toFixed(2)} | ${s.totalInputTokens} / ${s.totalOutputTokens} |`);
+        lines.push(`| ${axisKey} | ${s.calls} | ${dur}s | $${s.totalCostUsd.toFixed(2)} | ${s.totalInputTokens} / ${s.totalOutputTokens} |`);
       }
       lines.push('');
     }
@@ -561,16 +1195,14 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push(...renderAxisSummary(data));
   lines.push(...renderDeliberationSummary(data));
 
-  // --- Appendix: static methodology reference ---
+  // --- Compact methodology reference (axis details are in per-axis indexes) ---
   lines.push('---');
   lines.push('');
-  lines.push('## Appendix: Methodology');
+  lines.push('## Methodology');
   lines.push('');
   lines.push('Each file is evaluated through 7 independent axis evaluators running in parallel.');
   lines.push('Every symbol (function, class, variable, type) is analysed individually and receives a rating per axis along with a confidence score (0–100).');
   lines.push('Findings with confidence < 30 are discarded; those with confidence < 60 are excluded from verdict computation.');
-  lines.push('');
-  lines.push('### Axis Reference');
   lines.push('');
   lines.push('| Axis | Model | Ratings | Description |');
   lines.push('|------|-------|---------|-------------|');
@@ -582,68 +1214,9 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   lines.push('| Best Practices | sonnet | Score 0–10 (17 rules) | Does the file follow TypeScript best practices? |');
   lines.push('| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with JSDoc? |');
   lines.push('');
-  lines.push('### Rating Criteria');
-  lines.push('');
-  lines.push('**Utility** — Detects dead or low-value code using a pre-computed import/usage graph.');
-  lines.push('');
-  lines.push('- **USED**: The symbol is imported or referenced by at least one other file (exported) or used locally (non-exported).');
-  lines.push('- **DEAD**: The symbol is exported but imported by 0 files, or is a non-exported symbol with no local references. Likely safe to remove.');
-  lines.push('- **LOW_VALUE**: The symbol is used but provides negligible value (trivial wrapper, identity function, unnecessary indirection).');
-  lines.push('');
-  lines.push('**Duplication** — Identifies code clones via RAG semantic vector search against the codebase index.');
-  lines.push('');
-  lines.push('- **UNIQUE**: No semantically similar function found, or similarity score < 0.75.');
-  lines.push('- **DUPLICATE**: Similarity score >= 0.85 with matching logic/behavior. The duplicate target file and symbol are reported.');
-  lines.push('');
-  lines.push('**Correction** — Finds bugs, logic errors, incorrect types, and unsafe operations. Only flags real correctness issues, not style.');
-  lines.push('');
-  lines.push('- **OK**: No bugs or correctness issues found.');
-  lines.push('- **NEEDS_FIX**: A real bug, logic error, or type mismatch that would cause incorrect behavior at runtime.');
-  lines.push('- **ERROR**: A critical bug that would cause a crash, data loss, or security breach.');
-  lines.push('');
-  lines.push('**Overengineering** — Evaluates whether complexity is justified by actual requirements.');
-  lines.push('');
-  lines.push('- **LEAN**: Implementation is minimal and appropriate for its purpose. A long function doing one thing well is still LEAN.');
-  lines.push('- **OVER**: Unnecessary abstractions, premature generalization, factory patterns for single use, excessive configuration for simple behavior.');
-  lines.push('- **ACCEPTABLE**: Some complexity present but justified by requirements.');
-  lines.push('');
-  lines.push('**Tests** — Assesses test coverage quality using coverage data (when available) and test file analysis.');
-  lines.push('');
-  lines.push('- **GOOD**: Meaningful unit tests covering happy path and edge cases.');
-  lines.push('- **WEAK**: Tests exist but are superficial, missing edge cases, or testing implementation details rather than behavior.');
-  lines.push('- **NONE**: No test file or test cases found for this symbol. Types/interfaces with no runtime behavior default to GOOD.');
-  lines.push('');
-  lines.push('**Documentation** — Evaluates JSDoc coverage on exported symbols and optional /docs/ concept coverage.');
-  lines.push('');
-  lines.push('- **DOCUMENTED**: Symbol has a complete JSDoc comment covering description, params, and return type.');
-  lines.push('- **PARTIAL**: JSDoc exists but is incomplete (missing params, outdated description, or lacking return type).');
-  lines.push('- **UNDOCUMENTED**: No JSDoc documentation found for an exported symbol. Types and interfaces default to DOCUMENTED.');
-  lines.push('');
-  lines.push('**Best Practices** — File-level evaluation against 17 TypeGuard v2 rules. Starts at 10/10, penalties subtracted per violation:');
-  lines.push('');
-  lines.push('| # | Rule | Severity | Penalty |');
-  lines.push('|---|------|----------|---------|');
-  lines.push('| 1 | Strict mode (tsconfig strict: true) | HIGH | -1 pt |');
-  lines.push('| 2 | No `any` (explicit or implicit) | CRITICAL | -3 pts |');
-  lines.push('| 3 | Discriminated unions over type assertions | MEDIUM | -0.5 pt |');
-  lines.push('| 4 | Utility types (Pick, Omit, Partial, Record) | MEDIUM | -0.5 pt |');
-  lines.push('| 5 | Immutability (readonly, as const) | MEDIUM | -0.5 pt |');
-  lines.push('| 6 | Interface vs Type consistency | MEDIUM | -0.5 pt |');
-  lines.push('| 7 | File size < 300 lines | HIGH | -1 pt |');
-  lines.push('| 8 | ESLint compliance | HIGH | -1 pt |');
-  lines.push('| 9 | JSDoc on public exports | MEDIUM | -0.5 pt |');
-  lines.push('| 10 | Modern 2026 practices | MEDIUM | -0.5 pt |');
-  lines.push('| 11 | Import organization | MEDIUM | -0.5 pt |');
-  lines.push('| 12 | Async/Promises/Error handling | HIGH | -1 pt |');
-  lines.push('| 13 | Security (no secrets, eval, injection) | CRITICAL | -4 pts |');
-  lines.push('| 14 | Performance (no N+1, sync I/O) | MEDIUM | -0.5 pt |');
-  lines.push('| 15 | Testability (DI, low coupling) | MEDIUM | -0.5 pt |');
-  lines.push('| 16 | TypeScript 5.5+ features | MEDIUM | -0.5 pt |');
-  lines.push('| 17 | Context-adapted rules | MEDIUM | -0.5 pt |');
+  lines.push('See each axis folder for detailed rating criteria and methodology.');
   lines.push('');
   lines.push('### Severity Classification');
-  lines.push('');
-  lines.push('Each finding is classified by severity:');
   lines.push('');
   lines.push('- **High**: ERROR corrections, or NEEDS_FIX / DEAD / DUPLICATE with confidence >= 80%.');
   lines.push('- **Medium**: NEEDS_FIX / DEAD / DUPLICATE with confidence < 80%, or OVER (any confidence).');
@@ -670,8 +1243,13 @@ export function renderIndex(data: ReportData, shards: ShardInfo[], triageStats?:
   return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Legacy API — renderShard kept for backward compatibility with tests
+// ---------------------------------------------------------------------------
+
 /**
- * Render a single shard (report.N.md) — findings + actions scoped to shard files.
+ * Render a single shard (legacy flat format).
+ * @deprecated Use renderAxisShard instead.
  */
 export function renderShard(shard: ShardInfo): string {
   const lines: string[] = [];
@@ -685,7 +1263,6 @@ export function renderShard(shard: ShardInfo): string {
   lines.push('| File | Verdict | Utility | Duplicate | Over Eng. | Errors | Tests | Doc | BP Score | Conf. | Details |');
   lines.push('|------|---------|---------|-----------|-----------|--------|-------|-----|----------|-------|---------|');
 
-  // Helper: return count or '-' if the axis was not evaluated (all symbols have '-' for that axis)
   const axisCount = (reliable: SymbolReview[], axis: keyof SymbolReview, ...values: string[]) => {
     const allSkipped = reliable.every((s) => s[axis] === '-');
     if (allSkipped) return '-';
@@ -695,10 +1272,10 @@ export function renderShard(shard: ShardInfo): string {
   for (const review of shard.files) {
     const reliable = review.symbols.filter((s) => s.confidence >= 30);
     const dead = axisCount(reliable, 'utility', 'DEAD');
-    const dup = axisCount(reliable, 'duplication', 'DUPLICATE');
+    const dupCount = axisCount(reliable, 'duplication', 'DUPLICATE');
     const over = axisCount(reliable, 'overengineering', 'OVER');
     const errors = axisCount(reliable, 'correction', 'NEEDS_FIX', 'ERROR');
-    const tests = axisCount(reliable, 'tests', 'WEAK', 'NONE');
+    const testsCount = axisCount(reliable, 'tests', 'WEAK', 'NONE');
     const doc = axisCount(reliable, 'documentation', 'PARTIAL', 'UNDOCUMENTED');
     const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
     const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
@@ -706,12 +1283,12 @@ export function renderShard(shard: ShardInfo): string {
     const link = `[details](./reviews/${outputName}.rev.md)`;
     const fileVerdict = computeFileVerdict(review);
     lines.push(
-      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dup} | ${over} | ${errors} | ${tests} | ${doc} | ${bpScore} | ${maxConf}% | ${link} |`,
+      `| \`${review.file}\` | ${fileVerdict} | ${dead} | ${dupCount} | ${over} | ${errors} | ${testsCount} | ${doc} | ${bpScore} | ${maxConf}% | ${link} |`,
     );
   }
   lines.push('');
 
-  // Symbol-level details for files with findings
+  // Symbol-level details
   const filesWithFindings = shard.files.filter((r) =>
     r.symbols.some((s) => s.confidence >= 30 && hasActionableIssue(s)),
   );
@@ -733,7 +1310,7 @@ export function renderShard(shard: ShardInfo): string {
     }
   }
 
-  // Actions by category (scoped to shard)
+  // Actions by category
   if (shard.actions.length > 0) {
     const byCategory: Record<Category, Array<Action & { file: string }>> = {
       quickwin: [],
@@ -767,7 +1344,7 @@ export function renderShard(shard: ShardInfo): string {
     }
   }
 
-  // Tests section — one checkbox per file, symbols listed as context
+  // Tests section
   const testReviews = shard.files.filter((r) =>
     r.symbols.some((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE')),
   );
@@ -788,7 +1365,6 @@ export function renderShard(shard: ShardInfo): string {
       lines.push(`- [ ] \`${review.file}\` — ${summary}`);
       lines.push(`  ${action} covering: ${testSymbols.map((s) => s.name).join(', ')}`);
 
-      // Add detail for WEAK symbols (they have specific improvement hints)
       for (const s of weakSymbols) {
         lines.push(`  - ${s.name}: ${s.detail.replace(/^\[WEAK\]\s*/, '')}`);
       }
@@ -796,7 +1372,7 @@ export function renderShard(shard: ShardInfo): string {
     }
   }
 
-  // Documentation Coverage section — concepts from docs_coverage
+  // Documentation Coverage section
   const docReviews = shard.files.filter((r) =>
     r.docs_coverage?.concepts.some((c) => c.status !== 'COVERED'),
   );
@@ -817,7 +1393,7 @@ export function renderShard(shard: ShardInfo): string {
     }
   }
 
-  // Best Practices section — rendered from review data, not actions
+  // Best Practices section
   const bpReviews = shard.files.filter((r) => r.best_practices && r.best_practices.suggestions.length > 0);
   if (bpReviews.length > 0) {
     lines.push('## Best Practices');
@@ -840,11 +1416,13 @@ export function renderShard(shard: ShardInfo): string {
   return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Generate report
+// ---------------------------------------------------------------------------
 
 /**
- * Generate the sharded report: index (report.md) + shards (report.N.md).
+ * Generate the axis-based report: master index + per-axis folders with indexes and shards.
  * When runDir is provided, reads reviews from and writes report to the run directory.
- * Returns the path to the index (always report.md) and the report data.
  */
 export function generateReport(
   projectRoot: string,
@@ -852,21 +1430,31 @@ export function generateReport(
   runDir?: string,
   triageStats?: TriageStats,
   runStats?: RunStats,
-): { reportPath: string; data: ReportData; shards: ShardInfo[] } {
+): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
+  const axisReports = buildAxisReports(data);
 
   const baseDir = runDir ?? resolve(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
-  // Write index
-  writeFileSync(reportPath, renderIndex(data, shards, triageStats, runStats));
+  // Write master index
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats));
 
-  // Write shards
-  for (const shard of shards) {
-    writeFileSync(join(baseDir, `report.${shard.index}.md`), renderShard(shard));
+  // Write per-axis folders
+  for (const report of axisReports) {
+    const axisDir = join(baseDir, report.axis);
+    mkdirSync(axisDir, { recursive: true });
+
+    // Write axis index
+    writeFileSync(join(axisDir, 'index.md'), renderAxisIndex(report));
+
+    // Write axis shards
+    for (const shard of report.shards) {
+      writeFileSync(join(axisDir, `shard.${shard.index}.md`), renderAxisShard(report.axis, shard));
+    }
   }
 
-  return { reportPath, data, shards };
+  return { reportPath, data, shards, axisReports };
 }

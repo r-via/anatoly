@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ReviewFile } from '../schemas/review.js';
@@ -15,10 +15,15 @@ import {
   generateReport,
   sortFindingFiles,
   buildShards,
+  buildAxisReports,
   renderIndex,
   renderShard,
+  renderAxisIndex,
+  renderAxisShard,
   makeActId,
+  hasAxisFinding,
   type TriageStats,
+  type ReportAxisId,
 } from './reporter.js';
 
 function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
@@ -318,12 +323,105 @@ describe('buildShards', () => {
   });
 });
 
+describe('hasAxisFinding', () => {
+  it('should detect correction findings', () => {
+    const review = makeReview({ symbols: [makeSymbol({ correction: 'NEEDS_FIX', confidence: 80 })] });
+    expect(hasAxisFinding(review, 'correction')).toBe(true);
+    expect(hasAxisFinding(review, 'utility')).toBe(false);
+  });
+
+  it('should detect utility findings', () => {
+    const review = makeReview({ symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] });
+    expect(hasAxisFinding(review, 'utility')).toBe(true);
+    expect(hasAxisFinding(review, 'correction')).toBe(false);
+  });
+
+  it('should detect best-practices findings', () => {
+    const review = makeReview({
+      best_practices: {
+        score: 5,
+        rules: [{ rule_id: 1, rule_name: 'No any', status: 'FAIL' as const, severity: 'CRITICAL' as const }],
+        suggestions: [],
+      },
+    });
+    expect(hasAxisFinding(review, 'best-practices')).toBe(true);
+    expect(hasAxisFinding(review, 'correction')).toBe(false);
+  });
+
+  it('should ignore low confidence symbols', () => {
+    const review = makeReview({ symbols: [makeSymbol({ utility: 'DEAD', confidence: 20 })] });
+    expect(hasAxisFinding(review, 'utility')).toBe(false);
+  });
+});
+
+describe('buildAxisReports', () => {
+  it('should return empty array for all-clean reviews', () => {
+    const data = aggregateReviews([makeReview()]);
+    expect(buildAxisReports(data)).toEqual([]);
+  });
+
+  it('should create reports only for axes with findings', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const axes = reports.map((r) => r.axis);
+    expect(axes).toContain('utility');
+    expect(axes).not.toContain('correction');
+  });
+
+  it('should include a file in multiple axes if it has findings on multiple', () => {
+    const reviews = [
+      makeReview({
+        file: 'multi.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', correction: 'NEEDS_FIX', confidence: 80 })],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const axes = reports.map((r) => r.axis);
+    expect(axes).toContain('utility');
+    expect(axes).toContain('correction');
+  });
+
+  it('should scope actions by axis source', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: null, target_lines: null },
+          { id: 2, description: 'Fix bug', severity: 'high' as const, effort: 'small' as const, category: 'refactor' as const, source: 'correction' as const, target_symbol: null, target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility');
+    expect(utilityReport!.actions).toHaveLength(1);
+    expect(utilityReport!.actions[0].description).toBe('Remove dead');
+  });
+
+  it('should shard files within each axis', () => {
+    const reviews = Array.from({ length: 15 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility');
+    expect(utilityReport!.shards).toHaveLength(2);
+    expect(utilityReport!.shards[0].files).toHaveLength(10);
+    expect(utilityReport!.shards[1].files).toHaveLength(5);
+  });
+});
+
 describe('renderIndex', () => {
   it('should show "All files clean" when no findings', () => {
     const data = aggregateReviews([makeReview()]);
     const md = renderIndex(data, []);
     expect(md).toContain('All files clean');
-    expect(md).not.toContain('## Shards');
+    expect(md).not.toContain('## Axes');
   });
 
   it('should include executive summary', () => {
@@ -331,8 +429,8 @@ describe('renderIndex', () => {
       makeReview({ file: 'a.ts' }),
       makeReview({ file: 'b.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
     ]);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
     expect(md).toContain('# Anatoly Audit Report');
     expect(md).toContain('**Files reviewed:** 2');
     expect(md).toContain('**Global verdict:** NEEDS_REFACTOR');
@@ -344,36 +442,33 @@ describe('renderIndex', () => {
     const data = aggregateReviews([
       makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
     ]);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
     expect(md).toContain('Utility');
     expect(md).toContain('| Category |');
   });
 
-  it('should include checkbox list with shard links', () => {
+  it('should include axes navigation table', () => {
     const reviews = Array.from({ length: 15 }, (_, i) =>
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
     const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
-    expect(md).toContain('## Shards');
-    expect(md).toContain('- [ ] [report.1.md](./report.1.md)');
-    expect(md).toContain('- [ ] [report.2.md](./report.2.md)');
-    expect(md).toContain('10 files');
-    expect(md).toContain('5 files');
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
+    expect(md).toContain('## Axes');
+    expect(md).toContain('utility/index.md');
   });
 
-  it('should include CRITICAL/NEEDS_REFACTOR composition in shard description', () => {
+  it('should include CRITICAL/NEEDS_REFACTOR info for axes', () => {
     const reviews = [
       makeReview({ file: 'crit.ts', symbols: [makeSymbol({ correction: 'ERROR', confidence: 90 })] }),
       makeReview({ file: 'ref.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     ];
     const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
-    expect(md).toContain('1 CRITICAL');
-    expect(md).toContain('1 NEEDS_REFACTOR');
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
+    expect(md).toContain('correction/index.md');
+    expect(md).toContain('utility/index.md');
   });
 
   it('should contain expected structural sections', () => {
@@ -381,12 +476,12 @@ describe('renderIndex', () => {
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
     const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
     expect(md).toContain('## Executive Summary');
-    expect(md).toContain('## Shards');
+    expect(md).toContain('## Axes');
     expect(md).toContain('## Axis Summary');
-    expect(md).toContain('## Appendix: Methodology');
+    expect(md).toContain('## Methodology');
   });
 
   it('should include error files section', () => {
@@ -396,10 +491,10 @@ describe('renderIndex', () => {
     expect(md).toContain('`broken.ts`');
   });
 
-  it('should include Methodology section with axis pipeline description', () => {
+  it('should include compact methodology with axis reference table', () => {
     const data = aggregateReviews([makeReview()]);
     const md = renderIndex(data, []);
-    expect(md).toContain('## Appendix: Methodology');
+    expect(md).toContain('## Methodology');
     expect(md).toContain('7 independent axis evaluators');
     expect(md).toContain('Utility');
     expect(md).toContain('Duplication');
@@ -410,6 +505,7 @@ describe('renderIndex', () => {
     expect(md).toContain('Best Practices');
     expect(md).toContain('haiku');
     expect(md).toContain('sonnet');
+    expect(md).toContain('See each axis folder for detailed rating criteria');
   });
 
   it('should include Performance & Triage section when triageStats provided', () => {
@@ -433,12 +529,12 @@ describe('renderIndex', () => {
       makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
     );
     const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
+    const reports = buildAxisReports(data);
     const stats: TriageStats = { total: 100, skip: 30, evaluate: 70, estimatedTimeSaved: 15.0 };
-    const md = renderIndex(data, shards, stats);
+    const md = renderIndex(data, reports, stats);
     expect(md).toContain('## Performance & Triage');
     expect(md).toContain('## Axis Summary');
-    expect(md).toContain('## Appendix: Methodology');
+    expect(md).toContain('## Methodology');
   });
 });
 
@@ -483,7 +579,111 @@ describe('degraded reviews', () => {
   });
 });
 
-describe('renderShard', () => {
+describe('renderAxisIndex', () => {
+  it('should include axis name and stats', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility')!;
+    const md = renderAxisIndex(utilityReport);
+    expect(md).toContain('# Utility');
+    expect(md).toContain('**Files with findings:** 1');
+    expect(md).toContain('## Methodology');
+    expect(md).toContain('DEAD');
+  });
+
+  it('should include shard links', () => {
+    const reviews = Array.from({ length: 15 }, (_, i) =>
+      makeReview({ file: `f${i}.ts`, symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
+    );
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility')!;
+    const md = renderAxisIndex(utilityReport);
+    expect(md).toContain('shard.1.md');
+    expect(md).toContain('shard.2.md');
+  });
+
+  it('should include best-practices methodology with 17 rules', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        best_practices: {
+          score: 5,
+          rules: [{ rule_id: 1, rule_name: 'No any', status: 'FAIL' as const, severity: 'CRITICAL' as const }],
+          suggestions: [],
+        },
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const bpReport = reports.find((r) => r.axis === 'best-practices')!;
+    const md = renderAxisIndex(bpReport);
+    expect(md).toContain('# Best Practices');
+    expect(md).toContain('17 TypeGuard v2 rules');
+    expect(md).toContain('Rule');
+    expect(md).toContain('Penalty');
+  });
+});
+
+describe('renderAxisShard', () => {
+  it('should render axis-specific findings table', () => {
+    const reviews = [
+      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility')!;
+    const md = renderAxisShard('utility', utilityReport.shards[0]);
+    expect(md).toContain('# Utility — Shard 1');
+    expect(md).toContain('## Findings');
+    expect(md).toContain('`a.ts`');
+    expect(md).toContain('[details](../reviews/a.rev.md)');
+  });
+
+  it('should include actions scoped to axis', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: 'fn', target_lines: null },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility')!;
+    const md = renderAxisShard('utility', utilityReport.shards[0]);
+    expect(md).toContain('## Quick Wins');
+    expect(md).toContain('Remove dead export');
+  });
+
+  it('should render best-practices shard with score and details', () => {
+    const reviews = [
+      makeReview({
+        file: 'a.ts',
+        best_practices: {
+          score: 7.5,
+          rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'FAIL' as const, severity: 'CRITICAL' as const }],
+          suggestions: [{ description: 'Add error handling', before: 'fn()', after: 'try { fn() }' }],
+        },
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const bpReport = reports.find((r) => r.axis === 'best-practices')!;
+    const md = renderAxisShard('best-practices', bpReport.shards[0]);
+    expect(md).toContain('Best Practices — Shard 1');
+    expect(md).toContain('7.5/10');
+    expect(md).toContain('Failed rules');
+    expect(md).toContain('Error handling');
+  });
+});
+
+describe('renderShard (legacy)', () => {
   it('should include findings table', () => {
     const reviews = [
       makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
@@ -601,10 +801,28 @@ describe('renderAction checkboxes', () => {
     expect(md).toContain(`- [ ] <!-- ${actId} -->`);
     expect(md).toContain('**[utility \u00B7 high \u00B7 trivial]**');
   });
+
+  it('should have ACT-IDs in axis shards too', () => {
+    const reviews = [
+      makeReview({
+        file: 'src/foo.ts',
+        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
+        actions: [
+          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: 'fn', target_lines: '1-5' },
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    const reports = buildAxisReports(data);
+    const utilityReport = reports.find((r) => r.axis === 'utility')!;
+    const md = renderAxisShard('utility', utilityReport.shards[0]);
+    const actId = makeActId('src/foo.ts', 1);
+    expect(md).toContain(`- [ ] <!-- ${actId} -->`);
+  });
 });
 
 describe('renderIndex no Checklist', () => {
-  it('should not include Checklist section in index (actions only in shards)', () => {
+  it('should not include ACT-IDs in master index', () => {
     const reviews = [
       makeReview({
         file: 'src/foo.ts',
@@ -615,15 +833,10 @@ describe('renderIndex no Checklist', () => {
       }),
     ];
     const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderIndex(data, shards);
-    expect(md).not.toContain('## Checklist');
-    // ACT-IDs should only appear in shard, not in index
+    const reports = buildAxisReports(data);
+    const md = renderIndex(data, reports);
     const actId = makeActId('src/foo.ts', 1);
     expect(md).not.toContain(`<!-- ${actId} -->`);
-    // But shard should have the action checkboxes
-    const shardMd = renderShard(shards[0]);
-    expect(shardMd).toContain(`<!-- ${actId} -->`);
   });
 });
 
@@ -656,7 +869,7 @@ describe('generateReport', () => {
     expect(content).toContain('All files clean');
   });
 
-  it('should write shard files for finding reviews', () => {
+  it('should create axis folders for finding reviews', () => {
     const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
 
@@ -670,20 +883,31 @@ describe('generateReport', () => {
       );
     }
 
-    const { reportPath } = generateReport(tmpDir);
+    const { reportPath, axisReports } = generateReport(tmpDir);
     const indexContent = readFileSync(reportPath, 'utf-8');
-    expect(indexContent).toContain('report.1.md');
-    expect(indexContent).toContain('report.2.md');
+    expect(indexContent).toContain('utility/index.md');
 
-    const shard1 = readFileSync(join(tmpDir, '.anatoly', 'report.1.md'), 'utf-8');
-    expect(shard1).toContain('# Shard 1');
+    // Check axis folder exists
+    const utilityDir = join(tmpDir, '.anatoly', 'utility');
+    expect(existsSync(join(utilityDir, 'index.md'))).toBe(true);
+    expect(existsSync(join(utilityDir, 'shard.1.md'))).toBe(true);
+    expect(existsSync(join(utilityDir, 'shard.2.md'))).toBe(true);
+
+    const utilityIndex = readFileSync(join(utilityDir, 'index.md'), 'utf-8');
+    expect(utilityIndex).toContain('# Utility');
+    expect(utilityIndex).toContain('shard.1.md');
+
+    const shard1 = readFileSync(join(utilityDir, 'shard.1.md'), 'utf-8');
+    expect(shard1).toContain('Utility — Shard 1');
     expect(shard1).toContain('## Findings');
 
-    const shard2 = readFileSync(join(tmpDir, '.anatoly', 'report.2.md'), 'utf-8');
-    expect(shard2).toContain('# Shard 2');
+    // Should have utility report
+    const utilityReport = axisReports.find((r) => r.axis === 'utility');
+    expect(utilityReport).toBeDefined();
+    expect(utilityReport!.files).toHaveLength(15);
   });
 
-  it('should not write shard files when all clean', () => {
+  it('should not create axis folders when all clean', () => {
     const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
@@ -692,10 +916,11 @@ describe('generateReport', () => {
     );
 
     generateReport(tmpDir);
-    expect(() => readFileSync(join(tmpDir, '.anatoly', 'report.1.md'))).toThrow();
+    expect(existsSync(join(tmpDir, '.anatoly', 'utility'))).toBe(false);
+    expect(existsSync(join(tmpDir, '.anatoly', 'correction'))).toBe(false);
   });
 
-  it('should return report.md path even with shards', () => {
+  it('should return report.md path even with axis reports', () => {
     const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
@@ -708,6 +933,5 @@ describe('generateReport', () => {
 
     const { reportPath } = generateReport(tmpDir);
     expect(reportPath.endsWith('report.md')).toBe(true);
-    expect(reportPath).not.toContain('report.1.md');
   });
 });

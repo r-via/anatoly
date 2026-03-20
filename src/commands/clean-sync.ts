@@ -3,10 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, basename, dirname, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
+import { resolveRunDir } from '../utils/run-id.js';
+import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
 import { DISCOVERED_ACT_ID } from './clean.js';
 
 interface PrdStory {
@@ -43,11 +45,10 @@ export function allActionsChecked(content: string): boolean {
 }
 
 /**
- * Check the shard line in report.md when all shard actions are done.
- * Finds `- [ ] [report.N.md]` and replaces with `- [x] [report.N.md]`.
+ * Check the shard line in an axis index when all shard actions are done.
+ * Finds `- [ ] [shard.N.md]` and replaces with `- [x] [shard.N.md]`.
  */
 export function checkShardInIndex(indexContent: string, shardFilename: string): { content: string; changed: boolean } {
-  // Match the shard checkbox line: - [ ] [report.N.md](...)
   const pattern = `- [ ] [${shardFilename}]`;
   if (!indexContent.includes(pattern)) return { content: indexContent, changed: false };
   return {
@@ -56,11 +57,68 @@ export function checkShardInIndex(indexContent: string, shardFilename: string): 
   };
 }
 
+/**
+ * Sync completed stories for a single axis.
+ * Returns { shardChecked, allDone }.
+ */
+function syncAxis(
+  runDir: string,
+  axis: ReportAxisId,
+  completedStories: PrdStory[],
+): { shardChecked: number; allDone: boolean } {
+  const axisDir = join(runDir, axis);
+  if (!existsSync(axisDir)) return { shardChecked: 0, allDone: false };
+
+  const shardFiles = readdirSync(axisDir)
+    .filter((f) => f.startsWith('shard.') && f.endsWith('.md'))
+    .sort();
+
+  let totalChecked = 0;
+  let allShardsDone = true;
+
+  for (const shardFile of shardFiles) {
+    const shardPath = join(axisDir, shardFile);
+    let content = readFileSync(shardPath, 'utf-8');
+    let checkedInShard = 0;
+
+    for (const story of completedStories) {
+      const result = checkAction(content, story.actId);
+      if (result.changed) {
+        content = result.content;
+        checkedInShard++;
+      }
+    }
+
+    if (checkedInShard > 0) {
+      writeFileSync(shardPath, content);
+      totalChecked += checkedInShard;
+    }
+
+    // Check if this shard is fully done
+    if (!allActionsChecked(content)) {
+      allShardsDone = false;
+    } else {
+      // Check the shard line in the axis index
+      const indexPath = join(axisDir, 'index.md');
+      if (existsSync(indexPath)) {
+        let indexContent = readFileSync(indexPath, 'utf-8');
+        const result = checkShardInIndex(indexContent, shardFile);
+        if (result.changed) {
+          indexContent = result.content;
+          writeFileSync(indexPath, indexContent);
+        }
+      }
+    }
+  }
+
+  return { shardChecked: totalChecked, allDone: allShardsDone };
+}
+
 export function registerCleanSyncCommand(program: Command): void {
   program
-    .command('clean-sync <report-file>')
-    .description('Sync completed clean tasks from prd.json back to the shard and index reports')
-    .action((reportFile: string) => {
+    .command('clean-sync <axis>')
+    .description('Sync completed clean tasks from prd.json back to axis reports (axis name or "all")')
+    .action((axis: string) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -69,25 +127,33 @@ export function registerCleanSyncCommand(program: Command): void {
         return;
       }
 
-      const absShardPath = resolve(projectRoot, reportFile);
-
-      if (!existsSync(absShardPath)) {
-        console.error(chalk.red(`Shard file not found: ${reportFile}`));
+      const runDir = resolveRunDir(projectRoot);
+      if (!runDir) {
+        console.error(chalk.red('No run found. Run `anatoly run` first.'));
         process.exit(1);
       }
 
-      // Find prd.json in the corresponding fix directory
-      const shardName = basename(reportFile, '.md');
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      // Determine axes to sync
+      const axes: ReportAxisId[] = axis === 'all'
+        ? [...REPORT_AXIS_IDS]
+        : [axis as ReportAxisId];
+
+      if (axis !== 'all' && !REPORT_AXIS_IDS.includes(axis as ReportAxisId)) {
+        console.error(chalk.red(`Unknown axis: ${axis}`));
+        console.error(`Valid axes: ${REPORT_AXIS_IDS.join(', ')}, all`);
+        process.exit(1);
+      }
+
+      // Find prd.json
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', axis);
       const prdPath = join(cleanDir, 'prd.json');
 
       if (!existsSync(prdPath)) {
-        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly clean ${reportFile}\` first.`));
+        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly clean ${axis}\` first.`));
         process.exit(1);
       }
 
       const prd: PrdFile = JSON.parse(readFileSync(prdPath, 'utf-8'));
-      // Only sync stories that have a real ACT-ID (skip discovered stories with actId "DISCOVERED")
       const completedStories = prd.userStories.filter((s) => s.passes && s.actId !== DISCOVERED_ACT_ID);
 
       if (completedStories.length === 0) {
@@ -95,48 +161,33 @@ export function registerCleanSyncCommand(program: Command): void {
         return;
       }
 
-      // Sync shard: check completed actions
-      let shardContent = readFileSync(absShardPath, 'utf-8');
-      let shardChecked = 0;
+      let totalChecked = 0;
+      const fullyDoneAxes: string[] = [];
 
-      for (const story of completedStories) {
-        const result = checkAction(shardContent, story.actId);
-        if (result.changed) {
-          shardContent = result.content;
-          shardChecked++;
-        }
+      for (const axisId of axes) {
+        const result = syncAxis(runDir, axisId, completedStories);
+        totalChecked += result.shardChecked;
+        if (result.allDone) fullyDoneAxes.push(axisId);
       }
 
-      if (shardChecked > 0) {
-        writeFileSync(absShardPath, shardContent);
-      }
-
-      // Sync index: find report.md in the same directory as the shard
-      const shardDir = dirname(absShardPath);
-      const indexPath = join(shardDir, 'report.md');
-      let shardFullyDone = false;
-
-      if (existsSync(indexPath)) {
-        let indexContent = readFileSync(indexPath, 'utf-8');
-
-        // If ALL shard actions are checked, check the shard line in report.md
-        if (allActionsChecked(shardContent)) {
-          const shardFilename = basename(reportFile);
-          const result = checkShardInIndex(indexContent, shardFilename);
-          if (result.changed) {
-            indexContent = result.content;
-            shardFullyDone = true;
+      // If an axis is fully done, check it in the master report.md
+      if (fullyDoneAxes.length > 0) {
+        const reportPath = join(runDir, 'report.md');
+        if (existsSync(reportPath)) {
+          let reportContent = readFileSync(reportPath, 'utf-8');
+          for (const doneAxis of fullyDoneAxes) {
+            // The master index uses a table, not checkboxes — no checkbox to check.
+            // The axis is simply "done" when all its shards are checked.
+            // Log it for the user.
+            void doneAxis;
+            void reportContent;
           }
         }
-
-        if (shardFullyDone) {
-          writeFileSync(indexPath, indexContent);
-        }
       }
 
-      console.log(chalk.green(`Synced ${shardChecked} action(s) in ${basename(reportFile)}`));
-      if (shardFullyDone) {
-        console.log(chalk.green(`All actions done — checked shard in report.md`));
+      console.log(chalk.green(`Synced ${totalChecked} action(s) across ${axes.length} axis/axes`));
+      if (fullyDoneAxes.length > 0) {
+        console.log(chalk.green(`Fully completed axes: ${fullyDoneAxes.join(', ')}`));
       }
     });
 }

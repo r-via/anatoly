@@ -16,7 +16,7 @@ import { scanProject } from '../core/scanner.js';
 import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
+import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
 import { generateReport, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
@@ -1255,14 +1255,17 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
   let copied = 0;
   for (const fp of cachedFiles) {
     const baseName = toOutputName(fp.file);
-    const src = join(cacheReviewsDir, `${baseName}.rev.json`);
-    const dst = join(currentReviewsDir, `${baseName}.rev.json`);
-    if (existsSync(src) && !existsSync(dst)) {
-      try {
-        copyFileSync(src, dst);
-        copied++;
-      } catch (err) {
-        getLogger().debug({ src, err }, 'failed to copy cached review (non-fatal)');
+    // Copy both .rev.json and .rev.md (human-readable review)
+    for (const ext of ['.rev.json', '.rev.md']) {
+      const src = join(cacheReviewsDir, `${baseName}${ext}`);
+      const dst = join(currentReviewsDir, `${baseName}${ext}`);
+      if (existsSync(src) && !existsSync(dst)) {
+        try {
+          copyFileSync(src, dst);
+          if (ext === '.rev.json') copied++;
+        } catch (err) {
+          getLogger().debug({ src, err }, 'failed to copy cached review (non-fatal)');
+        }
       }
     }
   }
@@ -1273,17 +1276,17 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
 }
 
 /**
- * Persist a .rev.json into the accumulative cache directory.
+ * Persist a .rev.json and .rev.md into the accumulative cache directory.
  * Always overwrites — the latest review is the source of truth.
  */
 function cacheReview(projectRoot: string, review: ReviewFile): void {
   const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
   mkdirSync(cacheReviewsDir, { recursive: true });
   const baseName = toOutputName(review.file);
-  const dst = join(cacheReviewsDir, `${baseName}.rev.json`);
   try {
-    writeFileSync(dst, JSON.stringify(review, null, 2) + '\n');
+    writeFileSync(join(cacheReviewsDir, `${baseName}.rev.json`), JSON.stringify(review, null, 2) + '\n');
+    writeFileSync(join(cacheReviewsDir, `${baseName}.rev.md`), renderReviewMarkdown(review));
   } catch (err) {
-    getLogger().debug({ dst, err }, 'failed to cache review (non-fatal)');
+    getLogger().debug({ baseName, err }, 'failed to cache review (non-fatal)');
   }
 }

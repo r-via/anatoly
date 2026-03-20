@@ -6,7 +6,7 @@ import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync } from 'node:fs';
 import { resolve, relative, dirname, join } from 'node:path';
-import { generateReport } from '../core/reporter.js';
+import { generateReport, type AxisReport } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -48,8 +48,8 @@ export function registerReportCommand(program: Command): void {
 
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
-        const { reportPath, data, shards } = generateReport(projectRoot, errorFiles, runDir);
-        printReportSummary(data, shards, reportPath, resolve(runDir, 'reviews'));
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir);
+        printReportSummary(data, axisReports, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/
@@ -61,8 +61,8 @@ export function registerReportCommand(program: Command): void {
           }
         }
 
-        const { reportPath, data, shards } = generateReport(projectRoot, errorFiles);
-        printReportSummary(data, shards, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles);
+        printReportSummary(data, axisReports, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
         if (shouldOpen) openFile(reportPath);
       }
     });
@@ -70,7 +70,7 @@ export function registerReportCommand(program: Command): void {
 
 function printReportSummary(
   data: ReturnType<typeof generateReport>['data'],
-  shards: ReturnType<typeof generateReport>['shards'],
+  axisReports: AxisReport[],
   reportPath: string,
   reviewsPath: string,
 ): void {
@@ -116,10 +116,10 @@ function printReportSummary(
   console.log('');
   const rel = (p: string) => relative(process.cwd(), p) || '.';
   console.log(`Report: ${chalk.cyan(rel(reportPath))}`);
-  if (shards.length > 0) {
+  if (axisReports.length > 0) {
     const reportDir = dirname(reportPath);
-    for (const shard of shards) {
-      console.log(`  shard ${shard.index}  ${chalk.cyan(rel(join(reportDir, `report.${shard.index}.md`)))} (${shard.files.length} files)`);
+    for (const report of axisReports) {
+      console.log(`  ${report.axis}  ${chalk.cyan(rel(join(reportDir, report.axis, 'index.md')))} (${report.files.length} files, ${report.shards.length} shards)`);
     }
   }
   console.log(`Details: ${chalk.cyan(rel(reviewsPath) + '/')}`);
