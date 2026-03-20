@@ -306,6 +306,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     docFileCounter++;
     onProgress?.(docFileCounter, changedFiles.length);
     onFileStart?.(relPath);
+    onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
     const sha = computeDocSha(source);
 
     const sections = chunkModel
@@ -332,6 +333,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
     newCache[relPath] = { sha, sectionIds };
     totalIndexed += sections.length;
+    onLog(`rag: ${relPath} → ${sections.length} sections`);
     onFileDone?.(relPath);
   }
 
