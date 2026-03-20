@@ -9,7 +9,7 @@ set -euo pipefail
 # Constants
 # ---------------------------------------------------------------------------
 GGUF_DOCKER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
-TEI_DOCKER_IMAGE="ghcr.io/huggingface/text-embeddings-inference:1.9"
+TEI_DOCKER_IMAGE="ghcr.io/huggingface/text-embeddings-inference:cuda-1.9"
 
 GGUF_CODE_PORT=11437
 GGUF_NLP_PORT=11438
