@@ -700,13 +700,40 @@ if [[ "${1:-}" == "--ab-test" ]]; then
   RESULT=$(run_ab_test)
   log info "Backend recommendation: ${RESULT}"
 
-  # Update embeddings-ready.json if it exists
-  if [[ -f "$READY_FILE" ]]; then
-    TMP=$(mktemp)
-    jq --arg backend "$RESULT" --arg ab_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '.backend = $backend | .ab_test_at = $ab_date' "$READY_FILE" > "$TMP"
-    mv "$TMP" "$READY_FILE"
-    log ok "embeddings-ready.json updated with backend=${RESULT}"
+  # Rewrite embeddings-ready.json with correct config for the chosen backend
+  if [[ "$RESULT" == "advanced-gguf" ]]; then
+    write_embeddings_ready "$READY_FILE" \
+      --arg backend "$RESULT" \
+      --arg code_model "$CODE_MODEL_ID" \
+      --arg nlp_model "$NLP_MODEL_ID" \
+      --argjson dim_code "${CODE_DIM:-3584}" \
+      --argjson dim_nlp "${NLP_DIM:-4096}" \
+      --arg device "$GPU" \
+      --argjson vram_gb "$VRAM_GB" \
+      --arg docker_image "$GGUF_DOCKER_IMAGE" \
+      --arg gguf_code_model "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" \
+      --arg gguf_nlp_model "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" \
+      --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{
+        backend: $backend,
+        code_model: $code_model,
+        nlp_model: $nlp_model,
+        dim_code: $dim_code,
+        dim_nlp: $dim_nlp,
+        device: $device,
+        vram_gb: $vram_gb,
+        docker_image: $docker_image,
+        gguf_code_model: $gguf_code_model,
+        gguf_nlp_model: $gguf_nlp_model,
+        setup_at: $setup_at
+      }'
+  else
+    write_embeddings_ready "$READY_FILE" \
+      --arg backend "lite" \
+      --arg device "$GPU" \
+      --argjson vram_gb "$VRAM_GB" \
+      --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{backend: $backend, device: $device, vram_gb: $vram_gb, dim_code: 768, dim_nlp: 384, setup_at: $setup_at}'
   fi
 
   exit 0
