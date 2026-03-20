@@ -183,6 +183,20 @@ export async function startGgufContainers(
     }
   }
 
+  // Kill zombie containers from previous runs (crash, Ctrl+C, etc.)
+  try {
+    const zombies = execSync(
+      `docker ps -aq --filter "name=anatoly-gguf"`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    ).trim();
+    if (zombies) {
+      onLog?.('cleaning up leftover GGUF containers...');
+      execSync(`docker rm -f ${zombies}`, { stdio: 'ignore', timeout: 10_000 });
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+
   try {
     // Start with the code model (most common first call)
     await ensureModel('code');
