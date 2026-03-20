@@ -696,6 +696,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     : codeModelShort;
   const indexModel = ctx.config.llm.index_model;
   const indexModelShort = shortModelName(indexModel);
+  const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
   let ragPhase = 'code';
   const phaseLabels: Record<string, string> = {
     code: `code indexing (${codeModelShort} + ${indexModelShort})`,
@@ -727,6 +728,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           ragMode: ctx.resolvedRagMode,
           onLog: (msg) => {
             ctx.runLog?.debug({ phase: 'rag-index' }, msg);
+            appendFileSync(ragLogPath, `${new Date().toISOString()} ${msg}\n`);
             if (ctx.plain) listrTask.output = msg;
           },
           onProgress: (current, total) => {
