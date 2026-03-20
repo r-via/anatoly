@@ -731,6 +731,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       } else if (ragPhase === 'nlp') {
         nlpTotal = total;
         activeTask.title = `NLP embeddings (${nlpModelShort}) — ${current}/${total}`;
+      } else if (ragPhase === 'doc') {
+        activeTask.title = `doc indexing (${indexModelShort} + ${nlpModelShort}) — ${current}/${total}`;
       }
     },
     onPhase: (phase) => {
@@ -740,7 +742,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       else if (phase === 'doc') phaseGates['upsert'].resolve();
       ragPhase = phase;
     },
-    onFileStart: (file) => { if (activeTask) activeTask.output = file; },
+    onFileStart: () => {},
     onFileDone: () => {},
     isInterrupted: () => ctx.interrupted,
   }).then((result) => {
@@ -758,7 +760,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         listrTask.title = `code indexing (${codeModelShort} + ${indexModelShort}) — ${codeTotal} files`;
         activeTask = null;
       },
-      rendererOptions: { outputBar: ctx.concurrency as number },
     },
   ];
 
@@ -771,7 +772,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         listrTask.title = `NLP embeddings (${nlpModelShort}) — ${nlpTotal} files`;
         activeTask = null;
       },
-      rendererOptions: { outputBar: ctx.concurrency as number },
     });
 
     ragTasks.push({
@@ -784,7 +784,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         listrTask.title = `doc indexing (${indexModelShort} + ${nlpModelShort}) — ${docCount} sections`;
         activeTask = null;
       },
-      rendererOptions: { outputBar: ctx.concurrency as number },
     });
   } else {
     // Non-dual: just wait for completion
