@@ -698,54 +698,44 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const ragRunner = new Listr([{
     title: `RAG index — code embeddings (${codeModelShort})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      const spinInterval = ctx.plain
-        ? null
-        : setInterval(() => {
-            if (ragDisplay.hasActiveFiles) listrTask.output = ragDisplay.render();
-          }, 80);
-
-      try {
-        ragResult = await indexProject({
-          projectRoot: ctx.projectRoot,
-          tasks,
-          rebuild: ctx.rebuildRag,
-          concurrency: ctx.concurrency,
-          verbose: ctx.verbose,
-          dualEmbedding: ctx.dualEmbedding,
-          indexModel: ctx.config.llm.index_model,
-          resolvedModels: ctx.resolvedModels,
-          ragMode: ctx.resolvedRagMode,
-          onLog: (msg) => {
-            if (ctx.plain) listrTask.output = msg;
-          },
-          onProgress: (current, total) => {
-            if (ragPhase === 'code') {
-              listrTask.title = `RAG index — code embeddings (${codeModelShort}) — ${current}/${total}`;
-            } else if (ragPhase === 'nlp') {
-              listrTask.title = `RAG index — NLP embeddings (${nlpModelShort}) — ${current}/${total}`;
-            }
-          },
-          onPhase: (phase) => {
-            ragPhase = phase;
-            if (phase === 'nlp') {
-              listrTask.title = `RAG index — NLP embeddings (${nlpModelShort})`;
-            } else if (phase === 'upsert') {
-              listrTask.title = `RAG index — saving to vector store`;
-            }
-          },
-          onFileStart: (file) => { ragDisplay.trackFile(file); },
-          onFileDone: (file) => { ragDisplay.untrackFile(file); },
-          isInterrupted: () => ctx.interrupted,
-        });
-      } finally {
-        if (spinInterval) clearInterval(spinInterval);
-      }
+      ragResult = await indexProject({
+        projectRoot: ctx.projectRoot,
+        tasks,
+        rebuild: ctx.rebuildRag,
+        concurrency: ctx.concurrency,
+        verbose: ctx.verbose,
+        dualEmbedding: ctx.dualEmbedding,
+        indexModel: ctx.config.llm.index_model,
+        resolvedModels: ctx.resolvedModels,
+        ragMode: ctx.resolvedRagMode,
+        onLog: (msg) => {
+          if (ctx.plain) listrTask.output = msg;
+        },
+        onProgress: (current, total) => {
+          if (ragPhase === 'code') {
+            listrTask.title = `RAG index — code embeddings (${codeModelShort}) — ${current}/${total}`;
+          } else if (ragPhase === 'nlp') {
+            listrTask.title = `RAG index — NLP embeddings (${nlpModelShort}) — ${current}/${total}`;
+          }
+        },
+        onPhase: (phase) => {
+          ragPhase = phase;
+          if (phase === 'nlp') {
+            listrTask.title = `RAG index — NLP embeddings (${nlpModelShort})`;
+          } else if (phase === 'upsert') {
+            listrTask.title = `RAG index — saving to vector store`;
+          }
+        },
+        onFileStart: (file) => { listrTask.output = file; },
+        onFileDone: () => {},
+        isInterrupted: () => ctx.interrupted,
+      });
 
       const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
       const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
       listrTask.title = `RAG index${dualLabel} — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${docLabel}`;
     },
-    rendererOptions: { bottomBar: Infinity as number },
+    rendererOptions: { outputBar: ctx.concurrency as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
