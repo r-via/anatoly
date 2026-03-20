@@ -15,7 +15,6 @@ import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections } from './doc-indexer.js';
-import { swapSidecarModel } from './embed-sidecar.js';
 
 export type RagMode = 'lite' | 'advanced';
 
@@ -254,15 +253,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveRagCache(projectRoot, cache, cacheSuffix);
   }
 
-  // Detect sidecar-NLP mode: NLP embeddings via sidecar require sequential model swap
-  const sidecarNlp = dualMode && options.resolvedModels?.nlpRuntime === 'sidecar';
-
   // Pre-warm code embedding model (always needed)
   // Use a non-empty string — nomic-embed-code crashes on empty input
   await embedCode('function warmup() {}');
-  // Pre-warm NLP embedding model only in dual mode with ONNX NLP
-  // (sidecar-NLP mode defers NLP embedding until after model swap)
-  if (dualMode && !sidecarNlp) {
+  // Pre-warm NLP embedding model in dual mode
+  if (dualMode) {
     await embedNlp('warmup');
   }
 
@@ -315,7 +310,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, sidecarNlp)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, false)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -327,22 +322,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onProgress?.(fileCounter, tasksToIndex.length);
     },
   });
-
-  // Sidecar-NLP mode: swap model and generate deferred NLP embeddings
-  if (sidecarNlp && results.length > 0) {
-    onLog?.(`rag: swapping sidecar to NLP model (${options.resolvedModels!.nlpModel})...`);
-    const swapped = await swapSidecarModel(options.resolvedModels!.nlpModel, onLog);
-    if (swapped) {
-      onLog?.(`rag: generating NLP embeddings for ${results.reduce((n, r) => n + r.cards.length, 0)} cards...`);
-      for (const result of results) {
-        if (result.cards.length > 0) {
-          result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
-        }
-      }
-    } else {
-      onLog?.('rag: sidecar model swap failed — NLP embeddings skipped');
-    }
-  }
 
   // Batch upsert all accumulated results sequentially
   onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);

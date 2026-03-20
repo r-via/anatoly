@@ -121,6 +121,7 @@ async function chunkDocWithHaiku(
         userMessage: `Document: \`${filePath}\`\n\n${source}`,
         model,
         projectRoot,
+        abortController: new AbortController(),
       },
       ChunkResponseSchema,
     );

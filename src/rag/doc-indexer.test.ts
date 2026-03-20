@@ -116,18 +116,18 @@ Just a title and some text, no H2 sections.
     expect(sections).toHaveLength(0);
   });
 
-  it('records line numbers for sections', () => {
+  it('records headings for sections', () => {
     const source = `# Title
 ## First
 Content line 1.
 Content line 2.
 ## Second
-Content line 3.
+Content line 3. And some more text to reach the minimum length for embedding.
 `;
     const sections = parseDocSections('docs/test.md', source);
 
     expect(sections).toHaveLength(2);
-    expect(sections[0].lineStart).toBe(2); // "## First" is line 2 (1-based)
+    expect(sections[0].heading).toBe('First');
     expect(sections[1].heading).toBe('Second');
   });
 

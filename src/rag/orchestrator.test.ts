@@ -11,7 +11,7 @@ const { workerPoolSpy } = vi.hoisted(() => {
 });
 
 // Mock fs for processFileForIndex (reads source files)
-// Also mock existsSync (used by embed-sidecar.ts findPkgRoot at import time)
+// Mock existsSync for test isolation
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue('export function foo() { return 1; }'),
   existsSync: vi.fn().mockReturnValue(false),
@@ -75,9 +75,6 @@ vi.mock('./doc-indexer.js', () => ({
   indexDocSections: vi.fn().mockResolvedValue(0),
 }));
 
-vi.mock('./embed-sidecar.js', () => ({
-  swapSidecarModel: vi.fn().mockResolvedValue(true),
-}));
 
 vi.mock('./nlp-summarizer.js', () => ({
   generateNlpSummaries: vi.fn().mockResolvedValue(new Map()),

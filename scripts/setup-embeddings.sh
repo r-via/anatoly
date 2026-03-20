@@ -1,112 +1,91 @@
 #!/usr/bin/env bash
 #
-# setup-embeddings.sh — Install embedding backends for Anatoly.
+# setup-embeddings.sh — Install and configure embedding backends for Anatoly.
+#
+# Docker-only. Zero Python dependency.
 #
 # Backends (tiered):
 #   lite          — ONNX in-process (Jina 768d, CPU, always available)
-#   advanced-fp16 — Python sidecar (sentence-transformers bf16 on GPU)
 #   advanced-gguf — Docker llama.cpp server-cuda (GGUF Q5_K_M on GPU)
 #
-# Usage:
-#   ./scripts/setup-embeddings.sh           # Install deps + download models + detect tier
-#   ./scripts/setup-embeddings.sh --check   # Check status only (no install)
-#   ./scripts/setup-embeddings.sh --ab-test # Run A/B test (bf16 vs GGUF)
+# A/B testing uses HuggingFace TEI (Text Embeddings Inference) as the fp16
+# reference to validate GGUF quality. TEI is only used during setup, never
+# at runtime — GGUF is always the runtime backend when GPU is available.
 #
-# Venv strategy:
-#   - If VIRTUAL_ENV is set (venv already active), uses it as-is
-#   - Otherwise, creates/reuses .anatoly/.venv/ (isolated from project venv)
-#   - The embed-server.py sidecar always runs from this venv
+# Usage:
+#   ./scripts/setup-embeddings.sh           # Full setup + A/B test
+#   ./scripts/setup-embeddings.sh --check   # Check status only
+#   ./scripts/setup-embeddings.sh --ab-test # Run A/B test only (models must exist)
 #
 set -euo pipefail
 
-# Suppress HuggingFace warnings
-export HF_HUB_DISABLE_TELEMETRY=1
-export TRANSFORMERS_NO_ADVISORY_WARNINGS=1
-export HF_HUB_DISABLE_IMPLICIT_TOKEN=1
-export HF_HUB_VERBOSITY=error
-
-MODEL="nomic-ai/nomic-embed-code"
-NLP_MODEL="Qwen/Qwen3-Embedding-8B"
-SIDECAR_PORT="${ANATOLY_EMBED_PORT:-11435}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SIDECAR_SCRIPT="${SCRIPT_DIR}/embed-server.py"
-VENV_DIR="${PROJECT_ROOT}/.anatoly/.venv"
 MODELS_DIR="${PROJECT_ROOT}/.anatoly/models"
+AB_RESULT_FILE="${PROJECT_ROOT}/.anatoly/embedding-ab-results.json"
+READY_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+LOG_FILE="${PROJECT_ROOT}/.anatoly/setup.log"
+SAMPLES_FILE="${SCRIPT_DIR}/check-samples.json"
 
-# GGUF Docker backend constants
-GGUF_DOCKER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
+# Model config
+CODE_MODEL_ID="nomic-ai/nomic-embed-code"
+NLP_MODEL_ID="Qwen/Qwen3-Embedding-8B"
 GGUF_CODE_MODEL_FILE="nomic-embed-code.Q5_K_M.gguf"
 GGUF_NLP_MODEL_FILE="Qwen3-Embedding-8B-Q5_K_M.gguf"
 GGUF_CODE_HF_REPO="nomic-ai/nomic-embed-code-GGUF"
 GGUF_NLP_HF_REPO="Qwen/Qwen3-Embedding-8B-GGUF"
 GGUF_MIN_VRAM_GB=12
 
-# ---------------------------------------------------------------------------
-# Colors
-# ---------------------------------------------------------------------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-info()  { echo -e "${CYAN}[info]${NC}  $*"; }
-ok()    { echo -e "${GREEN}[ok]${NC}    $*"; }
-warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
-err()   { echo -e "${RED}[error]${NC} $*"; }
+# A/B test thresholds
+MIN_COSINE_SIM=0.995
 
 # ---------------------------------------------------------------------------
-# GPU detection
+# Source shared libraries
 # ---------------------------------------------------------------------------
-detect_gpu() {
-  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
-    echo "cuda"
-  elif [[ "$(uname)" == "Darwin" ]] && sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -q "Apple"; then
-    echo "metal"
-  elif command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
-    echo "rocm"
-  else
-    echo "none"
+# shellcheck source=lib/logging.sh
+source "${SCRIPT_DIR}/lib/logging.sh"
+# shellcheck source=lib/hardware.sh
+source "${SCRIPT_DIR}/lib/hardware.sh"
+# shellcheck source=lib/docker-helpers.sh
+source "${SCRIPT_DIR}/lib/docker-helpers.sh"
+# shellcheck source=lib/json-helpers.sh
+source "${SCRIPT_DIR}/lib/json-helpers.sh"
+
+log_init "$LOG_FILE"
+
+# ---------------------------------------------------------------------------
+# Cleanup trap
+# ---------------------------------------------------------------------------
+cleanup() {
+  stop_gguf_containers 2>/dev/null || true
+  stop_tei_containers 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# ---------------------------------------------------------------------------
+# Purge stale embedding configs (clean slate for setup)
+# ---------------------------------------------------------------------------
+purge_embedding_configs() {
+  local purged=false
+  for f in \
+    "${READY_FILE}" \
+    "${AB_RESULT_FILE}" \
+    "${PROJECT_ROOT}/.anatoly/ab-gguf-cache.json" \
+    "${PROJECT_ROOT}/.anatoly/ab-bf16-cache.json" \
+    "${PROJECT_ROOT}/.anatoly/ab-test-results.json"
+  do
+    if [[ -f "$f" ]]; then
+      rm -f "$f"
+      purged=true
+    fi
+  done
+  if [[ "$purged" == "true" ]]; then
+    log info "Purged stale embedding config files"
   fi
 }
 
-# Detect total VRAM in GB (NVIDIA only, returns 0 for non-NVIDIA)
-detect_vram_gb() {
-  if ! command -v nvidia-smi &>/dev/null; then
-    echo "0"
-    return
-  fi
-  local mib
-  mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-  if [[ -z "$mib" ]] || [[ "$mib" == "0" ]]; then
-    echo "0"
-    return
-  fi
-  echo $(( mib / 1024 ))
-}
-
 # ---------------------------------------------------------------------------
-# Docker / NVIDIA Container Toolkit detection
-# ---------------------------------------------------------------------------
-has_docker() {
-  command -v docker &>/dev/null && docker info &>/dev/null 2>&1
-}
-
-has_nvidia_container_toolkit() {
-  # Check nvidia-container-cli first (fast)
-  if command -v nvidia-container-cli &>/dev/null; then
-    return 0
-  fi
-  # Fallback: check if nvidia runtime is registered in Docker
-  if docker info 2>/dev/null | grep -q "nvidia"; then
-    return 0
-  fi
-  return 1
-}
-
-# ---------------------------------------------------------------------------
-# GGUF model download helpers
+# GGUF model download (curl with resume support)
 # ---------------------------------------------------------------------------
 download_gguf_model() {
   local filename="$1"
@@ -116,826 +95,810 @@ download_gguf_model() {
   if [[ -f "$target" ]]; then
     local size_mb
     size_mb=$(du -m "$target" | cut -f1)
-    ok "GGUF model present: ${filename} (${size_mb} MB)"
+    log ok "GGUF model present: ${filename} (${size_mb} MB)"
     return 0
   fi
 
   mkdir -p "${MODELS_DIR}"
-  info "Downloading GGUF model: ${filename} from ${hf_repo}..."
+  log info "Downloading GGUF model: ${filename} from ${hf_repo}..."
 
-  # Use huggingface-cli if available (supports resume), else curl
   if command -v huggingface-cli &>/dev/null; then
-    huggingface-cli download "${hf_repo}" "${filename}" --local-dir "${MODELS_DIR}" --local-dir-use-symlinks False
+    huggingface-cli download "${hf_repo}" "${filename}" \
+      --local-dir "${MODELS_DIR}" \
+      --local-dir-use-symlinks False
   elif command -v curl &>/dev/null; then
-    curl -L -o "$target" \
+    curl -L -C - -o "$target" \
       "https://huggingface.co/${hf_repo}/resolve/main/${filename}" \
       --progress-bar
   else
-    err "Neither huggingface-cli nor curl found — cannot download GGUF model"
+    log error "Neither huggingface-cli nor curl found — cannot download GGUF model"
     return 1
   fi
 
   if [[ -f "$target" ]]; then
     local size_mb
     size_mb=$(du -m "$target" | cut -f1)
-    ok "GGUF model downloaded: ${filename} (${size_mb} MB)"
+    log ok "GGUF model downloaded: ${filename} (${size_mb} MB)"
   else
-    err "GGUF download failed: ${filename}"
+    log error "GGUF download failed: ${filename}"
     return 1
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Tier selection logic
+# Docker installation (interactive, requires sudo)
 # ---------------------------------------------------------------------------
-# Returns: "lite", "advanced-fp16", or "advanced-gguf"
-select_tier() {
-  local gpu="$1"
-  local vram_gb="$2"
-  local docker_ok="$3"
-  local toolkit_ok="$4"
+install_docker() {
+  log info "Installing Docker (official repository)..."
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq ca-certificates curl
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo usermod -aG docker "$USER"
+  log ok "Docker installed"
 
-  # No GPU → lite
-  if [[ "$gpu" == "none" ]]; then
-    echo "lite"
-    return
-  fi
-
-  # GPU + Docker + NVIDIA toolkit + enough VRAM → GGUF candidate
-  if [[ "$docker_ok" == "true" ]] && [[ "$toolkit_ok" == "true" ]] && [[ "$vram_gb" -ge "$GGUF_MIN_VRAM_GB" ]]; then
-    echo "advanced-gguf"
-    return
-  fi
-
-  # GPU but no Docker or insufficient VRAM → fp16 sidecar
-  echo "advanced-fp16"
+  log info "Installing NVIDIA Container Toolkit..."
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+    sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+  log ok "NVIDIA Container Toolkit installed"
 }
 
-# ---------------------------------------------------------------------------
-# Python / venv helpers
-# ---------------------------------------------------------------------------
-find_system_python() {
-  for cmd in python3 python; do
-    if command -v "$cmd" &>/dev/null; then
-      local ver
-      ver=$("$cmd" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
-      local major minor
-      major=$(echo "$ver" | cut -d. -f1)
-      minor=$(echo "$ver" | cut -d. -f2)
-      if [[ "$major" -ge 3 ]] && [[ "$minor" -ge 9 ]]; then
-        echo "$cmd"
-        return 0
-      fi
-    fi
-  done
-  return 1
-}
-
-# Returns the python binary to use (from active venv or .venv/)
-get_python() {
-  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-    echo "${VIRTUAL_ENV}/bin/python"
-  elif [[ -f "${VENV_DIR}/bin/python" ]]; then
-    echo "${VENV_DIR}/bin/python"
-  else
-    find_system_python
-  fi
-}
-
-# Ensure a venv exists and return its python path on stdout.
-# All user-facing messages go to stderr so $(ensure_venv) captures only the path.
-ensure_venv() {
-  # If user already has an active venv, use it
-  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-    ok "Using active venv: ${VIRTUAL_ENV}" >&2
-    echo "${VIRTUAL_ENV}/bin/python"
-    return 0
-  fi
-
-  # Create or reuse .venv/
-  if [[ -f "${VENV_DIR}/bin/python" ]]; then
-    ok "Using existing venv: ${VENV_DIR}" >&2
-  else
-    local sys_python
-    if ! sys_python=$(find_system_python); then
-      return 1
-    fi
-    info "Creating venv at ${VENV_DIR}..." >&2
-    "$sys_python" -m venv "${VENV_DIR}"
-    ok "Venv created" >&2
-  fi
-  echo "${VENV_DIR}/bin/python"
-}
-
-check_package() {
-  local python="$1"
-  local pkg="$2"
-  "$python" -c "import $pkg" &>/dev/null
-}
-
-# ---------------------------------------------------------------------------
-# Sidecar detection
-# ---------------------------------------------------------------------------
-sidecar_running() {
-  curl -sf --max-time 2 "http://127.0.0.1:${SIDECAR_PORT}/health" &>/dev/null
-}
-
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
 # --check mode
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
 if [[ "${1:-}" == "--check" ]]; then
-  echo ""
-  info "Anatoly Embedding Status"
-  echo "  ─────────────────────────────────"
+  log_section "Anatoly Embedding Status"
 
   GPU=$(detect_gpu)
   VRAM_GB=$(detect_vram_gb)
   if [[ "$GPU" == "none" ]]; then
-    warn "GPU: not detected"
+    log warn "GPU: not detected"
   else
-    ok   "GPU: $GPU (${VRAM_GB} GB VRAM)"
+    log ok "GPU: ${GPU} (${VRAM_GB} GB VRAM)"
   fi
 
-  # Determine tier
   DOCKER_OK="false"
   TOOLKIT_OK="false"
-  if has_docker; then DOCKER_OK="true"; fi
-  if has_docker && has_nvidia_container_toolkit; then TOOLKIT_OK="true"; fi
+  if has_docker; then DOCKER_OK="true"; log ok "Docker: available"; else log warn "Docker: not available"; fi
+  if has_docker && has_nvidia_container_toolkit; then TOOLKIT_OK="true"; log ok "NVIDIA Container Toolkit: available"; fi
+
   TIER=$(select_tier "$GPU" "$VRAM_GB" "$DOCKER_OK" "$TOOLKIT_OK")
 
-  # Existing config
-  FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
   CURRENT_BACKEND=""
-  if [[ -f "$FLAG_FILE" ]]; then
-    CURRENT_BACKEND=$(python3 -c "import json; print(json.load(open('$FLAG_FILE')).get('backend',''))" 2>/dev/null || echo "")
+  if [[ -f "$READY_FILE" ]]; then
+    CURRENT_BACKEND=$(json_read ".backend" "$READY_FILE")
   fi
-
-  # Use configured backend if set, otherwise recommended tier
   BACKEND="${CURRENT_BACKEND:-$TIER}"
-  info "Backend: ${BACKEND}$([ -n "$CURRENT_BACKEND" ] && echo " (configured)" || echo " (recommended)")"
+  log info "Backend: ${BACKEND}$([ -n "$CURRENT_BACKEND" ] && echo " (configured)" || echo " (recommended)")"
 
-  echo "  ─────────────────────────────────"
+  log_separator
 
   if [[ "$BACKEND" == "advanced-gguf" ]]; then
-    GGUF_CHECK_PASS=true
+    PASS=true
 
-    # Prerequisites
-    if [[ "$DOCKER_OK" == "true" ]]; then ok "Docker: available"; else err "Docker: not available"; GGUF_CHECK_PASS=false; fi
-    if [[ "$TOOLKIT_OK" == "true" ]]; then ok "NVIDIA Container Toolkit: available"; else err "NVIDIA Container Toolkit: not found"; GGUF_CHECK_PASS=false; fi
     if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
-      ok   "Docker image: ${GGUF_DOCKER_IMAGE}"
+      log ok "Docker image: ${GGUF_DOCKER_IMAGE}"
     else
-      warn "Docker image not pulled — run: npx anatoly setup-embeddings"
-      GGUF_CHECK_PASS=false
+      log warn "Docker image not pulled — run: npx anatoly setup-embeddings"
+      PASS=false
     fi
+
     if [[ -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
-      ok   "Code GGUF: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
+      log ok "Code GGUF: ${GGUF_CODE_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" | cut -f1) MB)"
     else
-      warn "Code GGUF: not downloaded"; GGUF_CHECK_PASS=false
+      log warn "Code GGUF: not downloaded"
+      PASS=false
     fi
+
     if [[ -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
-      ok   "NLP GGUF: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
+      log ok "NLP GGUF: ${GGUF_NLP_MODEL_FILE} ($(du -m "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" | cut -f1) MB)"
     else
-      warn "NLP GGUF: not downloaded"; GGUF_CHECK_PASS=false
+      log warn "NLP GGUF: not downloaded"
+      PASS=false
     fi
 
-    # Live embedding test (only if prerequisites pass)
-    if [[ "$GGUF_CHECK_PASS" == "true" ]]; then
-      echo "  ─────────────────────────────────"
-      info "Live embedding test (10 code + 10 NLP samples)"
+    # Live embedding test if everything is present
+    if [[ "$PASS" == "true" && -f "$SAMPLES_FILE" ]]; then
+      log_separator
+      CODE_COUNT=$(json_count_samples ".code" "$SAMPLES_FILE")
+      NLP_COUNT=$(json_count_samples ".nlp" "$SAMPLES_FILE")
+      log info "Live embedding test (${CODE_COUNT} code + ${NLP_COUNT} NLP samples)"
 
-      CODE_PORT=11435
-      NLP_PORT=11436
-      CODE_CONTAINER="anatoly-check-code-$$"
-      NLP_CONTAINER="anatoly-check-nlp-$$"
-      trap 'docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null; exit 1' INT TERM
-
-      # Start code container
-      info "Starting code container (port ${CODE_PORT})..."
-      docker run -d --rm --name "$CODE_CONTAINER" \
-        --gpus all \
-        -v "${MODELS_DIR}:/models:ro" \
-        -p ${CODE_PORT}:8080 \
-        "$GGUF_DOCKER_IMAGE" \
-        --model "/models/${GGUF_CODE_MODEL_FILE}" \
-        --embedding --port 8080 --host 0.0.0.0 >/dev/null 2>&1
-
-      # Start NLP container
-      info "Starting NLP container (port ${NLP_PORT})..."
-      docker run -d --rm --name "$NLP_CONTAINER" \
-        --gpus all \
-        -v "${MODELS_DIR}:/models:ro" \
-        -p ${NLP_PORT}:8080 \
-        "$GGUF_DOCKER_IMAGE" \
-        --model "/models/${GGUF_NLP_MODEL_FILE}" \
-        --embedding --port 8080 --host 0.0.0.0 >/dev/null 2>&1
-
-      # Wait for both containers
-      CODE_READY=false
-      NLP_READY=false
-      for i in $(seq 1 60); do
-        if [[ "$CODE_READY" == "false" ]] && curl -sf "http://127.0.0.1:${CODE_PORT}/health" &>/dev/null; then
-          CODE_READY=true
-        fi
-        if [[ "$NLP_READY" == "false" ]] && curl -sf "http://127.0.0.1:${NLP_PORT}/health" &>/dev/null; then
-          NLP_READY=true
-        fi
-        if [[ "$CODE_READY" == "true" ]] && [[ "$NLP_READY" == "true" ]]; then break; fi
-        sleep 2
-      done
-
-      if [[ "$CODE_READY" == "false" ]]; then
-        err "Code container failed to start"
-        docker logs "$CODE_CONTAINER" 2>&1 | tail -5
-        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
-        echo ""; exit 1
-      fi
-      if [[ "$NLP_READY" == "false" ]]; then
-        err "NLP container failed to start"
-        docker logs "$NLP_CONTAINER" 2>&1 | tail -5
-        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
-        echo ""; exit 1
-      fi
-      ok "Both containers ready"
-
-      # Load samples from JSON file (realistic long functions + doc sections)
-      SAMPLES_FILE="${SCRIPT_DIR}/check-samples.json"
-      if [[ ! -f "$SAMPLES_FILE" ]]; then
-        err "check-samples.json not found at ${SAMPLES_FILE}"
-        docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" 2>/dev/null
-        echo ""; exit 1
+      start_gguf_containers "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_NLP_MODEL_FILE"
+      if ! wait_for_gguf 180; then
+        log error "GGUF containers failed to start"
+        stop_gguf_containers
+        exit 1
       fi
 
-      CODE_COUNT=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['code']))" 2>/dev/null)
-      NLP_COUNT=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['nlp']))" 2>/dev/null)
-
-      # Test code embeddings
-      info "Code embeddings (${CODE_COUNT} samples)..."
-      CODE_PASS=0
-      CODE_FAIL=0
-      for i in $(seq 0 $((CODE_COUNT-1))); do
-        SAMPLE_JSON=$(python3 -c "import json; print(json.dumps(json.load(open('${SAMPLES_FILE}'))['code'][$i]))" 2>/dev/null)
-        LABEL=$(python3 -c "
-import json, re
-s = json.load(open('${SAMPLES_FILE}'))['code'][$i]
-m = re.search(r'(?:function|class|async function)\s+(\w+)', s)
-print(m.group(1) if m else 'sample${i}')
-" 2>/dev/null)
-        CHARS=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['code'][$i]))" 2>/dev/null)
-
+      CODE_PASS=0 CODE_FAIL=0
+      for i in $(seq 0 $((CODE_COUNT - 1))); do
+        SAMPLE=$(json_get_sample_raw ".code[$i]" "$SAMPLES_FILE")
+        CHARS=${#SAMPLE}
         T0=$(date +%s%N)
-        RESP=$(curl -sf --max-time 120 "http://127.0.0.1:${CODE_PORT}/embedding" \
-          -H "Content-Type: application/json" \
-          -d "{\"input\": ${SAMPLE_JSON}}" 2>/dev/null)
+        RESP=$(embed_gguf "$SAMPLE" "$GGUF_CODE_PORT" 2>/dev/null || echo "")
         T1=$(date +%s%N)
         DT=$(( (T1 - T0) / 1000000 ))
 
-        if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
-          DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
-          printf "    [%2d/%d] ${GREEN}✓${NC} %5dms  %-25s (%s chars → %sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$LABEL" "$CHARS" "$DIM"
-          CODE_PASS=$((CODE_PASS+1))
-        else
-          printf "    [%2d/%d] ${RED}✗${NC} %5dms  %-25s (%s chars)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$LABEL" "$CHARS"
-          CODE_FAIL=$((CODE_FAIL+1))
+        if [[ -n "$RESP" ]]; then
+          VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "")
+          if [[ -n "$VEC" && "$VEC" != "null" ]]; then
+            DIM=$(embedding_dim "$VEC")
+            printf "    [%2d/%d] ✓ %5dms  (%s chars → %sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$CHARS" "$DIM" >&2
+            CODE_PASS=$((CODE_PASS + 1))
+            continue
+          fi
         fi
+        printf "    [%2d/%d] ✗ %5dms  (%s chars)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$CHARS" >&2
+        CODE_FAIL=$((CODE_FAIL + 1))
       done
-      if [[ $CODE_FAIL -eq 0 ]]; then
-        ok "Code embeddings: ${CODE_PASS}/${CODE_COUNT} passed"
-      else
-        err "Code embeddings: ${CODE_PASS}/${CODE_COUNT} passed, ${CODE_FAIL} failed"
-      fi
+      [[ $CODE_FAIL -eq 0 ]] && log ok "Code: ${CODE_PASS}/${CODE_COUNT} passed" || log error "Code: ${CODE_PASS}/${CODE_COUNT} passed"
 
-      # Test NLP embeddings
-      info "NLP embeddings (${NLP_COUNT} samples)..."
-      NLP_PASS=0
-      NLP_FAIL=0
-      for i in $(seq 0 $((NLP_COUNT-1))); do
-        SAMPLE_JSON=$(python3 -c "import json; print(json.dumps(json.load(open('${SAMPLES_FILE}'))['nlp'][$i]))" 2>/dev/null)
-        LABEL=$(python3 -c "import json; s=json.load(open('${SAMPLES_FILE}'))['nlp'][$i]; print(s[:50])" 2>/dev/null)
-        CHARS=$(python3 -c "import json; print(len(json.load(open('${SAMPLES_FILE}'))['nlp'][$i]))" 2>/dev/null)
-
+      NLP_PASS=0 NLP_FAIL=0
+      for i in $(seq 0 $((NLP_COUNT - 1))); do
+        SAMPLE=$(json_get_sample_raw ".nlp[$i]" "$SAMPLES_FILE")
+        CHARS=${#SAMPLE}
         T0=$(date +%s%N)
-        RESP=$(curl -sf --max-time 120 "http://127.0.0.1:${NLP_PORT}/embedding" \
-          -H "Content-Type: application/json" \
-          -d "{\"input\": ${SAMPLE_JSON}}" 2>/dev/null)
+        RESP=$(embed_gguf "$SAMPLE" "$GGUF_NLP_PORT" 2>/dev/null || echo "")
         T1=$(date +%s%N)
         DT=$(( (T1 - T0) / 1000000 ))
 
-        if echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
-          DIM=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
-          printf "    [%2d/%d] ${GREEN}✓${NC} %5dms  %-50s (%s chars → %sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "${LABEL}..." "$CHARS" "$DIM"
-          NLP_PASS=$((NLP_PASS+1))
-        else
-          printf "    [%2d/%d] ${RED}✗${NC} %5dms  %-50s (%s chars)\n" "$((i+1))" "$NLP_COUNT" "$DT" "${LABEL}..." "$CHARS"
-          NLP_FAIL=$((NLP_FAIL+1))
+        if [[ -n "$RESP" ]]; then
+          VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "")
+          if [[ -n "$VEC" && "$VEC" != "null" ]]; then
+            DIM=$(embedding_dim "$VEC")
+            printf "    [%2d/%d] ✓ %5dms  (%s chars → %sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$CHARS" "$DIM" >&2
+            NLP_PASS=$((NLP_PASS + 1))
+            continue
+          fi
         fi
+        printf "    [%2d/%d] ✗ %5dms  (%s chars)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$CHARS" >&2
+        NLP_FAIL=$((NLP_FAIL + 1))
       done
-      if [[ $NLP_FAIL -eq 0 ]]; then
-        ok "NLP embeddings: ${NLP_PASS}/${NLP_COUNT} passed"
-      else
-        err "NLP embeddings: ${NLP_PASS}/${NLP_COUNT} passed, ${NLP_FAIL} failed"
-      fi
+      [[ $NLP_FAIL -eq 0 ]] && log ok "NLP: ${NLP_PASS}/${NLP_COUNT} passed" || log error "NLP: ${NLP_PASS}/${NLP_COUNT} passed"
 
-      # Cleanup
-      docker stop "$CODE_CONTAINER" "$NLP_CONTAINER" >/dev/null 2>&1 || true
-      trap - INT TERM
+      stop_gguf_containers
 
-      if [[ $CODE_FAIL -gt 0 ]] || [[ $NLP_FAIL -gt 0 ]]; then
-        err "Embedding check failed"
-        echo ""; exit 1
+      if [[ $CODE_FAIL -gt 0 || $NLP_FAIL -gt 0 ]]; then
+        log error "Embedding check failed"
+        exit 1
       fi
-      ok "All 20 embeddings verified"
+      log ok "All $((CODE_COUNT + NLP_COUNT)) embeddings verified"
     fi
-
-  elif [[ "$BACKEND" == "advanced-fp16" ]]; then
-    # fp16 checks: Python, torch, sentence-transformers, models, sidecar
-    if PYTHON=$(get_python); then
-      ok   "Python: $("$PYTHON" --version 2>&1)"
-      if check_package "$PYTHON" "torch"; then
-        ok "torch: $("$PYTHON" -c "import torch; print(f'{torch.__version__} (CUDA: {torch.cuda.is_available()})')" 2>/dev/null)"
-      else
-        warn "torch: not installed"
-      fi
-      if check_package "$PYTHON" "sentence_transformers"; then
-        ok "sentence-transformers: $("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)"
-        CODE_CACHED=$("$PYTHON" -W ignore -c "
-import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
-from huggingface_hub import try_to_load_from_cache
-r = try_to_load_from_cache('${MODEL}', 'config.json')
-print('yes' if r and r != '' else 'no')
-" 2>/dev/null || echo "no")
-        NLP_CACHED=$("$PYTHON" -W ignore -c "
-import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
-from huggingface_hub import try_to_load_from_cache
-r = try_to_load_from_cache('${NLP_MODEL}', 'config.json')
-print('yes' if r and r != '' else 'no')
-" 2>/dev/null || echo "no")
-        [[ "$CODE_CACHED" == "yes" ]] && ok "Code model: ${MODEL} (cached)" || warn "Code model: not downloaded"
-        [[ "$NLP_CACHED" == "yes" ]] && ok "NLP model: ${NLP_MODEL} (cached)" || warn "NLP model: not downloaded"
-      else
-        warn "sentence-transformers: not installed"
-      fi
-      if sidecar_running; then
-        ok   "Sidecar: running on port ${SIDECAR_PORT}"
-      else
-        info "Sidecar: not running (auto-started by anatoly run)"
-      fi
-    else
-      warn "Python 3.9+: not found"
-    fi
-
   else
-    # lite: minimal check
-    ok   "ONNX runtime: bundled (no external dependencies)"
+    log ok "ONNX runtime: bundled (no external dependencies)"
   fi
 
   echo ""
   exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# --ab-test mode
-# ---------------------------------------------------------------------------
+# ═══════════════════════════════════════════════════════════════════════════
+# A/B test function (GGUF vs TEI)
+# ═══════════════════════════════════════════════════════════════════════════
+run_ab_test() {
+  log_section "A/B Test — GGUF vs TEI (fp16 reference)"
+
+  if [[ ! -f "$SAMPLES_FILE" ]]; then
+    log error "check-samples.json not found at ${SAMPLES_FILE}"
+    return 1
+  fi
+
+  local CODE_COUNT NLP_COUNT
+  CODE_COUNT=$(json_count_samples ".code" "$SAMPLES_FILE")
+  NLP_COUNT=$(json_count_samples ".nlp" "$SAMPLES_FILE")
+  log info "Samples: ${CODE_COUNT} code + ${NLP_COUNT} NLP"
+
+  # --- Phase 0: Clean slate ---
+  log info "Cleaning up existing containers..."
+  docker_cleanup_all
+  flush_gpu_memory
+
+  local VRAM_BASELINE
+  VRAM_BASELINE=$(detect_vram_used_mib)
+  log info "VRAM baseline: ${VRAM_BASELINE} MiB"
+
+  # --- Phase A: GGUF embeddings ---
+  log_separator
+  log info "Phase A: GGUF embeddings"
+
+  start_gguf_containers "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_NLP_MODEL_FILE"
+  if ! wait_for_gguf 180; then
+    log error "GGUF containers failed — aborting A/B test"
+    stop_gguf_containers
+    return 1
+  fi
+
+  local VRAM_GGUF
+  VRAM_GGUF=$(detect_vram_used_mib)
+  log info "GGUF VRAM: $(( VRAM_GGUF - VRAM_BASELINE )) MiB (total: ${VRAM_GGUF} MiB)"
+
+  # Collect GGUF code embeddings
+  log info "Getting GGUF code embeddings..."
+  local GGUF_CODE_VECS="[]"
+  local GGUF_CODE_LATENCIES="[]"
+  local GGUF_CODE_DIM=0
+  for i in $(seq 0 $((CODE_COUNT - 1))); do
+    local SAMPLE
+    SAMPLE=$(json_get_sample_raw ".code[$i]" "$SAMPLES_FILE")
+    local T0 T1 DT
+    T0=$(date +%s%N)
+    local RESP
+    RESP=$(embed_gguf "$SAMPLE" "$GGUF_CODE_PORT" 2>/dev/null || echo "")
+    T1=$(date +%s%N)
+    DT=$(( (T1 - T0) / 1000000 ))
+
+    local VEC
+    VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "[]")
+    GGUF_CODE_DIM=$(embedding_dim "$VEC")
+    GGUF_CODE_VECS=$(echo "$GGUF_CODE_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    GGUF_CODE_LATENCIES=$(echo "$GGUF_CODE_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
+    printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$GGUF_CODE_DIM" >&2
+  done
+
+  # Collect GGUF NLP embeddings
+  log info "Getting GGUF NLP embeddings..."
+  local GGUF_NLP_VECS="[]"
+  local GGUF_NLP_LATENCIES="[]"
+  local GGUF_NLP_DIM=0
+  for i in $(seq 0 $((NLP_COUNT - 1))); do
+    local SAMPLE
+    SAMPLE=$(json_get_sample_raw ".nlp[$i]" "$SAMPLES_FILE")
+    local T0 T1 DT
+    T0=$(date +%s%N)
+    local RESP
+    RESP=$(embed_gguf "$SAMPLE" "$GGUF_NLP_PORT" 2>/dev/null || echo "")
+    T1=$(date +%s%N)
+    DT=$(( (T1 - T0) / 1000000 ))
+
+    local VEC
+    VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "[]")
+    GGUF_NLP_DIM=$(embedding_dim "$VEC")
+    GGUF_NLP_VECS=$(echo "$GGUF_NLP_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    GGUF_NLP_LATENCIES=$(echo "$GGUF_NLP_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
+    printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$GGUF_NLP_DIM" >&2
+  done
+
+  # Save GGUF vectors to temp file
+  local GGUF_CACHE="${PROJECT_ROOT}/.anatoly/ab-gguf-cache.json"
+  jq -n --argjson code "$GGUF_CODE_VECS" --argjson nlp "$GGUF_NLP_VECS" \
+    '{code: $code, nlp: $nlp}' > "$GGUF_CACHE"
+
+  stop_gguf_containers
+  log info "Cooling down (releasing VRAM)..."
+  flush_gpu_memory
+
+  # --- Phase B: TEI embeddings (fp16 reference) ---
+  log_separator
+  log info "Phase B: TEI fp16 embeddings (reference)"
+
+  # TEI code model
+  log info "Starting TEI code container (${CODE_MODEL_ID})..."
+  start_tei_container "${CONTAINER_PREFIX}-tei-code" "$CODE_MODEL_ID" "$TEI_CODE_PORT"
+  if ! wait_for_tei "$TEI_CODE_PORT" "code" 300; then
+    log error "TEI code container failed — aborting A/B test"
+    stop_tei_containers
+    return 1
+  fi
+
+  local VRAM_TEI
+  VRAM_TEI=$(detect_vram_used_mib)
+  log info "TEI code VRAM: $(( VRAM_TEI - VRAM_BASELINE )) MiB"
+
+  log info "Getting TEI code embeddings..."
+  local TEI_CODE_VECS="[]"
+  local TEI_CODE_LATENCIES="[]"
+  local TEI_CODE_DIM=0
+  for i in $(seq 0 $((CODE_COUNT - 1))); do
+    local SAMPLE
+    SAMPLE=$(json_get_sample_raw ".code[$i]" "$SAMPLES_FILE")
+    local T0 T1 DT
+    T0=$(date +%s%N)
+    local RESP
+    RESP=$(embed_tei "$SAMPLE" "$TEI_CODE_PORT" 2>/dev/null || echo "")
+    T1=$(date +%s%N)
+    DT=$(( (T1 - T0) / 1000000 ))
+
+    local VEC
+    VEC=$(extract_tei_embedding "$RESP" 2>/dev/null || echo "[]")
+    TEI_CODE_DIM=$(embedding_dim "$VEC")
+    TEI_CODE_VECS=$(echo "$TEI_CODE_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    TEI_CODE_LATENCIES=$(echo "$TEI_CODE_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
+    printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$TEI_CODE_DIM" >&2
+  done
+
+  # Stop code container, start NLP
+  stop_tei_containers
+  log info "Cooling down (releasing VRAM)..."
+  sleep 10
+
+  log info "Starting TEI NLP container (${NLP_MODEL_ID})..."
+  start_tei_container "${CONTAINER_PREFIX}-tei-nlp" "$NLP_MODEL_ID" "$TEI_NLP_PORT"
+  if ! wait_for_tei "$TEI_NLP_PORT" "NLP" 300; then
+    log error "TEI NLP container failed — aborting A/B test"
+    stop_tei_containers
+    return 1
+  fi
+
+  log info "Getting TEI NLP embeddings..."
+  local TEI_NLP_VECS="[]"
+  local TEI_NLP_LATENCIES="[]"
+  local TEI_NLP_DIM=0
+  for i in $(seq 0 $((NLP_COUNT - 1))); do
+    local SAMPLE
+    SAMPLE=$(json_get_sample_raw ".nlp[$i]" "$SAMPLES_FILE")
+    local T0 T1 DT
+    T0=$(date +%s%N)
+    local RESP
+    RESP=$(embed_tei "$SAMPLE" "$TEI_NLP_PORT" 2>/dev/null || echo "")
+    T1=$(date +%s%N)
+    DT=$(( (T1 - T0) / 1000000 ))
+
+    local VEC
+    VEC=$(extract_tei_embedding "$RESP" 2>/dev/null || echo "[]")
+    TEI_NLP_DIM=$(embedding_dim "$VEC")
+    TEI_NLP_VECS=$(echo "$TEI_NLP_VECS" | jq --argjson v "$VEC" '. + [$v]')
+    TEI_NLP_LATENCIES=$(echo "$TEI_NLP_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
+    printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$TEI_NLP_DIM" >&2
+  done
+
+  stop_tei_containers
+
+  # --- Phase C: Comparison ---
+  log_separator
+  log info "Phase C: Comparing GGUF vs TEI embeddings"
+
+  # Compute cosine similarities
+  local CODE_SIMS="[]"
+  local NLP_SIMS="[]"
+
+  log info "Computing code cosine similarities..."
+  for i in $(seq 0 $((CODE_COUNT - 1))); do
+    local GGUF_VEC TEI_VEC SIM
+    GGUF_VEC=$(echo "$GGUF_CODE_VECS" | jq -c ".[$i]")
+    TEI_VEC=$(echo "$TEI_CODE_VECS" | jq -c ".[$i]")
+    SIM=$(cosine_similarity "$GGUF_VEC" "$TEI_VEC")
+    CODE_SIMS=$(echo "$CODE_SIMS" | jq --argjson v "$SIM" '. + [$v]')
+    printf "    [%2d/%d] sim=%.6f\n" "$((i+1))" "$CODE_COUNT" "$SIM" >&2
+  done
+
+  log info "Computing NLP cosine similarities..."
+  for i in $(seq 0 $((NLP_COUNT - 1))); do
+    local GGUF_VEC TEI_VEC SIM
+    GGUF_VEC=$(echo "$GGUF_NLP_VECS" | jq -c ".[$i]")
+    TEI_VEC=$(echo "$TEI_NLP_VECS" | jq -c ".[$i]")
+    SIM=$(cosine_similarity "$GGUF_VEC" "$TEI_VEC")
+    NLP_SIMS=$(echo "$NLP_SIMS" | jq --argjson v "$SIM" '. + [$v]')
+    printf "    [%2d/%d] sim=%.6f\n" "$((i+1))" "$NLP_COUNT" "$SIM" >&2
+  done
+
+  # Compute averages and ranking preservation
+  local AVG_CODE_SIM AVG_NLP_SIM
+  AVG_CODE_SIM=$(echo "$CODE_SIMS" | jq '[.[] | select(. >= 0)] | if length > 0 then add / length else 0 end')
+  AVG_NLP_SIM=$(echo "$NLP_SIMS" | jq '[.[] | select(. >= 0)] | if length > 0 then add / length else 0 end')
+
+  local CODE_DIM_MATCH NLP_DIM_MATCH
+  CODE_DIM_MATCH=$([[ "$GGUF_CODE_DIM" == "$TEI_CODE_DIM" ]] && echo "true" || echo "false")
+  NLP_DIM_MATCH=$([[ "$GGUF_NLP_DIM" == "$TEI_NLP_DIM" ]] && echo "true" || echo "false")
+
+  # Ranking preservation: check top-3 for code samples
+  log info "Checking ranking preservation..."
+  local RANKING_PRESERVED=0
+  local RANKING_TOTAL="$CODE_COUNT"
+
+  # Compute ranking via jq: for each sample, sort others by cosine sim, check top-3 match
+  for i in $(seq 0 $((CODE_COUNT - 1))); do
+    local GGUF_RANK TEI_RANK
+    GGUF_RANK=$(echo "$GGUF_CODE_VECS" | jq -c --argjson idx "$i" '
+      . as $vecs | [range(length)] | map(select(. != $idx)) |
+      map({idx: ., sim: (
+        [$vecs[$idx], $vecs[.]] |
+        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
+        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
+         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
+      )}) | sort_by(-.sim) | .[0:3] | map(.idx)
+    ')
+    TEI_RANK=$(echo "$TEI_CODE_VECS" | jq -c --argjson idx "$i" '
+      . as $vecs | [range(length)] | map(select(. != $idx)) |
+      map({idx: ., sim: (
+        [$vecs[$idx], $vecs[.]] |
+        ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
+        (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
+         ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
+      )}) | sort_by(-.sim) | .[0:3] | map(.idx)
+    ')
+    if [[ "$GGUF_RANK" == "$TEI_RANK" ]]; then
+      RANKING_PRESERVED=$((RANKING_PRESERVED + 1))
+    fi
+  done
+  log info "Ranking preserved: ${RANKING_PRESERVED}/${RANKING_TOTAL}"
+
+  # Recommendation logic
+  local RECOMMENDATION REASON
+  if [[ "$CODE_DIM_MATCH" == "false" || "$NLP_DIM_MATCH" == "false" ]]; then
+    RECOMMENDATION="lite"
+    REASON="Dimension mismatch (GGUF code: ${GGUF_CODE_DIM}, TEI code: ${TEI_CODE_DIM}, GGUF NLP: ${GGUF_NLP_DIM}, TEI NLP: ${TEI_NLP_DIM})"
+  elif jq -e ". < ${MIN_COSINE_SIM}" <<< "$AVG_CODE_SIM" &>/dev/null; then
+    RECOMMENDATION="lite"
+    REASON="Code cosine similarity ${AVG_CODE_SIM} below threshold ${MIN_COSINE_SIM}"
+  elif [[ "$RANKING_PRESERVED" -lt "$RANKING_TOTAL" ]]; then
+    # Partial ranking change — still OK if similarity is very high
+    if jq -e ". >= 0.997" <<< "$AVG_CODE_SIM" &>/dev/null; then
+      RECOMMENDATION="advanced-gguf"
+      REASON="Similarity ${AVG_CODE_SIM} >= 0.997 despite partial ranking change (${RANKING_PRESERVED}/${RANKING_TOTAL})"
+    else
+      RECOMMENDATION="lite"
+      REASON="Ranking not preserved (${RANKING_PRESERVED}/${RANKING_TOTAL}) with similarity ${AVG_CODE_SIM}"
+    fi
+  else
+    RECOMMENDATION="advanced-gguf"
+    REASON="Similarity ${AVG_CODE_SIM} >= ${MIN_COSINE_SIM}, ranking preserved (${RANKING_PRESERVED}/${RANKING_TOTAL})"
+  fi
+
+  # Compute average latencies
+  local AVG_GGUF_CODE_LAT AVG_GGUF_NLP_LAT AVG_TEI_CODE_LAT AVG_TEI_NLP_LAT
+  AVG_GGUF_CODE_LAT=$(echo "$GGUF_CODE_LATENCIES" | jq 'add / length | round')
+  AVG_GGUF_NLP_LAT=$(echo "$GGUF_NLP_LATENCIES" | jq 'add / length | round')
+  AVG_TEI_CODE_LAT=$(echo "$TEI_CODE_LATENCIES" | jq 'add / length | round')
+  AVG_TEI_NLP_LAT=$(echo "$TEI_NLP_LATENCIES" | jq 'add / length | round')
+
+  # Write results
+  jq -n \
+    --arg test_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg gpu "$(detect_gpu)" \
+    --argjson vram_gb "$(detect_vram_gb)" \
+    --argjson vram_baseline_mib "$VRAM_BASELINE" \
+    --argjson vram_gguf_mib "$VRAM_GGUF" \
+    --argjson vram_tei_mib "$VRAM_TEI" \
+    --argjson gguf_code_dim "$GGUF_CODE_DIM" \
+    --argjson gguf_nlp_dim "$GGUF_NLP_DIM" \
+    --argjson tei_code_dim "$TEI_CODE_DIM" \
+    --argjson tei_nlp_dim "$TEI_NLP_DIM" \
+    --argjson code_dim_match "$CODE_DIM_MATCH" \
+    --argjson nlp_dim_match "$NLP_DIM_MATCH" \
+    --argjson avg_code_cosine_sim "$AVG_CODE_SIM" \
+    --argjson avg_nlp_cosine_sim "$AVG_NLP_SIM" \
+    --argjson code_sims "$CODE_SIMS" \
+    --argjson nlp_sims "$NLP_SIMS" \
+    --argjson ranking_preserved "$RANKING_PRESERVED" \
+    --argjson ranking_total "$RANKING_TOTAL" \
+    --argjson gguf_code_latencies "$GGUF_CODE_LATENCIES" \
+    --argjson gguf_nlp_latencies "$GGUF_NLP_LATENCIES" \
+    --argjson tei_code_latencies "$TEI_CODE_LATENCIES" \
+    --argjson tei_nlp_latencies "$TEI_NLP_LATENCIES" \
+    --argjson avg_gguf_code_latency_ms "$AVG_GGUF_CODE_LAT" \
+    --argjson avg_gguf_nlp_latency_ms "$AVG_GGUF_NLP_LAT" \
+    --argjson avg_tei_code_latency_ms "$AVG_TEI_CODE_LAT" \
+    --argjson avg_tei_nlp_latency_ms "$AVG_TEI_NLP_LAT" \
+    --arg recommendation "$RECOMMENDATION" \
+    --arg reason "$REASON" \
+    '{
+      test_date: $test_date,
+      hardware: {gpu: $gpu, vram_gb: $vram_gb, vram_baseline_mib: $vram_baseline_mib},
+      gguf: {
+        code_dim: $gguf_code_dim, nlp_dim: $gguf_nlp_dim,
+        avg_code_latency_ms: $avg_gguf_code_latency_ms,
+        avg_nlp_latency_ms: $avg_gguf_nlp_latency_ms,
+        vram_mib: $vram_gguf_mib,
+        code_latencies_ms: $gguf_code_latencies,
+        nlp_latencies_ms: $gguf_nlp_latencies
+      },
+      tei: {
+        code_dim: $tei_code_dim, nlp_dim: $tei_nlp_dim,
+        avg_code_latency_ms: $avg_tei_code_latency_ms,
+        avg_nlp_latency_ms: $avg_tei_nlp_latency_ms,
+        vram_mib: $vram_tei_mib,
+        code_latencies_ms: $tei_code_latencies,
+        nlp_latencies_ms: $tei_nlp_latencies
+      },
+      comparison: {
+        avg_code_cosine_sim: $avg_code_cosine_sim,
+        avg_nlp_cosine_sim: $avg_nlp_cosine_sim,
+        code_sims: $code_sims,
+        nlp_sims: $nlp_sims,
+        ranking_preserved: "\($ranking_preserved)/\($ranking_total)",
+        recommendation: $recommendation,
+        reason: $reason
+      }
+    }' > "$AB_RESULT_FILE"
+
+  log ok "A/B test results written to .anatoly/embedding-ab-results.json"
+
+  # Clean up temp files
+  rm -f "$GGUF_CACHE"
+
+  # Display summary
+  log_separator
+  if [[ "$RECOMMENDATION" == "advanced-gguf" ]]; then
+    log ok "Recommendation: advanced-gguf"
+  else
+    log warn "Recommendation: ${RECOMMENDATION}"
+  fi
+  log info "Reason: ${REASON}"
+  log info "Avg code similarity: ${AVG_CODE_SIM}"
+  log info "Avg NLP similarity: ${AVG_NLP_SIM}"
+  log info "GGUF latency: code ${AVG_GGUF_CODE_LAT}ms, NLP ${AVG_GGUF_NLP_LAT}ms"
+  log info "TEI latency:  code ${AVG_TEI_CODE_LAT}ms, NLP ${AVG_TEI_NLP_LAT}ms"
+
+  echo "$RECOMMENDATION"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# --ab-test mode (standalone)
+# ═══════════════════════════════════════════════════════════════════════════
 if [[ "${1:-}" == "--ab-test" ]]; then
-  AB_SCRIPT="${SCRIPT_DIR}/embedding-ab-test.sh"
-  if [[ ! -f "$AB_SCRIPT" ]]; then
-    err "embedding-ab-test.sh not found at ${AB_SCRIPT}"
+  ensure_jq
+  ensure_curl
+
+  # Verify prerequisites
+  if [[ ! -f "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" ]]; then
+    log error "GGUF code model not found — run setup first"
     exit 1
   fi
-  exec bash "$AB_SCRIPT"
+  if [[ ! -f "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" ]]; then
+    log error "GGUF NLP model not found — run setup first"
+    exit 1
+  fi
+  if ! has_docker; then
+    log error "Docker not available"
+    exit 1
+  fi
+
+  # Check VRAM — A/B test requires >= 24 GB
+  AB_VRAM=$(detect_vram_gb)
+  if [[ "$AB_VRAM" -lt 24 ]]; then
+    log error "A/B test requires >= 24 GB VRAM (detected: ${AB_VRAM} GB)"
+    log info "The TEI fp16 reference model needs ~14 GB VRAM on top of baseline."
+    exit 1
+  fi
+
+  # Purge stale A/B results before re-running
+  rm -f "${AB_RESULT_FILE}"
+  log info "Purged stale A/B test results"
+
+  RESULT=$(run_ab_test)
+  log info "Backend recommendation: ${RESULT}"
+
+  # Update embeddings-ready.json if it exists
+  if [[ -f "$READY_FILE" ]]; then
+    TMP=$(mktemp)
+    jq --arg backend "$RESULT" --arg ab_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '.backend = $backend | .ab_test_at = $ab_date' "$READY_FILE" > "$TMP"
+    mv "$TMP" "$READY_FILE"
+    log ok "embeddings-ready.json updated with backend=${RESULT}"
+  fi
+
+  exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Main install flow
-# ---------------------------------------------------------------------------
-echo ""
-info "═══════════════════════════════════════════════"
-info "  Anatoly — Embedding Setup"
-info "═══════════════════════════════════════════════"
-echo ""
+# ═══════════════════════════════════════════════════════════════════════════
+# Main setup flow
+# ═══════════════════════════════════════════════════════════════════════════
+log_section "Anatoly — Embedding Setup"
 
-# Step 1: Hardware detection
+# Step 0: Purge stale embedding config (clean slate)
+purge_embedding_configs
+
+# Step 1: Prerequisites
+log info "Checking prerequisites..."
+ensure_jq
+ensure_curl
+
 GPU=$(detect_gpu)
 VRAM_GB=$(detect_vram_gb)
 DOCKER_OK="false"
 TOOLKIT_OK="false"
 
 if [[ "$GPU" == "none" ]]; then
-  warn "No GPU detected — embeddings will run on CPU (slower but functional)"
+  log warn "No GPU detected — embeddings will run on CPU (lite mode)"
 else
-  ok "GPU detected: ${GPU} (${VRAM_GB} GB VRAM)"
+  log ok "GPU detected: ${GPU} (${VRAM_GB} GB VRAM)"
 fi
 
 if has_docker; then
   DOCKER_OK="true"
-  ok "Docker: available"
+  log ok "Docker: available"
   if [[ "$GPU" == "cuda" ]] && has_nvidia_container_toolkit; then
     TOOLKIT_OK="true"
-    ok "NVIDIA Container Toolkit: available"
+    log ok "NVIDIA Container Toolkit: available"
   elif [[ "$GPU" == "cuda" ]]; then
-    warn "NVIDIA Container Toolkit: not found"
-    info "  Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+    log warn "NVIDIA Container Toolkit: not found"
+    log info "  Install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
   fi
 else
-  if [[ "$GPU" == "cuda" ]] && [[ "$VRAM_GB" -ge "$GGUF_MIN_VRAM_GB" ]]; then
-    warn "Docker not found. Required for advanced-gguf backend (best performance)."
+  if [[ "$GPU" == "cuda" && "$VRAM_GB" -ge "$GGUF_MIN_VRAM_GB" ]]; then
+    log warn "Docker not found. Required for GPU embedding backend."
     echo ""
-    info "Docker enables GGUF quantized models (~10 GB VRAM for both models"
-    info "loaded simultaneously, instead of ~28 GB with bf16 swap)."
+    log info "Docker enables GGUF quantized models (~10 GB VRAM for both models"
+    log info "loaded simultaneously). Without Docker, only ONNX CPU is available."
     echo ""
     read -r -p "  Install Docker + NVIDIA Container Toolkit now? (requires sudo) [y/N] " INSTALL_DOCKER
     if [[ "${INSTALL_DOCKER,,}" == "y" ]]; then
-      info "Installing Docker (official repository)..."
-      sudo apt-get update -qq
-      sudo apt-get install -y -qq ca-certificates curl
-      sudo install -m 0755 -d /etc/apt/keyrings
-      sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-      sudo chmod a+r /etc/apt/keyrings/docker.asc
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-        $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-      sudo apt-get update -qq
-      sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-      # Add current user to docker group (avoids sudo for docker commands)
-      sudo usermod -aG docker "$USER"
-      ok "Docker installed"
-
-      info "Installing NVIDIA Container Toolkit..."
-      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-      curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-      sudo apt-get update -qq
-      sudo apt-get install -y -qq nvidia-container-toolkit
-      sudo nvidia-ctk runtime configure --runtime=docker
-      sudo systemctl restart docker
-      ok "NVIDIA Container Toolkit installed"
-
-      # Re-check
+      install_docker
       if has_docker; then
         DOCKER_OK="true"
-        ok "Docker: available"
         if has_nvidia_container_toolkit; then
           TOOLKIT_OK="true"
-          ok "NVIDIA Container Toolkit: verified"
         fi
       else
-        warn "Docker installed but not available yet."
-        info "You may need to log out and log back in (for docker group), then re-run setup."
+        log warn "Docker installed but not available yet."
+        log info "You may need to log out and log back in (for docker group), then re-run setup."
       fi
     else
-      info "Skipping Docker install. Falling back to advanced-fp16 (Python sidecar)."
+      log info "Skipping Docker install. Using lite mode (ONNX CPU)."
     fi
   else
-    info "Docker: not available (optional — needed for GGUF backend)"
+    log info "Docker: not available (needed for GPU backends)"
   fi
 fi
 
 # Step 2: Determine tier
 TIER=$(select_tier "$GPU" "$VRAM_GB" "$DOCKER_OK" "$TOOLKIT_OK")
-echo ""
-info "Selected tier: ${TIER}"
-echo ""
+log info "Selected tier: ${TIER}"
 
-# Step 3: Setup GGUF backend (Docker llama.cpp) if tier is advanced-gguf
-if [[ "$TIER" == "advanced-gguf" ]]; then
-  echo ""
-  info "Setting up GGUF backend (Docker llama.cpp)..."
+# Step 3: If lite, write config and exit
+if [[ "$TIER" == "lite" ]]; then
+  write_embeddings_ready "$READY_FILE" \
+    --arg backend "lite" \
+    --arg device "$GPU" \
+    --argjson vram_gb "$VRAM_GB" \
+    --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{backend: $backend, device: $device, vram_gb: $vram_gb, dim_code: 768, dim_nlp: 384, setup_at: $setup_at}'
 
-  # Download GGUF models if not already present
-  mkdir -p "$MODELS_DIR"
-  for GGUF_FILE in "$GGUF_CODE_MODEL_FILE" "$GGUF_NLP_MODEL_FILE"; do
-    if [[ "$GGUF_FILE" == "$GGUF_CODE_MODEL_FILE" ]]; then
-      GGUF_REPO="$GGUF_CODE_HF_REPO"
-      GGUF_LABEL="Code"
-    else
-      GGUF_REPO="$GGUF_NLP_HF_REPO"
-      GGUF_LABEL="NLP"
-    fi
-    GGUF_PATH="${MODELS_DIR}/${GGUF_FILE}"
-    if [[ -f "$GGUF_PATH" ]]; then
-      GGUF_SIZE=$(du -m "$GGUF_PATH" | cut -f1)
-      ok "${GGUF_LABEL} GGUF cached: ${GGUF_FILE} (${GGUF_SIZE} MB)"
-    else
-      info "Downloading ${GGUF_FILE} from ${GGUF_REPO}..."
-      if ! PYTHON_TMP=$(get_python 2>/dev/null); then
-        PYTHON_TMP="python3"
-      fi
-      "$PYTHON_TMP" -W ignore -c "
-import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
-from huggingface_hub import hf_hub_download
-hf_hub_download('${GGUF_REPO}', '${GGUF_FILE}', local_dir='${MODELS_DIR}')
-" 2>&1 | grep -v "^Warning:"
-      ok "Downloaded ${GGUF_FILE}"
-    fi
-  done
-
-  # Pull Docker image
-  info "Pulling Docker image ${GGUF_DOCKER_IMAGE}..."
-  if docker pull "$GGUF_DOCKER_IMAGE" 2>&1; then
-    ok "Docker image ready"
-  else
-    err "Failed to pull Docker image"
-    warn "Falling back to advanced-fp16"
-    TIER="advanced-fp16"
-  fi
-
-  if [[ "$TIER" == "advanced-gguf" ]]; then
-    # Test GGUF containers
-    info "Testing GGUF code container..."
-    CONTAINER_NAME="anatoly-gguf-test-$$"
-    docker run -d --rm --name "$CONTAINER_NAME" \
-      --gpus all \
-      -v "${MODELS_DIR}:/models:ro" \
-      -p 11435:8080 \
-      "$GGUF_DOCKER_IMAGE" \
-      --model "/models/${GGUF_CODE_MODEL_FILE}" \
-      --embedding --port 8080 --host 0.0.0.0 2>/dev/null
-
-    READY=false
-    for i in $(seq 1 60); do
-      if curl -sf "http://127.0.0.1:11435/health" &>/dev/null; then
-        READY=true
-        break
-      fi
-      sleep 2
-    done
-
-    if [[ "$READY" == "true" ]]; then
-      RESPONSE=$(curl -sf "http://127.0.0.1:11435/embedding" \
-        -H "Content-Type: application/json" \
-        -d '{"input": "function hello() { return world; }"}' 2>/dev/null)
-      if echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d[0]['embedding']) > 0" 2>/dev/null; then
-        CODE_DIM=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']))" 2>/dev/null)
-        ok "GGUF code embedding OK (${CODE_DIM}d)"
-      else
-        err "GGUF code embedding failed"
-        TIER="advanced-fp16"
-      fi
-    else
-      err "GGUF code container failed to start within 120s"
-      TIER="advanced-fp16"
-    fi
-    docker stop "$CONTAINER_NAME" 2>/dev/null || true
-    sleep 2
-
-    if [[ "$TIER" == "advanced-gguf" ]]; then
-      NLP_DIM="4096"
-      CODE_DIM="${CODE_DIM:-3584}"
-
-      # Write config and finish
-      FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
-      mkdir -p "$(dirname "$FLAG_FILE")"
-      cat > "$FLAG_FILE" <<ENDJSON
-{
-  "backend": "advanced-gguf",
-  "code_model": "${MODEL}",
-  "nlp_model": "${NLP_MODEL}",
-  "dim_code": ${CODE_DIM},
-  "dim_nlp": ${NLP_DIM},
-  "device": "${GPU}",
-  "docker_image": "${GGUF_DOCKER_IMAGE}",
-  "code_gguf": "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}",
-  "nlp_gguf": "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}",
-  "setup_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-ENDJSON
-      ok "Config written to .anatoly/embeddings-ready.json"
-      echo ""
-      echo "  ═══════════════════════════════════════════════"
-      echo ""
-      ok "Setup complete! Backend: advanced-gguf"
-      echo ""
-      echo "  Code:    ${MODEL} → GGUF Q5_K_M (${CODE_DIM}d)"
-      echo "  NLP:     ${NLP_MODEL} → GGUF Q5_K_M (${NLP_DIM}d)"
-      echo "  Docker:  ${GGUF_DOCKER_IMAGE}"
-      echo "  Models:  .anatoly/models/"
-      echo "  Config:  .anatoly/embeddings-ready.json"
-      echo ""
-      echo "  ═══════════════════════════════════════════════"
-      echo ""
-      info "Both models load simultaneously (~10 GB VRAM). No swap needed."
-      info "The containers start automatically with 'npx anatoly run'."
-      echo ""
-      exit 0
-    fi
-  fi
+  log_section "Setup complete — lite mode"
+  log info "Using ONNX CPU embeddings (no GPU needed)."
+  log info "To check status: npx anatoly setup-embeddings --check"
+  exit 0
 fi
 
-# Step 4: Setup fp16 backend (Python sidecar — for advanced-fp16 or lite)
-PYTHON=""
-CODE_DIM="768"
-NLP_DIM="384"
+# Step 4: Download GGUF models
+log_separator
+log info "Downloading GGUF models..."
+download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO"
+download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO"
 
-if [[ "$TIER" == "advanced-fp16" ]]; then
-  # Python + venv
-  if ! PYTHON=$(ensure_venv); then
-    if [[ "$TIER" == "advanced-gguf" ]]; then
-      warn "Python 3.9+ not found — fp16 fallback will not be available"
-    else
-      err "Python 3.9+ required but not found."
-      err "Install Python: https://www.python.org/downloads/"
-      exit 1
-    fi
-  fi
+# Step 5: Pull Docker images
+log_separator
+log info "Pulling Docker images..."
 
-  if [[ -n "$PYTHON" ]]; then
-    ok "Python: $("$PYTHON" --version 2>&1)"
-
-    # Install torch (GPU-aware)
-    if check_package "$PYTHON" "torch"; then
-      TORCHVER=$("$PYTHON" -c "import torch; print(torch.__version__)" 2>/dev/null)
-      ok "torch already installed: ${TORCHVER}"
-    else
-      info "Installing torch..."
-      case "$GPU" in
-        cuda)
-          "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/cu124
-          ;;
-        rocm)
-          "$PYTHON" -m pip install -q torch --index-url https://download.pytorch.org/whl/rocm6.2
-          ;;
-        *)
-          "$PYTHON" -m pip install -q torch
-          ;;
-      esac
-      ok "torch installed"
-    fi
-
-    # Install sentence-transformers
-    if check_package "$PYTHON" "sentence_transformers"; then
-      STVER=$("$PYTHON" -c "import sentence_transformers; print(sentence_transformers.__version__)" 2>/dev/null)
-      ok "sentence-transformers already installed: ${STVER}"
-    else
-      info "Installing sentence-transformers..."
-      "$PYTHON" -m pip install -q sentence-transformers
-      ok "sentence-transformers installed"
-    fi
-
-    # Download/verify the code model
-    CODE_CACHED=$("$PYTHON" -W ignore -c "
-import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
-from huggingface_hub import try_to_load_from_cache
-result = try_to_load_from_cache('${MODEL}', 'config.json')
-print('yes' if result is not None and result != '' else 'no')
-" 2>/dev/null || echo "no")
-
-    if [[ "$CODE_CACHED" == "yes" ]]; then
-      info "Loading ${MODEL} (cached)..."
-    else
-      info "Downloading ${MODEL} (~27 GB, first time only)..."
-    fi
-    "$PYTHON" -W ignore -c "
-import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('${MODEL}', trust_remote_code=True)
-print(f'  {model.get_sentence_embedding_dimension()}d')
-" 2>&1 | grep -v "^Warning:"
-    ok "Code model ready: ${MODEL}"
-
-    # Download/verify the NLP model
-    NLP_CACHED=$("$PYTHON" -W ignore -c "
-import os; os.environ['HF_HUB_VERBOSITY'] = 'error'
-from huggingface_hub import try_to_load_from_cache
-result = try_to_load_from_cache('${NLP_MODEL}', 'config.json')
-print('yes' if result is not None and result != '' else 'no')
-" 2>/dev/null || echo "no")
-
-    if [[ "$NLP_CACHED" == "yes" ]]; then
-      info "Loading ${NLP_MODEL} (cached)..."
-    else
-      info "Downloading ${NLP_MODEL} (~16 GB, first time only)..."
-    fi
-    "$PYTHON" -W ignore -c "
-import os, warnings; warnings.filterwarnings('ignore'); os.environ['HF_HUB_VERBOSITY'] = 'error'
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('${NLP_MODEL}', trust_remote_code=True)
-print(f'  {model.get_sentence_embedding_dimension()}d')
-" 2>&1 | grep -v "^Warning:"
-    ok "NLP model ready: ${NLP_MODEL}"
-
-    # Sanity check via sidecar
-    info "Running embedding sanity check..."
-    "$PYTHON" -W ignore "${SIDECAR_SCRIPT}" --port "${SIDECAR_PORT}" &
-    SIDECAR_PID=$!
-    trap 'kill "$SIDECAR_PID" 2>/dev/null || true; exit 1' INT TERM
-
-    # Wait for sidecar to be ready (model loading)
-    READY=false
-    for i in $(seq 1 30); do
-      if sidecar_running; then
-        READY=true
-        break
-      fi
-      sleep 2
-    done
-
-    if [[ "$READY" == "true" ]]; then
-      RESPONSE=$(curl -sf "http://127.0.0.1:${SIDECAR_PORT}/embed" \
-        -H "Content-Type: application/json" \
-        -d '{"input": "function hello() { return world; }"}' 2>/dev/null)
-
-      if echo "$RESPONSE" | grep -q '"embedding"'; then
-        ok "Embedding sanity check passed"
-      else
-        err "Sanity check failed — sidecar returned unexpected response"
-        kill "$SIDECAR_PID" 2>/dev/null || true
-        exit 1
-      fi
-
-      # Shut down the test sidecar
-      curl -sf -X POST "http://127.0.0.1:${SIDECAR_PORT}/shutdown" &>/dev/null || true
-      wait "$SIDECAR_PID" 2>/dev/null || true
-    else
-      err "Sidecar failed to start within 60s"
-      kill "$SIDECAR_PID" 2>/dev/null || true
-      exit 1
-    fi
-
-    # Get dimensions
-    CODE_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null || echo "3584")
-    NLP_DIM=$("$PYTHON" -c "from sentence_transformers import SentenceTransformer; print(SentenceTransformer('${NLP_MODEL}', trust_remote_code=True).get_sentence_embedding_dimension())" 2>/dev/null || echo "4096")
-  fi
-fi
-
-# Step 4: Setup GGUF backend (Docker llama.cpp — for advanced-gguf tier)
-if [[ "$TIER" == "advanced-gguf" ]]; then
-  echo ""
-  info "Setting up GGUF Docker backend..."
-
-  # Download GGUF models if not present
-  download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO"
-  download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO"
-
-  # Pull Docker image
-  info "Pulling Docker image: ${GGUF_DOCKER_IMAGE}..."
-  if docker pull "$GGUF_DOCKER_IMAGE"; then
-    ok "Docker image ready: ${GGUF_DOCKER_IMAGE}"
-  else
-    warn "Docker pull failed — falling back to advanced-fp16"
-    TIER="advanced-fp16"
-  fi
-fi
-
-# Step 5: Write readiness flag
-FLAG_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
-mkdir -p "$(dirname "$FLAG_FILE")"
-
-# Build the JSON manually to handle optional fields cleanly
-FLAG_JSON="{"
-FLAG_JSON+="\"code_model\": \"${MODEL}\","
-FLAG_JSON+="\"nlp_model\": \"${NLP_MODEL}\","
-FLAG_JSON+="\"dim_code\": ${CODE_DIM:-768},"
-FLAG_JSON+="\"dim_nlp\": ${NLP_DIM:-384},"
-FLAG_JSON+="\"device\": \"${GPU}\","
-FLAG_JSON+="\"python\": \"${PYTHON:-}\","
-FLAG_JSON+="\"backend\": \"${TIER}\","
-FLAG_JSON+="\"vram_gb\": ${VRAM_GB},"
-FLAG_JSON+="\"setup_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
-
-if [[ "$TIER" == "advanced-gguf" ]]; then
-  FLAG_JSON+=",\"gguf_code_model\": \"${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}\""
-  FLAG_JSON+=",\"gguf_nlp_model\": \"${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}\""
-fi
-
-FLAG_JSON+="}"
-
-# Pretty-print via python if available, else write raw
-if command -v python3 &>/dev/null; then
-  echo "$FLAG_JSON" | python3 -m json.tool > "$FLAG_FILE"
+log info "Pulling GGUF image: ${GGUF_DOCKER_IMAGE}..."
+if docker pull "$GGUF_DOCKER_IMAGE" 2>&1; then
+  log ok "GGUF Docker image ready"
 else
-  echo "$FLAG_JSON" > "$FLAG_FILE"
+  log error "Failed to pull GGUF Docker image"
+  log warn "Falling back to lite mode"
+  write_embeddings_ready "$READY_FILE" \
+    --arg backend "lite" \
+    --arg device "$GPU" \
+    --argjson vram_gb "$VRAM_GB" \
+    --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{backend: $backend, device: $device, vram_gb: $vram_gb, dim_code: 768, dim_nlp: 384, setup_at: $setup_at}'
+  exit 0
 fi
 
-ok "Readiness flag written"
-
-echo ""
-echo "  ═══════════════════════════════════════════════"
-echo ""
-ok "Setup complete!"
-echo ""
-echo "  Backend   ${TIER}"
-echo "  Device    ${GPU} (${VRAM_GB} GB VRAM)"
-if [[ "$TIER" == "advanced-fp16" ]] || [[ "$TIER" == "advanced-gguf" ]]; then
-  echo "  Code model  ${MODEL} (${CODE_DIM:-3584}d)"
-  echo "  NLP model   ${NLP_MODEL} (${NLP_DIM:-4096}d)"
-fi
-if [[ "$TIER" == "advanced-gguf" ]]; then
-  echo "  GGUF code   ${GGUF_CODE_MODEL_FILE}"
-  echo "  GGUF NLP    ${GGUF_NLP_MODEL_FILE}"
-  echo "  Docker      ${GGUF_DOCKER_IMAGE}"
-fi
-echo "  Config      .anatoly/embeddings-ready.json"
-echo ""
-echo "  ═══════════════════════════════════════════════"
-echo ""
-if [[ "$TIER" == "advanced-gguf" ]]; then
-  info "GGUF Docker containers start automatically with 'npx anatoly run'."
-  info "fp16 sidecar available as fallback if Docker is unavailable."
-elif [[ "$TIER" == "advanced-fp16" ]]; then
-  info "The embed sidecar starts automatically with 'npx anatoly run'."
+log info "Pulling TEI image: ${TEI_DOCKER_IMAGE}..."
+if docker pull "$TEI_DOCKER_IMAGE" 2>&1; then
+  log ok "TEI Docker image ready"
+  TEI_AVAILABLE=true
 else
-  info "Using ONNX CPU embeddings (no GPU setup needed)."
+  log warn "Failed to pull TEI image — skipping A/B test"
+  TEI_AVAILABLE=false
 fi
-info "To check status:  npx anatoly setup-embeddings --check"
+
+# Step 6: Quick GGUF smoke test
+log_separator
+log info "Testing GGUF containers..."
+
+CODE_CONTAINER="${CONTAINER_PREFIX}-gguf-test-$$"
+start_gguf_container "$CODE_CONTAINER" "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_PORT"
+
+if wait_for_health "http://127.0.0.1:${GGUF_CODE_PORT}/health" 120; then
+  RESP=$(embed_gguf "function hello() { return world; }" "$GGUF_CODE_PORT" 2>/dev/null || echo "")
+  VEC=$(extract_gguf_embedding "$RESP" 2>/dev/null || echo "")
+  if [[ -n "$VEC" && "$VEC" != "null" ]]; then
+    CODE_DIM=$(embedding_dim "$VEC")
+    log ok "GGUF code embedding OK (${CODE_DIM}d)"
+  else
+    log error "GGUF code embedding failed"
+    docker_rm "$CODE_CONTAINER"
+    log warn "Falling back to lite mode"
+    TIER="lite"
+  fi
+else
+  log error "GGUF code container failed to start"
+  TIER="lite"
+fi
+docker_rm "$CODE_CONTAINER"
+sleep 2
+
+if [[ "$TIER" == "lite" ]]; then
+  write_embeddings_ready "$READY_FILE" \
+    --arg backend "lite" \
+    --arg device "$GPU" \
+    --argjson vram_gb "$VRAM_GB" \
+    --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{backend: $backend, device: $device, vram_gb: $vram_gb, dim_code: 768, dim_nlp: 384, setup_at: $setup_at}'
+  exit 0
+fi
+
+# Step 7: A/B test (if TEI is available AND enough VRAM)
+# A/B test requires >= 24 GB VRAM (TEI fp16 model needs ~14 GB on top of baseline)
+AB_TEST_MIN_VRAM_GB=24
+BACKEND="advanced-gguf"
+NLP_DIM=4096
+CODE_DIM="${CODE_DIM:-3584}"
+
+if [[ "$TEI_AVAILABLE" == "true" ]]; then
+  if [[ "$VRAM_GB" -ge "$AB_TEST_MIN_VRAM_GB" ]]; then
+    AB_RESULT=$(run_ab_test) || true
+    if [[ -n "$AB_RESULT" ]]; then
+      BACKEND="$AB_RESULT"
+      log info "A/B test selected backend: ${BACKEND}"
+    fi
+  else
+    log warn "Skipping A/B test — requires >= ${AB_TEST_MIN_VRAM_GB} GB VRAM (detected: ${VRAM_GB} GB)"
+    log info "Using GGUF backend directly (validated by smoke test)"
+  fi
+fi
+
+# Step 8: Write final config
+write_embeddings_ready "$READY_FILE" \
+  --arg backend "$BACKEND" \
+  --arg code_model "$CODE_MODEL_ID" \
+  --arg nlp_model "$NLP_MODEL_ID" \
+  --argjson dim_code "${CODE_DIM}" \
+  --argjson dim_nlp "${NLP_DIM}" \
+  --arg device "$GPU" \
+  --argjson vram_gb "$VRAM_GB" \
+  --arg docker_image "$GGUF_DOCKER_IMAGE" \
+  --arg gguf_code_model "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" \
+  --arg gguf_nlp_model "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}" \
+  --arg setup_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  '{
+    backend: $backend,
+    code_model: $code_model,
+    nlp_model: $nlp_model,
+    dim_code: $dim_code,
+    dim_nlp: $dim_nlp,
+    device: $device,
+    vram_gb: $vram_gb,
+    docker_image: $docker_image,
+    gguf_code_model: $gguf_code_model,
+    gguf_nlp_model: $gguf_nlp_model,
+    setup_at: $setup_at
+  }'
+
+# Step 9: Summary
+log_section "Setup complete!"
+log info "Backend:    ${BACKEND}"
+log info "Device:     ${GPU} (${VRAM_GB} GB VRAM)"
+log info "Code model: ${CODE_MODEL_ID} (${CODE_DIM}d)"
+log info "NLP model:  ${NLP_MODEL_ID} (${NLP_DIM}d)"
+if [[ "$BACKEND" == "advanced-gguf" ]]; then
+  log info "GGUF code:  ${GGUF_CODE_MODEL_FILE}"
+  log info "GGUF NLP:   ${GGUF_NLP_MODEL_FILE}"
+  log info "Docker:     ${GGUF_DOCKER_IMAGE}"
+fi
+log info "Config:     .anatoly/embeddings-ready.json"
+echo ""
+if [[ "$BACKEND" == "advanced-gguf" ]]; then
+  log info "Both GGUF models load simultaneously (~10 GB VRAM). No swap needed."
+  log info "Containers start automatically with 'npx anatoly run'."
+else
+  log info "Using ONNX CPU embeddings."
+fi
+log info "To check status: npx anatoly setup-embeddings --check"
 echo ""

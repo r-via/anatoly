@@ -22,7 +22,6 @@ import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
-import { ensureSidecar, stopSidecar } from '../rag/embed-sidecar.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -302,7 +301,6 @@ export function registerRunCommand(program: Command): void {
         }
         process.exitCode = 2;
       } finally {
-        await stopSidecar(); // no-op if already stopped after RAG phase
         await stopGgufContainers(); // no-op if no containers running
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
@@ -652,9 +650,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Detect hardware and determine backend BEFORE starting any embedding server
   const hardware = detectHardware();
   const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
-  const resolveLogFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
 
   // Start the appropriate embedding backend based on detected tier
   if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {
@@ -671,42 +668,16 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       started = await startGgufContainers(ctx.projectRoot, logFn);
     }
     if (!started) {
-      log.warn('GGUF containers failed to start — falling back to fp16 sidecar');
-      effectiveBackend = hardware.hasGpu ? 'advanced-fp16' : 'lite';
+      log.warn('GGUF containers failed to start — falling back to ONNX lite');
+      effectiveBackend = 'lite';
     }
   }
 
-  // Fallback: start Python sidecar for advanced-fp16
-  const needsSidecar = effectiveBackend === 'advanced-fp16' && ctx.resolvedRagMode === 'advanced';
-  if (needsSidecar) {
-    const sidecarMsg = 'loading embed sidecar (code model)';
-    if (!ctx.plain && process.stdout.isTTY) {
-      process.stdout.write(chalk.dim(`  ${sidecarMsg}...`));
-      await ensureSidecar(logFn, (sec) => {
-        process.stdout.write(`\r\x1b[K${chalk.dim(`  ${sidecarMsg}... ${sec}s`)}`);
-      });
-      process.stdout.write('\r\x1b[K');
-    } else {
-      log.info(sidecarMsg);
-      await ensureSidecar(logFn);
-      log.info('sidecar ready');
-    }
-  }
-
-  // Resolve models with the effective backend (handles GGUF/sidecar/ONNX routing)
+  // Resolve models with the effective backend (handles GGUF/ONNX routing)
   const effectiveFlag = readyFlag
     ? { ...readyFlag, backend: effectiveBackend }
-    : { device: 'cpu', python: 'python3', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
-  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, resolveLogFn, effectiveFlag);
-
-  if (needsSidecar && ctx.resolvedModels.codeRuntime !== 'sidecar') {
-    await stopSidecar();
-    console.error('error: --rag-advanced requires the embed sidecar (nomic-embed-code)');
-    console.error('  start manually: python scripts/embed-server.py');
-    console.error('  or use --lite for Jina ONNX fallback');
-    process.exitCode = 2;
-    return { ragEnabled: false };
-  }
+    : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
+  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag);
 
   let ragResult: RagIndexResult | undefined;
 
@@ -750,7 +721,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   } finally {
     // Embedding backends are only needed during indexing — free GPU/RAM immediately.
     // Must run even if indexing throws to avoid leaking processes/containers.
-    await stopSidecar();
     await stopGgufContainers(logFn);
   }
 

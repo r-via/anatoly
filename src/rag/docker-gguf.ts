@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import {
@@ -27,7 +27,7 @@ let containersStarted = false;
  */
 function removeContainer(name: string): void {
   try {
-    execSync(`docker rm -f ${name}`, { stdio: 'ignore', timeout: 10_000 });
+    execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 10_000 });
   } catch {
     // Container doesn't exist — OK
   }
@@ -46,7 +46,7 @@ function runContainer(
   removeContainer(name);
 
   const args = [
-    'docker', 'run',
+    'run',
     '--gpus', 'all',
     '-v', `${modelsDir}:/models`,
     '-p', `${hostPort}:8080`,
@@ -58,7 +58,7 @@ function runContainer(
     '--port', '8080',
   ];
 
-  execSync(args.join(' '), { encoding: 'utf-8', timeout: 30_000 });
+  execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
 }
 
 /**
@@ -118,9 +118,9 @@ export async function startGgufContainers(
     return false;
   }
 
-  // Verify Docker is available
+  // Verify Docker daemon is running
   try {
-    execSync('docker --version', { stdio: 'ignore', timeout: 5000 });
+    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
   } catch {
     onLog?.('Docker not available — cannot start GGUF containers');
     return false;

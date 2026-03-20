@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { MODEL_REGISTRY, getSidecarUrl, GGUF_CODE_PORT, GGUF_NLP_PORT, type ResolvedModels } from './hardware-detect.js';
+import { MODEL_REGISTRY, GGUF_CODE_PORT, GGUF_NLP_PORT, type ResolvedModels } from './hardware-detect.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -25,8 +25,8 @@ const MAX_CODE_CHARS = 1500;
 
 let codeModelId = DEFAULT_CODE_MODEL;
 let nlpModelId = DEFAULT_NLP_MODEL;
-let codeRuntime: 'onnx' | 'sidecar' | 'gguf' = 'onnx';
-let nlpRuntime: 'onnx' | 'sidecar' | 'gguf' = 'onnx';
+let codeRuntime: 'onnx' | 'gguf' = 'onnx';
+let nlpRuntime: 'onnx' | 'gguf' = 'onnx';
 let codeDim = MODEL_REGISTRY[DEFAULT_CODE_MODEL]?.dim ?? 768;
 let nlpDim = MODEL_REGISTRY[DEFAULT_NLP_MODEL]?.dim ?? 384;
 
@@ -36,7 +36,6 @@ let codeEmbedderPromise: Promise<any> | null = null;
 let nlpEmbedderPromise: Promise<any> | null = null;
 
 let onLog: (message: string) => void = () => {};
-let sidecarFallbackWarned = false;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -66,7 +65,6 @@ export function configureModels(resolved: ResolvedModels): void {
   codeEmbedderPromise = null;
   nlpEmbedderPromise = null;
   onnxFallbackPromise = null;
-  sidecarFallbackWarned = false;
 }
 
 /** Current code embedding model ID. */
@@ -87,40 +85,6 @@ export function getCodeDim(): number {
 /** Dimension of the NLP embedding model's output vectors. */
 export function getNlpDim(): number {
   return nlpDim;
-}
-
-// ---------------------------------------------------------------------------
-// Sidecar embedding via HTTP API (sentence-transformers)
-// ---------------------------------------------------------------------------
-
-async function embedViaSidecar(text: string, retries = 2): Promise<number[]> {
-  const url = getSidecarUrl();
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(`${url}/embed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: text }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`embed sidecar failed (${res.status}): ${await res.text()}`);
-      }
-
-      const data = await res.json() as { embedding: number[] };
-      return data.embedding;
-    } catch (err) {
-      if (attempt < retries) {
-        // Sidecar may be briefly unavailable after model swap
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  throw new Error('embedViaSidecar: unreachable');
 }
 
 /** Embed via ONNX (Jina fallback). Always uses Jina regardless of codeModelId. */
@@ -182,7 +146,13 @@ function getNlpEmbedder(): Promise<any> {
 // GGUF Docker embedding via HTTP API (llama.cpp server-cuda)
 // ---------------------------------------------------------------------------
 
+const MAX_GGUF_CHARS = 8000;
+
 async function embedViaGguf(text: string, port: number, retries = 2): Promise<number[]> {
+  // Truncate to avoid OOM in llama.cpp container
+  if (text.length > MAX_GGUF_CHARS) {
+    text = text.slice(0, MAX_GGUF_CHARS);
+  }
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/embedding`, {
@@ -216,28 +186,22 @@ async function embedViaGguf(text: string, port: number, retries = 2): Promise<nu
 
 /**
  * Generate a code embedding vector for the given text.
- * Routes to GGUF Docker, sidecar, or ONNX based on configured runtime.
+ * Routes to GGUF Docker or ONNX based on configured runtime.
  */
 export async function embedCode(text: string): Promise<number[]> {
   if (codeRuntime === 'gguf') {
     return embedViaGguf(text, GGUF_CODE_PORT);
-  }
-  if (codeRuntime === 'sidecar') {
-    return embedViaSidecar(text);
   }
   return embedViaOnnx(text);
 }
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Routes to GGUF Docker, sidecar, or ONNX based on configured runtime.
+ * Routes to GGUF Docker or ONNX based on configured runtime.
  */
 export async function embedNlp(text: string): Promise<number[]> {
   if (nlpRuntime === 'gguf') {
     return embedViaGguf(text, GGUF_NLP_PORT);
-  }
-  if (nlpRuntime === 'sidecar') {
-    return embedViaSidecar(text);
   }
   const model = await getNlpEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });
