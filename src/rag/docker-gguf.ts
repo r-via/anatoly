@@ -116,6 +116,7 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
       const status = execFileSync('docker', ['inspect', '--format', '{{.State.Status}}', modelConfig(model).container], {
         encoding: 'utf-8',
         timeout: 5_000,
+        stdio: ['pipe', 'pipe', 'ignore'],
       }).trim();
       if (status === 'running') return;
       logFn?.(`GGUF ${model} container died (status=${status}) — restarting...`);
@@ -138,7 +139,7 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   runContainer(cfg.container, cfg.file, cfg.port);
 
   logFn?.(`waiting for GGUF ${cfg.label} model to load into VRAM...`);
-  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS, progressFn);
+  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS);
 
   if (!ready) {
     removeContainer(cfg.container);

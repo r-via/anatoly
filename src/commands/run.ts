@@ -768,11 +768,10 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   try {
     await ragRunner.run();
   } finally {
-    // Embedding backends are only needed during indexing — free GPU/RAM immediately.
-    // Must run even if indexing throws to avoid leaking processes/containers.
     ragLogStream.end();
-    await stopGgufContainers(logFn);
-    await stopTeiContainers();
+    // Note: GGUF containers are kept alive — the review phase needs them
+    // for RAG similarity queries (embedNlp in docs-resolver.ts).
+    // They are stopped in the global finally block after review completes.
   }
 
   const ragDuration = Date.now() - ragStart;
