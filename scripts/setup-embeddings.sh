@@ -32,6 +32,10 @@ CODE_MODEL_ID="nomic-ai/nomic-embed-code"
 NLP_MODEL_ID="Qwen/Qwen3-Embedding-8B"
 GGUF_CODE_MODEL_FILE="nomic-embed-code.Q5_K_M.gguf"
 GGUF_NLP_MODEL_FILE="Qwen3-Embedding-8B-Q5_K_M.gguf"
+
+# Expected SHA256 checksums (from official HuggingFace repos)
+GGUF_CODE_SHA256="f234c58a5be4c5e89f71e3b7131150a568b9618d32a34ebb625e9c0f6e0be9fb"
+GGUF_NLP_SHA256="022d33b4e2d97ef09a74feb13ef368cb7ca3a610ea2fb3e107199fa72c226e78"
 GGUF_CODE_HF_REPO="nomic-ai/nomic-embed-code-GGUF"
 GGUF_NLP_HF_REPO="Qwen/Qwen3-Embedding-8B-GGUF"
 GGUF_MIN_VRAM_GB=12
@@ -90,13 +94,33 @@ purge_embedding_configs() {
 download_gguf_model() {
   local filename="$1"
   local hf_repo="$2"
+  local expected_sha256="${3:-}"
   local target="${MODELS_DIR}/${filename}"
 
+  # Verify integrity if file exists
   if [[ -f "$target" ]]; then
-    local size_mb
-    size_mb=$(du -m "$target" | cut -f1)
-    log ok "GGUF model present: ${filename} (${size_mb} MB)"
-    return 0
+    if [[ -n "$expected_sha256" ]]; then
+      local actual_sha256
+      log info "Verifying integrity: ${filename}..."
+      actual_sha256=$(sha256sum "$target" | cut -d' ' -f1)
+      if [[ "$actual_sha256" == "$expected_sha256" ]]; then
+        local size_mb
+        size_mb=$(du -m "$target" | cut -f1)
+        log ok "GGUF model verified: ${filename} (${size_mb} MB)"
+        return 0
+      else
+        log warn "GGUF model checksum mismatch: ${filename}"
+        log warn "  expected: ${expected_sha256}"
+        log warn "  actual:   ${actual_sha256}"
+        log info "Re-downloading..."
+        rm -f "$target"
+      fi
+    else
+      local size_mb
+      size_mb=$(du -m "$target" | cut -f1)
+      log ok "GGUF model present: ${filename} (${size_mb} MB)"
+      return 0
+    fi
   fi
 
   mkdir -p "${MODELS_DIR}"
@@ -115,14 +139,27 @@ download_gguf_model() {
     return 1
   fi
 
-  if [[ -f "$target" ]]; then
-    local size_mb
-    size_mb=$(du -m "$target" | cut -f1)
-    log ok "GGUF model downloaded: ${filename} (${size_mb} MB)"
-  else
+  if [[ ! -f "$target" ]]; then
     log error "GGUF download failed: ${filename}"
     return 1
   fi
+
+  # Verify downloaded file
+  if [[ -n "$expected_sha256" ]]; then
+    local actual_sha256
+    actual_sha256=$(sha256sum "$target" | cut -d' ' -f1)
+    if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+      log error "Downloaded file checksum mismatch: ${filename}"
+      log error "  expected: ${expected_sha256}"
+      log error "  actual:   ${actual_sha256}"
+      rm -f "$target"
+      return 1
+    fi
+  fi
+
+  local size_mb
+  size_mb=$(du -m "$target" | cut -f1)
+  log ok "GGUF model downloaded and verified: ${filename} (${size_mb} MB)"
 }
 
 # ---------------------------------------------------------------------------
@@ -822,8 +859,8 @@ fi
 # Step 4: Download GGUF models
 log_separator
 log info "Downloading GGUF models..."
-download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO"
-download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO"
+download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO" "$GGUF_CODE_SHA256"
+download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO" "$GGUF_NLP_SHA256"
 
 # Step 5: Pull Docker images
 log_separator
