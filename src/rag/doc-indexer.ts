@@ -86,15 +86,14 @@ const ChunkResponseSchema = z.object({
   sections: z.array(ChunkSchema),
 });
 
-const REFINE_SECTION_PROMPT = `You are a documentation analyzer. Given a single H2 section from a markdown document, refine it into semantic sub-sections. Each sub-section should cover ONE distinct concept.
+const REFINE_SECTION_PROMPT = `You are a documentation analyzer. Given a prose section (code and tables already removed), refine it into semantic sub-sections. Each sub-section should cover ONE distinct concept.
 
 Rules:
 - If the section covers a single concept, return it as-is with a descriptive title
-- If the section covers multiple sub-topics (e.g. has H3 headings or distinct paragraphs about different things), split into multiple sub-sections
+- If the section covers multiple sub-topics, split into multiple sub-sections
 - Each sub-section needs a short descriptive title (describe the concept, not the original heading)
 - Each sub-section contains the FULL original prose text (do not summarize, do not truncate)
-- Strip fenced code blocks, markdown tables, JSON/YAML blocks, shell examples, and HTML tags. Keep only prose text and bullet lists.
-- Skip sub-sections with less than 50 characters of prose after stripping
+- Skip sub-sections with less than 50 characters of prose
 
 Respond ONLY with a JSON object. No markdown fences, no explanation.
 
@@ -118,14 +117,14 @@ async function chunkDocWithHaiku(
   const h2Sections = fallbackParseH2(filePath, source);
 
   if (h2Sections.length === 0) {
-    // No H2 structure — send the whole doc to Haiku as a single section
+    // No H2 structure — send the whole doc (prose only) to Haiku
     const prose = stripNonProse(source);
     if (prose.length < 50) return [];
     try {
       const result = await runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
-          userMessage: `Section from \`${filePath}\`:\n\n${source}`,
+          userMessage: `Section from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,
           abortController: new AbortController(),
@@ -145,8 +144,11 @@ async function chunkDocWithHaiku(
   const allSections: DocSection[] = [];
 
   for (const section of h2Sections) {
+    // Strip non-prose before checking size and sending to Haiku
+    const prose = stripNonProse(section.content);
+
     // Small sections don't need Haiku refinement
-    if (section.content.length < 500) {
+    if (prose.length < 500) {
       allSections.push(section);
       continue;
     }
@@ -155,7 +157,7 @@ async function chunkDocWithHaiku(
       const result = await runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
-          userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${section.content}`,
+          userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,
           abortController: new AbortController(),
