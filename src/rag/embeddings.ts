@@ -196,12 +196,14 @@ async function embedViaGguf(text: string, port: number, retries = 2): Promise<nu
   throw new Error('embedViaGguf: unreachable');
 }
 
+/** Max texts per GGUF batch request to avoid exceeding context window. */
+const MAX_GGUF_BATCH_SIZE = 16;
+
 /**
- * Embed multiple texts in a single HTTP request to GGUF (llama.cpp batch API).
- * Returns one embedding vector per input text. Same quality as single requests
- * but reduces HTTP overhead from N requests to 1.
+ * Embed a single batch of texts via GGUF (llama.cpp batch API).
+ * Callers should chunk into groups of MAX_GGUF_BATCH_SIZE first.
  */
-async function embedBatchViaGguf(texts: string[], port: number, retries = 2): Promise<number[][]> {
+async function embedBatchViaGgufSingle(texts: string[], port: number, retries = 2): Promise<number[][]> {
   const truncated = texts.map((t) => t.length > MAX_GGUF_CHARS ? t.slice(0, MAX_GGUF_CHARS) : t);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -236,7 +238,25 @@ async function embedBatchViaGguf(texts: string[], port: number, retries = 2): Pr
       throw err;
     }
   }
-  throw new Error('embedBatchViaGguf: unreachable');
+  throw new Error('embedBatchViaGgufSingle: unreachable');
+}
+
+/**
+ * Embed multiple texts via GGUF, automatically chunking into batches
+ * of MAX_GGUF_BATCH_SIZE to avoid exceeding llama.cpp's context window.
+ */
+async function embedBatchViaGguf(texts: string[], port: number): Promise<number[][]> {
+  if (texts.length <= MAX_GGUF_BATCH_SIZE) {
+    return embedBatchViaGgufSingle(texts, port);
+  }
+
+  const results: number[][] = [];
+  for (let i = 0; i < texts.length; i += MAX_GGUF_BATCH_SIZE) {
+    const chunk = texts.slice(i, i + MAX_GGUF_BATCH_SIZE);
+    const batch = await embedBatchViaGgufSingle(chunk, port);
+    results.push(...batch);
+  }
+  return results;
 }
 
 /**

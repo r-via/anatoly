@@ -11,9 +11,9 @@ describe('stripCodeBlocks', () => {
     expect(stripCodeBlocks(input)).toBe('before\n\nafter');
   });
 
-  it('removes inline code', () => {
+  it('keeps inline code content but removes backticks', () => {
     const input = 'Use `npm install` to install';
-    expect(stripCodeBlocks(input)).toBe('Use  to install');
+    expect(stripCodeBlocks(input)).toBe('Use npm install to install');
   });
 
   it('handles text without code blocks', () => {

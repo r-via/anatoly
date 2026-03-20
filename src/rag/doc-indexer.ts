@@ -110,8 +110,10 @@ async function chunkDocWithHaiku(
   source: string,
   model: string,
   projectRoot: string,
+  abortController?: AbortController,
 ): Promise<DocSection[]> {
   const log = contextLogger();
+  const ac = abortController ?? new AbortController();
 
   // Step 1: mechanical H2 split (free, instant)
   const h2Sections = fallbackParseH2(filePath, source);
@@ -127,7 +129,7 @@ async function chunkDocWithHaiku(
           userMessage: `Section from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,
-          abortController: new AbortController(),
+          abortController: ac,
         },
         ChunkResponseSchema,
       );
@@ -135,6 +137,7 @@ async function chunkDocWithHaiku(
         .filter((s) => s.content.trim().length >= 50)
         .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
     } catch (err) {
+      if (ac.signal.aborted) throw err;
       log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku failed on unstructured doc');
       return [{ filePath, heading: filePath, embedText: prose, content: prose }];
     }
@@ -144,6 +147,8 @@ async function chunkDocWithHaiku(
   const allSections: DocSection[] = [];
 
   for (const section of h2Sections) {
+    if (ac.signal.aborted) break;
+
     // Strip non-prose before checking size and sending to Haiku
     const prose = stripNonProse(section.content);
 
@@ -160,7 +165,7 @@ async function chunkDocWithHaiku(
           userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,
-          abortController: new AbortController(),
+          abortController: ac,
         },
         ChunkResponseSchema,
       );
@@ -171,6 +176,7 @@ async function chunkDocWithHaiku(
 
       allSections.push(...(refined.length > 0 ? refined : [section]));
     } catch (err) {
+      if (ac.signal.aborted) throw err;
       log?.warn({ file: filePath, section: section.heading, err: String(err) }, 'doc chunking: Haiku refinement failed, keeping H2 section');
       allSections.push(section);
     }
@@ -186,7 +192,7 @@ async function chunkDocWithHaiku(
 function stripNonProse(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, '')     // fenced code blocks
-    .replace(/`[^`\n]+`/g, '')           // inline code
+    .replace(/`([^`\n]+)`/g, '$1')        // inline code: keep content, remove backticks
     .replace(/^\|.*\|$/gm, '')           // markdown tables
     .replace(/^>\s.*$/gm, '')            // blockquotes
     .replace(/<[^>]+>/g, '')             // HTML tags
@@ -201,6 +207,7 @@ function fallbackParseH2(filePath: string, source: string): DocSection[] {
 
   let currentHeading: string | null = null;
   const contentLines: string[] = [];
+  const preambleLines: string[] = [];
 
   for (const line of lines) {
     const h2Match = line.match(/^##\s+(.+)/);
@@ -213,10 +220,22 @@ function fallbackParseH2(filePath: string, source: string): DocSection[] {
           sections.push({ filePath, heading: currentHeading, embedText: prose, content: raw });
         }
         contentLines.length = 0;
+      } else if (preambleLines.length > 0) {
+        // Flush preamble (content before first H2)
+        const raw = preambleLines.join('\n').trim();
+        const prose = stripNonProse(raw);
+        if (prose.length >= 50) {
+          sections.push({ filePath, heading: 'Introduction', embedText: prose, content: raw });
+        }
       }
       currentHeading = h2Match[1].trim();
     } else if (currentHeading !== null) {
       contentLines.push(line);
+    } else {
+      // Skip H1 lines from preamble (title, not content)
+      if (!line.match(/^#\s+/)) {
+        preambleLines.push(line);
+      }
     }
   }
 
@@ -277,6 +296,8 @@ export interface DocIndexOptions {
   /** Model for semantic chunking (e.g. 'haiku'). If omitted, falls back to H2 parsing. */
   chunkModel?: string;
   onLog: (message: string) => void;
+  /** Check if the caller has requested interruption (Ctrl+C). */
+  isInterrupted?: () => boolean;
 }
 
 /**
@@ -286,7 +307,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -303,7 +324,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
   const newCache: DocCacheData = {};
 
-  const changedFiles: Array<{ relPath: string; source: string }> = [];
+  const changedFiles: Array<{ relPath: string; source: string; sha: string }> = [];
   let cachedCount = 0;
 
   for (const absPath of files) {
@@ -316,7 +337,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
       newCache[relPath] = cached;
       cachedCount++;
     } else {
-      changedFiles.push({ relPath, source });
+      changedFiles.push({ relPath, source, sha });
     }
   }
 
@@ -341,15 +362,21 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   let totalIndexed = 0;
   let docFileCounter = 0;
 
-  for (const { relPath, source } of changedFiles) {
+  // Create a shared AbortController for all Haiku calls — aborted when isInterrupted() returns true
+  const ac = new AbortController();
+
+  for (const { relPath, source, sha } of changedFiles) {
+    if (isInterrupted?.()) {
+      ac.abort();
+      break;
+    }
     docFileCounter++;
     onProgress?.(docFileCounter, changedFiles.length);
     onFileStart?.(relPath);
     onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
-    const sha = computeDocSha(source);
 
     const sections = chunkModel
-      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot)
+      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac)
       : fallbackParseH2(relPath, source);
 
     if (sections.length === 0) {

@@ -406,6 +406,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onProgress,
         onFileStart,
         onFileDone,
+        isInterrupted,
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);

@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
@@ -249,8 +249,8 @@ export function registerRunCommand(program: Command): void {
 
       const onSigint = async () => {
         if (ctx.interrupted) {
-          await stopGgufContainers();
-          await stopTeiContainers();
+          try { await stopGgufContainers(); } catch { /* best-effort */ }
+          try { await stopTeiContainers(); } catch { /* best-effort */ }
           flushFileLogger();
           console.log(`\n${chalk.red.bold('force exit')}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
@@ -697,6 +697,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const indexModel = ctx.config.llm.index_model;
   const indexModelShort = shortModelName(indexModel);
   const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
+  mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
+  const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });
   let ragPhase = 'code';
   const phaseLabels: Record<string, string> = {
     code: `code indexing (${codeModelShort} + ${indexModelShort})`,
@@ -728,7 +730,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           ragMode: ctx.resolvedRagMode,
           onLog: (msg) => {
             ctx.runLog?.debug({ phase: 'rag-index' }, msg);
-            appendFileSync(ragLogPath, `${new Date().toISOString()} ${msg}\n`);
+            ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
             if (ctx.plain) listrTask.output = msg;
           },
           onProgress: (current, total) => {
@@ -768,6 +770,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   } finally {
     // Embedding backends are only needed during indexing — free GPU/RAM immediately.
     // Must run even if indexing throws to avoid leaking processes/containers.
+    ragLogStream.end();
     await stopGgufContainers(logFn);
     await stopTeiContainers();
   }
