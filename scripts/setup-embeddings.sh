@@ -559,6 +559,9 @@ run_ab_test() {
   elif jq -e ". < ${MIN_COSINE_SIM}" <<< "$AVG_CODE_SIM" &>/dev/null; then
     RECOMMENDATION="lite"
     REASON="Code cosine similarity ${AVG_CODE_SIM} below threshold ${MIN_COSINE_SIM}"
+  elif jq -e ". < ${MIN_COSINE_SIM}" <<< "$AVG_NLP_SIM" &>/dev/null; then
+    RECOMMENDATION="lite"
+    REASON="NLP cosine similarity ${AVG_NLP_SIM} below threshold ${MIN_COSINE_SIM}"
   elif [[ "$RANKING_PRESERVED" -lt "$RANKING_TOTAL" ]]; then
     # Partial ranking change — still OK if similarity is very high
     if jq -e ". >= 0.997" <<< "$AVG_CODE_SIM" &>/dev/null; then
