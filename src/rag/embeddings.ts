@@ -197,6 +197,87 @@ async function embedViaGguf(text: string, port: number, retries = 2): Promise<nu
 }
 
 /**
+ * Embed multiple texts in a single HTTP request to GGUF (llama.cpp batch API).
+ * Returns one embedding vector per input text. Same quality as single requests
+ * but reduces HTTP overhead from N requests to 1.
+ */
+async function embedBatchViaGguf(texts: string[], port: number, retries = 2): Promise<number[][]> {
+  const truncated = texts.map((t) => t.length > MAX_GGUF_CHARS ? t.slice(0, MAX_GGUF_CHARS) : t);
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/embedding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: truncated }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`GGUF container failed (${res.status}): ${await res.text()}`);
+      }
+
+      const data = await res.json() as unknown;
+
+      // llama.cpp returns: [{index: 0, embedding: [[...]]}, {index: 1, embedding: [[...]]}]
+      if (Array.isArray(data)) {
+        // Sort by index to ensure correct order
+        const sorted = [...data].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+        return sorted.map((item) => {
+          const emb = item.embedding;
+          return Array.isArray(emb[0]) ? emb[0] : emb;
+        });
+      }
+      throw new Error('GGUF batch returned unexpected response format');
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('embedBatchViaGguf: unreachable');
+}
+
+/**
+ * Embed multiple code texts in a single batch request.
+ * Falls back to sequential embedCode() for ONNX runtime.
+ */
+export async function embedCodeBatch(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  if (codeRuntime === 'gguf') {
+    await ensureModel('code');
+    return embedBatchViaGguf(texts, GGUF_CODE_PORT);
+  }
+  // ONNX fallback: sequential
+  const results: number[][] = [];
+  for (const text of texts) {
+    results.push(await embedViaOnnx(text));
+  }
+  return results;
+}
+
+/**
+ * Embed multiple NLP texts in a single batch request.
+ * Falls back to sequential embedNlp() for ONNX runtime.
+ */
+export async function embedNlpBatch(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  if (nlpRuntime === 'gguf') {
+    await ensureModel('nlp');
+    return embedBatchViaGguf(texts, GGUF_NLP_PORT);
+  }
+  // ONNX fallback: sequential
+  const results: number[][] = [];
+  for (const text of texts) {
+    const model = await getNlpEmbedder();
+    const output = await model(text, { pooling: 'mean', normalize: true });
+    results.push(Array.from(output.data));
+  }
+  return results;
+}
+
+/**
  * Generate a code embedding vector for the given text.
  * Routes to GGUF Docker or ONNX based on configured runtime.
  */

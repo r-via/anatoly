@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embedCode, embedNlp, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
+import { embedCode, embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 import type { NlpSummary } from './nlp-summarizer.js';
 
@@ -174,21 +174,20 @@ export function needsReindex(cache: RagCache, card: FunctionCard, fileHash: stri
  * Requires the source text and symbol info to extract function bodies.
  */
 export async function embedCards(cards: FunctionCard[], source: string, symbols: SymbolInfo[]): Promise<number[][]> {
-  const embeddings: number[][] = [];
+  // Build all code texts first, then batch-embed in a single request
+  const texts: string[] = [];
   for (const card of cards) {
     const symbol = symbols.find(
       (s) => s.name === card.name && (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
     );
     if (!symbol) {
-      // Fallback: embed just the signature
-      embeddings.push(await embedCode(buildEmbedCode(card.name, card.signature, '')));
-      continue;
+      texts.push(buildEmbedCode(card.name, card.signature, ''));
+    } else {
+      const body = extractFunctionBody(source, symbol);
+      texts.push(buildEmbedCode(card.name, card.signature, body));
     }
-    const body = extractFunctionBody(source, symbol);
-    const codeText = buildEmbedCode(card.name, card.signature, body);
-    embeddings.push(await embedCode(codeText));
   }
-  return embeddings;
+  return embedCodeBatch(texts);
 }
 
 /**
@@ -267,15 +266,25 @@ export async function generateNlpEmbeddings(
 ): Promise<number[][]> {
   const nlpDimSize = getNlpDim();
   const zeroVector = new Array(nlpDimSize).fill(0);
-  const nlpEmbeddings: number[][] = [];
 
-  for (const card of cards) {
+  // Collect texts and indices for cards that have summaries
+  const textsToEmbed: string[] = [];
+  const textIndices: number[] = [];
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
     if (card.summary) {
-      const nlpText = buildEmbedNlp(card.name, card.summary, card.keyConcepts ?? [], card.behavioralProfile ?? '');
-      nlpEmbeddings.push(await embedNlp(nlpText));
-    } else {
-      nlpEmbeddings.push([...zeroVector]);
+      textsToEmbed.push(buildEmbedNlp(card.name, card.summary, card.keyConcepts ?? [], card.behavioralProfile ?? ''));
+      textIndices.push(i);
     }
+  }
+
+  // Batch-embed all NLP texts in a single request
+  const batchResults = await embedNlpBatch(textsToEmbed);
+
+  // Map back to card order, filling zero vectors for cards without summaries
+  const nlpEmbeddings: number[][] = cards.map(() => [...zeroVector]);
+  for (let j = 0; j < textIndices.length; j++) {
+    nlpEmbeddings[textIndices[j]] = batchResults[j];
   }
 
   return nlpEmbeddings;

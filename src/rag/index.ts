@@ -4,7 +4,7 @@
 
 export { FunctionCardSchema } from './types.js';
 export type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
-export { embed, embedCode, embedNlp, buildEmbedCode, buildEmbedNlp, setEmbeddingLogger, configureModels, getCodeModelId, getNlpModelId, getCodeDim, getNlpDim, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
+export { embed, embedCode, embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, setEmbeddingLogger, configureModels, getCodeModelId, getNlpModelId, getCodeDim, getNlpDim, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
 export { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
 export type { UpsertOptions } from './vector-store.js';
 export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, computeBodyHash } from './indexer.js';
