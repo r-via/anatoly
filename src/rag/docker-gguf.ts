@@ -2,6 +2,15 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+/**
+ * GGUF Docker container lifecycle — sequential (swap) mode.
+ *
+ * Only one model is loaded at a time to minimise VRAM usage (~10 GB instead
+ * of ~20 GB).  When the caller switches between code and NLP embeddings the
+ * active container is stopped and a new one is started with the other model.
+ * The swap cost is the container startup time (30-120 s).
+ */
+
 import { execSync, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -14,43 +23,42 @@ import {
 } from './hardware-detect.js';
 
 const CONTAINER_PREFIX = 'anatoly-gguf';
-const CODE_CONTAINER = `${CONTAINER_PREFIX}-code`;
-const NLP_CONTAINER = `${CONTAINER_PREFIX}-nlp`;
+const CONTAINER_NAME = `${CONTAINER_PREFIX}-active`;
 /** Timeout for model loading in Docker containers (3 minutes). */
 const READY_TIMEOUT_MS = 180_000;
 
-let containersStarted = false;
+type ActiveModel = 'code' | 'nlp' | null;
 
-/**
- * Remove a Docker container by name (running or stopped).
- * No-op if the container doesn't exist.
- */
-function removeContainer(name: string): void {
+let activeModel: ActiveModel = null;
+let modelsDirectory: string | null = null;
+let logFn: ((message: string) => void) | undefined;
+let progressFn: ((elapsed: number) => void) | undefined;
+let dockerVerified = false;
+
+// ---------------------------------------------------------------------------
+// Low-level helpers
+// ---------------------------------------------------------------------------
+
+function removeContainer(): void {
   try {
-    execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 10_000 });
+    execFileSync('docker', ['rm', '-f', CONTAINER_NAME], {
+      stdio: 'ignore',
+      timeout: 10_000,
+    });
   } catch {
     // Container doesn't exist — OK
   }
 }
 
-/**
- * Start a single GGUF Docker container for embedding.
- * Runs detached, mapping the host port to the container's internal port 8080.
- */
-function runContainer(
-  name: string,
-  modelsDir: string,
-  modelFile: string,
-  hostPort: number,
-): void {
-  removeContainer(name);
+function runContainer(modelFile: string, hostPort: number): void {
+  removeContainer();
 
   const args = [
     'run',
     '--gpus', 'all',
-    '-v', `${modelsDir}:/models:ro`,
+    '-v', `${modelsDirectory}:/models:ro`,
     '-p', `${hostPort}:8080`,
-    '--name', name,
+    '--name', CONTAINER_NAME,
     '-d',
     GGUF_DOCKER_IMAGE,
     '--model', `/models/${modelFile}`,
@@ -61,10 +69,6 @@ function runContainer(
   execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
 }
 
-/**
- * Wait for a container's /health endpoint to respond OK.
- * GGUF models can take 30-120s to load into VRAM.
- */
 async function waitForContainer(
   port: number,
   timeoutMs: number,
@@ -90,24 +94,73 @@ async function waitForContainer(
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Swap logic
+// ---------------------------------------------------------------------------
+
+function modelConfig(model: 'code' | 'nlp') {
+  return model === 'code'
+    ? { file: GGUF_CODE_MODEL_FILE, port: GGUF_CODE_PORT, label: 'code' }
+    : { file: GGUF_NLP_MODEL_FILE, port: GGUF_NLP_PORT, label: 'NLP' };
+}
+
 /**
- * Start GGUF Docker containers for code and NLP embedding.
- * Both models are loaded simultaneously (~10 GB VRAM total).
- * Returns true if both containers are healthy, false on any failure.
- *
- * On failure, containers are cleaned up automatically.
- * Falls back gracefully — caller should try fp16 or lite.
+ * Ensure the requested model is loaded. If a different model is active,
+ * stop the current container and start a new one.  No-op if the requested
+ * model is already running.
+ */
+export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
+  if (activeModel === model) return;
+
+  const cfg = modelConfig(model);
+
+  if (activeModel !== null) {
+    logFn?.(`swapping GGUF model: ${activeModel} → ${cfg.label}...`);
+    removeContainer();
+    activeModel = null;
+  }
+
+  logFn?.(`starting GGUF ${cfg.label} container (port ${cfg.port})...`);
+  runContainer(cfg.file, cfg.port);
+
+  logFn?.(`waiting for GGUF ${cfg.label} model to load into VRAM...`);
+  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS, progressFn);
+
+  if (!ready) {
+    removeContainer();
+    throw new Error(`GGUF ${cfg.label} container failed to become healthy`);
+  }
+
+  activeModel = model;
+  logFn?.(`GGUF ${cfg.label} model ready`);
+}
+
+/** Return the port of the currently active model, or throw. */
+export function activePort(): number {
+  if (activeModel === null) throw new Error('No GGUF model is loaded');
+  return modelConfig(activeModel).port;
+}
+
+// ---------------------------------------------------------------------------
+// Public lifecycle API (unchanged signatures for callers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate prerequisites for GGUF containers (model files, Docker daemon).
+ * Starts the code model by default so the first embedCode() call is instant.
  */
 export async function startGgufContainers(
   projectRoot: string,
   onLog?: (message: string) => void,
   onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
-  const modelsDir = resolve(projectRoot, '.anatoly', 'models');
+  modelsDirectory = resolve(projectRoot, '.anatoly', 'models');
+  logFn = onLog;
+  progressFn = onProgress;
 
   // Verify model files exist
-  const codeModelPath = resolve(modelsDir, GGUF_CODE_MODEL_FILE);
-  const nlpModelPath = resolve(modelsDir, GGUF_NLP_MODEL_FILE);
+  const codeModelPath = resolve(modelsDirectory, GGUF_CODE_MODEL_FILE);
+  const nlpModelPath = resolve(modelsDirectory, GGUF_NLP_MODEL_FILE);
 
   if (!existsSync(codeModelPath)) {
     onLog?.(`GGUF code model not found: ${codeModelPath} — run 'anatoly setup-embeddings' first`);
@@ -118,37 +171,20 @@ export async function startGgufContainers(
     return false;
   }
 
-  // Verify Docker daemon is running
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
-  } catch {
-    onLog?.('Docker not available — cannot start GGUF containers');
-    return false;
-  }
-
-  onLog?.(`starting GGUF containers (code: ${GGUF_CODE_PORT}, NLP: ${GGUF_NLP_PORT})...`);
-
-  try {
-    // Start both containers simultaneously
-    runContainer(CODE_CONTAINER, modelsDir, GGUF_CODE_MODEL_FILE, GGUF_CODE_PORT);
-    runContainer(NLP_CONTAINER, modelsDir, GGUF_NLP_MODEL_FILE, GGUF_NLP_PORT);
-
-    // Wait for both to become healthy (model loading can take 30-120s)
-    onLog?.('waiting for GGUF models to load into VRAM...');
-    const [codeReady, nlpReady] = await Promise.all([
-      waitForContainer(GGUF_CODE_PORT, READY_TIMEOUT_MS, onProgress),
-      waitForContainer(GGUF_NLP_PORT, READY_TIMEOUT_MS),
-    ]);
-
-    if (!codeReady || !nlpReady) {
-      const failed = [!codeReady && 'code', !nlpReady && 'NLP'].filter(Boolean).join(', ');
-      onLog?.(`GGUF containers failed to become healthy (${failed}) — cleaning up`);
-      await stopGgufContainers(onLog);
+  // Verify Docker daemon is running (once)
+  if (!dockerVerified) {
+    try {
+      execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
+      dockerVerified = true;
+    } catch {
+      onLog?.('Docker not available — cannot start GGUF containers');
       return false;
     }
+  }
 
-    containersStarted = true;
-    onLog?.('GGUF containers ready — both models loaded');
+  try {
+    // Start with the code model (most common first call)
+    await ensureModel('code');
     return true;
   } catch (err) {
     onLog?.(`GGUF container start failed: ${(err as Error).message}`);
@@ -158,22 +194,21 @@ export async function startGgufContainers(
 }
 
 /**
- * Stop and remove GGUF Docker containers.
- * Safe to call even if containers aren't running — idempotent.
+ * Stop and remove the active GGUF Docker container.
+ * Safe to call even if no container is running — idempotent.
  */
 export async function stopGgufContainers(
   onLog?: (message: string) => void,
 ): Promise<void> {
-  removeContainer(CODE_CONTAINER);
-  removeContainer(NLP_CONTAINER);
+  removeContainer();
 
-  if (containersStarted) {
-    onLog?.('GGUF containers stopped');
+  if (activeModel !== null) {
+    onLog?.('GGUF container stopped');
   }
-  containersStarted = false;
+  activeModel = null;
 }
 
-/** Check if GGUF containers are currently managed by this process. */
+/** Check if a GGUF container is currently managed by this process. */
 export function areGgufContainersRunning(): boolean {
-  return containersStarted;
+  return activeModel !== null;
 }

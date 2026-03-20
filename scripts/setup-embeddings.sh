@@ -316,23 +316,26 @@ run_ab_test() {
   VRAM_BASELINE=$(detect_vram_used_mib)
   log info "VRAM baseline: ${VRAM_BASELINE} MiB"
 
-  # --- Phase A: GGUF embeddings ---
+  # --- Phase A: GGUF embeddings (sequential — one model at a time) ---
   log_separator
   log info "Phase A: GGUF embeddings"
 
-  start_gguf_containers "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_NLP_MODEL_FILE"
-  if ! wait_for_gguf 180; then
-    log error "GGUF containers failed — aborting A/B test"
-    stop_gguf_containers
+  # --- Phase A.1: GGUF code ---
+  local code_name="${CONTAINER_PREFIX}-gguf-code"
+  log info "Starting GGUF code container (${GGUF_CODE_PORT})..."
+  start_gguf_container "$code_name" "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_PORT"
+  if ! wait_for_health "http://127.0.0.1:${GGUF_CODE_PORT}/health" 180; then
+    log error "GGUF code container failed — aborting A/B test"
+    docker_rm "$code_name"
     rm -rf "$AB_TMP"
     return 1
   fi
+  log ok "GGUF code container ready"
 
-  local VRAM_GGUF
-  VRAM_GGUF=$(detect_vram_used_mib)
-  log info "GGUF VRAM: $(( VRAM_GGUF - VRAM_BASELINE )) MiB (total: ${VRAM_GGUF} MiB)"
+  local VRAM_GGUF_CODE
+  VRAM_GGUF_CODE=$(detect_vram_used_mib)
+  log info "GGUF code VRAM: $(( VRAM_GGUF_CODE - VRAM_BASELINE )) MiB"
 
-  # Collect GGUF code embeddings — write vectors to file (one JSON array per line)
   log info "Getting GGUF code embeddings..."
   : > "${AB_TMP}/gguf_code_vecs.jsonl"
   local GGUF_CODE_LATENCIES="[]"
@@ -355,7 +358,26 @@ run_ab_test() {
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$CODE_COUNT" "$DT" "$GGUF_CODE_DIM" >&2
   done
 
-  # Collect GGUF NLP embeddings
+  docker_rm "$code_name"
+  sleep 5
+  free_all_ports
+
+  # --- Phase A.2: GGUF NLP ---
+  local nlp_name="${CONTAINER_PREFIX}-gguf-nlp"
+  log info "Starting GGUF NLP container (${GGUF_NLP_PORT})..."
+  start_gguf_container "$nlp_name" "$MODELS_DIR" "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_PORT"
+  if ! wait_for_health "http://127.0.0.1:${GGUF_NLP_PORT}/health" 180; then
+    log error "GGUF NLP container failed — aborting A/B test"
+    docker_rm "$nlp_name"
+    rm -rf "$AB_TMP"
+    return 1
+  fi
+  log ok "GGUF NLP container ready"
+
+  local VRAM_GGUF_NLP
+  VRAM_GGUF_NLP=$(detect_vram_used_mib)
+  log info "GGUF NLP VRAM: $(( VRAM_GGUF_NLP - VRAM_BASELINE )) MiB"
+
   log info "Getting GGUF NLP embeddings..."
   : > "${AB_TMP}/gguf_nlp_vecs.jsonl"
   local GGUF_NLP_LATENCIES="[]"
@@ -378,7 +400,7 @@ run_ab_test() {
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$GGUF_NLP_DIM" >&2
   done
 
-  stop_gguf_containers
+  docker_rm "$nlp_name"
   log info "Cooling down (releasing VRAM)..."
   flush_gpu_memory
   free_all_ports
@@ -564,7 +586,7 @@ run_ab_test() {
     --arg gpu "$(detect_gpu)" \
     --argjson vram_gb "$(detect_vram_gb)" \
     --argjson vram_baseline_mib "$VRAM_BASELINE" \
-    --argjson vram_gguf_mib "$VRAM_GGUF" \
+    --argjson vram_gguf_mib "$(( VRAM_GGUF_CODE > VRAM_GGUF_NLP ? VRAM_GGUF_CODE : VRAM_GGUF_NLP ))" \
     --argjson vram_tei_mib "$VRAM_TEI" \
     --argjson gguf_code_dim "$GGUF_CODE_DIM" \
     --argjson gguf_nlp_dim "$GGUF_NLP_DIM" \

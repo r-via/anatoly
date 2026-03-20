@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { MODEL_REGISTRY, GGUF_CODE_PORT, GGUF_NLP_PORT, type ResolvedModels } from './hardware-detect.js';
+import { ensureModel } from './docker-gguf.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -190,6 +191,7 @@ async function embedViaGguf(text: string, port: number, retries = 2): Promise<nu
  */
 export async function embedCode(text: string): Promise<number[]> {
   if (codeRuntime === 'gguf') {
+    await ensureModel('code');
     return embedViaGguf(text, GGUF_CODE_PORT);
   }
   return embedViaOnnx(text);
@@ -201,6 +203,7 @@ export async function embedCode(text: string): Promise<number[]> {
  */
 export async function embedNlp(text: string): Promise<number[]> {
   if (nlpRuntime === 'gguf') {
+    await ensureModel('nlp');
     return embedViaGguf(text, GGUF_NLP_PORT);
   }
   const model = await getNlpEmbedder();
