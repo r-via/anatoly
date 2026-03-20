@@ -732,9 +732,13 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
             listrTask.title = `${phaseLabels[ragPhase]} — ${current}/${total}`;
           },
           onPhase: (phase) => {
-            ragDisplay.completePhase(phaseLabels[ragPhase]);
+            const prevPhase = ragPhase;
             ragPhase = phase;
             listrTask.title = phaseLabels[phase] ?? phase;
+            // Mark the previous phase as complete (shown under the new title)
+            if (prevPhase !== phase) {
+              ragDisplay.completePhase(phaseLabels[prevPhase]);
+            }
           },
           onFileStart: (file) => { ragDisplay.trackFile(file); },
           onFileDone: (file) => { ragDisplay.untrackFile(file); },
