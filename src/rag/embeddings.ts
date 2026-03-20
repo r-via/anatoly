@@ -166,13 +166,24 @@ async function embedViaGguf(text: string, port: number, retries = 2): Promise<nu
         throw new Error(`GGUF container failed (${res.status}): ${await res.text()}`);
       }
 
-      const data = await res.json() as { results: Array<{ embedding: number[] }> };
-      if (data.results?.[0]?.embedding) {
-        return data.results[0].embedding;
+      const data = await res.json() as unknown;
+
+      // llama.cpp returns: [{index: 0, embedding: [[...floats...]]}]
+      if (Array.isArray(data) && data[0]?.embedding) {
+        const emb = data[0].embedding;
+        // embedding is [[...floats...]] (nested) or [...floats...]
+        return Array.isArray(emb[0]) ? emb[0] : emb;
       }
-      // llama.cpp may also return flat embedding array
-      const flat = data as unknown as { embedding: number[] };
-      if (flat.embedding) return flat.embedding;
+      // Older format: {results: [{embedding: [...]}]}
+      const obj = data as { results?: Array<{ embedding: number[][] | number[] }>; embedding?: number[][] | number[] };
+      if (obj.results?.[0]?.embedding) {
+        const emb = obj.results[0].embedding;
+        return Array.isArray(emb[0]) ? emb[0] as number[] : emb as number[];
+      }
+      if (obj.embedding) {
+        const emb = obj.embedding;
+        return Array.isArray(emb[0]) ? emb[0] as number[] : emb as number[];
+      }
       throw new Error('GGUF container returned unexpected response format');
     } catch (err) {
       if (attempt < retries) {
