@@ -360,6 +360,8 @@ run_ab_test() {
   # --- Phase A.1: GGUF code ---
   local code_name="${CONTAINER_PREFIX}-gguf-code"
   log info "Starting GGUF code container (${GGUF_CODE_PORT})..."
+  local GGUF_CODE_LOAD_START
+  GGUF_CODE_LOAD_START=$(date +%s)
   start_gguf_container "$code_name" "$MODELS_DIR" "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_PORT"
   if ! wait_for_health "http://127.0.0.1:${GGUF_CODE_PORT}/health" 180; then
     log error "GGUF code container failed — aborting A/B test"
@@ -367,7 +369,8 @@ run_ab_test() {
     rm -rf "$AB_TMP"
     return 1
   fi
-  log ok "GGUF code container ready"
+  local GGUF_CODE_LOAD_MS=$(( ($(date +%s) - GGUF_CODE_LOAD_START) * 1000 ))
+  log ok "GGUF code container ready (${GGUF_CODE_LOAD_MS}ms)"
 
   local VRAM_GGUF_CODE
   VRAM_GGUF_CODE=$(detect_vram_used_mib)
@@ -402,6 +405,8 @@ run_ab_test() {
   # --- Phase A.2: GGUF NLP ---
   local nlp_name="${CONTAINER_PREFIX}-gguf-nlp"
   log info "Starting GGUF NLP container (${GGUF_NLP_PORT})..."
+  local GGUF_NLP_LOAD_START
+  GGUF_NLP_LOAD_START=$(date +%s)
   start_gguf_container "$nlp_name" "$MODELS_DIR" "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_PORT"
   if ! wait_for_health "http://127.0.0.1:${GGUF_NLP_PORT}/health" 180; then
     log error "GGUF NLP container failed — aborting A/B test"
@@ -409,7 +414,8 @@ run_ab_test() {
     rm -rf "$AB_TMP"
     return 1
   fi
-  log ok "GGUF NLP container ready"
+  local GGUF_NLP_LOAD_MS=$(( ($(date +%s) - GGUF_NLP_LOAD_START) * 1000 ))
+  log ok "GGUF NLP container ready (${GGUF_NLP_LOAD_MS}ms)"
 
   local VRAM_GGUF_NLP
   VRAM_GGUF_NLP=$(detect_vram_used_mib)
@@ -503,6 +509,8 @@ JQ
 
   # TEI code model
   log info "Starting TEI code container (${CODE_MODEL_ID})..."
+  local TEI_CODE_LOAD_START
+  TEI_CODE_LOAD_START=$(date +%s)
   start_tei_container "${CONTAINER_PREFIX}-tei-code" "$CODE_MODEL_ID" "$TEI_CODE_PORT"
   if ! wait_for_tei "$TEI_CODE_PORT" "code" 600; then
     log error "TEI code container failed — aborting A/B test"
@@ -510,6 +518,8 @@ JQ
     rm -rf "$AB_TMP"
     return 1
   fi
+  local TEI_CODE_LOAD_MS=$(( ($(date +%s) - TEI_CODE_LOAD_START) * 1000 ))
+  log info "TEI code load time: ${TEI_CODE_LOAD_MS}ms"
 
   local VRAM_TEI
   VRAM_TEI=$(detect_vram_used_mib)
@@ -544,6 +554,8 @@ JQ
   free_all_ports
 
   log info "Starting TEI NLP container (${NLP_MODEL_ID})..."
+  local TEI_NLP_LOAD_START
+  TEI_NLP_LOAD_START=$(date +%s)
   start_tei_container "${CONTAINER_PREFIX}-tei-nlp" "$NLP_MODEL_ID" "$TEI_NLP_PORT"
   if ! wait_for_tei "$TEI_NLP_PORT" "NLP" 600; then
     log error "TEI NLP container failed — aborting A/B test"
@@ -551,6 +563,8 @@ JQ
     rm -rf "$AB_TMP"
     return 1
   fi
+  local TEI_NLP_LOAD_MS=$(( ($(date +%s) - TEI_NLP_LOAD_START) * 1000 ))
+  log info "TEI NLP load time: ${TEI_NLP_LOAD_MS}ms"
 
   log info "Getting TEI NLP embeddings..."
   : > "${AB_TMP}/tei_nlp_vecs.jsonl"
@@ -717,6 +731,10 @@ JQ
     --argjson avg_tei_nlp_latency_ms "$AVG_TEI_NLP_LAT" \
     --arg recommendation "$RECOMMENDATION" \
     --arg reason "$REASON" \
+    --argjson gguf_code_load_ms "$GGUF_CODE_LOAD_MS" \
+    --argjson gguf_nlp_load_ms "$GGUF_NLP_LOAD_MS" \
+    --argjson tei_code_load_ms "$TEI_CODE_LOAD_MS" \
+    --argjson tei_nlp_load_ms "$TEI_NLP_LOAD_MS" \
     --argjson gguf_sanity_sim "$GGUF_SANITY_SIM" \
     --argjson gguf_sanity_dis "$GGUF_SANITY_DIS" \
     --argjson gguf_sanity_sep "$GGUF_SANITY_SEP" \
@@ -733,6 +751,8 @@ JQ
         vram_mib: $vram_gguf_mib,
         code_latencies_ms: $gguf_code_latencies,
         nlp_latencies_ms: $gguf_nlp_latencies,
+        code_load_ms: $gguf_code_load_ms,
+        nlp_load_ms: $gguf_nlp_load_ms,
         sanity: {similar: $gguf_sanity_sim, dissimilar: $gguf_sanity_dis, separation: $gguf_sanity_sep}
       },
       tei: {
@@ -742,6 +762,8 @@ JQ
         vram_mib: $vram_tei_mib,
         code_latencies_ms: $tei_code_latencies,
         nlp_latencies_ms: $tei_nlp_latencies,
+        code_load_ms: $tei_code_load_ms,
+        nlp_load_ms: $tei_nlp_load_ms,
         sanity: {similar: $tei_sanity_sim, dissimilar: $tei_sanity_dis, separation: $tei_sanity_sep}
       },
       comparison: {
@@ -772,8 +794,10 @@ JQ
   log info "Avg NLP similarity: ${AVG_NLP_SIM}"
   log info "GGUF latency: code ${AVG_GGUF_CODE_LAT}ms, NLP ${AVG_GGUF_NLP_LAT}ms"
   log info "TEI latency:  code ${AVG_TEI_CODE_LAT}ms, NLP ${AVG_TEI_NLP_LAT}ms"
-  log info "Sanity GGUF: sim=${GGUF_SANITY_SIM} dis=${GGUF_SANITY_DIS} sep=${GGUF_SANITY_SEP}"
-  log info "Sanity TEI:  sim=${TEI_SANITY_SIM} dis=${TEI_SANITY_DIS} sep=${TEI_SANITY_SEP}"
+  log info "GGUF load:    code $(( GGUF_CODE_LOAD_MS / 1000 ))s, NLP $(( GGUF_NLP_LOAD_MS / 1000 ))s"
+  log info "TEI load:     code $(( TEI_CODE_LOAD_MS / 1000 ))s, NLP $(( TEI_NLP_LOAD_MS / 1000 ))s"
+  log info "Sanity GGUF:  sim=${GGUF_SANITY_SIM} dis=${GGUF_SANITY_DIS} sep=${GGUF_SANITY_SEP}"
+  log info "Sanity TEI:   sim=${TEI_SANITY_SIM} dis=${TEI_SANITY_DIS} sep=${TEI_SANITY_SEP}"
 
   echo "$RECOMMENDATION"
 }
