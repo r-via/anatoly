@@ -469,14 +469,6 @@ run_ab_test() {
 
   stop_tei_containers
 
-  # --- Assemble vector arrays from JSONL files ---
-  # jq --slurp reads each line as a JSON value and wraps them in an array
-  local GGUF_CODE_VECS GGUF_NLP_VECS TEI_CODE_VECS TEI_NLP_VECS
-  GGUF_CODE_VECS=$(jq -s '.' "${AB_TMP}/gguf_code_vecs.jsonl")
-  GGUF_NLP_VECS=$(jq -s '.' "${AB_TMP}/gguf_nlp_vecs.jsonl")
-  TEI_CODE_VECS=$(jq -s '.' "${AB_TMP}/tei_code_vecs.jsonl")
-  TEI_NLP_VECS=$(jq -s '.' "${AB_TMP}/tei_nlp_vecs.jsonl")
-
   # --- Phase C: Comparison ---
   log_separator
   log info "Phase C: Comparing GGUF vs TEI embeddings"
@@ -484,27 +476,29 @@ run_ab_test() {
   # Compute cosine similarities — read vectors from files to avoid ARG_MAX
   local CODE_SIMS NLP_SIMS
   log info "Computing code cosine similarities..."
-  CODE_SIMS=$(jq -s '
-    .[0] as $gguf | .[1] as $tei |
+  CODE_SIMS=$(jq -n \
+    --slurpfile gguf "${AB_TMP}/gguf_code_vecs.jsonl" \
+    --slurpfile tei "${AB_TMP}/tei_code_vecs.jsonl" '
     [range($gguf | length) | . as $i |
       ([$gguf[$i], $tei[$i]] |
         ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
         (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
          ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
       )]
-  ' "${AB_TMP}/gguf_code_vecs.jsonl" "${AB_TMP}/tei_code_vecs.jsonl")
+  ')
   echo "$CODE_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
   log info "Computing NLP cosine similarities..."
-  NLP_SIMS=$(jq -s '
-    .[0] as $gguf | .[1] as $tei |
+  NLP_SIMS=$(jq -n \
+    --slurpfile gguf "${AB_TMP}/gguf_nlp_vecs.jsonl" \
+    --slurpfile tei "${AB_TMP}/tei_nlp_vecs.jsonl" '
     [range($gguf | length) | . as $i |
       ([$gguf[$i], $tei[$i]] |
         ([ range(.[0]|length) ] | map(.[0][.] * .[1][.]) | add) /
         (([ range(.[0]|length) ] | map(.[0][.] * .[0][.]) | add | sqrt) *
          ([ range(.[1]|length) ] | map(.[1][.] * .[1][.]) | add | sqrt))
       )]
-  ' "${AB_TMP}/gguf_nlp_vecs.jsonl" "${AB_TMP}/tei_nlp_vecs.jsonl")
+  ')
   echo "$NLP_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
 
   # Compute averages and ranking preservation
@@ -520,7 +514,9 @@ run_ab_test() {
   log info "Checking ranking preservation..."
   local RANKING_PRESERVED RANKING_TOTAL
   RANKING_TOTAL="$CODE_COUNT"
-  RANKING_PRESERVED=$(jq -s '
+  RANKING_PRESERVED=$(jq -n \
+    --slurpfile gguf "${AB_TMP}/gguf_code_vecs.jsonl" \
+    --slurpfile tei "${AB_TMP}/tei_code_vecs.jsonl" '
     def cosine(a;b):
       ([range(a|length)] | map(a[.] * b[.]) | add) /
       (([range(a|length)] | map(a[.] * a[.]) | add | sqrt) *
@@ -529,9 +525,8 @@ run_ab_test() {
       [range(vecs|length)] | map(select(. != idx)) |
       map({idx: ., sim: cosine(vecs[idx]; vecs[.])}) |
       sort_by(-.sim) | .[0:3] | map(.idx);
-    .[0] as $gguf | .[1] as $tei |
     [range($gguf|length)] | map(select(top3($gguf; .) == top3($tei; .))) | length
-  ' "${AB_TMP}/gguf_code_vecs.jsonl" "${AB_TMP}/tei_code_vecs.jsonl")
+  ')
   log info "Ranking preserved: ${RANKING_PRESERVED}/${RANKING_TOTAL}"
 
   # Recommendation logic
