@@ -722,10 +722,13 @@ if [[ "${1:-}" == "--ab-test" ]]; then
     exit 1
   fi
 
+  # Detect hardware (not done in main setup flow for --ab-test)
+  GPU=$(detect_gpu)
+  VRAM_GB=$(detect_vram_gb)
+
   # Check VRAM — A/B test loads TEI fp16 models sequentially; shared RAM helps
-  AB_VRAM=$(detect_vram_gb)
-  if [[ "$AB_VRAM" -lt 23 ]]; then
-    log error "A/B test requires >= 23 GB VRAM (detected: ${AB_VRAM} GB)"
+  if [[ "$VRAM_GB" -lt 23 ]]; then
+    log error "A/B test requires >= 23 GB VRAM (detected: ${VRAM_GB} GB)"
     log info "The TEI fp16 reference models need significant VRAM (shared RAM helps)."
     exit 1
   fi
