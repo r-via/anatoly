@@ -7,7 +7,7 @@ import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { z } from 'zod';
-import { embedNlp } from './embeddings.js';
+import { embedNlpBatch } from './embeddings.js';
 import { extractJson } from '../utils/extract-json.js';
 import { contextLogger } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
@@ -319,16 +319,17 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     }
 
     const cards: Array<{ id: string; filePath: string; name: string; summary: string }> = [];
-    const nlpEmbeddings: number[][] = [];
     const sectionIds: string[] = [];
+    const textsToEmbed: string[] = [];
 
     for (const section of sections) {
       const id = buildDocSectionId(section.filePath, section.heading);
       cards.push({ id, filePath: section.filePath, name: section.heading, summary: section.embedText.slice(0, 400) });
       sectionIds.push(id);
-
-      nlpEmbeddings.push(await embedNlp(section.embedText));
+      textsToEmbed.push(section.embedText);
     }
+
+    const nlpEmbeddings = await embedNlpBatch(textsToEmbed);
 
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
     newCache[relPath] = { sha, sectionIds };
