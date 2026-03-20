@@ -41,7 +41,6 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
-import { RagProgressDisplay } from './rag-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
@@ -694,7 +693,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const embedLabel = ctx.dualEmbedding
     ? `${codeModelShort} + ${nlpModelShort}`
     : codeModelShort;
-  const ragDisplay = new RagProgressDisplay();
   let ragPhase: 'code' | 'nlp' | 'upsert' = 'code';
   const ragRunner = new Listr([{
     title: `RAG index — code embeddings (${codeModelShort})`,
@@ -727,14 +725,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
             listrTask.title = `RAG index — saving to vector store`;
           }
         },
-        onFileStart: (file) => {
-          ragDisplay.trackFile(file);
-          listrTask.output = ragDisplay.render();
-        },
-        onFileDone: (file) => {
-          ragDisplay.untrackFile(file);
-          if (ragDisplay.hasActiveFiles) listrTask.output = ragDisplay.render();
-        },
+        onFileStart: (file) => { listrTask.output = file; },
+        onFileDone: () => {},
         isInterrupted: () => ctx.interrupted,
       });
 
