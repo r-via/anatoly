@@ -143,9 +143,50 @@ if ! "$PYTHON" -c "import sentence_transformers" &>/dev/null; then
 fi
 ok "Python sidecar available"
 
-# Record baseline VRAM
+# ---------------------------------------------------------------------------
+# Step 0: Kill all existing Anatoly processes (clean slate for benchmark)
+# ---------------------------------------------------------------------------
+echo ""
+info "Cleaning up existing Anatoly processes..."
+
+# Kill any Python sidecar on the embed port
+SIDECAR_PID_EXISTING=$(fuser "${SIDECAR_PORT}/tcp" 2>/dev/null | tr -d ' ' || true)
+if [[ -n "$SIDECAR_PID_EXISTING" ]]; then
+  kill -9 "$SIDECAR_PID_EXISTING" 2>/dev/null || true
+  info "Killed existing sidecar (PID $SIDECAR_PID_EXISTING)"
+  sleep 2
+fi
+
+# Kill any Python embed-server process
+pkill -9 -f "embed-server.py" 2>/dev/null || true
+
+# Stop and remove any Anatoly Docker containers
+for cid in $(docker ps -q --filter "name=anatoly-" 2>/dev/null); do
+  docker stop "$cid" >/dev/null 2>&1 || true
+  docker rm -f "$cid" >/dev/null 2>&1 || true
+done
+# Also kill containers on our ports
+for p in "${GGUF_CODE_PORT}" "${GGUF_NLP_PORT}"; do
+  cid=$(docker ps -q --filter "publish=${p}" 2>/dev/null || true)
+  if [[ -n "$cid" ]]; then
+    docker stop "$cid" >/dev/null 2>&1 || true
+  fi
+done
+
+# Flush GPU memory
+if command -v nvidia-smi &>/dev/null; then
+  "$PYTHON" -c "import torch; torch.cuda.empty_cache()" 2>/dev/null || true
+fi
+
+# Flush page cache (best-effort)
+sudo -n sh -c "sync; echo 3 > /proc/sys/vm/drop_caches" 2>/dev/null || true
+
+sleep 5
+ok "All Anatoly processes cleaned up"
+
+# Record baseline VRAM (after cleanup)
 VRAM_BASELINE=$(get_vram_usage_mb)
-info "Baseline VRAM: ${VRAM_BASELINE} MiB"
+info "Baseline VRAM: ${VRAM_BASELINE} MiB (clean)"
 
 # ---------------------------------------------------------------------------
 # Step 1: Start GGUF Docker containers
