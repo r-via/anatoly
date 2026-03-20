@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
-import { contextLogger } from '../utils/log-context.js';
+import { contextLogger, runWithContext } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,7 +88,7 @@ export async function generateNlpSummaries(
 
   try {
     const fileSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
-    const response = await runSingleTurnQuery(
+    const response = await runWithContext({ axis: 'nlp-summary' }, () => runSingleTurnQuery(
       {
         systemPrompt: SYSTEM_PROMPT,
         userMessage,
@@ -99,7 +99,7 @@ export async function generateNlpSummaries(
         conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
       },
       NlpResponseSchema,
-    );
+    ));
 
     // Match response functions to cards by name
     for (const fn of response.data.functions) {

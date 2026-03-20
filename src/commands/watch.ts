@@ -165,7 +165,7 @@ export function registerWatchCommand(program: Command): void {
             runDir,
             conversationDir,
           });
-          writeReviewOutput(projectRoot, result.review);
+          writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict }, 'file review completed');
           flushFileLogger();
 

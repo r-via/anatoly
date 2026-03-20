@@ -293,19 +293,27 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   // --- Conversation dump setup ---
   let convPath: string | undefined;
   if (conversationDir && conversationPrefix != null && attempt != null) {
-    mkdirSync(conversationDir, { recursive: true });
-    convPath = join(conversationDir, `${conversationPrefix}__${attempt}.md`);
+    try {
+      mkdirSync(conversationDir, { recursive: true });
+      // Truncate filename to stay under OS 255-byte limit
+      const rawName = `${conversationPrefix}__${attempt}.md`;
+      const safeName = rawName.length > 250 ? rawName.slice(0, 246) + '.md' : rawName;
+      convPath = join(conversationDir, safeName);
 
-    const title = conversationPrefix.replace(/__/g, ' — ');
-    let header = `# Conversation: ${title} (attempt ${attempt})\n\n`;
-    header += `| Field | Value |\n|-------|-------|\n`;
-    header += `| Model | ${model} |\n`;
-    header += `| Timestamp | ${new Date().toISOString()} |\n\n---\n\n`;
-    if (systemPrompt) {
-      header += `## System\n\n${systemPrompt}\n\n---\n\n`;
+      const title = conversationPrefix.replace(/__/g, ' — ');
+      let header = `# Conversation: ${title} (attempt ${attempt})\n\n`;
+      header += `| Field | Value |\n|-------|-------|\n`;
+      header += `| Model | ${model} |\n`;
+      header += `| Timestamp | ${new Date().toISOString()} |\n\n---\n\n`;
+      if (systemPrompt) {
+        header += `## System\n\n${systemPrompt}\n\n---\n\n`;
+      }
+      header += `## User\n\n${prompt}\n\n---\n\n`;
+      writeFileSync(convPath, header);
+    } catch {
+      // Conversation dump is best-effort — don't crash the axis evaluation
+      convPath = undefined;
     }
-    header += `## User\n\n${prompt}\n\n---\n\n`;
-    writeFileSync(convPath, header);
   }
 
   const q = query({
@@ -339,7 +347,7 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
 
       // Stream assistant response to conversation dump for crash-safety
       if (convPath && message.type === 'assistant') {
-        appendFileSync(convPath, formatMessage(message) + '\n---\n\n');
+        try { appendFileSync(convPath, formatMessage(message) + '\n---\n\n'); } catch { /* best-effort */ }
       }
 
       if (message.type === 'result') {
@@ -372,9 +380,11 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   } catch (err) {
     // Append error to conversation dump before re-throwing
     if (convPath) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      const errorCode = err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN';
-      appendFileSync(convPath, `## Error\n\n**Type:** ${errorCode}\n**Message:** ${errorMsg}\n`);
+      try {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorCode = err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN';
+        appendFileSync(convPath, `## Error\n\n**Type:** ${errorCode}\n**Message:** ${errorMsg}\n`);
+      } catch { /* best-effort */ }
     }
 
     // Emit llm_call event for the failed call
@@ -385,6 +395,9 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
         attempt,
         inputTokens,
         outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        cacheHitRate: 0,
         costUsd,
         durationMs,
         success: false,
@@ -424,17 +437,19 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
   const cacheHitRate = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
   if (convPath) {
-    let result = `## Result\n\n`;
-    result += `| Field | Value |\n|-------|-------|\n`;
-    result += `| Duration | ${(durationMs / 1000).toFixed(1)}s |\n`;
-    result += `| Cost | $${costUsd.toFixed(4)} |\n`;
-    result += `| Input tokens | ${inputTokens} |\n`;
-    result += `| Output tokens | ${outputTokens} |\n`;
-    result += `| Cache read | ${cacheReadTokens} |\n`;
-    result += `| Cache creation | ${cacheCreationTokens} |\n`;
-    result += `| Cache hit rate | ${Math.round(cacheHitRate * 100)}% |\n`;
-    result += `| Success | true |\n`;
-    appendFileSync(convPath, result);
+    try {
+      let result = `## Result\n\n`;
+      result += `| Field | Value |\n|-------|-------|\n`;
+      result += `| Duration | ${(durationMs / 1000).toFixed(1)}s |\n`;
+      result += `| Cost | $${costUsd.toFixed(4)} |\n`;
+      result += `| Input tokens | ${inputTokens} |\n`;
+      result += `| Output tokens | ${outputTokens} |\n`;
+      result += `| Cache read | ${cacheReadTokens} |\n`;
+      result += `| Cache creation | ${cacheCreationTokens} |\n`;
+      result += `| Cache hit rate | ${Math.round(cacheHitRate * 100)}% |\n`;
+      result += `| Success | true |\n`;
+      appendFileSync(convPath, result);
+    } catch { /* best-effort */ }
   }
 
   // Emit structured llm_call event (info level for ndjson visibility)

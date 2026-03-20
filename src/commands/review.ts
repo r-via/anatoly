@@ -156,8 +156,8 @@ export function registerReviewCommand(program: Command): void {
                       display.markAxisDone(fp.file, axisId);
                     },
                   });
-                  writeReviewOutput(projectRoot, result.review);
-                  writeTranscript(projectRoot, fp.file, result.transcript);
+                  writeReviewOutput(projectRoot, result.review, runDir);
+                  writeTranscript(projectRoot, fp.file, result.transcript, runDir);
                   pm.updateFileStatus(fp.file, 'DONE');
                   filesReviewed++;
                   totalFindings += countReviewFindings(result.review);

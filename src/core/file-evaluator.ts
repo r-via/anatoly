@@ -10,7 +10,7 @@ import { AnatolyError } from '../utils/errors.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
-import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag } from './axis-evaluator.js';
+import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
@@ -127,7 +127,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   // Resolve relevant docs for documentation axis
   // Use RAG NLP search when vector store has dual embedding (semantic matching),
   // fall back to convention-based matching otherwise
-  let relevantDocs;
+  let relevantDocs: RelevantDoc[] | undefined = undefined;
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore?.hasDualEmbedding) {
     try {
@@ -146,14 +146,13 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       : undefined;
     docResolveMethod = relevantDocs ? 'convention' : 'none';
   }
-  if (relevantDocs) {
-    contextLogger().info({
-      event: 'doc_resolve',
-      file: task.file,
-      method: docResolveMethod,
-      paths: relevantDocs.map((d) => d.path),
-    }, 'docs resolved');
-  }
+  contextLogger().info({
+    event: 'doc_resolve',
+    file: task.file,
+    method: docResolveMethod,
+    docsFound: relevantDocs?.length ?? 0,
+    docPaths: relevantDocs?.map((d) => d.path) ?? [],
+  }, 'docs resolved');
 
   const fileSlug = opts.conversationDir ? toOutputName(task.file) : undefined;
 
@@ -198,7 +197,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     if (settled.status === 'fulfilled') {
       successResults.push(settled.value);
       chunk = `# Axis: ${evaluator.id}\n\n${settled.value.transcript}\n`;
-      contextLogger().info({ event: 'axis_complete', axis: evaluator.id, file: task.file }, 'axis complete');
+      contextLogger().info({ event: 'axis_complete', axis: evaluator.id, file: task.file, durationMs: settled.value.durationMs, costUsd: settled.value.costUsd, success: true }, 'axis complete');
     } else {
       failedAxes.push(evaluator.id);
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;

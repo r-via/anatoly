@@ -9,7 +9,7 @@ import { globSync } from 'tinyglobby';
 import { z } from 'zod';
 import { embedNlpBatch } from './embeddings.js';
 import { extractJson } from '../utils/extract-json.js';
-import { contextLogger } from '../utils/log-context.js';
+import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { VectorStore } from './vector-store.js';
 
@@ -125,7 +125,7 @@ async function chunkDocWithHaiku(
     if (prose.length < 50) return [];
     try {
       const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
-      const result = await runSingleTurnQuery(
+      const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
           userMessage: `Section from \`${filePath}\`:\n\n${prose}`,
@@ -136,13 +136,13 @@ async function chunkDocWithHaiku(
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
         },
         ChunkResponseSchema,
-      );
+      ));
       return result.data.sections
         .filter((s) => s.content.trim().length >= 50)
         .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
     } catch (err) {
       if (ac.signal.aborted) throw err;
-      log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku failed on unstructured doc');
+      log?.warn({ file: filePath, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku failed on unstructured doc, falling back to mechanical parse');
       return [{ filePath, heading: filePath, embedText: prose, content: prose }];
     }
   }
@@ -165,7 +165,7 @@ async function chunkDocWithHaiku(
     try {
       const sectionSlug = section.heading.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
       const docSlugForSection = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
-      const result = await runSingleTurnQuery(
+      const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
           systemPrompt: REFINE_SECTION_PROMPT,
           userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${prose}`,
@@ -176,7 +176,7 @@ async function chunkDocWithHaiku(
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlugForSection}__${sectionSlug}` : undefined,
         },
         ChunkResponseSchema,
-      );
+      ));
 
       const refined = result.data.sections
         .filter((s) => s.content.trim().length >= 50)
@@ -185,7 +185,7 @@ async function chunkDocWithHaiku(
       allSections.push(...(refined.length > 0 ? refined : [section]));
     } catch (err) {
       if (ac.signal.aborted) throw err;
-      log?.warn({ file: filePath, section: section.heading, err: String(err) }, 'doc chunking: Haiku refinement failed, keeping H2 section');
+      log?.warn({ file: filePath, section: section.heading, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku refinement failed, keeping H2 section');
       allSections.push(section);
     }
   }

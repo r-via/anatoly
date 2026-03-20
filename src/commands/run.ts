@@ -526,6 +526,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // --- Phase: scan ---
   const scanStart = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'scan' });
   log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
   const scanResult = await scanProject(ctx.projectRoot, ctx.config);
@@ -542,6 +543,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // --- Phase: estimate ---
   const estStart = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'estimate' });
   log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
   allTasks = loadTasks(ctx.projectRoot);
@@ -658,6 +660,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const log = getLogger();
   const rl = ctx.runLog;
   const ragStart = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'rag-index' });
   log.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
@@ -816,6 +819,7 @@ async function runReviewPhase(
   const log = getLogger();
   const rl = ctx.runLog;
   const reviewStart = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'review' });
   log.info({ phase: 'review', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'review', runId: ctx.runId, concurrency: ctx.concurrency }, 'phase started');
 
@@ -911,7 +915,7 @@ async function runReviewPhase(
           // Evaluate tier: run all axis evaluators in parallel
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
           display.trackFile(filePath);
-          rl?.info({ event: 'file_review_start', file: filePath }, 'file review started');
+          rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: evaluators.map((e) => e.id) }, 'file review started');
           ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
 
           let currentAbort = new AbortController();
@@ -1071,6 +1075,7 @@ function runReportPhase(ctx: RunContext): void {
   const log = getLogger();
   const rl = ctx.runLog;
   const reportStart = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'report' });
   log.info({ phase: 'report', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'report', runId: ctx.runId }, 'phase started');
 

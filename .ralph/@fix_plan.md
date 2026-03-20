@@ -17,7 +17,7 @@
   > - Sans `conversationDir` (tests, hors run) : aucun dump, comportement inchangé
   > Spec: specs/planning-artifacts/epic-28-realtime-transparency.md#story-281
 
-- [ ] Story 28.2: RAG LLM Call Logging — NLP Summaries + Doc Chunking
+- [x] Story 28.2: RAG LLM Call Logging — NLP Summaries + Doc Chunking
   > Les appels Haiku du RAG indexer (NLP summaries + doc chunking) sont loggés et dumpés, couvrant les 3 points d'appel LLM non tracés.
   > Fichiers impactés : `src/rag/nlp-summarizer.ts`, `src/rag/doc-indexer.ts`, `src/rag/orchestrator.ts`
   > Points d'intégration clés :
@@ -44,7 +44,7 @@
   > Indépendant de Story 28.1 — peut être implémenté en parallèle
   > Spec: specs/planning-artifacts/epic-28-realtime-transparency.md#story-283
 
-- [ ] Story 28.4: Per-file & Per-axis Events — Tracer chaque décision dans le ndjson
+- [x] Story 28.4: Per-file & Per-axis Events — Tracer chaque décision dans le ndjson
   > Chaque décision de triage, début/fin de review, progression par axe, recherche RAG et retry est loggée comme événement structuré dans le ndjson.
   > Fichiers impactés : `src/commands/run.ts`, `src/core/file-evaluator.ts`
   > Points d'intégration clés :
@@ -58,7 +58,7 @@
   > Dépend de Story 28.1 (format d'événement LLM)
   > Spec: specs/planning-artifacts/epic-28-realtime-transparency.md#story-284
 
-- [ ] Story 28.5: Watch Mode Logging — Session continue avec événements temps réel
+- [x] Story 28.5: Watch Mode Logging — Session continue avec événements temps réel
   > Le mode `watch` produit un journal temps réel avec events structurés + dumps de conversation.
   > Fichiers impactés : `src/commands/watch.ts`
   > Points d'intégration clés :
@@ -72,7 +72,7 @@
   > Dépend de Story 28.3 (run dir pour watch) + Story 28.1 (conversation dumps)
   > Spec: specs/planning-artifacts/epic-28-realtime-transparency.md#story-285
 
-- [ ] Story 28.6: Run Metrics Timeline — Reconstitution séquentielle du run
+- [x] Story 28.6: Run Metrics Timeline — Reconstitution séquentielle du run
   > `run-metrics.json` inclut une timeline des événements clés et un résumé agrégé des conversations LLM.
   > Fichiers impactés : `src/commands/run.ts` (report phase ~1054-1196)
   > Points d'intégration clés :
@@ -84,6 +84,34 @@
   > - Timeline triée par `t`, events de niveau "phase" et "file" uniquement
   > Dépend de Story 28.1 + Story 28.4 (événements à collecter)
   > Spec: specs/planning-artifacts/epic-28-realtime-transparency.md#story-286
+
+- [x] Story 28.7: Revue Adversariale — Validation end-to-end de l'Epic 28
+  > Revue adversariale de TOUT le code produit dans les stories 28.1–28.6. Inspiré du workflow BMAD code-review : cynique, exigeant, minimum 10 issues identifiées.
+  > **Méthodologie (5 étapes) :**
+  > 1. **Découverte des changements** — Diff git de toutes les modifications de l'Epic 28. Lister chaque fichier modifié, chaque nouvelle fonction, chaque paramètre ajouté. Vérifier que les fichiers impactés documentés dans les stories correspondent à la réalité git.
+  > 2. **Plan d'attaque** — Construire une matrice de revue sur 4 angles :
+  >    - **AC Validation** : pour CHAQUE acceptance criteria de CHAQUE story (28.1→28.6), chercher la preuve dans le code que le critère est implémenté. Marquer IMPLEMENTED/PARTIAL/MISSING.
+  >    - **Task Audit** : chaque story marquée [x] est-elle VRAIMENT done ? Preuve fichier:ligne requise. Story marquée done mais pas implémentée = CRITICAL.
+  >    - **Code Quality** : sécurité (injection de path dans conversationDir?), performance (appendFileSync dans hot path?), error handling (crash si conversationDir non-writable?), edge cases (fichier avec `__` dans le nom? noms très longs?).
+  >    - **Test Quality** : les tests ajoutés testent-ils les vrais comportements ou sont-ils des placeholders?
+  > 3. **Exécution adversariale** — Lire CHAQUE fichier modifié ligne par ligne. Vérifier :
+  >    - Les 12 points d'appel LLM sont-ils TOUS couverts ? (7 axes + correction-verify + deliberation + nlp-summary + doc-chunk ×2)
+  >    - Le ndjson contient-il TOUS les events promis ? (`llm_call`, `file_triage`, `file_review_start`, `axis_complete`, `rag_search`, `doc_resolve`, `retry`, `file_skip`)
+  >    - Les dumps de conversation contiennent-ils le verbatim COMPLET ? (system + user + assistant + result + metadata header)
+  >    - Les commandes `scan`, `estimate`, `review`, `watch` créent-elles TOUTES un run dir ?
+  >    - Le mode watch flush-t-il après chaque fichier ?
+  >    - `run-metrics.json` contient-il timeline + conversationStats ?
+  >    - La rétrocompatibilité est-elle préservée ? (`anatoly run` sans changement visible, `--verbose` toujours fonctionnel)
+  >    - Les sync writes sont-ils utilisés partout pour le crash-safety ?
+  >    - Si < 10 issues trouvées : chercher plus fort — edge cases, intégration entre stories, noms de fichiers spéciaux, encodages, fichiers volumineux, concurrence workers
+  > 4. **Rapport de findings** — Catégoriser chaque issue :
+  >    - **CRITICAL** : Story marquée done mais non implémentée, acceptance criteria manquant, perte de données en cas de crash
+  >    - **HIGH** : Appel LLM non couvert, event manquant dans ndjson, dump incomplet, run dir non créé pour une commande
+  >    - **MEDIUM** : Edge case non géré, test manquant, log level incorrect, naming convention violée
+  >    - **LOW** : Documentation manquante, commentaire obsolète, style inconsistant
+  > 5. **Correction** — Fixer TOUS les findings HIGH et CRITICAL. Créer des TODOs pour les MEDIUM. Ignorer les LOW sauf quick wins.
+  > **Critère de sortie** : Toutes les issues CRITICAL et HIGH sont fixées. Un run complet `anatoly run --log-level info` produit les artefacts attendus. `npm run typecheck && npm run build` passent.
+  > Dépend de Stories 28.1–28.6 (toutes complétées)
 
 ## Completed
 
