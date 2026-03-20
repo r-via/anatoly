@@ -170,21 +170,6 @@ export function registerCleanSyncCommand(program: Command): void {
         if (result.allDone) fullyDoneAxes.push(axisId);
       }
 
-      // If an axis is fully done, check it in the master report.md
-      if (fullyDoneAxes.length > 0) {
-        const reportPath = join(runDir, 'report.md');
-        if (existsSync(reportPath)) {
-          let reportContent = readFileSync(reportPath, 'utf-8');
-          for (const doneAxis of fullyDoneAxes) {
-            // The master index uses a table, not checkboxes — no checkbox to check.
-            // The axis is simply "done" when all its shards are checked.
-            // Log it for the user.
-            void doneAxis;
-            void reportContent;
-          }
-        }
-      }
-
       console.log(chalk.green(`Synced ${totalChecked} action(s) across ${axes.length} axis/axes`));
       if (fullyDoneAxes.length > 0) {
         console.log(chalk.green(`Fully completed axes: ${fullyDoneAxes.join(', ')}`));

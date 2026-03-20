@@ -74,7 +74,9 @@ export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] 
 }
 
 /**
- * Determine if a symbol has an actionable issue on any axis (including tests).
+ * Determine if a symbol has an actionable issue on any symbol-level axis.
+ * Note: best_practices is file-level (not symbol-level) and is handled separately
+ * via `review.best_practices?.rules` in computeFileVerdict and hasAxisFinding.
  */
 function hasActionableIssue(s: SymbolReview): boolean {
   return (
@@ -1249,7 +1251,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
 
 /**
  * Render a single shard (legacy flat format).
- * @deprecated Use renderAxisShard instead.
+ * @deprecated Use renderAxisShard instead. Remove once clean-run is migrated to axis-based reports.
  */
 export function renderShard(shard: ShardInfo): string {
   const lines: string[] = [];
