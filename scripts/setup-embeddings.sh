@@ -449,8 +449,14 @@ run_ab_test() {
   # Pull TEI image if not present
   if ! docker image inspect "$TEI_DOCKER_IMAGE" &>/dev/null; then
     log info "Pulling TEI image: ${TEI_DOCKER_IMAGE}..."
-    docker pull "$TEI_DOCKER_IMAGE"
-    log ok "TEI image pulled"
+    if docker pull "$TEI_DOCKER_IMAGE"; then
+      log ok "TEI image pulled"
+    else
+      log error "Failed to pull TEI image"
+      stop_tei_containers
+      rm -rf "$AB_TMP"
+      return 1
+    fi
   fi
 
   # TEI code model
@@ -870,7 +876,7 @@ log_separator
 log info "Pulling Docker images..."
 
 log info "Pulling GGUF image: ${GGUF_DOCKER_IMAGE}..."
-if docker pull "$GGUF_DOCKER_IMAGE" 2>&1; then
+if docker pull "$GGUF_DOCKER_IMAGE"; then
   log ok "GGUF Docker image ready"
 else
   log error "Failed to pull GGUF Docker image"
@@ -885,7 +891,7 @@ else
 fi
 
 log info "Pulling TEI image: ${TEI_DOCKER_IMAGE}..."
-if docker pull "$TEI_DOCKER_IMAGE" 2>&1; then
+if docker pull "$TEI_DOCKER_IMAGE"; then
   log ok "TEI Docker image ready"
   TEI_AVAILABLE=true
 else
