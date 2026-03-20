@@ -166,6 +166,8 @@ export class DuplicationEvaluator implements AxisEvaluator {
         model,
         projectRoot: ctx.projectRoot,
         abortController,
+        conversationDir: ctx.conversationDir,
+        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__duplication` : undefined,
       },
       DuplicationResponseSchema,
     );

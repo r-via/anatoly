@@ -111,6 +111,8 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         model,
         projectRoot: ctx.projectRoot,
         abortController,
+        conversationDir: ctx.conversationDir,
+        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__overengineering` : undefined,
       },
       OverengineeringResponseSchema,
     );

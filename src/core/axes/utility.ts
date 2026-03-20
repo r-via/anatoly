@@ -110,6 +110,8 @@ export class UtilityEvaluator implements AxisEvaluator {
         model,
         projectRoot: ctx.projectRoot,
         abortController,
+        conversationDir: ctx.conversationDir,
+        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__utility` : undefined,
       },
       UtilityResponseSchema,
     );

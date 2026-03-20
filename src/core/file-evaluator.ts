@@ -4,6 +4,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, basename, dirname, extname } from 'node:path';
+import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
 import type { Task } from '../schemas/task.js';
@@ -47,6 +48,8 @@ export interface EvaluateFileOptions {
   docsTree?: string | null;
   /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - codeWeight. */
   codeWeight?: number;
+  /** Full path to conversations/ dir for LLM conversation dumps */
+  conversationDir?: string;
   onAxisComplete?: (axisId: AxisId) => void;
   /** Stream transcript chunks to disk as each axis completes. */
   onTranscriptChunk?: (chunk: string) => void;
@@ -140,6 +143,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       : undefined;
   }
 
+  const fileSlug = opts.conversationDir ? toOutputName(task.file) : undefined;
+
   const ctx: AxisContext = {
     task,
     fileContent,
@@ -153,6 +158,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     testFileName,
     docsTree: opts.docsTree ?? undefined,
     relevantDocs,
+    conversationDir: opts.conversationDir,
+    conversationFileSlug: fileSlug,
   };
 
   const startTime = Date.now();
@@ -230,6 +237,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
             model: deliberationModel,
             projectRoot,
             abortController,
+            conversationDir: opts.conversationDir,
+            conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
           },
           DeliberationResponseSchema,
         );

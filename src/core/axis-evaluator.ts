@@ -4,6 +4,8 @@
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, SDKResultSuccess, SDKResultError, SDKAssistantMessage, SDKUserMessage, SDKSystemMessage } from '@anthropic-ai/claude-agent-sdk';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { z } from 'zod';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
@@ -59,6 +61,10 @@ export interface AxisContext {
   docsTree?: string | null;
   /** Relevant documentation pages resolved for the current file */
   relevantDocs?: RelevantDoc[];
+  /** Full path to conversations/ dir in the run dir (undefined = no dump) */
+  conversationDir?: string;
+  /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */
+  conversationFileSlug?: string;
 }
 
 export interface RelevantDoc {
@@ -133,6 +139,10 @@ export interface SingleTurnQueryParams {
   model: string;
   projectRoot: string;
   abortController: AbortController;
+  /** Full path to conversations/ dir — when set, a conversation dump .md is written per attempt */
+  conversationDir?: string;
+  /** Prefix for conversation file naming (e.g. "src-cli__documentation") */
+  conversationPrefix?: string;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -156,7 +166,7 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix } = params;
 
   // Prepend a no-tools directive so the model never attempts tool calls.
   // All context the model needs is already embedded in the prompt.
@@ -201,6 +211,9 @@ export async function runSingleTurnQuery<T>(
     projectRoot,
     abortController,
     transcriptLines,
+    conversationDir,
+    conversationPrefix,
+    attempt: 1,
   });
   accumulateTokens(initial);
 
@@ -223,6 +236,9 @@ export async function runSingleTurnQuery<T>(
     abortController,
     transcriptLines,
     resumeSessionId: initial.sessionId,
+    conversationDir,
+    conversationPrefix,
+    attempt: 2,
   });
   accumulateTokens(retry);
 
@@ -251,6 +267,12 @@ interface ExecQueryParams {
   abortController: AbortController;
   transcriptLines: string[];
   resumeSessionId?: string;
+  /** Full path to conversations/ dir — when set, a conversation dump .md is written */
+  conversationDir?: string;
+  /** Prefix for conversation file naming (e.g. "src-cli__documentation") */
+  conversationPrefix?: string;
+  /** Attempt number (1 = initial, 2 = Zod retry) */
+  attempt?: number;
 }
 
 interface ExecQueryResult {
@@ -265,7 +287,26 @@ interface ExecQueryResult {
 }
 
 async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
-  const { prompt, systemPrompt, model, projectRoot, abortController, transcriptLines, resumeSessionId } = params;
+  const { prompt, systemPrompt, model, projectRoot, abortController, transcriptLines, resumeSessionId,
+    conversationDir, conversationPrefix, attempt } = params;
+
+  // --- Conversation dump setup ---
+  let convPath: string | undefined;
+  if (conversationDir && conversationPrefix != null && attempt != null) {
+    mkdirSync(conversationDir, { recursive: true });
+    convPath = join(conversationDir, `${conversationPrefix}__${attempt}.md`);
+
+    const title = conversationPrefix.replace(/__/g, ' — ');
+    let header = `# Conversation: ${title} (attempt ${attempt})\n\n`;
+    header += `| Field | Value |\n|-------|-------|\n`;
+    header += `| Model | ${model} |\n`;
+    header += `| Timestamp | ${new Date().toISOString()} |\n\n---\n\n`;
+    if (systemPrompt) {
+      header += `## System\n\n${systemPrompt}\n\n---\n\n`;
+    }
+    header += `## User\n\n${prompt}\n\n---\n\n`;
+    writeFileSync(convPath, header);
+  }
 
   const q = query({
     prompt,
@@ -296,6 +337,11 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
     for await (const message of q) {
       transcriptLines.push(formatMessage(message));
 
+      // Stream assistant response to conversation dump for crash-safety
+      if (convPath && message.type === 'assistant') {
+        appendFileSync(convPath, formatMessage(message) + '\n---\n\n');
+      }
+
       if (message.type === 'result') {
         if (message.subtype === 'success') {
           const success = message as SDKResultSuccess;
@@ -303,12 +349,6 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
           costUsd = success.total_cost_usd ?? 0;
           durationMs = success.duration_ms ?? 0;
           sessionId = success.session_id;
-
-          // Log SDK turn count for diagnostics
-          contextLogger().debug(
-            { model, numTurns: success.num_turns, usage: success.usage, modelUsage: success.modelUsage },
-            'SDK query result',
-          );
 
           // Use cumulative usage (covers all turns) instead of per-model modelUsage
           if (success.usage) {
@@ -330,6 +370,33 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       }
     }
   } catch (err) {
+    // Append error to conversation dump before re-throwing
+    if (convPath) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorCode = err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN';
+      appendFileSync(convPath, `## Error\n\n**Type:** ${errorCode}\n**Message:** ${errorMsg}\n`);
+    }
+
+    // Emit llm_call event for the failed call
+    contextLogger().info(
+      {
+        event: 'llm_call',
+        model,
+        attempt,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        durationMs,
+        success: false,
+        error: {
+          code: err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN',
+          message: err instanceof Error ? err.message : String(err),
+        },
+        ...(convPath ? { conversationFile: `conversations/${conversationPrefix}__${attempt}.md` } : {}),
+      },
+      'LLM call failed',
+    );
+
     // Re-throw AnatolyErrors as-is (from the result handler above)
     if (err instanceof AnatolyError) throw err;
     // SDK-level error (e.g. subprocess crash, exit code 1) — attach partial transcript
@@ -353,11 +420,29 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
     );
   }
 
+  // --- Append final metrics to conversation dump ---
   const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
   const cacheHitRate = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
-  contextLogger().trace(
+  if (convPath) {
+    let result = `## Result\n\n`;
+    result += `| Field | Value |\n|-------|-------|\n`;
+    result += `| Duration | ${(durationMs / 1000).toFixed(1)}s |\n`;
+    result += `| Cost | $${costUsd.toFixed(4)} |\n`;
+    result += `| Input tokens | ${inputTokens} |\n`;
+    result += `| Output tokens | ${outputTokens} |\n`;
+    result += `| Cache read | ${cacheReadTokens} |\n`;
+    result += `| Cache creation | ${cacheCreationTokens} |\n`;
+    result += `| Cache hit rate | ${Math.round(cacheHitRate * 100)}% |\n`;
+    result += `| Success | true |\n`;
+    appendFileSync(convPath, result);
+  }
+
+  // Emit structured llm_call event (info level for ndjson visibility)
+  contextLogger().info(
     {
+      event: 'llm_call',
       model,
+      attempt,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -365,8 +450,10 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       cacheHitRate: Math.round(cacheHitRate * 100),
       costUsd,
       durationMs,
+      success: true,
+      ...(convPath ? { conversationFile: `conversations/${conversationPrefix}__${attempt}.md` } : {}),
     },
-    'SDK query complete',
+    'LLM call complete',
   );
 
   return { resultText, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, sessionId };

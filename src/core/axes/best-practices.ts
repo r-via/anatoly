@@ -158,6 +158,8 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         model,
         projectRoot: ctx.projectRoot,
         abortController,
+        conversationDir: ctx.conversationDir,
+        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__best-practices` : undefined,
       },
       BestPracticesResponseSchema,
     );

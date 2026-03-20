@@ -338,6 +338,8 @@ export class CorrectionEvaluator implements AxisEvaluator {
         model,
         projectRoot: ctx.projectRoot,
         abortController,
+        conversationDir: ctx.conversationDir,
+        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction` : undefined,
       },
       CorrectionResponseSchema,
     );
@@ -364,6 +366,8 @@ export class CorrectionEvaluator implements AxisEvaluator {
             model,
             projectRoot: ctx.projectRoot,
             abortController,
+            conversationDir: ctx.conversationDir,
+            conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction-verify` : undefined,
           },
           VerificationResponseSchema,
         );

@@ -935,6 +935,7 @@ async function runReviewPhase(
                   docsTree,
                   deliberation: ctx.deliberation,
                   codeWeight: ctx.config.rag.code_weight,
+                  conversationDir: join(ctx.runDir, 'conversations'),
                   onAxisComplete: (axisId) => {
                     display.markAxisDone(filePath, axisId);
                   },
