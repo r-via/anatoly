@@ -246,8 +246,10 @@ export function registerRunCommand(program: Command): void {
         writeFileSync(join(ctx.runDir, 'run-config.json'), JSON.stringify(runConfig, null, 2));
       }
 
-      const onSigint = () => {
+      const onSigint = async () => {
         if (ctx.interrupted) {
+          await stopGgufContainers();
+          await stopTeiContainers();
           flushFileLogger();
           console.log(`\n${chalk.red.bold('force exit')}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
