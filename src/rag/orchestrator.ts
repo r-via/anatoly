@@ -253,13 +253,10 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveRagCache(projectRoot, cache, cacheSuffix);
   }
 
-  // Pre-warm code embedding model (always needed)
+  // Pre-warm code embedding model (always needed, starts the GGUF code container)
   // Use a non-empty string — nomic-embed-code crashes on empty input
+  // NLP warmup is deferred to the batch NLP phase to avoid a container swap here.
   await embedCode('function warmup() {}');
-  // Pre-warm NLP embedding model in dual mode
-  if (dualMode) {
-    await embedNlp('warmup');
-  }
 
   // Garbage-collect stale entries: remove cards for files no longer in the project
   const currentFiles = new Set(tasks.map((t) => t.file));
