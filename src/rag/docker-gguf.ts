@@ -110,7 +110,20 @@ function modelConfig(model: 'code' | 'nlp') {
  * model is already running.
  */
 export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
-  if (activeModel === model) return;
+  if (activeModel === model) {
+    // Verify the container is still alive
+    try {
+      const status = execFileSync('docker', ['inspect', '--format', '{{.State.Status}}', modelConfig(model).container], {
+        encoding: 'utf-8',
+        timeout: 5_000,
+      }).trim();
+      if (status === 'running') return;
+      logFn?.(`GGUF ${model} container died (status=${status}) — restarting...`);
+    } catch {
+      logFn?.(`GGUF ${model} container not found — restarting...`);
+    }
+    activeModel = null;
+  }
 
   const cfg = modelConfig(model);
 
