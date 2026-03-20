@@ -38,6 +38,8 @@ export interface RagIndexOptions {
   onProgress?: (current: number, total: number) => void;
   onFileStart?: (file: string) => void;
   onFileDone?: (file: string) => void;
+  /** Called when indexing transitions between phases (code → nlp → upsert). */
+  onPhase?: (phase: 'code' | 'nlp' | 'upsert') => void;
   isInterrupted: () => boolean;
 }
 
@@ -221,7 +223,7 @@ export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffi
 }
 
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, isInterrupted } = options;
+  const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, onPhase, isInterrupted } = options;
   const dualMode = !!(options.dualEmbedding && options.indexModel);
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
@@ -298,6 +300,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   const results: IndexedFileResult[] = [];
   let fileCounter = 0;
 
+  onPhase?.('code');
   await runWorkerPool({
     items: tasksToIndex,
     concurrency,
@@ -333,16 +336,23 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Batch NLP embeddings: all code embeddings are done, now generate NLP embeddings
   // in a single pass. This avoids swapping GGUF containers back and forth per file.
   if (dualMode && results.length > 0) {
+    onPhase?.('nlp');
     onLog?.(`rag: generating NLP embeddings for ${results.length} files (batch)...`);
+    let nlpCounter = 0;
     for (const result of results) {
       if (result.cards.length > 0 && !result.nlpEmbeddings) {
+        onFileStart?.(result.task.file);
         result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
+        onFileDone?.(result.task.file);
       }
+      nlpCounter++;
+      onProgress?.(nlpCounter, results.length);
     }
     onLog?.('rag: NLP embeddings batch complete');
   }
 
   // Batch upsert all accumulated results sequentially
+  onPhase?.('upsert');
   onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);
   let cardsIndexed = 0;
   let filesIndexed = 0;

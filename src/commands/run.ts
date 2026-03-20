@@ -692,8 +692,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     ? `${codeModelShort} + ${nlpModelShort}`
     : codeModelShort;
   const ragDisplay = new RagProgressDisplay();
+  let ragPhase: 'code' | 'nlp' | 'upsert' = 'code';
   const ragRunner = new Listr([{
-    title: `RAG index (${embedLabel})`,
+    title: `RAG index — code embeddings (${codeModelShort})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
       const spinInterval = ctx.plain
         ? null
@@ -716,13 +717,22 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
             if (ctx.plain) listrTask.output = msg;
           },
           onProgress: (current, total) => {
-            listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;
+            if (ragPhase === 'code') {
+              listrTask.title = `RAG index — code embeddings (${codeModelShort}) — ${current}/${total}`;
+            } else if (ragPhase === 'nlp') {
+              listrTask.title = `RAG index — NLP embeddings (${nlpModelShort}) — ${current}/${total}`;
+            }
+          },
+          onPhase: (phase) => {
+            ragPhase = phase;
+            if (phase === 'nlp') {
+              listrTask.title = `RAG index — NLP embeddings (${nlpModelShort})`;
+            } else if (phase === 'upsert') {
+              listrTask.title = `RAG index — saving to vector store`;
+            }
           },
           onFileStart: (file) => { ragDisplay.trackFile(file); },
-          onFileDone: (file) => {
-            ragDisplay.setPhase(file, 'done');
-            ragDisplay.untrackFile(file);
-          },
+          onFileDone: (file) => { ragDisplay.untrackFile(file); },
           isInterrupted: () => ctx.interrupted,
         });
       } finally {
