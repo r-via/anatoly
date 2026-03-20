@@ -70,13 +70,14 @@ json_get_sample_len() {
 # ---------------------------------------------------------------------------
 
 # Extract embedding vector from GGUF response.
-# GGUF returns: [{"embedding": [...]}] or {"results": [{"embedding": [...]}]}
+# llama.cpp returns: [{"embedding": [[...floats...]]}]
+# The embedding field is a nested array [[...]], so we unwrap with [0].
 extract_gguf_embedding() {
   local response="$1"
   echo "$response" | jq -c '
-    if type == "array" then .[0].embedding
-    elif .results then .results[0].embedding
-    elif .embedding then .embedding
+    if type == "array" then .[0].embedding[0]
+    elif .results then .results[0].embedding[0]
+    elif .embedding then .embedding[0]
     else error("unexpected GGUF response format")
     end
   '
