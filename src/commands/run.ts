@@ -576,6 +576,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       const result = triageFile(task, source);
       triageMap.set(task.file, result);
       tiers[result.tier]++;
+      rl?.info({ event: 'file_triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
     }
 
     pipelineRows.push({ phase: 'triage', detail: `${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate` });
@@ -897,12 +898,14 @@ async function runReviewPhase(
             pm.updateFileStatus(filePath, 'DONE');
             ctx.filesReviewed++;
             ctx.reviewCounts.skipped++;
+            rl?.info({ event: 'file_skip', file: filePath, reason: triage.reason }, 'file skipped');
             return;
           }
 
           // Evaluate tier: run all axis evaluators in parallel
           pm.updateFileStatus(filePath, 'IN_PROGRESS');
           display.trackFile(filePath);
+          rl?.info({ event: 'file_review_start', file: filePath }, 'file review started');
 
           let currentAbort = new AbortController();
           ctx.activeAborts.add(currentAbort);
@@ -953,10 +956,10 @@ async function runReviewPhase(
                 filePath,
                 isInterrupted: () => ctx.interrupted,
                 onRetry: (attempt, delayMs) => {
+                  rl?.info({ event: 'file_retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
                   if (!ctx.verbose) return;
                   const delaySec = (delayMs / 1000).toFixed(0);
                   display.setRetryMessage(filePath, `retrying in ${delaySec}s (${attempt}/5)`);
-                  getLogger().debug({ file: filePath, attempt, delayMs }, 'rate limited, retrying');
                 },
               },
             );

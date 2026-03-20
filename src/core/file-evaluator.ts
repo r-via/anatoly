@@ -128,19 +128,31 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   // Use RAG NLP search when vector store has dual embedding (semantic matching),
   // fall back to convention-based matching otherwise
   let relevantDocs;
+  let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore?.hasDualEmbedding) {
     try {
       relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot);
+      docResolveMethod = 'rag';
     } catch {
       // Fall back to convention-based matching on RAG failure
       relevantDocs = opts.docsTree
         ? resolveRelevantDocs(task.file, opts.docsTree, config, projectRoot)
         : undefined;
+      docResolveMethod = relevantDocs ? 'convention' : 'none';
     }
   } else {
     relevantDocs = opts.docsTree
       ? resolveRelevantDocs(task.file, opts.docsTree, config, projectRoot)
       : undefined;
+    docResolveMethod = relevantDocs ? 'convention' : 'none';
+  }
+  if (relevantDocs) {
+    contextLogger().info({
+      event: 'doc_resolve',
+      file: task.file,
+      method: docResolveMethod,
+      paths: relevantDocs.map((d) => d.path),
+    }, 'docs resolved');
   }
 
   const fileSlug = opts.conversationDir ? toOutputName(task.file) : undefined;
@@ -186,13 +198,14 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     if (settled.status === 'fulfilled') {
       successResults.push(settled.value);
       chunk = `# Axis: ${evaluator.id}\n\n${settled.value.transcript}\n`;
+      contextLogger().info({ event: 'axis_complete', axis: evaluator.id, file: task.file }, 'axis complete');
     } else {
       failedAxes.push(evaluator.id);
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
       const errFields = settled.reason instanceof AnatolyError
         ? settled.reason.toLogObject()
         : { errorMessage: String(settled.reason) };
-      contextLogger().warn({ axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
+      contextLogger().warn({ event: 'axis_failed', axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
     }
     transcriptParts.push(chunk);
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
@@ -317,6 +330,7 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
         : await opts.vectorStore.searchById(functionId);
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
       contextLogger().info({
+        event: 'rag_search',
         symbol: symbol.name,
         file: task.file,
         searchMethod: useDual ? 'hybrid' : 'code-only',
