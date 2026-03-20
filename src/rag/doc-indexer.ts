@@ -324,11 +324,14 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
     for (const section of sections) {
       const id = buildDocSectionId(section.filePath, section.heading);
+      const chars = section.embedText.length;
+      onLog(`rag:   section "${section.heading}" (${chars} chars)`);
       cards.push({ id, filePath: section.filePath, name: section.heading, summary: section.embedText.slice(0, 400) });
       sectionIds.push(id);
       textsToEmbed.push(section.embedText);
     }
 
+    onLog(`rag: embedding ${textsToEmbed.length} sections for ${relPath}...`);
     const nlpEmbeddings = await embedNlpBatch(textsToEmbed);
 
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
