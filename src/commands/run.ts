@@ -429,6 +429,7 @@ function waitForEnter(): Promise<void> {
       rl.close();
       // Clear entire screen, move cursor to top, reprint the MOTD banner
       process.stdout.write('\x1b[2J\x1b[H');
+      console.log('');
       printBanner();
       resolve();
     });
