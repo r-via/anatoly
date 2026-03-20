@@ -96,11 +96,5 @@ export function createProgram(): Command {
   registerSetupEmbeddingsCommand(program);
   registerInitCommand(program);
 
-  // Sign-off after every command
-  program.hook('postAction', () => {
-    console.log('');
-    console.log(chalk.dim.italic('"I train only with mop!" ;D'));
-  });
-
   return program;
 }
