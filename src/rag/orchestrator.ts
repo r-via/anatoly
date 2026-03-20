@@ -188,7 +188,7 @@ export async function processFileForDualIndex(
   }
 
   if (deferNlpEmbeddings) {
-    // Enrich cards but skip NLP embedding (deferred until sidecar model swap)
+    // Enrich cards but skip NLP embedding (deferred to batch phase)
     const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(built.toIndex, mergedSummaries);
     return { task, cards: enrichedCards, embeddings: codeEmbeddings, nlpFailedIds, nlpCacheUpdates };
   }

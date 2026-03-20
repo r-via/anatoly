@@ -133,8 +133,8 @@ export function detectNvidiaContainerToolkit(): boolean {
 /** Embedding backend type — determines runtime embedding strategy. */
 export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf';
 
-// Legacy alias: advanced-fp16 is no longer used at runtime (TEI replaced the
-// Python sidecar), but the type is kept for backwards-compatible config reads.
+// Legacy alias: advanced-fp16 is no longer used at runtime (TEI replaced it),
+// but the type is kept for backwards-compatible config reads.
 // At runtime, only 'lite' and 'advanced-gguf' are active backends.
 
 export interface EmbeddingsReadyFlag {
@@ -187,11 +187,6 @@ export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFla
 
 export const CODE_MODEL_ID = 'nomic-ai/nomic-embed-code';
 export const NLP_MODEL_ID = 'Qwen/Qwen3-Embedding-8B';
-
-/** @deprecated Use CODE_MODEL_ID instead. */
-export const SIDECAR_MODEL = CODE_MODEL_ID;
-/** @deprecated Use NLP_MODEL_ID instead. */
-export const SIDECAR_NLP_MODEL = NLP_MODEL_ID;
 
 // GGUF Docker backend constants
 export const GGUF_DOCKER_IMAGE = 'ghcr.io/ggml-org/llama.cpp:server-cuda';
@@ -272,8 +267,8 @@ export interface ResolvedModels {
  * Returns the backend field if set, or infers from available infrastructure.
  *
  * Runtime backends: advanced-gguf (Docker GPU) or lite (ONNX CPU).
- * The legacy 'advanced-fp16' is treated as 'lite' at runtime since the
- * Python sidecar has been removed in favor of Docker-only backends.
+ * The legacy 'advanced-fp16' is treated as 'lite' at runtime since
+ * fp16 has been replaced by Docker-only backends.
  */
 export function determineBackend(
   flag: EmbeddingsReadyFlag | null,
@@ -281,7 +276,7 @@ export function determineBackend(
 ): EmbeddingBackend {
   // Explicit backend from setup
   if (flag?.backend) {
-    // Treat legacy fp16 as lite (Python sidecar no longer exists)
+    // Treat legacy fp16 as lite (no longer a runtime backend)
     if (flag.backend === 'advanced-fp16') return 'lite';
     return flag.backend;
   }

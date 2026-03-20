@@ -8,7 +8,7 @@
  * TEI is used only during setup (A/B test as fp16 reference).
  * At runtime, GGUF containers are preferred. This module exists as the
  * TypeScript counterpart to the shell docker-helpers.sh for any future
- * runtime TEI usage, and to replace the Python sidecar (embed-sidecar.ts).
+ * runtime TEI usage.
  */
 
 import { execFileSync, execSync } from 'node:child_process';
@@ -23,6 +23,16 @@ const NLP_CONTAINER = `${CONTAINER_PREFIX}-nlp`;
 const READY_TIMEOUT_MS = 300_000; // TEI can take longer to download models
 
 let containersStarted = false;
+
+/** Check if Docker daemon is running and accessible. */
+function isDockerAvailable(): boolean {
+  try {
+    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Remove a Docker container by name (running or stopped).
@@ -108,10 +118,7 @@ export async function startTeiContainers(
   onLog?: (message: string) => void,
   onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
-  // Verify Docker daemon is running
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
-  } catch {
+  if (!isDockerAvailable()) {
     onLog?.('Docker not available — cannot start TEI containers');
     return false;
   }
@@ -157,9 +164,7 @@ export async function startTeiContainer(
   const containerName = name === 'code' ? CODE_CONTAINER : NLP_CONTAINER;
   const port = name === 'code' ? TEI_CODE_PORT : TEI_NLP_PORT;
 
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
-  } catch {
+  if (!isDockerAvailable()) {
     onLog?.('Docker not available');
     return false;
   }

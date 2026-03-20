@@ -109,6 +109,7 @@ cosine_similarity() {
     def dot(x;y): [range(x|length)] | map(x[.] * y[.]) | add;
     def norm(x): [range(x|length)] | map(x[.] * x[.]) | add | sqrt;
     if ($a | length) != ($b | length) then -1
+    elif (norm($a) == 0) or (norm($b) == 0) then 0
     else dot($a;$b) / (norm($a) * norm($b))
     end
   '

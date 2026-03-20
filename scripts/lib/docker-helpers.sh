@@ -205,12 +205,9 @@ embed_tei() {
 # ---------------------------------------------------------------------------
 
 flush_gpu_memory() {
-  if command -v nvidia-smi &>/dev/null; then
-    # Best-effort: some environments don't allow compute app reset
-    nvidia-smi --gpu-reset 2>/dev/null || true
-  fi
-  # Flush page cache (best-effort, requires sudo)
-  sudo -n sh -c "sync; echo 3 > /proc/sys/vm/drop_caches" 2>/dev/null || true
+  # Wait for GPU processes to release memory after container stop.
+  # NOTE: We intentionally avoid nvidia-smi --gpu-reset and cache flushing
+  # as these are system-wide operations that can disrupt other workloads.
   sleep 5
-  log debug "GPU memory flushed"
+  log debug "GPU memory flush wait complete"
 }

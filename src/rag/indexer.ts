@@ -230,7 +230,7 @@ export async function applyNlpSummaries(
 
 /**
  * Enrich function cards with NLP summary data without generating embeddings.
- * Used in sidecar-NLP mode where NLP embedding is deferred until after model swap.
+ * Used when NLP embedding is deferred to a batch phase after code embedding.
  */
 export function enrichCardsWithSummaries(
   cards: FunctionCard[],

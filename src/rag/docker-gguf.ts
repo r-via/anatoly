@@ -48,7 +48,7 @@ function runContainer(
   const args = [
     'run',
     '--gpus', 'all',
-    '-v', `${modelsDir}:/models`,
+    '-v', `${modelsDir}:/models:ro`,
     '-p', `${hostPort}:8080`,
     '--name', name,
     '-d',

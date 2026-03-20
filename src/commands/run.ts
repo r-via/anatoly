@@ -23,6 +23,7 @@ import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
+import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -109,7 +110,7 @@ export function registerRunCommand(program: Command): void {
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
     .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
-    .option('--rag-advanced', 'force advanced RAG mode (nomic-embed-code sidecar)')
+    .option('--rag-advanced', 'force advanced RAG mode (GGUF Docker GPU)')
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
     .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
@@ -302,6 +303,7 @@ export function registerRunCommand(program: Command): void {
         process.exitCode = 2;
       } finally {
         await stopGgufContainers(); // no-op if no containers running
+        await stopTeiContainers(); // no-op if no containers running
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
       }
@@ -471,7 +473,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     }
 
     // Determine the effective RAG mode from CLI flags + hardware + readiness flag.
-    // The sidecar is NOT started yet — that happens in runRagPhase.
+    // Embedding containers are NOT started yet — that happens in runRagPhase.
     const embeddingsReady = readEmbeddingsReadyFlag(ctx.projectRoot);
     const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
     const needsSidecar = ctx.ragMode === 'advanced'

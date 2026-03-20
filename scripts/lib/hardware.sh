@@ -60,7 +60,7 @@ has_nvidia_container_toolkit() {
 # ---------------------------------------------------------------------------
 # Tier selection
 # ---------------------------------------------------------------------------
-# Returns: "lite", "advanced-tei", or "advanced-gguf"
+# Returns: "lite" or "advanced-gguf"
 select_tier() {
   local gpu="$1"
   local vram_gb="$2"
