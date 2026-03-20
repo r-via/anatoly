@@ -174,6 +174,20 @@ wait_for_tei() {
       return 0
     fi
 
+    # Check if container is still running
+    local status
+    status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo "gone")
+    if [[ "$status" == "exited" || "$status" == "dead" || "$status" == "gone" ]]; then
+      local exit_code
+      exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$container" 2>/dev/null || echo "?")
+      local last_logs
+      last_logs=$(docker logs --tail 5 "$container" 2>&1 || echo "(no logs)")
+      log error "TEI ${label} container died (status=${status}, exit=${exit_code})"
+      log error "Last logs:"
+      echo "$last_logs" | while IFS= read -r line; do log error "  $line"; done
+      return 1
+    fi
+
     # Parse container logs to show progress
     local last_log
     last_log=$(docker logs --tail 1 "$container" 2>&1 || true)
