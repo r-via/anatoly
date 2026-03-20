@@ -437,6 +437,48 @@ run_ab_test() {
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$GGUF_NLP_DIM" >&2
   done
 
+  # Sanity probes: embed similar + dissimilar pairs while NLP container is still up
+  local SANITY_SIMILAR="The cat sat on the mat"
+  local SANITY_DISSIMILAR="function fibonacci(n) { return n <= 1 ? n : fibonacci(n-1) + fibonacci(n-2); }"
+  local SANITY_PARAPHRASE="A cat was sitting on a mat"
+
+  log info "GGUF NLP sanity check..."
+  local GGUF_SIM_VEC GGUF_DIS_VEC GGUF_PAR_VEC
+  GGUF_SIM_VEC=$(embed_gguf "$SANITY_SIMILAR" "$GGUF_NLP_PORT" 2>/dev/null | jq -c "$(cat <<'JQ'
+    if type == "array" then .[0].embedding[0]
+    elif .results then .results[0].embedding[0]
+    elif .embedding then .embedding[0]
+    else empty end
+JQ
+  )" || echo "[]")
+  GGUF_DIS_VEC=$(embed_gguf "$SANITY_DISSIMILAR" "$GGUF_NLP_PORT" 2>/dev/null | jq -c "$(cat <<'JQ'
+    if type == "array" then .[0].embedding[0]
+    elif .results then .results[0].embedding[0]
+    elif .embedding then .embedding[0]
+    else empty end
+JQ
+  )" || echo "[]")
+  GGUF_PAR_VEC=$(embed_gguf "$SANITY_PARAPHRASE" "$GGUF_NLP_PORT" 2>/dev/null | jq -c "$(cat <<'JQ'
+    if type == "array" then .[0].embedding[0]
+    elif .results then .results[0].embedding[0]
+    elif .embedding then .embedding[0]
+    else empty end
+JQ
+  )" || echo "[]")
+
+  # Write sanity vectors to temp files to avoid ARG_MAX
+  echo "$GGUF_SIM_VEC" > "${AB_TMP}/sanity_gguf_sim.json"
+  echo "$GGUF_DIS_VEC" > "${AB_TMP}/sanity_gguf_dis.json"
+  echo "$GGUF_PAR_VEC" > "${AB_TMP}/sanity_gguf_par.json"
+
+  local GGUF_SANITY_SIM GGUF_SANITY_DIS GGUF_SANITY_SEP
+  GGUF_SANITY_SIM=$(jq -n --slurpfile a "${AB_TMP}/sanity_gguf_sim.json" --slurpfile b "${AB_TMP}/sanity_gguf_par.json" \
+    '$a[0] as $x | $b[0] as $y | ([range($x|length)] | map($x[.] * $y[.]) | add) / (([range($x|length)] | map($x[.] * $x[.]) | add | sqrt) * ([range($y|length)] | map($y[.] * $y[.]) | add | sqrt))')
+  GGUF_SANITY_DIS=$(jq -n --slurpfile a "${AB_TMP}/sanity_gguf_sim.json" --slurpfile b "${AB_TMP}/sanity_gguf_dis.json" \
+    '$a[0] as $x | $b[0] as $y | ([range($x|length)] | map($x[.] * $y[.]) | add) / (([range($x|length)] | map($x[.] * $x[.]) | add | sqrt) * ([range($y|length)] | map($y[.] * $y[.]) | add | sqrt))')
+  GGUF_SANITY_SEP=$(jq -n --argjson s "$GGUF_SANITY_SIM" --argjson d "$GGUF_SANITY_DIS" '$s - $d')
+  log info "GGUF NLP: similar=${GGUF_SANITY_SIM} dissimilar=${GGUF_SANITY_DIS} separation=${GGUF_SANITY_SEP}"
+
   docker_rm "$nlp_name"
   log info "Cooling down (releasing VRAM)..."
   flush_gpu_memory
@@ -531,6 +573,25 @@ run_ab_test() {
     TEI_NLP_LATENCIES=$(echo "$TEI_NLP_LATENCIES" | jq --argjson v "$DT" '. + [$v]')
     printf "    [%2d/%d] %5dms (%sd)\n" "$((i+1))" "$NLP_COUNT" "$DT" "$TEI_NLP_DIM" >&2
   done
+
+  # TEI NLP sanity check (same probes as GGUF)
+  log info "TEI NLP sanity check..."
+  local TEI_SIM_VEC TEI_DIS_VEC TEI_PAR_VEC
+  TEI_SIM_VEC=$(embed_tei "$SANITY_SIMILAR" "$TEI_NLP_PORT" 2>/dev/null | jq -c '.[0]' || echo "[]")
+  TEI_DIS_VEC=$(embed_tei "$SANITY_DISSIMILAR" "$TEI_NLP_PORT" 2>/dev/null | jq -c '.[0]' || echo "[]")
+  TEI_PAR_VEC=$(embed_tei "$SANITY_PARAPHRASE" "$TEI_NLP_PORT" 2>/dev/null | jq -c '.[0]' || echo "[]")
+
+  echo "$TEI_SIM_VEC" > "${AB_TMP}/sanity_tei_sim.json"
+  echo "$TEI_DIS_VEC" > "${AB_TMP}/sanity_tei_dis.json"
+  echo "$TEI_PAR_VEC" > "${AB_TMP}/sanity_tei_par.json"
+
+  local TEI_SANITY_SIM TEI_SANITY_DIS TEI_SANITY_SEP
+  TEI_SANITY_SIM=$(jq -n --slurpfile a "${AB_TMP}/sanity_tei_sim.json" --slurpfile b "${AB_TMP}/sanity_tei_par.json" \
+    '$a[0] as $x | $b[0] as $y | ([range($x|length)] | map($x[.] * $y[.]) | add) / (([range($x|length)] | map($x[.] * $x[.]) | add | sqrt) * ([range($y|length)] | map($y[.] * $y[.]) | add | sqrt))')
+  TEI_SANITY_DIS=$(jq -n --slurpfile a "${AB_TMP}/sanity_tei_sim.json" --slurpfile b "${AB_TMP}/sanity_tei_dis.json" \
+    '$a[0] as $x | $b[0] as $y | ([range($x|length)] | map($x[.] * $y[.]) | add) / (([range($x|length)] | map($x[.] * $x[.]) | add | sqrt) * ([range($y|length)] | map($y[.] * $y[.]) | add | sqrt))')
+  TEI_SANITY_SEP=$(jq -n --argjson s "$TEI_SANITY_SIM" --argjson d "$TEI_SANITY_DIS" '$s - $d')
+  log info "TEI  NLP: similar=${TEI_SANITY_SIM} dissimilar=${TEI_SANITY_DIS} separation=${TEI_SANITY_SEP}"
 
   stop_tei_containers
 
@@ -656,6 +717,12 @@ run_ab_test() {
     --argjson avg_tei_nlp_latency_ms "$AVG_TEI_NLP_LAT" \
     --arg recommendation "$RECOMMENDATION" \
     --arg reason "$REASON" \
+    --argjson gguf_sanity_sim "$GGUF_SANITY_SIM" \
+    --argjson gguf_sanity_dis "$GGUF_SANITY_DIS" \
+    --argjson gguf_sanity_sep "$GGUF_SANITY_SEP" \
+    --argjson tei_sanity_sim "$TEI_SANITY_SIM" \
+    --argjson tei_sanity_dis "$TEI_SANITY_DIS" \
+    --argjson tei_sanity_sep "$TEI_SANITY_SEP" \
     '{
       test_date: $test_date,
       hardware: {gpu: $gpu, vram_gb: $vram_gb, vram_baseline_mib: $vram_baseline_mib},
@@ -665,7 +732,8 @@ run_ab_test() {
         avg_nlp_latency_ms: $avg_gguf_nlp_latency_ms,
         vram_mib: $vram_gguf_mib,
         code_latencies_ms: $gguf_code_latencies,
-        nlp_latencies_ms: $gguf_nlp_latencies
+        nlp_latencies_ms: $gguf_nlp_latencies,
+        sanity: {similar: $gguf_sanity_sim, dissimilar: $gguf_sanity_dis, separation: $gguf_sanity_sep}
       },
       tei: {
         code_dim: $tei_code_dim, nlp_dim: $tei_nlp_dim,
@@ -673,7 +741,8 @@ run_ab_test() {
         avg_nlp_latency_ms: $avg_tei_nlp_latency_ms,
         vram_mib: $vram_tei_mib,
         code_latencies_ms: $tei_code_latencies,
-        nlp_latencies_ms: $tei_nlp_latencies
+        nlp_latencies_ms: $tei_nlp_latencies,
+        sanity: {similar: $tei_sanity_sim, dissimilar: $tei_sanity_dis, separation: $tei_sanity_sep}
       },
       comparison: {
         avg_code_cosine_sim: $avg_code_cosine_sim,
@@ -703,6 +772,8 @@ run_ab_test() {
   log info "Avg NLP similarity: ${AVG_NLP_SIM}"
   log info "GGUF latency: code ${AVG_GGUF_CODE_LAT}ms, NLP ${AVG_GGUF_NLP_LAT}ms"
   log info "TEI latency:  code ${AVG_TEI_CODE_LAT}ms, NLP ${AVG_TEI_NLP_LAT}ms"
+  log info "Sanity GGUF: sim=${GGUF_SANITY_SIM} dis=${GGUF_SANITY_DIS} sep=${GGUF_SANITY_SEP}"
+  log info "Sanity TEI:  sim=${TEI_SANITY_SIM} dis=${TEI_SANITY_DIS} sep=${TEI_SANITY_SEP}"
 
   echo "$RECOMMENDATION"
 }
