@@ -23,7 +23,6 @@ import {
 } from './hardware-detect.js';
 
 const CONTAINER_PREFIX = 'anatoly-gguf';
-const CONTAINER_NAME = `${CONTAINER_PREFIX}-active`;
 /** Timeout for model loading in Docker containers (3 minutes). */
 const READY_TIMEOUT_MS = 180_000;
 
@@ -39,9 +38,9 @@ let dockerVerified = false;
 // Low-level helpers
 // ---------------------------------------------------------------------------
 
-function removeContainer(): void {
+function removeContainer(name: string): void {
   try {
-    execFileSync('docker', ['rm', '-f', CONTAINER_NAME], {
+    execFileSync('docker', ['rm', '-f', name], {
       stdio: 'ignore',
       timeout: 10_000,
     });
@@ -50,15 +49,15 @@ function removeContainer(): void {
   }
 }
 
-function runContainer(modelFile: string, hostPort: number): void {
-  removeContainer();
+function runContainer(name: string, modelFile: string, hostPort: number): void {
+  removeContainer(name);
 
   const args = [
     'run',
     '--gpus', 'all',
     '-v', `${modelsDirectory}:/models:ro`,
     '-p', `${hostPort}:8080`,
-    '--name', CONTAINER_NAME,
+    '--name', name,
     '-d',
     GGUF_DOCKER_IMAGE,
     '--model', `/models/${modelFile}`,
@@ -101,8 +100,8 @@ async function waitForContainer(
 
 function modelConfig(model: 'code' | 'nlp') {
   return model === 'code'
-    ? { file: GGUF_CODE_MODEL_FILE, port: GGUF_CODE_PORT, label: 'code' }
-    : { file: GGUF_NLP_MODEL_FILE, port: GGUF_NLP_PORT, label: 'NLP' };
+    ? { file: GGUF_CODE_MODEL_FILE, port: GGUF_CODE_PORT, label: 'code', container: `${CONTAINER_PREFIX}-code` }
+    : { file: GGUF_NLP_MODEL_FILE, port: GGUF_NLP_PORT, label: 'NLP', container: `${CONTAINER_PREFIX}-nlp` };
 }
 
 /**
@@ -116,19 +115,20 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   const cfg = modelConfig(model);
 
   if (activeModel !== null) {
-    logFn?.(`swapping GGUF model: ${activeModel} → ${cfg.label}...`);
-    removeContainer();
+    const prev = modelConfig(activeModel);
+    logFn?.(`swapping GGUF model: ${prev.label} → ${cfg.label}...`);
+    removeContainer(prev.container);
     activeModel = null;
   }
 
   logFn?.(`starting GGUF ${cfg.label} container (port ${cfg.port})...`);
-  runContainer(cfg.file, cfg.port);
+  runContainer(cfg.container, cfg.file, cfg.port);
 
   logFn?.(`waiting for GGUF ${cfg.label} model to load into VRAM...`);
   const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS, progressFn);
 
   if (!ready) {
-    removeContainer();
+    removeContainer(cfg.container);
     throw new Error(`GGUF ${cfg.label} container failed to become healthy`);
   }
 
@@ -215,7 +215,9 @@ export async function startGgufContainers(
 export async function stopGgufContainers(
   onLog?: (message: string) => void,
 ): Promise<void> {
-  removeContainer();
+  // Remove both containers (whichever may be running)
+  removeContainer(`${CONTAINER_PREFIX}-code`);
+  removeContainer(`${CONTAINER_PREFIX}-nlp`);
 
   if (activeModel !== null) {
     onLog?.('GGUF container stopped');
