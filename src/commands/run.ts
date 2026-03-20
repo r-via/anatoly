@@ -702,50 +702,54 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     doc: `doc indexing (${indexModelShort} + ${nlpModelShort})`,
     upsert: 'saving',
   };
-  const completedPhases: string[] = [];
+  const ragDisplay = new RagProgressDisplay();
 
   const ragRunner = new Listr([{
     title: phaseLabels['code'],
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      ragResult = await indexProject({
-        projectRoot: ctx.projectRoot,
-        tasks,
-        rebuild: ctx.rebuildRag,
-        concurrency: ctx.concurrency,
-        verbose: ctx.verbose,
-        dualEmbedding: ctx.dualEmbedding,
-        indexModel,
-        resolvedModels: ctx.resolvedModels,
-        ragMode: ctx.resolvedRagMode,
-        onLog: (msg) => {
-          if (ctx.plain) listrTask.output = msg;
-        },
-        onProgress: (current, total) => {
-          listrTask.title = `${phaseLabels[ragPhase]} — ${current}/${total}`;
-        },
-        onPhase: (phase) => {
-          // Log completed phase as output line (stays visible in outputBar)
-          completedPhases.push(`${chalk.green('\u2714')} ${phaseLabels[ragPhase]}`);
-          listrTask.output = completedPhases.join('\n');
-          ragPhase = phase;
-          listrTask.title = phaseLabels[phase] ?? phase;
-        },
-        onFileStart: (file) => {
-          // Show completed phases + current file
-          listrTask.output = [...completedPhases, file].join('\n');
-        },
-        onFileDone: () => {},
-        isInterrupted: () => ctx.interrupted,
-      });
+      const spinInterval = ctx.plain
+        ? null
+        : setInterval(() => {
+            if (ragDisplay.hasContent) listrTask.output = ragDisplay.render();
+          }, 80);
 
+      try {
+        ragResult = await indexProject({
+          projectRoot: ctx.projectRoot,
+          tasks,
+          rebuild: ctx.rebuildRag,
+          concurrency: ctx.concurrency,
+          verbose: ctx.verbose,
+          dualEmbedding: ctx.dualEmbedding,
+          indexModel,
+          resolvedModels: ctx.resolvedModels,
+          ragMode: ctx.resolvedRagMode,
+          onLog: (msg) => {
+            if (ctx.plain) listrTask.output = msg;
+          },
+          onProgress: (current, total) => {
+            listrTask.title = `${phaseLabels[ragPhase]} — ${current}/${total}`;
+          },
+          onPhase: (phase) => {
+            ragDisplay.completePhase(phaseLabels[ragPhase]);
+            ragPhase = phase;
+            listrTask.title = phaseLabels[phase] ?? phase;
+          },
+          onFileStart: (file) => { ragDisplay.trackFile(file); },
+          onFileDone: (file) => { ragDisplay.untrackFile(file); },
+          isInterrupted: () => ctx.interrupted,
+        });
+      } finally {
+        if (spinInterval) clearInterval(spinInterval);
+      }
+
+      ragDisplay.completePhase(phaseLabels[ragPhase]);
+      listrTask.output = ragDisplay.render();
       const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
       const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
-      // Final output: all completed phases
-      completedPhases.push(`${chalk.green('\u2714')} ${phaseLabels[ragPhase]}`);
-      listrTask.output = completedPhases.join('\n');
       listrTask.title = `RAG index — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${dualLabel}${docLabel}`;
     },
-    rendererOptions: { outputBar: (ctx.concurrency + 4) as number },
+    rendererOptions: { outputBar: 1 as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
