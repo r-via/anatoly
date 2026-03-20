@@ -59,8 +59,8 @@ export function registerResetCommand(program: Command): void {
     .command('reset')
     .description('Clear all cache, reviews, logs, tasks, report, and RAG index')
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
-    .option('--no-rag', 'keep the RAG index (embeddings are slow to rebuild)')
-    .action(async (opts: { yes?: boolean; rag?: boolean }) => {
+    .option('--keep-rag', 'keep the RAG index (embeddings are slow to rebuild)')
+    .action(async (opts: { yes?: boolean; keepRag?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -77,7 +77,7 @@ export function registerResetCommand(program: Command): void {
         return;
       }
 
-      const keepRag = opts.rag === false;
+      const keepRag = opts.keepRag === true;
       const { dirs, files, total } = countResetItems(anatolyDir, keepRag);
 
       if (total === 0) {

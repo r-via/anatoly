@@ -128,6 +128,7 @@ export function registerReviewCommand(program: Command): void {
           state.updateTask('review', `${completedCount}/${total}${findingsNote}`);
         };
 
+        try {
         await runWorkerPool({
           items: pending,
           concurrency: 1,
@@ -186,7 +187,9 @@ export function registerReviewCommand(program: Command): void {
 
         const findingsNote = totalFindings > 0 ? ` | ${totalFindings} findings` : '';
         state.completeTask('review', `${completedCount}/${total}${findingsNote}`);
-        renderer.stop();
+        } finally {
+          renderer.stop();
+        }
 
         const durationMs = Date.now() - startMs;
         runLog.info({

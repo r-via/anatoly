@@ -611,6 +611,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (!ctx.triageEnabled) {
     pipelineRows.push({ phase: 'triage', detail: 'disabled (--no-triage)' });
   } else {
+    const triageStart = Date.now();
+    ctx.timeline.push({ t: triageStart - ctx.startTime, event: 'phase_start', phase: 'triage' });
     const tiers = { skip: 0, evaluate: 0 };
     const triageTasks = ctx.fileFilter
       ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
@@ -633,6 +635,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       rl?.info({ event: 'file_triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
     }
 
+    const triageDuration = Date.now() - triageStart;
+    ctx.phaseDurations.triage = triageDuration;
+    ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'triage', durationMs: triageDuration, skip: tiers.skip, evaluate: tiers.evaluate });
     pipelineRows.push({ phase: 'triage', detail: `${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate` });
     const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
     log.info(triageSummary, 'triage summary');
