@@ -449,7 +449,7 @@ run_ab_test() {
   # Pull TEI image if not present
   if ! docker image inspect "$TEI_DOCKER_IMAGE" &>/dev/null; then
     log info "Pulling TEI image: ${TEI_DOCKER_IMAGE}..."
-    if docker pull "$TEI_DOCKER_IMAGE"; then
+    if docker pull "$TEI_DOCKER_IMAGE" >&2; then
       log ok "TEI image pulled"
     else
       log error "Failed to pull TEI image"
@@ -551,7 +551,7 @@ run_ab_test() {
        ([range($b|length)] | map($b[.] * $b[.]) | add | sqrt))
     ]
   ')
-  echo "$CODE_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
+  echo "$CODE_SIMS" | jq -r 'length as $n | to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\($n)] sim=\(.value | tostring | .[:8])"' >&2
 
   log info "Computing NLP cosine similarities..."
   NLP_SIMS=$(jq -n \
@@ -564,7 +564,7 @@ run_ab_test() {
        ([range($b|length)] | map($b[.] * $b[.]) | add | sqrt))
     ]
   ')
-  echo "$NLP_SIMS" | jq -r 'to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\(length)] sim=\(.value | tostring | .[:8])"' >&2
+  echo "$NLP_SIMS" | jq -r 'length as $n | to_entries[] | "    [\((.key+1) | tostring | if length < 2 then " "+. else . end)/\($n)] sim=\(.value | tostring | .[:8])"' >&2
 
   # Compute averages and ranking preservation
   local AVG_CODE_SIM AVG_NLP_SIM

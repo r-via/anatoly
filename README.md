@@ -100,19 +100,26 @@ Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js -- 
 
 ### Optional but recommended: GPU-accelerated embeddings
 
-By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on CPU. For significantly better duplication detection, set up the **embed sidecar** which runs `nomic-ai/nomic-embed-code` (3584d) for code and `Qwen/Qwen3-Embedding-8B` (4096d) for NLP on GPU via sentence-transformers:
+By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on CPU. For significantly better duplication detection, set up **Advanced-GGUF mode** which runs Docker llama.cpp server-cuda containers with GGUF Q5_K_M quantized models on GPU:
 
-**Requirements:** Python >= 3.9, a GPU (CUDA, Metal, or ROCm), ~14 GB disk for the model
+- **Code:** nomic-embed-code (3584d)
+- **NLP:** Qwen3-Embedding-8B (4096d)
+- **Sequential mode:** one model loaded at a time (~10 GB VRAM), swaps automatically
+
+**Requirements:** Docker, an NVIDIA GPU with >= 12 GB VRAM
 
 ```bash
-# One-time setup: installs torch + sentence-transformers + downloads code and NLP models
+# One-time setup: pulls Docker images, downloads GGUF models (SHA256-verified)
 npx anatoly setup-embeddings
 
 # Check status anytime
 npx anatoly setup-embeddings --check
+
+# Run A/B quality validation against HuggingFace TEI fp16 reference
+npx anatoly setup-embeddings --ab-test
 ```
 
-The sidecar starts automatically with `anatoly run` when setup is detected.
+Containers start automatically with `anatoly run` when setup is detected. No Python dependency -- Docker is the only runtime requirement for GPU mode.
 
 ## Getting Started
 
@@ -147,8 +154,9 @@ npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state
 npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
-npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (sentence-transformers)
+npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (Docker GGUF)
 npx anatoly setup-embeddings --check  # Check embedding setup status
+npx anatoly setup-embeddings --ab-test  # A/B quality validation against fp16 reference
 
 # Useful flags
 npx anatoly run --dry-run        # Simulate: scan, estimate, triage — no API calls

@@ -46,15 +46,15 @@ On first install, a `postinstall` script downloads the default embedding model (
 
 ### Optional: GPU-accelerated embeddings
 
-If you have a CUDA, Metal, or ROCm GPU, you can use Nomic Embed Code for higher-quality code embeddings via the sentence-transformers sidecar:
+If you have an NVIDIA GPU with >= 12 GB VRAM and Docker installed, you can use GGUF-quantized models in Docker llama.cpp containers for higher-quality embeddings:
 
 ```bash
-pip install sentence-transformers torch
-./scripts/setup-embeddings.sh        # Verifies GPU and downloads the model (~4.7 GB)
-./scripts/setup-embeddings.sh --check # Check status without installing
+npx anatoly setup-embeddings        # Pulls Docker images, downloads GGUF models (SHA256-verified)
+npx anatoly setup-embeddings --check # Check status without installing
+npx anatoly setup-embeddings --ab-test # Validate GGUF quality against fp16 reference
 ```
 
-The sidecar auto-starts with `anatoly run` when a GPU is available. No additional configuration needed.
+Containers start automatically with `anatoly run` when setup is detected. No Python dependency -- Docker is the only runtime requirement for GPU mode.
 
 ## First run walkthrough
 
