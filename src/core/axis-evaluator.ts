@@ -16,6 +16,7 @@ import type { Action } from '../schemas/review.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
+import type { Semaphore } from './sdk-semaphore.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -143,6 +144,8 @@ export interface SingleTurnQueryParams {
   conversationDir?: string;
   /** Prefix for conversation file naming (e.g. "src-cli__documentation") */
   conversationPrefix?: string;
+  /** Global SDK concurrency semaphore — when set, acquire/release around SDK calls */
+  semaphore?: Semaphore;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -166,7 +169,30 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore } = params;
+
+  if (semaphore) {
+    await semaphore.acquire();
+  }
+  try {
+    return await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema);
+  } finally {
+    if (semaphore) {
+      semaphore.release();
+    }
+  }
+}
+
+async function _runSingleTurnQueryInner<T>(
+  rawSystemPrompt: string,
+  userMessage: string,
+  model: string,
+  projectRoot: string,
+  abortController: AbortController,
+  conversationDir: string | undefined,
+  conversationPrefix: string | undefined,
+  schema: z.ZodType<T>,
+): Promise<SingleTurnQueryResult<T>> {
 
   // Prepend a no-tools directive so the model never attempts tool calls.
   // All context the model needs is already embedded in the prompt.
