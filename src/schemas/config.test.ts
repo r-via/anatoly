@@ -75,6 +75,24 @@ describe('ConfigSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('should default sdk_concurrency to 8', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.sdk_concurrency).toBe(8);
+  });
+
+  it('should accept custom sdk_concurrency', () => {
+    const config = ConfigSchema.parse({ llm: { sdk_concurrency: 12 } });
+    expect(config.llm.sdk_concurrency).toBe(12);
+  });
+
+  it('should reject sdk_concurrency below 1', () => {
+    expect(ConfigSchema.safeParse({ llm: { sdk_concurrency: 0 } }).success).toBe(false);
+  });
+
+  it('should reject sdk_concurrency above 20', () => {
+    expect(ConfigSchema.safeParse({ llm: { sdk_concurrency: 21 } }).success).toBe(false);
+  });
 });
 
 describe('AxisConfigSchema', () => {

@@ -18,6 +18,7 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { Semaphore } from '../core/sdk-semaphore.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -108,6 +109,8 @@ export function registerReviewCommand(program: Command): void {
         }
         const depMeta = loadDependencyMeta(projectRoot);
         const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
+        const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
+        display.setSemaphore(sdkSemaphore);
 
         const runner = new Listr([{
           title: `review — 0/${total}`,
@@ -152,6 +155,7 @@ export function registerReviewCommand(program: Command): void {
                     conversationDir,
                     depMeta,
                     deliberation: config.llm.deliberation ?? true,
+                    semaphore: sdkSemaphore,
                     onAxisComplete: (axisId) => {
                       display.markAxisDone(fp.file, axisId);
                     },

@@ -16,6 +16,7 @@ const AXIS_LABELS: Record<string, string> = {
   tests: 'tests',
   correction: 'correction',
   best_practices: 'best practices',
+  documentation: 'documentation',
 };
 
 export interface ActiveFileState {
@@ -66,9 +67,7 @@ export class ReviewProgressDisplay {
     const maxLen = files.length > 0 ? Math.max(...files.map(([f]) => f.length)) : 0;
     const lines: string[] = [];
     if (this.semaphore) {
-      const running = this.semaphore.running;
-      const capacity = running + this.semaphore.available;
-      const available = this.semaphore.available;
+      const { running, capacity, available } = this.semaphore;
       lines.push(chalk.dim(`Agents: ${running}/${capacity} running · ${available} available`));
     }
     for (const [file, state] of files) {

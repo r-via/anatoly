@@ -15,6 +15,7 @@ import { generateReport } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
+import { Semaphore } from '../core/sdk-semaphore.js';
 import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
@@ -65,6 +66,7 @@ export function registerWatchCommand(program: Command): void {
 
       // Warn once at startup if any requested axes are config-disabled
       const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
+      const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
       if (axesFilter) {
         warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
       }
@@ -164,6 +166,7 @@ export function registerWatchCommand(program: Command): void {
             abortController: new AbortController(),
             runDir,
             conversationDir,
+            semaphore: sdkSemaphore,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict }, 'file review completed');

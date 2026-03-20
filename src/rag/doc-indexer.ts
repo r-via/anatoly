@@ -11,6 +11,7 @@ import { embedNlpBatch } from './embeddings.js';
 import { extractJson } from '../utils/extract-json.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
+import type { Semaphore } from '../core/sdk-semaphore.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,7 @@ async function chunkDocWithHaiku(
   projectRoot: string,
   abortController?: AbortController,
   conversationDir?: string,
+  semaphore?: Semaphore,
 ): Promise<DocSection[]> {
   const log = contextLogger();
   const ac = abortController ?? new AbortController();
@@ -134,6 +136,7 @@ async function chunkDocWithHaiku(
           abortController: ac,
           conversationDir,
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
+          semaphore,
         },
         ChunkResponseSchema,
       ));
@@ -174,6 +177,7 @@ async function chunkDocWithHaiku(
           abortController: ac,
           conversationDir,
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlugForSection}__${sectionSlug}` : undefined,
+          semaphore,
         },
         ChunkResponseSchema,
       ));
@@ -308,6 +312,8 @@ export interface DocIndexOptions {
   isInterrupted?: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
+  /** Global SDK concurrency semaphore. */
+  semaphore?: Semaphore;
 }
 
 /**
@@ -317,7 +323,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -386,7 +392,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
     const sections = chunkModel
-      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir)
+      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore)
       : fallbackParseH2(relPath, source);
 
     if (sections.length === 0) {

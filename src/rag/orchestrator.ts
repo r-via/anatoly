@@ -15,6 +15,7 @@ import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections } from './doc-indexer.js';
+import type { Semaphore } from '../core/sdk-semaphore.js';
 
 export type RagMode = 'lite' | 'advanced';
 
@@ -43,6 +44,8 @@ export interface RagIndexOptions {
   isInterrupted: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
+  /** Global SDK concurrency semaphore. */
+  semaphore?: Semaphore;
 }
 
 export interface RagIndexResult {
@@ -136,6 +139,7 @@ export async function processFileForDualIndex(
   nlpSummaryCache?: NlpSummaryCache,
   deferNlpEmbeddings?: boolean,
   conversationDir?: string,
+  semaphore?: Semaphore,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -181,6 +185,7 @@ export async function processFileForDualIndex(
       indexModel,
       projectRoot,
       conversationDir,
+      semaphore,
     );
 
     // Merge new summaries and build cache entries
@@ -317,7 +322,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
       try {
         const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir)
+          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir, options.semaphore)
           : await processFileForIndex(projectRoot, task, cache);
 
         if (result.cards.length > 0) {
@@ -412,6 +417,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileDone,
         isInterrupted,
         conversationDir: options.conversationDir,
+        semaphore: options.semaphore,
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);

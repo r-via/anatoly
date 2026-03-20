@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
+import type { Semaphore } from '../core/sdk-semaphore.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ export async function generateNlpSummaries(
   model: string,
   projectRoot: string,
   conversationDir?: string,
+  semaphore?: Semaphore,
 ): Promise<Map<string, NlpSummary>> {
   const result = new Map<string, NlpSummary>();
   if (cards.length === 0) return result;
@@ -97,6 +99,7 @@ export async function generateNlpSummaries(
         abortController: new AbortController(),
         conversationDir,
         conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
+        semaphore,
       },
       NlpResponseSchema,
     ));

@@ -49,6 +49,7 @@ export function createProgram(): Command {
     .option('--nlp-model <model>', 'embedding model for NLP vectors in dual mode (default: auto-detect)')
     .option('--open', 'open report in default app after generation')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
+    .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)
     .option('--no-triage', 'disable triage, review all files with full agent')
     .option('--deliberation', 'enable Opus deliberation pass after axis merge')
     .option('--no-deliberation', 'disable deliberation pass (overrides config)')

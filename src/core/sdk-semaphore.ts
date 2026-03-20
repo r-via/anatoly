@@ -26,6 +26,10 @@ export class Semaphore {
     return this._running;
   }
 
+  get capacity(): number {
+    return this._capacity;
+  }
+
   get available(): number {
     return this._capacity - this._running;
   }

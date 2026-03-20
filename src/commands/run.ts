@@ -101,6 +101,8 @@ interface RunContext {
   dryRun: boolean;
   /** Badge config for post-report injection */
   badge: { enabled: boolean; verdict: boolean; link?: string };
+  /** Global SDK concurrency semaphore — shared across RAG indexing and review phases */
+  sdkSemaphore: Semaphore;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -112,6 +114,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
+    .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
     .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
     .option('--rag-advanced', 'force advanced RAG mode (GGUF Docker GPU)')
@@ -145,6 +148,16 @@ export function registerRunCommand(program: Command): void {
         console.error('error: --concurrency must be between 1 and 10');
         process.exitCode = 2;
         return;
+      }
+
+      const cliSdkConcurrency = parentOpts.sdkConcurrency as number | undefined;
+      if (cliSdkConcurrency !== undefined) {
+        if (cliSdkConcurrency < 1 || cliSdkConcurrency > 20 || !Number.isInteger(cliSdkConcurrency)) {
+          console.error('error: --sdk-concurrency must be between 1 and 20');
+          process.exitCode = 2;
+          return;
+        }
+        config.llm.sdk_concurrency = cliSdkConcurrency;
       }
 
       const runId = cmdOpts.runId ?? generateRunId();
@@ -218,6 +231,7 @@ export function registerRunCommand(program: Command): void {
           verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
           link: config.badge.link,
         },
+        sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
       };
 
       // Create per-run ndjson log file at debug level (skip in dry-run)
@@ -759,6 +773,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           onFileDone: (file) => { ragDisplay.untrackFile(file); },
           isInterrupted: () => ctx.interrupted,
           conversationDir: join(ctx.runDir, 'conversations'),
+          semaphore: ctx.sdkSemaphore,
         });
       } finally {
         if (spinInterval) clearInterval(spinInterval);
@@ -872,8 +887,7 @@ async function runReviewPhase(
     ? reviewItems.filter((item) => triageMap.get(item.filePath)?.tier !== 'skip').length
     : reviewItems.length;
   const display = new ReviewProgressDisplay(evaluators.map((e) => e.id));
-  const sdkSemaphore = new Semaphore(ctx.config.llm.sdk_concurrency);
-  display.setSemaphore(sdkSemaphore);
+  display.setSemaphore(ctx.sdkSemaphore);
 
   const reviewRunner = new Listr([{
     title: `review — 0/${evaluateTotal}`,
@@ -954,7 +968,7 @@ async function runReviewPhase(
                   deliberation: ctx.deliberation,
                   codeWeight: ctx.config.rag.code_weight,
                   conversationDir: join(ctx.runDir, 'conversations'),
-                  semaphore: sdkSemaphore,
+                  semaphore: ctx.sdkSemaphore,
                   onAxisComplete: (axisId) => {
                     display.markAxisDone(filePath, axisId);
                   },
