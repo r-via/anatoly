@@ -727,8 +727,14 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
             listrTask.title = `RAG index — saving to vector store`;
           }
         },
-        onFileStart: (file) => { listrTask.output = file; },
-        onFileDone: () => {},
+        onFileStart: (file) => {
+          ragDisplay.trackFile(file);
+          listrTask.output = ragDisplay.render();
+        },
+        onFileDone: (file) => {
+          ragDisplay.untrackFile(file);
+          if (ragDisplay.hasActiveFiles) listrTask.output = ragDisplay.render();
+        },
         isInterrupted: () => ctx.interrupted,
       });
 
@@ -736,7 +742,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
       listrTask.title = `RAG index${dualLabel} — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${docLabel}`;
     },
-    rendererOptions: { outputBar: ctx.concurrency as number },
+    rendererOptions: { outputBar: (ctx.concurrency + 1) as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
