@@ -381,6 +381,7 @@ run_ab_test() {
   stop_gguf_containers
   log info "Cooling down (releasing VRAM)..."
   flush_gpu_memory
+  free_all_ports
 
   # --- Phase B: TEI embeddings (fp16 reference) ---
   log_separator
@@ -433,6 +434,7 @@ run_ab_test() {
   stop_tei_containers
   log info "Cooling down (releasing VRAM)..."
   sleep 10
+  free_all_ports
 
   log info "Starting TEI NLP container (${NLP_MODEL_ID})..."
   start_tei_container "${CONTAINER_PREFIX}-tei-nlp" "$NLP_MODEL_ID" "$TEI_NLP_PORT"
