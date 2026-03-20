@@ -36,6 +36,8 @@ export interface RagIndexOptions {
   verbose?: boolean;
   onLog: (message: string) => void;
   onProgress?: (current: number, total: number) => void;
+  onFileStart?: (file: string) => void;
+  onFileDone?: (file: string) => void;
   isInterrupted: () => boolean;
 }
 
@@ -219,7 +221,7 @@ export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffi
 }
 
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
-  const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, isInterrupted } = options;
+  const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, isInterrupted } = options;
   const dualMode = !!(options.dualEmbedding && options.indexModel);
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
@@ -304,6 +306,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       const idx = ++fileCounter;
       const modeLabel = dualMode ? ' [dual]' : '';
       onLog(`[${idx}/${tasksToIndex.length}]${modeLabel} ${task.file}`);
+      onFileStart?.(task.file);
 
       try {
         const result = dualMode
@@ -313,6 +316,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         if (result.cards.length > 0) {
           results.push(result);
         }
+        onFileDone?.(task.file);
       } catch (err) {
         const msg = (err as Error).message ?? String(err);
         onLog?.(`rag: failed to index ${task.file}: ${msg}`);

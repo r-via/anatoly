@@ -41,6 +41,7 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { RagProgressDisplay } from './rag-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
@@ -690,31 +691,49 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const embedLabel = ctx.dualEmbedding
     ? `${codeModelShort} + ${nlpModelShort}`
     : codeModelShort;
+  const ragDisplay = new RagProgressDisplay();
   const ragRunner = new Listr([{
     title: `RAG index (${embedLabel})`,
     task: async (_c: unknown, listrTask: { title: string; output: string }) => {
-      ragResult = await indexProject({
-        projectRoot: ctx.projectRoot,
-        tasks,
-        rebuild: ctx.rebuildRag,
-        concurrency: ctx.concurrency,
-        verbose: ctx.verbose,
-        dualEmbedding: ctx.dualEmbedding,
-        indexModel: ctx.config.llm.index_model,
-        resolvedModels: ctx.resolvedModels,
-        ragMode: ctx.resolvedRagMode,
-        onLog: (msg) => { listrTask.output = msg; },
-        onProgress: (current, total) => {
-          listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;
-        },
-        isInterrupted: () => ctx.interrupted,
-      });
+      const spinInterval = ctx.plain
+        ? null
+        : setInterval(() => {
+            if (ragDisplay.hasActiveFiles) listrTask.output = ragDisplay.render();
+          }, 80);
+
+      try {
+        ragResult = await indexProject({
+          projectRoot: ctx.projectRoot,
+          tasks,
+          rebuild: ctx.rebuildRag,
+          concurrency: ctx.concurrency,
+          verbose: ctx.verbose,
+          dualEmbedding: ctx.dualEmbedding,
+          indexModel: ctx.config.llm.index_model,
+          resolvedModels: ctx.resolvedModels,
+          ragMode: ctx.resolvedRagMode,
+          onLog: (msg) => {
+            if (ctx.plain) listrTask.output = msg;
+          },
+          onProgress: (current, total) => {
+            listrTask.title = `RAG index (${embedLabel}) — ${current}/${total}`;
+          },
+          onFileStart: (file) => { ragDisplay.trackFile(file); },
+          onFileDone: (file) => {
+            ragDisplay.setPhase(file, 'done');
+            ragDisplay.untrackFile(file);
+          },
+          isInterrupted: () => ctx.interrupted,
+        });
+      } finally {
+        if (spinInterval) clearInterval(spinInterval);
+      }
 
       const dualLabel = ragResult.dualEmbedding ? ' (dual)' : '';
       const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
       listrTask.title = `RAG index${dualLabel} — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${docLabel}`;
     },
-    rendererOptions: { outputBar: 4 as const },
+    rendererOptions: { outputBar: Infinity as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
