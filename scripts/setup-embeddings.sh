@@ -397,7 +397,7 @@ run_ab_test() {
   # TEI code model
   log info "Starting TEI code container (${CODE_MODEL_ID})..."
   start_tei_container "${CONTAINER_PREFIX}-tei-code" "$CODE_MODEL_ID" "$TEI_CODE_PORT"
-  if ! wait_for_tei "$TEI_CODE_PORT" "code" 300; then
+  if ! wait_for_tei "$TEI_CODE_PORT" "code" 600; then
     log error "TEI code container failed — aborting A/B test"
     stop_tei_containers
     rm -rf "$AB_TMP"
@@ -438,7 +438,7 @@ run_ab_test() {
 
   log info "Starting TEI NLP container (${NLP_MODEL_ID})..."
   start_tei_container "${CONTAINER_PREFIX}-tei-nlp" "$NLP_MODEL_ID" "$TEI_NLP_PORT"
-  if ! wait_for_tei "$TEI_NLP_PORT" "NLP" 300; then
+  if ! wait_for_tei "$TEI_NLP_PORT" "NLP" 600; then
     log error "TEI NLP container failed — aborting A/B test"
     stop_tei_containers
     rm -rf "$AB_TMP"

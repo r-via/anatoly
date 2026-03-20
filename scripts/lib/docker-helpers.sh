@@ -156,18 +156,42 @@ wait_for_gguf() {
   log ok "GGUF NLP container ready"
 }
 
-# Wait for TEI container
+# Wait for TEI container, showing download/load progress from container logs.
 wait_for_tei() {
   local port="$1"
   local label="$2"
   local timeout="${3:-180}"
+  local container="${4:-${CONTAINER_PREFIX}-tei-${label,,}}"
 
-  log info "Waiting for TEI ${label} container to load model..."
-  if ! wait_for_health "http://127.0.0.1:${port}/health" "$timeout"; then
-    log error "TEI ${label} container failed to start within ${timeout}s"
-    return 1
-  fi
-  log ok "TEI ${label} container ready"
+  log info "Waiting for TEI ${label} container (downloading model if needed)..."
+
+  local start elapsed phase="starting"
+  start=$(date +%s)
+  while true; do
+    if curl -sf --max-time 2 "http://127.0.0.1:${port}/health" &>/dev/null; then
+      log ok "TEI ${label} container ready"
+      return 0
+    fi
+
+    # Parse container logs to show progress
+    local last_log
+    last_log=$(docker logs --tail 1 "$container" 2>&1 || true)
+    if [[ "$last_log" == *"Downloading"* && "$phase" != "downloading" ]]; then
+      phase="downloading"
+      log info "TEI ${label}: downloading model weights from HuggingFace..."
+    elif [[ "$last_log" == *"Starting"*"model"* && "$phase" != "loading" ]]; then
+      phase="loading"
+      log info "TEI ${label}: loading model into GPU memory..."
+    fi
+
+    elapsed=$(( $(date +%s) - start ))
+    if [[ "$elapsed" -ge "$timeout" ]]; then
+      log error "TEI ${label} container failed to start within ${timeout}s"
+      log error "Last container log: ${last_log}"
+      return 1
+    fi
+    sleep 3
+  done
 }
 
 # ---------------------------------------------------------------------------
