@@ -25,9 +25,13 @@ const COLORS = [
 ];
 // --- END GENERATED ---
 
-export function printBanner(): void {
+export function printBanner(altMotd?: string): void {
   for (let i = 0; i < MOTD_LINES.length; i++) {
-    console.log(COLORS[i](MOTD_LINES[i]));
+    let line = MOTD_LINES[i];
+    if (altMotd && line.includes('"')) {
+      line = line.replace(/"[^"]*"/, `"${altMotd}"`);
+    }
+    console.log(COLORS[i](line));
   }
   console.log();
 }
