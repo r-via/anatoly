@@ -314,7 +314,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
           results.push(result);
         }
       } catch (err) {
-        onLog?.(`rag: failed to index ${task.file}: ${(err as Error).message}`);
+        const msg = (err as Error).message ?? String(err);
+        onLog?.(`rag: failed to index ${task.file}: ${msg}`);
+
+        // Fatal: GGUF container is unreachable — abort the entire indexing run
+        if (msg.includes('fetch failed') || msg.includes('GGUF container failed') || msg.includes('No GGUF model is loaded')) {
+          throw new Error(`GGUF container unreachable — aborting RAG indexing (${msg})`);
+        }
       }
       onProgress?.(fileCounter, tasksToIndex.length);
     },
