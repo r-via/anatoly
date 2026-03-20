@@ -403,6 +403,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         cacheSuffix,
         chunkModel: options.indexModel,
         onLog,
+        onProgress,
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
