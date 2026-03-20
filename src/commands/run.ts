@@ -734,7 +734,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       const docLabel = ragResult.docSectionsIndexed > 0 ? ` + ${ragResult.docSectionsIndexed} doc sections` : '';
       listrTask.title = `RAG index${dualLabel} — ${ragResult.totalCards} functions (${ragResult.totalFiles} files)${docLabel}`;
     },
-    rendererOptions: { outputBar: (ctx.concurrency + 1) as number },
+    rendererOptions: { outputBar: ctx.concurrency as number },
   }], {
     renderer: ctx.plain ? 'simple' : 'default',
     fallbackRenderer: 'simple',
