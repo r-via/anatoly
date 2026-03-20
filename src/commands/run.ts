@@ -41,6 +41,7 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { ReviewProgressDisplay, countReviewFindings } from './review-display.js';
+import { RagProgressDisplay } from './rag-display.js';
 import { injectBadge } from '../core/badge.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
