@@ -385,6 +385,13 @@ run_ab_test() {
   log_separator
   log info "Phase B: TEI fp16 embeddings (reference)"
 
+  # Pull TEI image if not present
+  if ! docker image inspect "$TEI_DOCKER_IMAGE" &>/dev/null; then
+    log info "Pulling TEI image: ${TEI_DOCKER_IMAGE}..."
+    docker pull "$TEI_DOCKER_IMAGE"
+    log ok "TEI image pulled"
+  fi
+
   # TEI code model
   log info "Starting TEI code container (${CODE_MODEL_ID})..."
   start_tei_container "${CONTAINER_PREFIX}-tei-code" "$CODE_MODEL_ID" "$TEI_CODE_PORT"
