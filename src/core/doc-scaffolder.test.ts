@@ -240,6 +240,102 @@ describe('scaffoldDocs', () => {
     });
   });
 
+  // --- Story 29.3: Scaffolding Hints ---
+  describe('scaffolding hints in generated pages', () => {
+    it('AC: pages contain <!-- SCAFFOLDING: ... --> comments', () => {
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      const overview = readFileSync(
+        join(outputDir, '01-Getting-Started/01-Overview.md'),
+        'utf-8',
+      );
+      expect(overview).toMatch(/<!-- SCAFFOLDING:[\s\S]*?-->/);
+    });
+
+    it('AC: each hint includes "Delete this comment when done."', () => {
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      const overview = readFileSync(
+        join(outputDir, '01-Getting-Started/01-Overview.md'),
+        'utf-8',
+      );
+      const hints = overview.match(/<!-- SCAFFOLDING:[\s\S]*?-->/g) ?? [];
+      expect(hints.length).toBeGreaterThan(0);
+      for (const hint of hints) {
+        expect(hint).toContain('Delete this comment when done.');
+      }
+    });
+
+    it('AC: each hint is max 3 lines', () => {
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      const overview = readFileSync(
+        join(outputDir, '01-Getting-Started/01-Overview.md'),
+        'utf-8',
+      );
+      const hints = overview.match(/<!-- SCAFFOLDING:[\s\S]*?-->/g) ?? [];
+      for (const hint of hints) {
+        // Count lines inside the hint (between <!-- and -->)
+        const inner = hint.replace('<!--', '').replace('-->', '').trim();
+        const lines = inner.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        expect(lines.length, `Hint too long: ${hint}`).toBeLessThanOrEqual(3);
+      }
+    });
+
+    it('all non-index pages have at least one SCAFFOLDING hint', () => {
+      scaffoldDocs(outputDir, ['Backend API', 'ORM'], { name: 'my-api' });
+
+      // Check a sample of pages across different sections
+      const pagesToCheck = [
+        '01-Getting-Started/01-Overview.md',
+        '02-Architecture/01-System-Overview.md',
+        '03-Guides/01-Common-Workflows.md',
+        '04-API-Reference/01-Public-API.md',
+        '04-API-Reference/04-REST-Endpoints.md',
+        '06-Development/01-Source-Tree.md',
+        '02-Architecture/05-Data-Model.md',
+      ];
+
+      for (const page of pagesToCheck) {
+        const content = readFileSync(join(outputDir, page), 'utf-8');
+        const hints = content.match(/<!-- SCAFFOLDING:/g) ?? [];
+        expect(hints.length, `No hint in ${page}`).toBeGreaterThan(0);
+      }
+    });
+
+    it('AC: Backend API REST-Endpoints page has project-context-aware hints with sourceHints', () => {
+      const sourceHints = new Map<string, string[]>();
+      sourceHints.set('04-API-Reference/04-REST-Endpoints.md', [
+        'Detected routes: GET /api/users, POST /api/users, GET /api/users/:id',
+      ]);
+
+      scaffoldDocs(outputDir, ['Backend API'], { name: 'my-api' }, sourceHints);
+
+      const content = readFileSync(
+        join(outputDir, '04-API-Reference/04-REST-Endpoints.md'),
+        'utf-8',
+      );
+      expect(content).toContain('GET /api/users');
+      expect(content).toContain('POST /api/users');
+    });
+
+    it('AC: previously filled page is NOT overwritten (hints not re-added)', () => {
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      // User fills the page
+      const overviewPath = join(outputDir, '01-Getting-Started/01-Overview.md');
+      writeFileSync(overviewPath, '# My Custom Overview\n\nReal content here.\n');
+
+      // Run again
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      // Must preserve user content, not re-add hints
+      const content = readFileSync(overviewPath, 'utf-8');
+      expect(content).toBe('# My Custom Overview\n\nReal content here.\n');
+      expect(content).not.toContain('<!-- SCAFFOLDING:');
+    });
+  });
+
   // --- AC: Never writes to docs/ ---
   describe('safety — never writes to docs/', () => {
     it('creates files only under the specified output directory', () => {
