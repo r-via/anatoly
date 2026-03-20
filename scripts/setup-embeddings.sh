@@ -657,11 +657,11 @@ if [[ "${1:-}" == "--ab-test" ]]; then
     exit 1
   fi
 
-  # Check VRAM — A/B test requires >= 24 GB
+  # Check VRAM — A/B test loads TEI fp16 models sequentially; shared RAM helps
   AB_VRAM=$(detect_vram_gb)
-  if [[ "$AB_VRAM" -lt 24 ]]; then
-    log error "A/B test requires >= 24 GB VRAM (detected: ${AB_VRAM} GB)"
-    log info "The TEI fp16 reference model needs ~14 GB VRAM on top of baseline."
+  if [[ "$AB_VRAM" -lt 23 ]]; then
+    log error "A/B test requires >= 23 GB VRAM (detected: ${AB_VRAM} GB)"
+    log info "The TEI fp16 reference models need significant VRAM (shared RAM helps)."
     exit 1
   fi
 
@@ -835,8 +835,8 @@ if [[ "$TIER" == "lite" ]]; then
 fi
 
 # Step 7: A/B test (if TEI is available AND enough VRAM)
-# A/B test requires >= 24 GB VRAM (TEI fp16 model needs ~14 GB on top of baseline)
-AB_TEST_MIN_VRAM_GB=24
+# A/B test loads TEI fp16 models sequentially; shared RAM helps fit larger models
+AB_TEST_MIN_VRAM_GB=23
 BACKEND="advanced-gguf"
 NLP_DIM=4096
 CODE_DIM="${CODE_DIM:-3584}"
