@@ -726,6 +726,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           resolvedModels: ctx.resolvedModels,
           ragMode: ctx.resolvedRagMode,
           onLog: (msg) => {
+            ctx.runLog?.debug({ phase: 'rag-index' }, msg);
             if (ctx.plain) listrTask.output = msg;
           },
           onProgress: (current, total) => {
