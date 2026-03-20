@@ -86,16 +86,15 @@ const ChunkResponseSchema = z.object({
   sections: z.array(ChunkSchema),
 });
 
-const CHUNK_SYSTEM_PROMPT = `You are a documentation analyzer. Given a markdown document, split it into semantic sections. Each section should cover ONE distinct concept or topic.
+const REFINE_SECTION_PROMPT = `You are a documentation analyzer. Given a single H2 section from a markdown document, refine it into semantic sub-sections. Each sub-section should cover ONE distinct concept.
 
 Rules:
-- Each section needs a short descriptive title (not the original heading — describe the concept)
-- Each section contains the FULL original text for that concept (do not summarize, do not truncate)
-- Strip fenced code blocks (\`\`\`...\`\`\`), markdown tables (| ... |), JSON/YAML blocks, shell examples, and HTML tags from the content. Keep only prose text and bullet lists.
-- Skip sections that would have less than 50 characters of prose after stripping
-- Preserve the order of the original document
-- A long H2 section with multiple sub-topics should be split into multiple sections
-- A short H2 section that is part of a larger concept can be merged with adjacent sections
+- If the section covers a single concept, return it as-is with a descriptive title
+- If the section covers multiple sub-topics (e.g. has H3 headings or distinct paragraphs about different things), split into multiple sub-sections
+- Each sub-section needs a short descriptive title (describe the concept, not the original heading)
+- Each sub-section contains the FULL original prose text (do not summarize, do not truncate)
+- Strip fenced code blocks, markdown tables, JSON/YAML blocks, shell examples, and HTML tags. Keep only prose text and bullet lists.
+- Skip sub-sections with less than 50 characters of prose after stripping
 
 Respond ONLY with a JSON object. No markdown fences, no explanation.
 
@@ -103,8 +102,9 @@ Output format:
 { "sections": [{ "title": "...", "content": "..." }, ...] }`;
 
 /**
- * Use Haiku to semantically chunk a doc file into sections.
- * Falls back to H2-based mechanical splitting if Haiku fails.
+ * Chunk a doc file by first splitting on H2 headings mechanically, then
+ * refining each section with Haiku. This keeps LLM context small (one
+ * section at a time) and avoids hallucinations on large documents.
  */
 async function chunkDocWithHaiku(
   filePath: string,
@@ -114,30 +114,67 @@ async function chunkDocWithHaiku(
 ): Promise<DocSection[]> {
   const log = contextLogger();
 
-  try {
-    const result = await runSingleTurnQuery(
-      {
-        systemPrompt: CHUNK_SYSTEM_PROMPT,
-        userMessage: `Document: \`${filePath}\`\n\n${source}`,
-        model,
-        projectRoot,
-        abortController: new AbortController(),
-      },
-      ChunkResponseSchema,
-    );
+  // Step 1: mechanical H2 split (free, instant)
+  const h2Sections = fallbackParseH2(filePath, source);
 
-    return result.data.sections
-      .filter((s) => s.content.trim().length >= 50)
-      .map((s) => ({
-        filePath,
-        heading: s.title,
-        embedText: s.content.trim(),
-        content: s.content.trim(),
-      }));
-  } catch (err) {
-    log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku call failed, using H2 fallback');
-    return fallbackParseH2(filePath, source);
+  if (h2Sections.length === 0) {
+    // No H2 structure — send the whole doc to Haiku as a single section
+    const prose = stripNonProse(source);
+    if (prose.length < 50) return [];
+    try {
+      const result = await runSingleTurnQuery(
+        {
+          systemPrompt: REFINE_SECTION_PROMPT,
+          userMessage: `Section from \`${filePath}\`:\n\n${source}`,
+          model,
+          projectRoot,
+          abortController: new AbortController(),
+        },
+        ChunkResponseSchema,
+      );
+      return result.data.sections
+        .filter((s) => s.content.trim().length >= 50)
+        .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
+    } catch (err) {
+      log?.warn({ file: filePath, err: String(err) }, 'doc chunking: Haiku failed on unstructured doc');
+      return [{ filePath, heading: filePath, embedText: prose, content: prose }];
+    }
   }
+
+  // Step 2: refine each H2 section with Haiku (small context per call)
+  const allSections: DocSection[] = [];
+
+  for (const section of h2Sections) {
+    // Small sections don't need Haiku refinement
+    if (section.content.length < 500) {
+      allSections.push(section);
+      continue;
+    }
+
+    try {
+      const result = await runSingleTurnQuery(
+        {
+          systemPrompt: REFINE_SECTION_PROMPT,
+          userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${section.content}`,
+          model,
+          projectRoot,
+          abortController: new AbortController(),
+        },
+        ChunkResponseSchema,
+      );
+
+      const refined = result.data.sections
+        .filter((s) => s.content.trim().length >= 50)
+        .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
+
+      allSections.push(...(refined.length > 0 ? refined : [section]));
+    } catch (err) {
+      log?.warn({ file: filePath, section: section.heading, err: String(err) }, 'doc chunking: Haiku refinement failed, keeping H2 section');
+      allSections.push(section);
+    }
+  }
+
+  return allSections;
 }
 
 // ---------------------------------------------------------------------------
