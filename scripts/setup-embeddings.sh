@@ -307,8 +307,9 @@ run_ab_test() {
   mkdir -p "$AB_TMP"
 
   # --- Phase 0: Clean slate ---
-  log info "Cleaning up existing containers..."
+  log info "Cleaning up existing containers and ports..."
   docker_cleanup_all
+  free_all_ports
   flush_gpu_memory
 
   local VRAM_BASELINE

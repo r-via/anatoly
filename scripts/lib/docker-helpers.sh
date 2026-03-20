@@ -204,6 +204,35 @@ embed_tei() {
 # GPU memory flush
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Port cleanup
+# ---------------------------------------------------------------------------
+
+# Kill any process listening on a given port. No-op if port is free.
+free_port() {
+  local port="$1"
+  local pid
+  pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {match($0, /pid=([0-9]+)/, m); if(m[1]) print m[1]}' | head -1)
+  if [[ -n "$pid" ]]; then
+    log warn "Port ${port} in use by PID ${pid} — killing"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    # Force kill if still alive
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+}
+
+# Ensure all Anatoly ports are free before starting containers.
+free_all_ports() {
+  free_port "$GGUF_CODE_PORT"
+  free_port "$GGUF_NLP_PORT"
+  free_port "$TEI_CODE_PORT"
+  free_port "$TEI_NLP_PORT"
+}
+
 flush_gpu_memory() {
   # Wait for GPU processes to release memory after container stop.
   # NOTE: We intentionally avoid nvidia-smi --gpu-reset and cache flushing
