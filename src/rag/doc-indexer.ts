@@ -233,6 +233,8 @@ export interface DocIndexOptions {
   docsDir?: string;
   cacheSuffix?: string;
   onProgress?: (current: number, total: number) => void;
+  onFileStart?: (file: string) => void;
+  onFileDone?: (file: string) => void;
   /** Model for semantic chunking (e.g. 'haiku'). If omitted, falls back to H2 parsing. */
   chunkModel?: string;
   onLog: (message: string) => void;
@@ -245,7 +247,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -303,6 +305,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   for (const { relPath, source } of changedFiles) {
     docFileCounter++;
     onProgress?.(docFileCounter, changedFiles.length);
+    onFileStart?.(relPath);
     const sha = computeDocSha(source);
 
     const sections = chunkModel
@@ -329,6 +332,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     await vectorStore.upsertDocSections(cards, nlpEmbeddings);
     newCache[relPath] = { sha, sectionIds };
     totalIndexed += sections.length;
+    onFileDone?.(relPath);
   }
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
