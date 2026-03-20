@@ -429,7 +429,7 @@ function waitForEnter(): Promise<void> {
       // Clear entire screen, move cursor to top, reprint the MOTD banner
       process.stdout.write('\x1b[2J\x1b[H');
       console.log('');
-      printBanner('The weight is good');
+      printBanner('The weight is good !');
       resolve();
     });
   });
