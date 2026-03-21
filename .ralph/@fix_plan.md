@@ -210,6 +210,50 @@
   > - Supprimer le ratio `userDocsPageCount/totalPages` qui produit des valeurs > 100%
   > - Le score global (`overall`) utilise le coverage projet comme metrique principale, le coverage interne est informatif
 
+- [x] Story 29.21: Decouplage doc interne, RAG systematique, et pipeline post-review
+  > En tant que **developpeur executant Anatoly**
+  > Je veux que la mise a jour de `.anatoly/docs/` soit une **phase post-review** independante, que l'indexation RAG soit **systematique**, et que l'axe documentation n'evalue que `docs/`
+  > Afin que la doc interne serve de **memoire contextuelle permanente** sans polluer le scoring.
+  >
+  > **Changement de pipeline:**
+  > ```
+  > Premier run:  setup → bootstrap doc → RAG (docs/ + .anatoly/docs/) → review (pass 1) → update internal docs → review (pass 2) → report → fix
+  > Runs suivants: setup → RAG (docs/ + .anatoly/docs/) → review → update internal docs → report → fix
+  > ```
+  >
+  > AC: Etant donne un tout premier run sur un projet sans `.anatoly/docs/`, quand le pipeline demarre, alors une phase "bootstrap doc" s'execute avant le RAG : scaffold + generation LLM rapide (Haiku) de `.anatoly/docs/`, puis le RAG indexe les deux sources, et le review (pass 1) beneficie du contexte doc interne
+  > AC: Etant donne le premier run apres le pass 1, quand la phase "update internal docs" s'execute, alors `.anatoly/docs/` est raffine avec les donnees du review (symboles, imports, dependances), puis un pass 2 du review s'execute avec la doc interne enrichie — le RAG n'est PAS re-indexe (il est deja a jour)
+  > AC: Etant donne un run suivant (`.anatoly/docs/` existe deja), quand le pipeline demarre, alors il n'y a pas de bootstrap, le RAG indexe les deux sources normalement, et un seul pass de review suffit
+  > AC: Le flag `--no-docs` est supprime — la doc interne est une memoire contextuelle qui enrichit tous les axes, la desactiver degraderait la qualite de tout le run pour un gain negligeable
+  > AC: Etant donne un run normal, quand l'axe documentation est desactive dans la config, alors l'indexation RAG doc et la mise a jour de `.anatoly/docs/` s'executent quand meme (elles ne dependent pas de l'axe)
+  > AC: Etant donne l'axe documentation qui evalue `src/core/scanner.ts`, quand le LLM retourne `documentation: 'DOCUMENTED'` pour un symbole, alors cette evaluation est basee **uniquement sur la presence de doc dans `docs/`** (les pages `.anatoly/docs/` injectees comme contexte ne comptent pas dans le scoring)
+  > AC: Etant donne les axes non-documentation (utility, overengineering, etc.), quand ils evaluent un fichier, alors ils recoivent le contexte de `.anatoly/docs/` via RAG pour enrichir leur analyse, independamment de l'activation de l'axe doc
+  > AC: Etant donne la phase "update internal docs" qui s'execute apres le review, quand la CLI affiche la progression, alors une task dediee apparait:
+  > `⠋ Internal docs     12/24 pages updated`
+  > AC: Etant donne la phase "update internal docs", quand elle genere le contenu via LLM, alors elle beneficie des donnees du review (symboles extraits, imports, dependances) pour produire une doc **plus riche** que le scaffold pre-review
+  >
+  > **CLI — premier run:**
+  > AC: Etant donne un premier run, quand la phase bootstrap demarre, alors la CLI affiche une task dediee:
+  > `⠋ First run          Creating internal documentation...`
+  > suivie de la progression:
+  > `⠋ First run          12/24 pages generated`
+  > AC: Etant donne un run suivant, quand le pipeline demarre, alors la task "First run" n'apparait pas
+  >
+  > **Edge cases:**
+  > AC: Etant donne un premier run interrompu (Ctrl+C) pendant le bootstrap avec `.anatoly/docs/` partiellement cree (ex: 5/24 pages), quand le run suivant demarre, alors le pipeline detecte le bootstrap incomplet via le cache SHA-256 (pages attendues > pages en cache) et relance le bootstrap pour completer les pages manquantes
+  > AC: Etant donne un bootstrap ou l'API LLM echoue sur > 50% des pages, quand la phase bootstrap termine, alors un warning est emis (`doc bootstrap incomplete: 18/24 pages failed — skipping double pass`), le double pass est skippe, et un seul review s'execute (la doc interne partielle est mieux que pas de doc)
+  > AC: Etant donne l'ancien flag `--no-docs`, quand un utilisateur le passe, alors la CLI affiche un warning de deprecation et l'ignore
+  > Notes d'implementation:
+  > - `run.ts`: detecter premier run via `!existsSync(join(projectRoot, '.anatoly', 'docs'))` → declencher bootstrap doc avant RAG
+  > - `run.ts`: apres pass 1 review, executer "update internal docs" puis relancer le review (pass 2) — reutiliser les memes evaluators/triageMap, pas de re-scan
+  > - `run.ts`: les runs suivants (`.anatoly/docs/` existe) sautent le bootstrap et font un seul pass
+  > - `run.ts`: supprimer le flag `--no-docs` et toutes les references a `ctx.noDocs` (deprecation warning si passe)
+  > - `orchestrator.ts:405`: l'indexation doc doit tourner meme si l'axe doc est disabled — elle depend uniquement de `dualMode` et de l'existence des fichiers
+  > - `documentation.system.md`: preciser dans le prompt que seule la doc taggee `source: 'project'` determine le statut DOCUMENTED
+  > - `progress-manager`: ajouter la task `internal-docs` entre review et report, et `bootstrap-doc` en debut de premier run
+  > - Le contexte review (symboles, imports, dependances) doit etre passe a `buildPageContext` pour enrichir la generation post-review
+  > - Le pass 2 ne re-indexe pas le RAG — les embeddings du pass 1 sont reutilises, seul le contenu des fichiers `.anatoly/docs/` a change sur disque
+
 - [x] Story 30.1: Global SDK Concurrency Semaphore
   > As a **developer running Anatoly on a large codebase**
   > I want the total number of **concurrent Claude SDK calls to be globally bounded**

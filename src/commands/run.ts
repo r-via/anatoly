@@ -50,6 +50,7 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
+import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 interface RunContext {
@@ -111,8 +112,12 @@ interface RunContext {
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
   renderer?: ScreenRenderer;
-  /** Skip doc scaffolding and generation (--no-docs) */
-  noDocs: boolean;
+  /** Whether this is a first run requiring bootstrap doc phase */
+  isFirstRun: boolean;
+  /** Number of pages that failed during bootstrap LLM generation */
+  bootstrapPagesFailed: number;
+  /** Total pages attempted during bootstrap */
+  bootstrapTotalPages: number;
   /** Doc pipeline result — set after doc scaffold + generation phases */
   docPipelineResult?: DocPipelineResult;
   /** Doc report result — set during report phase */
@@ -247,8 +252,15 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
-        noDocs: parentOpts.docs === false,
+        isFirstRun: false,
+        bootstrapPagesFailed: 0,
+        bootstrapTotalPages: 0,
       };
+
+      // --no-docs deprecation warning (Story 29.21)
+      if (parentOpts.docs === false) {
+        console.warn(chalk.yellow('warning: --no-docs is deprecated and will be ignored. Internal documentation is now always generated.'));
+      }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
@@ -309,19 +321,25 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
+        // Detect first run — Story 29.21
+        ctx.isFirstRun = needsBootstrap(ctx.projectRoot);
+
         // Initialize pipeline display
         const pipelineState = new PipelineState();
         pipelineState.setSemaphore(ctx.sdkSemaphore);
+        if (ctx.isFirstRun) {
+          pipelineState.addTask('bootstrap-doc', 'First run');
+        }
         if (ctx.enableRag) {
           pipelineState.addTask('rag-code', 'Indexing & embedding code');
           if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
           if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
         }
-        const docPrompts = ctx.docPipelineResult?.generation?.prompts ?? [];
-        if (docPrompts.length > 0) {
-          pipelineState.addTask('doc-gen', 'Generating documentation');
-        }
         pipelineState.addTask('review', 'Reviewing files');
+        pipelineState.addTask('internal-docs', 'Internal docs');
+        if (ctx.isFirstRun) {
+          pipelineState.addTask('review-2', 'Reviewing files (pass 2)');
+        }
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -331,10 +349,10 @@ export function registerRunCommand(program: Command): void {
 
         ctx.lockPath = acquireLock(projectRoot);
 
-        // --- Phase: doc generation (LLM) — Story 29.17 ---
-        if (docPrompts.length > 0 && !ctx.interrupted) {
-          await runWithContext({ phase: 'doc-gen' }, async () => {
-            await runDocLlmPhase(ctx);
+        // --- Phase: bootstrap doc (first run only) — Story 29.21 ---
+        if (ctx.isFirstRun && !ctx.interrupted) {
+          await runWithContext({ phase: 'bootstrap-doc' }, async () => {
+            await runInternalDocPhase(ctx, setup.tasks, 'bootstrap-doc');
           });
         }
 
@@ -342,9 +360,57 @@ export function registerRunCommand(program: Command): void {
         const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
 
+        // --- Phase: review (pass 1) ---
         await runWithContext({ phase: 'review' }, async () => {
         await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
         });
+        if (ctx.interrupted) {
+          const inFlight = ctx.activeAborts.size;
+          const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
+          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatDuration(Date.now() - ctx.startTime)}`);
+          if (ctx.lockPath) releaseLock(ctx.lockPath);
+          ctx.lockPath = undefined;
+          return;
+        }
+
+        // --- Phase: update internal docs (always) — Story 29.21 ---
+        if (!ctx.interrupted) {
+          await runWithContext({ phase: 'internal-docs' }, async () => {
+            await runInternalDocPhase(ctx, setup.tasks, 'internal-docs');
+          });
+        }
+
+        // --- Phase: review pass 2 (first run only) — Story 29.21 ---
+        if (ctx.isFirstRun && !ctx.interrupted && !shouldSkipDoublePass(ctx.bootstrapPagesFailed, ctx.bootstrapTotalPages)) {
+          await runWithContext({ phase: 'review-2' }, async () => {
+            // Reset progress for pass 2: mark all DONE files as PENDING
+            const resetPm = new ProgressManager(ctx.projectRoot);
+            for (const [, fp] of Object.entries(resetPm.getProgress().files)) {
+              if (fp.status === 'DONE') resetPm.updateFileStatus(fp.file, 'PENDING');
+            }
+            await resetPm.flush();
+
+            // Reset file-level counters (costs accumulate)
+            ctx.filesReviewed = 0;
+            ctx.totalFindings = 0;
+            ctx.reviewCounts = { skipped: 0, evaluated: 0 };
+            ctx.degradedReviews = 0;
+            ctx.errorCount = 0;
+            ctx.errorsByCode = {};
+            ctx.axisStats = {};
+
+            // Rebuild internal docs tree with updated content
+            const freshInternalDocsTree = buildDocsTree(ctx.projectRoot, join('.anatoly', 'docs'));
+
+            await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, freshInternalDocsTree, setup.internalDocsDir);
+          });
+        } else if (ctx.isFirstRun && !ctx.interrupted) {
+          // Skip pass 2 due to high bootstrap failure rate
+          const state = ctx.pipelineState!;
+          state.completeTask('review-2', 'skipped (bootstrap incomplete)');
+          getLogger().warn({ failed: ctx.bootstrapPagesFailed, total: ctx.bootstrapTotalPages }, 'doc bootstrap incomplete — skipping double pass');
+        }
+
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
@@ -679,23 +745,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const internalDocsTree = buildDocsTree(ctx.projectRoot, join('.anatoly', 'docs'));
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
-  // --- Phase: doc scaffold ---
-  if (!ctx.noDocs) {
-    try {
-      const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
-      const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-      const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, allTasks, docsPath);
-      const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, allTasks, pkg);
-      ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
-      const docDetail = `${scaffoldResult.scaffoldResult.pagesCreated.length} new · ${genResult.cacheResult.fresh.length} cached · ${genResult.prompts.length} to generate`;
-      pipelineRows.push({ phase: 'doc scaffold', detail: docDetail });
-      log.info({ phase: 'doc-scaffold', pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length, pagesGenerated: genResult.pagesGenerated }, 'doc scaffold complete');
-      rl?.info({ phase: 'doc-scaffold', pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length, pagesGenerated: genResult.pagesGenerated }, 'doc scaffold complete');
-    } catch (err) {
-      log.warn({ err }, 'doc scaffold failed — continuing without documentation generation');
-      rl?.warn({ err }, 'doc scaffold failed');
-    }
-  }
+  // --- Phase: internal docs status (Story 29.21 — scaffold moved to post-review) ---
+  const bootstrapNeeded = needsBootstrap(ctx.projectRoot);
+  pipelineRows.push({
+    phase: 'internal docs',
+    detail: bootstrapNeeded ? 'first run (bootstrap)' : '.anatoly/docs/ ready',
+  });
 
   // --- Calibrated ETA (merged into the estimate pipeline row) ---
   const calibration = loadCalibration(ctx.projectRoot);
@@ -749,7 +804,7 @@ interface RagContext {
 // Doc generation (LLM) — Story 29.17
 // ---------------------------------------------------------------------------
 
-async function runDocLlmPhase(ctx: RunContext): Promise<void> {
+async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void> {
   const genResult = ctx.docPipelineResult?.generation;
   if (!genResult || genResult.prompts.length === 0) return;
 
@@ -759,7 +814,7 @@ async function runDocLlmPhase(ctx: RunContext): Promise<void> {
   const ac = new AbortController();
   ctx.activeAborts.add(ac);
 
-  ctx.pipelineState?.startTask('doc-gen', `0/${total}`);
+  ctx.pipelineState?.startTask(taskId, `0/${total}`);
 
   let completed = 0;
   const executor: DocExecutor = async ({ system, user, model }) => {
@@ -803,7 +858,7 @@ async function runDocLlmPhase(ctx: RunContext): Promise<void> {
       executor,
       onPageComplete: (pagePath) => {
         completed++;
-        ctx.pipelineState?.updateTask('doc-gen', `${completed}/${total}`);
+        ctx.pipelineState?.updateTask(taskId, `${completed}/${total}`);
       },
       onPageError: (pagePath, err) => {
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
@@ -813,11 +868,69 @@ async function runDocLlmPhase(ctx: RunContext): Promise<void> {
     const detail = result.pagesFailed > 0
       ? `${result.pagesWritten} written · ${result.pagesFailed} failed`
       : `${result.pagesWritten} pages`;
-    ctx.pipelineState?.completeTask('doc-gen', detail);
+    ctx.pipelineState?.completeTask(taskId, detail);
+
+    // Track bootstrap stats for double-pass decision (Story 29.21)
+    if (taskId === 'bootstrap-doc') {
+      ctx.bootstrapPagesFailed = result.pagesFailed;
+      ctx.bootstrapTotalPages = genResult.prompts.length;
+    }
+
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
   } finally {
     ctx.activeAborts.delete(ac);
   }
+}
+
+/**
+ * Run the internal doc phase: scaffold + generate + LLM execution.
+ * Used for both bootstrap (first run) and post-review update (every run).
+ * Story 29.21.
+ */
+async function runInternalDocPhase(ctx: RunContext, tasks: Task[], taskId: string): Promise<void> {
+  const log = getLogger();
+  const rl = ctx.runLog;
+  const start = Date.now();
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
+
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+
+    // Scaffold (idempotent — creates new pages, never overwrites)
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
+
+    // Generate prompts for stale/new pages (cache-aware)
+    const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
+    ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
+
+    log.info({
+      phase: taskId,
+      pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length,
+      prompts: genResult.prompts.length,
+      fresh: genResult.cacheResult.fresh.length,
+    }, `${taskId} scaffold complete`);
+    rl?.info({
+      phase: taskId,
+      pagesCreated: scaffoldResult.scaffoldResult.pagesCreated.length,
+      prompts: genResult.prompts.length,
+    }, `${taskId} scaffold complete`);
+
+    // Execute LLM for pages that need generation
+    if (genResult.prompts.length > 0 && !ctx.interrupted) {
+      await runDocLlmPhase(ctx, taskId);
+    } else {
+      ctx.pipelineState?.completeTask(taskId, 'all cached');
+    }
+  } catch (err) {
+    log.warn({ err }, `${taskId} failed — continuing`);
+    rl?.warn({ err }, `${taskId} failed`);
+    ctx.pipelineState?.completeTask(taskId, 'failed');
+  }
+
+  const duration = Date.now() - start;
+  ctx.phaseDurations[taskId] = duration;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs: duration });
 }
 
 async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {
@@ -1280,7 +1393,7 @@ function runReportPhase(ctx: RunContext): void {
 
   // --- Doc report aggregation ---
   let docReferenceSection: string | undefined;
-  if (!ctx.noDocs && ctx.docPipelineResult) {
+  if (ctx.docPipelineResult) {
     try {
       const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
       const idealPageCount = ctx.docPipelineResult.generation?.totalPages ?? 0;

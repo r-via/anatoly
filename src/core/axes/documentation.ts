@@ -67,11 +67,13 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  const hasRelevantDocs = ctx.relevantDocs && ctx.relevantDocs.length > 0;
+  // Separate project docs (scoring) from internal docs (context only) — Story 29.21
+  const projectDocs = ctx.relevantDocs?.filter(d => d.source !== 'internal') ?? [];
+  const internalDocs = ctx.relevantDocs?.filter(d => d.source === 'internal') ?? [];
 
-  if (ctx.docsTree || hasRelevantDocs) {
+  if (ctx.docsTree || projectDocs.length > 0) {
     if (ctx.docsTree) {
-      parts.push('## Documentation Directory');
+      parts.push('## Documentation Directory (docs/)');
       parts.push('');
       parts.push('```');
       parts.push(ctx.docsTree);
@@ -79,10 +81,10 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
       parts.push('');
     }
 
-    if (hasRelevantDocs) {
-      parts.push('## Relevant Documentation Pages');
+    if (projectDocs.length > 0) {
+      parts.push('## Relevant Documentation Pages (from docs/ — USE FOR SCORING)');
       parts.push('');
-      for (const doc of ctx.relevantDocs!) {
+      for (const doc of projectDocs) {
         parts.push(`### \`${doc.path}\``);
         parts.push('');
         parts.push(doc.content);
@@ -94,6 +96,20 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
     parts.push('');
     parts.push('No /docs/ directory found — evaluate JSDoc only, skip concept coverage.');
     parts.push('');
+  }
+
+  // Internal docs provide context but do NOT count for scoring
+  if (internalDocs.length > 0) {
+    parts.push('## Internal Reference Documentation (from .anatoly/docs/ — DO NOT use for scoring)');
+    parts.push('');
+    parts.push('> These pages are auto-generated internal references. They provide context but should NOT influence DOCUMENTED/COVERED status.');
+    parts.push('');
+    for (const doc of internalDocs) {
+      parts.push(`### \`${doc.path}\``);
+      parts.push('');
+      parts.push(doc.content);
+      parts.push('');
+    }
   }
 
   parts.push('Evaluate documentation for each symbol and output the JSON.');

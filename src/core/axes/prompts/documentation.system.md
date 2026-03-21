@@ -61,6 +61,12 @@ Output ONLY a JSON object (no markdown fences, no explanation):
 
 If no documentation pages were provided, omit the `docs_coverage` field entirely — output only `{ "symbols": [...] }`.
 
+## Documentation Source Rules
+
+- **Project documentation** (`docs/`) determines DOCUMENTED/COVERED status. Only pages from `docs/` count for scoring.
+- **Internal reference documentation** (`.anatoly/docs/`) may be provided as additional context to help you understand the codebase. It must NEVER influence the DOCUMENTED/PARTIAL/UNDOCUMENTED classification or the concept coverage scoring.
+- If a symbol is documented only in `.anatoly/docs/` but NOT in `docs/` or JSDoc, it is still UNDOCUMENTED.
+
 ## Important
 
 - Do NOT evaluate other axes — only documentation.
