@@ -25,6 +25,7 @@ export interface PageInfo {
 }
 
 export interface PagePrompt {
+  pagePath: string;
   system: string;
   user: string;
   model: string;
@@ -45,7 +46,7 @@ export function buildPagePrompt(
   const model = options?.model ?? DEFAULT_MODEL;
   const system = buildSystemPrompt(page.path);
   const user = buildUserMessage(page, pageContext, packageJson);
-  return { system, user, model };
+  return { pagePath: page.path, system, user, model };
 }
 
 // --- System prompt ---

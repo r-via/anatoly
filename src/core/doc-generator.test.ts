@@ -146,6 +146,36 @@ describe('buildPagePrompt', () => {
     });
   });
 
+  // --- Story 29.17: pagePath included in PagePrompt ---
+  describe('pagePath in PagePrompt (Story 29.17)', () => {
+    it('should include pagePath in the returned prompt', () => {
+      const result = buildPagePrompt(
+        { path: '05-Modules/rag.md', title: 'RAG', description: 'RAG module' },
+        emptyContext,
+        samplePkg,
+      );
+
+      expect(result.pagePath).toBe('05-Modules/rag.md');
+    });
+
+    it('should propagate pagePath for all page types', () => {
+      const paths = [
+        '01-Getting-Started/01-Overview.md',
+        '02-Architecture/01-System-Overview.md',
+        '04-API-Reference/01-Public-API.md',
+      ];
+
+      for (const path of paths) {
+        const result = buildPagePrompt(
+          { path, title: 'Test', description: 'Test' },
+          emptyContext,
+          samplePkg,
+        );
+        expect(result.pagePath).toBe(path);
+      }
+    });
+  });
+
   // --- AC6: Model selection ---
   describe('model selection (AC6)', () => {
     it('defaults to haiku model', () => {

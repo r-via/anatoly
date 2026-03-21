@@ -49,6 +49,8 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
+import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 interface RunContext {
   projectRoot: string;
@@ -315,6 +317,10 @@ export function registerRunCommand(program: Command): void {
           if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
           if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
         }
+        const docPrompts = ctx.docPipelineResult?.generation?.prompts ?? [];
+        if (docPrompts.length > 0) {
+          pipelineState.addTask('doc-gen', 'Generating documentation');
+        }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
@@ -324,6 +330,14 @@ export function registerRunCommand(program: Command): void {
         renderer.start();
 
         ctx.lockPath = acquireLock(projectRoot);
+
+        // --- Phase: doc generation (LLM) — Story 29.17 ---
+        if (docPrompts.length > 0 && !ctx.interrupted) {
+          await runWithContext({ phase: 'doc-gen' }, async () => {
+            await runDocLlmPhase(ctx);
+          });
+        }
+
         await runWithContext({ phase: 'rag-index' }, async () => {
         const ragContext = await runRagPhase(ctx, setup.tasks);
         if (ctx.interrupted) return;
@@ -724,6 +738,81 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 interface RagContext {
   vectorStore?: VectorStore;
   ragEnabled: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Doc generation (LLM) — Story 29.17
+// ---------------------------------------------------------------------------
+
+async function runDocLlmPhase(ctx: RunContext): Promise<void> {
+  const genResult = ctx.docPipelineResult?.generation;
+  if (!genResult || genResult.prompts.length === 0) return;
+
+  const log = getLogger();
+  const outputDir = ctx.docPipelineResult!.scaffold.outputDir;
+  const total = genResult.prompts.length;
+  const ac = new AbortController();
+  ctx.activeAborts.add(ac);
+
+  ctx.pipelineState?.startTask('doc-gen', `0/${total}`);
+
+  let completed = 0;
+  const executor: DocExecutor = async ({ system, user, model }) => {
+    const q = query({
+      prompt: user,
+      options: {
+        systemPrompt: system,
+        model,
+        cwd: ctx.projectRoot,
+        allowedTools: [],
+        maxTurns: 2,
+        permissionMode: 'bypassPermissions' as const,
+        allowDangerouslySkipPermissions: true,
+        abortController: ac,
+      },
+    });
+
+    let resultText = '';
+    let costUsd = 0;
+
+    for await (const message of q) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          resultText = (message as { result: string }).result;
+          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        } else {
+          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+          throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+        }
+      }
+    }
+
+    return { text: resultText, costUsd };
+  };
+
+  try {
+    const result = await executeDocPrompts({
+      prompts: genResult.prompts,
+      outputDir,
+      semaphore: ctx.sdkSemaphore,
+      executor,
+      onPageComplete: (pagePath) => {
+        completed++;
+        ctx.pipelineState?.updateTask('doc-gen', `${completed}/${total}`);
+      },
+      onPageError: (pagePath, err) => {
+        log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
+      },
+    });
+
+    const detail = result.pagesFailed > 0
+      ? `${result.pagesWritten} written · ${result.pagesFailed} failed`
+      : `${result.pagesWritten} pages`;
+    ctx.pipelineState?.completeTask('doc-gen', detail);
+    log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
+  } finally {
+    ctx.activeAborts.delete(ac);
+  }
 }
 
 async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {

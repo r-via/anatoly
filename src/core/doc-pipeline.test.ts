@@ -236,6 +236,26 @@ describe('runDocGeneration', () => {
     expect(result2.cacheResult.stale.length + result2.cacheResult.added.length).toBeGreaterThan(0);
   });
 
+  // --- Story 29.17: prompts include pagePath ---
+  it('should include pagePath in each prompt for LLM execution', () => {
+    const pkg = { name: 'test' };
+    const tasks: Task[] = [
+      makeTask('src/core/scanner.ts', [
+        { name: 'scanProject', exported: true, line_start: 1, line_end: 250 },
+      ]),
+    ];
+
+    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocGeneration(tempDir, scaffold, tasks, pkg);
+
+    // Every prompt should have a pagePath so the executor knows where to write
+    expect(result.prompts.length).toBeGreaterThan(0);
+    for (const prompt of result.prompts) {
+      expect(prompt.pagePath).toBeDefined();
+      expect(prompt.pagePath).toMatch(/\.md$/);
+    }
+  });
+
   it('should save .cache.json to .anatoly/docs/', () => {
     const pkg = { name: 'test' };
     const tasks: Task[] = [];
