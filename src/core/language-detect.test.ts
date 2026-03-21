@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   detectLanguages,
+  detectProjectProfile,
   classifyFile,
   buildDistribution,
   EXTENSION_MAP,
@@ -16,9 +17,24 @@ vi.mock('../utils/git.js', () => ({
   getGitTrackedFiles: vi.fn(),
 }));
 
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(),
+}));
+
 import { getGitTrackedFiles } from '../utils/git.js';
+import { readFileSync } from 'node:fs';
 
 const mockedGit = vi.mocked(getGitTrackedFiles);
+const mockedReadFile = vi.mocked(readFileSync);
+
+/** Mock readFileSync to return content for specific paths, throw ENOENT for others. */
+function mockFiles(files: Record<string, string>) {
+  mockedReadFile.mockImplementation(((path: unknown) => {
+    const p = String(path);
+    if (p in files) return files[p];
+    throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+  }) as typeof readFileSync);
+}
 
 describe('language-detect', () => {
   // ------- classifyFile (pure function) -------
@@ -256,6 +272,243 @@ describe('language-detect', () => {
       const result = detectLanguages('/project');
 
       expect(result.totalFiles).toBe(1);
+    });
+  });
+
+  // ------- detectProjectProfile (Story 31.2) -------
+  describe('detectProjectProfile', () => {
+    beforeEach(() => {
+      vi.resetAllMocks();
+    });
+
+    // --- TypeScript/JavaScript frameworks ---
+
+    it('AC 31.2.1: detects React from package.json dependencies', () => {
+      mockedGit.mockReturnValue(new Set(['src/App.tsx', 'src/index.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'react', name: 'React', language: 'typescript',
+      });
+    });
+
+    it('AC 31.2.2: detects Next.js and suppresses React', () => {
+      mockedGit.mockReturnValue(new Set(['src/page.tsx', 'src/layout.tsx', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { next: '^15.0.0', react: '^19.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'nextjs', name: 'Next.js', language: 'typescript',
+      });
+      expect(result.frameworks).not.toContainEqual(
+        expect.objectContaining({ id: 'react' }),
+      );
+    });
+
+    it('AC 31.2.3: detects Next.js from next.config.* at root', () => {
+      mockedGit.mockReturnValue(new Set([
+        'src/page.tsx', 'src/layout.tsx', 'next.config.mjs', 'package.json',
+      ]));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { react: '^19.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'nextjs', name: 'Next.js', language: 'typescript',
+      });
+      // React suppressed by Next.js
+      expect(result.frameworks).not.toContainEqual(
+        expect.objectContaining({ id: 'react' }),
+      );
+    });
+
+    it('AC 31.2.10: detects multiple frameworks simultaneously', () => {
+      mockedGit.mockReturnValue(new Set(['src/app.ts', 'src/controller.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { '@nestjs/core': '^10.0.0', prisma: '^5.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual(
+        expect.objectContaining({ id: 'nestjs' }),
+      );
+      expect(result.frameworks).toContainEqual(
+        expect.objectContaining({ id: 'prisma' }),
+      );
+    });
+
+    // --- Python frameworks ---
+
+    it('AC 31.2.4: detects Django from requirements.txt', () => {
+      mockedGit.mockReturnValue(new Set(['app.py', 'models.py', 'requirements.txt']));
+      mockFiles({
+        '/project/requirements.txt': 'django==5.1\ngunicorn==21.0\n',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'django', name: 'Django', language: 'python',
+      });
+    });
+
+    it('AC 31.2.5: detects FastAPI from pyproject.toml', () => {
+      mockedGit.mockReturnValue(new Set(['app.py', 'routes.py', 'pyproject.toml']));
+      mockFiles({
+        '/project/pyproject.toml': '[project]\ndependencies = [\n  "fastapi>=0.100",\n]\n',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'fastapi', name: 'FastAPI', language: 'python',
+      });
+    });
+
+    // --- Rust frameworks ---
+
+    it('AC 31.2.6: detects Actix Web from Cargo.toml', () => {
+      mockedGit.mockReturnValue(new Set(['src/main.rs', 'src/routes.rs', 'Cargo.toml']));
+      mockFiles({
+        '/project/Cargo.toml': '[dependencies]\nactix-web = "4"\nserde = "1"\n',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'actix', name: 'Actix Web', language: 'rust',
+      });
+    });
+
+    // --- Go frameworks ---
+
+    it('AC 31.2.7: detects Gin from go.mod', () => {
+      mockedGit.mockReturnValue(new Set(['main.go', 'handlers.go', 'go.mod']));
+      mockFiles({
+        '/project/go.mod': 'module myapp\n\ngo 1.21\n\nrequire github.com/gin-gonic/gin v1.9.1\n',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'gin', name: 'Gin', language: 'go',
+      });
+    });
+
+    // --- C# frameworks ---
+
+    it('AC 31.2.8: detects ASP.NET from *.csproj', () => {
+      mockedGit.mockReturnValue(new Set([
+        'Program.cs', 'Controllers/HomeController.cs', 'MyApp.csproj',
+      ]));
+      mockFiles({
+        '/project/MyApp.csproj': '<Project Sdk="Microsoft.NET.Sdk.Web">\n'
+          + '  <ItemGroup>\n'
+          + '    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />\n'
+          + '  </ItemGroup>\n'
+          + '</Project>',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'aspnet', name: 'ASP.NET', language: 'csharp',
+      });
+    });
+
+    // --- Java frameworks ---
+
+    it('AC 31.2.9: detects Spring from pom.xml', () => {
+      mockedGit.mockReturnValue(new Set([
+        'src/main/java/App.java', 'src/main/java/Controller.java', 'pom.xml',
+      ]));
+      mockFiles({
+        '/project/pom.xml': '<project>\n'
+          + '  <dependencies>\n'
+          + '    <dependency>\n'
+          + '      <groupId>org.springframework</groupId>\n'
+          + '    </dependency>\n'
+          + '  </dependencies>\n'
+          + '</project>',
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toContainEqual({
+        id: 'spring', name: 'Spring', language: 'java',
+      });
+    });
+
+    // --- Edge cases ---
+
+    it('AC 31.2.11: returns empty frameworks when no markers found', () => {
+      mockedGit.mockReturnValue(new Set(['src/index.ts', 'src/util.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { lodash: '^4.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.frameworks).toEqual([]);
+    });
+
+    it('AC 31.2.12: does not read config files for undetected languages', () => {
+      // Only TypeScript files — should not read go.mod, Cargo.toml, etc.
+      mockedGit.mockReturnValue(new Set(['src/index.ts', 'src/util.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({ dependencies: {} }),
+      });
+
+      detectProjectProfile('/project');
+
+      // readFileSync should only be called for package.json
+      const readPaths = mockedReadFile.mock.calls.map(c => String(c[0]));
+      expect(readPaths).not.toContain('/project/requirements.txt');
+      expect(readPaths).not.toContain('/project/pyproject.toml');
+      expect(readPaths).not.toContain('/project/Cargo.toml');
+      expect(readPaths).not.toContain('/project/go.mod');
+      expect(readPaths).not.toContain('/project/pom.xml');
+    });
+
+    it('includes language distribution alongside frameworks', () => {
+      mockedGit.mockReturnValue(new Set(['src/app.ts', 'src/util.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({ dependencies: { react: '^19' } }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.languages.totalFiles).toBeGreaterThan(0);
+      expect(result.languages.languages.some(l => l.name === 'TypeScript')).toBe(true);
+    });
+
+    it('returns empty profile for non-git project', () => {
+      mockedGit.mockReturnValue(null);
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.languages.totalFiles).toBe(0);
+      expect(result.frameworks).toEqual([]);
     });
   });
 
