@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve, join, relative } from 'node:path';
+import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { loadConfig } from '../utils/config-loader.js';
@@ -49,6 +49,7 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
+import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -453,7 +454,7 @@ function formatDuration(ms: number): string {
 }
 
 interface SetupTableData {
-  project?: { name: string; version: string };
+  project?: { name: string; version: string; languages?: string; frameworks?: string };
   config: { key: string; value: string }[];
   axes: { key: string; value: string }[];
   pipeline: { phase: string; detail: string }[];
@@ -461,14 +462,24 @@ interface SetupTableData {
 
 function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const checkPrefix = 2; // "✔ " visible chars prepended to pipeline phase
+  // Build project rows for width calculation
+  const projectRows: { key: string; value: string }[] = [];
+  if (data.project) {
+    projectRows.push({ key: 'name', value: data.project.name });
+    projectRows.push({ key: 'version', value: data.project.version });
+    if (data.project.languages) projectRows.push({ key: 'languages', value: data.project.languages });
+    if (data.project.frameworks) projectRows.push({ key: 'frameworks', value: data.project.frameworks });
+  }
   // keyWidth must fit the longest key, including pipeline phases with their ✔ prefix
   const keyWidth = Math.max(
+    ...projectRows.map(r => r.key.length),
     ...data.config.map(r => r.key.length),
     ...data.axes.map(r => r.key.length),
     ...data.pipeline.map(r => r.phase.length + checkPrefix),
   );
 
   const allValues = [
+    ...projectRows.map(r => r.value),
     ...data.config.map(r => r.value),
     ...data.axes.map(r => r.value),
     ...data.pipeline.map(r => r.detail),
@@ -484,6 +495,8 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
       console.log(chalk.dim('  Project Info'));
       console.log(`    ${'name'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.name}`);
       console.log(`    ${'version'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.version}`);
+      if (data.project.languages) console.log(`    ${'languages'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.languages}`);
+      if (data.project.frameworks) console.log(`    ${'frameworks'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.frameworks}`);
     }
     console.log(chalk.dim('  Configuration'));
     for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
@@ -520,6 +533,8 @@ function renderSetupTable(data: SetupTableData, plain: boolean): void {
     console.log(emptyRow);
     console.log(kvRow('name', data.project.name));
     console.log(kvRow('version', data.project.version));
+    if (data.project.languages) console.log(kvRow('languages', data.project.languages));
+    if (data.project.frameworks) console.log(kvRow('frameworks', data.project.frameworks));
     console.log(emptyRow);
 
     // config section (connected to project info)
@@ -587,7 +602,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const pipelineRows: { phase: string; detail: string }[] = [];
 
   // --- Read project info from package.json ---
-  let projectInfo: { name: string; version: string } | undefined;
+  let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined;
   try {
     const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
     if (typeof pkg.name === 'string' && typeof pkg.version === 'string') {
@@ -595,6 +610,18 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     }
   } catch (err) {
     getLogger().debug({ err }, 'failed to read package.json for project info');
+  }
+
+  // Detect languages & frameworks for project info display
+  const profile = detectProjectProfile(ctx.projectRoot);
+  const langLine = formatLanguageLine(profile.languages.languages);
+  const fwLine = formatFrameworkLine(profile.frameworks);
+  if (!projectInfo && (langLine || fwLine)) {
+    projectInfo = { name: basename(ctx.projectRoot), version: '\u2014' };
+  }
+  if (projectInfo) {
+    if (langLine) projectInfo.languages = langLine;
+    if (fwLine) projectInfo.frameworks = fwLine;
   }
 
   // --- Phase: config ---
