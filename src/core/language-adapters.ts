@@ -160,11 +160,69 @@ export class TsxAdapter extends TypeScriptAdapter {
   override readonly wasmModule = 'tree-sitter-typescript/tree-sitter-tsx.wasm';
 }
 
+// --- Bash import extraction helpers ---
+
+const SOURCE_RE = /^(?:source|\.) +["']?([^"'\s]+)["']?/gm;
+
+function extractBashImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const m of source.matchAll(SOURCE_RE)) {
+    imports.push({ source: m[1]!, type: 'source' });
+  }
+  return imports;
+}
+
+// --- Bash adapter ---
+
+export class BashAdapter implements LanguageAdapter {
+  readonly extensions = ['.sh', '.bash'] as const;
+  readonly languageId = 'bash';
+  readonly wasmModule = 'bash';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+
+    for (const node of rootNode.namedChildren) {
+      if (node.type === 'function_definition') {
+        const nameNode = node.childForFieldName('name');
+        if (!nameNode) continue;
+        const name = nameNode.text;
+        symbols.push({
+          name,
+          kind: 'function',
+          exported: !name.startsWith('_'),
+          line_start: node.startPosition.row + 1,
+          line_end: node.endPosition.row + 1,
+        });
+      } else if (node.type === 'variable_assignment') {
+        const nameNode = node.childForFieldName('name');
+        if (!nameNode) continue;
+        const name = nameNode.text;
+        const kind = /^[A-Z_][A-Z0-9_]*$/.test(name) ? 'constant' : 'variable';
+        symbols.push({
+          name,
+          kind,
+          exported: !name.startsWith('_'),
+          line_start: node.startPosition.row + 1,
+          line_end: node.endPosition.row + 1,
+        });
+      }
+    }
+
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractBashImports(source);
+  }
+}
+
 // --- Adapter registry ---
 
 const adapters: LanguageAdapter[] = [
   new TypeScriptAdapter(),
   new TsxAdapter(),
+  new BashAdapter(),
 ];
 
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();

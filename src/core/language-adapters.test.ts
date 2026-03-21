@@ -3,15 +3,39 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import type { Node as TSNode } from 'web-tree-sitter';
 import {
   TypeScriptAdapter,
   TsxAdapter,
+  BashAdapter,
   resolveAdapter,
   heuristicParse,
   ADAPTER_REGISTRY,
   type LanguageAdapter,
   type ImportRef,
 } from './language-adapters.js';
+
+// --- Mock tree-sitter node builder ---
+interface MockData {
+  type: string;
+  text: string;
+  children?: MockData[];
+  fields?: Record<string, MockData>;
+  startRow?: number;
+  endRow?: number;
+}
+function mockNode(d: MockData): TSNode {
+  const fieldNodes: Record<string, TSNode> = {};
+  if (d.fields) for (const [k, v] of Object.entries(d.fields)) fieldNodes[k] = mockNode(v);
+  return {
+    type: d.type,
+    text: d.text,
+    namedChildren: (d.children ?? []).map(mockNode),
+    startPosition: { row: d.startRow ?? 0, column: 0 },
+    endPosition: { row: d.endRow ?? 0, column: 0 },
+    childForFieldName: (name: string) => fieldNodes[name] ?? null,
+  } as unknown as TSNode;
+}
 
 describe('LanguageAdapter interface', () => {
   // --- AC 31.6.1: Interface defines required properties ---
@@ -115,5 +139,205 @@ const b = require("b");`;
 
   it('returns empty array for no imports', () => {
     expect(adapter.extractImports('const x = 1;')).toEqual([]);
+  });
+});
+
+// --- Story 31.7: BashAdapter ---
+
+describe('BashAdapter', () => {
+  const adapter = new BashAdapter();
+
+  it('has extensions [".sh", ".bash"]', () => {
+    expect(adapter.extensions).toEqual(['.sh', '.bash']);
+  });
+
+  it('has languageId "bash"', () => {
+    expect(adapter.languageId).toBe('bash');
+  });
+
+  it('has wasmModule "bash"', () => {
+    expect(adapter.wasmModule).toBe('bash');
+  });
+});
+
+describe('BashAdapter.extractSymbols', () => {
+  const adapter = new BashAdapter();
+
+  // AC 31.7.1: function keyword form
+  it('AC 31.7.1: extracts function with "function" keyword', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'function_definition', text: 'function setup_gpu() { echo hi; }',
+        fields: { name: { type: 'word', text: 'setup_gpu', startRow: 2, endRow: 2 } },
+        startRow: 2, endRow: 4,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'setup_gpu', kind: 'function', exported: true });
+  });
+
+  // AC 31.7.2: name() form (no function keyword)
+  it('AC 31.7.2: extracts function without "function" keyword', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'function_definition', text: 'setup_gpu() { echo hi; }',
+        fields: { name: { type: 'word', text: 'setup_gpu', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'setup_gpu', kind: 'function' });
+  });
+
+  // AC 31.7.3: UPPER_SNAKE variable → constant
+  it('AC 31.7.3: extracts UPPER_SNAKE variable as constant', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'variable_assignment', text: 'DOCKER_IMAGE="ghcr.io/org/repo"',
+        fields: { name: { type: 'variable_name', text: 'DOCKER_IMAGE', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'DOCKER_IMAGE', kind: 'constant', exported: true });
+  });
+
+  // AC 31.7.4: lower_case variable → variable
+  it('AC 31.7.4: extracts non-UPPER_SNAKE as variable', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'variable_assignment', text: 'result_dir="./output"',
+        fields: { name: { type: 'variable_name', text: 'result_dir', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'result_dir', kind: 'variable', exported: true });
+  });
+
+  // AC 31.7.5: underscore prefix → exported: false
+  it('AC 31.7.5: marks underscore-prefixed as not exported', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'function_definition', text: '_internal_helper() { true; }',
+        fields: { name: { type: 'word', text: '_internal_helper', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 1,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.exported).toBe(false);
+  });
+
+  // AC 31.7.7: local variables NOT extracted
+  it('AC 31.7.7: does NOT extract local variables inside functions', () => {
+    // local declarations are inside function_definition → compound_statement,
+    // so they are NOT direct children of program
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'function_definition', text: 'my_func() { local x=1; }',
+        fields: { name: { type: 'word', text: 'my_func', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+        children: [{
+          type: 'compound_statement', text: '{ local x=1; }',
+          children: [{
+            type: 'declaration_command', text: 'local x=1',
+            startRow: 1, endRow: 1,
+          }],
+        }],
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    // Only the function, not 'x'
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe('my_func');
+  });
+
+  // Mixed: multiple symbols
+  it('extracts multiple symbols from a bash script', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [
+        {
+          type: 'variable_assignment', text: 'VERSION="1.0"',
+          fields: { name: { type: 'variable_name', text: 'VERSION', startRow: 0, endRow: 0 } },
+          startRow: 0, endRow: 0,
+        },
+        {
+          type: 'function_definition', text: 'main() { echo; }',
+          fields: { name: { type: 'word', text: 'main', startRow: 1, endRow: 1 } },
+          startRow: 1, endRow: 3,
+        },
+        {
+          type: 'variable_assignment', text: 'output_dir="./out"',
+          fields: { name: { type: 'variable_name', text: 'output_dir', startRow: 4, endRow: 4 } },
+          startRow: 4, endRow: 4,
+        },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(3);
+    expect(symbols[0]).toMatchObject({ name: 'VERSION', kind: 'constant' });
+    expect(symbols[1]).toMatchObject({ name: 'main', kind: 'function' });
+    expect(symbols[2]).toMatchObject({ name: 'output_dir', kind: 'variable' });
+  });
+
+  // Ignores non-symbol nodes
+  it('ignores non-symbol nodes like comments and commands', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [
+        { type: 'comment', text: '# a comment', startRow: 0, endRow: 0 },
+        { type: 'command', text: 'echo hello', startRow: 1, endRow: 1 },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('BashAdapter.extractImports', () => {
+  const adapter = new BashAdapter();
+
+  // AC 31.7.6: source and . commands
+  it('AC 31.7.6: extracts source and . imports', () => {
+    const source = `#!/bin/bash
+source ./lib/helpers.sh
+. ./lib/logging.sh
+echo "done"`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(2);
+    expect(imports[0]).toEqual({ source: './lib/helpers.sh', type: 'source' });
+    expect(imports[1]).toEqual({ source: './lib/logging.sh', type: 'source' });
+  });
+
+  it('ignores lines without source/dot', () => {
+    expect(adapter.extractImports('echo "hello"\nls -la')).toEqual([]);
+  });
+
+  it('handles source with quoted paths', () => {
+    const imports = adapter.extractImports('source "./lib/config.sh"');
+    expect(imports).toHaveLength(1);
+    expect(imports[0]!.source).toBe('./lib/config.sh');
+  });
+});
+
+describe('BashAdapter registry', () => {
+  it('resolves .sh to BashAdapter', () => {
+    expect(resolveAdapter('.sh')).toBeInstanceOf(BashAdapter);
+  });
+
+  it('resolves .bash to BashAdapter', () => {
+    expect(resolveAdapter('.bash')).toBeInstanceOf(BashAdapter);
   });
 });
