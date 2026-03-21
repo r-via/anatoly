@@ -29,7 +29,7 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 /** Compute max doc tokens from model context window (20% of window). */
 export function getDocTokenBudget(model?: string): number {
-  const window = (model && MODEL_CONTEXT_WINDOWS[model]) ?? DEFAULT_CONTEXT_WINDOW;
+  const window = (model ? MODEL_CONTEXT_WINDOWS[model] : undefined) ?? DEFAULT_CONTEXT_WINDOW;
   return Math.round(window * DOC_BUDGET_RATIO);
 }
 

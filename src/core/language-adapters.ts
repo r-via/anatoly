@@ -121,9 +121,9 @@ function extractTsImports(source: string): ImportRef[] {
 // --- Adapter implementations ---
 
 export class TypeScriptAdapter implements LanguageAdapter {
-  readonly extensions = ['.ts'] as const;
-  readonly languageId = 'typescript';
-  readonly wasmModule = 'tree-sitter-typescript/tree-sitter-typescript.wasm';
+  readonly extensions: readonly string[] = ['.ts'];
+  readonly languageId: string = 'typescript';
+  readonly wasmModule: string = 'tree-sitter-typescript/tree-sitter-typescript.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];

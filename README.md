@@ -6,7 +6,7 @@
 
 *"Can I clean here?"*
 
-**The AI agent that deep-audits your TypeScript codebase, and proves every finding.**
+**The AI agent that deep-audits your codebase, and proves every finding.**
 
 Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) who politely asks *"Can I clean here?"* — then deadlifts the entire rack.
 
@@ -28,7 +28,9 @@ npx anatoly run   # one command, full codebase audit
   <img src="assets/anims/demo.gif" alt="Anatoly demo"/>
 </p>
 
-Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your TypeScript codebase, investigates it with full project context, and delivers a surgical audit report.
+Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your codebase, investigates it with full project context, and delivers a surgical audit report.
+
+Supports **TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON** — with auto-detection of languages and frameworks (React, Next.js, etc.). AST-driven parsing via tree-sitter for each language.
 
 This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions, and cross-reference exports, imports, and test coverage -- then it must **prove** each finding with evidence before reporting it.
 
@@ -54,7 +56,8 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
 - **Pre-computed usage graph** — one-pass import resolution across all files with transitive intra-file references, eliminating ~90% of redundant tool calls
 - **Local code embeddings** — Jina v2 (768d) on CPU or nomic-embed-code (3584d) + Qwen3-Embedding-8B (4096d) on GPU — zero API cost for RAG indexing
-- **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status
+- **Multi-language support** — TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON with auto-detection. Language-specific best-practices prompts, framework-aware evaluation (React, Next.js)
+- **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status for each supported language
 - **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions, and checkboxes for Ralph consumption
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost. Second run on unchanged codebase costs $0
 - **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
@@ -74,7 +77,7 @@ Every file is evaluated through seven independent axes, running in parallel. Eac
 | **Correction** | Sonnet | `OK` `NEEDS_FIX` `ERROR` | Bugs, logic errors, async issues (two-pass with dependency verification) |
 | **Overengineering** | Haiku | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
 | **Tests** | Haiku | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
-| **Best Practices** | Sonnet | Score 0-10, 17 rules | TypeScript best-practice violations (context-aware) |
+| **Best Practices** | Sonnet | Score 0-10, 17 rules | Language-specific best-practice violations (context-aware) |
 | **Documentation** | Haiku | `DOCUMENTED` `PARTIAL` `UNDOCUMENTED` | JSDoc gaps on exports, /docs/ desynchronization |
 
 Run specific axes with `--axes`:
@@ -89,7 +92,7 @@ npx anatoly run                             # all seven (default)
 
 ## Target Audience
 
-Senior developers, Tech Leads, and teams working in TypeScript/React/Node.js -- especially those producing large amounts of AI-generated code with tools like Claude Code, Cursor, or Windsurf. Designed for projects from 20 to 1,000+ TypeScript files.
+Senior developers, Tech Leads, and teams working in TypeScript, Python, Rust, Go, Java, C#, and more -- especially those producing large amounts of AI-generated code with tools like Claude Code, Cursor, or Windsurf. Designed for projects from 20 to 1,000+ source files.
 
 ---
 

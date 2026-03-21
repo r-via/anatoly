@@ -31,6 +31,7 @@ const mockUsageGraph: UsageGraph = {
   ]),
   typeOnlyUsages: new Map(),
   intraFileRefs: new Map(),
+  noImportFiles: new Set(),
 };
 
 function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
