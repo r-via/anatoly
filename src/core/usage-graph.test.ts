@@ -242,6 +242,106 @@ describe('buildUsageGraph', () => {
   });
 });
 
+// --- Story 31.13: Multi-Language Usage Graph ---
+
+describe('buildUsageGraph — multi-language', () => {
+  // AC 31.13.1: Bash source edge
+  it('AC 31.13.1: tracks bash source imports', () => {
+    createFile('scripts/setup.sh', 'source ./lib/helpers.sh\necho "setup"\nline3\nline4\nline5\n');
+    createFile('scripts/lib/helpers.sh', 'function helper() { echo "help"; }\nline2\nline3\nline4\nline5\n');
+
+    const tasks = [
+      { ...makeTask('scripts/setup.sh', [{ name: 'setup', exported: true }]), language: 'bash' } as Task,
+      { ...makeTask('scripts/lib/helpers.sh', [{ name: 'helper', exported: true }]), language: 'bash' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'helper', 'scripts/lib/helpers.sh')).toEqual(['scripts/setup.sh']);
+  });
+
+  // AC 31.13.2: .sh file not sourced → candidate for DEAD
+  it('AC 31.13.2: unsourced sh file has zero importers', () => {
+    createFile('scripts/unused.sh', 'function unused() { echo "never"; }\nline2\nline3\nline4\nline5\n');
+
+    const tasks = [
+      { ...makeTask('scripts/unused.sh', [{ name: 'unused', exported: true }]), language: 'bash' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'unused', 'scripts/unused.sh')).toEqual([]);
+  });
+
+  // AC 31.13.3: Python from...import edge
+  it('AC 31.13.3: tracks python import edges', () => {
+    createFile('src/helpers.py', 'def format_output(): pass\nline2\nline3\nline4\nline5\n');
+    createFile('src/main.py', 'from helpers import format_output\nprint(format_output())\nline3\nline4\nline5\n');
+
+    const tasks = [
+      { ...makeTask('src/helpers.py', [{ name: 'format_output', exported: true }]), language: 'python' } as Task,
+      { ...makeTask('src/main.py', [{ name: 'main', exported: true }]), language: 'python' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'format_output', 'src/helpers.py')).toEqual(['src/main.py']);
+  });
+
+  // AC 31.13.4: Rust use crate edge
+  it('AC 31.13.4: tracks rust crate import edges', () => {
+    createFile('src/scanner.rs', 'pub fn parse() {}\nline2\nline3\nline4\nline5\n');
+    createFile('src/main.rs', 'use crate::scanner::parse;\nfn main() { parse(); }\nline3\nline4\nline5\n');
+
+    const tasks = [
+      { ...makeTask('src/scanner.rs', [{ name: 'parse', exported: true }]), language: 'rust' } as Task,
+      { ...makeTask('src/main.rs', [{ name: 'main', exported: true }]), language: 'rust' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'parse', 'src/scanner.rs')).toEqual(['src/main.rs']);
+  });
+
+  // AC 31.13.5: YAML → no edges, not dead
+  it('AC 31.13.5: creates no edges for YAML files', () => {
+    createFile('docker-compose.yml', 'services:\n  api:\n    image: node:20\nvolumes:\n  data:\n');
+
+    const tasks = [
+      { ...makeTask('docker-compose.yml', [{ name: 'services', exported: true, kind: 'variable' }]), language: 'yaml' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(graph.usages.size).toBe(0);
+    expect(graph.noImportFiles.has('docker-compose.yml')).toBe(true);
+  });
+
+  // AC 31.13.6: TypeScript unchanged (zero regression)
+  it('AC 31.13.6: keeps TypeScript imports unchanged', () => {
+    createFile('src/utils/cache.ts', 'export function computeHash() {}\n');
+    createFile('src/core/scanner.ts', "import { computeHash } from '../utils/cache.js';\n");
+
+    const tasks = [
+      makeTask('src/utils/cache.ts', [{ name: 'computeHash', exported: true }]),
+      makeTask('src/core/scanner.ts', [{ name: 'scanProject', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/core/scanner.ts']);
+  });
+
+  // JSON and SQL are also no-import-system
+  it('marks JSON and SQL as no-import-system files', () => {
+    createFile('config.json', '{"name": "test"}\n');
+    createFile('schema.sql', 'CREATE TABLE users (id INT);\nSELECT 1;\nSELECT 2;\nSELECT 3;\nSELECT 4;\n');
+
+    const tasks = [
+      { ...makeTask('config.json', [{ name: 'name', exported: true, kind: 'variable' }]), language: 'json' } as Task,
+      { ...makeTask('schema.sql', [{ name: 'users', exported: true, kind: 'class' }]), language: 'sql' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(graph.noImportFiles.has('config.json')).toBe(true);
+    expect(graph.noImportFiles.has('schema.sql')).toBe(true);
+  });
+});
+
 describe('getSymbolUsage', () => {
   it('returns sorted list of importers', () => {
     createFile('src/a.ts', 'export const X = 1;\n');

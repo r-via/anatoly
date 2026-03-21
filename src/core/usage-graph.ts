@@ -3,10 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync } from 'node:fs';
-import { resolve, dirname, relative } from 'node:path';
+import { resolve, dirname, relative, extname, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import { contextLogger } from '../utils/log-context.js';
+import { resolveAdapter } from './language-adapters.js';
 
 export interface UsageGraph {
   /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
@@ -15,6 +16,8 @@ export interface UsageGraph {
   typeOnlyUsages: Map<string, Set<string>>;
   /** "symbolName::filePath" → Set<exported symbol names in the same file that reference this symbol in their body> */
   intraFileRefs: Map<string, Set<string>>;
+  /** Files whose language has no import system (SQL, YAML, JSON) — should never be flagged as DEAD */
+  noImportFiles: Set<string>;
 }
 
 /**
@@ -272,6 +275,60 @@ function buildIntraFileGraph(
   return intra;
 }
 
+/** Languages with no import system — symbols should never be flagged as DEAD. */
+const NO_IMPORT_LANGUAGES = new Set(['sql', 'yaml', 'json']);
+
+/**
+ * Resolve a non-TypeScript import path to a project-relative file path.
+ * Handles Bash source paths, Python module names, and Rust crate paths.
+ */
+function resolveNonTsImportPath(
+  importSource: string,
+  importType: string,
+  importerRelPath: string,
+  taskFileSet: Set<string>,
+): string | null {
+  const importerDir = dirname(importerRelPath);
+  const importerExt = extname(importerRelPath);
+
+  // Bash source: relative path (./lib/helpers.sh)
+  if (importType === 'source' || importerExt === '.sh') {
+    const resolved = join(importerDir, importSource);
+    return taskFileSet.has(resolved) ? resolved : null;
+  }
+
+  // Python: module name → file path
+  if (importerExt === '.py') {
+    const modulePath = importSource.replace(/\./g, '/');
+    // Try relative to importer directory first
+    const relCandidate = join(importerDir, modulePath + '.py');
+    if (taskFileSet.has(relCandidate)) return relCandidate;
+    // Try relative to project root
+    const rootCandidate = modulePath + '.py';
+    if (taskFileSet.has(rootCandidate)) return rootCandidate;
+    // Try as package
+    const pkgCandidate = join(importerDir, modulePath, '__init__.py');
+    if (taskFileSet.has(pkgCandidate)) return pkgCandidate;
+    return null;
+  }
+
+  // Rust: use crate::scanner::parse → src/scanner.rs
+  if (importerExt === '.rs') {
+    if (!importSource.startsWith('crate::')) return null;
+    const parts = importSource.slice('crate::'.length).split('::');
+    // Try longest path first, removing trailing segments (could be symbol names)
+    for (let len = parts.length; len >= 1; len--) {
+      const candidate = 'src/' + parts.slice(0, len).join('/') + '.rs';
+      if (taskFileSet.has(candidate)) return candidate;
+      const modCandidate = 'src/' + parts.slice(0, len).join('/') + '/mod.rs';
+      if (taskFileSet.has(modCandidate)) return modCandidate;
+    }
+    return null;
+  }
+
+  return null;
+}
+
 /**
  * Build a usage graph by scanning all import statements across the project.
  * Runs in a single local pass (no API calls).
@@ -287,9 +344,22 @@ export function buildUsageGraph(
   const startTime = Date.now();
   const usages = new Map<string, Set<string>>();
   const typeOnlyUsages = new Map<string, Set<string>>();
+  const noImportFiles = new Set<string>();
   const allExportsByFile = buildExportMap(tasks);
 
+  // Build set of all known task files for non-TS import resolution
+  const taskFileSet = new Set<string>(tasks.map((t) => t.file));
+
   for (const task of tasks) {
+    const ext = extname(task.file);
+    const language = task.language ?? resolveAdapter(ext)?.languageId;
+
+    // No-import-system files: skip import extraction
+    if (language && NO_IMPORT_LANGUAGES.has(language)) {
+      noImportFiles.add(task.file);
+      continue;
+    }
+
     const absPath = resolve(projectRoot, task.file);
     let source: string;
     try {
@@ -298,25 +368,52 @@ export function buildUsageGraph(
       continue;
     }
 
-    const imports = extractImports(
-      source,
-      absPath,
-      projectRoot,
-      allExportsByFile,
-    );
+    const isTs = ext === '.ts' || ext === '.tsx';
 
-    for (const imp of imports) {
-      // Don't count self-imports
-      if (imp.importerFile === imp.sourceFile) continue;
+    if (isTs) {
+      // TypeScript: fine-grained per-symbol import tracking
+      const imports = extractImports(
+        source,
+        absPath,
+        projectRoot,
+        allExportsByFile,
+      );
 
-      const key = `${imp.symbol}::${imp.sourceFile}`;
-      const targetMap = imp.typeOnly ? typeOnlyUsages : usages;
-      let set = targetMap.get(key);
-      if (!set) {
-        set = new Set<string>();
-        targetMap.set(key, set);
+      for (const imp of imports) {
+        if (imp.importerFile === imp.sourceFile) continue;
+
+        const key = `${imp.symbol}::${imp.sourceFile}`;
+        const targetMap = imp.typeOnly ? typeOnlyUsages : usages;
+        let set = targetMap.get(key);
+        if (!set) {
+          set = new Set<string>();
+          targetMap.set(key, set);
+        }
+        set.add(imp.importerFile);
       }
-      set.add(imp.importerFile);
+    } else {
+      // Non-TS: adapter-based import extraction, marks all exports of resolved file as used
+      const adapter = resolveAdapter(ext);
+      if (!adapter) continue;
+
+      const importRefs = adapter.extractImports(source);
+      for (const ref of importRefs) {
+        const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet);
+        if (!resolvedFile || resolvedFile === task.file) continue;
+
+        const exports = allExportsByFile.get(resolvedFile);
+        if (exports) {
+          for (const sym of exports) {
+            const key = `${sym}::${resolvedFile}`;
+            let set = usages.get(key);
+            if (!set) {
+              set = new Set<string>();
+              usages.set(key, set);
+            }
+            set.add(task.file);
+          }
+        }
+      }
     }
   }
 
@@ -348,7 +445,7 @@ export function buildUsageGraph(
     'usage graph built',
   );
 
-  return { usages, typeOnlyUsages, intraFileRefs };
+  return { usages, typeOnlyUsages, intraFileRefs, noImportFiles };
 }
 
 /**
