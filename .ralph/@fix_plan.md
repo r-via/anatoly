@@ -283,7 +283,7 @@
   > AC: Given a git repository, Then only git-tracked files are counted (respecting `.gitignore`)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-1
 
-- [ ] Story 31.2: Framework Detection by Project Markers
+- [x] Story 31.2: Framework Detection by Project Markers
   > As a **developer running Anatoly on a framework-based project**
   > I want Anatoly to **detect the frameworks I use** from project configuration files
   > So that the prompts are **tailored to my framework's conventions**.
@@ -298,7 +298,7 @@
   > AC: Given config files are only read for detected languages (no `go.mod` read if no `.go` files)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-2
 
-- [ ] Story 31.3: Project Info Display — Languages & Frameworks
+- [x] Story 31.3: Project Info Display — Languages & Frameworks
   > As a **developer running Anatoly**
   > I want to see the **language distribution and detected frameworks** in the setup table
   > So that I can verify Anatoly **correctly understands my project ecosystem**.
@@ -309,7 +309,7 @@
   > AC: Given the pipeline, Then the setup table renders AFTER language and framework detection
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-3
 
-- [ ] Story 31.4: Auto-Detect File Discovery
+- [x] Story 31.4: Auto-Detect File Discovery
   > As a **developer running Anatoly on a multi-language project**
   > I want Anatoly to **automatically discover non-TypeScript files** without manual configuration
   > So that shell scripts, Python files, YAML configs, etc. are **included in the analysis**.
@@ -323,7 +323,7 @@
   > AC: Given `scan.exclude` from config, Then user excludes take priority over auto-detected includes
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-4
 
-- [ ] Story 31.5: Dynamic Grammar Manager
+- [x] Story 31.5: Dynamic Grammar Manager
   > As a **developer running Anatoly on a multi-language project**
   > I want tree-sitter grammars to be **downloaded automatically on first use**
   > So that the npm package stays **lightweight**.
@@ -337,7 +337,7 @@
   > AC: Given `GRAMMAR_REGISTRY`, Then it contains entries for all 9 Tier 1 languages
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-5
 
-- [ ] Story 31.6: Language Adapter Interface & TypeScript Refactor
+- [x] Story 31.6: Language Adapter Interface & TypeScript Refactor
   > As a **developer maintaining Anatoly**
   > I want a **clean abstraction** for parsing different languages
   > So that adding a new language is **a matter of adding files, not modifying the pipeline**.
@@ -350,7 +350,7 @@
   > AC: Given detected frameworks, Then each task's `framework` field is set based on project profile
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-6
 
-- [ ] Story 31.7: Bash/Shell Language Adapter
+- [x] Story 31.7: Bash/Shell Language Adapter
   > As a **developer with shell scripts in my project**
   > I want Anatoly to **parse and extract symbols from .sh and .bash files**
   > So that my infrastructure scripts are **analyzed with the same rigor as TypeScript**.
@@ -363,7 +363,7 @@
   > AC: Given `local my_var="value"` inside function body, Then NOT extracted (top-level only)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-7
 
-- [ ] Story 31.8: Python Language Adapter
+- [x] Story 31.8: Python Language Adapter
   > As a **developer with Python scripts in my project**
   > I want Anatoly to **parse and extract symbols from .py files**
   > So that my Python code is **analyzed alongside my TypeScript code**.
@@ -377,7 +377,7 @@
   > AC: Given nested `def inner():` inside `def outer():`, Then only `outer` extracted
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-8
 
-- [ ] Story 31.9: Rust Language Adapter
+- [x] Story 31.9: Rust Language Adapter
   > As a **developer with Rust code in my project**
   > I want Anatoly to **parse and extract symbols from .rs files**
   > So that my Rust modules are **included in the analysis pipeline**.
@@ -390,7 +390,7 @@
   > AC: Given `use crate::utils::helper;`, Then extractImports returns the import
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-9
 
-- [ ] Story 31.10: Go Language Adapter
+- [x] Story 31.10: Go Language Adapter
   > As a **developer with Go code in my project**
   > I want Anatoly to **parse and extract symbols from .go files**
   > So that my Go packages are **analyzed with language-appropriate rules**.
@@ -403,7 +403,7 @@
   > AC: Given `import "fmt"`, Then extractImports returns the import
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-10
 
-- [ ] Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters
+- [x] Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters
   > As a **developer running Anatoly on diverse projects**
   > I want Anatoly to **support Java, C#, SQL, YAML, and JSON parsing**
   > So that the full Tier 1 language set is covered.
@@ -418,7 +418,7 @@
   > AC: Given SQL/YAML/JSON `extractImports()`, Then returns empty array (self-contained files)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-11
 
-- [ ] Story 31.12: Heuristic Fallback Parser
+- [x] Story 31.12: Heuristic Fallback Parser
   > As a **developer with files that have no tree-sitter grammar available**
   > I want Anatoly to **extract approximate symbols via regex**
   > So that these files are **still included in the analysis**.
@@ -429,7 +429,7 @@
   > AC: Given a file with a grammar available, Then heuristicParse is NEVER called
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-12
 
-- [ ] Story 31.13: Usage-Graph Multi-Language Extension
+- [x] Story 31.13: Usage-Graph Multi-Language Extension
   > As a **developer running Anatoly on a multi-language project**
   > I want the usage-graph to **track imports across all supported languages**
   > So that the utility axis can detect **dead code in any language**.
@@ -441,7 +441,7 @@
   > AC: Given TypeScript imports unchanged, Then graph is EXACTLY the same (zero regression)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-13
 
-- [ ] Story 31.14: Prompt Resolution Cascade
+- [x] Story 31.14: Prompt Resolution Cascade
   > As a **developer maintaining Anatoly**
   > I want prompts to be **resolved automatically** based on language and framework
   > So that each file gets the **most specific applicable prompt**.
@@ -453,7 +453,7 @@
   > AC: Given TypeScript prompt loading unchanged, Then zero regression
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-14
 
-- [ ] Story 31.15: Best Practices Prompts — Shell, Python, Rust, Go
+- [x] Story 31.15: Best Practices Prompts — Shell, Python, Rust, Go
   > As a **developer with non-TypeScript code**
   > I want the best_practices axis to **evaluate with language-appropriate rules**
   > So that I get **actionable findings**.
@@ -464,7 +464,7 @@
   > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema` — same Zod schema, no changes needed
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-15
 
-- [ ] Story 31.16: Best Practices Prompts — Java, C#, SQL, YAML, JSON
+- [x] Story 31.16: Best Practices Prompts — Java, C#, SQL, YAML, JSON
   > As a **developer with Java, C#, SQL, YAML, or JSON files**
   > I want the best_practices axis to **evaluate with appropriate rules**.
   > AC: Given `best-practices.java.system.md`, Then contains JavaGuard — min 10 rules
@@ -475,7 +475,7 @@
   > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema`
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-16
 
-- [ ] Story 31.17: Documentation Prompts per Language
+- [x] Story 31.17: Documentation Prompts per Language
   > As a **developer with non-TypeScript code**
   > I want the documentation axis to **use language-appropriate criteria**
   > So that Python is checked for **docstrings**, not JSDoc.
@@ -491,7 +491,7 @@
   > AC: Given any prompt, Then output matches `DocumentationResponseSchema`
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-17
 
-- [ ] Story 31.18: Framework-Specific Prompts — React & Next.js
+- [x] Story 31.18: Framework-Specific Prompts — React & Next.js
   > As a **developer working on a React or Next.js project**
   > I want **framework-specific rules** for best_practices and documentation.
   > AC: Given `best-practices.react.system.md`, Then contains hooks rules, memo, a11y, key prop, etc. — min 12 rules
@@ -502,7 +502,7 @@
   > AC: Given `.ts` (non-JSX) in Next.js project, Then still uses Next.js prompt (all files use framework prompt)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-18
 
-- [ ] Story 31.19: Axis Language & Framework Injection
+- [x] Story 31.19: Axis Language & Framework Injection
   > As a **developer running Anatoly on a multi-language project**
   > I want all 7 axes to **correctly handle non-TypeScript files**.
   > AC: Given `.sh` file evaluated by correction axis, Then user message includes `## Language: bash` and code fence is ` ```bash `

@@ -111,6 +111,36 @@ export interface AxisEvaluator {
 }
 
 // ---------------------------------------------------------------------------
+// Language / framework injection helpers (Story 31.19)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the markdown code-fence language tag for a task.
+ * Falls back to 'typescript' when no language is set.
+ */
+export function getCodeFenceTag(task: Task): string {
+  return task.language ?? 'typescript';
+}
+
+/**
+ * Return `## Language:` / `## Framework:` header lines to inject into user
+ * messages.  Returns an empty array for plain TypeScript (no framework) so
+ * that existing output is unchanged (zero regression).
+ */
+export function getLanguageLines(task: Task): string[] {
+  const lang = task.language;
+  const fw = task.framework;
+
+  // Zero regression: TypeScript (or unset) with no framework → no headers
+  if ((!lang || lang === 'typescript') && !fw) return [];
+
+  const lines: string[] = [];
+  if (lang) lines.push(`## Language: ${lang}`);
+  if (fw) lines.push(`## Framework: ${fw}`);
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // Model resolution (here to avoid circular deps between axes/index and evaluators)
 // ---------------------------------------------------------------------------
 

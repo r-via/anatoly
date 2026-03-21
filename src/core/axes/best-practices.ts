@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
-import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
+import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import bestPracticesSystemPrompt from './prompts/best-practices.system.md';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
@@ -90,9 +90,10 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   const fileCtx = detectFileContext(ctx.task.file, ctx.fileContent);
 
   parts.push(`## File: \`${ctx.task.file}\``);
+  parts.push(...getLanguageLines(ctx.task));
   parts.push(`## Context: ${fileCtx}`);
   parts.push('');
-  parts.push('```typescript');
+  parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
   parts.push(ctx.fileContent);
   parts.push('```');
   parts.push('');

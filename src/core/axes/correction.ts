@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
-import { runSingleTurnQuery, resolveAxisModel } from '../axis-evaluator.js';
+import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
 import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import correctionSystemPrompt from './prompts/correction.system.md';
@@ -48,8 +48,9 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
   parts.push(`## File: \`${ctx.task.file}\``);
+  parts.push(...getLanguageLines(ctx.task));
   parts.push('');
-  parts.push('```typescript');
+  parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
   parts.push(ctx.fileContent);
   parts.push('```');
   parts.push('');

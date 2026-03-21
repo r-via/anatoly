@@ -4,8 +4,7 @@
 
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
-import { runSingleTurnQuery } from '../axis-evaluator.js';
-import { resolveAxisModel } from '../axis-evaluator.js';
+import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
 import utilitySystemPrompt from './prompts/utility.system.md';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
@@ -41,8 +40,9 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
   parts.push(`## File: \`${ctx.task.file}\``);
+  parts.push(...getLanguageLines(ctx.task));
   parts.push('');
-  parts.push('```typescript');
+  parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
   parts.push(ctx.fileContent);
   parts.push('```');
   parts.push('');
