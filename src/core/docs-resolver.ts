@@ -15,7 +15,23 @@ const MAX_LINES_PER_PAGE = 300;
 // RAG-based doc matching limits
 export const RAG_MAX_SECTIONS = 5;
 export const RAG_MAX_LINES_PER_SECTION = 100;
-export const RAG_MAX_DOC_TOKENS = 4000;
+
+/** Doc injection budget = 20% of model context window. */
+export const DOC_BUDGET_RATIO = 0.20;
+
+/** Model context window sizes (tokens). */
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-opus-4-6': 1_000_000,
+  'claude-sonnet-4-6': 200_000,
+  'claude-haiku-4-5-20251001': 200_000,
+};
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+/** Compute max doc tokens from model context window (20% of window). */
+export function getDocTokenBudget(model?: string): number {
+  const window = (model && MODEL_CONTEXT_WINDOWS[model]) ?? DEFAULT_CONTEXT_WINDOW;
+  return Math.round(window * DOC_BUDGET_RATIO);
+}
 
 // ---------------------------------------------------------------------------
 // buildDocsTree — recursive listing of docs dir as ASCII tree
@@ -274,12 +290,13 @@ function loadDoc(fullPath: string, docsDir: string): RelevantDoc | null {
  * Resolve documentation sections relevant to a source file using RAG NLP search.
  * Uses pre-computed NLP vectors from LanceDB when available (no runtime embedding needed).
  * Falls back to ONNX embedNlp with file name as query when no pre-computed vectors exist.
- * Applies RAG_MAX_SECTIONS, RAG_MAX_LINES_PER_SECTION, and RAG_MAX_DOC_TOKENS limits.
+ * Doc token budget = 20% of model context window, split equally between project/internal sources.
  */
 export async function resolveRelevantDocsViaRag(
   filePath: string,
   vectorStore: VectorStore,
   projectRoot: string,
+  model?: string,
 ): Promise<RelevantDoc[]> {
   // 1. Try pre-computed average NLP vector (no runtime embedding needed)
   let queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
@@ -299,9 +316,12 @@ export async function resolveRelevantDocsViaRag(
   if (results.length === 0) return [];
 
   // 3. Load full section content from disk and apply limits
+  // Budget = 20% of model context window, split between project and internal sources
+  const totalBudgetTokens = getDocTokenBudget(model);
   const docs: RelevantDoc[] = [];
-  let totalChars = 0;
-  const maxChars = RAG_MAX_DOC_TOKENS * 4; // ~4 chars per token
+  const halfMaxChars = totalBudgetTokens * 2; // ~half budget per source (4 chars/token, /2 sources)
+  let projectChars = 0;
+  let internalChars = 0;
 
   for (const result of results) {
     if (docs.length >= RAG_MAX_SECTIONS) break;
@@ -320,19 +340,23 @@ export async function resolveRelevantDocsViaRag(
       ? 'internal'
       : 'project';
 
-    // Check total token budget
-    if (totalChars + content.length > maxChars) {
-      const remaining = maxChars - totalChars;
-      if (remaining < 100) break;
+    // Check per-source token budget
+    const usedChars = source === 'project' ? projectChars : internalChars;
+    if (usedChars + content.length > halfMaxChars) {
+      const remaining = halfMaxChars - usedChars;
+      if (remaining < 100) continue; // skip this source, try next result
       docs.push({
         path: result.card.filePath,
         content: content.slice(0, remaining) + '\n<!-- truncated to fit token budget -->',
         source,
       });
-      break;
+      if (source === 'project') projectChars = halfMaxChars;
+      else internalChars = halfMaxChars;
+      continue;
     }
 
-    totalChars += content.length;
+    if (source === 'project') projectChars += content.length;
+    else internalChars += content.length;
     docs.push({ path: result.card.filePath, content, source });
   }
 

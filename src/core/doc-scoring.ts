@@ -31,6 +31,8 @@ export interface DocScoringInput {
   projectTypes: ProjectType[];
   /** Number of exports documented in project docs (docs/) */
   projectExportsDocumented: number;
+  /** Number of exports documented in internal ref (.anatoly/docs/) */
+  internalExportsDocumented: number;
   /** Total number of public exports */
   totalExports: number;
   /** Number of modules > 200 LOC with a doc page */

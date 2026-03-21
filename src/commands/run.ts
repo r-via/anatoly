@@ -683,7 +683,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (!ctx.noDocs) {
     try {
       const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
-      const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, allTasks);
+      const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+      const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, allTasks, docsPath);
       const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, allTasks, pkg);
       ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
       const docDetail = `${scaffoldResult.scaffoldResult.pagesCreated.length} new · ${genResult.cacheResult.fresh.length} cached · ${genResult.prompts.length} to generate`;

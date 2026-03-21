@@ -63,11 +63,12 @@ export function runDocScaffold(
   projectRoot: string,
   packageJson: Record<string, unknown>,
   tasks: Task[],
+  docsPath = 'docs',
 ): DocScaffoldResult {
   const outputDir = resolve(projectRoot, '.anatoly', 'docs');
 
   // Guard: never write to docs/
-  assertSafeOutputPath(outputDir, projectRoot);
+  assertSafeOutputPath(outputDir, projectRoot, docsPath);
 
   // 1. Detect project types
   const projectTypes = detectProjectTypes(packageJson);

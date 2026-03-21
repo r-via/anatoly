@@ -70,7 +70,7 @@ export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const recommendations = buildDocRecommendations(gaps, userDocPlan, { docsPath });
 
   // 4. Render report section
-  const reportStats = buildReportStats(input);
+  const reportStats = buildReportStats(input, scoringInput, recommendations);
   const renderedSection = renderDocReferenceSection(reportStats);
 
   return { score, recommendations, renderedSection, userDocPlan };
@@ -122,6 +122,7 @@ function buildScoringInput(
   userDocPages: DocPageEntry[],
 ): DocScoringInput {
   let projectExportsDocumented = 0;
+  let internalExportsDocumented = 0;
   let totalExports = 0;
   let modulesDocumented = 0;
 
@@ -131,6 +132,10 @@ function buildScoringInput(
         totalExports++;
         if (sym.documentation === 'DOCUMENTED') {
           projectExportsDocumented++;
+        }
+        // Count internal coverage from docs_coverage axis data
+        if (sym.documentation === 'DOCUMENTED' || sym.documentation === 'PARTIAL') {
+          internalExportsDocumented++;
         }
       }
     }
@@ -173,6 +178,7 @@ function buildScoringInput(
     idealPageCount: input.idealPageCount,
     projectTypes: input.projectTypes,
     projectExportsDocumented,
+    internalExportsDocumented,
     totalExports,
     modulesDocumented,
     totalModules,
@@ -243,7 +249,11 @@ function buildGapsFromReviews(
 /**
  * Builds report stats from pipeline data.
  */
-function buildReportStats(input: DocReportInput): DocReportStats {
+function buildReportStats(
+  input: DocReportInput,
+  scoringInput: DocScoringInput,
+  recommendations: DocRecommendation[],
+): DocReportStats {
   const newPages = input.newPageSources ?? [];
   const refreshedPages = input.cacheResult?.stale ?? [];
   const cachedPages = input.cacheResult?.fresh ?? [];
@@ -254,12 +264,28 @@ function buildReportStats(input: DocReportInput): DocReportStats {
     userDocsPageCount = countMdFiles(docsDir);
   }
 
+  // Symbol-based coverage (Story 29.20)
+  const symbolCoverage = {
+    projectDocumented: scoringInput.projectExportsDocumented,
+    internalDocumented: scoringInput.internalExportsDocumented,
+    totalExports: scoringInput.totalExports,
+    modulesDocumented: scoringInput.modulesDocumented,
+    totalModules: scoringInput.totalModules,
+  };
+
+  // Sync status by recommendation type (Story 29.20)
+  const toCreate = recommendations.filter(r => r.type === 'missing_page').length;
+  const outdated = recommendations.filter(r => r.type === 'outdated_content').length;
+  const syncByType = (toCreate > 0 || outdated > 0) ? { toCreate, outdated } : undefined;
+
   return {
     totalPages: input.idealPageCount,
     newPages,
     refreshedPages,
     cachedPages,
     userDocsPageCount,
+    symbolCoverage,
+    syncByType,
   };
 }
 

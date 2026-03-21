@@ -141,7 +141,7 @@
   > - Passer ces pages supplementaires a `scaffoldDocs` (nouveau parametre ou fusion dans la liste)
   > - Renumerotation dynamique dans `buildPageList` si aucun module n'est present (06 → 05)
 
-- [ ] Story 29.17: Execution LLM et ecriture du contenu documentaire
+- [x] Story 29.17: Execution LLM et ecriture du contenu documentaire
   > En tant que **developpeur executant Anatoly**
   > Je veux que `.anatoly/docs/` contienne du **contenu reel genere par LLM** des le premier run
   > Afin que la documentation de reference soit **utilisable immediatement**, pas un squelette vide.
@@ -155,21 +155,27 @@
   > - Utiliser `Promise.allSettled` pour la resilience
   > - Mettre a jour le progress-manager pour afficher la progression de la generation doc
 
-- [ ] Story 29.18: Contexte documentaire complementaire pour les axes
+- [x] Story 29.18: Contexte documentaire complementaire pour les axes
   > En tant que **developpeur executant Anatoly**
-  > Je veux que les axes recoivent du contexte documentaire depuis **`.anatoly/docs/` ET `docs/`** en complement
-  > Afin que l'analyse soit **plus pertinente** grace a la reference generee (`.anatoly/docs/`) et au contexte humain (`docs/`).
-  > AC: Etant donne un projet avec `docs/architecture/pipeline.md` (ecrit par l'utilisateur) ET `.anatoly/docs/02-Architecture/03-Data-Flow.md` (genere), quand un axe evalue `src/core/pipeline.ts`, alors le contexte inclut les deux pages comme `relevantDocs`
-  > AC: Etant donne un projet sans `docs/` mais avec `.anatoly/docs/` rempli, quand un axe evalue un fichier, alors le contexte inclut les pages pertinentes de `.anatoly/docs/`
+  > Je veux que les axes recoivent du contexte documentaire depuis **`.anatoly/docs/` ET `docs/`** en complement, avec une **distinction claire entre doc projet et doc interne**
+  > Afin que l'analyse soit **plus pertinente** et que la couverture reflète **distinctement** ce qui est documente pour l'utilisateur vs ce qui est genere en interne.
+  > AC: Etant donne un projet avec `docs/architecture/pipeline.md` (ecrit par l'utilisateur) ET `.anatoly/docs/02-Architecture/03-Data-Flow.md` (genere), quand un axe evalue `src/core/pipeline.ts`, alors le contexte inclut les deux pages comme `relevantDocs`, chacune taggee avec sa source (`project` ou `internal`)
+  > AC: Etant donne un projet sans `docs/` mais avec `.anatoly/docs/` rempli, quand un axe evalue un fichier, alors le contexte inclut les pages pertinentes de `.anatoly/docs/` taggees `source: 'internal'`
   > AC: Etant donne un projet avec `docs/` et `.anatoly/docs/` contenant des pages pour le meme module, quand le resolver construit le contexte, alors les deux sources sont incluses sans deduplication, et le budget de tokens est partage equitablement
-  > AC: Etant donne le budget de tokens de 4000, quand les deux sources sont presentes, alors `.anatoly/docs/` et `docs/` recoivent chacun 2000 tokens max
+  > AC: Etant donne le budget de tokens = 20% de la fenetre de contexte du modele (ex: Haiku 200k → 40k tokens), quand les deux sources sont presentes, alors `.anatoly/docs/` et `docs/` recoivent chacun la moitie du budget
+  > AC: Etant donne le mode RAG dual actif et `.anatoly/docs/` avec 30 pages, quand l'indexation s'execute, alors les sections de `.anatoly/docs/` sont chunkees, embedees et indexees dans LanceDB avec `source: 'internal'`, et celles de `docs/` avec `source: 'project'`
+  > AC: Etant donne une recherche RAG pour `src/core/scanner.ts`, quand le vector store retourne les resultats, alors chaque section porte son tag `source` et les deux origines sont candidates au ranking semantique
+  > AC: Les index LanceDB pour `docs/` et `.anatoly/docs/` sont dissocies — chacun a son propre cache SHA-256 et peut etre requete independamment ou ensemble
   > Notes d'implementation:
+  > - Ajouter un champ `source: 'project' | 'internal'` au type `DocSection` et au schema LanceDB `doc_section`
   > - Modifier `docs-resolver.ts` pour accepter un second chemin (`anatolyDocsPath`) en plus de `docsPath`
-  > - `resolveRelevantDocs` cherche dans les deux repertoires et merge les resultats
-  > - `resolveRelevantDocsViaRag` indexe les deux sources dans le vector store
-  > - `buildDocsTree` retourne un arbre combine ou deux arbres separes dans le contexte
+  > - `resolveRelevantDocs` cherche dans les deux repertoires, merge les resultats, et tag chaque `RelevantDoc` avec `source`
+  > - `resolveRelevantDocsViaRag` filtre ou combine par `source` selon le besoin
+  > - `buildDocsTree` retourne deux arbres separes (`docsTree` + `internalDocsTree`) dans le contexte
+  > - Modifier `orchestrator.ts` pour appeler `indexDocSections` deux fois : une avec `docsDir` + `source: 'project'`, une avec `.anatoly/docs/` + `source: 'internal'`
+  > - Le cache SHA-256 par fichier dans `doc-indexer.ts` fonctionne deja — utiliser un `cacheSuffix` distinct par source (`lite-docs` vs `lite-internal`)
 
-- [ ] Story 29.19: Propagation de `docs_path` configurable
+- [x] Story 29.19: Propagation de `docs_path` configurable
   > En tant que **developpeur avec une documentation dans un repertoire non-standard**
   > Je veux que le champ `docs_path` de la config soit **respecte partout** dans le pipeline
   > Afin que les projets utilisant `documentation/`, `wiki/`, ou tout autre chemin soient **correctement supportes**.
@@ -185,18 +191,24 @@
   > - `doc-sync.ts` — adapter la reecriture de liens pour utiliser `docs_path`
   > - Ajouter un test d'integration avec `docs_path` non-standard
 
-- [ ] Story 29.20: Coverage base sur les symboles et sync actionnable
+- [x] Story 29.20: Coverage distinct projet/interne et sync actionnable
   > En tant que **developpeur lisant le rapport Anatoly**
-  > Je veux que le coverage documentaire soit base sur le **ratio de fonctions/symboles documentes**
-  > Afin de comprendre **quelle proportion de mon code est couverte par de la documentation**.
-  > AC: Etant donne un projet avec 209 exports dont 142 documentes et 8 modules dont 6 couverts, quand le rapport est genere, alors la section Documentation Reference affiche: `Symbols: 68% (142/209 exports documented)`, `Modules: 75% (6/8 modules > 200 LOC covered)`, `Overall: 70%`
+  > Je veux que le coverage documentaire distingue **doc projet (`docs/`) et doc interne (`.anatoly/docs/`)**
+  > Afin de savoir **ce qui est documente pour mes utilisateurs** vs **ce qu'Anatoly a genere en reference**.
+  > AC: Etant donne un projet avec 209 exports dont 94 couverts dans `docs/` et 192 couverts dans `.anatoly/docs/`, quand le rapport est genere, alors la section Documentation Reference affiche:
+  > `Project docs (docs/): 45% (94/209 symbols)`, `Internal ref (.anatoly/docs/): 92% (192/209 symbols)`, `Modules: 75% (6/8 modules > 200 LOC in project docs)`
+  > AC: Un symbole couvert uniquement dans `.anatoly/docs/` ne doit PAS etre compte dans le coverage projet — et inversement
   > AC: Etant donne 5 recommendations `missing_page` et 3 `outdated_content`, quand le rapport est genere, alors la section Sync status affiche: `5 pages to create, 3 pages outdated` (pas un ratio de pages)
   > AC: Etant donne un projet avec 0 exports (projet de config ou assets), quand le scoring s'execute, alors le coverage symboles est 100% (pas de division par zero) et le module coverage est la seule metrique
   > AC: Le rapport ne peut jamais afficher un coverage > 100%
+  > AC: Le scoring `DocScoringInput` doit porter deux champs separes : `projectExportsDocumented` et `internalExportsDocumented` (au lieu d'un seul `publicExportsDocumented`)
   > Notes d'implementation:
-  > - Refactorer `renderDocReferenceSection` dans `doc-report-section.ts` pour utiliser `publicExportsDocumented/totalPublicExports` et `modulesDocumented/totalModules` du `DocScoringInput`
+  > - Refactorer `DocScoringInput` dans `doc-scoring.ts` pour separer `projectExportsDocumented` / `internalExportsDocumented`
+  > - Refactorer `renderDocReferenceSection` dans `doc-report-section.ts` pour afficher les deux lignes de coverage
+  > - Dans `doc-report-aggregator.ts`, utiliser le tag `source` des `doc_section` pour attribuer la couverture a la bonne categorie
   > - Remplacer le sync gap numerique par un decompte par type de recommendation
   > - Supprimer le ratio `userDocsPageCount/totalPages` qui produit des valeurs > 100%
+  > - Le score global (`overall`) utilise le coverage projet comme metrique principale, le coverage interne est informatif
 
 - [x] Story 30.1: Global SDK Concurrency Semaphore
   > As a **developer running Anatoly on a large codebase**

@@ -138,7 +138,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore?.hasDualEmbedding) {
     try {
-      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot);
+      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot, config.llm.model);
       docResolveMethod = 'rag';
     } catch {
       // Fall back to convention-based matching on RAG failure
