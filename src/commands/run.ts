@@ -146,7 +146,6 @@ export function registerRunCommand(program: Command): void {
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--open', 'open report in default app after generation')
-    .option('--no-docs', 'skip documentation scaffolding and generation')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
@@ -256,11 +255,6 @@ export function registerRunCommand(program: Command): void {
         bootstrapPagesFailed: 0,
         bootstrapTotalPages: 0,
       };
-
-      // --no-docs deprecation warning (Story 29.21)
-      if (parentOpts.docs === false) {
-        console.warn(chalk.yellow('warning: --no-docs is deprecated and will be ignored. Internal documentation is now always generated.'));
-      }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
@@ -814,7 +808,8 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
   const ac = new AbortController();
   ctx.activeAborts.add(ac);
 
-  ctx.pipelineState?.startTask(taskId, `0/${total}`);
+  const startDetail = taskId === 'bootstrap-doc' ? 'Creating internal documentation...' : `0/${total}`;
+  ctx.pipelineState?.startTask(taskId, startDetail);
 
   let completed = 0;
   const executor: DocExecutor = async ({ system, user, model }) => {
@@ -858,7 +853,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       executor,
       onPageComplete: (pagePath) => {
         completed++;
-        ctx.pipelineState?.updateTask(taskId, `${completed}/${total}`);
+        ctx.pipelineState?.updateTask(taskId, `${completed}/${total} pages updated`);
       },
       onPageError: (pagePath, err) => {
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
@@ -866,8 +861,8 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     });
 
     const detail = result.pagesFailed > 0
-      ? `${result.pagesWritten} written · ${result.pagesFailed} failed`
-      : `${result.pagesWritten} pages`;
+      ? `${result.pagesWritten}/${total} written · ${result.pagesFailed} failed`
+      : `${result.pagesWritten}/${total} pages updated`;
     ctx.pipelineState?.completeTask(taskId, detail);
 
     // Track bootstrap stats for double-pass decision (Story 29.21)
