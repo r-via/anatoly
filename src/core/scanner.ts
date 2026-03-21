@@ -13,6 +13,8 @@ import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { getGitTrackedFiles } from '../utils/git.js';
+import { detectLanguages } from './language-detect.js';
+import { autoDetectGlobs } from './auto-detect.js';
 import { contextLogger } from '../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
@@ -166,18 +168,35 @@ export async function parseFile(
 }
 
 /**
- * Collect all TypeScript files matching the config patterns.
+ * Collect files matching the config patterns.
+ * When `scan.auto_detect` is true (default), auto-detected language globs
+ * are merged with configured patterns so multi-language projects are scanned
+ * without manual configuration.
  * Filters out files ignored by .gitignore when inside a git repo.
  */
 export async function collectFiles(
   projectRoot: string,
   config: Config,
 ): Promise<string[]> {
+  let includePatterns = config.scan.include;
+  let excludePatterns = config.scan.exclude;
+
+  if (config.scan.auto_detect) {
+    const distribution = detectLanguages(projectRoot);
+    const auto = autoDetectGlobs(distribution.languages);
+    if (auto.include.length > 0) {
+      includePatterns = [...new Set([...includePatterns, ...auto.include])];
+    }
+    if (auto.exclude.length > 0) {
+      excludePatterns = [...new Set([...excludePatterns, ...auto.exclude])];
+    }
+  }
+
   const files: string[] = [];
 
-  const matched = await glob(config.scan.include, {
+  const matched = await glob(includePatterns, {
     cwd: projectRoot,
-    ignore: config.scan.exclude,
+    ignore: excludePatterns,
   });
   files.push(...matched);
 

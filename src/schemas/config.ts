@@ -17,6 +17,7 @@ export const ScanConfigSchema = z.object({
     '**/*.test.ts',
     '**/*.spec.ts',
   ]),
+  auto_detect: z.boolean().default(true),
 });
 
 export const CoverageConfigSchema = z.object({
