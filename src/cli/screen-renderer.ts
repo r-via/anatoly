@@ -122,29 +122,28 @@ export class ScreenRenderer {
     const frame = SPINNER[this.spinFrame % SPINNER.length];
     switch (task.status) {
       case 'done':
-        return `  ${chalk.green('\u2713')} ${task.label.padEnd(28)}${task.detail}`;
+        return `  ${chalk.green('\u2713')} ${task.label.padEnd(40)}${task.detail}`;
       case 'active':
-        return `  ${chalk.yellow(frame)} ${task.label.padEnd(28)}${task.detail}`;
+        return `  ${chalk.yellow(frame)} ${task.label.padEnd(40)}${task.detail}`;
       default:
-        return `  ${chalk.dim('\u00b7')} ${chalk.dim(task.label.padEnd(28))}${chalk.dim(task.detail)}`;
+        return `  ${chalk.dim('\u00b7')} ${chalk.dim(task.label.padEnd(40))}${chalk.dim(task.detail)}`;
     }
   }
 
   private renderTasksHeader(): string {
-    const title = '  Tasks';
+    const title = '  Pipeline';
     const sem = this.state.semaphore;
     const isUpsert = this.state.activeTaskId === 'rag-upsert';
     if (sem && !isUpsert && this.state.phase !== 'summary') {
       const running = sem.running;
       const capacity = running + sem.available;
-      const available = sem.available;
-      return `${title} ${chalk.dim(`\u2014 Agents: ${running}/${capacity} running \u00b7 ${available} available`)}`;
+      return `${title} ${chalk.dim(`\u2014 ${running}/${capacity} agents active`)}`;
     }
     return title;
   }
 
   private renderCurrentFilesHeader(): string {
-    return '  Current files';
+    return '  In progress';
   }
 
   private renderFileLine(file: FileState, maxPathWidth: number): string {
@@ -158,7 +157,7 @@ export class ScreenRenderer {
 
     if (file.axesTotal > 0) {
       const remaining = file.axesTotal - file.axesDone;
-      const counter = `${remaining}/${file.axesTotal} axes remaining`;
+      const counter = `${remaining}/${file.axesTotal} checks left`;
       line += `    ${isDone ? chalk.green(counter) : counter}`;
     }
 

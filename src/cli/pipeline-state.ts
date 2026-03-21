@@ -54,6 +54,11 @@ export class PipelineState {
     if (task) task.detail = detail;
   }
 
+  relabelTask(id: string, label: string): void {
+    const task = this.tasks.find((t) => t.id === id);
+    if (task) task.label = label;
+  }
+
   completeTask(id: string, detail: string): void {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return;

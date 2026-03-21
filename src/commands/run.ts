@@ -311,13 +311,12 @@ export function registerRunCommand(program: Command): void {
         const pipelineState = new PipelineState();
         pipelineState.setSemaphore(ctx.sdkSemaphore);
         if (ctx.enableRag) {
-          pipelineState.addTask('rag-code', 'rag \u2014 code indexing');
-          if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'rag \u2014 nlp embeddings');
-          pipelineState.addTask('rag-upsert', 'rag \u2014 upsert');
-          if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'rag \u2014 doc indexing');
+          pipelineState.addTask('rag-code', 'Indexing & embedding code');
+          if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
+          if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
         }
-        pipelineState.addTask('review', 'review');
-        pipelineState.addTask('report', 'report');
+        pipelineState.addTask('review', 'Reviewing files');
+        pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
         const renderer = new ScreenRenderer(pipelineState, { plain: ctx.plain });
@@ -769,13 +768,20 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
   ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag);
 
+  // Update task labels with resolved model names
+  const state = ctx.pipelineState!;
+  const codeModel = shortModelName(ctx.resolvedModels.codeModel);
+  const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
+  state.relabelTask('rag-code', `Indexing & embedding code (${codeModel})`);
+  state.relabelTask('rag-nlp', `Summaries & embedding code (${nlpModel})`);
+  state.relabelTask('rag-doc', `Chunking & embedding docs (${nlpModel})`);
+
   let ragResult: RagIndexResult | undefined;
 
   const indexModel = ctx.config.llm.index_model;
   const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
   mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
   const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });
-  const state = ctx.pipelineState!;
   let ragPhase = 'code';
   const ragPhaseToTaskId: Record<string, string> = {
     code: 'rag-code',
@@ -821,7 +827,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           state.startTask(nextTaskId);
           // During upsert, show synthetic file entry
           if (phase === 'upsert') {
-            state.trackFile('saving to LanceDB\u2026');
+            state.trackFile('Saving index\u2026');
           }
         }
       },
@@ -844,7 +850,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     state.completeTask(finalTaskId, finalTaskId === 'rag-upsert' ? 'done' : (state.tasks.find((t) => t.id === finalTaskId)?.detail ?? 'done'));
   }
   // Remove upsert synthetic file
-  state.activeFiles.delete('saving to LanceDB\u2026');
+  state.activeFiles.delete('Saving index\u2026');
 
   // Set final completion details on all rag tasks
   if (ragResult) {
@@ -1238,7 +1244,7 @@ function runReportPhase(ctx: RunContext): void {
   if (state) {
     state.completeTask('report', 'done');
     state.setSummary({
-      headline: chalk.bold('review complete') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
+      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
       paths: [
         { key: 'run', value: ctx.runId },
         { key: 'report', value: chalk.cyan(rel(reportPath)) },
@@ -1256,7 +1262,7 @@ function runReportPhase(ctx: RunContext): void {
   // Plain mode: print summary to stdout
   if (ctx.plain || !state) {
     console.log('');
-    console.log(chalk.bold('review complete') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
+    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
     console.log('');
     console.log(`  run          ${ctx.runId}`);
     console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
