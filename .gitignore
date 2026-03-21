@@ -6,7 +6,7 @@ _bmad-output/
 bmalph/
 node_modules/
 dist/
-.anatoly/
+.anatoly*/
 coverage/
 *.tsbuildinfo
 .temp

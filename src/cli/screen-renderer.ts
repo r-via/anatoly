@@ -8,7 +8,8 @@ import type { PipelineState, FileState } from './pipeline-state.js';
 
 const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
 const FLASH_DURATION_MS = 2000;
-const SEPARATOR = '\u2500'.repeat(58);
+const TASK_WIDTH = 70;
+const SEPARATOR = '\u2500'.repeat(TASK_WIDTH);
 
 export class ScreenRenderer {
   private interval: ReturnType<typeof setInterval> | null = null;
@@ -120,13 +121,17 @@ export class ScreenRenderer {
 
   private renderTask(task: { status: string; label: string; detail: string }): string {
     const frame = SPINNER[this.spinFrame % SPINNER.length];
+    // icon(1) + space(1) = 2 chars before content
+    const innerWidth = TASK_WIDTH - 2;
+    const gap = Math.max(1, innerWidth - task.label.length - task.detail.length);
+    const content = task.label + ' '.repeat(gap) + task.detail;
     switch (task.status) {
       case 'done':
-        return `  ${chalk.green('\u2713')} ${task.label.padEnd(40)}${task.detail}`;
+        return `  ${chalk.green('\u2713')} ${content}`;
       case 'active':
-        return `  ${chalk.yellow(frame)} ${task.label.padEnd(40)}${task.detail}`;
+        return `  ${chalk.yellow(frame)} ${content}`;
       default:
-        return `  ${chalk.dim('\u00b7')} ${chalk.dim(task.label.padEnd(40))}${chalk.dim(task.detail)}`;
+        return `  ${chalk.dim('\u00b7')} ${chalk.dim(content)}`;
     }
   }
 

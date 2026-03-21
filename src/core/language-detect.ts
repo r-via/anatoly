@@ -219,6 +219,22 @@ export function detectProjectProfile(projectRoot: string): ProjectProfile {
   return { languages, frameworks };
 }
 
+/**
+ * Format language distribution for CLI display.
+ * Returns "TypeScript 85% · Shell 10%" or "" if empty.
+ */
+export function formatLanguageLine(languages: LanguageInfo[]): string {
+  return languages.map((l) => `${l.name} ${l.percentage}%`).join(' \u00b7 ');
+}
+
+/**
+ * Format detected frameworks for CLI display.
+ * Returns "Next.js · Prisma" or "" if empty.
+ */
+export function formatFrameworkLine(frameworks: FrameworkInfo[]): string {
+  return frameworks.map((f) => f.name).join(' \u00b7 ');
+}
+
 // --- Internal helpers ---
 
 function isExcluded(filePath: string, excludes: string[]): boolean {

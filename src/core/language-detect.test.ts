@@ -8,6 +8,8 @@ import {
   detectProjectProfile,
   classifyFile,
   buildDistribution,
+  formatLanguageLine,
+  formatFrameworkLine,
   EXTENSION_MAP,
   FILENAME_MAP,
   DEFAULT_EXCLUDES,
@@ -542,6 +544,51 @@ describe('language-detect', () => {
     it('FILENAME_MAP contains Dockerfile and Makefile', () => {
       expect(FILENAME_MAP['Dockerfile']).toBeDefined();
       expect(FILENAME_MAP['Makefile']).toBeDefined();
+    });
+  });
+
+  // ------- Formatting functions (Story 31.3) -------
+  describe('formatLanguageLine', () => {
+    it('AC 31.3.1: formats multiple languages with percentages', () => {
+      const langs = [
+        { name: 'TypeScript', percentage: 85, fileCount: 85 },
+        { name: 'Shell', percentage: 10, fileCount: 10 },
+        { name: 'Python', percentage: 3, fileCount: 3 },
+        { name: 'YAML', percentage: 2, fileCount: 2 },
+      ];
+
+      expect(formatLanguageLine(langs)).toBe('TypeScript 85% · Shell 10% · Python 3% · YAML 2%');
+    });
+
+    it('formats a single language', () => {
+      const langs = [{ name: 'TypeScript', percentage: 100, fileCount: 50 }];
+
+      expect(formatLanguageLine(langs)).toBe('TypeScript 100%');
+    });
+
+    it('returns empty string for empty array', () => {
+      expect(formatLanguageLine([])).toBe('');
+    });
+  });
+
+  describe('formatFrameworkLine', () => {
+    it('AC 31.3.2: formats multiple frameworks', () => {
+      const fws = [
+        { id: 'nextjs', name: 'Next.js', language: 'typescript' },
+        { id: 'prisma', name: 'Prisma', language: 'typescript' },
+      ];
+
+      expect(formatFrameworkLine(fws)).toBe('Next.js · Prisma');
+    });
+
+    it('formats a single framework', () => {
+      const fws = [{ id: 'react', name: 'React', language: 'typescript' }];
+
+      expect(formatFrameworkLine(fws)).toBe('React');
+    });
+
+    it('AC 31.3.3: returns empty string for empty array', () => {
+      expect(formatFrameworkLine([])).toBe('');
     });
   });
 });
