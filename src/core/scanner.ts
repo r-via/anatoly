@@ -3,31 +3,22 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { resolve, join, relative, extname } from 'node:path';
 import { createRequire } from 'node:module';
 import { glob } from 'tinyglobby';
 import { Parser, Language } from 'web-tree-sitter';
-import type { Node as TSNode } from 'web-tree-sitter';
 import type { Config } from '../schemas/config.js';
-import type { Task, SymbolInfo, SymbolKind, CoverageData } from '../schemas/task.js';
+import type { Task, SymbolInfo, CoverageData } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { getGitTrackedFiles } from '../utils/git.js';
-import { detectLanguages } from './language-detect.js';
+import { detectLanguages, detectProjectProfile, classifyFile } from './language-detect.js';
+import type { FrameworkInfo } from './language-detect.js';
 import { autoDetectGlobs } from './auto-detect.js';
+import { resolveAdapter, heuristicParse } from './language-adapters.js';
 import { contextLogger } from '../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
-
-const DECLARATION_KINDS: Record<string, SymbolKind> = {
-  function_declaration: 'function',
-  class_declaration: 'class',
-  abstract_class_declaration: 'class',
-  interface_declaration: 'type',
-  type_alias_declaration: 'type',
-  enum_declaration: 'enum',
-  method_definition: 'method',
-};
 
 let parserInstance: Parser | null = null;
 const languageCache = new Map<string, Language>();
@@ -48,123 +39,43 @@ async function loadLanguage(wasmModule: string): Promise<Language> {
   return lang;
 }
 
-function getTsLanguage(): Promise<Language> {
-  return loadLanguage('tree-sitter-typescript/tree-sitter-typescript.wasm');
-}
-
-function getTsxLanguage(): Promise<Language> {
-  return loadLanguage('tree-sitter-typescript/tree-sitter-tsx.wasm');
-}
-
-function isHookName(name: string): boolean {
-  return /^use[A-Z]/.test(name);
-}
-
 /**
- * Extract top-level symbols from a tree-sitter AST.
- */
-function extractSymbols(rootNode: TSNode): SymbolInfo[] {
-  const symbols: SymbolInfo[] = [];
-
-  for (const node of rootNode.namedChildren) {
-    // Handle export statements: `export function/class/type/...`
-    if (node.type === 'export_statement') {
-      const declaration = node.namedChildren.find(
-        (c: TSNode) => c.type in DECLARATION_KINDS || c.type === 'lexical_declaration',
-      );
-      if (declaration) {
-        extractDeclaration(declaration, true, symbols);
-      }
-      continue;
-    }
-
-    // Handle top-level declarations (non-exported)
-    if (node.type in DECLARATION_KINDS) {
-      extractDeclaration(node, false, symbols);
-    } else if (node.type === 'lexical_declaration') {
-      extractDeclaration(node, false, symbols);
-    }
-  }
-
-  return symbols;
-}
-
-function extractDeclaration(
-  node: TSNode,
-  exported: boolean,
-  symbols: SymbolInfo[],
-): void {
-  if (node.type === 'lexical_declaration') {
-    // const/let declarations — extract each declarator
-    for (const child of node.namedChildren) {
-      if (child.type === 'variable_declarator') {
-        const nameNode = child.childForFieldName('name');
-        if (!nameNode) continue;
-        const name = nameNode.text;
-
-        // Determine kind: hook (useXxx), constant (UPPER_SNAKE), or variable
-        let kind: SymbolKind;
-        if (isHookName(name)) {
-          kind = 'hook';
-        } else if (/^[A-Z_][A-Z0-9_]*$/.test(name)) {
-          kind = 'constant';
-        } else {
-          // Check if the value is an arrow function or function expression
-          const value = child.childForFieldName('value');
-          if (value && (value.type === 'arrow_function' || value.type === 'function')) {
-            kind = 'function';
-          } else {
-            kind = 'variable';
-          }
-        }
-
-        symbols.push({
-          name,
-          kind,
-          exported,
-          line_start: node.startPosition.row + 1,
-          line_end: node.endPosition.row + 1,
-        });
-      }
-    }
-    return;
-  }
-
-  const kind = DECLARATION_KINDS[node.type];
-  if (!kind) return;
-
-  const nameNode = node.childForFieldName('name');
-  if (!nameNode) return;
-  const name = nameNode.text;
-
-  // Override kind for hooks: function named useXxx → hook
-  const finalKind: SymbolKind = kind === 'function' && isHookName(name) ? 'hook' : kind;
-
-  symbols.push({
-    name,
-    kind: finalKind,
-    exported,
-    line_start: node.startPosition.row + 1,
-    line_end: node.endPosition.row + 1,
-  });
-}
-
-/**
- * Parse a single TypeScript/TSX file and extract symbols.
+ * Parse a source file and extract symbols using the appropriate language adapter.
+ * Falls back to heuristic parsing for files with no registered adapter.
  */
 export async function parseFile(
   filePath: string,
   source: string,
 ): Promise<SymbolInfo[]> {
-  const parser = await getParser();
-  const lang = filePath.endsWith('.tsx')
-    ? await getTsxLanguage()
-    : await getTsLanguage();
+  const ext = extname(filePath);
+  const adapter = resolveAdapter(ext);
 
+  if (!adapter) {
+    return heuristicParse(source);
+  }
+
+  const parser = await getParser();
+  const lang = await loadLanguage(adapter.wasmModule);
   parser.setLanguage(lang);
   const tree = parser.parse(source);
   if (!tree) return [];
-  return extractSymbols(tree.rootNode);
+  return adapter.extractSymbols(tree.rootNode);
+}
+
+/**
+ * Resolve the primary framework for a file based on its language and the project profile.
+ * TypeScript files also match JavaScript-ecosystem frameworks (Next.js, Express, etc.).
+ */
+function resolveFramework(
+  _filePath: string,
+  language: string | null,
+  frameworks: FrameworkInfo[],
+): string | undefined {
+  if (!language || frameworks.length === 0) return undefined;
+  // TypeScript files belong to the JavaScript ecosystem
+  const matchLangs = language === 'TypeScript' ? ['TypeScript', 'JavaScript'] : [language];
+  const match = frameworks.find((f) => matchLangs.includes(f.language));
+  return match?.id;
 }
 
 /**
@@ -346,6 +257,7 @@ export async function scanProject(
 
   const files = await collectFiles(projectRoot, config);
   const coverageMap = loadCoverage(projectRoot, config);
+  const profile = detectProjectProfile(projectRoot);
   let filesCached = 0;
   let filesNew = 0;
   let astErrors = 0;
@@ -377,6 +289,11 @@ export async function scanProject(
 
     // Parse and generate task
     const source = readFileSync(absPath, 'utf-8');
+    const ext = extname(relPath);
+    const adapter = resolveAdapter(ext);
+    const parseMethod = adapter ? 'ast' : 'heuristic';
+    const detectedLang = classifyFile(relPath);
+
     let symbols: SymbolInfo[];
     try {
       symbols = await parseFile(relPath, source);
@@ -391,8 +308,14 @@ export async function scanProject(
       file: relPath,
       hash,
       symbols,
+      language: detectedLang?.toLowerCase() ?? 'unknown',
+      parse_method: parseMethod as 'ast' | 'heuristic',
       scanned_at: now,
     };
+
+    // Attach framework from project profile
+    const fw = resolveFramework(relPath, detectedLang, profile.frameworks);
+    if (fw) task.framework = fw;
 
     // Attach coverage data if available
     const fileCoverage = coverageMap?.get(relPath);

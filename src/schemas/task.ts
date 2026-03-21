@@ -40,6 +40,9 @@ export const TaskSchema = z.object({
   hash: z.string(),
   symbols: z.array(SymbolInfoSchema),
   coverage: CoverageDataSchema.optional(),
+  language: z.string().optional(),
+  parse_method: z.enum(['ast', 'heuristic']).optional(),
+  framework: z.string().optional(),
   scanned_at: z.string(),
 });
 
