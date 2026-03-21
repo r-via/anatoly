@@ -18,6 +18,14 @@ import bestPracticesCsharpPrompt from './axes/prompts/best-practices.csharp.syst
 import bestPracticesSqlPrompt from './axes/prompts/best-practices.sql.system.md';
 import bestPracticesYamlPrompt from './axes/prompts/best-practices.yaml.system.md';
 import bestPracticesJsonPrompt from './axes/prompts/best-practices.json.system.md';
+import docBashPrompt from './axes/prompts/documentation.bash.system.md';
+import docPythonPrompt from './axes/prompts/documentation.python.system.md';
+import docRustPrompt from './axes/prompts/documentation.rust.system.md';
+import docGoPrompt from './axes/prompts/documentation.go.system.md';
+import docJavaPrompt from './axes/prompts/documentation.java.system.md';
+import docCsharpPrompt from './axes/prompts/documentation.csharp.system.md';
+import docSqlPrompt from './axes/prompts/documentation.sql.system.md';
+import docYamlPrompt from './axes/prompts/documentation.yaml.system.md';
 
 /** Registry of system prompts keyed by "{axisId}" or "{axisId}.{language}" or "{axisId}.{framework}" */
 const PROMPT_REGISTRY = new Map<string, string>();
@@ -39,6 +47,14 @@ function registerDefaults(): void {
   register('best_practices.sql', bestPracticesSqlPrompt);
   register('best_practices.yaml', bestPracticesYamlPrompt);
   register('best_practices.json', bestPracticesJsonPrompt);
+  register('documentation.bash', docBashPrompt);
+  register('documentation.python', docPythonPrompt);
+  register('documentation.rust', docRustPrompt);
+  register('documentation.go', docGoPrompt);
+  register('documentation.java', docJavaPrompt);
+  register('documentation.csharp', docCsharpPrompt);
+  register('documentation.sql', docSqlPrompt);
+  register('documentation.yaml', docYamlPrompt);
 }
 
 function register(key: string, content: string): void {
