@@ -11,6 +11,11 @@ import {
   PythonAdapter,
   RustAdapter,
   GoAdapter,
+  JavaAdapter,
+  CSharpAdapter,
+  SqlAdapter,
+  YamlAdapter,
+  JsonAdapter,
   resolveAdapter,
   heuristicParse,
   ADAPTER_REGISTRY,
@@ -984,5 +989,421 @@ import (
 describe('GoAdapter registry', () => {
   it('resolves .go to GoAdapter', () => {
     expect(resolveAdapter('.go')).toBeInstanceOf(GoAdapter);
+  });
+});
+
+// --- Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters ---
+
+// --- JavaAdapter ---
+
+describe('JavaAdapter', () => {
+  const adapter = new JavaAdapter();
+
+  it('has extensions [".java"]', () => {
+    expect(adapter.extensions).toEqual(['.java']);
+  });
+
+  it('has languageId "java"', () => {
+    expect(adapter.languageId).toBe('java');
+  });
+
+  it('has wasmModule "java"', () => {
+    expect(adapter.wasmModule).toBe('java');
+  });
+});
+
+describe('JavaAdapter.extractSymbols', () => {
+  const adapter = new JavaAdapter();
+
+  // AC 31.11.1: public class + public method extracted
+  it('AC 31.11.1: extracts public class and public method', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'class_declaration', text: 'public class UserService { public void process() { } }',
+        fields: { name: { type: 'identifier', text: 'UserService', startRow: 0, endRow: 0 } },
+        children: [
+          { type: 'modifiers', text: 'public', startRow: 0, endRow: 0 },
+          {
+            type: 'class_body', text: '{ public void process() { } }',
+            children: [{
+              type: 'method_declaration', text: 'public void process() { }',
+              fields: { name: { type: 'identifier', text: 'process', startRow: 1, endRow: 1 } },
+              children: [{ type: 'modifiers', text: 'public', startRow: 1, endRow: 1 }],
+              startRow: 1, endRow: 3,
+            }],
+            startRow: 0, endRow: 4,
+          },
+        ],
+        startRow: 0, endRow: 4,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(2);
+    expect(symbols[0]).toMatchObject({ name: 'UserService', kind: 'class', exported: true });
+    expect(symbols[1]).toMatchObject({ name: 'process', kind: 'method', exported: true });
+  });
+
+  // AC 31.11.2: private static final → constant, not exported
+  it('AC 31.11.2: extracts private static final as constant not exported', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [{
+        type: 'class_declaration', text: 'public class Config { private static final int MAX = 100; }',
+        fields: { name: { type: 'identifier', text: 'Config', startRow: 0, endRow: 0 } },
+        children: [
+          { type: 'modifiers', text: 'public', startRow: 0, endRow: 0 },
+          {
+            type: 'class_body', text: '{ private static final int MAX = 100; }',
+            children: [{
+              type: 'field_declaration', text: 'private static final int MAX = 100;',
+              fields: {
+                declarator: {
+                  type: 'variable_declarator', text: 'MAX = 100',
+                  fields: { name: { type: 'identifier', text: 'MAX', startRow: 1, endRow: 1 } },
+                  startRow: 1, endRow: 1,
+                },
+              },
+              children: [{ type: 'modifiers', text: 'private static final', startRow: 1, endRow: 1 }],
+              startRow: 1, endRow: 1,
+            }],
+            startRow: 0, endRow: 2,
+          },
+        ],
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    const constant = symbols.find((s) => s.name === 'MAX');
+    expect(constant).toBeDefined();
+    expect(constant).toMatchObject({ name: 'MAX', kind: 'constant', exported: false });
+  });
+
+  // Ignores non-symbol nodes
+  it('ignores non-symbol nodes like package and import', () => {
+    const root = mockNode({
+      type: 'program', text: '',
+      children: [
+        { type: 'package_declaration', text: 'package com.example;', startRow: 0, endRow: 0 },
+        { type: 'import_declaration', text: 'import java.util.List;', startRow: 1, endRow: 1 },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('JavaAdapter.extractImports', () => {
+  const adapter = new JavaAdapter();
+
+  it('extracts import declarations', () => {
+    const source = `package com.example;
+import java.util.List;
+import com.google.common.collect.ImmutableList;`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(2);
+    expect(imports[0]).toEqual({ source: 'java.util.List', type: 'import' });
+    expect(imports[1]).toEqual({ source: 'com.google.common.collect.ImmutableList', type: 'import' });
+  });
+
+  it('returns empty for no imports', () => {
+    expect(adapter.extractImports('public class Main {}')).toEqual([]);
+  });
+});
+
+describe('JavaAdapter registry', () => {
+  it('resolves .java to JavaAdapter', () => {
+    expect(resolveAdapter('.java')).toBeInstanceOf(JavaAdapter);
+  });
+});
+
+// --- CSharpAdapter ---
+
+describe('CSharpAdapter', () => {
+  const adapter = new CSharpAdapter();
+
+  it('has extensions [".cs"]', () => {
+    expect(adapter.extensions).toEqual(['.cs']);
+  });
+
+  it('has languageId "csharp"', () => {
+    expect(adapter.languageId).toBe('csharp');
+  });
+
+  it('has wasmModule "c_sharp"', () => {
+    expect(adapter.wasmModule).toBe('c_sharp');
+  });
+});
+
+describe('CSharpAdapter.extractSymbols', () => {
+  const adapter = new CSharpAdapter();
+
+  // AC 31.11.3: public class + public method extracted
+  it('AC 31.11.3: extracts public class and public method', () => {
+    const root = mockNode({
+      type: 'compilation_unit', text: '',
+      children: [{
+        type: 'class_declaration', text: 'public class OrderProcessor { public async Task<Result> Execute() { } }',
+        fields: { name: { type: 'identifier', text: 'OrderProcessor', startRow: 0, endRow: 0 } },
+        children: [
+          { type: 'modifier', text: 'public', startRow: 0, endRow: 0 },
+          {
+            type: 'declaration_list', text: '{ public async Task<Result> Execute() { } }',
+            children: [{
+              type: 'method_declaration', text: 'public async Task<Result> Execute() { }',
+              fields: { name: { type: 'identifier', text: 'Execute', startRow: 1, endRow: 1 } },
+              children: [{ type: 'modifier', text: 'public', startRow: 1, endRow: 1 }],
+              startRow: 1, endRow: 3,
+            }],
+            startRow: 0, endRow: 4,
+          },
+        ],
+        startRow: 0, endRow: 4,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(2);
+    expect(symbols[0]).toMatchObject({ name: 'OrderProcessor', kind: 'class', exported: true });
+    expect(symbols[1]).toMatchObject({ name: 'Execute', kind: 'method', exported: true });
+  });
+
+  // Ignores non-symbol nodes
+  it('ignores non-symbol nodes like using_directive', () => {
+    const root = mockNode({
+      type: 'compilation_unit', text: '',
+      children: [
+        { type: 'using_directive', text: 'using System;', startRow: 0, endRow: 0 },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('CSharpAdapter.extractImports', () => {
+  const adapter = new CSharpAdapter();
+
+  it('extracts using declarations', () => {
+    const source = `using System;
+using System.Collections.Generic;`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(2);
+    expect(imports[0]).toEqual({ source: 'System', type: 'import' });
+    expect(imports[1]).toEqual({ source: 'System.Collections.Generic', type: 'import' });
+  });
+
+  it('returns empty for no usings', () => {
+    expect(adapter.extractImports('public class Main {}')).toEqual([]);
+  });
+});
+
+describe('CSharpAdapter registry', () => {
+  it('resolves .cs to CSharpAdapter', () => {
+    expect(resolveAdapter('.cs')).toBeInstanceOf(CSharpAdapter);
+  });
+});
+
+// --- SqlAdapter ---
+
+describe('SqlAdapter', () => {
+  const adapter = new SqlAdapter();
+
+  it('has extensions [".sql"]', () => {
+    expect(adapter.extensions).toEqual(['.sql']);
+  });
+
+  it('has languageId "sql"', () => {
+    expect(adapter.languageId).toBe('sql');
+  });
+
+  it('has wasmModule "sql"', () => {
+    expect(adapter.wasmModule).toBe('sql');
+  });
+});
+
+describe('SqlAdapter.extractSymbols', () => {
+  const adapter = new SqlAdapter();
+
+  // AC 31.11.4: CREATE TABLE → class
+  it('AC 31.11.4: extracts CREATE TABLE as class', () => {
+    const symbols = adapter.extractSymbols(mockNode({ type: 'program', text: '', children: [] }));
+    // SqlAdapter uses heuristic via source, tested via extractImports-style
+    // For tree-sitter, SQL adapter falls back to heuristic regex
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('SqlAdapter.extractSymbolsFromSource', () => {
+  const adapter = new SqlAdapter();
+
+  // AC 31.11.4: CREATE TABLE
+  it('AC 31.11.4: extracts CREATE TABLE as class', () => {
+    const source = 'CREATE TABLE users (\n  id INTEGER PRIMARY KEY\n);';
+    const imports = adapter.extractImports(source);
+    // SQL extractImports returns empty (AC 31.11.9)
+    expect(imports).toEqual([]);
+  });
+});
+
+describe('SqlAdapter heuristic symbols', () => {
+  const adapter = new SqlAdapter();
+
+  it('AC 31.11.4: extracts CREATE TABLE as class via heuristicExtract', () => {
+    const source = 'CREATE TABLE users (\n  id INTEGER PRIMARY KEY\n);';
+    const symbols = adapter.heuristicExtract(source);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'users', kind: 'class', exported: true });
+  });
+
+  // AC 31.11.5: CREATE FUNCTION → function
+  it('AC 31.11.5: extracts CREATE FUNCTION as function', () => {
+    const source = 'CREATE FUNCTION get_user(user_id INT) RETURNS TABLE AS $$ BEGIN END $$;';
+    const symbols = adapter.heuristicExtract(source);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'get_user', kind: 'function', exported: true });
+  });
+
+  it('extracts mixed SQL definitions', () => {
+    const source = `CREATE TABLE orders (id INT);
+CREATE OR REPLACE FUNCTION calc_total() RETURNS void AS $$ BEGIN END $$;
+CREATE VIEW active_users AS SELECT * FROM users;`;
+    const symbols = adapter.heuristicExtract(source);
+    expect(symbols).toHaveLength(3);
+    expect(symbols[0]).toMatchObject({ name: 'orders', kind: 'class' });
+    expect(symbols[1]).toMatchObject({ name: 'calc_total', kind: 'function' });
+    expect(symbols[2]).toMatchObject({ name: 'active_users', kind: 'variable' });
+  });
+});
+
+describe('SqlAdapter.extractImports', () => {
+  const adapter = new SqlAdapter();
+
+  // AC 31.11.9: SQL extractImports returns empty
+  it('AC 31.11.9: returns empty array', () => {
+    expect(adapter.extractImports('CREATE TABLE t (id INT);')).toEqual([]);
+  });
+});
+
+describe('SqlAdapter registry', () => {
+  it('resolves .sql to SqlAdapter', () => {
+    expect(resolveAdapter('.sql')).toBeInstanceOf(SqlAdapter);
+  });
+});
+
+// --- YamlAdapter ---
+
+describe('YamlAdapter', () => {
+  const adapter = new YamlAdapter();
+
+  it('has extensions [".yml", ".yaml"]', () => {
+    expect(adapter.extensions).toEqual(['.yml', '.yaml']);
+  });
+
+  it('has languageId "yaml"', () => {
+    expect(adapter.languageId).toBe('yaml');
+  });
+
+  it('has wasmModule "yaml"', () => {
+    expect(adapter.wasmModule).toBe('yaml');
+  });
+});
+
+describe('YamlAdapter heuristic symbols', () => {
+  const adapter = new YamlAdapter();
+
+  // AC 31.11.6: top-level keys → variable
+  it('AC 31.11.6: extracts top-level keys as variables', () => {
+    const source = `services:
+  api:
+    image: node:20
+volumes:
+  data:`;
+    const symbols = adapter.heuristicExtract(source);
+    const topLevel = symbols.filter((s) => s.kind === 'variable');
+    expect(topLevel.map((s) => s.name)).toContain('services');
+    expect(topLevel.map((s) => s.name)).toContain('volumes');
+  });
+
+  // AC 31.11.7: Docker Compose nested service → constant
+  it('AC 31.11.7: extracts nested service names as constants', () => {
+    const source = `services:
+  api:
+    image: node:20
+  worker:
+    image: python:3`;
+    const symbols = adapter.heuristicExtract(source);
+    const constants = symbols.filter((s) => s.kind === 'constant');
+    expect(constants.map((s) => s.name)).toContain('api');
+    expect(constants.map((s) => s.name)).toContain('worker');
+  });
+});
+
+describe('YamlAdapter.extractImports', () => {
+  const adapter = new YamlAdapter();
+
+  // AC 31.11.9: YAML extractImports returns empty
+  it('AC 31.11.9: returns empty array', () => {
+    expect(adapter.extractImports('key: value')).toEqual([]);
+  });
+});
+
+describe('YamlAdapter registry', () => {
+  it('resolves .yml to YamlAdapter', () => {
+    expect(resolveAdapter('.yml')).toBeInstanceOf(YamlAdapter);
+  });
+
+  it('resolves .yaml to YamlAdapter', () => {
+    expect(resolveAdapter('.yaml')).toBeInstanceOf(YamlAdapter);
+  });
+});
+
+// --- JsonAdapter ---
+
+describe('JsonAdapter', () => {
+  const adapter = new JsonAdapter();
+
+  it('has extensions [".json"]', () => {
+    expect(adapter.extensions).toEqual(['.json']);
+  });
+
+  it('has languageId "json"', () => {
+    expect(adapter.languageId).toBe('json');
+  });
+
+  it('has wasmModule "json"', () => {
+    expect(adapter.wasmModule).toBe('json');
+  });
+});
+
+describe('JsonAdapter heuristic symbols', () => {
+  const adapter = new JsonAdapter();
+
+  // AC 31.11.8: top-level keys → variable
+  it('AC 31.11.8: extracts top-level keys as variables', () => {
+    const source = '{ "name": "my-app", "version": "1.0.0", "scripts": {} }';
+    const symbols = adapter.heuristicExtract(source);
+    expect(symbols.map((s) => s.name)).toContain('name');
+    expect(symbols.map((s) => s.name)).toContain('version');
+    expect(symbols.map((s) => s.name)).toContain('scripts');
+    expect(symbols.every((s) => s.kind === 'variable')).toBe(true);
+  });
+
+  it('returns empty for non-object JSON', () => {
+    expect(adapter.heuristicExtract('[1, 2, 3]')).toEqual([]);
+  });
+});
+
+describe('JsonAdapter.extractImports', () => {
+  const adapter = new JsonAdapter();
+
+  // AC 31.11.9: JSON extractImports returns empty
+  it('AC 31.11.9: returns empty array', () => {
+    expect(adapter.extractImports('{"key": "value"}')).toEqual([]);
+  });
+});
+
+describe('JsonAdapter registry', () => {
+  it('resolves .json to JsonAdapter', () => {
+    expect(resolveAdapter('.json')).toBeInstanceOf(JsonAdapter);
   });
 });

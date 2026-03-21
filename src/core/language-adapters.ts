@@ -476,6 +476,301 @@ export class GoAdapter implements LanguageAdapter {
   }
 }
 
+// --- Java import extraction helpers ---
+
+const JAVA_IMPORT_RE = /^import\s+(?:static\s+)?(\S+)\s*;/gm;
+
+function extractJavaImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const m of source.matchAll(JAVA_IMPORT_RE)) {
+    imports.push({ source: m[1]!, type: 'import' });
+  }
+  return imports;
+}
+
+// --- Java adapter ---
+
+function hasJavaModifier(node: TSNode, modifier: string): boolean {
+  const mods = node.namedChildren.find((c) => c.type === 'modifiers');
+  return mods ? mods.text.includes(modifier) : false;
+}
+
+export class JavaAdapter implements LanguageAdapter {
+  readonly extensions = ['.java'] as const;
+  readonly languageId = 'java';
+  readonly wasmModule = 'java';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    for (const node of rootNode.namedChildren) {
+      this.extractNode(node, symbols);
+    }
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractJavaImports(source);
+  }
+
+  private extractNode(node: TSNode, symbols: SymbolInfo[]): void {
+    if (node.type === 'class_declaration' || node.type === 'interface_declaration') {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      const exported = hasJavaModifier(node, 'public');
+      symbols.push({
+        name: nameNode.text,
+        kind: node.type === 'interface_declaration' ? 'type' : 'class',
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+
+      // Extract members from class body
+      const body = node.namedChildren.find(
+        (c) => c.type === 'class_body' || c.type === 'interface_body',
+      );
+      if (body) {
+        for (const member of body.namedChildren) {
+          this.extractMember(member, symbols);
+        }
+      }
+    }
+  }
+
+  private extractMember(node: TSNode, symbols: SymbolInfo[]): void {
+    if (node.type === 'method_declaration' || node.type === 'constructor_declaration') {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      const exported = hasJavaModifier(node, 'public');
+      symbols.push({
+        name: nameNode.text,
+        kind: 'method',
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    } else if (node.type === 'field_declaration') {
+      const isFinal = hasJavaModifier(node, 'final');
+      const exported = hasJavaModifier(node, 'public');
+      const declarator = node.childForFieldName('declarator');
+      if (!declarator) return;
+      const nameNode = declarator.childForFieldName('name');
+      if (!nameNode) return;
+      symbols.push({
+        name: nameNode.text,
+        kind: isFinal ? 'constant' : 'variable',
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    }
+  }
+}
+
+// --- C# import extraction helpers ---
+
+const CSHARP_USING_RE = /^using\s+(?:static\s+)?(\S+)\s*;/gm;
+
+function extractCSharpImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const m of source.matchAll(CSHARP_USING_RE)) {
+    imports.push({ source: m[1]!, type: 'import' });
+  }
+  return imports;
+}
+
+// --- C# adapter ---
+
+function hasCSharpModifier(node: TSNode, modifier: string): boolean {
+  return node.namedChildren.some((c) => c.type === 'modifier' && c.text === modifier);
+}
+
+export class CSharpAdapter implements LanguageAdapter {
+  readonly extensions = ['.cs'] as const;
+  readonly languageId = 'csharp';
+  readonly wasmModule = 'c_sharp';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    for (const node of rootNode.namedChildren) {
+      this.extractNode(node, symbols);
+    }
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractCSharpImports(source);
+  }
+
+  private extractNode(node: TSNode, symbols: SymbolInfo[]): void {
+    if (
+      node.type === 'class_declaration' ||
+      node.type === 'struct_declaration' ||
+      node.type === 'interface_declaration'
+    ) {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      const exported = hasCSharpModifier(node, 'public');
+      const kind: SymbolKind =
+        node.type === 'interface_declaration' ? 'type' : 'class';
+      symbols.push({
+        name: nameNode.text,
+        kind,
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+
+      // Extract members from declaration_list
+      const body = node.namedChildren.find((c) => c.type === 'declaration_list');
+      if (body) {
+        for (const member of body.namedChildren) {
+          this.extractMember(member, symbols);
+        }
+      }
+    } else if (node.type === 'namespace_declaration') {
+      // Recurse into namespaces
+      const body = node.namedChildren.find((c) => c.type === 'declaration_list');
+      if (body) {
+        for (const child of body.namedChildren) {
+          this.extractNode(child, symbols);
+        }
+      }
+    }
+  }
+
+  private extractMember(node: TSNode, symbols: SymbolInfo[]): void {
+    if (node.type === 'method_declaration') {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      const exported = hasCSharpModifier(node, 'public');
+      symbols.push({
+        name: nameNode.text,
+        kind: 'method',
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    }
+  }
+}
+
+// --- SQL adapter ---
+
+const SQL_CREATE_RE =
+  /CREATE\s+(?:OR\s+REPLACE\s+)?(?:(TABLE|FUNCTION|PROCEDURE|VIEW|INDEX|TRIGGER))\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
+
+export class SqlAdapter implements LanguageAdapter {
+  readonly extensions = ['.sql'] as const;
+  readonly languageId = 'sql';
+  readonly wasmModule = 'sql';
+
+  extractSymbols(_rootNode: TSNode): SymbolInfo[] {
+    // SQL uses heuristic extraction from source text
+    return [];
+  }
+
+  extractImports(_source: string): ImportRef[] {
+    return [];
+  }
+
+  heuristicExtract(source: string): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    for (const m of source.matchAll(SQL_CREATE_RE)) {
+      const objType = m[1]!.toUpperCase();
+      let kind: SymbolKind;
+      if (objType === 'TABLE') kind = 'class';
+      else if (objType === 'FUNCTION' || objType === 'PROCEDURE' || objType === 'TRIGGER')
+        kind = 'function';
+      else kind = 'variable'; // VIEW, INDEX
+      symbols.push({
+        name: m[2]!,
+        kind,
+        exported: true,
+        line_start: 1,
+        line_end: 1,
+      });
+    }
+    return symbols;
+  }
+}
+
+// --- YAML adapter ---
+
+const YAML_TOP_LEVEL_KEY_RE = /^([a-zA-Z_][\w-]*):/gm;
+const YAML_NESTED_KEY_RE = /^  ([a-zA-Z_][\w-]*):/gm;
+
+export class YamlAdapter implements LanguageAdapter {
+  readonly extensions = ['.yml', '.yaml'] as const;
+  readonly languageId = 'yaml';
+  readonly wasmModule = 'yaml';
+
+  extractSymbols(_rootNode: TSNode): SymbolInfo[] {
+    return [];
+  }
+
+  extractImports(_source: string): ImportRef[] {
+    return [];
+  }
+
+  heuristicExtract(source: string): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    // Top-level keys → variable
+    for (const m of source.matchAll(YAML_TOP_LEVEL_KEY_RE)) {
+      symbols.push({
+        name: m[1]!,
+        kind: 'variable',
+        exported: true,
+        line_start: 1,
+        line_end: 1,
+      });
+    }
+    // Nested keys (2-space indent, e.g. Docker Compose service names) → constant
+    for (const m of source.matchAll(YAML_NESTED_KEY_RE)) {
+      symbols.push({
+        name: m[1]!,
+        kind: 'constant',
+        exported: true,
+        line_start: 1,
+        line_end: 1,
+      });
+    }
+    return symbols;
+  }
+}
+
+// --- JSON adapter ---
+
+export class JsonAdapter implements LanguageAdapter {
+  readonly extensions = ['.json'] as const;
+  readonly languageId = 'json';
+  readonly wasmModule = 'json';
+
+  extractSymbols(_rootNode: TSNode): SymbolInfo[] {
+    return [];
+  }
+
+  extractImports(_source: string): ImportRef[] {
+    return [];
+  }
+
+  heuristicExtract(source: string): SymbolInfo[] {
+    try {
+      const parsed: unknown = JSON.parse(source);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+      return Object.keys(parsed as Record<string, unknown>).map((key) => ({
+        name: key,
+        kind: 'variable' as SymbolKind,
+        exported: true,
+        line_start: 1,
+        line_end: 1,
+      }));
+    } catch {
+      return [];
+    }
+  }
+}
+
 // --- Adapter registry ---
 
 const adapters: LanguageAdapter[] = [
@@ -485,6 +780,11 @@ const adapters: LanguageAdapter[] = [
   new PythonAdapter(),
   new RustAdapter(),
   new GoAdapter(),
+  new JavaAdapter(),
+  new CSharpAdapter(),
+  new SqlAdapter(),
+  new YamlAdapter(),
+  new JsonAdapter(),
 ];
 
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();
