@@ -17,7 +17,7 @@ import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
-import { resolveRelevantDocs, resolveRelevantDocsViaRag } from './docs-resolver.js';
+import { resolveRelevantDocs, resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
 import {
@@ -47,6 +47,10 @@ export interface EvaluateFileOptions {
   deliberation?: boolean;
   /** ASCII tree of docs/ directory for documentation axis */
   docsTree?: string | null;
+  /** ASCII tree of .anatoly/docs/ (internal generated docs) */
+  internalDocsTree?: string | null;
+  /** Absolute path to .anatoly/docs/ directory */
+  internalDocsDir?: string;
   /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - codeWeight. */
   codeWeight?: number;
   /** Full path to conversations/ dir for LLM conversation dumps */
@@ -129,7 +133,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   // Resolve relevant docs for documentation axis
   // Use RAG NLP search when vector store has dual embedding (semantic matching),
-  // fall back to convention-based matching otherwise
+  // fall back to convention-based matching (with dual source support) otherwise
   let relevantDocs: RelevantDoc[] | undefined = undefined;
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore?.hasDualEmbedding) {
@@ -138,16 +142,20 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       docResolveMethod = 'rag';
     } catch {
       // Fall back to convention-based matching on RAG failure
-      relevantDocs = opts.docsTree
-        ? resolveRelevantDocs(task.file, opts.docsTree, config, projectRoot)
-        : undefined;
-      docResolveMethod = relevantDocs ? 'convention' : 'none';
+      relevantDocs = resolveAllRelevantDocs(task.file, config, projectRoot, {
+        docsTree: opts.docsTree ?? null,
+        internalDocsTree: opts.internalDocsTree ?? null,
+        internalDocsDir: opts.internalDocsDir ?? '',
+      });
+      docResolveMethod = relevantDocs.length > 0 ? 'convention' : 'none';
     }
   } else {
-    relevantDocs = opts.docsTree
-      ? resolveRelevantDocs(task.file, opts.docsTree, config, projectRoot)
-      : undefined;
-    docResolveMethod = relevantDocs ? 'convention' : 'none';
+    relevantDocs = resolveAllRelevantDocs(task.file, config, projectRoot, {
+      docsTree: opts.docsTree ?? null,
+      internalDocsTree: opts.internalDocsTree ?? null,
+      internalDocsDir: opts.internalDocsDir ?? '',
+    });
+    docResolveMethod = relevantDocs.length > 0 ? 'convention' : 'none';
   }
   contextLogger().info({
     event: 'doc_resolve',

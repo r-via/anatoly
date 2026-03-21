@@ -388,3 +388,39 @@ describe('indexProject ragMode', () => {
     expect(saveRagCache).toHaveBeenCalledWith('/tmp/test', expect.any(Object), 'advanced');
   });
 });
+
+// --- Story 29.18: Dual doc section indexing ---
+describe('indexProject dual doc indexing (Story 29.18)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vectorStoreConstructorSpy.mockClear();
+    workerPoolSpy.mockResolvedValue({ completed: 0, errored: 0, skipped: 0 });
+  });
+
+  it('indexes .anatoly/docs/ with separate cache suffix in dual mode', async () => {
+    const { indexDocSections: indexDocSectionsMock } = await import('./doc-indexer.js');
+
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [makeTask('src/a.ts')],
+      dualEmbedding: true,
+      indexModel: 'haiku',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    // Should be called twice: once for docs/ (project), once for .anatoly/docs/ (internal)
+    expect(indexDocSectionsMock).toHaveBeenCalledTimes(2);
+
+    const calls = vi.mocked(indexDocSectionsMock).mock.calls;
+    const opts0 = calls[0][0] as unknown as Record<string, unknown>;
+    const opts1 = calls[1][0] as unknown as Record<string, unknown>;
+
+    // Second call: internal docs (.anatoly/docs/) with different cacheSuffix
+    expect(String(opts1.docsDir)).toMatch(/\.anatoly/);
+
+    // Cache suffixes must be different
+    expect(opts0.cacheSuffix).not.toBe(opts1.cacheSuffix);
+    expect(String(opts1.cacheSuffix)).toContain('internal');
+  });
+});

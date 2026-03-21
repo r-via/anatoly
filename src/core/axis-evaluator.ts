@@ -73,6 +73,8 @@ export interface AxisContext {
 export interface RelevantDoc {
   path: string;
   content: string;
+  /** Origin of the doc: 'project' (docs/) or 'internal' (.anatoly/docs/). */
+  source?: 'project' | 'internal';
 }
 
 export interface AxisSymbolResult {

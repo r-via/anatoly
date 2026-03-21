@@ -100,14 +100,19 @@ export function resolveRelevantDocs(
   docsTree: string | null,
   config: Config,
   projectRoot: string,
+  opts?: { docsDir?: string; source?: 'project' | 'internal' },
 ): RelevantDoc[] {
   if (docsTree === null) return [];
 
-  const docsDir = join(projectRoot, config.documentation.docs_path);
+  const docsDir = opts?.docsDir ?? join(projectRoot, config.documentation.docs_path);
   if (!existsSync(docsDir)) return [];
 
+  const source = opts?.source;
   const mapping = config.documentation.module_mapping;
   const docs: RelevantDoc[] = [];
+
+  const tagDoc = (doc: RelevantDoc): RelevantDoc =>
+    source ? { ...doc, source } : doc;
 
   // 1. Config-driven mapping (primary) — sort longest prefix first for specificity
   if (mapping) {
@@ -120,7 +125,7 @@ export function resolveRelevantDocs(
           for (const doc of resolved) {
             if (docs.length >= MAX_PAGES) break;
             if (!docs.some((d) => d.path === doc.path)) {
-              docs.push(doc);
+              docs.push(tagDoc(doc));
             }
           }
         }
@@ -142,13 +147,48 @@ export function resolveRelevantDocs(
       for (const doc of resolved) {
         if (docs.length >= MAX_PAGES) break;
         if (!docs.some((d) => d.path === doc.path)) {
-          docs.push(doc);
+          docs.push(tagDoc(doc));
         }
       }
     }
   }
 
   return docs;
+}
+
+/**
+ * Resolve docs from both project (docs/) and internal (.anatoly/docs/) sources.
+ * Merges results with source tags, interleaving to give equal representation.
+ */
+export function resolveAllRelevantDocs(
+  filePath: string,
+  config: Config,
+  projectRoot: string,
+  opts: {
+    docsTree: string | null;
+    internalDocsTree: string | null;
+    internalDocsDir: string;
+  },
+): RelevantDoc[] {
+  const projectDocs = resolveRelevantDocs(filePath, opts.docsTree, config, projectRoot, {
+    source: 'project',
+  });
+
+  const internalDocs = resolveRelevantDocs(filePath, opts.internalDocsTree, config, projectRoot, {
+    docsDir: opts.internalDocsDir,
+    source: 'internal',
+  });
+
+  // Merge: interleave for equal representation, cap at MAX_PAGES total
+  const merged: RelevantDoc[] = [];
+  const pi = [...projectDocs];
+  const ii = [...internalDocs];
+  while (merged.length < MAX_PAGES && (pi.length > 0 || ii.length > 0)) {
+    if (pi.length > 0) merged.push(pi.shift()!);
+    if (merged.length < MAX_PAGES && ii.length > 0) merged.push(ii.shift()!);
+  }
+
+  return merged;
 }
 
 /**
@@ -275,6 +315,11 @@ export async function resolveRelevantDocsViaRag(
 
     if (!content) continue;
 
+    // Infer source from file path
+    const source: 'project' | 'internal' = result.card.filePath.startsWith('.anatoly/')
+      ? 'internal'
+      : 'project';
+
     // Check total token budget
     if (totalChars + content.length > maxChars) {
       const remaining = maxChars - totalChars;
@@ -282,12 +327,13 @@ export async function resolveRelevantDocsViaRag(
       docs.push({
         path: result.card.filePath,
         content: content.slice(0, remaining) + '\n<!-- truncated to fit token budget -->',
+        source,
       });
       break;
     }
 
     totalChars += content.length;
-    docs.push({ path: result.card.filePath, content });
+    docs.push({ path: result.card.filePath, content, source });
   }
 
   return docs;

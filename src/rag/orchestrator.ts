@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
@@ -400,12 +400,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     }
   }
 
-  // Index doc sections from /docs/ (dual mode only — needs NLP embeddings)
+  // Index doc sections from /docs/ and .anatoly/docs/ (dual mode only — needs NLP embeddings)
   let docSectionsIndexed = 0;
   if (dualMode) {
     onPhase?.('doc');
+    // Project docs (docs/)
     try {
-      docSectionsIndexed = await indexDocSections({
+      docSectionsIndexed += await indexDocSections({
         projectRoot,
         vectorStore: store,
         docsDir: options.docsDir,
@@ -421,6 +422,26 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+    }
+
+    // Internal docs (.anatoly/docs/) — Story 29.18
+    try {
+      docSectionsIndexed += await indexDocSections({
+        projectRoot,
+        vectorStore: store,
+        docsDir: join('.anatoly', 'docs'),
+        cacheSuffix: `${cacheSuffix}-internal`,
+        chunkModel: options.indexModel,
+        onLog,
+        onProgress,
+        onFileStart,
+        onFileDone,
+        isInterrupted,
+        conversationDir: options.conversationDir,
+        semaphore: options.semaphore,
+      });
+    } catch (err) {
+      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
     }
   }
 

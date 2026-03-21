@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildDocsTree, resolveRelevantDocs } from './docs-resolver.js';
+import { buildDocsTree, resolveRelevantDocs, resolveAllRelevantDocs } from './docs-resolver.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigSchema } from '../schemas/config.js';
 
@@ -146,5 +146,118 @@ describe('resolveRelevantDocs', () => {
     const docs = resolveRelevantDocs('src/core/foo.ts', tree, config, TMP);
 
     expect(docs.length).toBe(3);
+  });
+
+  // --- Story 29.18: source tagging ---
+  it('tags docs with source when provided', () => {
+    writeDoc('04-Core-Modules/scanner.md', '# Scanner');
+
+    const config = makeConfig({
+      module_mapping: { 'src/core': ['04-Core-Modules'] },
+    });
+
+    const tree = buildDocsTree(TMP, 'docs')!;
+    const docs = resolveRelevantDocs('src/core/scanner.ts', tree, config, TMP, {
+      source: 'project',
+    });
+
+    expect(docs.length).toBe(1);
+    expect(docs[0].source).toBe('project');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 29.18: Dual doc context — resolveAllRelevantDocs
+// ---------------------------------------------------------------------------
+
+function writeInternalDoc(relPath: string, content: string): void {
+  const fullPath = join(TMP, '.anatoly', 'docs', relPath);
+  ensureDir(join(fullPath, '..'));
+  writeFileSync(fullPath, content, 'utf-8');
+}
+
+describe('resolveAllRelevantDocs (Story 29.18)', () => {
+  // AC1: both project and internal docs included, tagged with source
+  it('merges project and internal docs with source tags', () => {
+    writeDoc('04-Core-Modules/scanner.md', '# Scanner (project)');
+    writeInternalDoc('04-Core-Modules/core.md', '# Core (internal)');
+
+    const config = makeConfig({
+      module_mapping: { 'src/core': ['04-Core-Modules'] },
+    });
+    const docsTree = buildDocsTree(TMP, 'docs')!;
+    const internalDocsTree = buildDocsTree(TMP, join('.anatoly', 'docs'))!;
+    const internalDocsDir = join(TMP, '.anatoly', 'docs');
+
+    const docs = resolveAllRelevantDocs('src/core/scanner.ts', config, TMP, {
+      docsTree,
+      internalDocsTree,
+      internalDocsDir,
+    });
+
+    // Both sources included
+    expect(docs.length).toBe(2);
+    const projectDocs = docs.filter(d => d.source === 'project');
+    const internalDocs = docs.filter(d => d.source === 'internal');
+    expect(projectDocs.length).toBe(1);
+    expect(internalDocs.length).toBe(1);
+    expect(projectDocs[0].content).toContain('Scanner (project)');
+    expect(internalDocs[0].content).toContain('Core (internal)');
+  });
+
+  // AC2: no docs/ but .anatoly/docs/ filled → internal docs tagged
+  it('returns internal docs when no project docs exist', () => {
+    // Convention matching: "04-Core" normalizes to "core", matches "core" segment from src/core/
+    writeInternalDoc('04-Core/overview.md', '# Core Module');
+
+    const config = makeConfig();
+    const internalDocsTree = buildDocsTree(TMP, join('.anatoly', 'docs'))!;
+    const internalDocsDir = join(TMP, '.anatoly', 'docs');
+
+    const docs = resolveAllRelevantDocs('src/core/scanner.ts', config, TMP, {
+      docsTree: null,
+      internalDocsTree,
+      internalDocsDir,
+    });
+
+    expect(docs.length).toBeGreaterThan(0);
+    expect(docs.every(d => d.source === 'internal')).toBe(true);
+  });
+
+  // AC3: both sources for same module → no deduplication
+  it('includes both sources without deduplication', () => {
+    writeDoc('05-Modules/core.md', '# Core (project version)');
+    writeInternalDoc('05-Modules/core.md', '# Core (internal version)');
+
+    const config = makeConfig({
+      module_mapping: { 'src/core': ['05-Modules'] },
+    });
+    const docsTree = buildDocsTree(TMP, 'docs')!;
+    const internalDocsTree = buildDocsTree(TMP, join('.anatoly', 'docs'))!;
+    const internalDocsDir = join(TMP, '.anatoly', 'docs');
+
+    const docs = resolveAllRelevantDocs('src/core/scanner.ts', config, TMP, {
+      docsTree,
+      internalDocsTree,
+      internalDocsDir,
+    });
+
+    // Both versions included (same module name, different sources)
+    const projectDocs = docs.filter(d => d.source === 'project');
+    const internalDocs = docs.filter(d => d.source === 'internal');
+    expect(projectDocs.length).toBeGreaterThan(0);
+    expect(internalDocs.length).toBeGreaterThan(0);
+  });
+
+  it('returns empty when neither source has relevant docs', () => {
+    const config = makeConfig();
+
+    const docs = resolveAllRelevantDocs('src/rag/vector-store.ts', config, TMP, {
+      docsTree: null,
+      internalDocsTree: null,
+      internalDocsDir: join(TMP, '.anatoly', 'docs'),
+    });
+
+    expect(docs).toEqual([]);
   });
 });

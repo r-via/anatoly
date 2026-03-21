@@ -343,7 +343,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) return;
 
         await runWithContext({ phase: 'review' }, async () => {
-        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree);
+        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
         });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
@@ -511,6 +511,8 @@ interface SetupResult {
   depMeta?: DependencyMeta;
   projectTree?: string;
   docsTree?: string | null;
+  internalDocsTree?: string | null;
+  internalDocsDir?: string;
 }
 
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
@@ -673,6 +675,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
   const docsTree = buildDocsTree(ctx.projectRoot, ctx.config.documentation?.docs_path ?? 'docs');
+  const internalDocsDir = resolve(ctx.projectRoot, '.anatoly', 'docs');
+  const internalDocsTree = buildDocsTree(ctx.projectRoot, join('.anatoly', 'docs'));
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
   // --- Phase: doc scaffold ---
@@ -721,7 +725,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     console.log(`  tokens       ${formatTokenCount(inputTokens + outputTokens)}`);
     console.log(`  est. time    ${formatCalibratedTime(estMinutes)} (concurrency ${ctx.concurrency})`);
     console.log('');
-    return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree };
+    return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir };
   }
 
   // Wait for confirmation before proceeding to review
@@ -732,7 +736,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.allTasks = allTasks;
   ctx.triageMap = triageMap;
 
-  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree };
+  return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir };
 }
 
 interface RagContext {
@@ -986,6 +990,8 @@ async function runReviewPhase(
   depMeta?: DependencyMeta,
   projectTree?: string,
   docsTree?: string | null,
+  internalDocsTree?: string | null,
+  internalDocsDir?: string,
 ): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
@@ -1111,6 +1117,8 @@ async function runReviewPhase(
               depMeta,
               projectTree,
               docsTree,
+              internalDocsTree,
+              internalDocsDir,
               deliberation: ctx.deliberation,
               codeWeight: ctx.config.rag.code_weight,
               conversationDir: join(ctx.runDir, 'conversations'),
