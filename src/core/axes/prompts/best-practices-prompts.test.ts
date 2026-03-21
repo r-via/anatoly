@@ -153,21 +153,138 @@ describe('best-practices.go.system.md — GoGuard', () => {
   });
 });
 
-// AC 31.15.5: Output format matches BestPracticesResponseSchema
+// --- Story 31.16: Java, C#, SQL, YAML, JSON ---
+
+describe('best-practices.java.system.md — JavaGuard', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    prompt = resolveSystemPrompt('best_practices', 'java');
+  });
+
+  it('AC 31.16.1: contains at least 10 rules', () => {
+    expect(countRules(prompt)).toBeGreaterThanOrEqual(10);
+  });
+
+  it('contains JavaGuard identifier', () => {
+    expect(prompt).toContain('JavaGuard');
+  });
+
+  it('specifies same JSON output format', () => {
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"rules"');
+    expect(prompt).toContain('"rule_id"');
+    expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
+  });
+});
+
+describe('best-practices.csharp.system.md — CSharpGuard', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    prompt = resolveSystemPrompt('best_practices', 'csharp');
+  });
+
+  it('AC 31.16.2: contains at least 10 rules', () => {
+    expect(countRules(prompt)).toBeGreaterThanOrEqual(10);
+  });
+
+  it('contains CSharpGuard identifier', () => {
+    expect(prompt).toContain('CSharpGuard');
+  });
+
+  it('specifies same JSON output format', () => {
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"rules"');
+    expect(prompt).toContain('"rule_id"');
+    expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
+  });
+});
+
+describe('best-practices.sql.system.md — SqlGuard', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    prompt = resolveSystemPrompt('best_practices', 'sql');
+  });
+
+  it('AC 31.16.3: contains at least 8 rules', () => {
+    expect(countRules(prompt)).toBeGreaterThanOrEqual(8);
+  });
+
+  it('contains SqlGuard identifier', () => {
+    expect(prompt).toContain('SqlGuard');
+  });
+
+  it('specifies same JSON output format', () => {
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"rules"');
+    expect(prompt).toContain('"rule_id"');
+    expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
+  });
+});
+
+describe('best-practices.yaml.system.md — YamlGuard', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    prompt = resolveSystemPrompt('best_practices', 'yaml');
+  });
+
+  it('AC 31.16.4: contains at least 8 rules', () => {
+    expect(countRules(prompt)).toBeGreaterThanOrEqual(8);
+  });
+
+  it('contains YamlGuard identifier', () => {
+    expect(prompt).toContain('YamlGuard');
+  });
+
+  it('specifies same JSON output format', () => {
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"rules"');
+    expect(prompt).toContain('"rule_id"');
+    expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
+  });
+});
+
+describe('best-practices.json.system.md — JsonGuard', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    prompt = resolveSystemPrompt('best_practices', 'json');
+  });
+
+  it('AC 31.16.5: contains at least 5 rules', () => {
+    expect(countRules(prompt)).toBeGreaterThanOrEqual(5);
+  });
+
+  it('contains JsonGuard identifier', () => {
+    expect(prompt).toContain('JsonGuard');
+  });
+
+  it('specifies same JSON output format', () => {
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"rules"');
+    expect(prompt).toContain('"rule_id"');
+    expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
+  });
+});
+
+// AC 31.15.5 + 31.16.6: Output format matches BestPracticesResponseSchema for ALL languages
 describe('all language prompts use same output schema', () => {
   beforeAll(() => {
     _resetPromptRegistry();
   });
 
-  it('AC 31.15.5: all prompts specify PASS | WARN | FAIL status values', () => {
-    for (const lang of ['bash', 'python', 'rust', 'go']) {
+  it('all prompts specify PASS | WARN | FAIL status values', () => {
+    for (const lang of ['bash', 'python', 'rust', 'go', 'java', 'csharp', 'sql', 'yaml', 'json']) {
       const prompt = resolveSystemPrompt('best_practices', lang);
       expect(prompt).toMatch(/PASS.*WARN.*FAIL/);
     }
   });
 
-  it('AC 31.15.5: all prompts specify CRITICAL | HIGH | MEDIUM severity values', () => {
-    for (const lang of ['bash', 'python', 'rust', 'go']) {
+  it('all prompts specify CRITICAL | HIGH | MEDIUM severity values', () => {
+    for (const lang of ['bash', 'python', 'rust', 'go', 'java', 'csharp', 'sql', 'yaml', 'json']) {
       const prompt = resolveSystemPrompt('best_practices', lang);
       expect(prompt).toContain('CRITICAL');
       expect(prompt).toContain('HIGH');
