@@ -80,16 +80,8 @@ export function runDocScaffold(
   const sourceDirs = buildSourceDirs(tasks);
   const docMappings = resolveDocMappings(sourceDirs);
 
-  // 4. Build source hints for scaffolding (from module pages)
-  const sourceHints = new Map<string, string[]>();
-  for (const mp of modulePages) {
-    const hints = sourceHints.get(mp.path) ?? [];
-    hints.push(`Module: ${mp.title} — ${mp.description}`);
-    sourceHints.set(mp.path, hints);
-  }
-
-  // 5. Scaffold
-  const scaffoldResult = scaffoldDocs(outputDir, projectTypes, packageJson, sourceHints);
+  // 4. Scaffold with dynamic module pages (Story 29.16)
+  const scaffoldResult = scaffoldDocs(outputDir, projectTypes, packageJson, undefined, modulePages);
 
   return { projectTypes, scaffoldResult, docMappings, outputDir };
 }

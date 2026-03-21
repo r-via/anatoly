@@ -128,6 +128,76 @@
   > AC: Given Ralph processes 10 documentation recommendations, When the fix loop completes, Then the fix report shows each applied fix with before/after diff, And all fixes are individually revertible via git
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-14
 
+- [x] Story 29.16: Injection des modules dynamiques dans le scaffolder
+  > En tant que **developpeur executant Anatoly**
+  > Je veux que les modules detectes par `resolveModuleGranularity` **generent des pages reelles dans `05-Modules/`**
+  > Afin que la structure de documentation soit **complete et sans trou de numerotation** (04 → 05 → 06).
+  > AC: Etant donne un projet CLI avec `src/core/` (8 fichiers, > 200 LOC), quand Anatoly execute le scaffolding, alors `.anatoly/docs/05-Modules/core.md` est cree avec les hints contextuels du module
+  > AC: Etant donne un projet CLI sans aucun module > 200 LOC, quand Anatoly execute le scaffolding, alors le repertoire `05-Modules/` n'est pas cree, et `06-Development` est renumerote en `05-Development` dans les BASE_PAGES et l'index
+  > AC: Etant donne un second run apres ajout d'un nouveau module `src/rag/` (> 200 LOC), quand le scaffolder s'execute, alors `05-Modules/rag.md` est cree sans ecraser les pages existantes, et `index.md` est regenere avec la nouvelle entree
+  > AC: Etant donne un projet Frontend+ORM (pages modules statiques ET dynamiques), quand le scaffolder s'execute, alors les pages type-specifiques (`05-Modules/Components.md`) ET les pages dynamiques (`05-Modules/custom-engine.md`) coexistent sans conflit
+  > Notes d'implementation:
+  > - Modifier `runDocScaffold` dans `src/core/doc-pipeline.ts` pour convertir les `ModulePage[]` de `resolveModuleGranularity` en `PageDef[]` dynamiques
+  > - Passer ces pages supplementaires a `scaffoldDocs` (nouveau parametre ou fusion dans la liste)
+  > - Renumerotation dynamique dans `buildPageList` si aucun module n'est present (06 → 05)
+
+- [ ] Story 29.17: Execution LLM et ecriture du contenu documentaire
+  > En tant que **developpeur executant Anatoly**
+  > Je veux que `.anatoly/docs/` contienne du **contenu reel genere par LLM** des le premier run
+  > Afin que la documentation de reference soit **utilisable immediatement**, pas un squelette vide.
+  > AC: Etant donne un premier run avec 20 pages scaffoldees, quand la phase de generation s'execute, alors chaque `PagePrompt` retourne par `runDocGeneration` est envoye au SDK via le semaphore global, et le contenu retourne est ecrit dans le fichier `.anatoly/docs/` correspondant
+  > AC: Etant donne un run avec `--concurrency 4` et `sdkConcurrency: 8`, quand les prompts de generation doc sont executes, alors ils respectent le budget du semaphore global (Story 30.1), sans depasser les slots disponibles
+  > AC: Etant donne un deuxieme run sans modification du code source, quand la generation s'execute, alors 0 appels LLM sont effectues (cache hit 100%), et les fichiers existants ne sont pas modifies
+  > AC: Etant donne un echec LLM sur une page specifique, quand l'erreur est attrapee, alors les autres pages continuent a etre generees, le slot du semaphore est libere, et un warning est emis dans les logs
+  > AC: Etant donne un run complet sur un projet de 50 fichiers, quand la generation termine, alors le cout total est < $0.05 (modele Haiku par defaut)
+  > Notes d'implementation:
+  > - Dans `src/commands/run.ts` apres la ligne 671, ajouter une boucle qui: acquiert un slot du semaphore, envoie le `PagePrompt.prompt` au SDK (Haiku), ecrit le resultat dans `join(outputDir, prompt.pagePath)`, libere le slot dans un `finally`
+  > - Utiliser `Promise.allSettled` pour la resilience
+  > - Mettre a jour le progress-manager pour afficher la progression de la generation doc
+
+- [ ] Story 29.18: Contexte documentaire complementaire pour les axes
+  > En tant que **developpeur executant Anatoly**
+  > Je veux que les axes recoivent du contexte documentaire depuis **`.anatoly/docs/` ET `docs/`** en complement
+  > Afin que l'analyse soit **plus pertinente** grace a la reference generee (`.anatoly/docs/`) et au contexte humain (`docs/`).
+  > AC: Etant donne un projet avec `docs/architecture/pipeline.md` (ecrit par l'utilisateur) ET `.anatoly/docs/02-Architecture/03-Data-Flow.md` (genere), quand un axe evalue `src/core/pipeline.ts`, alors le contexte inclut les deux pages comme `relevantDocs`
+  > AC: Etant donne un projet sans `docs/` mais avec `.anatoly/docs/` rempli, quand un axe evalue un fichier, alors le contexte inclut les pages pertinentes de `.anatoly/docs/`
+  > AC: Etant donne un projet avec `docs/` et `.anatoly/docs/` contenant des pages pour le meme module, quand le resolver construit le contexte, alors les deux sources sont incluses sans deduplication, et le budget de tokens est partage equitablement
+  > AC: Etant donne le budget de tokens de 4000, quand les deux sources sont presentes, alors `.anatoly/docs/` et `docs/` recoivent chacun 2000 tokens max
+  > Notes d'implementation:
+  > - Modifier `docs-resolver.ts` pour accepter un second chemin (`anatolyDocsPath`) en plus de `docsPath`
+  > - `resolveRelevantDocs` cherche dans les deux repertoires et merge les resultats
+  > - `resolveRelevantDocsViaRag` indexe les deux sources dans le vector store
+  > - `buildDocsTree` retourne un arbre combine ou deux arbres separes dans le contexte
+
+- [ ] Story 29.19: Propagation de `docs_path` configurable
+  > En tant que **developpeur avec une documentation dans un repertoire non-standard**
+  > Je veux que le champ `docs_path` de la config soit **respecte partout** dans le pipeline
+  > Afin que les projets utilisant `documentation/`, `wiki/`, ou tout autre chemin soient **correctement supportes**.
+  > AC: Etant donne `docs_path: 'documentation'` dans `.anatoly.yml`, quand `assertSafeOutputPath` est appele dans `docs-guard.ts`, alors il protege `documentation/` (pas `docs/`)
+  > AC: Etant donne `docs_path: 'documentation'`, quand `buildDocRecommendations` genere des `path_user`, alors les chemins pointent vers `documentation/` (pas `docs/`)
+  > AC: Etant donne `docs_path: 'documentation'`, quand `resolveUserDocPlan` analyse la structure utilisateur, alors il lit `documentation/` (pas `docs/`)
+  > AC: Etant donne `docs_path: 'documentation'`, quand `syncDocs` applique les recommandations, alors les fichiers sont ecrits dans `documentation/`
+  > AC: Etant donne la config par defaut (pas de `docs_path`), quand le pipeline s'execute, alors le comportement est identique a aujourd'hui (`docs/`)
+  > Notes d'implementation:
+  > - `docs-guard.ts:26` — remplacer `'docs'` hardcode par le `docs_path` de la config
+  > - `doc-recommendations.ts:143` — remplacer `'docs/'` par le `docs_path` injecte
+  > - `user-doc-plan.ts` — s'assurer que les appelants passent `docs_path` de la config
+  > - `doc-sync.ts` — adapter la reecriture de liens pour utiliser `docs_path`
+  > - Ajouter un test d'integration avec `docs_path` non-standard
+
+- [ ] Story 29.20: Coverage base sur les symboles et sync actionnable
+  > En tant que **developpeur lisant le rapport Anatoly**
+  > Je veux que le coverage documentaire soit base sur le **ratio de fonctions/symboles documentes**
+  > Afin de comprendre **quelle proportion de mon code est couverte par de la documentation**.
+  > AC: Etant donne un projet avec 209 exports dont 142 documentes et 8 modules dont 6 couverts, quand le rapport est genere, alors la section Documentation Reference affiche: `Symbols: 68% (142/209 exports documented)`, `Modules: 75% (6/8 modules > 200 LOC covered)`, `Overall: 70%`
+  > AC: Etant donne 5 recommendations `missing_page` et 3 `outdated_content`, quand le rapport est genere, alors la section Sync status affiche: `5 pages to create, 3 pages outdated` (pas un ratio de pages)
+  > AC: Etant donne un projet avec 0 exports (projet de config ou assets), quand le scoring s'execute, alors le coverage symboles est 100% (pas de division par zero) et le module coverage est la seule metrique
+  > AC: Le rapport ne peut jamais afficher un coverage > 100%
+  > Notes d'implementation:
+  > - Refactorer `renderDocReferenceSection` dans `doc-report-section.ts` pour utiliser `publicExportsDocumented/totalPublicExports` et `modulesDocumented/totalModules` du `DocScoringInput`
+  > - Remplacer le sync gap numerique par un decompte par type de recommendation
+  > - Supprimer le ratio `userDocsPageCount/totalPages` qui produit des valeurs > 100%
+
 - [x] Story 30.1: Global SDK Concurrency Semaphore
   > As a **developer running Anatoly on a large codebase**
   > I want the total number of **concurrent Claude SDK calls to be globally bounded**

@@ -117,6 +117,44 @@ describe('runDocScaffold', () => {
     expect(routeMapping!.docPage).toBe('04-API-Reference/04-REST-Endpoints.md');
     expect(routeMapping!.strategy).toBe('convention');
   });
+
+  // --- Story 29.16: Dynamic module injection via pipeline ---
+  it('should create actual module pages from resolveModuleGranularity output', () => {
+    const pkg = { name: 'my-cli', bin: { 'my-cli': './dist/index.js' }, dependencies: { commander: '^11.0.0' } };
+    // 3 files in core/ each > 200 LOC → directory-level → 05-Modules/core.md
+    const tasks: Task[] = [
+      makeTask('src/core/scanner.ts', [
+        { name: 'scanProject', exported: true, line_start: 1, line_end: 250 },
+      ]),
+      makeTask('src/core/reporter.ts', [
+        { name: 'generateReport', exported: true, line_start: 1, line_end: 300 },
+      ]),
+      makeTask('src/core/merger.ts', [
+        { name: 'mergeResults', exported: true, line_start: 1, line_end: 200 },
+      ]),
+    ];
+
+    const result = runDocScaffold(tempDir, pkg, tasks);
+
+    // Module page should be created as a real file
+    expect(result.scaffoldResult.pagesCreated).toContain('05-Modules/core.md');
+    const modulePath = join(result.outputDir, '05-Modules/core.md');
+    const content = readFileSync(modulePath, 'utf-8');
+    expect(content).toContain('# core');
+    expect(content).toContain('<!-- SCAFFOLDING:');
+  });
+
+  it('should renumber 06-Development to 05-Development when no modules exist', () => {
+    const pkg = { name: 'my-lib' };
+    // No tasks → no modules
+    const tasks: Task[] = [];
+
+    const result = runDocScaffold(tempDir, pkg, tasks);
+
+    // Library with no modules → 05-Development
+    expect(result.scaffoldResult.pagesCreated.some(p => p.startsWith('05-Development/'))).toBe(true);
+    expect(result.scaffoldResult.pagesCreated.some(p => p.startsWith('06-Development/'))).toBe(false);
+  });
 });
 
 describe('runDocGeneration', () => {

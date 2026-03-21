@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { scaffoldDocs, type ScaffoldResult } from './doc-scaffolder.js';
+import { scaffoldDocs, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
 import type { ProjectType } from './project-type-detector.js';
 
 /**
@@ -28,8 +28,8 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-// --- Base structure pages (all project types) ---
-const BASE_PAGES = [
+// --- Base structure pages for Library (no modules → 05-Development) ---
+const BASE_PAGES_NO_MODULES = [
   'index.md',
   '01-Getting-Started/01-Overview.md',
   '01-Getting-Started/02-Installation.md',
@@ -45,18 +45,18 @@ const BASE_PAGES = [
   '04-API-Reference/01-Public-API.md',
   '04-API-Reference/02-Configuration-Schema.md',
   '04-API-Reference/03-Types-and-Interfaces.md',
-  '06-Development/01-Source-Tree.md',
-  '06-Development/02-Build-and-Test.md',
-  '06-Development/03-Code-Conventions.md',
-  '06-Development/04-Release-Process.md',
+  '05-Development/01-Source-Tree.md',
+  '05-Development/02-Build-and-Test.md',
+  '05-Development/03-Code-Conventions.md',
+  '05-Development/04-Release-Process.md',
 ];
 
 describe('scaffoldDocs', () => {
   describe('base structure (Library / default)', () => {
-    it('creates all base pages for a Library project', () => {
+    it('creates all base pages for a Library project (no modules → 05-Development)', () => {
       const result = scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
 
-      for (const page of BASE_PAGES) {
+      for (const page of BASE_PAGES_NO_MODULES) {
         expect(existsSync(join(outputDir, page)), `Missing: ${page}`).toBe(true);
       }
     });
@@ -64,7 +64,7 @@ describe('scaffoldDocs', () => {
     it('returns ScaffoldResult with created pages', () => {
       const result = scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
 
-      expect(result.pagesCreated.length).toBeGreaterThanOrEqual(BASE_PAGES.length);
+      expect(result.pagesCreated.length).toBeGreaterThanOrEqual(BASE_PAGES_NO_MODULES.length);
       expect(result.pagesSkipped).toHaveLength(0);
       expect(result.indexRegenerated).toBe(true);
     });
@@ -79,9 +79,9 @@ describe('scaffoldDocs', () => {
       expect(indexContent).toContain('Guides');
       expect(indexContent).toContain('API Reference');
       expect(indexContent).toContain('Development');
-      // Must contain links to pages
+      // Must contain links to pages (05-Development for Library with no modules)
       expect(indexContent).toContain('01-Getting-Started/01-Overview.md');
-      expect(indexContent).toContain('06-Development/04-Release-Process.md');
+      expect(indexContent).toContain('05-Development/04-Release-Process.md');
     });
 
     it('creates pages with basic page template (H1 + summary blockquote)', () => {
@@ -125,6 +125,13 @@ describe('scaffoldDocs', () => {
       expect(existsSync(join(outputDir, '03-Guides/09-Query-Patterns.md'))).toBe(true);
       expect(existsSync(join(outputDir, '05-Modules/Models.md'))).toBe(true);
       expect(existsSync(join(outputDir, '05-Modules/Migrations.md'))).toBe(true);
+    });
+
+    it('keeps 06-Development when module pages exist', () => {
+      scaffoldDocs(outputDir, types, { name: 'my-api' });
+
+      // Types with module pages → 06-Development stays
+      expect(existsSync(join(outputDir, '06-Development/01-Source-Tree.md'))).toBe(true);
     });
 
     it('includes Backend API and ORM pages in index.md', () => {
@@ -286,6 +293,7 @@ describe('scaffoldDocs', () => {
       scaffoldDocs(outputDir, ['Backend API', 'ORM'], { name: 'my-api' });
 
       // Check a sample of pages across different sections
+      // Backend API + ORM has module pages → 06-Development
       const pagesToCheck = [
         '01-Getting-Started/01-Overview.md',
         '02-Architecture/01-System-Overview.md',
@@ -348,6 +356,150 @@ describe('scaffoldDocs', () => {
       // docs/ should be untouched
       const docsFiles = readdirRecursive(docsDir);
       expect(docsFiles).toEqual(['existing.md']);
+    });
+  });
+
+  // --- Story 29.16: Dynamic module injection ---
+  describe('Story 29.16: dynamic module injection', () => {
+    it('AC1: creates dynamic module pages in 05-Modules/ with contextual hints', () => {
+      const dynamicPages: PageDef[] = [{
+        path: '05-Modules/core.md',
+        title: 'core',
+        description: 'Module core — 8 files, directory-level reference',
+        section: 'Modules',
+        hint: 'Document the core module: its purpose, key exports, and internal architecture.\n     Cover the main files and how they interact.',
+      }];
+
+      const result = scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' }, undefined, dynamicPages);
+
+      expect(existsSync(join(outputDir, '05-Modules/core.md'))).toBe(true);
+      expect(result.pagesCreated).toContain('05-Modules/core.md');
+      const content = readFileSync(join(outputDir, '05-Modules/core.md'), 'utf-8');
+      expect(content).toContain('# core');
+      expect(content).toContain('<!-- SCAFFOLDING:');
+      expect(content).toContain('Document the core module');
+    });
+
+    it('AC2: no 05-Modules/ created and 06-Development renumbered to 05-Development when no modules', () => {
+      // Library has no type-specific module pages, and no dynamic modules passed
+      const result = scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+
+      // 05-Modules/ should NOT exist
+      expect(existsSync(join(outputDir, '05-Modules'))).toBe(false);
+      // 06-Development should NOT exist
+      expect(existsSync(join(outputDir, '06-Development'))).toBe(false);
+      // Development renumbered to 05-Development
+      expect(existsSync(join(outputDir, '05-Development/01-Source-Tree.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Development/02-Build-and-Test.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Development/03-Code-Conventions.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Development/04-Release-Process.md'))).toBe(true);
+
+      // index.md uses renumbered paths
+      const indexContent = readFileSync(join(outputDir, 'index.md'), 'utf-8');
+      expect(indexContent).toContain('05-Development/01-Source-Tree.md');
+      expect(indexContent).not.toContain('06-Development');
+    });
+
+    it('AC2: CLI without modules also renumbers to 05-Development', () => {
+      // CLI type has no type-specific module pages (only CLI-Reference in 04-API-Reference)
+      const result = scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' });
+
+      expect(existsSync(join(outputDir, '05-Modules'))).toBe(false);
+      expect(existsSync(join(outputDir, '05-Development/01-Source-Tree.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '06-Development'))).toBe(false);
+    });
+
+    it('AC2: Frontend keeps 06-Development because it has type-specific module pages', () => {
+      scaffoldDocs(outputDir, ['Frontend'], { name: 'my-app' });
+
+      // Frontend has 05-Modules/ pages (Components, Hooks, etc.)
+      expect(existsSync(join(outputDir, '05-Modules/Components.md'))).toBe(true);
+      // So Development stays at 06
+      expect(existsSync(join(outputDir, '06-Development/01-Source-Tree.md'))).toBe(true);
+    });
+
+    it('AC3: second run adds new module pages without overwriting existing, index regenerated', () => {
+      const pages1: PageDef[] = [{
+        path: '05-Modules/core.md',
+        title: 'core',
+        description: 'Module core',
+        section: 'Modules',
+        hint: 'Document core.',
+      }];
+
+      scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' }, undefined, pages1);
+
+      // Modify existing page
+      writeFileSync(join(outputDir, '05-Modules/core.md'), '# Custom Core Content\n');
+
+      // Second run with additional module
+      const pages2: PageDef[] = [
+        ...pages1,
+        {
+          path: '05-Modules/rag.md',
+          title: 'rag',
+          description: 'Module rag — 4 files, directory-level reference',
+          section: 'Modules',
+          hint: 'Document rag.',
+        },
+      ];
+
+      const result = scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' }, undefined, pages2);
+
+      // New page created
+      expect(existsSync(join(outputDir, '05-Modules/rag.md'))).toBe(true);
+      expect(result.pagesCreated).toContain('05-Modules/rag.md');
+      // Existing page NOT overwritten
+      const coreContent = readFileSync(join(outputDir, '05-Modules/core.md'), 'utf-8');
+      expect(coreContent).toBe('# Custom Core Content\n');
+      expect(result.pagesSkipped).toContain('05-Modules/core.md');
+      // index.md regenerated with new entry
+      const indexContent = readFileSync(join(outputDir, 'index.md'), 'utf-8');
+      expect(indexContent).toContain('05-Modules/rag.md');
+      expect(indexContent).toContain('05-Modules/core.md');
+    });
+
+    it('AC4: type-specific and dynamic module pages coexist without conflict', () => {
+      const dynamicPages: PageDef[] = [{
+        path: '05-Modules/custom-engine.md',
+        title: 'custom-engine',
+        description: 'Custom engine module — 500+ LOC',
+        section: 'Modules',
+        hint: 'Document the custom-engine module.',
+      }];
+
+      scaffoldDocs(outputDir, ['Frontend', 'ORM'], { name: 'my-app' }, undefined, dynamicPages);
+
+      // Static type-specific pages
+      expect(existsSync(join(outputDir, '05-Modules/Components.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Modules/Hooks.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Modules/Models.md'))).toBe(true);
+      // Dynamic page
+      expect(existsSync(join(outputDir, '05-Modules/custom-engine.md'))).toBe(true);
+      // Development stays at 06 (modules exist)
+      expect(existsSync(join(outputDir, '06-Development/01-Source-Tree.md'))).toBe(true);
+      // All in index
+      const indexContent = readFileSync(join(outputDir, 'index.md'), 'utf-8');
+      expect(indexContent).toContain('05-Modules/Components.md');
+      expect(indexContent).toContain('05-Modules/custom-engine.md');
+      expect(indexContent).toContain('06-Development/01-Source-Tree.md');
+    });
+
+    it('dynamic modules cause Development to stay at 06', () => {
+      // CLI has no type-specific module pages, but dynamic modules make 05-Modules/ exist
+      const dynamicPages: PageDef[] = [{
+        path: '05-Modules/scanner.md',
+        title: 'scanner',
+        description: 'Scanner module',
+        section: 'Modules',
+        hint: 'Document scanner.',
+      }];
+
+      scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' }, undefined, dynamicPages);
+
+      expect(existsSync(join(outputDir, '05-Modules/scanner.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '06-Development/01-Source-Tree.md'))).toBe(true);
+      expect(existsSync(join(outputDir, '05-Development'))).toBe(false);
     });
   });
 });

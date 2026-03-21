@@ -21,7 +21,7 @@ export interface ScaffoldResult {
   indexRegenerated: boolean;
 }
 
-interface PageDef {
+export interface PageDef {
   path: string;
   title: string;
   description: string;
@@ -111,11 +111,13 @@ const TYPE_PAGES: Record<string, PageDef[]> = {
 /**
  * Scaffolds the ideal documentation structure in the given output directory.
  *
- * - Creates the base structure (01-Getting-Started through 06-Development)
+ * - Creates the base structure (01-Getting-Started through 05/06-Development)
  * - Adds type-specific pages based on detected project types
+ * - Adds dynamic module pages from resolveModuleGranularity (Story 29.16)
  * - Each page includes contextual SCAFFOLDING hints (Story 29.3)
  * - Never overwrites existing pages
  * - Always regenerates index.md
+ * - When no 05-Modules/ pages exist, 06-Development is renumbered to 05-Development
  * - Optional sourceHints map provides project-context-aware hints per page
  */
 export function scaffoldDocs(
@@ -123,11 +125,12 @@ export function scaffoldDocs(
   projectTypes: ProjectType[],
   packageJson: Record<string, unknown>,
   sourceHints?: Map<string, string[]>,
+  dynamicModulePages?: PageDef[],
 ): ScaffoldResult {
   const projectName = (packageJson['name'] as string) || 'Project';
 
-  // Build the full page list
-  const allPages = buildPageList(projectTypes);
+  // Build the full page list (includes dynamic modules + renumbering)
+  const allPages = buildPageList(projectTypes, dynamicModulePages);
 
   const pagesCreated: string[] = [];
   const pagesSkipped: string[] = [];
@@ -158,14 +161,29 @@ export function scaffoldDocs(
 
 // --- Internal helpers ---
 
-function buildPageList(projectTypes: ProjectType[]): PageDef[] {
-  const pages = [...BASE_PAGES];
+function buildPageList(projectTypes: ProjectType[], dynamicModulePages: PageDef[] = []): PageDef[] {
+  // Deep-copy to avoid mutating the module-level constants
+  const pages: PageDef[] = BASE_PAGES.map(p => ({ ...p }));
   for (const type of projectTypes) {
     const extra = TYPE_PAGES[type];
     if (extra) {
-      pages.push(...extra);
+      pages.push(...extra.map(p => ({ ...p })));
     }
   }
+
+  // Add dynamic module pages (Story 29.16)
+  pages.push(...dynamicModulePages.map(p => ({ ...p })));
+
+  // Renumber 06-Development → 05-Development when no 05-Modules/ pages exist
+  const hasModulePages = pages.some(p => p.path.startsWith('05-Modules/'));
+  if (!hasModulePages) {
+    for (const page of pages) {
+      if (page.path.startsWith('06-Development/')) {
+        page.path = page.path.replace('06-Development/', '05-Development/');
+      }
+    }
+  }
+
   return pages;
 }
 
@@ -211,19 +229,11 @@ function buildIndexContent(projectName: string, pages: PageDef[]): string {
     }
   }
 
-  // Section number mapping
-  const sectionNumbers: Record<string, string> = {
-    'Monorepo': '0',
-    'Getting Started': '1',
-    'Architecture': '2',
-    'Guides': '3',
-    'API Reference': '4',
-    'Modules': '5',
-    'Development': '6',
-  };
-
   for (const [section, sectionPages] of sections) {
-    const num = sectionNumbers[section] ?? '';
+    // Derive section number from path prefix (e.g., '05-Development/...' → '5')
+    const firstPath = sectionPages[0]?.path ?? '';
+    const prefix = firstPath.split('/')[0] ?? '';
+    const num = prefix.match(/^(\d+)-/)?.[1]?.replace(/^0+/, '') ?? '';
     lines.push(`## ${num}. ${section}\n`);
     lines.push('| Document | Description |');
     lines.push('|----------|-------------|');
