@@ -51,7 +51,7 @@ export async function parseFile(
   const adapter = resolveAdapter(ext);
 
   if (!adapter) {
-    return heuristicParse(source);
+    return heuristicParse(source, filePath);
   }
 
   const parser = await getParser();

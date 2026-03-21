@@ -116,10 +116,84 @@ describe('ADAPTER_REGISTRY', () => {
 });
 
 describe('heuristicParse', () => {
-  // --- AC 31.6.5: Fallback for unknown extensions ---
-  it('AC 31.6.5: returns empty symbols array', () => {
-    const result = heuristicParse('const x = 1;');
+  // --- Story 31.12: Heuristic Fallback Parser ---
+
+  // AC 31.12.1: Makefile targets → function
+  it('AC 31.12.1: extracts Makefile targets as functions', () => {
+    const source = `.PHONY: build test
+
+build:
+\t@echo "building..."
+\tgo build ./...
+
+test:
+\t@echo "testing..."
+\tgo test ./...`;
+    const result = heuristicParse(source, 'Makefile');
+    expect(result.length).toBeGreaterThanOrEqual(2);
+    const build = result.find((s) => s.name === 'build');
+    const test = result.find((s) => s.name === 'test');
+    expect(build).toMatchObject({ name: 'build', kind: 'function' });
+    expect(test).toMatchObject({ name: 'test', kind: 'function' });
+  });
+
+  // AC 31.12.2: Dockerfile FROM ... AS → function
+  it('AC 31.12.2: extracts Dockerfile stages as functions', () => {
+    const source = `FROM node:20 AS builder
+RUN npm ci
+FROM node:20-slim AS runner
+COPY --from=builder /app /app
+ENTRYPOINT ["node", "index.js"]`;
+    const result = heuristicParse(source, 'Dockerfile');
+    expect(result.length).toBeGreaterThanOrEqual(2);
+    expect(result[0]).toMatchObject({ name: 'builder', kind: 'function' });
+    expect(result[1]).toMatchObject({ name: 'runner', kind: 'function' });
+  });
+
+  // AC 31.12.3: UPPER_SNAKE assignment → constant
+  it('AC 31.12.3: extracts UPPER_SNAKE assignments as constants', () => {
+    const source = `#!/bin/bash
+# Config file
+API_KEY=sk-abc123
+DB_HOST=localhost
+some_var=hello
+result=42
+extra=line`;
+    const result = heuristicParse(source);
+    const apiKey = result.find((s) => s.name === 'API_KEY');
+    const dbHost = result.find((s) => s.name === 'DB_HOST');
+    expect(apiKey).toMatchObject({ name: 'API_KEY', kind: 'constant' });
+    expect(dbHost).toMatchObject({ name: 'DB_HOST', kind: 'constant' });
+  });
+
+  // AC 31.12.4: file with < 5 non-empty non-comment lines → empty
+  it('AC 31.12.4: returns empty for trivial files (< 5 lines)', () => {
+    const source = `# comment
+API_KEY=value
+
+`;
+    const result = heuristicParse(source);
     expect(result).toEqual([]);
+  });
+
+  it('returns empty for very short files', () => {
+    expect(heuristicParse('x = 1')).toEqual([]);
+    expect(heuristicParse('')).toEqual([]);
+  });
+
+  it('extracts generic function-like patterns', () => {
+    const source = `# Some config
+TIMEOUT=30
+MAX_RETRIES=5
+LOG_LEVEL=debug
+output_dir=./out
+something=else
+extra_line=1`;
+    const result = heuristicParse(source);
+    const timeout = result.find((s) => s.name === 'TIMEOUT');
+    const maxRetries = result.find((s) => s.name === 'MAX_RETRIES');
+    expect(timeout).toMatchObject({ kind: 'constant' });
+    expect(maxRetries).toMatchObject({ kind: 'constant' });
   });
 });
 

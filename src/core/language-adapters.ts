@@ -801,10 +801,52 @@ export function resolveAdapter(extension: string): LanguageAdapter | null {
 
 // --- Heuristic fallback ---
 
+const MAKEFILE_TARGET_RE = /^([a-zA-Z_][\w.-]*):/gm;
+const DOCKERFILE_STAGE_RE = /^FROM\s+\S+\s+AS\s+(\S+)/gim;
+const UPPER_SNAKE_ASSIGN_RE = /^([A-Z][A-Z0-9_]*)=/gm;
+
+function countSignificantLines(source: string): number {
+  return source
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      return t.length > 0 && !t.startsWith('#') && !t.startsWith('//') && !t.startsWith('--');
+    }).length;
+}
+
 /**
  * Fallback parser for files with no registered adapter.
- * Returns an empty symbol list — full heuristic parsing is Story 31.12.
+ * Extracts approximate symbols via regex patterns.
  */
-export function heuristicParse(_source: string): SymbolInfo[] {
-  return [];
+export function heuristicParse(source: string, filename?: string): SymbolInfo[] {
+  if (countSignificantLines(source) < 5) return [];
+
+  const base = filename?.toLowerCase() ?? '';
+
+  // Makefile targets
+  if (base === 'makefile' || base.endsWith('.mk')) {
+    const symbols: SymbolInfo[] = [];
+    for (const m of source.matchAll(MAKEFILE_TARGET_RE)) {
+      const name = m[1]!;
+      if (name.startsWith('.')) continue; // skip .PHONY, .DEFAULT, etc.
+      symbols.push({ name, kind: 'function', exported: true, line_start: 1, line_end: 1 });
+    }
+    return symbols;
+  }
+
+  // Dockerfile stages
+  if (base === 'dockerfile' || base.startsWith('dockerfile.')) {
+    const symbols: SymbolInfo[] = [];
+    for (const m of source.matchAll(DOCKERFILE_STAGE_RE)) {
+      symbols.push({ name: m[1]!, kind: 'function', exported: true, line_start: 1, line_end: 1 });
+    }
+    return symbols;
+  }
+
+  // Generic: UPPER_SNAKE assignments → constants
+  const symbols: SymbolInfo[] = [];
+  for (const m of source.matchAll(UPPER_SNAKE_ASSIGN_RE)) {
+    symbols.push({ name: m[1]!, kind: 'constant', exported: true, line_start: 1, line_end: 1 });
+  }
+  return symbols;
 }
