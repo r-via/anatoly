@@ -305,6 +305,8 @@ export interface ScanResult {
 export async function scanProject(
   projectRoot: string,
   config: Config,
+  /** When provided, the cache validates that all requested axes were previously evaluated */
+  requestedAxes?: string[],
 ): Promise<ScanResult> {
   const anatolyDir = resolve(projectRoot, '.anatoly');
   const tasksDir = join(anatolyDir, 'tasks');
@@ -335,16 +337,20 @@ export async function scanProject(
 
     // Check if file is unchanged (CACHED)
     const existing = existingProgress?.files[relPath];
+    const axesCovered = !requestedAxes ||
+      (existing?.axes && requestedAxes.every((a) => existing.axes!.includes(a)));
     if (
       existing &&
       existing.hash === hash &&
-      (existing.status === 'DONE' || existing.status === 'CACHED')
+      (existing.status === 'DONE' || existing.status === 'CACHED') &&
+      axesCovered
     ) {
       progress.files[relPath] = {
         file: relPath,
         hash,
         status: 'CACHED',
         updated_at: now,
+        axes: existing.axes,
       };
       filesCached++;
       continue;

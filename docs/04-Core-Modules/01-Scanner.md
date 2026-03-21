@@ -75,10 +75,10 @@ Each extracted symbol produces a `SymbolInfo` record:
 
 For every file, `computeFileHash()` (from `src/utils/cache.ts`) produces a SHA-256 digest of the file content. During scanning, this hash is compared against the hash stored in `progress.json` from the previous run:
 
-- If the hash matches and the file was previously `DONE` or `CACHED`, the file is marked `CACHED` and no new `.task.json` is written. This skips re-parsing entirely.
-- If the hash differs or no prior entry exists, the file is treated as new: its AST is parsed, a `.task.json` is written, and its progress status is set to `PENDING`.
+- If the hash matches, the file was previously `DONE` or `CACHED`, **and** all requested axes were covered by the previous evaluation, the file is marked `CACHED` and no new `.task.json` is written. This skips re-parsing entirely.
+- If the hash differs, no prior entry exists, or the previous run evaluated a different set of axes, the file is treated as new: its AST is parsed, a `.task.json` is written, and its progress status is set to `PENDING`.
 
-This mechanism ensures that incremental runs only process changed files.
+This mechanism ensures that incremental runs only process changed files. The per-axis tracking means that switching from `--axes utility` to `--axes correction` correctly invalidates the cache and triggers a full re-review for the newly requested axes.
 
 ## Task File Output
 

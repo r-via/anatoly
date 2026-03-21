@@ -72,6 +72,8 @@ export class ProgressManager {
     filePath: string,
     status: FileStatus,
     error?: string,
+    /** Sorted list of axis IDs that were evaluated (stored for per-axis cache invalidation) */
+    axes?: string[],
   ): void {
     const existing = this.progress.files[filePath];
     if (!existing) return;
@@ -82,6 +84,7 @@ export class ProgressManager {
       status,
       updated_at: new Date().toISOString(),
       ...(error ? { error } : {}),
+      ...(axes ? { axes } : {}),
     };
 
     // Queue the disk write — each write waits for the previous one to finish

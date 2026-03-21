@@ -19,6 +19,8 @@ export const FileProgressSchema = z.object({
   status: FileStatusSchema,
   updated_at: z.string(),
   error: z.string().optional(),
+  /** Sorted list of axis IDs that were evaluated (used for per-axis cache invalidation) */
+  axes: z.array(z.string()).optional(),
 });
 
 export const ProgressSchema = z.object({

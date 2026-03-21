@@ -19,7 +19,7 @@ anatoly run [--run-id <id>] [--axes <list>]
 | Flag | Type | Description |
 |------|------|-------------|
 | `--run-id <id>` | string | Custom run identifier. Must be alphanumeric with dashes and underscores. Defaults to an auto-generated timestamp-based ID. |
-| `--axes <list>` | string | Comma-separated list of axes to evaluate (e.g. `correction,tests`). Only the listed axes run; others are skipped. Intersects with config-disabled axes. Omit to run all enabled axes. Valid axes: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation`. |
+| `--axes <list>` | string | Comma-separated list of axes to evaluate (e.g. `correction,tests`). Only the listed axes run; others are skipped. Intersects with config-disabled axes. Omit to run all enabled axes. Valid axes: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation`. The cache tracks which axes were evaluated per file: switching to a different `--axes` set invalidates the cache for files that were not previously evaluated on the requested axes. |
 
 ### Behavior
 

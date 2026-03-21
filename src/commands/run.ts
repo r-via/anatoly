@@ -248,6 +248,9 @@ export function registerRunCommand(program: Command): void {
         noDocs: parentOpts.docs === false,
       };
 
+      // Raise max listeners to account for concurrent SDK subprocess exit handlers
+      process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
+
       // Create per-run ndjson log file at debug level (skip in dry-run)
       if (!ctx.dryRun) {
         const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
@@ -577,7 +580,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'scan' });
   log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
-  const scanResult = await scanProject(ctx.projectRoot, ctx.config);
+  const scanResult = await scanProject(ctx.projectRoot, ctx.config, evaluators.map(e => e.id));
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
@@ -970,7 +973,7 @@ async function runReviewPhase(
         const skipReview = generateSkipReview(task, triage.reason);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         cacheReview(ctx.projectRoot, skipReview);
-        pm.updateFileStatus(filePath, 'DONE');
+        pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         ctx.filesReviewed++;
         ctx.reviewCounts.skipped++;
         rl?.info({ event: 'file_skip', file: filePath, reason: triage.reason }, 'file skipped');
@@ -1043,7 +1046,7 @@ async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
         cacheReview(ctx.projectRoot, result.review);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
-        pm.updateFileStatus(filePath, 'DONE');
+        pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         ctx.filesReviewed++;
         ctx.reviewCounts.evaluated++;
         completedCount++;
