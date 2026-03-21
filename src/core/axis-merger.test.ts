@@ -417,4 +417,33 @@ describe('mergeAxisResults', () => {
     const review = mergeAxisResults(mockTask, results);
     expect(review.symbols[0].documentation).toBe('DOCUMENTED');
   });
+
+  // ---------------------------------------------------------------------------
+  // AC 31.20: language & parse_method flow through to ReviewFile
+  // ---------------------------------------------------------------------------
+
+  it('AC 31.20.3: should include language from task in review', () => {
+    const bashTask: Task = { ...mockTask, file: 'deploy.sh', language: 'bash', parse_method: 'ast' };
+    const review = mergeAxisResults(bashTask, []);
+    expect(review.language).toBe('bash');
+  });
+
+  it('AC 31.20.4: should include parse_method from task in review', () => {
+    const heuristicTask: Task = { ...mockTask, file: 'config.yaml', language: 'yaml', parse_method: 'heuristic' };
+    const review = mergeAxisResults(heuristicTask, []);
+    expect(review.parse_method).toBe('heuristic');
+  });
+
+  it('AC 31.20.3: should include both language and parse_method for .py file', () => {
+    const pyTask: Task = { ...mockTask, file: 'views.py', language: 'python', parse_method: 'ast', framework: 'django' };
+    const review = mergeAxisResults(pyTask, []);
+    expect(review.language).toBe('python');
+    expect(review.parse_method).toBe('ast');
+  });
+
+  it('AC 31.20.5: should not include language when undefined (TS zero regression)', () => {
+    const review = mergeAxisResults(mockTask, []);
+    expect(review.language).toBeUndefined();
+    expect(review.parse_method).toBeUndefined();
+  });
 });

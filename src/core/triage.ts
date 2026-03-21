@@ -107,6 +107,8 @@ export function generateSkipReview(task: Task, reason: string): ReviewFile {
     file: task.file,
     is_generated: true,
     skip_reason: reason,
+    ...(task.language ? { language: task.language } : {}),
+    ...(task.parse_method ? { parse_method: task.parse_method } : {}),
     verdict: 'CLEAN',
     symbols,
     actions: [],

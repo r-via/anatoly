@@ -285,6 +285,80 @@ describe('ReviewFileSchema doc_recommendations', () => {
   });
 });
 
+describe('ReviewFileSchema language/parse_method (Story 31.20)', () => {
+  it('should accept language field in review', () => {
+    const review = {
+      version: 2,
+      file: 'deploy.sh',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+      language: 'bash',
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.language).toBe('bash');
+    }
+  });
+
+  it('should accept parse_method field in review', () => {
+    const review = {
+      version: 2,
+      file: 'deploy.sh',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+      parse_method: 'heuristic',
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.parse_method).toBe('heuristic');
+    }
+  });
+
+  it('should accept both language and parse_method together', () => {
+    const review = {
+      version: 2,
+      file: 'views.py',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+      language: 'python',
+      parse_method: 'ast',
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.language).toBe('python');
+      expect(result.data.parse_method).toBe('ast');
+    }
+  });
+
+  it('should remain backward compatible without language/parse_method', () => {
+    const result = ReviewFileSchema.safeParse(validReview);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.language).toBeUndefined();
+      expect(result.data.parse_method).toBeUndefined();
+    }
+  });
+
+  it('should reject invalid parse_method value', () => {
+    const review = {
+      version: 2,
+      file: 'test.ts',
+      verdict: 'CLEAN',
+      symbols: [],
+      file_level: {},
+      parse_method: 'invalid',
+    };
+    const result = ReviewFileSchema.safeParse(review);
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('ActionSchema', () => {
   it('should validate a valid action', () => {
     const result = ActionSchema.safeParse({

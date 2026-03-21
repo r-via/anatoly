@@ -214,4 +214,23 @@ describe('generateSkipReview', () => {
     expect(review.is_generated).toBe(true);
     expect(review.skip_reason).toBe('barrel-export');
   });
+
+  it('AC 31.20.3: includes language from task in skip review', () => {
+    const task = makeTask({
+      file: 'helpers.sh',
+      language: 'bash',
+      parse_method: 'ast',
+      symbols: [],
+    });
+    const review = generateSkipReview(task, 'trivial');
+    expect(review.language).toBe('bash');
+    expect(review.parse_method).toBe('ast');
+  });
+
+  it('AC 31.20.5: omits language when undefined (TS zero regression)', () => {
+    const task = makeTask({ file: 'src/index.ts', symbols: [] });
+    const review = generateSkipReview(task, 'barrel-export');
+    expect(review.language).toBeUndefined();
+    expect(review.parse_method).toBeUndefined();
+  });
 });

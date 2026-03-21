@@ -82,6 +82,8 @@ export function mergeAxisResults(
     version: 2,
     file: task.file,
     is_generated: false,
+    ...(task.language ? { language: task.language } : {}),
+    ...(task.parse_method ? { parse_method: task.parse_method } : {}),
     verdict,
     symbols,
     actions,

@@ -140,6 +140,11 @@ export const ReviewFileSchema = z.object({
   is_generated: z.boolean().default(false),
   skip_reason: z.string().optional(),
 
+  /** Detected programming language (e.g. 'bash', 'python', 'rust') — Story 31.20 */
+  language: z.string().optional(),
+  /** Parse method used for symbol extraction: 'ast' or 'heuristic' — Story 31.20 */
+  parse_method: z.enum(['ast', 'heuristic']).optional(),
+
   verdict: VerdictSchema,
   symbols: z.array(SymbolReviewSchema),
   actions: z.array(ActionSchema).default([]),
