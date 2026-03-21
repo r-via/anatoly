@@ -330,6 +330,61 @@ export class PythonAdapter implements LanguageAdapter {
   }
 }
 
+// --- Rust import extraction helpers ---
+
+const RUST_USE_RE = /^use\s+(\S+)\s*;/gm;
+
+function extractRustImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const m of source.matchAll(RUST_USE_RE)) {
+    imports.push({ source: m[1]!, type: 'import' });
+  }
+  return imports;
+}
+
+// --- Rust adapter ---
+
+const RUST_SYMBOL_TYPES: Record<string, SymbolKind> = {
+  function_item: 'function',
+  struct_item: 'class',
+  trait_item: 'type',
+  enum_item: 'enum',
+  const_item: 'constant',
+  static_item: 'constant',
+};
+
+export class RustAdapter implements LanguageAdapter {
+  readonly extensions = ['.rs'] as const;
+  readonly languageId = 'rust';
+  readonly wasmModule = 'rust';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    for (const node of rootNode.namedChildren) {
+      const kind = RUST_SYMBOL_TYPES[node.type];
+      if (!kind) continue;
+
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) continue;
+
+      const exported = node.namedChildren.some((c) => c.type === 'visibility_modifier');
+
+      symbols.push({
+        name: nameNode.text,
+        kind,
+        exported,
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    }
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractRustImports(source);
+  }
+}
+
 // --- Adapter registry ---
 
 const adapters: LanguageAdapter[] = [
@@ -337,6 +392,7 @@ const adapters: LanguageAdapter[] = [
   new TsxAdapter(),
   new BashAdapter(),
   new PythonAdapter(),
+  new RustAdapter(),
 ];
 
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();

@@ -9,6 +9,7 @@ import {
   TsxAdapter,
   BashAdapter,
   PythonAdapter,
+  RustAdapter,
   resolveAdapter,
   heuristicParse,
   ADAPTER_REGISTRY,
@@ -561,5 +562,206 @@ from pathlib import Path`;
 describe('PythonAdapter registry', () => {
   it('resolves .py to PythonAdapter', () => {
     expect(resolveAdapter('.py')).toBeInstanceOf(PythonAdapter);
+  });
+});
+
+// --- Story 31.9: RustAdapter ---
+
+describe('RustAdapter', () => {
+  const adapter = new RustAdapter();
+
+  it('has extensions [".rs"]', () => {
+    expect(adapter.extensions).toEqual(['.rs']);
+  });
+
+  it('has languageId "rust"', () => {
+    expect(adapter.languageId).toBe('rust');
+  });
+
+  it('has wasmModule "rust"', () => {
+    expect(adapter.wasmModule).toBe('rust');
+  });
+});
+
+describe('RustAdapter.extractSymbols', () => {
+  const adapter = new RustAdapter();
+
+  // AC 31.9.1: pub fn → exported function
+  it('AC 31.9.1: extracts pub fn as exported function', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'function_item', text: 'pub fn parse(input: &str) -> Result<AST, Error> { }',
+        fields: { name: { type: 'identifier', text: 'parse', startRow: 0, endRow: 0 } },
+        children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'parse', kind: 'function', exported: true });
+  });
+
+  // AC 31.9.2: fn without pub → not exported
+  it('AC 31.9.2: extracts fn without pub as not exported', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'function_item', text: 'fn internal_helper() { }',
+        fields: { name: { type: 'identifier', text: 'internal_helper', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 1,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'internal_helper', kind: 'function', exported: false });
+  });
+
+  // AC 31.9.3: pub struct → class, exported
+  it('AC 31.9.3: extracts pub struct as class', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'struct_item', text: 'pub struct Config { field: String }',
+        fields: { name: { type: 'type_identifier', text: 'Config', startRow: 0, endRow: 0 } },
+        children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Config', kind: 'class', exported: true });
+  });
+
+  // AC 31.9.4: pub trait → type, exported
+  it('AC 31.9.4: extracts pub trait as type', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'trait_item', text: 'pub trait Parser { fn parse(&self); }',
+        fields: { name: { type: 'type_identifier', text: 'Parser', startRow: 0, endRow: 0 } },
+        children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+        startRow: 0, endRow: 3,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Parser', kind: 'type', exported: true });
+  });
+
+  // AC 31.9.5: pub enum → enum, exported
+  it('AC 31.9.5: extracts pub enum as enum', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'enum_item', text: 'pub enum Color { Red, Green, Blue }',
+        fields: { name: { type: 'type_identifier', text: 'Color', startRow: 0, endRow: 0 } },
+        children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Color', kind: 'enum', exported: true });
+  });
+
+  // AC 31.9.6: pub const → constant
+  it('AC 31.9.6: extracts pub const as constant', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'const_item', text: 'pub const MAX_SIZE: usize = 1024;',
+        fields: { name: { type: 'identifier', text: 'MAX_SIZE', startRow: 0, endRow: 0 } },
+        children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'MAX_SIZE', kind: 'constant', exported: true });
+  });
+
+  // static item → constant
+  it('extracts static item as constant', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'static_item', text: 'static COUNTER: AtomicUsize = AtomicUsize::new(0);',
+        fields: { name: { type: 'identifier', text: 'COUNTER', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'COUNTER', kind: 'constant', exported: false });
+  });
+
+  // Mixed symbols
+  it('extracts multiple symbols from a Rust file', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [
+        {
+          type: 'function_item', text: 'pub fn main() {}',
+          fields: { name: { type: 'identifier', text: 'main', startRow: 0, endRow: 0 } },
+          children: [{ type: 'visibility_modifier', text: 'pub', startRow: 0, endRow: 0 }],
+          startRow: 0, endRow: 1,
+        },
+        {
+          type: 'struct_item', text: 'struct Internal {}',
+          fields: { name: { type: 'type_identifier', text: 'Internal', startRow: 2, endRow: 2 } },
+          startRow: 2, endRow: 2,
+        },
+        {
+          type: 'const_item', text: 'const VERSION: &str = "1.0";',
+          fields: { name: { type: 'identifier', text: 'VERSION', startRow: 3, endRow: 3 } },
+          startRow: 3, endRow: 3,
+        },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(3);
+    expect(symbols[0]).toMatchObject({ name: 'main', kind: 'function', exported: true });
+    expect(symbols[1]).toMatchObject({ name: 'Internal', kind: 'class', exported: false });
+    expect(symbols[2]).toMatchObject({ name: 'VERSION', kind: 'constant', exported: false });
+  });
+
+  // Ignores non-symbol nodes
+  it('ignores non-symbol nodes like use_declaration and comments', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [
+        { type: 'use_declaration', text: 'use std::io;', startRow: 0, endRow: 0 },
+        { type: 'line_comment', text: '// a comment', startRow: 1, endRow: 1 },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('RustAdapter.extractImports', () => {
+  const adapter = new RustAdapter();
+
+  // AC 31.9.7: use statement
+  it('AC 31.9.7: extracts use declarations', () => {
+    const source = `use crate::utils::helper;
+use std::collections::HashMap;
+use serde::Serialize;`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(3);
+    expect(imports[0]).toEqual({ source: 'crate::utils::helper', type: 'import' });
+    expect(imports[1]).toEqual({ source: 'std::collections::HashMap', type: 'import' });
+    expect(imports[2]).toEqual({ source: 'serde::Serialize', type: 'import' });
+  });
+
+  it('returns empty for no imports', () => {
+    expect(adapter.extractImports('fn main() { println!("hello"); }')).toEqual([]);
+  });
+});
+
+describe('RustAdapter registry', () => {
+  it('resolves .rs to RustAdapter', () => {
+    expect(resolveAdapter('.rs')).toBeInstanceOf(RustAdapter);
   });
 });
