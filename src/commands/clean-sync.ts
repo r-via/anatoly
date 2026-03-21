@@ -66,7 +66,7 @@ function syncAxis(
   axis: ReportAxisId,
   completedStories: PrdStory[],
 ): { shardChecked: number; allDone: boolean } {
-  const axisDir = join(runDir, axis);
+  const axisDir = join(runDir, 'axes', axis);
   if (!existsSync(axisDir)) return { shardChecked: 0, allDone: false };
 
   const shardFiles = readdirSync(axisDir)

@@ -885,10 +885,10 @@ describe('generateReport', () => {
 
     const { reportPath, axisReports } = generateReport(tmpDir);
     const indexContent = readFileSync(reportPath, 'utf-8');
-    expect(indexContent).toContain('utility/index.md');
+    expect(indexContent).toContain('axes/utility/index.md');
 
     // Check axis folder exists
-    const utilityDir = join(tmpDir, '.anatoly', 'utility');
+    const utilityDir = join(tmpDir, '.anatoly', 'axes', 'utility');
     expect(existsSync(join(utilityDir, 'index.md'))).toBe(true);
     expect(existsSync(join(utilityDir, 'shard.1.md'))).toBe(true);
     expect(existsSync(join(utilityDir, 'shard.2.md'))).toBe(true);

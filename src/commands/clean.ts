@@ -83,7 +83,7 @@ function resolveAxisShards(projectRoot: string, axis: ReportAxisId): string | nu
   const runDir = resolveRunDir(projectRoot);
   if (!runDir) return null;
 
-  const axisDir = join(runDir, axis);
+  const axisDir = join(runDir, 'axes', axis);
   if (!existsSync(axisDir)) return null;
 
   const shardFiles = readdirSync(axisDir)

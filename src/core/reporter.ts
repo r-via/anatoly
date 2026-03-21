@@ -1113,7 +1113,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
     lines.push('|------|-------|--------|------|');
     for (const report of axisReports) {
       const name = axisDisplayName(report.axis);
-      const link = `[${report.axis}/index.md](./${report.axis}/index.md)`;
+      const link = `[axes/${report.axis}/index.md](./axes/${report.axis}/index.md)`;
       lines.push(`| ${name} | ${report.files.length} | ${report.shards.length} | ${link} |`);
     }
     lines.push('');
@@ -1453,7 +1453,7 @@ export function generateReport(
 
   // Write per-axis folders
   for (const report of axisReports) {
-    const axisDir = join(baseDir, report.axis);
+    const axisDir = join(baseDir, 'axes', report.axis);
     mkdirSync(axisDir, { recursive: true });
 
     // Write axis index
