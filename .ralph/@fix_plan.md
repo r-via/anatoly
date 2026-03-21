@@ -271,6 +271,258 @@
   > - Add `sdkConcurrency` field to Config schema (default 8, range 1-20)
   > - No changes to worker-pool.ts or file-evaluator.ts — the semaphore is transparent
 
+- [x] Story 31.1: Language Detection by Extension Distribution
+  > As a **developer running Anatoly on any project**
+  > I want Anatoly to **automatically detect the programming languages present** by scanning file extensions
+  > So that the pipeline knows **which grammars to load and which prompts to use**.
+  > AC: Given a project with 100 `.ts`, 10 `.sh`, 3 `.py`, 2 `.yml` files, When `detectLanguages()` runs, Then it returns languages sorted by percentage descending with correct ratios
+  > AC: Given `.ts` and `.tsx` files, Then they are grouped under `TypeScript` — each language appears once with the combined count
+  > AC: Given a language at < 1% of total files, Then it is filtered out of the result
+  > AC: Given `Dockerfile` and `Makefile` (no extension), Then they are detected via `FILENAME_MAP` lookup
+  > AC: Given `node_modules/`, `dist/`, `venv/`, `target/`, `bin/`, `obj/` directories, Then all files in these directories are excluded
+  > AC: Given a git repository, Then only git-tracked files are counted (respecting `.gitignore`)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-1
+
+- [ ] Story 31.2: Framework Detection by Project Markers
+  > As a **developer running Anatoly on a framework-based project**
+  > I want Anatoly to **detect the frameworks I use** from project configuration files
+  > So that the prompts are **tailored to my framework's conventions**.
+  > AC: Given `"react"` in package.json dependencies, Then frameworks includes `{ id: 'react', name: 'React', language: 'typescript' }`
+  > AC: Given `"next"` in dependencies OR `next.config.*` at root, Then Next.js is detected (React is NOT separately listed)
+  > AC: Given `requirements.txt` with `django==5.1`, Then Django is detected for Python
+  > AC: Given `Cargo.toml` with `actix-web`, Then Actix Web is detected for Rust
+  > AC: Given `go.mod` with `github.com/gin-gonic/gin`, Then Gin is detected for Go
+  > AC: Given `*.csproj` with `Microsoft.AspNetCore`, Then ASP.NET is detected for C#
+  > AC: Given multiple frameworks (e.g., NestJS + Prisma), Then both are detected simultaneously
+  > AC: Given no recognizable markers, Then frameworks is an empty array
+  > AC: Given config files are only read for detected languages (no `go.mod` read if no `.go` files)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-2
+
+- [ ] Story 31.3: Project Info Display — Languages & Frameworks
+  > As a **developer running Anatoly**
+  > I want to see the **language distribution and detected frameworks** in the setup table
+  > So that I can verify Anatoly **correctly understands my project ecosystem**.
+  > AC: Given `TypeScript 85%`, `Shell 10%`, Then Project Info shows `languages         TypeScript 85% · Shell 10%`
+  > AC: Given detected frameworks `Next.js` and `Prisma`, Then Project Info shows `frameworks        Next.js · Prisma`
+  > AC: Given no detected frameworks, Then the `frameworks` line does NOT appear
+  > AC: Given `--plain` mode, Then languages/frameworks display without box-drawing characters
+  > AC: Given the pipeline, Then the setup table renders AFTER language and framework detection
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-3
+
+- [ ] Story 31.4: Auto-Detect File Discovery
+  > As a **developer running Anatoly on a multi-language project**
+  > I want Anatoly to **automatically discover non-TypeScript files** without manual configuration
+  > So that shell scripts, Python files, YAML configs, etc. are **included in the analysis**.
+  > AC: Given `scan.auto_detect: true` (default) and `scripts/setup.sh` exists, Then it is included in the file list
+  > AC: Given `.py` files exist, Then they are included AND `venv/`, `.venv/`, `__pycache__/` are auto-excluded
+  > AC: Given `.github/workflows/ci.yml` exists, Then it is included
+  > AC: Given `.rs` files exist, Then they are included AND `target/**` is auto-excluded
+  > AC: Given `scan.auto_detect: false` in config, Then ONLY `scan.include` patterns are used
+  > AC: Given explicit `scan.include` + auto-detect, Then auto-detected globs are MERGED (union)
+  > AC: Given a project with no non-TypeScript files, Then behavior is identical to current (zero regression)
+  > AC: Given `scan.exclude` from config, Then user excludes take priority over auto-detected includes
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-4
+
+- [ ] Story 31.5: Dynamic Grammar Manager
+  > As a **developer running Anatoly on a multi-language project**
+  > I want tree-sitter grammars to be **downloaded automatically on first use**
+  > So that the npm package stays **lightweight**.
+  > AC: Given `.py` files and no cached grammar, Then `tree-sitter-python.wasm` is downloaded to `.anatoly/grammars/` and parsing succeeds
+  > AC: Given `.anatoly/grammars/tree-sitter-python.wasm` already cached, Then NO download occurs
+  > AC: Given network unavailable and no cached grammar, Then `resolve()` returns null, fallback to heuristic, warning logged
+  > AC: Given a download completes, Then `manifest.json` tracks `{ version, sha256, downloadedAt }`
+  > AC: Given TypeScript/TSX files, Then bundled grammar is used — grammar-manager is NOT called
+  > AC: Given Pipeline Summary renders after grammars, Then it shows `✔ grammars  2 cached · 1 downloaded (tree-sitter-rust)`
+  > AC: Given a corrupted partial download, Then the file is deleted and fallback used; next run re-attempts
+  > AC: Given `GRAMMAR_REGISTRY`, Then it contains entries for all 9 Tier 1 languages
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-5
+
+- [ ] Story 31.6: Language Adapter Interface & TypeScript Refactor
+  > As a **developer maintaining Anatoly**
+  > I want a **clean abstraction** for parsing different languages
+  > So that adding a new language is **a matter of adding files, not modifying the pipeline**.
+  > AC: Given `LanguageAdapter` interface, Then it defines: `extensions`, `languageId`, `wasmModule`, `extractSymbols()`, `extractImports()`
+  > AC: Given the existing TS parsing logic in `scanner.ts`, Then ALL TS-specific code is encapsulated in `TypeScriptAdapter`/`TsxAdapter`
+  > AC: Given `TypeScriptAdapter.extractSymbols()`, Then output is EXACTLY the same as current — zero regression
+  > AC: Given a file with unknown extension, Then it falls back to `heuristicParse()` with `task.parse_method: 'heuristic'`
+  > AC: Given `TaskSchema`, Then it includes `language`, `parse_method`, `framework` as optional fields
+  > AC: Given existing `.task.json` without new fields, Then they parse successfully (backward compat)
+  > AC: Given detected frameworks, Then each task's `framework` field is set based on project profile
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-6
+
+- [ ] Story 31.7: Bash/Shell Language Adapter
+  > As a **developer with shell scripts in my project**
+  > I want Anatoly to **parse and extract symbols from .sh and .bash files**
+  > So that my infrastructure scripts are **analyzed with the same rigor as TypeScript**.
+  > AC: Given `function setup_gpu() { ... }`, Then extracted as `{ name: 'setup_gpu', kind: 'function', exported: true }`
+  > AC: Given `setup_gpu() { ... }` (no function keyword), Then still extracted as function
+  > AC: Given `DOCKER_IMAGE="ghcr.io/..."` (UPPER_SNAKE top-level), Then extracted as `{ kind: 'constant' }`
+  > AC: Given `result_dir="./output"` (non-UPPER_SNAKE), Then extracted as `{ kind: 'variable' }`
+  > AC: Given `_internal_helper()` (underscore prefix), Then `exported: false`
+  > AC: Given `source ./lib/helpers.sh` and `. ./lib/logging.sh`, Then extractImports returns both
+  > AC: Given `local my_var="value"` inside function body, Then NOT extracted (top-level only)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-7
+
+- [ ] Story 31.8: Python Language Adapter
+  > As a **developer with Python scripts in my project**
+  > I want Anatoly to **parse and extract symbols from .py files**
+  > So that my Python code is **analyzed alongside my TypeScript code**.
+  > AC: Given `def process_data(input: str) -> dict:`, Then extracted as `{ name: 'process_data', kind: 'function', exported: true }`
+  > AC: Given `class DataPipeline:`, Then extracted as `{ kind: 'class' }`
+  > AC: Given `MAX_RETRIES = 3` (UPPER_SNAKE module-level), Then `{ kind: 'constant' }`
+  > AC: Given `_internal_helper()` (underscore prefix), Then `exported: false`
+  > AC: Given `__all__ = ['public_func']`, Then `__all__` overrides underscore convention
+  > AC: Given `@click.command()\ndef cli():`, Then decorated function is extracted
+  > AC: Given `from utils import helper`, Then extractImports returns the import
+  > AC: Given nested `def inner():` inside `def outer():`, Then only `outer` extracted
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-8
+
+- [ ] Story 31.9: Rust Language Adapter
+  > As a **developer with Rust code in my project**
+  > I want Anatoly to **parse and extract symbols from .rs files**
+  > So that my Rust modules are **included in the analysis pipeline**.
+  > AC: Given `pub fn parse(input: &str) -> Result<AST, Error>`, Then `{ kind: 'function', exported: true }`
+  > AC: Given `fn internal_helper()` (no pub), Then `{ exported: false }`
+  > AC: Given `pub struct Config { ... }`, Then `{ kind: 'class', exported: true }`
+  > AC: Given `pub trait Parser { ... }`, Then `{ kind: 'type', exported: true }`
+  > AC: Given `pub enum Color { Red, Green, Blue }`, Then `{ kind: 'enum', exported: true }`
+  > AC: Given `pub const MAX_SIZE: usize = 1024;`, Then `{ kind: 'constant' }`
+  > AC: Given `use crate::utils::helper;`, Then extractImports returns the import
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-9
+
+- [ ] Story 31.10: Go Language Adapter
+  > As a **developer with Go code in my project**
+  > I want Anatoly to **parse and extract symbols from .go files**
+  > So that my Go packages are **analyzed with language-appropriate rules**.
+  > AC: Given `func ParseFile(path string) error` (uppercase), Then `{ exported: true }`
+  > AC: Given `func parseInternal(s string) int` (lowercase), Then `{ exported: false }`
+  > AC: Given `type Scanner struct { ... }`, Then `{ kind: 'class', exported: true }`
+  > AC: Given `type Reader interface { ... }`, Then `{ kind: 'type' }`
+  > AC: Given `func (s *Scanner) Scan() bool`, Then `{ kind: 'method' }`
+  > AC: Given `const MaxRetries = 3`, Then `{ kind: 'constant' }`
+  > AC: Given `import "fmt"`, Then extractImports returns the import
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-10
+
+- [ ] Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters
+  > As a **developer running Anatoly on diverse projects**
+  > I want Anatoly to **support Java, C#, SQL, YAML, and JSON parsing**
+  > So that the full Tier 1 language set is covered.
+  > AC: Given Java `public class UserService { public void process() { ... } }`, Then class + method extracted
+  > AC: Given Java `private static final int MAX = 100;`, Then `{ kind: 'constant', exported: false }`
+  > AC: Given C# `public class OrderProcessor { public async Task<Result> Execute() { ... } }`, Then class + method extracted
+  > AC: Given SQL `CREATE TABLE users (...)`, Then `{ name: 'users', kind: 'class' }`
+  > AC: Given SQL `CREATE FUNCTION get_user(...)`, Then `{ kind: 'function' }`
+  > AC: Given YAML top-level keys `services:`, `volumes:`, Then extracted as `{ kind: 'variable' }`
+  > AC: Given Docker Compose `services:\n  api:`, Then `api` extracted as `{ kind: 'constant' }`
+  > AC: Given JSON top-level keys, Then extracted as `{ kind: 'variable' }`
+  > AC: Given SQL/YAML/JSON `extractImports()`, Then returns empty array (self-contained files)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-11
+
+- [ ] Story 31.12: Heuristic Fallback Parser
+  > As a **developer with files that have no tree-sitter grammar available**
+  > I want Anatoly to **extract approximate symbols via regex**
+  > So that these files are **still included in the analysis**.
+  > AC: Given a `Makefile` with targets `build:`, `test:`, Then extracted as `{ kind: 'function' }` with `parseMethod: 'heuristic'`
+  > AC: Given a `Dockerfile` with `FROM node:20 AS builder`, Then `builder` extracted as function
+  > AC: Given `API_KEY=sk-abc123` (UPPER_SNAKE assignment), Then `{ kind: 'constant' }`
+  > AC: Given a file with < 5 non-empty non-comment lines, Then returns empty symbols (too trivial)
+  > AC: Given a file with a grammar available, Then heuristicParse is NEVER called
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-12
+
+- [ ] Story 31.13: Usage-Graph Multi-Language Extension
+  > As a **developer running Anatoly on a multi-language project**
+  > I want the usage-graph to **track imports across all supported languages**
+  > So that the utility axis can detect **dead code in any language**.
+  > AC: Given `source ./lib/helpers.sh`, Then usage-graph contains edge from setup.sh → helpers.sh
+  > AC: Given a `.sh` file not sourced by any file, Then it is candidate for DEAD
+  > AC: Given `from helpers import format_output`, Then usage-graph contains the edge
+  > AC: Given `use crate::scanner::parse;`, Then usage-graph contains the edge
+  > AC: Given YAML files (no imports), Then no edges created, file NOT marked DEAD
+  > AC: Given TypeScript imports unchanged, Then graph is EXACTLY the same (zero regression)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-13
+
+- [ ] Story 31.14: Prompt Resolution Cascade
+  > As a **developer maintaining Anatoly**
+  > I want prompts to be **resolved automatically** based on language and framework
+  > So that each file gets the **most specific applicable prompt**.
+  > AC: Given `.tsx` in Next.js project, Then `resolveSystemPrompt('best_practices', 'typescript', 'nextjs')` returns `best-practices.nextjs.system.md`
+  > AC: Given `.tsx` in React project (no Next.js), Then returns `best-practices.react.system.md`
+  > AC: Given `.py` in Django project with no `best-practices.django.system.md`, Then falls back to `best-practices.python.system.md`
+  > AC: Given unknown language with no specific prompt, Then falls back to default `best-practices.system.md`
+  > AC: Given cascade order framework → language → default, Then checks in that order, returns FIRST match
+  > AC: Given TypeScript prompt loading unchanged, Then zero regression
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-14
+
+- [ ] Story 31.15: Best Practices Prompts — Shell, Python, Rust, Go
+  > As a **developer with non-TypeScript code**
+  > I want the best_practices axis to **evaluate with language-appropriate rules**
+  > So that I get **actionable findings**.
+  > AC: Given `best-practices.bash.system.md`, Then contains ShellGuard: `set -euo pipefail` (CRITICAL), quoted vars (CRITICAL), no eval (HIGH), etc. — min 12 rules
+  > AC: Given `best-practices.python.system.md`, Then contains PyGuard: type hints (HIGH), no bare except (CRITICAL), f-strings (MEDIUM), etc. — min 13 rules
+  > AC: Given `best-practices.rust.system.md`, Then contains RustGuard: no unwrap in prod (CRITICAL), no unsafe without justification (CRITICAL), etc. — min 10 rules
+  > AC: Given `best-practices.go.system.md`, Then contains GoGuard: error handling (CRITICAL), no panic in prod (CRITICAL), context propagation (HIGH), etc. — min 10 rules
+  > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema` — same Zod schema, no changes needed
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-15
+
+- [ ] Story 31.16: Best Practices Prompts — Java, C#, SQL, YAML, JSON
+  > As a **developer with Java, C#, SQL, YAML, or JSON files**
+  > I want the best_practices axis to **evaluate with appropriate rules**.
+  > AC: Given `best-practices.java.system.md`, Then contains JavaGuard — min 10 rules
+  > AC: Given `best-practices.csharp.system.md`, Then contains CSharpGuard — min 10 rules
+  > AC: Given `best-practices.sql.system.md`, Then contains SqlGuard — min 8 rules
+  > AC: Given `best-practices.yaml.system.md`, Then contains YamlGuard — min 8 rules
+  > AC: Given `best-practices.json.system.md`, Then contains JsonGuard — min 5 rules
+  > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema`
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-16
+
+- [ ] Story 31.17: Documentation Prompts per Language
+  > As a **developer with non-TypeScript code**
+  > I want the documentation axis to **use language-appropriate criteria**
+  > So that Python is checked for **docstrings**, not JSDoc.
+  > AC: Given `documentation.bash.system.md`, Then evaluates function header comments, `# @description`
+  > AC: Given `documentation.python.system.md`, Then evaluates docstrings (Google/NumPy/Sphinx)
+  > AC: Given `documentation.rust.system.md`, Then evaluates `///` doc comments, `# Examples`
+  > AC: Given `documentation.go.system.md`, Then evaluates Godoc format
+  > AC: Given `documentation.java.system.md`, Then evaluates Javadoc `@param`, `@return`, `@throws`
+  > AC: Given `documentation.csharp.system.md`, Then evaluates XML doc `<summary>`, `<param>`
+  > AC: Given `documentation.sql.system.md`, Then evaluates `--` comments on tables/columns
+  > AC: Given `documentation.yaml.system.md`, Then evaluates `#` comments on keys
+  > AC: Given a `.json` file, Then documentation axis skips it (all symbols DOCUMENTED)
+  > AC: Given any prompt, Then output matches `DocumentationResponseSchema`
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-17
+
+- [ ] Story 31.18: Framework-Specific Prompts — React & Next.js
+  > As a **developer working on a React or Next.js project**
+  > I want **framework-specific rules** for best_practices and documentation.
+  > AC: Given `best-practices.react.system.md`, Then contains hooks rules, memo, a11y, key prop, etc. — min 12 rules
+  > AC: Given `best-practices.nextjs.system.md`, Then contains `'use client'`/`'use server'`, App Router, `generateMetadata`, server component data fetching, etc. — min 12 rules
+  > AC: Given `documentation.react.system.md`, Then evaluates props interface as doc, component JSDoc, Storybook
+  > AC: Given `documentation.nextjs.system.md`, Then evaluates route doc, API Route doc, middleware doc
+  > AC: Given `.tsx` in Next.js project, Then best_practices uses Next.js prompt, NOT generic TypeGuard
+  > AC: Given `.ts` (non-JSX) in Next.js project, Then still uses Next.js prompt (all files use framework prompt)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-18
+
+- [ ] Story 31.19: Axis Language & Framework Injection
+  > As a **developer running Anatoly on a multi-language project**
+  > I want all 7 axes to **correctly handle non-TypeScript files**.
+  > AC: Given `.sh` file evaluated by correction axis, Then user message includes `## Language: bash` and code fence is ` ```bash `
+  > AC: Given `.py` in Django project, Then user message includes `## Language: python` and `## Framework: django`
+  > AC: Given `.rs` evaluated by tests axis, Then `## Language: rust` injected
+  > AC: Given ALL 7 axes, Then EVERY axis injects `Language:` and (if applicable) `Framework:` + dynamic fence
+  > AC: Given a TypeScript file with no framework, Then output is IDENTICAL to current (zero regression)
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-19
+
+- [ ] Story 31.20: Pipeline Integration & End-to-End Validation
+  > As a **developer running `anatoly run` on a multi-language project**
+  > I want the **entire pipeline to work end-to-end**.
+  > AC: Given 50 `.ts`, 5 `.sh`, 3 `.py` files, Then ALL 58 are scanned, triaged, evaluated, and reported
+  > AC: Given pipeline phases, Then order is: config → lang-detect → framework-detect → auto-detect → grammars → setup table → scan → triage → usage-graph → estimate → review → report
+  > AC: Given `.sh` file in report, Then `.rev.json` contains `"language": "bash"` and `.rev.md` uses ShellGuard rules
+  > AC: Given heuristic-parsed file, Then `parse_method: 'heuristic'` is set and confidence is lower
+  > AC: Given a project with ONLY TypeScript, Then behavior is IDENTICAL to pre-v0.6.0 (zero regression)
+  > AC: Given second run with no changes, Then zero re-parsing and zero grammar re-downloads
+  > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-20
+
 ## Completed
 
 ## Notes
