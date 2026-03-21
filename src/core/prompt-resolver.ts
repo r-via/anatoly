@@ -26,6 +26,10 @@ import docJavaPrompt from './axes/prompts/documentation.java.system.md';
 import docCsharpPrompt from './axes/prompts/documentation.csharp.system.md';
 import docSqlPrompt from './axes/prompts/documentation.sql.system.md';
 import docYamlPrompt from './axes/prompts/documentation.yaml.system.md';
+import bpReactPrompt from './axes/prompts/best-practices.react.system.md';
+import bpNextjsPrompt from './axes/prompts/best-practices.nextjs.system.md';
+import docReactPrompt from './axes/prompts/documentation.react.system.md';
+import docNextjsPrompt from './axes/prompts/documentation.nextjs.system.md';
 
 /** Registry of system prompts keyed by "{axisId}" or "{axisId}.{language}" or "{axisId}.{framework}" */
 const PROMPT_REGISTRY = new Map<string, string>();
@@ -55,6 +59,10 @@ function registerDefaults(): void {
   register('documentation.csharp', docCsharpPrompt);
   register('documentation.sql', docSqlPrompt);
   register('documentation.yaml', docYamlPrompt);
+  register('best_practices.react', bpReactPrompt);
+  register('best_practices.nextjs', bpNextjsPrompt);
+  register('documentation.react', docReactPrompt);
+  register('documentation.nextjs', docNextjsPrompt);
 }
 
 function register(key: string, content: string): void {
