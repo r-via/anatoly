@@ -9,6 +9,10 @@ import correctionPrompt from './axes/prompts/correction.system.md';
 import duplicationPrompt from './axes/prompts/duplication.system.md';
 import testsPrompt from './axes/prompts/tests.system.md';
 import overengineeringPrompt from './axes/prompts/overengineering.system.md';
+import bestPracticesBashPrompt from './axes/prompts/best-practices.bash.system.md';
+import bestPracticesPythonPrompt from './axes/prompts/best-practices.python.system.md';
+import bestPracticesRustPrompt from './axes/prompts/best-practices.rust.system.md';
+import bestPracticesGoPrompt from './axes/prompts/best-practices.go.system.md';
 
 /** Registry of system prompts keyed by "{axisId}" or "{axisId}.{language}" or "{axisId}.{framework}" */
 const PROMPT_REGISTRY = new Map<string, string>();
@@ -21,6 +25,10 @@ function registerDefaults(): void {
   register('duplication', duplicationPrompt);
   register('tests', testsPrompt);
   register('overengineering', overengineeringPrompt);
+  register('best_practices.bash', bestPracticesBashPrompt);
+  register('best_practices.python', bestPracticesPythonPrompt);
+  register('best_practices.rust', bestPracticesRustPrompt);
+  register('best_practices.go', bestPracticesGoPrompt);
 }
 
 function register(key: string, content: string): void {
