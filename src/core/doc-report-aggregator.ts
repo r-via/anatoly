@@ -55,9 +55,11 @@ export interface DocReportResult {
 export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const docsDir = resolve(input.projectRoot, input.docsPath ?? 'docs');
 
+  const docsPath = input.docsPath ?? 'docs';
+
   // 1. Resolve user doc plan
   const docPages = scanUserDocs(docsDir);
-  const userDocPlan = resolveUserDocPlan(docPages);
+  const userDocPlan = resolveUserDocPlan(docPages, docsPath);
 
   // 2. Compute scoring input from reviews
   const scoringInput = buildScoringInput(input, docPages);
@@ -65,7 +67,7 @@ export function aggregateDocReport(input: DocReportInput): DocReportResult {
 
   // 3. Build gaps from reviews and score
   const gaps = buildGapsFromReviews(input.reviews, score, input.idealPageCount, docPages.length);
-  const recommendations = buildDocRecommendations(gaps, userDocPlan);
+  const recommendations = buildDocRecommendations(gaps, userDocPlan, { docsPath });
 
   // 4. Render report section
   const reportStats = buildReportStats(input);

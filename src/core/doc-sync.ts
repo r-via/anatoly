@@ -58,7 +58,9 @@ const ACTIONABLE_TYPES = new Set<RecommendationType>([
 export function syncDocs(
   recommendations: DocRecommendation[],
   io: SyncIO,
+  opts?: { docsPath?: string },
 ): SyncReport {
+  const docsPath = opts?.docsPath ?? 'docs';
   const applied: SyncResult[] = [];
   const skipped: DocRecommendation[] = [];
 
@@ -68,7 +70,7 @@ export function syncDocs(
       continue;
     }
 
-    const result = applyRecommendation(rec, io);
+    const result = applyRecommendation(rec, io, docsPath);
     if (result) {
       applied.push(result);
     } else {
@@ -84,10 +86,11 @@ export function syncDocs(
 function applyRecommendation(
   rec: DocRecommendation,
   io: SyncIO,
+  docsPath: string,
 ): SyncResult | null {
   switch (rec.type) {
     case 'missing_page':
-      return applyMissingPage(rec, io);
+      return applyMissingPage(rec, io, docsPath);
     case 'missing_section':
       return applyMissingSection(rec, io);
     case 'outdated_content':
@@ -100,11 +103,12 @@ function applyRecommendation(
 function applyMissingPage(
   rec: DocRecommendation,
   io: SyncIO,
+  docsPath: string,
 ): SyncResult | null {
   const content = io.readFile(rec.content_ref);
   if (content === null) return null;
 
-  const adapted = adaptLinks(content);
+  const adapted = adaptLinks(content, docsPath);
   io.writeFile(rec.path_user, adapted);
 
   return {
@@ -175,8 +179,8 @@ function applyOutdatedContent(
 /**
  * Replaces .anatoly/docs/ references with docs/ in markdown links.
  */
-function adaptLinks(content: string): string {
-  return content.replace(/\.anatoly\/docs\//g, 'docs/');
+function adaptLinks(content: string, docsPath = 'docs'): string {
+  return content.replace(/\.anatoly\/docs\//g, `${docsPath}/`);
 }
 
 /**

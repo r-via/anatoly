@@ -95,10 +95,12 @@ function stripFilePrefix(filename: string): string {
 export function buildDocRecommendations(
   gaps: DocGap[],
   userDocPlan: UserDocPlan | null,
+  opts?: { docsPath?: string },
 ): DocRecommendation[] {
+  const docsPath = opts?.docsPath ?? 'docs';
   return gaps.map((gap) => {
     const pathIdeal = `.anatoly/docs/${gap.idealPath}`;
-    const pathUser = resolveUserPath(gap, userDocPlan);
+    const pathUser = resolveUserPath(gap, userDocPlan, docsPath);
 
     const rec: DocRecommendation = {
       type: gap.type,
@@ -119,7 +121,7 @@ export function buildDocRecommendations(
 
 // --- Path resolution ---
 
-function resolveUserPath(gap: DocGap, plan: UserDocPlan | null): string {
+function resolveUserPath(gap: DocGap, plan: UserDocPlan | null, docsPath: string): string {
   // Explicit existing path takes precedence
   if (gap.existingUserPath) {
     return gap.existingUserPath;
@@ -138,9 +140,9 @@ function resolveUserPath(gap: DocGap, plan: UserDocPlan | null): string {
     }
   }
 
-  // Fallback: mirror ideal path under docs/, stripping file prefix only
+  // Fallback: mirror ideal path under docsPath, stripping file prefix only
   if (parts.length > 1) {
-    return `docs/${parts[0]}/${cleanFilename}`;
+    return `${docsPath}/${parts[0]}/${cleanFilename}`;
   }
-  return `docs/${cleanFilename}`;
+  return `${docsPath}/${cleanFilename}`;
 }

@@ -83,6 +83,20 @@ describe('assertSafeOutputPath', () => {
       assertSafeOutputPath(join(tmpDir, 'docs-backup', 'file.md'), tmpDir);
     }).not.toThrow();
   });
+
+  // --- Story 29.19: configurable docs_path ---
+
+  it('guards custom docsPath when provided', () => {
+    expect(() => {
+      assertSafeOutputPath(join(tmpDir, 'documentation', 'page.md'), tmpDir, 'documentation');
+    }).toThrow(/INVARIANT VIOLATION/);
+  });
+
+  it('allows docs/ when docsPath is set to something else', () => {
+    expect(() => {
+      assertSafeOutputPath(join(tmpDir, 'docs', 'page.md'), tmpDir, 'documentation');
+    }).not.toThrow();
+  });
 });
 
 describe('scaffolder docs/ invariant (integration)', () => {

@@ -216,4 +216,51 @@ describe('buildDocRecommendations', () => {
     // Should strip "01-" prefix from filename
     expect(result[0].path_user).toBe('docs/how-to/Common-Workflows.md');
   });
+
+  // --- Story 29.19: configurable docs_path ---
+
+  it('uses custom docsPath in fallback mirror paths', () => {
+    const gaps: DocGap[] = [
+      {
+        type: 'missing_page',
+        idealPath: '05-Modules/rag.md',
+        rationale: 'Missing module docs',
+        priority: 'high',
+      },
+    ];
+
+    const result = buildDocRecommendations(gaps, null, { docsPath: 'documentation' });
+
+    expect(result[0].path_user).toBe('documentation/05-Modules/rag.md');
+  });
+
+  it('uses custom docsPath for flat ideal path fallback', () => {
+    const gaps: DocGap[] = [
+      {
+        type: 'missing_page',
+        idealPath: 'index.md',
+        rationale: 'Missing index',
+        priority: 'high',
+      },
+    ];
+
+    const result = buildDocRecommendations(gaps, null, { docsPath: 'wiki' });
+
+    expect(result[0].path_user).toBe('wiki/index.md');
+  });
+
+  it('defaults to docs/ when docsPath not specified', () => {
+    const gaps: DocGap[] = [
+      {
+        type: 'missing_page',
+        idealPath: '05-Modules/rag.md',
+        rationale: 'Missing',
+        priority: 'high',
+      },
+    ];
+
+    const result = buildDocRecommendations(gaps, null);
+
+    expect(result[0].path_user).toBe('docs/05-Modules/rag.md');
+  });
 });

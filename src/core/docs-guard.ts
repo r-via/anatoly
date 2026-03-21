@@ -21,9 +21,9 @@ import { resolve, sep } from 'node:path';
  * @param projectRoot - The project root directory
  * @throws Error with clear INVARIANT VIOLATION message
  */
-export function assertSafeOutputPath(outputPath: string, projectRoot: string): void {
+export function assertSafeOutputPath(outputPath: string, projectRoot: string, docsPath = 'docs'): void {
   const resolved = resolve(outputPath);
-  const docsDir = resolve(projectRoot, 'docs');
+  const docsDir = resolve(projectRoot, docsPath);
 
   if (resolved === docsDir || resolved.startsWith(docsDir + sep)) {
     throw new Error(

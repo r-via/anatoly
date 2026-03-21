@@ -287,4 +287,51 @@ describe('syncDocs', () => {
     expect(report.applied[0].path).toBe('docs/modules/scanner.md');
     expect(report.applied[1].path).toBe('docs/guides/quick.md');
   });
+
+  // --- Story 29.19: configurable docs_path ---
+
+  it('adapts .anatoly/docs/ links to custom docsPath', () => {
+    const content = [
+      '# Overview',
+      '',
+      'See [Architecture](.anatoly/docs/02-Architecture/01-System-Overview.md).',
+    ].join('\n');
+    const fs = memFs({ '.anatoly/docs/01-Getting-Started/01-Overview.md': content });
+    const recs: DocRecommendation[] = [
+      {
+        type: 'missing_page',
+        path_ideal: '.anatoly/docs/01-Getting-Started/01-Overview.md',
+        path_user: 'documentation/start/overview.md',
+        content_ref: '.anatoly/docs/01-Getting-Started/01-Overview.md',
+        rationale: 'Missing overview',
+        priority: 'high',
+      },
+    ];
+
+    const report = syncDocs(recs, fs, { docsPath: 'documentation' });
+
+    const written = fs.store['documentation/start/overview.md'];
+    expect(written).toContain('documentation/02-Architecture/01-System-Overview.md');
+    expect(written).not.toContain('.anatoly/docs/');
+    expect(written).not.toContain('docs/');
+  });
+
+  it('defaults link adaptation to docs/ when no docsPath specified', () => {
+    const content = 'See [link](.anatoly/docs/05-Modules/rag.md).\n';
+    const fs = memFs({ '.anatoly/docs/page.md': content });
+    const recs: DocRecommendation[] = [
+      {
+        type: 'missing_page',
+        path_ideal: '.anatoly/docs/page.md',
+        path_user: 'docs/page.md',
+        content_ref: '.anatoly/docs/page.md',
+        rationale: 'r',
+        priority: 'high',
+      },
+    ];
+
+    const report = syncDocs(recs, fs);
+
+    expect(fs.store['docs/page.md']).toContain('docs/05-Modules/rag.md');
+  });
 });
