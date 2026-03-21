@@ -121,16 +121,16 @@ function buildScoringInput(
   input: DocReportInput,
   userDocPages: DocPageEntry[],
 ): DocScoringInput {
-  let publicExportsDocumented = 0;
-  let totalPublicExports = 0;
+  let projectExportsDocumented = 0;
+  let totalExports = 0;
   let modulesDocumented = 0;
 
   for (const review of input.reviews) {
     for (const sym of review.symbols) {
       if (sym.exported) {
-        totalPublicExports++;
+        totalExports++;
         if (sym.documentation === 'DOCUMENTED') {
-          publicExportsDocumented++;
+          projectExportsDocumented++;
         }
       }
     }
@@ -172,8 +172,8 @@ function buildScoringInput(
     userDocPages: userDocPages.map(p => p.path),
     idealPageCount: input.idealPageCount,
     projectTypes: input.projectTypes,
-    publicExportsDocumented,
-    totalPublicExports,
+    projectExportsDocumented,
+    totalExports,
     modulesDocumented,
     totalModules,
     contentQualityPercent,

@@ -13,6 +13,19 @@
 
 // --- Public interfaces ---
 
+export interface SymbolCoverage {
+  projectDocumented: number;
+  internalDocumented: number;
+  totalExports: number;
+  modulesDocumented?: number;
+  totalModules?: number;
+}
+
+export interface SyncByType {
+  toCreate: number;
+  outdated: number;
+}
+
 export interface DocReportStats {
   /** Total pages in .anatoly/docs/ */
   totalPages: number;
@@ -24,6 +37,10 @@ export interface DocReportStats {
   cachedPages: string[];
   /** Number of pages in user's docs/ directory */
   userDocsPageCount: number;
+  /** Symbol-based coverage (Story 29.20) */
+  symbolCoverage?: SymbolCoverage;
+  /** Sync status by recommendation type (Story 29.20) */
+  syncByType?: SyncByType;
 }
 
 // --- Renderer ---
@@ -63,6 +80,33 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
     `  docs/ coverage: ${coverage}% (${stats.userDocsPageCount}/${stats.totalPages} pages)`,
   );
   lines.push(`  Sync gap: ${syncGap} pages`);
+
+  // Symbol-based coverage (Story 29.20)
+  if (stats.symbolCoverage) {
+    const sc = stats.symbolCoverage;
+    const projectPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.projectDocumented / sc.totalExports) * 100));
+    const internalPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.internalDocumented / sc.totalExports) * 100));
+
+    lines.push('');
+    lines.push(`Project docs (docs/): ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    lines.push(`Internal ref (.anatoly/docs/): ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+
+    if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
+      const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
+      lines.push(`Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
+    }
+  }
+
+  // Sync status by type (Story 29.20)
+  if (stats.syncByType) {
+    const parts2: string[] = [];
+    if (stats.syncByType.toCreate > 0) parts2.push(`${stats.syncByType.toCreate} pages to create`);
+    if (stats.syncByType.outdated > 0) parts2.push(`${stats.syncByType.outdated} pages outdated`);
+    if (parts2.length > 0) {
+      lines.push('');
+      lines.push(`Sync status: ${parts2.join(', ')}`);
+    }
+  }
 
   // New pages listing
   if (stats.newPages.length > 0) {

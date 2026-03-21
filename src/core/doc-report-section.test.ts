@@ -116,4 +116,96 @@ describe('renderDocReferenceSection', () => {
     expect(result).toContain('docs/ coverage: 0% (0/3 pages)');
     expect(result).toContain('Sync gap: 3 pages');
   });
+
+  // --- Story 29.20: Dual symbol coverage + sync by type ---
+  describe('dual symbol coverage (Story 29.20)', () => {
+    it('displays project and internal symbol coverage when provided', () => {
+      const result = renderDocReferenceSection({
+        totalPages: 28,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: Array.from({ length: 28 }, (_, i) => `page-${i}.md`),
+        userDocsPageCount: 18,
+        symbolCoverage: {
+          projectDocumented: 94,
+          internalDocumented: 192,
+          totalExports: 209,
+        },
+      });
+
+      expect(result).toContain('Project docs (docs/): 45% (94/209 symbols)');
+      expect(result).toContain('Internal ref (.anatoly/docs/): 92% (192/209 symbols)');
+    });
+
+    it('displays module coverage when provided', () => {
+      const result = renderDocReferenceSection({
+        totalPages: 28,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: Array.from({ length: 28 }, (_, i) => `page-${i}.md`),
+        userDocsPageCount: 18,
+        symbolCoverage: {
+          projectDocumented: 94,
+          internalDocumented: 192,
+          totalExports: 209,
+          modulesDocumented: 6,
+          totalModules: 8,
+        },
+      });
+
+      expect(result).toContain('Modules: 75% (6/8 modules > 200 LOC in project docs)');
+    });
+
+    it('displays sync status by recommendation type', () => {
+      const result = renderDocReferenceSection({
+        totalPages: 28,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: Array.from({ length: 28 }, (_, i) => `page-${i}.md`),
+        userDocsPageCount: 18,
+        syncByType: { toCreate: 5, outdated: 3 },
+      });
+
+      expect(result).toContain('5 pages to create');
+      expect(result).toContain('3 pages outdated');
+    });
+
+    it('shows 100% for 0 exports (AC4)', () => {
+      const result = renderDocReferenceSection({
+        totalPages: 5,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: Array.from({ length: 5 }, (_, i) => `page-${i}.md`),
+        userDocsPageCount: 5,
+        symbolCoverage: {
+          projectDocumented: 0,
+          internalDocumented: 0,
+          totalExports: 0,
+        },
+      });
+
+      expect(result).toContain('Project docs (docs/): 100%');
+      expect(result).toContain('Internal ref (.anatoly/docs/): 100%');
+    });
+
+    it('caps coverage at 100% (AC5)', () => {
+      const result = renderDocReferenceSection({
+        totalPages: 5,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: Array.from({ length: 5 }, (_, i) => `page-${i}.md`),
+        userDocsPageCount: 5,
+        symbolCoverage: {
+          projectDocumented: 30,
+          internalDocumented: 25,
+          totalExports: 25,
+        },
+      });
+
+      expect(result).toContain('Project docs (docs/): 100%');
+      // 120% should not appear — documented count capped to total
+      expect(result).not.toContain('120%');
+      expect(result).toContain('25/25 symbols');
+    });
+  });
 });

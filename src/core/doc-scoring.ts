@@ -29,10 +29,10 @@ export interface DocScoringInput {
   idealPageCount: number;
   /** Detected project types */
   projectTypes: ProjectType[];
-  /** Number of public exports with complete JSDoc */
-  publicExportsDocumented: number;
+  /** Number of exports documented in project docs (docs/) */
+  projectExportsDocumented: number;
   /** Total number of public exports */
-  totalPublicExports: number;
+  totalExports: number;
   /** Number of modules > 200 LOC with a doc page */
   modulesDocumented: number;
   /** Total modules > 200 LOC */
@@ -57,7 +57,7 @@ export interface DocScore {
 
 export function scoreDocumentation(input: DocScoringInput): DocScore {
   const structural = computeStructural(input.userDocPages, input.projectTypes);
-  const apiCoverage = safePercent(input.publicExportsDocumented, input.totalPublicExports);
+  const apiCoverage = safePercent(input.projectExportsDocumented, input.totalExports);
   const moduleCoverage = safePercent(input.modulesDocumented, input.totalModules);
   const contentQuality = input.contentQualityPercent;
   const navigation = computeNavigation(input.userDocPages, input.idealPageCount);
@@ -205,5 +205,5 @@ function computeWeights(types: ProjectType[]): Weights {
 
 function safePercent(documented: number, total: number): number {
   if (total === 0) return 100;
-  return Math.round((documented / total) * 100);
+  return Math.min(100, Math.round((documented / total) * 100));
 }

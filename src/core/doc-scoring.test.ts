@@ -30,8 +30,8 @@ describe('scoreDocumentation', () => {
         userDocPages: ['index.md', '01-Getting-Started/01-Overview.md', '02-Architecture/01-System-Overview.md'],
         idealPageCount: 5,
         projectTypes: ['Library'],
-        publicExportsDocumented: 20,
-        totalPublicExports: 25,
+        projectExportsDocumented: 20,
+        totalExports: 25,
         modulesDocumented: 4,
         totalModules: 5,
         contentQualityPercent: 80,
@@ -52,8 +52,8 @@ describe('scoreDocumentation', () => {
         userDocPages: FULL_USER_PAGES,
         idealPageCount: 5,
         projectTypes: ['Library'],
-        publicExportsDocumented: 25,
-        totalPublicExports: 25,
+        projectExportsDocumented: 25,
+        totalExports: 25,
         modulesDocumented: 5,
         totalModules: 5,
         contentQualityPercent: 90,
@@ -68,8 +68,8 @@ describe('scoreDocumentation', () => {
         userDocPages: ['index.md', '01-Getting-Started/01-Overview.md'],
         idealPageCount: 10,
         projectTypes: ['Library'],
-        publicExportsDocumented: 12,
-        totalPublicExports: 20,
+        projectExportsDocumented: 12,
+        totalExports: 20,
         modulesDocumented: 3,
         totalModules: 6,
         contentQualityPercent: 60,
@@ -85,8 +85,8 @@ describe('scoreDocumentation', () => {
         userDocPages: [],
         idealPageCount: 20,
         projectTypes: ['Library'],
-        publicExportsDocumented: 0,
-        totalPublicExports: 30,
+        projectExportsDocumented: 0,
+        totalExports: 30,
         modulesDocumented: 0,
         totalModules: 10,
         contentQualityPercent: 0,
@@ -103,8 +103,8 @@ describe('scoreDocumentation', () => {
       const baseInput: Omit<DocScoringInput, 'projectTypes'> = {
         userDocPages: ['index.md', '01-Getting-Started/01-Overview.md'],
         idealPageCount: 20,
-        publicExportsDocumented: 15,
-        totalPublicExports: 20,
+        projectExportsDocumented: 15,
+        totalExports: 20,
         modulesDocumented: 4,
         totalModules: 8,
         contentQualityPercent: 60,
@@ -127,8 +127,8 @@ describe('scoreDocumentation', () => {
         userDocPages: [],
         idealPageCount: 25,
         projectTypes: ['Library'],
-        publicExportsDocumented: 0,
-        totalPublicExports: 20,
+        projectExportsDocumented: 0,
+        totalExports: 20,
         modulesDocumented: 0,
         totalModules: 8,
         contentQualityPercent: 0,
@@ -147,8 +147,8 @@ describe('scoreDocumentation', () => {
         userDocPages: FULL_USER_PAGES,
         idealPageCount: 5,
         projectTypes: ['Library'],
-        publicExportsDocumented: 0,
-        totalPublicExports: 0,
+        projectExportsDocumented: 0,
+        totalExports: 0,
         modulesDocumented: 0,
         totalModules: 0,
         contentQualityPercent: 80,
@@ -163,8 +163,8 @@ describe('scoreDocumentation', () => {
         userDocPages: ['index.md', '01-Getting-Started/01-Overview.md'],
         idealPageCount: 10,
         projectTypes: ['Library'],
-        publicExportsDocumented: 10,
-        totalPublicExports: 20,
+        projectExportsDocumented: 10,
+        totalExports: 20,
         modulesDocumented: 3,
         totalModules: 5,
         contentQualityPercent: 50,
@@ -178,8 +178,8 @@ describe('scoreDocumentation', () => {
         userDocPages: ['index.md', 'getting-started/overview.md', 'architecture/system.md'],
         idealPageCount: 5,
         projectTypes: ['Library'],
-        publicExportsDocumented: 10,
-        totalPublicExports: 10,
+        projectExportsDocumented: 10,
+        totalExports: 10,
         modulesDocumented: 5,
         totalModules: 5,
         contentQualityPercent: 80,
@@ -187,6 +187,22 @@ describe('scoreDocumentation', () => {
 
       // Should detect 3/5 required sections even without number prefixes
       expect(result.structural).toBe(60);
+    });
+
+    // --- Story 29.20: coverage never > 100% ---
+    it('apiCoverage caps at 100% even if documented > total', () => {
+      const result = scoreDocumentation({
+        userDocPages: FULL_USER_PAGES,
+        idealPageCount: 5,
+        projectTypes: ['Library'],
+        projectExportsDocumented: 30,
+        totalExports: 25,
+        modulesDocumented: 5,
+        totalModules: 5,
+        contentQualityPercent: 80,
+      });
+
+      expect(result.apiCoverage).toBeLessThanOrEqual(100);
     });
   });
 });
