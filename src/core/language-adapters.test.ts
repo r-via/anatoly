@@ -10,6 +10,7 @@ import {
   BashAdapter,
   PythonAdapter,
   RustAdapter,
+  GoAdapter,
   resolveAdapter,
   heuristicParse,
   ADAPTER_REGISTRY,
@@ -763,5 +764,225 @@ use serde::Serialize;`;
 describe('RustAdapter registry', () => {
   it('resolves .rs to RustAdapter', () => {
     expect(resolveAdapter('.rs')).toBeInstanceOf(RustAdapter);
+  });
+});
+
+// --- Story 31.10: GoAdapter ---
+
+describe('GoAdapter', () => {
+  const adapter = new GoAdapter();
+
+  it('has extensions [".go"]', () => {
+    expect(adapter.extensions).toEqual(['.go']);
+  });
+
+  it('has languageId "go"', () => {
+    expect(adapter.languageId).toBe('go');
+  });
+
+  it('has wasmModule "go"', () => {
+    expect(adapter.wasmModule).toBe('go');
+  });
+});
+
+describe('GoAdapter.extractSymbols', () => {
+  const adapter = new GoAdapter();
+
+  // AC 31.10.1: uppercase function → exported
+  it('AC 31.10.1: extracts uppercase function as exported', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'function_declaration', text: 'func ParseFile(path string) error { }',
+        fields: { name: { type: 'identifier', text: 'ParseFile', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'ParseFile', kind: 'function', exported: true });
+  });
+
+  // AC 31.10.2: lowercase function → not exported
+  it('AC 31.10.2: extracts lowercase function as not exported', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'function_declaration', text: 'func parseInternal(s string) int { }',
+        fields: { name: { type: 'identifier', text: 'parseInternal', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 1,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'parseInternal', kind: 'function', exported: false });
+  });
+
+  // AC 31.10.3: type struct → class
+  it('AC 31.10.3: extracts type struct as class', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'type_declaration', text: 'type Scanner struct { ... }',
+        children: [{
+          type: 'type_spec', text: 'Scanner struct { ... }',
+          fields: {
+            name: { type: 'type_identifier', text: 'Scanner', startRow: 0, endRow: 0 },
+            type: { type: 'struct_type', text: '{ ... }', startRow: 0, endRow: 2 },
+          },
+          startRow: 0, endRow: 2,
+        }],
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Scanner', kind: 'class', exported: true });
+  });
+
+  // AC 31.10.4: type interface → type
+  it('AC 31.10.4: extracts type interface as type', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'type_declaration', text: 'type Reader interface { ... }',
+        children: [{
+          type: 'type_spec', text: 'Reader interface { ... }',
+          fields: {
+            name: { type: 'type_identifier', text: 'Reader', startRow: 0, endRow: 0 },
+            type: { type: 'interface_type', text: '{ ... }', startRow: 0, endRow: 2 },
+          },
+          startRow: 0, endRow: 2,
+        }],
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Reader', kind: 'type', exported: true });
+  });
+
+  // AC 31.10.5: method declaration → method
+  it('AC 31.10.5: extracts method declaration', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'method_declaration', text: 'func (s *Scanner) Scan() bool { }',
+        fields: { name: { type: 'field_identifier', text: 'Scan', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'Scan', kind: 'method', exported: true });
+  });
+
+  // AC 31.10.6: const → constant
+  it('AC 31.10.6: extracts const as constant', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [{
+        type: 'const_declaration', text: 'const MaxRetries = 3',
+        children: [{
+          type: 'const_spec', text: 'MaxRetries = 3',
+          fields: { name: { type: 'identifier', text: 'MaxRetries', startRow: 0, endRow: 0 } },
+          startRow: 0, endRow: 0,
+        }],
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'MaxRetries', kind: 'constant', exported: true });
+  });
+
+  // Mixed symbols
+  it('extracts multiple symbols from a Go file', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [
+        {
+          type: 'function_declaration', text: 'func Main() {}',
+          fields: { name: { type: 'identifier', text: 'Main', startRow: 0, endRow: 0 } },
+          startRow: 0, endRow: 1,
+        },
+        {
+          type: 'function_declaration', text: 'func helper() {}',
+          fields: { name: { type: 'identifier', text: 'helper', startRow: 2, endRow: 2 } },
+          startRow: 2, endRow: 3,
+        },
+        {
+          type: 'type_declaration', text: 'type config struct {}',
+          children: [{
+            type: 'type_spec', text: 'config struct {}',
+            fields: {
+              name: { type: 'type_identifier', text: 'config', startRow: 4, endRow: 4 },
+              type: { type: 'struct_type', text: '{}', startRow: 4, endRow: 4 },
+            },
+            startRow: 4, endRow: 4,
+          }],
+          startRow: 4, endRow: 4,
+        },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(3);
+    expect(symbols[0]).toMatchObject({ name: 'Main', kind: 'function', exported: true });
+    expect(symbols[1]).toMatchObject({ name: 'helper', kind: 'function', exported: false });
+    expect(symbols[2]).toMatchObject({ name: 'config', kind: 'class', exported: false });
+  });
+
+  // Ignores non-symbol nodes
+  it('ignores non-symbol nodes like package_clause and comments', () => {
+    const root = mockNode({
+      type: 'source_file', text: '',
+      children: [
+        { type: 'package_clause', text: 'package main', startRow: 0, endRow: 0 },
+        { type: 'comment', text: '// a comment', startRow: 1, endRow: 1 },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toEqual([]);
+  });
+});
+
+describe('GoAdapter.extractImports', () => {
+  const adapter = new GoAdapter();
+
+  // AC 31.10.7: import statement
+  it('AC 31.10.7: extracts single import', () => {
+    const source = `package main
+
+import "fmt"
+
+func main() { fmt.Println("hi") }`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(1);
+    expect(imports[0]).toEqual({ source: 'fmt', type: 'import' });
+  });
+
+  it('extracts grouped imports', () => {
+    const source = `package main
+
+import (
+	"fmt"
+	"os"
+	"github.com/pkg/errors"
+)`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(3);
+    expect(imports[0]).toEqual({ source: 'fmt', type: 'import' });
+    expect(imports[1]).toEqual({ source: 'os', type: 'import' });
+    expect(imports[2]).toEqual({ source: 'github.com/pkg/errors', type: 'import' });
+  });
+
+  it('returns empty for no imports', () => {
+    expect(adapter.extractImports('package main\nfunc main() {}')).toEqual([]);
+  });
+});
+
+describe('GoAdapter registry', () => {
+  it('resolves .go to GoAdapter', () => {
+    expect(resolveAdapter('.go')).toBeInstanceOf(GoAdapter);
   });
 });

@@ -385,6 +385,97 @@ export class RustAdapter implements LanguageAdapter {
   }
 }
 
+// --- Go import extraction helpers ---
+
+function extractGoImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+
+  // Single imports: import "fmt"
+  const singleRe = /^import\s+"([^"]+)"/gm;
+  for (const m of source.matchAll(singleRe)) {
+    imports.push({ source: m[1]!, type: 'import' });
+  }
+
+  // Grouped imports: import (\n"fmt"\n"os"\n)
+  const groupRe = /^import\s*\(([\s\S]*?)\)/gm;
+  for (const m of source.matchAll(groupRe)) {
+    const block = m[1]!;
+    const pathRe = /"([^"]+)"/g;
+    for (const pm of block.matchAll(pathRe)) {
+      imports.push({ source: pm[1]!, type: 'import' });
+    }
+  }
+
+  return imports;
+}
+
+// --- Go adapter ---
+
+const GO_TYPE_MAP: Record<string, SymbolKind> = {
+  struct_type: 'class',
+  interface_type: 'type',
+};
+
+function isGoExported(name: string): boolean {
+  return /^[A-Z]/.test(name);
+}
+
+export class GoAdapter implements LanguageAdapter {
+  readonly extensions = ['.go'] as const;
+  readonly languageId = 'go';
+  readonly wasmModule = 'go';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type === 'function_declaration' || node.type === 'method_declaration') {
+        const nameNode = node.childForFieldName('name');
+        if (!nameNode) continue;
+        symbols.push({
+          name: nameNode.text,
+          kind: node.type === 'method_declaration' ? 'method' : 'function',
+          exported: isGoExported(nameNode.text),
+          line_start: node.startPosition.row + 1,
+          line_end: node.endPosition.row + 1,
+        });
+      } else if (node.type === 'type_declaration') {
+        for (const spec of node.namedChildren) {
+          if (spec.type !== 'type_spec') continue;
+          const nameNode = spec.childForFieldName('name');
+          const typeNode = spec.childForFieldName('type');
+          if (!nameNode || !typeNode) continue;
+          const kind = GO_TYPE_MAP[typeNode.type] ?? 'type';
+          symbols.push({
+            name: nameNode.text,
+            kind,
+            exported: isGoExported(nameNode.text),
+            line_start: spec.startPosition.row + 1,
+            line_end: spec.endPosition.row + 1,
+          });
+        }
+      } else if (node.type === 'const_declaration') {
+        for (const spec of node.namedChildren) {
+          if (spec.type !== 'const_spec') continue;
+          const nameNode = spec.childForFieldName('name');
+          if (!nameNode) continue;
+          symbols.push({
+            name: nameNode.text,
+            kind: 'constant',
+            exported: isGoExported(nameNode.text),
+            line_start: spec.startPosition.row + 1,
+            line_end: spec.endPosition.row + 1,
+          });
+        }
+      }
+    }
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractGoImports(source);
+  }
+}
+
 // --- Adapter registry ---
 
 const adapters: LanguageAdapter[] = [
@@ -393,6 +484,7 @@ const adapters: LanguageAdapter[] = [
   new BashAdapter(),
   new PythonAdapter(),
   new RustAdapter(),
+  new GoAdapter(),
 ];
 
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();
