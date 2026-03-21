@@ -217,12 +217,126 @@ export class BashAdapter implements LanguageAdapter {
   }
 }
 
+// --- Python import extraction helpers ---
+
+const PY_IMPORT_ALL_RE = /^(?:from\s+(\S+)\s+import|import\s+(\S+))/gm;
+
+function extractPythonImports(source: string): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const m of source.matchAll(PY_IMPORT_ALL_RE)) {
+    const mod = m[1] ?? m[2];
+    if (mod) imports.push({ source: mod, type: 'import' });
+  }
+  return imports;
+}
+
+// --- Python adapter ---
+
+export class PythonAdapter implements LanguageAdapter {
+  readonly extensions = ['.py'] as const;
+  readonly languageId = 'python';
+  readonly wasmModule = 'python';
+
+  extractSymbols(rootNode: TSNode): SymbolInfo[] {
+    // First pass: detect __all__ if present
+    const allNames = this.extractAllNames(rootNode);
+
+    const symbols: SymbolInfo[] = [];
+    for (const node of rootNode.namedChildren) {
+      this.extractTopLevel(node, symbols, allNames);
+    }
+    return symbols;
+  }
+
+  extractImports(source: string): ImportRef[] {
+    return extractPythonImports(source);
+  }
+
+  /** Extract names from __all__ = ['name1', 'name2'] if present. */
+  private extractAllNames(rootNode: TSNode): Set<string> | null {
+    for (const node of rootNode.namedChildren) {
+      if (node.type !== 'expression_statement') continue;
+      const assignment = node.namedChildren.find((c) => c.type === 'assignment');
+      if (!assignment) continue;
+      const left = assignment.childForFieldName('left');
+      if (!left || left.text !== '__all__') continue;
+      const right = assignment.childForFieldName('right');
+      if (!right) continue;
+      // Parse list of string literals from text
+      const names = new Set<string>();
+      for (const m of right.text.matchAll(/['"]([^'"]+)['"]/g)) {
+        names.add(m[1]!);
+      }
+      return names;
+    }
+    return null;
+  }
+
+  private isExported(name: string, allNames: Set<string> | null): boolean {
+    if (allNames) return allNames.has(name);
+    return !name.startsWith('_');
+  }
+
+  private extractTopLevel(
+    node: TSNode,
+    symbols: SymbolInfo[],
+    allNames: Set<string> | null,
+  ): void {
+    if (node.type === 'function_definition') {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      symbols.push({
+        name: nameNode.text,
+        kind: 'function',
+        exported: this.isExported(nameNode.text, allNames),
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    } else if (node.type === 'class_definition') {
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) return;
+      symbols.push({
+        name: nameNode.text,
+        kind: 'class',
+        exported: this.isExported(nameNode.text, allNames),
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    } else if (node.type === 'decorated_definition') {
+      // Decorated functions/classes: find the actual definition inside
+      const def = node.namedChildren.find(
+        (c) => c.type === 'function_definition' || c.type === 'class_definition',
+      );
+      if (def) {
+        this.extractTopLevel(def, symbols, allNames);
+      }
+    } else if (node.type === 'expression_statement') {
+      // Assignments: `NAME = value`
+      const assignment = node.namedChildren.find((c) => c.type === 'assignment');
+      if (!assignment) return;
+      const left = assignment.childForFieldName('left');
+      if (!left || left.type !== 'identifier') return;
+      const name = left.text;
+      if (name === '__all__') return; // skip __all__ itself
+      const kind = /^[A-Z_][A-Z0-9_]*$/.test(name) ? 'constant' : 'variable';
+      symbols.push({
+        name,
+        kind,
+        exported: this.isExported(name, allNames),
+        line_start: node.startPosition.row + 1,
+        line_end: node.endPosition.row + 1,
+      });
+    }
+  }
+}
+
 // --- Adapter registry ---
 
 const adapters: LanguageAdapter[] = [
   new TypeScriptAdapter(),
   new TsxAdapter(),
   new BashAdapter(),
+  new PythonAdapter(),
 ];
 
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();

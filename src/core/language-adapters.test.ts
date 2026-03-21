@@ -8,6 +8,7 @@ import {
   TypeScriptAdapter,
   TsxAdapter,
   BashAdapter,
+  PythonAdapter,
   resolveAdapter,
   heuristicParse,
   ADAPTER_REGISTRY,
@@ -339,5 +340,226 @@ describe('BashAdapter registry', () => {
 
   it('resolves .bash to BashAdapter', () => {
     expect(resolveAdapter('.bash')).toBeInstanceOf(BashAdapter);
+  });
+});
+
+// --- Story 31.8: PythonAdapter ---
+
+describe('PythonAdapter', () => {
+  const adapter = new PythonAdapter();
+
+  it('has extensions [".py"]', () => {
+    expect(adapter.extensions).toEqual(['.py']);
+  });
+
+  it('has languageId "python"', () => {
+    expect(adapter.languageId).toBe('python');
+  });
+
+  it('has wasmModule "python"', () => {
+    expect(adapter.wasmModule).toBe('python');
+  });
+});
+
+describe('PythonAdapter.extractSymbols', () => {
+  const adapter = new PythonAdapter();
+
+  // AC 31.8.1: function definition
+  it('AC 31.8.1: extracts function definition', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'function_definition', text: 'def process_data(input: str) -> dict:\n    pass',
+        fields: { name: { type: 'identifier', text: 'process_data', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 1,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'process_data', kind: 'function', exported: true });
+  });
+
+  // AC 31.8.2: class definition
+  it('AC 31.8.2: extracts class definition', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'class_definition', text: 'class DataPipeline:\n    pass',
+        fields: { name: { type: 'identifier', text: 'DataPipeline', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'DataPipeline', kind: 'class', exported: true });
+  });
+
+  // AC 31.8.3: UPPER_SNAKE constant
+  it('AC 31.8.3: extracts UPPER_SNAKE assignment as constant', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'expression_statement', text: 'MAX_RETRIES = 3',
+        children: [{
+          type: 'assignment', text: 'MAX_RETRIES = 3',
+          fields: {
+            left: { type: 'identifier', text: 'MAX_RETRIES', startRow: 0, endRow: 0 },
+            right: { type: 'integer', text: '3', startRow: 0, endRow: 0 },
+          },
+          startRow: 0, endRow: 0,
+        }],
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'MAX_RETRIES', kind: 'constant', exported: true });
+  });
+
+  // AC 31.8.4: non-UPPER_SNAKE variable
+  it('AC 31.8.4: extracts non-UPPER_SNAKE assignment as variable', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'expression_statement', text: 'config = load_config()',
+        children: [{
+          type: 'assignment', text: 'config = load_config()',
+          fields: {
+            left: { type: 'identifier', text: 'config', startRow: 0, endRow: 0 },
+          },
+          startRow: 0, endRow: 0,
+        }],
+        startRow: 0, endRow: 0,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'config', kind: 'variable', exported: true });
+  });
+
+  // AC 31.8.5: underscore prefix → not exported
+  it('AC 31.8.5: marks underscore-prefixed as not exported', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'function_definition', text: 'def _internal_helper():\n    pass',
+        fields: { name: { type: 'identifier', text: '_internal_helper', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 1,
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.exported).toBe(false);
+  });
+
+  // AC 31.8.6: __all__ overrides underscore convention
+  it('AC 31.8.6: __all__ overrides export detection', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [
+        // __all__ = ['public_func']
+        {
+          type: 'expression_statement', text: "__all__ = ['public_func']",
+          children: [{
+            type: 'assignment', text: "__all__ = ['public_func']",
+            fields: {
+              left: { type: 'identifier', text: '__all__', startRow: 0, endRow: 0 },
+              right: { type: 'list', text: "['public_func']", startRow: 0, endRow: 0 },
+            },
+            startRow: 0, endRow: 0,
+          }],
+          startRow: 0, endRow: 0,
+        },
+        // public_func — in __all__, should be exported
+        {
+          type: 'function_definition', text: 'def public_func():\n    pass',
+          fields: { name: { type: 'identifier', text: 'public_func', startRow: 2, endRow: 2 } },
+          startRow: 2, endRow: 3,
+        },
+        // other_func — NOT in __all__, should NOT be exported
+        {
+          type: 'function_definition', text: 'def other_func():\n    pass',
+          fields: { name: { type: 'identifier', text: 'other_func', startRow: 4, endRow: 4 } },
+          startRow: 4, endRow: 5,
+        },
+      ],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(2);
+    const pub = symbols.find((s) => s.name === 'public_func');
+    const other = symbols.find((s) => s.name === 'other_func');
+    expect(pub!.exported).toBe(true);
+    expect(other!.exported).toBe(false);
+  });
+
+  // AC 31.8.7: decorated function
+  it('AC 31.8.7: extracts decorated function', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'decorated_definition', text: '@click.command()\ndef cli():\n    pass',
+        startRow: 0, endRow: 2,
+        children: [
+          { type: 'decorator', text: '@click.command()', startRow: 0, endRow: 0 },
+          {
+            type: 'function_definition', text: 'def cli():\n    pass',
+            fields: { name: { type: 'identifier', text: 'cli', startRow: 1, endRow: 1 } },
+            startRow: 1, endRow: 2,
+          },
+        ],
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'cli', kind: 'function', exported: true });
+  });
+
+  // AC 31.8.9: nested function — only outer extracted
+  it('AC 31.8.9: only extracts top-level, ignores nested functions', () => {
+    const root = mockNode({
+      type: 'module', text: '',
+      children: [{
+        type: 'function_definition', text: 'def outer():\n    def inner():\n        pass',
+        fields: { name: { type: 'identifier', text: 'outer', startRow: 0, endRow: 0 } },
+        startRow: 0, endRow: 2,
+        children: [{
+          type: 'block', text: '    def inner():\n        pass',
+          children: [{
+            type: 'function_definition', text: 'def inner():\n    pass',
+            fields: { name: { type: 'identifier', text: 'inner', startRow: 1, endRow: 1 } },
+            startRow: 1, endRow: 2,
+          }],
+        }],
+      }],
+    });
+    const symbols = adapter.extractSymbols(root);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe('outer');
+  });
+});
+
+describe('PythonAdapter.extractImports', () => {
+  const adapter = new PythonAdapter();
+
+  // AC 31.8.8: import and from...import
+  it('AC 31.8.8: extracts import and from...import', () => {
+    const source = `from utils import helper
+import os
+from pathlib import Path`;
+    const imports = adapter.extractImports(source);
+    expect(imports).toHaveLength(3);
+    expect(imports[0]).toEqual({ source: 'utils', type: 'import' });
+    expect(imports[1]).toEqual({ source: 'os', type: 'import' });
+    expect(imports[2]).toEqual({ source: 'pathlib', type: 'import' });
+  });
+
+  it('returns empty for no imports', () => {
+    expect(adapter.extractImports('x = 1\nprint(x)')).toEqual([]);
+  });
+});
+
+describe('PythonAdapter registry', () => {
+  it('resolves .py to PythonAdapter', () => {
+    expect(resolveAdapter('.py')).toBeInstanceOf(PythonAdapter);
   });
 });
