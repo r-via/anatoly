@@ -141,6 +141,39 @@ function buildUserMessage(
     }
   }
 
+  // Prerequisites: runtime, engines, peer dependencies
+  const prerequisites: string[] = [];
+  if (pkg.engines && typeof pkg.engines === 'object') {
+    for (const [engine, version] of Object.entries(pkg.engines as Record<string, string>)) {
+      prerequisites.push(`${engine} ${version}`);
+    }
+  }
+  if (pkg.peerDependencies && typeof pkg.peerDependencies === 'object') {
+    for (const [dep, version] of Object.entries(pkg.peerDependencies as Record<string, string>)) {
+      prerequisites.push(`${dep} ${version} (peer)`);
+    }
+  }
+  // Key dependencies (not devDeps) — gives context for what the project relies on
+  if (pkg.dependencies && typeof pkg.dependencies === 'object') {
+    const deps = Object.keys(pkg.dependencies as Record<string, string>);
+    if (deps.length > 0) {
+      parts.push(`\nDependencies (${deps.length}): ${deps.join(', ')}`);
+    }
+  }
+  if (prerequisites.length > 0) {
+    parts.push(`\nPrerequisites: ${prerequisites.join(', ')}`);
+  }
+  // Scripts — shows available commands
+  if (pkg.scripts && typeof pkg.scripts === 'object') {
+    const scripts = Object.entries(pkg.scripts as Record<string, string>);
+    if (scripts.length > 0) {
+      parts.push('\nPackage Scripts:');
+      for (const [name, cmd] of scripts) {
+        parts.push(`  - ${name}: ${cmd}`);
+      }
+    }
+  }
+
   // File tree
   if (ctx.fileTree) {
     parts.push(`\n## Source Files\n${ctx.fileTree}`);
