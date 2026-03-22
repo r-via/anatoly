@@ -137,3 +137,8 @@ export function _resetPromptRegistry(): void {
   PROMPT_REGISTRY.clear();
   registerDefaults();
 }
+
+/** For tests only — return sorted registry keys. */
+export function _getRegistryKeys(): string[] {
+  return [...PROMPT_REGISTRY.keys()].sort();
+}

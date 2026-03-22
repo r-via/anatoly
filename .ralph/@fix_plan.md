@@ -655,7 +655,7 @@
   > AC: `npx vitest run` passe à 100%
   > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-3
 
-- [ ] Story 33.4: Tests de non-régression et validation adversariale
+- [x] Story 33.4: Tests de non-régression et validation adversariale
   > As a **développeur**
   > I want valider que la centralisation n'a introduit aucune régression
   > So that la qualité des évaluations LLM reste identique après le refactoring.
