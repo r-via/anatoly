@@ -115,7 +115,7 @@ export function registerWatchCommand(program: Command): void {
         if (!existsSync(absPath)) return; // File deleted — handled by unlink
 
         await runWithContext({ runId, file: relPath }, async () => {
-        runLog.info({ event: 'file_change', file: relPath }, 'file changed');
+        runLog.info({ event: 'file_change', file: relPath, type: 'change' }, 'file changed');
 
         try {
           // Re-scan: hash + parse AST
@@ -151,7 +151,7 @@ export function registerWatchCommand(program: Command): void {
 
           atomicWriteJson(progressPath, progress);
 
-          runLog.info({ event: 'file_scan', file: relPath, symbols: symbols.length }, 'file scanned');
+          runLog.info({ event: 'file_scan', file: relPath, hash, symbolCount: symbols.length }, 'file scanned');
           console.log(`  ${chalk.cyan('scanned')} ${relPath}`);
 
           // Auto-review
@@ -159,7 +159,7 @@ export function registerWatchCommand(program: Command): void {
           progress.files[relPath].updated_at = new Date().toISOString();
           atomicWriteJson(progressPath, progress);
 
-          runLog.info({ event: 'file_review_start', file: relPath }, 'file review started');
+          runLog.info({ event: 'file_review_start', file: relPath, axes: evaluators.map(e => e.id) }, 'file review started');
           const result = await evaluateFile({
             projectRoot,
             task,
@@ -171,7 +171,7 @@ export function registerWatchCommand(program: Command): void {
             semaphore: sdkSemaphore,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
-          runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict }, 'file review completed');
+          runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict, durationMs: result.durationMs }, 'file review completed');
           flushFileLogger();
 
           progress.files[relPath].status = 'DONE';
@@ -185,7 +185,7 @@ export function registerWatchCommand(program: Command): void {
         } catch (error) {
           const message = error instanceof AnatolyError ? error.message : String(error);
           const errorCode = error instanceof AnatolyError ? error.code : 'UNKNOWN';
-          runLog.info({ event: 'file_review_error', file: relPath, errorCode, error: message }, 'file review error');
+          runLog.info({ event: 'file_review_error', file: relPath, error: errorCode, message }, 'file review error');
           flushFileLogger();
 
           // Update progress to ERROR

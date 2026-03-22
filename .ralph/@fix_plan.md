@@ -532,7 +532,7 @@
   > AC: Tests pass after fixes, report in `.ralph/logs/adversarial-review-28-part1.md`, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-1
 
-- [ ] Story 32.2: Adversarial Review & Auto-Fix — Epic 28 Stories 28.4–28.6
+- [x] Story 32.2: Adversarial Review & Auto-Fix — Epic 28 Stories 28.4–28.6
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 28.4–28.6 (Per-file Events, Watch Logging, Run Metrics)
   > AC: All 14 event types verified at correct code locations, missing events auto-fixed

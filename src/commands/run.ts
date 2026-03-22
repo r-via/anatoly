@@ -738,7 +738,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       const result = triageFile(task, source);
       triageMap.set(task.file, result);
       tiers[result.tier]++;
-      rl?.info({ event: 'file_triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
+      rl?.info({ event: 'file_triage', phase: 'triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
     }
 
     const triageDuration = Date.now() - triageStart;
@@ -1213,7 +1213,7 @@ async function runReviewPhase(
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         ctx.filesReviewed++;
         ctx.reviewCounts.skipped++;
-        rl?.info({ event: 'file_skip', file: filePath, reason: triage.reason }, 'file skipped');
+        rl?.info({ event: 'file_skip', phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
         return;
       }
 
@@ -1275,7 +1275,7 @@ async function runReviewPhase(
             filePath,
             isInterrupted: () => ctx.interrupted,
             onRetry: (attempt, delayMs) => {
-              rl?.info({ event: 'file_retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
+              rl?.info({ event: 'retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
               const delaySec = (delayMs / 1000).toFixed(0);
               state.setRetryMessage(filePath, `retry ${delaySec}s (${attempt}/5)`);
             },
@@ -1323,7 +1323,7 @@ async function runReviewPhase(
           })),
         };
         log.debug(reviewFields, 'file review completed');
-        ctx.runLog?.info(reviewFields, 'file review completed');
+        ctx.runLog?.info({ event: 'file_review_end', ...reviewFields }, 'file review completed');
         ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
         if (ctx.plain) {
           const findings = countReviewFindings(result.review);
@@ -1341,7 +1341,8 @@ async function runReviewPhase(
         ctx.errorCount++;
         ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
         log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
-        ctx.runLog?.error({ file: filePath, code: errorCode, message }, 'file review failed');
+        ctx.runLog?.error({ event: 'file_review_end', file: filePath, code: errorCode, message, verdict: 'ERROR' }, 'file review failed');
+        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: 'ERROR', error: errorCode });
         completedCount++;
       } finally {
         ctx.activeAborts.delete(currentAbort);
@@ -1548,11 +1549,13 @@ function runReportPhase(ctx: RunContext): void {
     byModel: {} as Record<string, number>,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalCostUsd: 0,
   };
   for (const [, s] of Object.entries(ctx.axisStats)) {
     conversationStats.total += s.calls;
     conversationStats.totalInputTokens += s.totalInputTokens;
     conversationStats.totalOutputTokens += s.totalOutputTokens;
+    conversationStats.totalCostUsd += s.totalCostUsd;
   }
   if (conversationStats.total > 0) {
     conversationStats.byPhase.review = conversationStats.total;
@@ -1578,7 +1581,7 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
     axisStats: ctx.axisStats,
     timeline: ctx.timeline.sort((a, b) => a.t - b.t),
-    conversationStats,
+    conversations: conversationStats,
   };
   try {
     writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
