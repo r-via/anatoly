@@ -14,7 +14,7 @@
 
 import type { PageContext, SymbolContext } from './source-context.js';
 
-export const DEFAULT_MODEL = 'haiku';
+export const DEFAULT_MODEL = 'sonnet';
 
 // --- Public interfaces ---
 

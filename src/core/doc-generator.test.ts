@@ -178,15 +178,15 @@ describe('buildPagePrompt', () => {
 
   // --- AC6: Model selection ---
   describe('model selection (AC6)', () => {
-    it('defaults to haiku model', () => {
+    it('defaults to sonnet model', () => {
       const result = buildPagePrompt(
         { path: '05-Modules/rag.md', title: 'RAG', description: 'RAG module' },
         emptyContext,
         samplePkg,
       );
 
-      expect(result.model).toBe('haiku');
-      expect(DEFAULT_MODEL).toBe('haiku');
+      expect(result.model).toBe('sonnet');
+      expect(DEFAULT_MODEL).toBe('sonnet');
     });
 
     it('allows model override', () => {
