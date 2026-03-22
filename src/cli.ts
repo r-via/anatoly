@@ -21,6 +21,7 @@ import {
   registerCleanSyncCommand,
   registerSetupEmbeddingsCommand,
   registerInitCommand,
+  registerDocsCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -96,6 +97,7 @@ export function createProgram(): Command {
   registerCleanSyncCommand(program);
   registerSetupEmbeddingsCommand(program);
   registerInitCommand(program);
+  registerDocsCommand(program);
 
   return program;
 }
