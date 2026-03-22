@@ -342,10 +342,18 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
   const changedFiles: Array<{ relPath: string; source: string; sha: string }> = [];
   let cachedCount = 0;
+  let scaffoldSkipped = 0;
 
   for (const absPath of files) {
     const relPath = relative(projectRoot, absPath);
     const source = readFileSync(absPath, 'utf-8');
+
+    // Skip scaffolded-only pages — no real content to index
+    if (isScaffoldingOnly(source)) {
+      scaffoldSkipped++;
+      continue;
+    }
+
     const sha = computeDocSha(source);
     const cached = cache[relPath];
 
@@ -355,6 +363,10 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     } else {
       changedFiles.push({ relPath, source, sha });
     }
+  }
+
+  if (scaffoldSkipped > 0) {
+    onLog(`rag: skipped ${scaffoldSkipped} scaffolded-only doc files`);
   }
 
   // Remove stale sections for deleted/changed files
@@ -430,4 +442,18 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
 
   return totalIndexed;
+}
+
+/**
+ * Detect scaffolded-only pages: contain SCAFFOLDING comments but
+ * very little real prose content (< 200 chars after stripping comments and headings).
+ */
+function isScaffoldingOnly(source: string): boolean {
+  if (!source.includes('<!-- SCAFFOLDING')) return false;
+  const stripped = source
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^#+\s.*/gm, '')
+    .replace(/^\s*$/gm, '')
+    .trim();
+  return stripped.length < 200;
 }
