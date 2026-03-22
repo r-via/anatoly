@@ -50,8 +50,7 @@ describe('renderDocReferenceSection', () => {
       userDocsPageCount: 18,
     });
 
-    expect(result).toContain('docs/ coverage: 64% (18/28 pages)');
-    expect(result).toContain('Sync gap: 10 pages');
+    expect(result).toContain('Documentation coverage: 64% (18/28 pages)');
   });
 
   // --- AC3: New pages listing ---
@@ -92,8 +91,7 @@ describe('renderDocReferenceSection', () => {
       userDocsPageCount: 5,
     });
 
-    expect(result).toContain('docs/ coverage: 100% (5/5 pages)');
-    expect(result).toContain('Sync gap: 0 pages');
+    expect(result).toContain('Documentation coverage: 100% (5/5 pages)');
   });
 
   it('handles first run where all pages are new', () => {
@@ -113,8 +111,7 @@ describe('renderDocReferenceSection', () => {
     expect(result).toContain('3 new');
     expect(result).not.toContain('refreshed');
     expect(result).not.toContain('cached');
-    expect(result).toContain('docs/ coverage: 0% (0/3 pages)');
-    expect(result).toContain('Sync gap: 3 pages');
+    expect(result).toContain('Documentation coverage: 0% (0/3 pages)');
   });
 
   // --- Story 29.20: Dual symbol coverage + sync by type ---

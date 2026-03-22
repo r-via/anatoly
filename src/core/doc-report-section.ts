@@ -67,33 +67,26 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
   lines.push(`.anatoly/docs/ updated: ${stats.totalPages} pages${summary}`);
   lines.push('');
 
-  // Coverage comparison
-  const coverage =
-    stats.totalPages > 0
-      ? Math.round((stats.userDocsPageCount / stats.totalPages) * 100)
-      : 100;
-  const syncGap = Math.max(0, stats.totalPages - stats.userDocsPageCount);
-
-  lines.push('Your docs/ vs .anatoly/docs/:');
-  lines.push(
-    `  docs/ coverage: ${coverage}% (${stats.userDocsPageCount}/${stats.totalPages} pages)`,
-  );
-  lines.push(`  Sync gap: ${syncGap} pages`);
-
   // Symbol-based coverage (Story 29.20)
   if (stats.symbolCoverage) {
     const sc = stats.symbolCoverage;
     const projectPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.projectDocumented / sc.totalExports) * 100));
     const internalPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.internalDocumented / sc.totalExports) * 100));
 
-    lines.push('');
-    lines.push(`Project docs (docs/): ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
-    lines.push(`Internal ref (.anatoly/docs/): ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    lines.push('Documentation coverage:');
+    lines.push(`  Project docs (docs/): ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    lines.push(`  Internal ref (.anatoly/docs/): ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
 
     if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
       const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
-      lines.push(`Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
+      lines.push(`  Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
     }
+  } else {
+    // Fallback: page count only (no symbol data available)
+    const pagePct = stats.totalPages > 0
+      ? Math.min(100, Math.round((stats.userDocsPageCount / stats.totalPages) * 100))
+      : 100;
+    lines.push(`Documentation coverage: ${pagePct}% (${stats.userDocsPageCount}/${stats.totalPages} pages)`);
   }
 
   // Sync status by type (Story 29.20)

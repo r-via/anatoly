@@ -85,7 +85,7 @@ describe('aggregateDocReport', () => {
 
     expect(result.userDocPlan).not.toBeNull();
     expect(result.userDocPlan!.pages.length).toBe(2);
-    expect(result.renderedSection).toContain('docs/ coverage');
+    expect(result.renderedSection).toContain('Documentation coverage');
   });
 
   it('should compute API coverage from review symbols', () => {
