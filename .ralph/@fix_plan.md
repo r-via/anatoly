@@ -555,7 +555,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-4
 
-- [ ] Story 32.5: Adversarial Review & Auto-Fix — Epic 29 Stories 29.12–29.17
+- [x] Story 32.5: Adversarial Review & Auto-Fix — Epic 29 Stories 29.12–29.17
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 29.12–29.17 (Doc Plan, Dual-Output, Ralph Sync, Modules, LLM Exec)
   > AC: Doc plan resolution, dual-output fields, Ralph sync (NEVER deletes user content), module injection, LLM exec verified

@@ -14,15 +14,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
+import type { PagePrompt } from './doc-generator.js';
 
 // --- Public interfaces ---
 
-export interface DocPrompt {
-  pagePath: string;
-  system: string;
-  user: string;
-  model: string;
-}
+/** @deprecated Use PagePrompt from doc-generator.ts instead */
+export type DocPrompt = PagePrompt;
 
 export interface ExecutorResult {
   text: string;

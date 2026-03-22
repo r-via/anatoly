@@ -141,9 +141,10 @@ export function runDocGeneration(
     prompts.push(prompt);
   }
 
-  // Remove deleted pages
+  // Remove deleted pages (with traversal guard)
   for (const removed of cacheResult.removed) {
-    const fullPath = join(outputDir, removed);
+    const fullPath = resolve(outputDir, removed);
+    if (!fullPath.startsWith(resolve(outputDir))) continue;
     if (existsSync(fullPath)) {
       unlinkSync(fullPath);
     }
