@@ -10,6 +10,7 @@ import {
   generateRunId,
   isValidRunId,
   createRunDir,
+  createMiniRun,
   resolveRunDir,
   listRuns,
   purgeRuns,
@@ -30,6 +31,16 @@ describe('run-id', () => {
     it('should return a timestamp-formatted string', () => {
       const id = generateRunId();
       expect(id).toMatch(/^\d{4}-\d{2}-\d{2}_\d{6}$/);
+    });
+
+    it('should return prefixed run ID when prefix is given', () => {
+      const id = generateRunId('scan');
+      expect(id).toMatch(/^scan-\d{4}-\d{2}-\d{2}_\d{6}$/);
+    });
+
+    it('should support arbitrary prefixes', () => {
+      const id = generateRunId('estimate');
+      expect(id).toMatch(/^estimate-\d{4}-\d{2}-\d{2}_\d{6}$/);
     });
   });
 
@@ -57,10 +68,11 @@ describe('run-id', () => {
   });
 
   describe('createRunDir', () => {
-    it('should create logs/ and reviews/ subdirectories', () => {
+    it('should create logs/, reviews/, and conversations/ subdirectories', () => {
       const runDir = createRunDir(tmpDir, 'test-run');
       expect(existsSync(join(runDir, 'logs'))).toBe(true);
       expect(existsSync(join(runDir, 'reviews'))).toBe(true);
+      expect(existsSync(join(runDir, 'conversations'))).toBe(true);
     });
 
     it('should create a latest pointer', () => {
@@ -145,6 +157,38 @@ describe('run-id', () => {
 
     it('should handle empty runs directory', () => {
       expect(purgeRuns(tmpDir, 1)).toBe(0);
+    });
+  });
+
+  describe('createMiniRun', () => {
+    it('should create run directory with prefixed runId', () => {
+      const result = createMiniRun(tmpDir, 'scan');
+      expect(result.runId).toMatch(/^scan-\d{4}-\d{2}-\d{2}_\d{6}$/);
+      expect(existsSync(result.runDir)).toBe(true);
+    });
+
+    it('should return correct logPath and conversationDir', () => {
+      const result = createMiniRun(tmpDir, 'review');
+      expect(result.logPath).toBe(join(result.runDir, 'anatoly.ndjson'));
+      expect(result.conversationDir).toBe(join(result.runDir, 'conversations'));
+    });
+
+    it('should create conversations/ subdirectory', () => {
+      const result = createMiniRun(tmpDir, 'watch');
+      expect(existsSync(result.conversationDir)).toBe(true);
+    });
+
+    it('should purge all prefixed run variants', () => {
+      createMiniRun(tmpDir, 'scan');
+      createMiniRun(tmpDir, 'estimate');
+      createMiniRun(tmpDir, 'review');
+      createMiniRun(tmpDir, 'watch');
+      const runs = listRuns(tmpDir);
+      expect(runs).toHaveLength(4);
+      // purgeRuns treats all variants uniformly
+      const deleted = purgeRuns(tmpDir, 0);
+      expect(deleted).toBe(4);
+      expect(listRuns(tmpDir)).toEqual([]);
     });
   });
 });

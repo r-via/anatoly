@@ -223,10 +223,18 @@ export function loadCoverage(
   return coverageMap;
 }
 
+export interface ScannedFileInfo {
+  file: string;
+  hash: string;
+  symbolCount: number;
+}
+
 export interface ScanResult {
   filesScanned: number;
   filesCached: number;
   filesNew: number;
+  /** Per-file info for structured logging (file_discovered events) */
+  files?: ScannedFileInfo[];
 }
 
 /**
@@ -258,6 +266,7 @@ export async function scanProject(
   const files = await collectFiles(projectRoot, config);
   const coverageMap = loadCoverage(projectRoot, config);
   const profile = detectProjectProfile(projectRoot);
+  const scannedFiles: ScannedFileInfo[] = [];
   let filesCached = 0;
   let filesNew = 0;
   let astErrors = 0;
@@ -283,6 +292,7 @@ export async function scanProject(
         updated_at: now,
         axes: existing.axes,
       };
+      scannedFiles.push({ file: relPath, hash, symbolCount: 0 });
       filesCached++;
       continue;
     }
@@ -333,6 +343,7 @@ export async function scanProject(
       updated_at: now,
     } satisfies FileProgress;
 
+    scannedFiles.push({ file: relPath, hash, symbolCount: symbols.length });
     filesNew++;
   }
 
@@ -348,5 +359,6 @@ export async function scanProject(
     filesScanned: files.length,
     filesCached,
     filesNew,
+    files: scannedFiles,
   };
 }

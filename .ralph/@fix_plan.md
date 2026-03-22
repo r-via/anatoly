@@ -512,7 +512,7 @@
   > AC: Given a TypeScript file with no framework, Then output is IDENTICAL to current (zero regression)
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-19
 
-- [ ] Story 31.20: Pipeline Integration & End-to-End Validation
+- [x] Story 31.20: Pipeline Integration & End-to-End Validation
   > As a **developer running `anatoly run` on a multi-language project**
   > I want the **entire pipeline to work end-to-end**.
   > AC: Given 50 `.ts`, 5 `.sh`, 3 `.py` files, Then ALL 58 are scanned, triaged, evaluated, and reported
@@ -522,6 +522,102 @@
   > AC: Given a project with ONLY TypeScript, Then behavior is IDENTICAL to pre-v0.6.0 (zero regression)
   > AC: Given second run with no changes, Then zero re-parsing and zero grammar re-downloads
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-20
+
+- [x] Story 32.1: Adversarial Review & Auto-Fix — Epic 28 Stories 28.1–28.3
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 28.1–28.3 (Conversation Dump, RAG Logging, Unified Run Context)
+  > AC: Each AC of 28.1–28.3 audited, marked IMPLEMENTED/PARTIAL/MISSING with file:line proof
+  > AC: Any PARTIAL or MISSING AC is auto-fixed in the same iteration
+  > AC: Code quality issues (path injection, perf, race conditions) fixed with tests
+  > AC: Tests pass after fixes, report in `.ralph/logs/adversarial-review-28-part1.md`, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-1
+
+- [ ] Story 32.2: Adversarial Review & Auto-Fix — Epic 28 Stories 28.4–28.6
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 28.4–28.6 (Per-file Events, Watch Logging, Run Metrics)
+  > AC: All 14 event types verified at correct code locations, missing events auto-fixed
+  > AC: Watch mode events verified, timeline and run_summary accuracy verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-2
+
+- [ ] Story 32.3: Adversarial Review & Auto-Fix — Epic 29 Stories 29.1–29.6
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 29.1–29.6 (Type Detection, Scaffolder, Hints, Granularity, Mapping, Guard)
+  > AC: Project type detection, scaffolding, hints, module granularity, mapping all verified
+  > AC: Guard test proves no code path writes to docs/, any bypass auto-fixed as CRITICAL
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-3
+
+- [ ] Story 32.4: Adversarial Review & Auto-Fix — Epic 29 Stories 29.7–29.11
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 29.7–29.11 (Source Analysis, LLM Gen, Cache, Scoring, Report)
+  > AC: Source extraction, LLM page quality, cache hit/miss, 5-dim scoring, report section verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-4
+
+- [ ] Story 32.5: Adversarial Review & Auto-Fix — Epic 29 Stories 29.12–29.17
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 29.12–29.17 (Doc Plan, Dual-Output, Ralph Sync, Modules, LLM Exec)
+  > AC: Doc plan resolution, dual-output fields, Ralph sync (NEVER deletes user content), module injection, LLM exec verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-5
+
+- [ ] Story 32.6: Adversarial Review & Auto-Fix — Epic 29 Stories 29.18–29.21
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 29.18–29.21 (Dual Context, docs_path, Coverage, Internal Pipeline)
+  > AC: Dual doc context with source tags, docs_path propagation, coverage distinction, internal pipeline verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-6
+
+- [ ] Story 32.7: Adversarial Review & Auto-Fix — Story 30.1 SDK Semaphore
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Story 30.1 (SDK Semaphore)
+  > AC: acquire/release/FIFO/finally verified, no deadlock, concurrent limit respected
+  > AC: CLI display and config validation verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 5 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-7
+
+- [ ] Story 32.8: Adversarial Review & Auto-Fix — Epic 31 Stories 31.1–31.5
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 31.1–31.5 (Lang Detect, Framework Detect, Display, Auto-Detect, Grammar Manager)
+  > AC: Language detection, framework detection, setup table, auto-detect, grammar manager all verified
+  > AC: Zero regression for TS-only projects
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-8
+
+- [ ] Story 32.9: Adversarial Review & Auto-Fix — Epic 31 Stories 31.6–31.11
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 31.6–31.11 (LanguageAdapter, all adapters)
+  > AC: LanguageAdapter interface + TS refactor = zero regression
+  > AC: Each adapter (Bash, Python, Rust, Go, Java, C#, SQL, YAML, JSON) verified against all ACs
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-9
+
+- [ ] Story 32.10: Adversarial Review & Auto-Fix — Epic 31 Stories 31.12–31.14
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 31.12–31.14 (Heuristic, Usage-Graph, Prompt Cascade)
+  > AC: Heuristic parser, multi-language usage-graph, prompt cascade all verified
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-10
+
+- [ ] Story 32.11: Adversarial Review & Auto-Fix — Epic 31 Stories 31.15–31.18
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 31.15–31.18 (All Prompts)
+  > AC: All 9 best_practices prompts verified (rule counts, severities, Zod-compatible output)
+  > AC: All 8 doc prompts verified (correct language conventions)
+  > AC: React/Next.js framework prompts verified (≥12 rules each)
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-11
+
+- [ ] Story 32.12: Adversarial Review & Auto-Fix — Epic 31 Stories 31.19–31.20
+  > As a **developer shipping Anatoly**
+  > I want an **adversarial review with auto-fix** of Stories 31.19–31.20 (Axis Injection, E2E)
+  > AC: All 7 axes inject Language + Framework + dynamic fence, TS output unchanged
+  > AC: Multi-language E2E verified (TS + Shell + Python processed correctly)
+  > AC: TS-only project = zero regression, second run = zero re-work
+  > AC: Real `anatoly run` on Anatoly itself produces valid report
+  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+  > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
 
 ## Completed
 

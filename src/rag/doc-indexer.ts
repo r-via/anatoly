@@ -145,7 +145,7 @@ async function chunkDocWithHaiku(
         .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
     } catch (err) {
       if (ac.signal.aborted) throw err;
-      log?.warn({ file: filePath, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku failed on unstructured doc, falling back to mechanical parse');
+      log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku failed on unstructured doc, falling back to mechanical parse');
       return [{ filePath, heading: filePath, embedText: prose, content: prose }];
     }
   }
@@ -189,7 +189,7 @@ async function chunkDocWithHaiku(
       allSections.push(...(refined.length > 0 ? refined : [section]));
     } catch (err) {
       if (ac.signal.aborted) throw err;
-      log?.warn({ file: filePath, section: section.heading, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku refinement failed, keeping H2 section');
+      log?.warn({ event: 'llm_call', file: filePath, section: section.heading, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku refinement failed, keeping H2 section');
       allSections.push(section);
     }
   }

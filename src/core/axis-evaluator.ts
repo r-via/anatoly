@@ -299,6 +299,7 @@ async function _runSingleTurnQueryInner<T>(
     conversationDir,
     conversationPrefix,
     attempt: 2,
+    retryReason: 'zod_validation_failed',
   });
   accumulateTokens(retry);
 
@@ -333,6 +334,8 @@ interface ExecQueryParams {
   conversationPrefix?: string;
   /** Attempt number (1 = initial, 2 = Zod retry) */
   attempt?: number;
+  /** Reason for retry (e.g. 'zod_validation_failed') — logged in the llm_call event */
+  retryReason?: string;
 }
 
 interface ExecQueryResult {
@@ -348,16 +351,19 @@ interface ExecQueryResult {
 
 async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   const { prompt, systemPrompt, model, projectRoot, abortController, transcriptLines, resumeSessionId,
-    conversationDir, conversationPrefix, attempt } = params;
+    conversationDir, conversationPrefix, attempt, retryReason } = params;
 
   // --- Conversation dump setup ---
   let convPath: string | undefined;
+  let convFileName: string | undefined; // Actual filename (may be truncated) for ndjson reference
   if (conversationDir && conversationPrefix != null && attempt != null) {
     try {
       mkdirSync(conversationDir, { recursive: true });
-      // Truncate filename to stay under OS 255-byte limit
-      const rawName = `${conversationPrefix}__${attempt}.md`;
-      const safeName = rawName.length > 250 ? rawName.slice(0, 246) + '.md' : rawName;
+      // Truncate filename to stay under OS 255-byte limit, preserving __<attempt>.md suffix
+      const suffix = `__${attempt}.md`;
+      const rawName = `${conversationPrefix}${suffix}`;
+      const safeName = rawName.length > 250 ? conversationPrefix.slice(0, 250 - suffix.length) + suffix : rawName;
+      convFileName = safeName;
       convPath = join(conversationDir, safeName);
 
       const title = conversationPrefix.replace(/__/g, ' — ');
@@ -407,7 +413,10 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
 
       // Stream assistant response to conversation dump for crash-safety
       if (convPath && message.type === 'assistant') {
-        try { appendFileSync(convPath, formatMessage(message) + '\n---\n\n'); } catch { /* best-effort */ }
+        try { appendFileSync(convPath, formatMessage(message) + '\n---\n\n'); } catch (e) {
+          contextLogger().warn({ err: e instanceof Error ? e.message : String(e), path: convPath }, 'conversation dump append failed');
+          convPath = undefined; // Stop further attempts
+        }
       }
 
       if (message.type === 'result') {
@@ -461,11 +470,12 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
         costUsd,
         durationMs,
         success: false,
+        ...(retryReason ? { retryReason } : {}),
         error: {
           code: err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN',
           message: err instanceof Error ? err.message : String(err),
         },
-        ...(convPath ? { conversationFile: `conversations/${conversationPrefix}__${attempt}.md` } : {}),
+        ...(convFileName ? { conversationFile: `conversations/${convFileName}` } : {}),
       },
       'LLM call failed',
     );
@@ -509,7 +519,9 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       result += `| Cache hit rate | ${Math.round(cacheHitRate * 100)}% |\n`;
       result += `| Success | true |\n`;
       appendFileSync(convPath, result);
-    } catch { /* best-effort */ }
+    } catch (e) {
+      contextLogger().warn({ err: e instanceof Error ? e.message : String(e), path: convPath }, 'conversation dump result write failed');
+    }
   }
 
   // Emit structured llm_call event (info level for ndjson visibility)
@@ -526,7 +538,8 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       costUsd,
       durationMs,
       success: true,
-      ...(convPath ? { conversationFile: `conversations/${conversationPrefix}__${attempt}.md` } : {}),
+      ...(retryReason ? { retryReason } : {}),
+      ...(convFileName ? { conversationFile: `conversations/${convFileName}` } : {}),
     },
     'LLM call complete',
   );

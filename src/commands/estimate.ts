@@ -56,6 +56,7 @@ export function registerEstimateCommand(program: Command): void {
           event: 'phase_end', phase: 'estimate', durationMs,
           files: result.files, symbols: result.symbols,
           inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+          estimatedMinutes: minutes,
         }, 'estimate completed');
         flushFileLogger();
 

@@ -13,7 +13,7 @@ import { runWithContext } from '../utils/log-context.js';
 export function registerScanCommand(program: Command): void {
   program
     .command('scan')
-    .description('Parse AST and compute SHA-256 hashes for all TypeScript files')
+    .description('Parse AST and compute SHA-256 hashes for all source files')
     .action(async () => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -27,6 +27,13 @@ export function registerScanCommand(program: Command): void {
         const startMs = Date.now();
 
         const result = await scanProject(projectRoot, config);
+
+        // Emit per-file events for structured logging (AC 28.3.1)
+        if (result.files) {
+          for (const f of result.files) {
+            runLog.info({ event: 'file_discovered', file: f.file, hash: f.hash, symbolCount: f.symbolCount }, 'file discovered');
+          }
+        }
 
         const durationMs = Date.now() - startMs;
         runLog.info({
