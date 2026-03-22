@@ -90,7 +90,7 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
           const candidateSource = readCandidateSource(ctx.projectRoot, r.card.filePath, r.card.name);
           if (candidateSource) {
             parts.push('  Source:');
-            parts.push('  ```typescript');
+            parts.push(`  \`\`\`${getCodeFenceTag(ctx.task)}`);
             parts.push(`  ${candidateSource.split('\n').join('\n  ')}`);
             parts.push('  ```');
           }

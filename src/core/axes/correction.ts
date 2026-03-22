@@ -193,7 +193,7 @@ function buildVerificationUserMessage(
   // Include original source code for reference
   parts.push(`## Source: \`${ctx.task.file}\``);
   parts.push('');
-  parts.push('```typescript');
+  parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
   parts.push(ctx.fileContent);
   parts.push('```');
   parts.push('');

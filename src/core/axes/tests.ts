@@ -62,7 +62,7 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
     const truncated = testLines.length > MAX_TEST_LINES;
     parts.push(`## Test File: \`${displayName}\``);
     parts.push('');
-    parts.push('```typescript');
+    parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
     parts.push(truncated ? testLines.slice(0, MAX_TEST_LINES).join('\n') : ctx.testFileContent);
     parts.push('```');
     if (truncated) {
