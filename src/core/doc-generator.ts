@@ -91,7 +91,8 @@ Rules:
 - Include at least 1 code example per page with realistic arguments.
 - All code blocks must specify the language (typescript, bash, etc.).
 - Output only the Markdown content, no meta-commentary.
-- NEVER invent prerequisites, environment variables, API keys, or setup steps that are not explicitly present in the provided source context. Only document what exists in the code.`;
+- NEVER invent prerequisites, environment variables, API keys, or setup steps that are not explicitly present in the provided source context. Only document what exists in the code.
+- When you see external system dependencies in the source code (e.g. Docker calls, exec/spawn of binaries, database connections, external services), document them as prerequisites. Cross-check: if the code imports or calls something (docker, redis, postgres, etc.), it MUST appear in the prerequisites section of relevant pages.`;
 
 const ARCHITECTURE_INSTRUCTIONS = `Architecture Page Requirements:
 - Include at least 1 Mermaid diagram (flowchart, sequence, or ER diagram).
