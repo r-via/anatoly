@@ -17,7 +17,7 @@ const OverengineeringSymbolSchema = BaseSymbolSchema.extend({
   overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE']),
 });
 
-const OverengineeringResponseSchema = z.object({
+export const OverengineeringResponseSchema = z.object({
   symbols: z.array(OverengineeringSymbolSchema),
 });
 

@@ -74,7 +74,7 @@ The result is rounded up to the nearest minute.
 
 ## LLM Call Count
 
-Each file is evaluated by 6 independent axis evaluators, so:
+Each file is evaluated by 7 independent axis evaluators, so:
 
 ```
 estimatedCalls = files * AXIS_COUNT

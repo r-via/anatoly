@@ -9,7 +9,7 @@
  * Each page gets a tailored system prompt (template + page-type rules)
  * and a user message (source context + project metadata).
  *
- * One LLM call per page — no batching. Default model: Haiku.
+ * One LLM call per page — no batching. Default model: Sonnet.
  */
 
 import type { PageContext, SymbolContext } from './source-context.js';

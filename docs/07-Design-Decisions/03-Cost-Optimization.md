@@ -6,7 +6,7 @@
 
 ## Context
 
-Anatoly runs 6 LLM calls per file (one per axis). For a 200-file project, that is 1,200 API calls. Each call includes the full file content plus contextual data in the prompt. Without optimization, auditing a medium-sized codebase would cost tens of dollars and take over an hour.
+Anatoly runs 7 LLM calls per file (one per axis). For a 200-file project, that is 1,400 API calls. Each call includes the full file content plus contextual data in the prompt. Without optimization, auditing a medium-sized codebase would cost tens of dollars and take over an hour.
 
 The fundamental tension is between thoroughness and cost. A cheaper tool that misses issues is useless; an accurate tool that costs $50 per run will not be used regularly. Anatoly needs to be thorough where it matters and frugal where it does not.
 
@@ -25,7 +25,7 @@ The triage system (`src/core/triage.ts`) classifies every scanned file into one 
 | Tier | Criteria | API calls |
 |---|---|---|
 | **skip** | Barrel exports (re-export only, no own symbols), trivial files (<10 lines, 0-1 symbols), type-only files (all symbols are types/enums), constants-only files | 0 |
-| **evaluate** | Everything else | 6 (one per axis) |
+| **evaluate** | Everything else | 7 (one per axis) |
 
 Skipped files receive a synthetic CLEAN review (`generateSkipReview`) with `is_generated: true` and a `skip_reason` field. They appear in the final report as reviewed (so there are no gaps) but cost nothing.
 
@@ -80,8 +80,8 @@ Estimated calls: 852
 
 In addition to the three pre-processing strategies, Anatoly uses model tiering to reduce per-call cost:
 
-- **4 axes use Haiku** (faster, cheaper): utility, duplication, overengineering, tests
-- **2 axes use Sonnet** (deeper, more expensive): correction, best practices
+- **5 axes use Haiku** (faster, cheaper): utility, duplication, overengineering, tests, documentation
+- **2 axes use Sonnet** (deeper, more expensive): correction, best_practices
 
 This is configurable per-axis via `.anatoly.yml`, but the defaults reflect the observation that utility/duplication judgments are more mechanical (pattern matching against pre-computed evidence) while correction/best-practices require deeper reasoning.
 

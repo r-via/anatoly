@@ -7,6 +7,7 @@ import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
 import { recordReclassification } from './correction-memory.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
+import { ALL_AXIS_IDS } from './axes/index.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -48,12 +49,13 @@ type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 // ---------------------------------------------------------------------------
 
 export function buildDeliberationSystemPrompt(): string {
-  return resolveSystemPrompt('deliberation');
+  const raw = resolveSystemPrompt('deliberation');
+  return raw.replace(/\{\{AXIS_COUNT\}\}/g, String(ALL_AXIS_IDS.length));
 }
 
 export function buildDeliberationUserMessage(review: ReviewFile, fileContent: string): string {
   const reviewJson = JSON.stringify(review, null, 2);
-  return `## Merged ReviewFile (from 7 axis evaluators)
+  return `## Merged ReviewFile (from ${ALL_AXIS_IDS.length} axis evaluators)
 
 \`\`\`json
 ${reviewJson}

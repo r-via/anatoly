@@ -27,7 +27,7 @@ const BestPracticesSuggestionSchema = z.object({
   after: z.string().optional(),
 });
 
-const BestPracticesResponseSchema = z.object({
+export const BestPracticesResponseSchema = z.object({
   score: z.number().min(0).max(10),
   rules: z.array(BestPracticesRuleResponseSchema),
   suggestions: z.array(BestPracticesSuggestionSchema).default([]),

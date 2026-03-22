@@ -27,8 +27,9 @@ export const SECONDS_PER_SYMBOL = 0.8;
  */
 export const CONCURRENCY_EFFICIENCY = 0.75;
 
-/** Number of axis evaluators per file */
-export const AXIS_COUNT = 7;
+/** Number of axis evaluators per file (derived from registry — single source of truth) */
+import { ALL_AXIS_IDS } from './axes/index.js';
+export const AXIS_COUNT = ALL_AXIS_IDS.length;
 
 /** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */
 export const HAIKU_AXES = 5; // utility, duplication, overengineering, tests, documentation
@@ -40,7 +41,7 @@ export interface EstimateResult {
   inputTokens: number;
   outputTokens: number;
   estimatedMinutes: number;
-  /** Breakdown: estimated LLM calls (6 per file × N files) */
+  /** Breakdown: estimated LLM calls (AXIS_COUNT per file × N files) */
   estimatedCalls: number;
 }
 

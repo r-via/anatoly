@@ -25,7 +25,7 @@ const CorrectionActionSchema = z.object({
   line: z.int().min(1).optional(),
 });
 
-const CorrectionResponseSchema = z.object({
+export const CorrectionResponseSchema = z.object({
   symbols: z.array(CorrectionSymbolSchema),
   actions: z.array(CorrectionActionSchema).default([]),
 });
@@ -87,7 +87,7 @@ const VerificationSymbolSchema = z.object({
   reason: z.string().min(10),
 });
 
-const VerificationResponseSchema = z.object({
+export const VerificationResponseSchema = z.object({
   symbols: z.array(VerificationSymbolSchema),
 });
 

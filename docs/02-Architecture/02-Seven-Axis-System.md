@@ -72,6 +72,8 @@ Detects JSDoc documentation gaps on exported symbols and evaluates concept cover
 - **Output:** per-symbol verdict (`DOCUMENTED` / `PARTIAL` / `UNDOCUMENTED`), confidence 0-100, detail string, optional `docs_coverage` with per-concept status (`COVERED` / `PARTIAL` / `MISSING` / `OUTDATED`)
 - **Key feature:** two-level evaluation: (1) JSDoc inline per symbol — checks for description, params, return type; (2) `/docs/` concept coverage — matches source module to documentation pages via `documentation.module_mapping` config or directory name convention. Gracefully degrades when no `/docs/` directory exists (evaluates JSDoc only).
 
+> **Note:** The documentation *axis* (Haiku) **evaluates** existing documentation quality. It is distinct from the doc-generation *pipeline* (`anatoly docs`, Sonnet), which **writes** `.anatoly/docs/` pages from source code context. The axis reads docs; the pipeline creates them.
+
 ## Scoring Model
 
 Each symbol-level axis produces three key fields:

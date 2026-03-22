@@ -18,7 +18,7 @@ const TestsSymbolSchema = BaseSymbolSchema.extend({
   tests: z.enum(['GOOD', 'WEAK', 'NONE']),
 });
 
-const TestsResponseSchema = z.object({
+export const TestsResponseSchema = z.object({
   symbols: z.array(TestsSymbolSchema),
 });
 

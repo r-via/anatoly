@@ -18,7 +18,7 @@ const UtilitySymbolSchema = BaseSymbolSchema.extend({
   utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
 });
 
-const UtilityResponseSchema = z.object({
+export const UtilityResponseSchema = z.object({
   symbols: z.array(UtilitySymbolSchema),
 });
 

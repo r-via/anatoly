@@ -27,7 +27,7 @@ const DuplicationSymbolSchema = BaseSymbolSchema.extend({
   duplicate_target: DuplicateTargetResponseSchema.nullable().optional(),
 });
 
-const DuplicationResponseSchema = z.object({
+export const DuplicationResponseSchema = z.object({
   symbols: z.array(DuplicationSymbolSchema),
 });
 

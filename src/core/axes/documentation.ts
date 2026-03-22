@@ -29,7 +29,7 @@ const DocsCoverageSchema = z.object({
   score_pct: z.number().min(0).max(100),
 });
 
-const DocumentationResponseSchema = z.object({
+export const DocumentationResponseSchema = z.object({
   symbols: z.array(DocumentationSymbolSchema),
   docs_coverage: DocsCoverageSchema.optional(),
 });

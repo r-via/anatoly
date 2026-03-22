@@ -41,14 +41,6 @@ export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): Axi
 }
 
 /**
- * Get the full list of axis IDs.
+ * Get the full list of axis IDs (derived from ALL_EVALUATORS — single source of truth).
  */
-export const ALL_AXIS_IDS: readonly AxisId[] = [
-  'utility',
-  'duplication',
-  'correction',
-  'overengineering',
-  'tests',
-  'best_practices',
-  'documentation',
-] as const;
+export const ALL_AXIS_IDS: readonly AxisId[] = ALL_EVALUATORS.map((e) => e.id);

@@ -138,6 +138,7 @@ Evaluates JSDoc documentation quality on exported symbols and optionally assesse
 - **Docs concept coverage** (optional): When a `/docs/` directory exists, the docs-resolver (`src/core/docs-resolver.ts`) maps source files to relevant documentation pages. Resolution uses `documentation.module_mapping` config first, then falls back to directory name convention matching. Up to 3 pages (max 300 lines each) are included in the prompt. Per-concept coverage is rated COVERED, PARTIAL, MISSING, or OUTDATED.
 - **Graceful degradation**: When no `/docs/` directory exists, only JSDoc evaluation is performed.
 - **Configuration**: `documentation.docs_path` (default: `"docs"`), `documentation.module_mapping` (optional config-driven mapping override).
+- **Not to be confused with doc-generation:** The documentation *axis* (Haiku) **evaluates** existing documentation quality. The doc-generation *pipeline* (`anatoly docs`, Sonnet) **writes** `.anatoly/docs/` pages from source code. The axis reads docs; the pipeline creates them.
 
 ## Crash Resilience (Per-Axis Isolation)
 

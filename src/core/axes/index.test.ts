@@ -12,10 +12,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
 }
 
 describe('getEnabledEvaluators', () => {
-  it('should return all 7 evaluators with default config', () => {
+  it('should return all evaluators with default config', () => {
     const config = makeConfig();
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(7);
+    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
     expect(evaluators.map((e) => e.id)).toEqual([...ALL_AXIS_IDS]);
   });
 
@@ -24,7 +24,7 @@ describe('getEnabledEvaluators', () => {
       llm: { axes: { utility: { enabled: false }, best_practices: { enabled: false } } },
     });
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(5);
+    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length - 2);
     expect(evaluators.map((e) => e.id)).not.toContain('utility');
     expect(evaluators.map((e) => e.id)).not.toContain('best_practices');
   });
@@ -72,15 +72,19 @@ describe('getEnabledEvaluators', () => {
   it('should return all enabled axes when axesFilter is undefined', () => {
     const config = makeConfig();
     const evaluators = getEnabledEvaluators(config, undefined);
-    expect(evaluators).toHaveLength(7);
+    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
   });
 });
 
 describe('ALL_AXIS_IDS', () => {
-  it('should contain exactly 7 axis IDs', () => {
-    expect(ALL_AXIS_IDS).toHaveLength(7);
-    expect(ALL_AXIS_IDS).toEqual([
-      'utility', 'duplication', 'correction', 'overengineering', 'tests', 'best_practices', 'documentation',
-    ]);
+  it('should be derived from evaluators and contain all expected axes', () => {
+    expect(ALL_AXIS_IDS.length).toBeGreaterThanOrEqual(7);
+    expect(ALL_AXIS_IDS).toContain('utility');
+    expect(ALL_AXIS_IDS).toContain('duplication');
+    expect(ALL_AXIS_IDS).toContain('correction');
+    expect(ALL_AXIS_IDS).toContain('overengineering');
+    expect(ALL_AXIS_IDS).toContain('tests');
+    expect(ALL_AXIS_IDS).toContain('best_practices');
+    expect(ALL_AXIS_IDS).toContain('documentation');
   });
 });
