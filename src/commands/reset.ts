@@ -13,7 +13,7 @@ import { VectorStore } from '../rag/vector-store.js';
 /**
  * Count items that will be deleted during reset, for the confirmation summary.
  */
-function countResetItems(anatolyDir: string, keepRag: boolean): { dirs: string[]; files: string[]; total: number } {
+function countResetItems(anatolyDir: string, keepRag: boolean, keepDocs: boolean): { dirs: string[]; files: string[]; total: number } {
   const dirs: string[] = [];
   const files: string[] = [];
 
@@ -45,6 +45,14 @@ function countResetItems(anatolyDir: string, keepRag: boolean): { dirs: string[]
     }
   }
 
+  // Check internal docs directory
+  if (!keepDocs) {
+    const docsDir = resolve(anatolyDir, 'docs');
+    if (existsSync(docsDir)) {
+      dirs.push('docs (internal documentation)');
+    }
+  }
+
   for (const file of ['progress.json', 'report.md', 'anatoly.lock', 'deliberation-memory.json', 'correction-memory.json']) {
     if (existsSync(resolve(anatolyDir, file))) {
       files.push(file);
@@ -57,10 +65,11 @@ function countResetItems(anatolyDir: string, keepRag: boolean): { dirs: string[]
 export function registerResetCommand(program: Command): void {
   program
     .command('reset')
-    .description('Clear all cache, reviews, logs, tasks, report, and RAG index')
+    .description('Clear all cache, reviews, logs, tasks, report, RAG index, and internal docs')
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
     .option('--keep-rag', 'keep the RAG index (embeddings are slow to rebuild)')
-    .action(async (opts: { yes?: boolean; keepRag?: boolean }) => {
+    .option('--keep-docs', 'keep internal documentation (.anatoly/docs/)')
+    .action(async (opts: { yes?: boolean; keepRag?: boolean; keepDocs?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -78,7 +87,8 @@ export function registerResetCommand(program: Command): void {
       }
 
       const keepRag = opts.keepRag === true;
-      const { dirs, files, total } = countResetItems(anatolyDir, keepRag);
+      const keepDocs = opts.keepDocs === true;
+      const { dirs, files, total } = countResetItems(anatolyDir, keepRag, keepDocs);
 
       if (total === 0) {
         console.log('anatoly — reset');
@@ -138,6 +148,15 @@ export function registerResetCommand(program: Command): void {
             }
           }
           rmSync(ragDir, { recursive: true, force: true });
+          cleaned++;
+        }
+      }
+
+      // Clean internal docs
+      if (!keepDocs) {
+        const docsDir = resolve(anatolyDir, 'docs');
+        if (existsSync(docsDir)) {
+          rmSync(docsDir, { recursive: true, force: true });
           cleaned++;
         }
       }
