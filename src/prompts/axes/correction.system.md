@@ -17,9 +17,8 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-```json
 {
   "symbols": [
     {
@@ -39,4 +38,3 @@ Output ONLY a JSON object (no markdown fences, no explanation):
     }
   ]
 }
-```

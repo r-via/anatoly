@@ -29,9 +29,8 @@ Evaluate the test coverage quality for each symbol: GOOD (well tested), WEAK (pa
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-```json
 {
   "symbols": [
     {
@@ -44,4 +43,3 @@ Output ONLY a JSON object (no markdown fences, no explanation):
     }
   ]
 }
-```

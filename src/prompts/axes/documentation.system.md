@@ -31,9 +31,8 @@ Report concept coverage in the `docs_coverage` field. If no docs pages are provi
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-```json
 {
   "symbols": [
     {
@@ -57,7 +56,6 @@ Output ONLY a JSON object (no markdown fences, no explanation):
     "score_pct": 75
   }
 }
-```
 
 If no documentation pages were provided, omit the `docs_coverage` field entirely — output only `{ "symbols": [...] }`.
 

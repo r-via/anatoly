@@ -16,9 +16,8 @@ Evaluate whether each symbol is actually USED, DEAD (never imported/called), or 
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-```json
 {
   "symbols": [
     {
@@ -31,4 +30,3 @@ Output ONLY a JSON object (no markdown fences, no explanation):
     }
   ]
 }
-```

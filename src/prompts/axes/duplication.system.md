@@ -17,9 +17,8 @@ Evaluate whether each symbol is UNIQUE or a DUPLICATE of another function in the
 
 ## Output format
 
-Output ONLY a JSON object (no markdown fences, no explanation):
+Output ONLY a raw JSON object (no markdown fences, no explanation):
 
-```json
 {
   "symbols": [
     {
@@ -33,13 +32,11 @@ Output ONLY a JSON object (no markdown fences, no explanation):
     }
   ]
 }
-```
 
 For DUPLICATE symbols, duplicate_target should be:
-```json
+
 {
   "file": "src/other/file.ts",
   "symbol": "otherFunction",
   "similarity": "95% identical logic — both compute X from Y"
 }
-```

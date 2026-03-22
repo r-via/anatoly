@@ -667,6 +667,103 @@
   > AC: `npm run typecheck && npm run build && npx vitest run` → 0 erreurs
   > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-4
 
+### Epic 34 : Prompt Reinforcement — Audit, edge cases et renforcement des 36 prompts
+> Goal: Audit systématique des 36 system prompts, correction de 14 edge cases, injection de guard rails anti-hallucination, calibration des scores, injection dynamique d'exemples de schema Zod, et validation par gold-set testing.
+
+- [x] Story 34.1: Structural Fixes — Correction des contradictions et erreurs factuelles
+  > As a **développeur d'Anatoly**
+  > I want que les prompts système ne contiennent aucune contradiction interne ni erreur factuelle
+  > So that le LLM reçoive des instructions cohérentes et produise des réponses conformes au format attendu.
+  > AC: Aucun des 7 prompts axes ne contient de fences ` ```json ` dans sa section Output format
+  > AC: Chaque prompt dit "raw JSON object" dans l'instruction de sortie
+  > AC: Le prompt deliberation mentionne "7 independent axis evaluators" (pas "6")
+  > AC: Chaque prompt best-practices variant a un commentaire HTML documentant le nombre de règles et le delta vs TypeScript base
+  > AC: Test "no JSON fences in output format" passe pour les 7 prompts axes
+  > AC: Test "deliberation mentions 7 axes" passe
+  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.2: Guard Rails — Infrastructure anti-hallucination partagée
+  > As a **développeur d'Anatoly**
+  > I want un fichier de règles partagé injecté automatiquement dans tous les prompts d'axes
+  > So that le LLM ne puisse pas halluciner des symboles, des lignes hors limites, ou des structures invalides.
+  > AC: `src/prompts/_shared/guard-rails.system.md` existe avec sections "Constraints" et "Confidence Guide"
+  > AC: `resolveSystemPrompt('_shared.guard-rails')` retourne un contenu non-vide
+  > AC: Le registre contient 37 entrées (36 + 1 guard-rails)
+  > AC: Le system prompt composé pour chaque axe contient dans l'ordre : json-evaluator-wrapper, guard-rails, prompt spécifique
+  > AC: Le prompt composé contient "ONLY output symbols that exist in the provided source code"
+  > AC: Le prompt composé contient "Never output confidence below 50"
+  > AC: Le test de cohérence bidirectionnelle passe avec 37 entrées
+  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.3: Score Calibration — Ancrage des scores best-practices par langage
+  > As a **développeur d'Anatoly**
+  > I want que chaque prompt best-practices contienne des exemples calibrés de ce que signifie chaque niveau de score
+  > So that les scores soient mieux distribués et plus discriminants au lieu de se concentrer autour de 7-9.
+  > AC: Les 12 prompts best-practices (base + 11 variants) contiennent une section "Score Calibration"
+  > AC: Chaque section Score Calibration a 6 niveaux (9-10, 7-8, 5-6, 3-4, 1-2, 0)
+  > AC: Le prompt bash mentionne "set -euo pipefail" dans sa calibration (pas des concepts TypeScript)
+  > AC: Le prompt python mentionne "type hints" dans sa calibration (pas des concepts TypeScript)
+  > AC: Test vérifiant que les 12 prompts ont la section Score Calibration avec les 6 niveaux
+  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.4: Edge Case Handling — Code généré, doc-generation et RAG
+  > As a **développeur d'Anatoly**
+  > I want que les prompts gèrent explicitement les cas limites (code généré, doc-generation sous-spécifié, nlp-summarizer fragile)
+  > So that les évaluations soient fiables même sur des fichiers atypiques.
+  > AC: `correction.system.md` contient une règle "code generation marker" avec leniency et confidence -20
+  > AC: `best-practices.system.md` contient la même règle "code generation marker"
+  > AC: `overengineering.system.md` contient la même règle "code generation marker"
+  > AC: `doc-writer.system.md` contient les contraintes : max 500 lignes, ton technique/troisième personne, gestion des conflits source/docs
+  > AC: `nlp-summarizer.system.md` contient : focus interface publique pour fonctions >200 lignes, fallback "Purpose unclear from code alone", keyConcepts lowercase/hyphenated/max 30 chars
+  > AC: Tests vérifiant la présence de chaque nouvelle règle dans les prompts correspondants
+  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.5: Schema Example Injection — Génération dynamique depuis les schemas Zod
+  > As a **développeur d'Anatoly**
+  > I want que chaque system prompt d'axe contienne un exemple JSON généré dynamiquement depuis le schema Zod
+  > So that l'exemple soit toujours synchronisé avec le schema réel et que le taux de retry Zod diminue.
+  > AC: `src/utils/schema-example.ts` existe avec `generateSchemaExample()` et `formatSchemaExample()`
+  > AC: Round-trip test : `schema.safeParse(generateSchemaExample(schema)).success === true` pour les 8 schemas (7 axes + verification)
+  > AC: `formatSchemaExample()` produit des commentaires inline pour les enums (ex: `"OK"  // OK | NEEDS_FIX | ERROR`)
+  > AC: Le system prompt composé pour chaque axe se termine par "Expected output schema" suivi de l'exemple JSON
+  > AC: Chaque exemple formaté fait < 300 tokens (estimation par longueur)
+  > AC: Les schemas sont exportés depuis `src/core/axes/*.ts` pour accès depuis `axis-evaluator.ts`
+  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.6: Gold-Set Testing — Validation par appels LLM réels
+  > As a **tech lead**
+  > I want une suite de tests avec des fichiers gold-set évalués par les vrais prompts via appels LLM réels
+  > So that je puisse valider que les renforcements produisent les verdicts attendus.
+  > AC: 8 fichiers gold-set dans `src/prompts/__gold-set__/` (empty-file, generated-protobuf, monolith, mixed-lang-sql, perfect-10, terrible-1, dead-code, false-duplicate)
+  > AC: Suite de test `gold-set.test.ts` exclue du `npm run test` normal (tag @gold-set)
+  > AC: `empty-file.ts` → `{ "symbols": [] }` pour tous les axes
+  > AC: `perfect-10.ts` → best-practices score ≥ 9.0
+  > AC: `terrible-1.ts` → best-practices score ≤ 3.0
+  > AC: `dead-code.ts` → utility = DEAD pour les exports orphelins
+  > AC: `false-duplicate.ts` → duplication = UNIQUE
+  > AC: Baseline JSON sauvegardé, README documentant l'exécution et le coût (~$1.12/run)
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
+- [ ] Story 34.7: Adversarial Code Review — Validation complète de l'Epic 34
+  > As a **tech lead**
+  > I want an adversarial code review of the complete Epic 34 implementation
+  > So that every claim is verified against reality and no regression passes.
+  > AC: `npm run typecheck && npm run build && npm run test` — zero failures
+  > AC: Prompt registry count = 37 avec cohérence bidirectionnelle
+  > AC: Aucun prompt axes ne contient ` ```json ` — zero matches
+  > AC: Deliberation mentionne "7 independent"
+  > AC: Les 12 best-practices prompts contiennent "Score Calibration" avec 6 niveaux
+  > AC: Guard-rails est entre json-evaluator-wrapper et le prompt d'axe dans la composition
+  > AC: Schema example est le DERNIER élément du system prompt
+  > AC: 8 fichiers gold-set existent
+  > AC: Chaque claim de story 34.1-34.6 vérifié contre `git diff` + source code
+  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+
 ## Completed
 
 ## Notes
