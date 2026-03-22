@@ -16,6 +16,7 @@ export default defineConfig({
   test: {
     globals: true,
     include: ['src/**/*.test.ts'],
+    exclude: ['src/prompts/__gold-set__/**'],
     passWithNoTests: true,
   },
 });

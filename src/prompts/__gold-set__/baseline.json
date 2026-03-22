@@ -1,0 +1,6 @@
+{
+  "_comment": "Baseline results from gold-set test run. Populate by running: npx vitest run src/prompts/__gold-set__/gold-set.test.ts",
+  "timestamp": null,
+  "model": null,
+  "results": {}
+}

@@ -15,5 +15,5 @@
     "sourceMap": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/rag/evaluate-rag.test.ts"]
+  "exclude": ["node_modules", "dist", "src/rag/evaluate-rag.test.ts", "src/prompts/__gold-set__"]
 }

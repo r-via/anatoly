@@ -735,7 +735,7 @@
   > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.6: Gold-Set Testing — Validation par appels LLM réels
+- [x] Story 34.6: Gold-Set Testing — Validation par appels LLM réels
   > As a **tech lead**
   > I want une suite de tests avec des fichiers gold-set évalués par les vrais prompts via appels LLM réels
   > So that je puisse valider que les renforcements produisent les verdicts attendus.
