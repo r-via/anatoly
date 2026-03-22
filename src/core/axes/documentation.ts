@@ -5,21 +5,16 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import documentationSystemPrompt from '../../prompts/axes/documentation.system.md';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for LLM response (documentation axis)
 // ---------------------------------------------------------------------------
 
-const DocumentationSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const DocumentationSymbolSchema = BaseSymbolSchema.extend({
   documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
 });
 
 const DocsCoverageConceptSchema = z.object({
@@ -48,7 +43,7 @@ export type DocsCoverage = z.infer<typeof DocsCoverageSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildDocumentationSystemPrompt(): string {
-  return documentationSystemPrompt.trimEnd();
+  return resolveSystemPrompt('documentation');
 }
 
 export function buildDocumentationUserMessage(ctx: AxisContext): string {

@@ -8,8 +8,9 @@ import { resolve } from 'node:path';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { contextLogger } from '../../utils/log-context.js';
-import duplicationSystemPrompt from '../../prompts/axes/duplication.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (duplication axis only)
@@ -21,13 +22,8 @@ const DuplicateTargetResponseSchema = z.object({
   similarity: z.string(),
 });
 
-const DuplicationSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const DuplicationSymbolSchema = BaseSymbolSchema.extend({
   duplication: z.enum(['UNIQUE', 'DUPLICATE']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
   duplicate_target: DuplicateTargetResponseSchema.nullable().optional(),
 });
 
@@ -42,7 +38,7 @@ type DuplicationResponse = z.infer<typeof DuplicationResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildDuplicationSystemPrompt(): string {
-  return duplicationSystemPrompt.trimEnd();
+  return resolveSystemPrompt('duplication');
 }
 
 export function buildDuplicationUserMessage(ctx: AxisContext): string {

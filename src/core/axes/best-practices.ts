@@ -5,7 +5,6 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import bestPracticesSystemPrompt from '../../prompts/axes/best-practices.system.md';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
@@ -82,7 +81,7 @@ export function detectFileContext(filePath: string, fileContent: string): FileCo
 // ---------------------------------------------------------------------------
 
 export function buildBestPracticesSystemPrompt(): string {
-  return bestPracticesSystemPrompt.trimEnd();
+  return resolveSystemPrompt('best_practices');
 }
 
 export function buildBestPracticesUserMessage(ctx: AxisContext): string {

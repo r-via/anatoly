@@ -7,21 +7,16 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
 import { extractRelevantReadmeSections } from '../dependency-meta.js';
-import correctionSystemPrompt from '../../prompts/axes/correction.system.md';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (correction axis only)
 // ---------------------------------------------------------------------------
 
-const CorrectionSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const CorrectionSymbolSchema = BaseSymbolSchema.extend({
   correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
 });
 
 const CorrectionActionSchema = z.object({
@@ -42,7 +37,7 @@ type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildCorrectionSystemPrompt(): string {
-  return correctionSystemPrompt.trimEnd();
+  return resolveSystemPrompt('correction');
 }
 
 export function buildCorrectionUserMessage(ctx: AxisContext): string {

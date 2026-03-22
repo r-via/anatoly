@@ -6,20 +6,16 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
-import utilitySystemPrompt from '../../prompts/axes/utility.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (utility axis only)
 // ---------------------------------------------------------------------------
 
-const UtilitySymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const UtilitySymbolSchema = BaseSymbolSchema.extend({
   utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
 });
 
 const UtilityResponseSchema = z.object({
@@ -33,7 +29,7 @@ type UtilityResponse = z.infer<typeof UtilityResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildUtilitySystemPrompt(): string {
-  return utilitySystemPrompt.trimEnd();
+  return resolveSystemPrompt('utility');
 }
 
 export function buildUtilityUserMessage(ctx: AxisContext): string {

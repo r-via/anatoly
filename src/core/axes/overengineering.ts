@@ -5,20 +5,16 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import overengineeringSystemPrompt from '../../prompts/axes/overengineering.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (overengineering axis only)
 // ---------------------------------------------------------------------------
 
-const OverengineeringSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const OverengineeringSymbolSchema = BaseSymbolSchema.extend({
   overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
 });
 
 const OverengineeringResponseSchema = z.object({
@@ -32,7 +28,7 @@ type OverengineeringResponse = z.infer<typeof OverengineeringResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildOverengineeringSystemPrompt(): string {
-  return overengineeringSystemPrompt.trimEnd();
+  return resolveSystemPrompt('overengineering');
 }
 
 export function buildOverengineeringUserMessage(ctx: AxisContext): string {

@@ -88,7 +88,9 @@ const ChunkResponseSchema = z.object({
   sections: z.array(ChunkSchema),
 });
 
-const REFINE_SECTION_PROMPT = resolveSystemPrompt('rag.section-refiner');
+function getRefineSectionPrompt(): string {
+  return resolveSystemPrompt('rag.section-refiner');
+}
 
 /**
  * Chunk a doc file by first splitting on H2 headings mechanically, then
@@ -118,7 +120,7 @@ async function chunkDocWithHaiku(
       const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
       const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
-          systemPrompt: REFINE_SECTION_PROMPT,
+          systemPrompt: getRefineSectionPrompt(),
           userMessage: `Section from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,
@@ -159,7 +161,7 @@ async function chunkDocWithHaiku(
       const docSlugForSection = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
       const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
-          systemPrompt: REFINE_SECTION_PROMPT,
+          systemPrompt: getRefineSectionPrompt(),
           userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${prose}`,
           model,
           projectRoot,

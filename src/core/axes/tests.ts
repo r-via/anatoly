@@ -6,20 +6,16 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { getSymbolUsage } from '../usage-graph.js';
-import testsSystemPrompt from '../../prompts/axes/tests.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (tests axis only)
 // ---------------------------------------------------------------------------
 
-const TestsSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
+const TestsSymbolSchema = BaseSymbolSchema.extend({
   tests: z.enum(['GOOD', 'WEAK', 'NONE']),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
 });
 
 const TestsResponseSchema = z.object({
@@ -33,7 +29,7 @@ type TestsResponse = z.infer<typeof TestsResponseSchema>;
 // ---------------------------------------------------------------------------
 
 export function buildTestsSystemPrompt(): string {
-  return testsSystemPrompt.trimEnd();
+  return resolveSystemPrompt('tests');
 }
 
 export function buildTestsUserMessage(ctx: AxisContext): string {

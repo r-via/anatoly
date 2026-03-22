@@ -53,24 +53,19 @@ export function buildPagePrompt(
 // --- System prompt ---
 
 function buildSystemPrompt(pagePath: string): string {
-  const parts: string[] = [BASE_SYSTEM_PROMPT];
+  const base = resolveSystemPrompt('doc-generation');
+  const parts: string[] = [base];
 
   if (pagePath.startsWith('02-Architecture/')) {
-    parts.push(ARCHITECTURE_INSTRUCTIONS);
+    parts.push(resolveSystemPrompt('doc-generation.architecture'));
   }
 
   if (pagePath.startsWith('04-API-Reference/')) {
-    parts.push(API_REFERENCE_INSTRUCTIONS);
+    parts.push(resolveSystemPrompt('doc-generation.api-reference'));
   }
 
   return parts.join('\n\n');
 }
-
-const BASE_SYSTEM_PROMPT = resolveSystemPrompt('doc-generation');
-
-const ARCHITECTURE_INSTRUCTIONS = resolveSystemPrompt('doc-generation.architecture');
-
-const API_REFERENCE_INSTRUCTIONS = resolveSystemPrompt('doc-generation.api-reference');
 
 // --- User message ---
 

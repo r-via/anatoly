@@ -35,7 +35,9 @@ const NlpResponseSchema = z.object({
 // Prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = resolveSystemPrompt('rag.nlp-summarizer');
+function getNlpSystemPrompt(): string {
+  return resolveSystemPrompt('rag.nlp-summarizer');
+}
 
 function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodies: string[]): string {
   const parts: string[] = [];
@@ -88,7 +90,7 @@ export async function generateNlpSummaries(
     const fileSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
     const response = await runWithContext({ axis: 'nlp-summary' }, () => runSingleTurnQuery(
       {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: getNlpSystemPrompt(),
         userMessage,
         model,
         projectRoot,

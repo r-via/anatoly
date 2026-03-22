@@ -39,7 +39,18 @@ import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
 
-/** Registry of system prompts keyed by domain, axis, or composite key */
+/**
+ * Registry of system prompts keyed by domain, axis, or composite key.
+ *
+ * Key naming conventions:
+ * - Axes use underscores: `best_practices`, `best_practices.python`, `best_practices.react`
+ * - Non-axis domains use hyphens: `doc-generation`, `doc-generation.architecture`
+ * - Composite keys use dot separator: `rag.section-refiner`, `_shared.json-evaluator-wrapper`
+ *
+ * For axes, the dot separator enables cascade resolution (framework → language → default).
+ * For non-axis domains, composite keys are resolved as direct lookups — do NOT pass
+ * the variant as a separate `language` or `framework` argument.
+ */
 const PROMPT_REGISTRY = new Map<string, string>();
 
 function registerDefaults(): void {
@@ -141,4 +152,11 @@ export function _resetPromptRegistry(): void {
 /** For tests only — return sorted registry keys. */
 export function _getRegistryKeys(): string[] {
   return [...PROMPT_REGISTRY.keys()].sort();
+}
+
+/** For tests only — return sorted [key, contentLength] pairs for snapshot testing. */
+export function _getRegistrySnapshot(): [string, number][] {
+  return [...PROMPT_REGISTRY.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, content]) => [key, content.length]);
 }

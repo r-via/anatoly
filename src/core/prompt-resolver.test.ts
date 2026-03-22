@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import { globSync } from 'tinyglobby';
 import {
   resolveSystemPrompt,
@@ -11,6 +12,7 @@ import {
   _clearPromptRegistry,
   _resetPromptRegistry,
   _getRegistryKeys,
+  _getRegistrySnapshot,
 } from './prompt-resolver.js';
 
 describe('resolveSystemPrompt', () => {
@@ -152,8 +154,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains at least 36 entries after reset', () => {
-    const keys: string[] = [];
+  it('registry contains exactly 36 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -165,80 +166,150 @@ describe('universal registry — new domain keys', () => {
       'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', 'correction.verification',
     ];
     for (const key of expectedKeys) {
-      expect(() => resolveSystemPrompt(key)).not.toThrow();
-      keys.push(key);
+      expect(() => resolveSystemPrompt(key), `key "${key}" should resolve`).not.toThrow();
     }
-    expect(keys.length).toBeGreaterThanOrEqual(36);
+    const keys = _getRegistryKeys();
+    expect(keys.length).toBe(expectedKeys.length);
   });
 });
 
-// --- Story 33.4: Bidirectional coherence and snapshot ---
+// --- Story 33.4: Bidirectional coherence, snapshot, and regression guards ---
 
 describe('Story 33.4 — registry coherence', () => {
+  /**
+   * Builds a mapping from registry key → expected relative .system.md file path.
+   * This is the single source of truth for the key↔file relationship,
+   * derived from the key naming conventions documented in prompt-resolver.ts.
+   */
+  function keyToExpectedFile(key: string): string {
+    // Axis keys: underscores → hyphens, live in axes/
+    const axisIds = ['utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering'];
+    const axisBase = key.split('.')[0];
+    if (axisIds.includes(axisBase) && key !== 'correction.verification') {
+      const fileName = key.replace(/_/g, '-');
+      return `axes/${fileName}.system.md`;
+    }
+    // correction.verification is a special axis variant
+    if (key === 'correction.verification') {
+      return 'axes/correction.verification.system.md';
+    }
+    // deliberation → deliberation/deliberation.system.md
+    if (key === 'deliberation') {
+      return 'deliberation/deliberation.system.md';
+    }
+    // doc-generation → doc-generation/doc-writer.system.md
+    // doc-generation.X → doc-generation/doc-writer.X.system.md
+    if (key.startsWith('doc-generation')) {
+      const variant = key.replace('doc-generation', '').replace(/^\./, '');
+      return variant
+        ? `doc-generation/doc-writer.${variant}.system.md`
+        : 'doc-generation/doc-writer.system.md';
+    }
+    // rag.X → rag/X.system.md (strip rag. prefix)
+    if (key.startsWith('rag.')) {
+      const sub = key.replace('rag.', '');
+      return `rag/${sub}.system.md`;
+    }
+    // _shared.X → _shared/X.system.md (strip _shared. prefix)
+    if (key.startsWith('_shared.')) {
+      const sub = key.replace('_shared.', '');
+      return `_shared/${sub}.system.md`;
+    }
+    throw new Error(`Unknown key pattern: ${key}`);
+  }
+
   it('AC: no orphan .system.md files — every file has a registry key', () => {
     _resetPromptRegistry();
-    const registryKeys = new Set(_getRegistryKeys());
+    const keys = _getRegistryKeys();
 
-    // Map file paths to expected registry keys
+    // Build set of expected file paths from all registry keys
+    const expectedFiles = new Set(keys.map(keyToExpectedFile));
+
+    // Glob actual .system.md files on disk
     const promptsDir = resolve(import.meta.dirname, '../prompts');
     const mdFiles = globSync('**/*.system.md', { cwd: promptsDir });
 
-    // Build expected key from file path
-    // e.g. axes/best-practices.bash.system.md → best_practices.bash
-    // e.g. deliberation/deliberation.system.md → deliberation
-    // e.g. _shared/json-evaluator-wrapper.system.md → _shared.json-evaluator-wrapper
-    function fileToKey(relPath: string): string {
-      const fileName = relPath.replace(/\.system\.md$/, '');
-      const parts = fileName.split('/');
-
-      if (parts[0] === 'axes') {
-        // axes/best-practices.bash → best_practices.bash
-        const name = parts.slice(1).join('/');
-        // best-practices → best_practices (only the axis prefix)
-        return name.replace(/^best-practices/, 'best_practices');
-      }
-      // deliberation/deliberation → deliberation
-      // doc-generation/doc-writer → doc-generation
-      // doc-generation/doc-writer.architecture → doc-generation.architecture
-      // rag/section-refiner → rag.section-refiner
-      // _shared/json-evaluator-wrapper → _shared.json-evaluator-wrapper
-      const domain = parts[0];
-      const file = parts.slice(1).join('/');
-      if (file.startsWith('doc-writer')) {
-        const variant = file.replace('doc-writer', '').replace(/^\./, '');
-        return variant ? `doc-generation.${variant}` : 'doc-generation';
-      }
-      if (file === domain) return domain; // deliberation/deliberation
-      return `${domain}.${file}`;
-    }
+    // Precondition: we actually found files (guards against broken path)
+    expect(mdFiles.length).toBeGreaterThan(0);
 
     for (const mdFile of mdFiles) {
-      const key = fileToKey(mdFile);
-      expect(registryKeys.has(key), `File ${mdFile} expected key "${key}" not in registry`).toBe(true);
+      expect(
+        expectedFiles.has(mdFile),
+        `File "${mdFile}" has no corresponding registry key`,
+      ).toBe(true);
     }
   });
 
-  it('AC: no orphan registry keys — every key has a .system.md file', () => {
+  it('AC: no orphan registry keys — every key maps to an existing .system.md file', () => {
     _resetPromptRegistry();
     const keys = _getRegistryKeys();
-
     const promptsDir = resolve(import.meta.dirname, '../prompts');
-    const mdFiles = new Set(globSync('**/*.system.md', { cwd: promptsDir }));
-
-    // Verify registry has same count as files
-    expect(keys.length).toBe(mdFiles.size);
-  });
-
-  it('AC: registry snapshot — sorted keys with content length', () => {
-    _resetPromptRegistry();
-    const keys = _getRegistryKeys();
-
-    // Snapshot: verify all 36 keys exist and have non-trivial content
-    expect(keys.length).toBe(36);
 
     for (const key of keys) {
-      const content = resolveSystemPrompt(key);
-      expect(content.length).toBeGreaterThan(10);
+      const expectedFile = keyToExpectedFile(key);
+      const fullPath = resolve(promptsDir, expectedFile);
+      expect(
+        existsSync(fullPath),
+        `Registry key "${key}" expects file "${expectedFile}" but it does not exist`,
+      ).toBe(true);
     }
+  });
+
+  it('AC: registry snapshot — sorted keys with content lengths', () => {
+    _resetPromptRegistry();
+    const snapshot = _getRegistrySnapshot();
+
+    // Exact key list snapshot — any addition, removal, or rename will fail this test
+    const keys = snapshot.map(([k]) => k);
+    expect(keys).toMatchInlineSnapshot(`
+      [
+        "_shared.json-evaluator-wrapper",
+        "best_practices",
+        "best_practices.bash",
+        "best_practices.csharp",
+        "best_practices.go",
+        "best_practices.java",
+        "best_practices.json",
+        "best_practices.nextjs",
+        "best_practices.python",
+        "best_practices.react",
+        "best_practices.rust",
+        "best_practices.sql",
+        "best_practices.yaml",
+        "correction",
+        "correction.verification",
+        "deliberation",
+        "doc-generation",
+        "doc-generation.api-reference",
+        "doc-generation.architecture",
+        "documentation",
+        "documentation.bash",
+        "documentation.csharp",
+        "documentation.go",
+        "documentation.java",
+        "documentation.nextjs",
+        "documentation.python",
+        "documentation.react",
+        "documentation.rust",
+        "documentation.sql",
+        "documentation.yaml",
+        "duplication",
+        "overengineering",
+        "rag.nlp-summarizer",
+        "rag.section-refiner",
+        "tests",
+        "utility",
+      ]
+    `);
+
+    // All prompts have non-trivial content
+    for (const [key, length] of snapshot) {
+      expect(length, `key "${key}" should have substantial content`).toBeGreaterThan(10);
+    }
+  });
+
+  it('AC: old src/core/axes/prompts/ directory no longer exists', () => {
+    const oldDir = resolve(import.meta.dirname, './axes/prompts');
+    expect(existsSync(oldDir)).toBe(false);
   });
 });
