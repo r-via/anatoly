@@ -5,6 +5,14 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from '../core/prompt-resolver.js';
 import { composeAxisSystemPrompt } from '../core/axis-evaluator.js';
+import { generateSchemaExample, formatSchemaExample } from '../utils/schema-example.js';
+import { UtilityResponseSchema } from '../core/axes/utility.js';
+import { CorrectionResponseSchema, VerificationResponseSchema } from '../core/axes/correction.js';
+import { DuplicationResponseSchema } from '../core/axes/duplication.js';
+import { OverengineeringResponseSchema } from '../core/axes/overengineering.js';
+import { TestsResponseSchema } from '../core/axes/tests.js';
+import { BestPracticesResponseSchema } from '../core/axes/best-practices.js';
+import { DocumentationResponseSchema } from '../core/axes/documentation.js';
 
 beforeAll(() => {
   _resetPromptRegistry();
@@ -209,5 +217,95 @@ describe('Story 34.4 — nlp-summarizer guard rails', () => {
     const prompt = resolveSystemPrompt('rag.nlp-summarizer');
     expect(prompt).toMatch(/lowercase.*hyphenated|hyphenated.*lowercase/i);
     expect(prompt).toMatch(/30\s*char/i);
+  });
+});
+
+// --- Story 34.5: Schema Example Injection ---
+
+const ALL_RESPONSE_SCHEMAS = [
+  { name: 'UtilityResponseSchema', schema: UtilityResponseSchema },
+  { name: 'CorrectionResponseSchema', schema: CorrectionResponseSchema },
+  { name: 'VerificationResponseSchema', schema: VerificationResponseSchema },
+  { name: 'DuplicationResponseSchema', schema: DuplicationResponseSchema },
+  { name: 'OverengineeringResponseSchema', schema: OverengineeringResponseSchema },
+  { name: 'TestsResponseSchema', schema: TestsResponseSchema },
+  { name: 'BestPracticesResponseSchema', schema: BestPracticesResponseSchema },
+  { name: 'DocumentationResponseSchema', schema: DocumentationResponseSchema },
+] as const;
+
+describe('Story 34.5 — round-trip validation for all 8 schemas', () => {
+  for (const { name, schema } of ALL_RESPONSE_SCHEMAS) {
+    it(`generateSchemaExample produces valid ${name} data`, () => {
+      const example = generateSchemaExample(schema);
+      const result = schema.safeParse(example);
+      expect(result.success, `${name} round-trip failed: ${JSON.stringify(result.success ? {} : result.error?.issues)}`).toBe(true);
+    });
+  }
+});
+
+describe('Story 34.5 — formatSchemaExample produces inline enum comments', () => {
+  it('correction example has inline comment for correction enum', () => {
+    const formatted = formatSchemaExample(CorrectionResponseSchema);
+    expect(formatted).toContain('"OK"  // OK | NEEDS_FIX | ERROR');
+  });
+
+  it('utility example has inline comment for utility enum', () => {
+    const formatted = formatSchemaExample(UtilityResponseSchema);
+    expect(formatted).toContain('"USED"  // USED | DEAD | LOW_VALUE');
+  });
+
+  it('best_practices example has inline comment for status enum', () => {
+    const formatted = formatSchemaExample(BestPracticesResponseSchema);
+    expect(formatted).toContain('"PASS"  // PASS | WARN | FAIL');
+  });
+});
+
+describe('Story 34.5 — each formatted example < 300 tokens', () => {
+  for (const { name, schema } of ALL_RESPONSE_SCHEMAS) {
+    it(`${name} formatted example is under 300 tokens (~1200 chars)`, () => {
+      const formatted = formatSchemaExample(schema);
+      // Rough token estimate: chars / 4
+      const estimatedTokens = Math.ceil(formatted.length / 4);
+      expect(estimatedTokens).toBeLessThan(300);
+    });
+  }
+});
+
+describe('Story 34.5 — composed prompt ends with schema example', () => {
+  it('composed prompt contains "Expected output schema" when schema is provided', () => {
+    const composed = composeAxisSystemPrompt(resolveSystemPrompt('utility'), UtilityResponseSchema);
+    expect(composed).toContain('## Expected output schema');
+  });
+
+  it('schema example is the last section of the composed prompt', () => {
+    const composed = composeAxisSystemPrompt(resolveSystemPrompt('utility'), UtilityResponseSchema);
+    const lastHeadingIdx = composed.lastIndexOf('## ');
+    const lastHeading = composed.substring(lastHeadingIdx).split('\n')[0];
+    expect(lastHeading).toBe('## Expected output schema');
+  });
+
+  it('schema example contains the axis enum values', () => {
+    const composed = composeAxisSystemPrompt(resolveSystemPrompt('utility'), UtilityResponseSchema);
+    const schemaSection = composed.substring(composed.lastIndexOf('## Expected output schema'));
+    expect(schemaSection).toContain('"USED"  // USED | DEAD | LOW_VALUE');
+  });
+
+  it('composed prompt without schema has no schema section', () => {
+    const composed = composeAxisSystemPrompt(resolveSystemPrompt('utility'));
+    expect(composed).not.toContain('## Expected output schema');
+  });
+});
+
+describe('Story 34.5 — schemas are exported from axis files', () => {
+  it('all 8 response schemas are importable', () => {
+    // If these imports failed, the test file would not compile
+    expect(UtilityResponseSchema).toBeDefined();
+    expect(CorrectionResponseSchema).toBeDefined();
+    expect(VerificationResponseSchema).toBeDefined();
+    expect(DuplicationResponseSchema).toBeDefined();
+    expect(OverengineeringResponseSchema).toBeDefined();
+    expect(TestsResponseSchema).toBeDefined();
+    expect(BestPracticesResponseSchema).toBeDefined();
+    expect(DocumentationResponseSchema).toBeDefined();
   });
 });

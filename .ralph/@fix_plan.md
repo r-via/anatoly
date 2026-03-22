@@ -722,7 +722,7 @@
   > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.5: Schema Example Injection — Génération dynamique depuis les schemas Zod
+- [x] Story 34.5: Schema Example Injection — Génération dynamique depuis les schemas Zod
   > As a **développeur d'Anatoly**
   > I want que chaque system prompt d'axe contienne un exemple JSON généré dynamiquement depuis le schema Zod
   > So that l'exemple soit toujours synchronisé avec le schema réel et que le taux de retry Zod diminue.

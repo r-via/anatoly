@@ -14,6 +14,7 @@ import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
+import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
@@ -41,10 +42,14 @@ export type PreResolvedRag = PreResolvedRagEntry[];
  * Compose the full system prompt for an axis evaluator.
  * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt.
  */
-export function composeAxisSystemPrompt(axisPrompt: string): string {
+export function composeAxisSystemPrompt(axisPrompt: string, schema?: z.ZodType): string {
   const wrapper = resolveSystemPrompt('_shared.json-evaluator-wrapper');
   const guardRails = resolveSystemPrompt('_shared.guard-rails');
-  return `${wrapper}\n\n${guardRails}\n\n${axisPrompt}`;
+  let result = `${wrapper}\n\n${guardRails}\n\n${axisPrompt}`;
+  if (schema) {
+    result += `\n\n## Expected output schema\n\n${formatSchemaExample(schema)}`;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,8 +248,8 @@ async function _runSingleTurnQueryInner<T>(
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
 
-  // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt
-  const systemPrompt = composeAxisSystemPrompt(rawSystemPrompt);
+  // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt → schema example
+  const systemPrompt = composeAxisSystemPrompt(rawSystemPrompt, schema);
 
   const transcriptLines: string[] = [];
   let totalCost = 0;
