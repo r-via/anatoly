@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import overengineeringSystemPrompt from './prompts/overengineering.system.md';
+import overengineeringSystemPrompt from '../../prompts/axes/overengineering.system.md';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------

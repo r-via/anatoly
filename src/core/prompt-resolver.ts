@@ -2,34 +2,34 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import utilityPrompt from './axes/prompts/utility.system.md';
-import bestPracticesPrompt from './axes/prompts/best-practices.system.md';
-import documentationPrompt from './axes/prompts/documentation.system.md';
-import correctionPrompt from './axes/prompts/correction.system.md';
-import duplicationPrompt from './axes/prompts/duplication.system.md';
-import testsPrompt from './axes/prompts/tests.system.md';
-import overengineeringPrompt from './axes/prompts/overengineering.system.md';
-import bestPracticesBashPrompt from './axes/prompts/best-practices.bash.system.md';
-import bestPracticesPythonPrompt from './axes/prompts/best-practices.python.system.md';
-import bestPracticesRustPrompt from './axes/prompts/best-practices.rust.system.md';
-import bestPracticesGoPrompt from './axes/prompts/best-practices.go.system.md';
-import bestPracticesJavaPrompt from './axes/prompts/best-practices.java.system.md';
-import bestPracticesCsharpPrompt from './axes/prompts/best-practices.csharp.system.md';
-import bestPracticesSqlPrompt from './axes/prompts/best-practices.sql.system.md';
-import bestPracticesYamlPrompt from './axes/prompts/best-practices.yaml.system.md';
-import bestPracticesJsonPrompt from './axes/prompts/best-practices.json.system.md';
-import docBashPrompt from './axes/prompts/documentation.bash.system.md';
-import docPythonPrompt from './axes/prompts/documentation.python.system.md';
-import docRustPrompt from './axes/prompts/documentation.rust.system.md';
-import docGoPrompt from './axes/prompts/documentation.go.system.md';
-import docJavaPrompt from './axes/prompts/documentation.java.system.md';
-import docCsharpPrompt from './axes/prompts/documentation.csharp.system.md';
-import docSqlPrompt from './axes/prompts/documentation.sql.system.md';
-import docYamlPrompt from './axes/prompts/documentation.yaml.system.md';
-import bpReactPrompt from './axes/prompts/best-practices.react.system.md';
-import bpNextjsPrompt from './axes/prompts/best-practices.nextjs.system.md';
-import docReactPrompt from './axes/prompts/documentation.react.system.md';
-import docNextjsPrompt from './axes/prompts/documentation.nextjs.system.md';
+import utilityPrompt from '../prompts/axes/utility.system.md';
+import bestPracticesPrompt from '../prompts/axes/best-practices.system.md';
+import documentationPrompt from '../prompts/axes/documentation.system.md';
+import correctionPrompt from '../prompts/axes/correction.system.md';
+import duplicationPrompt from '../prompts/axes/duplication.system.md';
+import testsPrompt from '../prompts/axes/tests.system.md';
+import overengineeringPrompt from '../prompts/axes/overengineering.system.md';
+import bestPracticesBashPrompt from '../prompts/axes/best-practices.bash.system.md';
+import bestPracticesPythonPrompt from '../prompts/axes/best-practices.python.system.md';
+import bestPracticesRustPrompt from '../prompts/axes/best-practices.rust.system.md';
+import bestPracticesGoPrompt from '../prompts/axes/best-practices.go.system.md';
+import bestPracticesJavaPrompt from '../prompts/axes/best-practices.java.system.md';
+import bestPracticesCsharpPrompt from '../prompts/axes/best-practices.csharp.system.md';
+import bestPracticesSqlPrompt from '../prompts/axes/best-practices.sql.system.md';
+import bestPracticesYamlPrompt from '../prompts/axes/best-practices.yaml.system.md';
+import bestPracticesJsonPrompt from '../prompts/axes/best-practices.json.system.md';
+import docBashPrompt from '../prompts/axes/documentation.bash.system.md';
+import docPythonPrompt from '../prompts/axes/documentation.python.system.md';
+import docRustPrompt from '../prompts/axes/documentation.rust.system.md';
+import docGoPrompt from '../prompts/axes/documentation.go.system.md';
+import docJavaPrompt from '../prompts/axes/documentation.java.system.md';
+import docCsharpPrompt from '../prompts/axes/documentation.csharp.system.md';
+import docSqlPrompt from '../prompts/axes/documentation.sql.system.md';
+import docYamlPrompt from '../prompts/axes/documentation.yaml.system.md';
+import bpReactPrompt from '../prompts/axes/best-practices.react.system.md';
+import bpNextjsPrompt from '../prompts/axes/best-practices.nextjs.system.md';
+import docReactPrompt from '../prompts/axes/documentation.react.system.md';
+import docNextjsPrompt from '../prompts/axes/documentation.nextjs.system.md';
 
 /** Registry of system prompts keyed by "{axisId}" or "{axisId}.{language}" or "{axisId}.{framework}" */
 const PROMPT_REGISTRY = new Map<string, string>();

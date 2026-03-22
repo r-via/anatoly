@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import bestPracticesSystemPrompt from './prompts/best-practices.system.md';
+import bestPracticesSystemPrompt from '../../prompts/axes/best-practices.system.md';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 

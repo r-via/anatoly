@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { getSymbolUsage } from '../usage-graph.js';
-import testsSystemPrompt from './prompts/tests.system.md';
+import testsSystemPrompt from '../../prompts/axes/tests.system.md';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------

@@ -619,7 +619,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
 
-- [ ] Story 33.1: Création de la hiérarchie `src/prompts/` et migration des axes existants
+- [x] Story 33.1: Création de la hiérarchie `src/prompts/` et migration des axes existants
   > As a **développeur**
   > I want déplacer les 28+ fichiers `.system.md` existants de `src/core/axes/prompts/` vers `src/prompts/axes/`
   > So that tous les prompts soient regroupés sous une racine unique et cohérente.

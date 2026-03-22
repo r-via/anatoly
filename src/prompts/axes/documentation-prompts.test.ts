@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { resolveSystemPrompt, _resetPromptRegistry } from '../../prompt-resolver.js';
+import { resolveSystemPrompt, _resetPromptRegistry } from '../../core/prompt-resolver.js';
 
 beforeAll(() => {
   _resetPromptRegistry();

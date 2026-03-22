@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { contextLogger } from '../../utils/log-context.js';
-import duplicationSystemPrompt from './prompts/duplication.system.md';
+import duplicationSystemPrompt from '../../prompts/axes/duplication.system.md';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
