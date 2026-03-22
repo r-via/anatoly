@@ -154,22 +154,22 @@ ENTRYPOINT ["node", "index.js"]`;
   it('AC 31.12.3: extracts UPPER_SNAKE assignments as constants', () => {
     const source = `#!/bin/bash
 # Config file
-API_KEY=sk-abc123
+MAX_RETRIES=5
 DB_HOST=localhost
 some_var=hello
 result=42
 extra=line`;
     const result = heuristicParse(source);
-    const apiKey = result.find((s) => s.name === 'API_KEY');
+    const maxRetries = result.find((s) => s.name === 'MAX_RETRIES');
     const dbHost = result.find((s) => s.name === 'DB_HOST');
-    expect(apiKey).toMatchObject({ name: 'API_KEY', kind: 'constant' });
+    expect(maxRetries).toMatchObject({ name: 'MAX_RETRIES', kind: 'constant' });
     expect(dbHost).toMatchObject({ name: 'DB_HOST', kind: 'constant' });
   });
 
   // AC 31.12.4: file with < 5 non-empty non-comment lines → empty
   it('AC 31.12.4: returns empty for trivial files (< 5 lines)', () => {
     const source = `# comment
-API_KEY=value
+MAX_RETRIES=3
 
 `;
     const result = heuristicParse(source);
