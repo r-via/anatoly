@@ -347,7 +347,7 @@ export function registerRunCommand(program: Command): void {
         // --- Phase: bootstrap doc (first run only) — Story 29.21 ---
         if (ctx.isFirstRun && !ctx.interrupted) {
           await runWithContext({ phase: 'bootstrap-doc' }, async () => {
-            await runInternalDocPhase(ctx, setup.tasks, 'bootstrap-doc');
+            await runDocBootstrap(ctx, setup.tasks);
           });
         }
 
@@ -371,7 +371,7 @@ export function registerRunCommand(program: Command): void {
         // --- Phase: update internal docs (always) — Story 29.21 ---
         if (!ctx.interrupted) {
           await runWithContext({ phase: 'internal-docs' }, async () => {
-            await runInternalDocPhase(ctx, setup.tasks, 'internal-docs');
+            await runDocUpdate(ctx, setup.tasks);
           });
         }
 
@@ -906,25 +906,22 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 }
 
 /**
- * Run the internal doc phase: scaffold + generate + LLM execution.
- * Used for both bootstrap (first run) and post-review update (every run).
- * Story 29.21.
+ * Bootstrap internal docs: scaffold structure + generate all pages.
+ * Only runs on first run (no .anatoly/docs/ yet). Story 29.21.
  */
-async function runInternalDocPhase(ctx: RunContext, tasks: Task[], taskId: string): Promise<void> {
+async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
+  const taskId = 'bootstrap-doc';
   const log = getLogger();
   const rl = ctx.runLog;
-  const start = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
 
   try {
     const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
-    // Scaffold (idempotent — creates new pages, never overwrites)
-    ctx.renderer?.logPlain(`[${taskId}] starting...`);
+    // Scaffold + generate (first time)
+    ctx.renderer?.logPlain(`[${taskId}] scaffolding & generating internal documentation...`);
     const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
-
-    // Generate prompts for stale/new pages (cache-aware)
     const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
     ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
@@ -940,7 +937,48 @@ async function runInternalDocPhase(ctx: RunContext, tasks: Task[], taskId: strin
       prompts: genResult.prompts.length,
     }, `${taskId} scaffold complete`);
 
-    // Execute LLM for pages that need generation
+    if (genResult.prompts.length > 0 && !ctx.interrupted) {
+      await runDocLlmPhase(ctx, taskId);
+    } else {
+      ctx.pipelineState?.completeTask(taskId, 'all cached');
+    }
+  } catch (err) {
+    log.warn({ err }, `${taskId} failed — continuing`);
+    rl?.warn({ err }, `${taskId} failed`);
+  }
+}
+
+/**
+ * Update internal docs: regenerate only pages whose source code changed.
+ * No scaffold — uses existing structure. Runs every run post-review. Story 29.21.
+ */
+async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
+  const taskId = 'internal-docs';
+  const log = getLogger();
+  const rl = ctx.runLog;
+  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
+
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+
+    // Scaffold only for new modules (idempotent, skips existing pages)
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
+    const newPages = scaffoldResult.scaffoldResult.pagesCreated.length;
+
+    // Generate only stale/new pages (cache-aware)
+    const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
+    ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
+
+    ctx.renderer?.logPlain(`[${taskId}] ${newPages > 0 ? `${newPages} new pages, ` : ''}${genResult.prompts.length} to update, ${genResult.cacheResult.fresh.length} cached`);
+
+    log.info({
+      phase: taskId,
+      newPages,
+      prompts: genResult.prompts.length,
+      fresh: genResult.cacheResult.fresh.length,
+    }, `${taskId} ready`);
+
     if (genResult.prompts.length > 0 && !ctx.interrupted) {
       await runDocLlmPhase(ctx, taskId);
     } else {
