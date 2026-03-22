@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import documentationSystemPrompt from './prompts/documentation.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
@@ -127,8 +128,21 @@ export class DocumentationEvaluator implements AxisEvaluator {
   readonly defaultModel = 'haiku' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
+    // AC 31.17.9: JSON files have no documentation convention — skip with all DOCUMENTED
+    if (ctx.task.language === 'json') {
+      const symbols: AxisSymbolResult[] = ctx.task.symbols.map((s) => ({
+        name: s.name,
+        line_start: s.line_start,
+        line_end: s.line_end,
+        value: 'DOCUMENTED' as const,
+        confidence: 100,
+        detail: 'JSON keys do not require documentation comments.',
+      }));
+      return { axisId: 'documentation', symbols, actions: [], costUsd: 0, durationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, transcript: '' };
+    }
+
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildDocumentationSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('documentation', ctx.task.language, ctx.task.framework);
     let userMessage = buildDocumentationUserMessage(ctx);
 
     const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'documentation');

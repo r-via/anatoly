@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import bestPracticesSystemPrompt from './prompts/best-practices.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildBestPracticesSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('best_practices', ctx.task.language, ctx.task.framework);
     let userMessage = buildBestPracticesUserMessage(ctx);
 
     const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'best_practices');
