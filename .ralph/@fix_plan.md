@@ -709,7 +709,7 @@
   > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.4: Edge Case Handling — Code généré, doc-generation et RAG
+- [x] Story 34.4: Edge Case Handling — Code généré, doc-generation et RAG
   > As a **développeur d'Anatoly**
   > I want que les prompts gèrent explicitement les cas limites (code généré, doc-generation sous-spécifié, nlp-summarizer fragile)
   > So that les évaluations soient fiables même sur des fichiers atypiques.

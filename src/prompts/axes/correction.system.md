@@ -14,6 +14,7 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
 6. For each NEEDS_FIX or ERROR, add an action with severity and description.
 7. Do NOT evaluate other axes — only correction.
 8. When project dependency versions are provided, consider them when evaluating correctness. Do not flag as a bug something that is handled natively by the installed version of a dependency.
+9. **Code generation marker**: If the file contains markers indicating it is auto-generated (e.g., `@generated`, `DO NOT EDIT`, `Auto-generated`), apply leniency — reduce confidence by -20 for all findings. Generated code follows different conventions and should not be judged by hand-written standards.
 
 ## Output format
 

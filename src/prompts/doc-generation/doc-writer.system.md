@@ -26,3 +26,6 @@ Rules:
 - Output only the Markdown content, no meta-commentary.
 - NEVER invent prerequisites, environment variables, API keys, or setup steps that are not explicitly present in the provided source context. Only document what exists in the code.
 - When you see external system dependencies in the source code (e.g. Docker calls, exec/spawn of binaries, database connections, external services), document them as prerequisites. Cross-check: if the code imports or calls something (docker, redis, postgres, etc.), it MUST appear in the prerequisites section of relevant pages.
+- Maximum 500 lines per page. If the source context would produce more, prioritize public API documentation and trim internal implementation details.
+- Use a technical tone in third-person perspective. Write "The function returns..." not "You can use this function to...".
+- When source code and existing docs conflict, always trust the source code. Note the conflict in a comment: `<!-- Note: docs may be outdated — verified against source -->`.

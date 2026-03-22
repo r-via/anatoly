@@ -163,3 +163,51 @@ describe('Story 34.3 — Score Calibration in best-practices prompts', () => {
     expect(calibrationSection).toMatch(/type hint/i);
   });
 });
+
+// --- Story 34.4: Edge Case Handling ---
+
+describe('Story 34.4 — code generation marker rule', () => {
+  for (const axis of ['correction', 'best_practices', 'overengineering'] as const) {
+    it(`${axis} prompt has "code generation marker" rule`, () => {
+      const prompt = resolveSystemPrompt(axis);
+      expect(prompt).toMatch(/code.generat/i);
+      expect(prompt).toMatch(/leniency|lenient/i);
+      expect(prompt).toMatch(/confidence.*-20|reduce.*confidence.*20/i);
+    });
+  }
+});
+
+describe('Story 34.4 — doc-writer constraints', () => {
+  it('doc-writer has max 500 lines constraint', () => {
+    const prompt = resolveSystemPrompt('doc-generation');
+    expect(prompt).toMatch(/500\s*lines/i);
+  });
+
+  it('doc-writer specifies technical/third-person tone', () => {
+    const prompt = resolveSystemPrompt('doc-generation');
+    expect(prompt).toMatch(/third.person|technical.*tone/i);
+  });
+
+  it('doc-writer handles source/docs conflicts', () => {
+    const prompt = resolveSystemPrompt('doc-generation');
+    expect(prompt).toMatch(/conflict/i);
+  });
+});
+
+describe('Story 34.4 — nlp-summarizer guard rails', () => {
+  it('nlp-summarizer focuses on public interface for functions >200 lines', () => {
+    const prompt = resolveSystemPrompt('rag.nlp-summarizer');
+    expect(prompt).toMatch(/200\s*lines|public.*interface/i);
+  });
+
+  it('nlp-summarizer has fallback text', () => {
+    const prompt = resolveSystemPrompt('rag.nlp-summarizer');
+    expect(prompt).toContain('Purpose unclear from code alone');
+  });
+
+  it('nlp-summarizer specifies keyConcepts format', () => {
+    const prompt = resolveSystemPrompt('rag.nlp-summarizer');
+    expect(prompt).toMatch(/lowercase.*hyphenated|hyphenated.*lowercase/i);
+    expect(prompt).toMatch(/30\s*char/i);
+  });
+});
