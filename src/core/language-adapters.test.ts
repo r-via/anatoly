@@ -238,7 +238,7 @@ describe('BashAdapter', () => {
   });
 
   it('has wasmModule "bash"', () => {
-    expect(adapter.wasmModule).toBe('bash');
+    expect(adapter.wasmModule).toBe('tree-sitter-bash/tree-sitter-bash.wasm');
   });
 });
 
@@ -438,7 +438,7 @@ describe('PythonAdapter', () => {
   });
 
   it('has wasmModule "python"', () => {
-    expect(adapter.wasmModule).toBe('python');
+    expect(adapter.wasmModule).toBe('tree-sitter-python/tree-sitter-python.wasm');
   });
 });
 
@@ -659,7 +659,7 @@ describe('RustAdapter', () => {
   });
 
   it('has wasmModule "rust"', () => {
-    expect(adapter.wasmModule).toBe('rust');
+    expect(adapter.wasmModule).toBe('tree-sitter-rust/tree-sitter-rust.wasm');
   });
 });
 
@@ -860,7 +860,7 @@ describe('GoAdapter', () => {
   });
 
   it('has wasmModule "go"', () => {
-    expect(adapter.wasmModule).toBe('go');
+    expect(adapter.wasmModule).toBe('tree-sitter-go/tree-sitter-go.wasm');
   });
 });
 
@@ -1082,7 +1082,7 @@ describe('JavaAdapter', () => {
   });
 
   it('has wasmModule "java"', () => {
-    expect(adapter.wasmModule).toBe('java');
+    expect(adapter.wasmModule).toBe('tree-sitter-java/tree-sitter-java.wasm');
   });
 });
 
@@ -1205,7 +1205,7 @@ describe('CSharpAdapter', () => {
   });
 
   it('has wasmModule "c_sharp"', () => {
-    expect(adapter.wasmModule).toBe('c_sharp');
+    expect(adapter.wasmModule).toBe('tree-sitter-c-sharp/tree-sitter-c_sharp.wasm');
   });
 });
 
@@ -1291,7 +1291,7 @@ describe('SqlAdapter', () => {
   });
 
   it('has wasmModule "sql"', () => {
-    expect(adapter.wasmModule).toBe('sql');
+    expect(adapter.wasmModule).toBeNull();
   });
 });
 
@@ -1378,7 +1378,7 @@ describe('YamlAdapter', () => {
   });
 
   it('has wasmModule "yaml"', () => {
-    expect(adapter.wasmModule).toBe('yaml');
+    expect(adapter.wasmModule).toBeNull();
   });
 });
 
@@ -1445,7 +1445,7 @@ describe('JsonAdapter', () => {
   });
 
   it('has wasmModule "json"', () => {
-    expect(adapter.wasmModule).toBe('json');
+    expect(adapter.wasmModule).toBeNull();
   });
 });
 
