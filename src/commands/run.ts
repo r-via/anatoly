@@ -847,7 +847,6 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
         model,
         cwd: ctx.projectRoot,
         allowedTools: [],
-        maxTurns: 4,
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         abortController: ac,
