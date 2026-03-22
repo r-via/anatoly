@@ -122,6 +122,12 @@ function buildUserMessage(
   if (pkg.description) parts.push(`Description: ${String(pkg.description)}`);
   if (pkg.version) parts.push(`Version: ${String(pkg.version)}`);
 
+  // Install command
+  const pkgName = pkg.name ? String(pkg.name) : null;
+  if (pkgName) {
+    parts.push(`\nInstall: npm install ${pkgName}`);
+  }
+
   // CLI entry points
   if (pkg.bin && typeof pkg.bin === 'object') {
     const bin = pkg.bin as Record<string, string>;

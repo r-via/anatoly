@@ -63,9 +63,8 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
   if (stats.cachedPages.length > 0)
     parts.push(`${stats.cachedPages.length} cached`);
 
-  lines.push(
-    `.anatoly/docs/ updated: ${stats.totalPages} pages (${parts.join(', ')})`,
-  );
+  const summary = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  lines.push(`.anatoly/docs/ updated: ${stats.totalPages} pages${summary}`);
   lines.push('');
 
   // Coverage comparison

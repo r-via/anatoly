@@ -199,10 +199,11 @@ function buildGapsFromReviews(
 
   // Gap from sync gap: missing pages
   if (idealPageCount > userPageCount) {
+    const missing = idealPageCount - userPageCount;
     gaps.push({
       type: 'missing_page',
-      idealPath: 'index.md',
-      rationale: `User docs/ has ${userPageCount} pages vs ${idealPageCount} ideal pages (${idealPageCount - userPageCount} missing)`,
+      idealPath: '.anatoly/docs/',
+      rationale: `User docs/ has ${userPageCount} pages vs ${idealPageCount} ideal pages (${missing} missing)`,
       priority: 'high',
     });
   }

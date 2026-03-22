@@ -233,11 +233,14 @@ function extractReExports(content: string): ReExportEntry[] {
 }
 
 const IMPORT_RE = /import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
+const DEFAULT_IMPORT_RE = /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
+const NAMESPACE_IMPORT_RE = /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
 
 function extractImportGraph(sourceFiles: SourceFile[]): ImportEdge[] {
   const edges: ImportEdge[] = [];
 
   for (const file of sourceFiles) {
+    // Named imports: import { a, b } from '...'
     IMPORT_RE.lastIndex = 0;
     let match;
     while ((match = IMPORT_RE.exec(file.content)) !== null) {
@@ -250,6 +253,18 @@ function extractImportGraph(sourceFiles: SourceFile[]): ImportEdge[] {
         to: match[2],
         symbols,
       });
+    }
+
+    // Default imports: import foo from '...'
+    DEFAULT_IMPORT_RE.lastIndex = 0;
+    while ((match = DEFAULT_IMPORT_RE.exec(file.content)) !== null) {
+      edges.push({ from: file.path, to: match[2], symbols: [match[1]] });
+    }
+
+    // Namespace imports: import * as foo from '...'
+    NAMESPACE_IMPORT_RE.lastIndex = 0;
+    while ((match = NAMESPACE_IMPORT_RE.exec(file.content)) !== null) {
+      edges.push({ from: file.path, to: match[2], symbols: [`* as ${match[1]}`] });
     }
   }
 
@@ -332,6 +347,19 @@ function applyTruncation(ctx: PageContext, maxTokens: number): PageContext {
   };
   serialized = serializeContext(result);
   tokens = estimateTokens(serialized);
+
+  if (tokens <= maxTokens) {
+    return { ...result, tokenCount: tokens, truncated: true };
+  }
+
+  // Phase 4: Prune exports list to fit within budget
+  const pruned = [...result.exports];
+  while (pruned.length > 0 && tokens > maxTokens) {
+    pruned.pop();
+    result = { ...result, exports: pruned };
+    serialized = serializeContext(result);
+    tokens = estimateTokens(serialized);
+  }
 
   return { ...result, tokenCount: tokens, truncated: true };
 }

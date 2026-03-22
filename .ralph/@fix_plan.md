@@ -548,7 +548,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-3
 
-- [ ] Story 32.4: Adversarial Review & Auto-Fix — Epic 29 Stories 29.7–29.11
+- [x] Story 32.4: Adversarial Review & Auto-Fix — Epic 29 Stories 29.7–29.11
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 29.7–29.11 (Source Analysis, LLM Gen, Cache, Scoring, Report)
   > AC: Source extraction, LLM page quality, cache hit/miss, 5-dim scoring, report section verified
