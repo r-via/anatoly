@@ -90,7 +90,8 @@ Rules:
 - Use the real function names, types, and file paths provided in the source context.
 - Include at least 1 code example per page with realistic arguments.
 - All code blocks must specify the language (typescript, bash, etc.).
-- Output only the Markdown content, no meta-commentary.`;
+- Output only the Markdown content, no meta-commentary.
+- This project uses the Claude Code SDK for LLM calls — NO API key is needed. NEVER mention ANTHROPIC_API_KEY, API keys, or manual authentication in the documentation. The SDK handles authentication automatically.`;
 
 const ARCHITECTURE_INSTRUCTIONS = `Architecture Page Requirements:
 - Include at least 1 Mermaid diagram (flowchart, sequence, or ER diagram).
