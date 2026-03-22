@@ -683,7 +683,7 @@
   > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.2: Guard Rails — Infrastructure anti-hallucination partagée
+- [x] Story 34.2: Guard Rails — Infrastructure anti-hallucination partagée
   > As a **développeur d'Anatoly**
   > I want un fichier de règles partagé injecté automatiquement dans tous les prompts d'axes
   > So that le LLM ne puisse pas halluciner des symboles, des lignes hors limites, ou des structures invalides.

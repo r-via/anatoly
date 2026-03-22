@@ -34,6 +34,20 @@ export interface PreResolvedRagEntry {
 export type PreResolvedRag = PreResolvedRagEntry[];
 
 // ---------------------------------------------------------------------------
+// System prompt composition
+// ---------------------------------------------------------------------------
+
+/**
+ * Compose the full system prompt for an axis evaluator.
+ * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt.
+ */
+export function composeAxisSystemPrompt(axisPrompt: string): string {
+  const wrapper = resolveSystemPrompt('_shared.json-evaluator-wrapper');
+  const guardRails = resolveSystemPrompt('_shared.guard-rails');
+  return `${wrapper}\n\n${guardRails}\n\n${axisPrompt}`;
+}
+
+// ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
 
@@ -229,9 +243,8 @@ async function _runSingleTurnQueryInner<T>(
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
 
-  // Prepend a no-tools directive so the model never attempts tool calls.
-  // All context the model needs is already embedded in the prompt.
-  const systemPrompt = `${resolveSystemPrompt('_shared.json-evaluator-wrapper')}\n\n${rawSystemPrompt}`;
+  // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt
+  const systemPrompt = composeAxisSystemPrompt(rawSystemPrompt);
 
   const transcriptLines: string[] = [];
   let totalCost = 0;

@@ -1,0 +1,15 @@
+## Constraints
+
+- ONLY output symbols that exist in the provided source code. Do NOT invent, hallucinate, or guess symbol names.
+- Every `line_start` and `line_end` MUST be within the actual line range of the file. If the file has N lines, all line references must be in [1, N].
+- Every `name` field MUST match an actual symbol name from the source code exactly (case-sensitive).
+- Do NOT reference files, modules, or dependencies that are not mentioned in the provided context.
+- If you are uncertain about a finding, lower your confidence — do NOT fabricate details to appear certain.
+
+## Confidence Guide
+
+- Never output confidence below 50. If you are less than 50% confident, omit the finding entirely.
+- 95–100: You can see the evidence directly in the provided code. No ambiguity.
+- 85–94: Strong evidence with minor assumptions (e.g., inferring behavior from naming conventions).
+- 70–84: Moderate evidence. The finding is likely correct but depends on context not fully visible.
+- 50–69: Weak evidence. Flag it but acknowledge uncertainty in the detail field.

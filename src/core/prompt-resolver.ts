@@ -38,6 +38,7 @@ import docWriterApiPrompt from '../prompts/doc-generation/doc-writer.api-referen
 import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
+import guardRailsPrompt from '../prompts/_shared/guard-rails.system.md';
 
 /**
  * Registry of system prompts keyed by domain, axis, or composite key.
@@ -99,6 +100,7 @@ function registerDefaults(): void {
 
   // --- Shared ---
   register('_shared.json-evaluator-wrapper', jsonEvaluatorWrapperPrompt);
+  register('_shared.guard-rails', guardRailsPrompt);
 }
 
 function register(key: string, content: string): void {

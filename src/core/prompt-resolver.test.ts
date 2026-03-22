@@ -154,7 +154,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains exactly 36 entries after reset', () => {
+  it('registry contains exactly 37 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -163,7 +163,7 @@ describe('universal registry — new domain keys', () => {
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
       'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference',
-      'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', 'correction.verification',
+      'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
     ];
     for (const key of expectedKeys) {
       expect(() => resolveSystemPrompt(key), `key "${key}" should resolve`).not.toThrow();
@@ -263,6 +263,7 @@ describe('Story 33.4 — registry coherence', () => {
     const keys = snapshot.map(([k]) => k);
     expect(keys).toMatchInlineSnapshot(`
       [
+        "_shared.guard-rails",
         "_shared.json-evaluator-wrapper",
         "best_practices",
         "best_practices.bash",

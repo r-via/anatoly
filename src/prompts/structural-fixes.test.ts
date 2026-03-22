@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { resolveSystemPrompt, _resetPromptRegistry } from '../core/prompt-resolver.js';
+import { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from '../core/prompt-resolver.js';
+import { composeAxisSystemPrompt } from '../core/axis-evaluator.js';
 
 beforeAll(() => {
   _resetPromptRegistry();
@@ -60,6 +61,55 @@ describe('Story 34.1 — best-practices variants have rule count HTML comments',
       const prompt = resolveSystemPrompt('best_practices', lang);
       // Must have an HTML comment with rule count and delta info
       expect(prompt).toMatch(/<!--.*Rules:\s*\d+.*delta.*TypeScript.*-->/i);
+    });
+  }
+});
+
+// --- Story 34.2: Guard Rails — Infrastructure anti-hallucination ---
+
+describe('Story 34.2 — guard-rails.system.md exists and is registered', () => {
+  it('guard-rails file exists and resolves via registry', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt.length).toBeGreaterThan(50);
+  });
+
+  it('guard-rails has "Constraints" section', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt).toMatch(/## Constraints/i);
+  });
+
+  it('guard-rails has "Confidence Guide" section', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt).toMatch(/## Confidence Guide/i);
+  });
+
+  it('guard-rails contains anti-hallucination rule', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt).toContain('ONLY output symbols that exist in the provided source code');
+  });
+
+  it('guard-rails contains confidence floor rule', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt).toContain('Never output confidence below 50');
+  });
+
+  it('registry contains 37 entries', () => {
+    const keys = _getRegistryKeys();
+    expect(keys.length).toBe(37);
+  });
+});
+
+describe('Story 34.2 — composed axis system prompt order', () => {
+  for (const axis of AXIS_IDS) {
+    it(`${axis} composed prompt has order: json-evaluator-wrapper → guard-rails → axis prompt`, () => {
+      const composed = composeAxisSystemPrompt(resolveSystemPrompt(axis));
+      const wrapperIdx = composed.indexOf('single-turn JSON evaluator');
+      const guardIdx = composed.indexOf('ONLY output symbols that exist in the provided source code');
+      const axisIdx = composed.indexOf(resolveSystemPrompt(axis).substring(0, 40));
+
+      expect(wrapperIdx).toBeGreaterThanOrEqual(0);
+      expect(guardIdx).toBeGreaterThan(wrapperIdx);
+      expect(axisIdx).toBeGreaterThan(guardIdx);
     });
   }
 });
