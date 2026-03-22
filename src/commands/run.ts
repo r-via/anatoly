@@ -881,6 +881,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       onPageComplete: (pagePath) => {
         completed++;
         ctx.pipelineState?.updateTask(taskId, `${completed}/${total} pages updated`);
+        ctx.renderer?.logPlain(`[${taskId}] ${completed}/${total} ${pagePath}`);
       },
       onPageError: (pagePath, err) => {
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
@@ -920,6 +921,7 @@ async function runInternalDocPhase(ctx: RunContext, tasks: Task[], taskId: strin
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
     // Scaffold (idempotent — creates new pages, never overwrites)
+    ctx.renderer?.logPlain(`[${taskId}] starting...`);
     const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
 
     // Generate prompts for stale/new pages (cache-aware)
