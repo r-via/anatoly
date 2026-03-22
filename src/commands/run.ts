@@ -843,6 +843,7 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
+  const start = Date.now();
 
   try {
     const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;

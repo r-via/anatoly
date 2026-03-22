@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
+import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
@@ -61,7 +62,8 @@ export function registerDocsCommand(program: Command): void {
       // Load config and scan
       const config = loadConfig(projectRoot);
       console.log('  scanning project...');
-      const tasks = await scanProject(projectRoot, config);
+      await scanProject(projectRoot, config);
+      const tasks = loadTasks(projectRoot);
 
       // Scaffold + generate
       const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
