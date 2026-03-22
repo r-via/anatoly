@@ -36,6 +36,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. `set -euo pipefail` present, all variables quoted, no eval, proper error handling throughout.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one unquoted variable in a non-critical path, or minor style inconsistency.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., missing error handling in 2+ functions, or inconsistent quoting practices.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., `set -euo pipefail` missing AND unquoted variables in command substitutions.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., `eval` with user input AND no error handling AND unquoted variables throughout.
+- **0**: Multiple CRITICAL violations. E.g., command injection via unescaped input AND `eval` usage AND no `set -e`. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

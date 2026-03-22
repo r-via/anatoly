@@ -34,6 +34,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Nullable reference types enabled, proper async/await, IDisposable correctly implemented.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one missing null check or a synchronous call that could be async.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., missing `ConfigureAwait` in library code, or inconsistent null handling.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., `Task.Result` blocking AND no using/dispose on IDisposable objects.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., SQL injection via string interpolation AND blocking async AND no input validation.
+- **0**: Multiple CRITICAL violations. E.g., command injection AND SQL injection AND hardcoded connection strings. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

@@ -34,6 +34,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Proper exception handling, no raw types, correct use of Optional, immutable where appropriate.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one raw type usage or a mutable field that could be final.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., catching generic Exception in 2+ places, or missing null checks.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., empty catch blocks AND raw types throughout AND no input validation.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., SQL injection via string concatenation AND empty catch blocks AND hardcoded credentials.
+- **0**: Multiple CRITICAL violations. E.g., deserialization vulnerabilities AND SQL injection AND hardcoded secrets. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

@@ -40,6 +40,15 @@ Start from 10.0 and subtract penalties per rule violation:
 8. Do NOT evaluate other axes — only best practices.
 9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
 
+## Score Calibration
+
+- **9–10**: All 17 rules PASS. Strict mode, zero `any`, proper error handling, security-clean, well-documented exports.
+- **7–8**: Minor issues only (1-2 MEDIUM WARN). E.g., missing `readonly` on a config object, or one import group out of order.
+- **5–6**: Several MEDIUM violations or 1 HIGH violation. E.g., file exceeds 300 lines, or missing JSDoc on 3+ public exports.
+- **3–4**: Multiple HIGH violations or 1 CRITICAL. E.g., unhandled promise rejections AND missing JSDoc AND no strict mode.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., explicit `any` used pervasively AND hardcoded secrets found.
+- **0**: Multiple CRITICAL violations. E.g., `eval()` with user input AND hardcoded API keys AND pervasive `any`. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

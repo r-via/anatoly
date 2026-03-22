@@ -30,6 +30,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Consistent indentation, meaningful comments, proper anchors/aliases, no hardcoded secrets.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one key without a comment or minor indentation inconsistency.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., deeply nested structures without comments, or duplicate keys.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., hardcoded credentials AND deeply nested undocumented structures.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., secrets in plain text AND invalid YAML syntax AND no structure comments.
+- **0**: Multiple CRITICAL violations. E.g., API keys exposed AND malformed YAML AND security misconfigurations. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

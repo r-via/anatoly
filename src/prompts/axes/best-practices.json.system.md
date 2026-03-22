@@ -28,6 +28,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Well-structured, consistent naming, proper nesting, no sensitive data exposed.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one inconsistent naming convention or unnecessary nesting level.
+- **5–6**: Several MEDIUM violations. E.g., duplicate keys in different objects or deeply nested structure.
+- **3–4**: Multiple violations. E.g., inconsistent naming AND excessive nesting AND missing required fields.
+- **1–2**: CRITICAL issue found. E.g., sensitive data (API keys, passwords) in the JSON file.
+- **0**: Multiple CRITICAL violations. E.g., hardcoded secrets AND malformed structure AND security-sensitive data exposed. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

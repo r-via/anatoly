@@ -697,7 +697,7 @@
   > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.3: Score Calibration — Ancrage des scores best-practices par langage
+- [x] Story 34.3: Score Calibration — Ancrage des scores best-practices par langage
   > As a **développeur d'Anatoly**
   > I want que chaque prompt best-practices contienne des exemples calibrés de ce que signifie chaque niveau de score
   > So that les scores soient mieux distribués et plus discriminants au lieu de se concentrer autour de 7-9.

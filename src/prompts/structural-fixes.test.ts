@@ -113,3 +113,53 @@ describe('Story 34.2 — composed axis system prompt order', () => {
     });
   }
 });
+
+// --- Story 34.3: Score Calibration ---
+
+const ALL_BP_KEYS: Array<{ key: string; lang?: string }> = [
+  { key: 'best_practices' },
+  { key: 'best_practices', lang: 'bash' },
+  { key: 'best_practices', lang: 'python' },
+  { key: 'best_practices', lang: 'rust' },
+  { key: 'best_practices', lang: 'go' },
+  { key: 'best_practices', lang: 'java' },
+  { key: 'best_practices', lang: 'csharp' },
+  { key: 'best_practices', lang: 'sql' },
+  { key: 'best_practices', lang: 'yaml' },
+  { key: 'best_practices', lang: 'json' },
+  { key: 'best_practices', lang: 'react' },
+  { key: 'best_practices', lang: 'nextjs' },
+];
+
+describe('Story 34.3 — Score Calibration in best-practices prompts', () => {
+  for (const { key, lang } of ALL_BP_KEYS) {
+    const label = lang ? `${key}.${lang}` : key;
+
+    it(`${label} has "Score Calibration" section`, () => {
+      const prompt = resolveSystemPrompt(key, lang);
+      expect(prompt).toMatch(/## Score Calibration/);
+    });
+
+    it(`${label} has 6 calibration levels (9-10, 7-8, 5-6, 3-4, 1-2, 0)`, () => {
+      const prompt = resolveSystemPrompt(key, lang);
+      expect(prompt).toMatch(/9[–-]10/);
+      expect(prompt).toMatch(/7[–-]8/);
+      expect(prompt).toMatch(/5[–-]6/);
+      expect(prompt).toMatch(/3[–-]4/);
+      expect(prompt).toMatch(/1[–-]2/);
+      expect(prompt).toMatch(/\b0\b.*score/i);
+    });
+  }
+
+  it('bash calibration mentions "set -euo pipefail"', () => {
+    const prompt = resolveSystemPrompt('best_practices', 'bash');
+    const calibrationSection = prompt.substring(prompt.indexOf('## Score Calibration'));
+    expect(calibrationSection).toContain('set -euo pipefail');
+  });
+
+  it('python calibration mentions "type hints"', () => {
+    const prompt = resolveSystemPrompt('best_practices', 'python');
+    const calibrationSection = prompt.substring(prompt.indexOf('## Score Calibration'));
+    expect(calibrationSection).toMatch(/type hint/i);
+  });
+});

@@ -36,6 +36,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Correct 'use client'/'use server' directives, proper data fetching, optimized images, good metadata.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., missing `next/image` in one place or one suboptimal data fetching pattern.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., client-side data fetching where server component would suffice, or missing loading.tsx.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., missing 'use client' on interactive components AND no metadata AND client-side fetching everywhere.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., secrets exposed in client bundle AND no 'use client'/'use server' AND no image optimization.
+- **0**: Multiple CRITICAL violations. E.g., API keys in client components AND no security headers AND server actions without validation. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

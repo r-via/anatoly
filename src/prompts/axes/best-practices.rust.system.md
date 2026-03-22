@@ -34,6 +34,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. No `unwrap()` in production paths, no unnecessary `unsafe`, proper `Result`/`Option` handling.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one `clone()` that could be avoided, or minor naming inconsistency.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., multiple unnecessary clones, or missing documentation on public items.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., `unwrap()` on user input AND missing error propagation in 3+ functions.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., `unsafe` block without justification AND `unwrap()` everywhere AND no error handling.
+- **0**: Multiple CRITICAL violations. E.g., buffer overflow risk in `unsafe` AND `unwrap()` on network input AND use-after-free patterns. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

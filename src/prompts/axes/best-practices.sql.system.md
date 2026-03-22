@@ -32,6 +32,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. Parameterized queries, proper indexing, consistent naming, clear comments on complex logic.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one missing index hint or inconsistent naming in one table.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., `SELECT *` used in production queries, or missing foreign key constraints.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., no indexes on frequently queried columns AND implicit type conversions throughout.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., SQL injection vulnerability AND no constraints AND no comments on complex queries.
+- **0**: Multiple CRITICAL violations. E.g., dynamic SQL from user input AND DROP without safety AND no access controls. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

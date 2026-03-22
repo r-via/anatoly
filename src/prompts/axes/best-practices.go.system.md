@@ -34,6 +34,15 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Score Calibration
+
+- **9–10**: All rules PASS. All errors checked, no `panic` in library code, proper context propagation, idiomatic Go.
+- **7–8**: Minor issues (1-2 MEDIUM WARN). E.g., one function not using `context.Context` where it could, or minor naming deviation.
+- **5–6**: Several MEDIUM violations or 1 HIGH. E.g., error values ignored in 2+ places, or inconsistent error wrapping patterns.
+- **3–4**: Multiple HIGH or 1 CRITICAL. E.g., errors ignored throughout AND `panic()` used for control flow in a library.
+- **1–2**: 1 CRITICAL + multiple HIGH. E.g., `panic()` on user input AND no error checking AND no context propagation.
+- **0**: Multiple CRITICAL violations. E.g., SQL injection AND `panic()` in handlers AND errors universally ignored. 0 score reserved for extreme cases.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):
