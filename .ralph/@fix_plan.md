@@ -749,7 +749,7 @@
   > AC: Baseline JSON sauvegardé, README documentant l'exécution et le coût (~$1.12/run)
   > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
 
-- [ ] Story 34.7: Adversarial Code Review — Validation complète de l'Epic 34
+- [x] Story 34.7: Adversarial Code Review — Validation complète de l'Epic 34
   > As a **tech lead**
   > I want an adversarial code review of the complete Epic 34 implementation
   > So that every claim is verified against reality and no regression passes.

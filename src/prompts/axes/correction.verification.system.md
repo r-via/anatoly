@@ -19,9 +19,8 @@ For EACH flagged symbol, verify whether the finding is a real bug or a false pos
 
 ## Output format
 
-Output ONLY a JSON object:
+Output ONLY a raw JSON object with no markdown fences:
 
-```json
 {
   "symbols": [
     {
@@ -33,4 +32,3 @@ Output ONLY a JSON object:
     }
   ]
 }
-```
