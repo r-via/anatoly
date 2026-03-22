@@ -12,7 +12,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
-import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
+import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ const ChunkResponseSchema = z.object({
   sections: z.array(ChunkSchema),
 });
 
-const REFINE_SECTION_PROMPT = sectionRefinerPrompt.trimEnd();
+const REFINE_SECTION_PROMPT = resolveSystemPrompt('rag.section-refiner');
 
 /**
  * Chunk a doc file by first splitting on H2 headings mechanically, then

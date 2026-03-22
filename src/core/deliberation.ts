@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
 import { recordReclassification } from './correction-memory.js';
-import deliberationSystemPromptContent from '../prompts/deliberation/deliberation.system.md';
+import { resolveSystemPrompt } from './prompt-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Deliberation response schema — what Opus returns
@@ -48,7 +48,7 @@ type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 // ---------------------------------------------------------------------------
 
 export function buildDeliberationSystemPrompt(): string {
-  return deliberationSystemPromptContent.trimEnd();
+  return resolveSystemPrompt('deliberation');
 }
 
 export function buildDeliberationUserMessage(review: ReviewFile, fileContent: string): string {

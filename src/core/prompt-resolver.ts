@@ -30,11 +30,20 @@ import bpReactPrompt from '../prompts/axes/best-practices.react.system.md';
 import bpNextjsPrompt from '../prompts/axes/best-practices.nextjs.system.md';
 import docReactPrompt from '../prompts/axes/documentation.react.system.md';
 import docNextjsPrompt from '../prompts/axes/documentation.nextjs.system.md';
+import correctionVerificationPrompt from '../prompts/axes/correction.verification.system.md';
+import deliberationPrompt from '../prompts/deliberation/deliberation.system.md';
+import docWriterPrompt from '../prompts/doc-generation/doc-writer.system.md';
+import docWriterArchPrompt from '../prompts/doc-generation/doc-writer.architecture.system.md';
+import docWriterApiPrompt from '../prompts/doc-generation/doc-writer.api-reference.system.md';
+import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
+import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
+import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
 
-/** Registry of system prompts keyed by "{axisId}" or "{axisId}.{language}" or "{axisId}.{framework}" */
+/** Registry of system prompts keyed by domain, axis, or composite key */
 const PROMPT_REGISTRY = new Map<string, string>();
 
 function registerDefaults(): void {
+  // --- Axes (7 defaults + language/framework variants) ---
   register('utility', utilityPrompt);
   register('best_practices', bestPracticesPrompt);
   register('documentation', documentationPrompt);
@@ -63,6 +72,22 @@ function registerDefaults(): void {
   register('best_practices.nextjs', bpNextjsPrompt);
   register('documentation.react', docReactPrompt);
   register('documentation.nextjs', docNextjsPrompt);
+  register('correction.verification', correctionVerificationPrompt);
+
+  // --- Deliberation ---
+  register('deliberation', deliberationPrompt);
+
+  // --- Doc generation ---
+  register('doc-generation', docWriterPrompt);
+  register('doc-generation.architecture', docWriterArchPrompt);
+  register('doc-generation.api-reference', docWriterApiPrompt);
+
+  // --- RAG ---
+  register('rag.section-refiner', sectionRefinerPrompt);
+  register('rag.nlp-summarizer', nlpSummarizerPrompt);
+
+  // --- Shared ---
+  register('_shared.json-evaluator-wrapper', jsonEvaluatorWrapperPrompt);
 }
 
 function register(key: string, content: string): void {

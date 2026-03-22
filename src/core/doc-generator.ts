@@ -13,9 +13,7 @@
  */
 
 import type { PageContext, SymbolContext } from './source-context.js';
-import docWriterBasePrompt from '../prompts/doc-generation/doc-writer.system.md';
-import docWriterArchPrompt from '../prompts/doc-generation/doc-writer.architecture.system.md';
-import docWriterApiPrompt from '../prompts/doc-generation/doc-writer.api-reference.system.md';
+import { resolveSystemPrompt } from './prompt-resolver.js';
 
 export const DEFAULT_MODEL = 'sonnet';
 
@@ -68,11 +66,11 @@ function buildSystemPrompt(pagePath: string): string {
   return parts.join('\n\n');
 }
 
-const BASE_SYSTEM_PROMPT = docWriterBasePrompt.trimEnd();
+const BASE_SYSTEM_PROMPT = resolveSystemPrompt('doc-generation');
 
-const ARCHITECTURE_INSTRUCTIONS = docWriterArchPrompt.trimEnd();
+const ARCHITECTURE_INSTRUCTIONS = resolveSystemPrompt('doc-generation.architecture');
 
-const API_REFERENCE_INSTRUCTIONS = docWriterApiPrompt.trimEnd();
+const API_REFERENCE_INSTRUCTIONS = resolveSystemPrompt('doc-generation.api-reference');
 
 // --- User message ---
 

@@ -99,3 +99,73 @@ describe('resolveSystemPrompt', () => {
     expect(resolveSystemPrompt('test_axis')).toBe('content with trailing space');
   });
 });
+
+// --- Story 33.3: Universal registry — new domain keys ---
+
+describe('universal registry — new domain keys', () => {
+  beforeEach(() => {
+    _resetPromptRegistry();
+  });
+
+  it('resolves deliberation prompt', () => {
+    const prompt = resolveSystemPrompt('deliberation');
+    expect(prompt).toContain('Deliberation Judge');
+    expect(prompt.length).toBeGreaterThan(100);
+  });
+
+  it('resolves doc-generation prompt', () => {
+    const prompt = resolveSystemPrompt('doc-generation');
+    expect(prompt).toContain('documentation writer');
+    expect(prompt.length).toBeGreaterThan(100);
+  });
+
+  it('resolves doc-generation.architecture variant', () => {
+    const prompt = resolveSystemPrompt('doc-generation.architecture');
+    expect(prompt).toContain('Mermaid');
+  });
+
+  it('resolves doc-generation.api-reference variant', () => {
+    const prompt = resolveSystemPrompt('doc-generation.api-reference');
+    expect(prompt).toContain('usage example');
+  });
+
+  it('resolves rag.section-refiner prompt', () => {
+    const prompt = resolveSystemPrompt('rag.section-refiner');
+    expect(prompt).toContain('documentation analyzer');
+  });
+
+  it('resolves rag.nlp-summarizer prompt', () => {
+    const prompt = resolveSystemPrompt('rag.nlp-summarizer');
+    expect(prompt).toContain('code documentation assistant');
+  });
+
+  it('resolves _shared.json-evaluator-wrapper prompt', () => {
+    const prompt = resolveSystemPrompt('_shared.json-evaluator-wrapper');
+    expect(prompt).toContain('single-turn JSON evaluator');
+  });
+
+  it('resolves correction.verification prompt', () => {
+    const prompt = resolveSystemPrompt('correction.verification');
+    expect(prompt).toContain('verification agent');
+  });
+
+  it('registry contains at least 36 entries after reset', () => {
+    const keys: string[] = [];
+    // Use resolveSystemPrompt to verify each key exists
+    const expectedKeys = [
+      'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
+      'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
+      'best_practices.java', 'best_practices.csharp', 'best_practices.sql', 'best_practices.yaml', 'best_practices.json',
+      'documentation.bash', 'documentation.python', 'documentation.rust', 'documentation.go',
+      'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
+      'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
+      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference',
+      'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', 'correction.verification',
+    ];
+    for (const key of expectedKeys) {
+      expect(() => resolveSystemPrompt(key)).not.toThrow();
+      keys.push(key);
+    }
+    expect(keys.length).toBeGreaterThanOrEqual(36);
+  });
+});

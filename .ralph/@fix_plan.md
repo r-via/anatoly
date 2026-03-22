@@ -641,7 +641,7 @@
   > AC: `npx vitest run` passe à 100%
   > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-2
 
-- [ ] Story 33.3: Extension du `prompt-resolver.ts` en registre universel
+- [x] Story 33.3: Extension du `prompt-resolver.ts` en registre universel
   > As a **développeur**
   > I want étendre le prompt-resolver pour couvrir les domaines deliberation, doc-generation, rag et shared
   > So that tout le projet utilise un point d'entrée unique pour résoudre n'importe quel prompt.

@@ -8,7 +8,7 @@ import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines
 import type { Action } from '../../schemas/review.js';
 import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import correctionSystemPrompt from '../../prompts/axes/correction.system.md';
-import correctionVerificationPrompt from '../../prompts/axes/correction.verification.system.md';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ const VerificationResponseSchema = z.object({
 type VerificationResponse = z.infer<typeof VerificationResponseSchema>;
 
 function buildVerificationSystemPrompt(): string {
-  return correctionVerificationPrompt.trimEnd();
+  return resolveSystemPrompt('correction.verification');
 }
 
 const STOP_WORDS = new Set([

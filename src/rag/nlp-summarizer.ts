@@ -8,7 +8,7 @@ import { BehavioralProfileSchema } from './types.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
-import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
+import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,7 +35,7 @@ const NlpResponseSchema = z.object({
 // Prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = nlpSummarizerPrompt.trimEnd();
+const SYSTEM_PROMPT = resolveSystemPrompt('rag.nlp-summarizer');
 
 function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodies: string[]): string {
   const parts: string[] = [];

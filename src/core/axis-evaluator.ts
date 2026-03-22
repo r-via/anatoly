@@ -13,7 +13,7 @@ import type { UsageGraph } from './usage-graph.js';
 import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
-import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
+import { resolveSystemPrompt } from './prompt-resolver.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
@@ -231,7 +231,7 @@ async function _runSingleTurnQueryInner<T>(
 
   // Prepend a no-tools directive so the model never attempts tool calls.
   // All context the model needs is already embedded in the prompt.
-  const systemPrompt = `${jsonEvaluatorWrapperPrompt.trimEnd()}\n\n${rawSystemPrompt}`;
+  const systemPrompt = `${resolveSystemPrompt('_shared.json-evaluator-wrapper')}\n\n${rawSystemPrompt}`;
 
   const transcriptLines: string[] = [];
   let totalCost = 0;
