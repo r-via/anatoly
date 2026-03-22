@@ -876,6 +876,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     const result = await executeDocPrompts({
       prompts: genResult.prompts,
       outputDir,
+      projectRoot: ctx.projectRoot,
       semaphore: ctx.sdkSemaphore,
       executor,
       onPageComplete: (pagePath) => {

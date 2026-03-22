@@ -9,9 +9,9 @@
  * for the 05-Modules/ section based on LOC counts per source directory.
  *
  * Rules (from typescript-documentation.md):
- * - 3+ files > 200 LOC → directory-level (one page for the directory)
- * - 1-2 files > 200 LOC → file-level (one page per qualifying file)
- * - 0 files > 200 LOC → skip (no pages)
+ * - 3+ files >= 200 LOC → directory-level (one page for the directory)
+ * - 1-2 files >= 200 LOC → file-level (one page per qualifying file)
+ * - 0 files >= 200 LOC → skip (no pages)
  */
 
 const LOC_THRESHOLD = 200;

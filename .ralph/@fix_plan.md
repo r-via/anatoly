@@ -540,7 +540,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-2
 
-- [ ] Story 32.3: Adversarial Review & Auto-Fix — Epic 29 Stories 29.1–29.6
+- [x] Story 32.3: Adversarial Review & Auto-Fix — Epic 29 Stories 29.1–29.6
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 29.1–29.6 (Type Detection, Scaffolder, Hints, Granularity, Mapping, Guard)
   > AC: Project type detection, scaffolding, hints, module granularity, mapping all verified

@@ -78,7 +78,7 @@ export function runDocScaffold(
   const modulePages = resolveModuleGranularity(moduleDirs);
 
   // 3. Resolve code→doc mappings
-  const sourceDirs = buildSourceDirs(tasks);
+  const sourceDirs = buildSourceDirs(tasks, projectRoot);
   const docMappings = resolveDocMappings(sourceDirs);
 
   // 4. Scaffold with dynamic module pages (Story 29.16)
@@ -215,9 +215,11 @@ function buildModuleDirs(tasks: Task[]): ModuleDir[] {
 
 /**
  * Builds SourceDir[] from scanner tasks for doc mapping.
+ * Populates filePatterns by scanning file content for framework markers
+ * so that the framework detection strategy in resolveDocMappings is reachable.
  */
-function buildSourceDirs(tasks: Task[]): SourceDir[] {
-  const dirMap = new Map<string, number>();
+function buildSourceDirs(tasks: Task[], projectRoot: string): SourceDir[] {
+  const dirMap = new Map<string, { totalLoc: number; files: string[] }>();
 
   for (const task of tasks) {
     const parts = task.file.split('/');
@@ -230,10 +232,40 @@ function buildSourceDirs(tasks: Task[]): SourceDir[] {
     const dirName = parts[dirIdx];
     const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
 
-    dirMap.set(dirName, (dirMap.get(dirName) ?? 0) + maxLine);
+    const existing = dirMap.get(dirName) ?? { totalLoc: 0, files: [] };
+    existing.totalLoc += maxLine;
+    existing.files.push(task.file);
+    dirMap.set(dirName, existing);
   }
 
-  return Array.from(dirMap.entries()).map(([name, totalLoc]) => ({ name, totalLoc }));
+  return Array.from(dirMap.entries()).map(([name, { totalLoc, files }]) => {
+    const dir: SourceDir = { name, totalLoc };
+    const patterns = detectFilePatterns(projectRoot, files);
+    if (patterns.length > 0) dir.filePatterns = patterns;
+    return dir;
+  });
+}
+
+const DETECTABLE_PATTERNS = ['@Controller()', 'express.Router()', '@Injectable()'];
+
+/**
+ * Scans file content for known framework patterns (decorators, router calls).
+ * Short-circuits once all patterns are found.
+ */
+function detectFilePatterns(projectRoot: string, files: string[]): string[] {
+  const found = new Set<string>();
+  for (const file of files) {
+    try {
+      const content = readFileSync(resolve(projectRoot, file), 'utf-8');
+      for (const pattern of DETECTABLE_PATTERNS) {
+        if (content.includes(pattern)) found.add(pattern);
+      }
+    } catch {
+      // Skip unreadable files
+    }
+    if (found.size === DETECTABLE_PATTERNS.length) break;
+  }
+  return Array.from(found);
 }
 
 /**

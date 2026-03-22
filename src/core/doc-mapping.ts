@@ -106,6 +106,7 @@ function resolveOne(dir: SourceDir): DocMapping | null {
     }
   }
 
-  // 4. Catch-all: 05-Modules/{dir-name}.md
-  return { sourceDir: dir.name, docPage: `05-Modules/${dir.name}.md`, strategy: 'catch-all' };
+  // 4. Catch-all: 05-Modules/{dir-name}.md (kebab-case for safe paths)
+  const safeName = dir.name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').toLowerCase();
+  return { sourceDir: dir.name, docPage: `05-Modules/${safeName}.md`, strategy: 'catch-all' };
 }

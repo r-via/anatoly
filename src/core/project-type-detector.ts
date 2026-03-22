@@ -71,8 +71,9 @@ export function detectProjectTypes(
   const deps = getAllDependencyNames(packageJson);
   const types: ProjectType[] = [];
 
-  // Monorepo — workspaces field (array or object)
-  if (packageJson['workspaces'] != null) {
+  // Monorepo — workspaces field (non-empty array or object with packages)
+  const ws = packageJson['workspaces'];
+  if (ws != null && !(Array.isArray(ws) && ws.length === 0)) {
     types.push('Monorepo');
   }
 
@@ -91,8 +92,10 @@ export function detectProjectTypes(
     types.push('ORM');
   }
 
-  // CLI — bin field OR CLI framework deps
-  if (packageJson['bin'] != null || hasAnyDep(deps, CLI_DEPS)) {
+  // CLI — non-empty bin field OR CLI framework deps
+  const bin = packageJson['bin'];
+  const hasBin = typeof bin === 'string' ? bin.length > 0 : (bin != null && typeof bin === 'object' && Object.keys(bin as Record<string, unknown>).length > 0);
+  if (hasBin || hasAnyDep(deps, CLI_DEPS)) {
     types.push('CLI');
   }
 

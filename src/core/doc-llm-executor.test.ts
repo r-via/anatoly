@@ -56,6 +56,7 @@ describe('executeDocPrompts', () => {
     const result = await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
     });
@@ -101,6 +102,7 @@ describe('executeDocPrompts', () => {
     await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore: smallSemaphore,
       executor: slowExecutor,
     });
@@ -117,6 +119,7 @@ describe('executeDocPrompts', () => {
     const result = await executeDocPrompts({
       prompts: [],
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
     });
@@ -143,6 +146,7 @@ describe('executeDocPrompts', () => {
     const result = await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
     });
@@ -173,6 +177,7 @@ describe('executeDocPrompts', () => {
     const result = await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore: tightSemaphore,
       executor: mockExecutor,
     });
@@ -199,6 +204,7 @@ describe('executeDocPrompts', () => {
     const result = await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
     });
@@ -220,6 +226,7 @@ describe('executeDocPrompts', () => {
     await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
       onPageComplete: (pagePath) => completed.push(pagePath),
@@ -240,6 +247,7 @@ describe('executeDocPrompts', () => {
     await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
       onPageError: (pagePath, err) => errors.push({ pagePath, error: err.message }),
@@ -259,6 +267,7 @@ describe('executeDocPrompts', () => {
     await executeDocPrompts({
       prompts,
       outputDir,
+      projectRoot: tempDir,
       semaphore,
       executor: mockExecutor,
     });

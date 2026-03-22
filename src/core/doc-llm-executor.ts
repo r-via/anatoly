@@ -13,6 +13,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Semaphore } from './sdk-semaphore.js';
+import { assertSafeOutputPath } from './docs-guard.js';
 
 // --- Public interfaces ---
 
@@ -33,6 +34,8 @@ export type DocExecutor = (prompt: { system: string; user: string; model: string
 export interface ExecuteDocPromptsParams {
   prompts: DocPrompt[];
   outputDir: string;
+  projectRoot: string;
+  docsPath?: string;
   semaphore: Semaphore;
   executor: DocExecutor;
   onPageComplete?: (pagePath: string) => void;
@@ -55,14 +58,14 @@ export interface DocLlmResult {
  * Uses Promise.allSettled so a single page failure doesn't block others.
  */
 export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
-  const { prompts, outputDir, semaphore, executor, onPageComplete, onPageError } = params;
+  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, onPageComplete, onPageError } = params;
 
   if (prompts.length === 0) {
     return { pagesWritten: 0, pagesFailed: 0, totalCostUsd: 0, errors: [] };
   }
 
   const results = await Promise.allSettled(
-    prompts.map(prompt => executeOnePage(prompt, outputDir, semaphore, executor, onPageComplete, onPageError)),
+    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, onPageComplete, onPageError)),
   );
 
   let pagesWritten = 0;
@@ -92,6 +95,8 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
 async function executeOnePage(
   prompt: DocPrompt,
   outputDir: string,
+  projectRoot: string,
+  docsPath: string,
   semaphore: Semaphore,
   executor: DocExecutor,
   onPageComplete?: (pagePath: string) => void,
@@ -105,8 +110,9 @@ async function executeOnePage(
       model: prompt.model,
     });
 
-    // Ensure subdirectory exists
+    // Ensure subdirectory exists and guard against docs/ writes
     const fullPath = join(outputDir, prompt.pagePath);
+    assertSafeOutputPath(fullPath, projectRoot, docsPath);
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, result.text, 'utf-8');
 
