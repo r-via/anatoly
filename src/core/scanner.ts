@@ -107,7 +107,13 @@ export async function parseFile(
   }
 
   const parser = await getParser();
-  const lang = await loadLanguage(adapter.wasmModule);
+  let lang: Language;
+  try {
+    lang = await loadLanguage(adapter.wasmModule);
+  } catch {
+    // Grammar unavailable (download failed, network offline) — fall back to heuristic
+    return heuristicParse(source, filePath);
+  }
   parser.setLanguage(lang);
   const tree = parser.parse(source);
   if (!tree) return [];
