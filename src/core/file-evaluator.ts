@@ -266,6 +266,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
             abortController,
             conversationDir: opts.conversationDir,
             conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
+            semaphore: opts.semaphore,
           },
           DeliberationResponseSchema,
         );
