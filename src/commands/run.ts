@@ -1051,6 +1051,10 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           const prevTask = state.tasks.find((t) => t.id === prevTaskId);
           const detail = prevTask?.detail === '\u2014' ? 'done' : prevTask?.detail ?? 'done';
           state.completeTask(prevTaskId, detail);
+          // Remove upsert synthetic file when leaving upsert phase
+          if (prevTaskId === 'rag-upsert') {
+            state.activeFiles.delete('Saving index\u2026');
+          }
         }
         // Start next phase task
         if (nextTaskId) {

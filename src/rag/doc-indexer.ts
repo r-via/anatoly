@@ -381,10 +381,11 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   // Create a shared AbortController for all Haiku calls — aborted when isInterrupted() returns true
   const ac = new AbortController();
 
-  for (const { relPath, source, sha } of changedFiles) {
+  // Process files concurrently (semaphore bounds LLM calls inside chunkDocWithHaiku)
+  const processFile = async ({ relPath, source, sha }: { relPath: string; source: string; sha: string }) => {
     if (isInterrupted?.()) {
       ac.abort();
-      break;
+      return;
     }
     docFileCounter++;
     onProgress?.(docFileCounter, changedFiles.length);
@@ -397,7 +398,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
-      continue;
+      return;
     }
 
     const cards: Array<{ id: string; filePath: string; name: string; summary: string }> = [];
@@ -421,7 +422,9 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     totalIndexed += sections.length;
     onLog(`rag: ${relPath} → ${sections.length} sections`);
     onFileDone?.(relPath);
-  }
+  };
+
+  await Promise.allSettled(changedFiles.map(processFile));
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
