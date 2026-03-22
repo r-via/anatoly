@@ -2,9 +2,10 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, join, relative, extname } from 'node:path';
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { glob } from 'tinyglobby';
 import { Parser, Language } from 'web-tree-sitter';
 import type { Config } from '../schemas/config.js';
@@ -23,6 +24,10 @@ const esmRequire = createRequire(import.meta.url);
 let parserInstance: Parser | null = null;
 const languageCache = new Map<string, Language>();
 
+function getWasmCacheDir(): string {
+  return join(homedir(), '.cache', 'anatoly', 'wasm');
+}
+
 async function getParser(): Promise<Parser> {
   if (parserInstance) return parserInstance;
   await Parser.init();
@@ -30,10 +35,52 @@ async function getParser(): Promise<Parser> {
   return parserInstance;
 }
 
+/**
+ * Resolve a WASM grammar file path, downloading from npm (via unpkg) if not
+ * already installed or cached locally.
+ *
+ * @param wasmModule - npm-style path like "tree-sitter-bash/tree-sitter-bash.wasm"
+ */
+async function resolveWasmPath(wasmModule: string): Promise<string> {
+  const log = contextLogger();
+  const wasmFile = wasmModule.split('/').pop()!;
+
+  // 1. Try bundled package (e.g. tree-sitter-typescript shipped with anatoly)
+  try {
+    const resolved = esmRequire.resolve(wasmModule);
+    log.debug({ grammar: wasmFile, source: 'bundled' }, 'Loaded tree-sitter grammar');
+    return resolved;
+  } catch {
+    // not bundled, continue
+  }
+
+  // 2. Check local cache
+  const cacheDir = getWasmCacheDir();
+  const cachedPath = join(cacheDir, wasmFile);
+  if (existsSync(cachedPath)) {
+    log.debug({ grammar: wasmFile, source: 'cache' }, 'Loaded tree-sitter grammar');
+    return cachedPath;
+  }
+
+  // 3. Download from npm package via unpkg CDN
+  const url = `https://unpkg.com/${wasmModule}`;
+  process.stderr.write(`[scan] Downloading grammar: ${wasmFile} …\n`);
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  mkdirSync(cacheDir, { recursive: true });
+  writeFileSync(cachedPath, buffer);
+  process.stderr.write(`[scan] Cached grammar: ${wasmFile} (${(buffer.length / 1024).toFixed(0)} KB)\n`);
+  return cachedPath;
+}
+
 async function loadLanguage(wasmModule: string): Promise<Language> {
   const cached = languageCache.get(wasmModule);
   if (cached) return cached;
-  const wasmPath = esmRequire.resolve(wasmModule);
+  const wasmPath = await resolveWasmPath(wasmModule);
   const lang = await Language.load(wasmPath);
   languageCache.set(wasmModule, lang);
   return lang;
@@ -51,6 +98,11 @@ export async function parseFile(
   const adapter = resolveAdapter(ext);
 
   if (!adapter) {
+    return heuristicParse(source, filePath);
+  }
+
+  // Adapters without a WASM module (e.g. JSON, YAML) use heuristic extraction only
+  if (!adapter.wasmModule) {
     return heuristicParse(source, filePath);
   }
 

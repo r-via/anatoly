@@ -23,7 +23,7 @@ export interface ImportRef {
 export interface LanguageAdapter {
   readonly extensions: readonly string[];
   readonly languageId: string;
-  readonly wasmModule: string;
+  readonly wasmModule: string | null;
   extractSymbols(rootNode: TSNode): SymbolInfo[];
   extractImports(source: string): ImportRef[];
 }
@@ -177,7 +177,7 @@ function extractBashImports(source: string): ImportRef[] {
 export class BashAdapter implements LanguageAdapter {
   readonly extensions = ['.sh', '.bash'] as const;
   readonly languageId = 'bash';
-  readonly wasmModule = 'bash';
+  readonly wasmModule = 'tree-sitter-bash/tree-sitter-bash.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
@@ -235,7 +235,7 @@ function extractPythonImports(source: string): ImportRef[] {
 export class PythonAdapter implements LanguageAdapter {
   readonly extensions = ['.py'] as const;
   readonly languageId = 'python';
-  readonly wasmModule = 'python';
+  readonly wasmModule = 'tree-sitter-python/tree-sitter-python.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     // First pass: detect __all__ if present
@@ -356,7 +356,7 @@ const RUST_SYMBOL_TYPES: Record<string, SymbolKind> = {
 export class RustAdapter implements LanguageAdapter {
   readonly extensions = ['.rs'] as const;
   readonly languageId = 'rust';
-  readonly wasmModule = 'rust';
+  readonly wasmModule = 'tree-sitter-rust/tree-sitter-rust.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
@@ -423,7 +423,7 @@ function isGoExported(name: string): boolean {
 export class GoAdapter implements LanguageAdapter {
   readonly extensions = ['.go'] as const;
   readonly languageId = 'go';
-  readonly wasmModule = 'go';
+  readonly wasmModule = 'tree-sitter-go/tree-sitter-go.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
@@ -498,7 +498,7 @@ function hasJavaModifier(node: TSNode, modifier: string): boolean {
 export class JavaAdapter implements LanguageAdapter {
   readonly extensions = ['.java'] as const;
   readonly languageId = 'java';
-  readonly wasmModule = 'java';
+  readonly wasmModule = 'tree-sitter-java/tree-sitter-java.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
@@ -588,7 +588,7 @@ function hasCSharpModifier(node: TSNode, modifier: string): boolean {
 export class CSharpAdapter implements LanguageAdapter {
   readonly extensions = ['.cs'] as const;
   readonly languageId = 'csharp';
-  readonly wasmModule = 'c_sharp';
+  readonly wasmModule = 'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm';
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
@@ -663,7 +663,7 @@ const SQL_CREATE_RE =
 export class SqlAdapter implements LanguageAdapter {
   readonly extensions = ['.sql'] as const;
   readonly languageId = 'sql';
-  readonly wasmModule = 'sql';
+  readonly wasmModule = null;
 
   extractSymbols(_rootNode: TSNode): SymbolInfo[] {
     // SQL uses heuristic extraction from source text
@@ -703,7 +703,7 @@ const YAML_NESTED_KEY_RE = /^  ([a-zA-Z_][\w-]*):/gm;
 export class YamlAdapter implements LanguageAdapter {
   readonly extensions = ['.yml', '.yaml'] as const;
   readonly languageId = 'yaml';
-  readonly wasmModule = 'yaml';
+  readonly wasmModule = null;
 
   extractSymbols(_rootNode: TSNode): SymbolInfo[] {
     return [];
@@ -744,7 +744,7 @@ export class YamlAdapter implements LanguageAdapter {
 export class JsonAdapter implements LanguageAdapter {
   readonly extensions = ['.json'] as const;
   readonly languageId = 'json';
-  readonly wasmModule = 'json';
+  readonly wasmModule = null;
 
   extractSymbols(_rootNode: TSNode): SymbolInfo[] {
     return [];
