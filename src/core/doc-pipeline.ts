@@ -294,11 +294,13 @@ function buildPageMappings(
     }
   }
 
-  // Also add scaffolded pages that are in the created list
-  for (const page of scaffoldResult.scaffoldResult.pagesCreated) {
+  // Add all scaffolded pages (both newly created and existing) that have no source mapping.
+  // These are base pages (Overview, Installation, Architecture, etc.) that describe the
+  // project globally — use package.json as their source so they are cached and never
+  // incorrectly removed by the cache's "removed" detection.
+  for (const page of scaffoldResult.scaffoldResult.allPages) {
     if (page === 'index.md') continue;
     if (!mappings.some(m => m.pagePath === page)) {
-      // Static pages without source mapping — use package.json as source
       mappings.push({ pagePath: page, sourceFiles: ['package.json'] });
     }
   }

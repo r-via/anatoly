@@ -18,6 +18,8 @@ import type { ProjectType } from './project-type-detector.js';
 export interface ScaffoldResult {
   pagesCreated: string[];
   pagesSkipped: string[];
+  /** All pages in the scaffold (created + skipped), for cache mapping. */
+  allPages: string[];
   indexRegenerated: boolean;
 }
 
@@ -156,7 +158,9 @@ export function scaffoldDocs(
     pagesCreated.push('index.md');
   }
 
-  return { pagesCreated, pagesSkipped, indexRegenerated: true };
+  const allPagePaths = allPages.map(p => p.path);
+  if (!allPagePaths.includes('index.md')) allPagePaths.push('index.md');
+  return { pagesCreated, pagesSkipped, allPages: allPagePaths, indexRegenerated: true };
 }
 
 // --- Internal helpers ---
