@@ -630,7 +630,7 @@
   > AC: `npx vitest run` passe à 100%
   > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-1
 
-- [ ] Story 33.2: Extraction des 8 prompts inline vers des fichiers .system.md
+- [x] Story 33.2: Extraction des 8 prompts inline vers des fichiers .system.md
   > As a **développeur**
   > I want extraire les 8 prompts inline dispersés dans le code TypeScript vers des fichiers `.system.md` dans `src/prompts/`
   > So that chaque prompt soit versionnable, éditable et auditable indépendamment du code.

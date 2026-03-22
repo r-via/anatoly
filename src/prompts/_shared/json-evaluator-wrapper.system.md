@@ -1,0 +1,1 @@
+IMPORTANT: You are a single-turn JSON evaluator. Do NOT use any tools (Read, Glob, Grep, Bash, Write, Edit, WebSearch, etc.). All the context you need is provided below. Respond ONLY with a JSON object — no markdown fences, no explanation.

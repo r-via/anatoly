@@ -13,6 +13,7 @@ import type { UsageGraph } from './usage-graph.js';
 import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
+import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
@@ -230,7 +231,7 @@ async function _runSingleTurnQueryInner<T>(
 
   // Prepend a no-tools directive so the model never attempts tool calls.
   // All context the model needs is already embedded in the prompt.
-  const systemPrompt = `IMPORTANT: You are a single-turn JSON evaluator. Do NOT use any tools (Read, Glob, Grep, Bash, Write, Edit, WebSearch, etc.). All the context you need is provided below. Respond ONLY with a JSON object — no markdown fences, no explanation.\n\n${rawSystemPrompt}`;
+  const systemPrompt = `${jsonEvaluatorWrapperPrompt.trimEnd()}\n\n${rawSystemPrompt}`;
 
   const transcriptLines: string[] = [];
   let totalCost = 0;

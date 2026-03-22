@@ -12,6 +12,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
+import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
@@ -87,19 +88,7 @@ const ChunkResponseSchema = z.object({
   sections: z.array(ChunkSchema),
 });
 
-const REFINE_SECTION_PROMPT = `You are a documentation analyzer. Given a prose section (code and tables already removed), refine it into semantic sub-sections. Each sub-section should cover ONE distinct concept.
-
-Rules:
-- If the section covers a single concept, return it as-is with a descriptive title
-- If the section covers multiple sub-topics, split into multiple sub-sections
-- Each sub-section needs a short descriptive title (describe the concept, not the original heading)
-- Each sub-section contains the FULL original prose text (do not summarize, do not truncate)
-- Skip sub-sections with less than 50 characters of prose
-
-Respond ONLY with a JSON object. No markdown fences, no explanation.
-
-Output format:
-{ "sections": [{ "title": "...", "content": "..." }, ...] }`;
+const REFINE_SECTION_PROMPT = sectionRefinerPrompt.trimEnd();
 
 /**
  * Chunk a doc file by first splitting on H2 headings mechanically, then
