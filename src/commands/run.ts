@@ -1033,6 +1033,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       indexModel,
       resolvedModels: ctx.resolvedModels,
       ragMode: ctx.resolvedRagMode,
+      docsDir: ctx.config.documentation?.docs_path ?? 'docs',
       onLog: (msg) => {
         ctx.runLog?.debug({ phase: 'rag-index' }, msg);
         ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
