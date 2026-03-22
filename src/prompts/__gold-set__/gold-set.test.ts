@@ -130,16 +130,16 @@ async function runAxis<T>(
 // ---------------------------------------------------------------------------
 
 const DEAD_CODE_SYMBOLS: SymbolDef[] = [
-  { exported: true, kind: 'function', name: 'formatCurrency', lineStart: 7, lineEnd: 12 },
-  { exported: true, kind: 'function', name: 'slugify', lineStart: 14, lineEnd: 21 },
-  { exported: true, kind: 'function', name: 'debounce', lineStart: 23, lineEnd: 31 },
-  { exported: true, kind: 'const', name: 'MAX_RETRIES', lineStart: 33, lineEnd: 33 },
-  { exported: true, kind: 'const', name: 'DEFAULT_TIMEOUT_MS', lineStart: 35, lineEnd: 35 },
+  { exported: true, kind: 'function', name: 'formatCurrency', lineStart: 10, lineEnd: 15 },
+  { exported: true, kind: 'function', name: 'slugify', lineStart: 17, lineEnd: 24 },
+  { exported: true, kind: 'function', name: 'debounce', lineStart: 26, lineEnd: 35 },
+  { exported: true, kind: 'const', name: 'MAX_RETRIES', lineStart: 37, lineEnd: 37 },
+  { exported: true, kind: 'const', name: 'DEFAULT_TIMEOUT_MS', lineStart: 39, lineEnd: 39 },
 ];
 
 const FALSE_DUP_SYMBOLS: SymbolDef[] = [
-  { exported: true, kind: 'function', name: 'calculateMean', lineStart: 12, lineEnd: 20 },
-  { exported: true, kind: 'function', name: 'joinPath', lineStart: 27, lineEnd: 36 },
+  { exported: true, kind: 'function', name: 'calculateMean', lineStart: 14, lineEnd: 22 },
+  { exported: true, kind: 'function', name: 'joinPath', lineStart: 28, lineEnd: 37 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -231,13 +231,13 @@ describe('Gold-Set: false-duplicate.ts → duplication = UNIQUE', () => {
       const ragSection = [
         '## RAG — Semantic Duplication',
         '',
-        '### calculateMean (L12–L20)',
+        '### calculateMean (L14–L22)',
         'Similar functions found:',
         '- **joinPath** in `gold-set/false-duplicate.ts` (score: 0.780)',
         '  Signature: (segments: string[]) => string',
         '  Complexity: 2/5',
         '',
-        '### joinPath (L27–L36)',
+        '### joinPath (L28–L37)',
         'Similar functions found:',
         '- **calculateMean** in `gold-set/false-duplicate.ts` (score: 0.780)',
         '  Signature: (values: number[]) => number',
@@ -282,8 +282,8 @@ describe('Gold-Set: monolith-500-lines.ts → all symbols covered', () => {
       // Extract exported function names from the file
       const funcNames = content
         .split('\n')
-        .filter((line) => /^export function /.test(line))
-        .map((line) => line.match(/export function (\w+)/)?.[1])
+        .filter((line) => /^export (?:async )?function /.test(line))
+        .map((line) => line.match(/export (?:async )?function (\w+)/)?.[1])
         .filter(Boolean) as string[];
 
       expect(funcNames.length).toBeGreaterThanOrEqual(20);

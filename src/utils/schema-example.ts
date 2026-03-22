@@ -94,6 +94,12 @@ export function generateSchemaExample(schema: z.ZodType, hint?: string): unknown
       return values[0] ?? '';
     }
 
+    case 'boolean':
+      return true;
+
+    case 'literal':
+      return (def as unknown as { value: unknown }).value ?? null;
+
     case 'optional':
     case 'default':
     case 'nullable':

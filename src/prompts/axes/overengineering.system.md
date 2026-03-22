@@ -15,7 +15,6 @@ Evaluate whether each symbol is LEAN (appropriately complex), OVER (unnecessaril
    - **Well-known lib not installed** → ACCEPTABLE with a suggestion in the detail. Example: "Manual glob matching could be replaced by `micromatch` (npm, 30M/week)". Only suggest widely-adopted libraries (>1M weekly downloads). Do NOT suggest libs for trivial 2-3 line helpers.
 6. A function doing one thing well is LEAN, even if it's long.
 7. Do NOT evaluate other axes — only overengineering.
-8. **Code generation marker**: If the file contains markers indicating it is auto-generated (e.g., `@generated`, `DO NOT EDIT`, `Auto-generated`), apply leniency — reduce confidence by -20 for all findings. Generated code follows different conventions and should not be judged by hand-written standards.
 
 ## Output format
 

@@ -27,7 +27,7 @@ describe('Story 34.1 — no JSON fences in axis output format', () => {
     it(`${axis} prompt does not contain \`\`\`json fences`, () => {
       const prompt = resolveSystemPrompt(axis);
       expect(prompt).not.toContain('```json');
-      expect(prompt).not.toContain('```\n');
+      expect(prompt).not.toMatch(/^```$/m);
     });
   }
 });
@@ -174,13 +174,18 @@ describe('Story 34.3 — Score Calibration in best-practices prompts', () => {
 
 // --- Story 34.4: Edge Case Handling ---
 
-describe('Story 34.4 — code generation marker rule', () => {
-  for (const axis of ['correction', 'best_practices', 'overengineering'] as const) {
-    it(`${axis} prompt has "code generation marker" rule`, () => {
-      const prompt = resolveSystemPrompt(axis);
-      expect(prompt).toMatch(/code.generat/i);
-      expect(prompt).toMatch(/leniency|lenient/i);
-      expect(prompt).toMatch(/confidence.*-20|reduce.*confidence.*20/i);
+describe('Story 34.4 — code generation marker rule in guard-rails (shared across all axes)', () => {
+  it('guard-rails has "Code Generation Marker" section', () => {
+    const prompt = resolveSystemPrompt('_shared.guard-rails');
+    expect(prompt).toMatch(/Code Generation Marker/i);
+    expect(prompt).toMatch(/leniency|lenient/i);
+    expect(prompt).toMatch(/confidence/i);
+  });
+
+  for (const axis of AXIS_IDS) {
+    it(`${axis} composed prompt inherits code generation marker via guard-rails`, () => {
+      const composed = composeAxisSystemPrompt(resolveSystemPrompt(axis));
+      expect(composed).toMatch(/Code Generation Marker/i);
     });
   }
 });
@@ -205,7 +210,8 @@ describe('Story 34.4 — doc-writer constraints', () => {
 describe('Story 34.4 — nlp-summarizer guard rails', () => {
   it('nlp-summarizer focuses on public interface for functions >200 lines', () => {
     const prompt = resolveSystemPrompt('rag.nlp-summarizer');
-    expect(prompt).toMatch(/200\s*lines|public.*interface/i);
+    expect(prompt).toMatch(/200\s*lines/i);
+    expect(prompt).toMatch(/public.*interface/i);
   });
 
   it('nlp-summarizer has fallback text', () => {

@@ -40,7 +40,7 @@ export type PreResolvedRag = PreResolvedRagEntry[];
 
 /**
  * Compose the full system prompt for an axis evaluator.
- * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt.
+ * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt → schema example (if provided).
  */
 export function composeAxisSystemPrompt(axisPrompt: string, schema?: z.ZodType): string {
   const wrapper = resolveSystemPrompt('_shared.json-evaluator-wrapper');

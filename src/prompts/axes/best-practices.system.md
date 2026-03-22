@@ -39,7 +39,6 @@ Start from 10.0 and subtract penalties per rule violation:
 7. Include concrete suggestions with before/after code snippets when relevant.
 8. Do NOT evaluate other axes — only best practices.
 9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
-10. **Code generation marker**: If the file contains markers indicating it is auto-generated (e.g., `@generated`, `DO NOT EDIT`, `Auto-generated`), apply leniency — reduce confidence by -20 for all findings. Generated code follows different conventions and should not be judged by hand-written standards.
 
 ## Score Calibration
 

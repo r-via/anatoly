@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { get_encoding } from 'tiktoken';
 import { TaskSchema, type Task } from '../schemas/task.js';
+import { ALL_AXIS_IDS } from './axes/index.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
@@ -28,7 +29,6 @@ export const SECONDS_PER_SYMBOL = 0.8;
 export const CONCURRENCY_EFFICIENCY = 0.75;
 
 /** Number of axis evaluators per file (derived from registry — single source of truth) */
-import { ALL_AXIS_IDS } from './axes/index.js';
 export const AXIS_COUNT = ALL_AXIS_IDS.length;
 
 /** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */

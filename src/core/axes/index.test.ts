@@ -32,7 +32,7 @@ describe('getEnabledEvaluators', () => {
   it('should keep axis enabled when config is missing for that axis', () => {
     const config = makeConfig({ llm: { axes: {} } });
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(7);
+    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
   });
 
   it('should return empty when all axes disabled', () => {
