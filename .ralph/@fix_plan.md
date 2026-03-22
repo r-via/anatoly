@@ -562,14 +562,14 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-5
 
-- [ ] Story 32.6: Adversarial Review & Auto-Fix — Epic 29 Stories 29.18–29.21
+- [x] Story 32.6: Adversarial Review & Auto-Fix — Epic 29 Stories 29.18–29.21
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 29.18–29.21 (Dual Context, docs_path, Coverage, Internal Pipeline)
   > AC: Dual doc context with source tags, docs_path propagation, coverage distinction, internal pipeline verified
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-6
 
-- [ ] Story 32.7: Adversarial Review & Auto-Fix — Story 30.1 SDK Semaphore
+- [x] Story 32.7: Adversarial Review & Auto-Fix — Story 30.1 SDK Semaphore
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Story 30.1 (SDK Semaphore)
   > AC: acquire/release/FIFO/finally verified, no deadlock, concurrent limit respected
@@ -577,7 +577,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 5 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-7
 
-- [ ] Story 32.8: Adversarial Review & Auto-Fix — Epic 31 Stories 31.1–31.5
+- [x] Story 32.8: Adversarial Review & Auto-Fix — Epic 31 Stories 31.1–31.5
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 31.1–31.5 (Lang Detect, Framework Detect, Display, Auto-Detect, Grammar Manager)
   > AC: Language detection, framework detection, setup table, auto-detect, grammar manager all verified
@@ -585,7 +585,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-8
 
-- [ ] Story 32.9: Adversarial Review & Auto-Fix — Epic 31 Stories 31.6–31.11
+- [x] Story 32.9: Adversarial Review & Auto-Fix — Epic 31 Stories 31.6–31.11
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 31.6–31.11 (LanguageAdapter, all adapters)
   > AC: LanguageAdapter interface + TS refactor = zero regression
@@ -593,14 +593,14 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-9
 
-- [ ] Story 32.10: Adversarial Review & Auto-Fix — Epic 31 Stories 31.12–31.14
+- [x] Story 32.10: Adversarial Review & Auto-Fix — Epic 31 Stories 31.12–31.14
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 31.12–31.14 (Heuristic, Usage-Graph, Prompt Cascade)
   > AC: Heuristic parser, multi-language usage-graph, prompt cascade all verified
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-10
 
-- [ ] Story 32.11: Adversarial Review & Auto-Fix — Epic 31 Stories 31.15–31.18
+- [x] Story 32.11: Adversarial Review & Auto-Fix — Epic 31 Stories 31.15–31.18
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 31.15–31.18 (All Prompts)
   > AC: All 9 best_practices prompts verified (rule counts, severities, Zod-compatible output)
@@ -609,7 +609,7 @@
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-11
 
-- [ ] Story 32.12: Adversarial Review & Auto-Fix — Epic 31 Stories 31.19–31.20
+- [x] Story 32.12: Adversarial Review & Auto-Fix — Epic 31 Stories 31.19–31.20
   > As a **developer shipping Anatoly**
   > I want an **adversarial review with auto-fix** of Stories 31.19–31.20 (Axis Injection, E2E)
   > AC: All 7 axes inject Language + Framework + dynamic fence, TS output unchanged
@@ -618,6 +618,54 @@
   > AC: Real `anatoly run` on Anatoly itself produces valid report
   > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
+
+- [ ] Story 33.1: Création de la hiérarchie `src/prompts/` et migration des axes existants
+  > As a **développeur**
+  > I want déplacer les 28+ fichiers `.system.md` existants de `src/core/axes/prompts/` vers `src/prompts/axes/`
+  > So that tous les prompts soient regroupés sous une racine unique et cohérente.
+  > AC: Given les 28+ fichiers dans `src/core/axes/prompts/`, When la migration est exécutée, Then tous les fichiers sont déplacés vers `src/prompts/axes/` avec les mêmes noms
+  > AC: Les dossiers `src/prompts/_shared/`, `src/prompts/deliberation/`, `src/prompts/doc-generation/`, `src/prompts/rag/` sont créés (vides)
+  > AC: Tous les imports dans `src/core/axes/*.ts` et `src/core/prompt-resolver.ts` sont mis à jour vers les nouveaux chemins
+  > AC: Les tests existants (`best-practices-prompts.test.ts`, `documentation-prompts.test.ts`, `framework-prompts.test.ts`) passent sans modification de logique
+  > AC: `npx vitest run` passe à 100%
+  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-1
+
+- [ ] Story 33.2: Extraction des 8 prompts inline vers des fichiers .system.md
+  > As a **développeur**
+  > I want extraire les 8 prompts inline dispersés dans le code TypeScript vers des fichiers `.system.md` dans `src/prompts/`
+  > So that chaque prompt soit versionnable, éditable et auditable indépendamment du code.
+  > Extractions: (1) `axis-evaluator.ts:~233` → `_shared/json-evaluator-wrapper.system.md`, (2) `correction.ts:101-136` → `axes/correction.verification.system.md`, (3) `deliberation.ts:49-91` → `deliberation/deliberation.system.md`, (4) `doc-generator.ts:68-95` → `doc-generation/doc-writer.system.md`, (5) `doc-generator.ts:97-100` → `doc-generation/doc-writer.architecture.system.md`, (6) `doc-generator.ts:102-105` → `doc-generation/doc-writer.api-reference.system.md`, (7) `doc-indexer.ts:90-102` → `rag/section-refiner.system.md`, (8) `nlp-summarizer.ts:37-42` → `rag/nlp-summarizer.system.md`
+  > AC: Chaque prompt inline est remplacé par un `import content from '../../prompts/...'` avec `.trimEnd()` (convention Epic 20)
+  > AC: Prompts avec template literals/interpolation : partie statique → .md, interpolation reste dans le builder TS
+  > AC: Les prompts extraits sont textuellement identiques caractère pour caractère à l'original
+  > AC: `npx vitest run` passe à 100%
+  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-2
+
+- [ ] Story 33.3: Extension du `prompt-resolver.ts` en registre universel
+  > As a **développeur**
+  > I want étendre le prompt-resolver pour couvrir les domaines deliberation, doc-generation, rag et shared
+  > So that tout le projet utilise un point d'entrée unique pour résoudre n'importe quel prompt.
+  > AC: Le registre passe de ~28 entrées à ~36+ couvrant tous les domaines
+  > AC: `resolveSystemPrompt('deliberation')` retourne le contenu de `deliberation/deliberation.system.md`
+  > AC: `resolveSystemPrompt('doc-generation')` retourne le contenu de `doc-generation/doc-writer.system.md`, `resolveSystemPrompt('doc-generation.architecture')` et `resolveSystemPrompt('doc-generation.api-reference')` retournent les variantes
+  > AC: `resolveSystemPrompt('rag.section-refiner')` et `resolveSystemPrompt('rag.nlp-summarizer')` retournent les contenus rag
+  > AC: `resolveSystemPrompt('_shared.json-evaluator-wrapper')` retourne le wrapper JSON
+  > AC: Les 6 consommateurs (`doc-generator.ts`, `deliberation.ts`, `correction.ts`, `axis-evaluator.ts`, `doc-indexer.ts`, `nlp-summarizer.ts`) passent par le registre au lieu d'importer directement
+  > AC: Tests unitaires pour chaque nouvelle clé, `_clearPromptRegistry()` et `_resetPromptRegistry()` mis à jour
+  > AC: `npx vitest run` passe à 100%
+  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-3
+
+- [ ] Story 33.4: Tests de non-régression et validation adversariale
+  > As a **développeur**
+  > I want valider que la centralisation n'a introduit aucune régression
+  > So that la qualité des évaluations LLM reste identique après le refactoring.
+  > AC: `npx vitest run` passe à 100% sans modification des tests
+  > AC: `npx anatoly estimate` sur le repo anatoly : estimations tokens identiques avant/après
+  > AC: Test snapshot du registre complet (clés triées + taille contenu en chars)
+  > AC: Test cohérence bidirectionnel : glob `src/prompts/**/*.system.md` ↔ `PROMPT_REGISTRY.keys()` — aucune clé orpheline, aucun .md orphelin
+  > AC: `grep -r "core/axes/prompts" src/` → 0 résultats, ancien dossier supprimé
+  > AC: `npm run typecheck && npm run build && npx vitest run` → 0 erreurs
+  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-4
 
 ## Completed
 
