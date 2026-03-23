@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
@@ -181,24 +181,31 @@ export function registerDocsCommand(program: Command): void {
       const config = loadConfig(projectRoot);
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
+      // Create log directory with timestamp
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const logDir = resolve(projectRoot, '.anatoly', 'logs', `structure-review_${ts}`);
+
       console.log(`  ${chalk.yellow('●')} Structure review ${chalk.dim('(opus)')}`);
 
       const executor = createDocExecutor(projectRoot);
 
       try {
         const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor, {
-          onCollected: (fileCount, sizeKb) => {
-            console.log(`    ${chalk.dim('collected')} ${fileCount} files (${sizeKb} KB)`);
-          },
-          onLlmStart: () => {
-            console.log(`    ${chalk.dim('sending to Opus for analysis...')}`);
-          },
-          onLlmDone: (durationMs) => {
-            const secs = (durationMs / 1000).toFixed(1);
-            console.log(`    ${chalk.dim(`analysis complete (${secs}s)`)}`);
-          },
-          onFileFixed: (path) => {
-            console.log(`    ${chalk.yellow('fixed')} ${path}`);
+          logDir,
+          callbacks: {
+            onCollected: (fileCount, sizeKb) => {
+              console.log(`    ${chalk.dim('collected')} ${fileCount} files (${sizeKb} KB)`);
+            },
+            onLlmStart: () => {
+              console.log(`    ${chalk.dim('sending to Opus for analysis...')}`);
+            },
+            onLlmDone: (durationMs) => {
+              const secs = (durationMs / 1000).toFixed(1);
+              console.log(`    ${chalk.dim(`analysis complete (${secs}s)`)}`);
+            },
+            onFileFixed: (path) => {
+              console.log(`    ${chalk.yellow('fixed')} ${path}`);
+            },
           },
         });
 
@@ -210,6 +217,8 @@ export function registerDocsCommand(program: Command): void {
         if (result.costUsd > 0) {
           console.log(`    ${chalk.dim(`cost: $${result.costUsd.toFixed(4)}`)}`);
         }
+        const relLogDir = relative(projectRoot, logDir);
+        console.log(`    ${chalk.dim(`log:  ${relLogDir}/`)}`);
       } catch (err) {
         console.log(`  ${chalk.red('×')} Structure review — failed`);
         console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);

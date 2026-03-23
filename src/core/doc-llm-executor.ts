@@ -142,6 +142,12 @@ export interface DocStructureReviewCallbacks {
   onFileFixed?: (path: string) => void;
 }
 
+export interface DocStructureReviewOptions {
+  callbacks?: DocStructureReviewCallbacks;
+  /** Directory to write the full conversation log and action summary. */
+  logDir?: string;
+}
+
 /**
  * Reads all .md files in outputDir, sends them to Opus for structural review,
  * and overwrites any files that need fixes. Single LLM call.
@@ -151,8 +157,15 @@ export async function reviewDocStructure(
   projectRoot: string,
   docsPath: string,
   executor: DocExecutor,
-  callbacks?: DocStructureReviewCallbacks,
+  optionsOrCallbacks?: DocStructureReviewOptions | DocStructureReviewCallbacks,
 ): Promise<DocStructureReviewResult> {
+  // Accept both { callbacks, logDir } and bare callbacks for backwards compat
+  const opts: DocStructureReviewOptions =
+    optionsOrCallbacks && ('onCollected' in optionsOrCallbacks || 'onLlmStart' in optionsOrCallbacks || 'onLlmDone' in optionsOrCallbacks || 'onFileFixed' in optionsOrCallbacks)
+      ? { callbacks: optionsOrCallbacks as DocStructureReviewCallbacks }
+      : (optionsOrCallbacks as DocStructureReviewOptions) ?? {};
+  const { callbacks, logDir } = opts;
+
   const files = collectMarkdownFiles(outputDir);
   if (files.length === 0) return { filesScanned: 0, filesFixed: 0, fixedPaths: [], costUsd: 0 };
 
@@ -160,33 +173,34 @@ export async function reviewDocStructure(
   callbacks?.onCollected?.(files.length, Math.round(totalSize / 1024));
 
   // Build the user message with all file contents
-  const parts: string[] = [`# Documentation files (${files.length} total)\n`];
+  const userParts: string[] = [`# Documentation files (${files.length} total)\n`];
   for (const file of files) {
     const relPath = relative(outputDir, file.fullPath);
-    parts.push(`## FILE: ${relPath}\n\`\`\`markdown\n${file.content}\n\`\`\`\n`);
+    userParts.push(`## FILE: ${relPath}\n\`\`\`markdown\n${file.content}\n\`\`\`\n`);
   }
+  const userMessage = userParts.join('\n');
 
   callbacks?.onLlmStart?.();
   const llmStart = Date.now();
+  const timestamp = new Date().toISOString();
 
   const system = resolveSystemPrompt('doc-generation.structure-review');
-  const result = await executor({ system, user: parts.join('\n'), model: 'opus' });
+  const result = await executor({ system, user: userMessage, model: 'opus' });
 
-  callbacks?.onLlmDone?.(Date.now() - llmStart);
+  const durationMs = Date.now() - llmStart;
+  callbacks?.onLlmDone?.(durationMs);
 
   // Parse corrections from JSON response
   const jsonStr = extractJson(result.text);
-  if (!jsonStr) return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
 
-  let corrections: Array<{ path: string; content: string }>;
-  try {
-    corrections = JSON.parse(jsonStr) as Array<{ path: string; content: string }>;
-  } catch {
-    return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
-  }
-
-  if (!Array.isArray(corrections) || corrections.length === 0) {
-    return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
+  let corrections: Array<{ path: string; content: string }> = [];
+  if (jsonStr) {
+    try {
+      const parsed = JSON.parse(jsonStr) as unknown;
+      if (Array.isArray(parsed)) corrections = parsed as Array<{ path: string; content: string }>;
+    } catch {
+      // leave corrections empty
+    }
   }
 
   // Apply corrections
@@ -196,7 +210,6 @@ export async function reviewDocStructure(
     if (!fix.path || typeof fix.content !== 'string') continue;
     const fullPath = join(outputDir, fix.path);
     const resolvedFull = resolve(fullPath);
-    // Confine writes to outputDir — reject path traversal (e.g. "../../.bashrc")
     if (!resolvedFull.startsWith(resolvedOutputDir + sep) && resolvedFull !== resolvedOutputDir) continue;
     assertSafeOutputPath(fullPath, projectRoot, docsPath);
     mkdirSync(dirname(fullPath), { recursive: true });
@@ -205,7 +218,84 @@ export async function reviewDocStructure(
     callbacks?.onFileFixed?.(fix.path);
   }
 
-  return { filesScanned: files.length, filesFixed: fixedPaths.length, fixedPaths, costUsd: result.costUsd };
+  const reviewResult: DocStructureReviewResult = {
+    filesScanned: files.length,
+    filesFixed: fixedPaths.length,
+    fixedPaths,
+    costUsd: result.costUsd,
+  };
+
+  // Write conversation log
+  if (logDir) {
+    mkdirSync(logDir, { recursive: true });
+
+    // Full conversation (system + user + assistant)
+    const convoLines: string[] = [
+      `# Conversation: structure-review`,
+      '',
+      '| Field | Value |',
+      '|-------|-------|',
+      `| Model | opus |`,
+      `| Timestamp | ${timestamp} |`,
+      `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
+      `| Cost | $${result.costUsd.toFixed(4)} |`,
+      `| Files scanned | ${files.length} |`,
+      `| Files fixed | ${fixedPaths.length} |`,
+      '',
+      '---',
+      '',
+      '## System',
+      '',
+      system,
+      '',
+      '---',
+      '',
+      '## User',
+      '',
+      userMessage,
+      '',
+      '---',
+      '',
+      '## Assistant',
+      '',
+      result.text,
+      '',
+      '---',
+      '',
+      `## Result`,
+      '',
+      `| Field | Value |`,
+      `|-------|-------|`,
+      `| Success | ${fixedPaths.length >= 0 ? 'true' : 'false'} |`,
+      `| Corrections parsed | ${corrections.length} |`,
+      `| Corrections applied | ${fixedPaths.length} |`,
+      `| Cost | $${result.costUsd.toFixed(4)} |`,
+    ];
+    writeFileSync(join(logDir, 'conversation.md'), convoLines.join('\n'), 'utf-8');
+
+    // Action summary (compact, for quick review)
+    const summaryLines: string[] = [
+      `# Structure Review Summary`,
+      '',
+      `- **Timestamp:** ${timestamp}`,
+      `- **Duration:** ${(durationMs / 1000).toFixed(1)}s`,
+      `- **Cost:** $${result.costUsd.toFixed(4)}`,
+      `- **Files scanned:** ${files.length}`,
+      `- **Files fixed:** ${fixedPaths.length}`,
+      '',
+    ];
+    if (fixedPaths.length > 0) {
+      summaryLines.push('## Fixed files', '');
+      for (const p of fixedPaths) {
+        summaryLines.push(`- \`${p}\``);
+      }
+    } else {
+      summaryLines.push('No structural issues found.');
+    }
+    writeFileSync(join(logDir, 'summary.md'), summaryLines.join('\n'), 'utf-8');
+  }
+
+  return reviewResult;
 }
 
 function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: string }> {

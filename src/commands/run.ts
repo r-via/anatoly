@@ -793,8 +793,9 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       ctx.renderer?.logPlain(`[${taskId}] running structure review (opus)`);
       try {
         const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-        const reviewResult = await reviewDocStructure(outputDir, ctx.projectRoot, docsPath, executor);
-        log.info({ filesFixed: reviewResult.filesFixed, costUsd: reviewResult.costUsd }, 'doc structure review complete');
+        const runLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
+        const reviewResult = await reviewDocStructure(outputDir, ctx.projectRoot, docsPath, executor, { logDir: runLogDir });
+        log.info({ filesFixed: reviewResult.filesFixed, fixedPaths: reviewResult.fixedPaths, costUsd: reviewResult.costUsd }, 'doc structure review complete');
         if (reviewResult.filesFixed > 0) {
           ctx.renderer?.logPlain(`[${taskId}] structure review fixed ${reviewResult.filesFixed} files`);
         }
