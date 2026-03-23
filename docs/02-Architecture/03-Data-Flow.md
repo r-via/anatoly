@@ -1,12 +1,23 @@
 # Data Flow
 
-> A detailed walkthrough of how source files enter the Anatoly pipeline, get transformed into structured audit data, and exit as actionable Markdown reports.
+> End-to-end data flow of the `anatoly run` pipeline — from CLI invocation through file parsing, RAG indexing, parallel axis evaluation, and HTML report generation.
 
 ## Overview
 
-`anatoly run` executes a deterministic, multi-stage pipeline. Each stage produces typed artifacts that are written to the `.anatoly/` state directory, making the pipeline resumable and cache-friendly. The three top-level phases are **Input** (scan & index), **Processing** (triage, RAG, evaluate), and **Output** (merge, deliberate, report).
+`anatoly run` executes a deterministic, multi-phase pipeline orchestrated by `src/commands/run.ts`. Each phase produces typed artifacts written to the `.anatoly/` state directory, making the pipeline resumable and cache-friendly. A shared `RunContext` object threads configuration, concurrency primitives, cost accumulators, and live UI state across every phase.
 
-All inter-stage communication is done through typed JSON files validated by Zod schemas in `src/schemas/`. The LLM is only invoked during the Evaluation phase; every other stage runs entirely in-process.
+The six primary phases are:
+
+| # | Phase | Module | Key Output |
+|---|-------|--------|------------|
+| 1 | Setup | `core/scanner.ts`, `core/triage.ts` | `Task[]`, `TriageMap` |
+| 2 | Doc Bootstrap *(first run only)* | `core/doc-pipeline.ts` | `.anatoly/docs/` scaffold |
+| 3 | RAG Indexing | `rag/orchestrator.ts` | LanceDB vector table |
+| 4 | Review Pass 1 | `core/file-evaluator.ts` | `.rev.json` files |
+| 5 | Internal Docs Update | `core/doc-pipeline.ts` | Updated `.anatoly/docs/` |
+| 6 | Report | `core/reporter.ts` | `report.html`, badge |
+
+On first run, a second Review Pass executes after phase 5 so evaluators benefit from freshly-generated internal documentation.
 
 ---
 
@@ -14,287 +25,263 @@ All inter-stage communication is done through typed JSON files validated by Zod 
 
 ```mermaid
 flowchart TD
-    A([fa:fa-terminal anatoly run]) --> B
+    CLI(["anatoly run\nindex.ts → cli.ts"])
 
-    subgraph INPUT ["① Input Phase"]
-        B[config-loader.ts\nloadConfig] --> C[scanner.ts\nscanProject]
-        C -->|Task[]| D[usage-graph.ts\nbuildUsageGraph]
-        C -->|Task[]| E[estimator.ts\nestimateTasksTokens]
-        C -->|Task[]| T[triage.ts\ntriageFile]
+    subgraph SETUP ["① Setup Phase"]
+        S1["config-loader.ts · loadConfig()"]
+        S2["scanner.ts · scanProject()\ntinyglobby → web-tree-sitter → Task[]"]
+        S3["triage.ts · triageFile()"]
+        S4["usage-graph.ts · buildUsageGraph()"]
+        S5["estimator.ts · estimateFileSeconds()"]
+        S1 --> S2 --> S3 & S4 & S5
     end
 
-    subgraph RAG ["② RAG Indexing (optional)"]
-        T -->|evaluate list| R1[rag/orchestrator.ts\nindexProject]
-        R1 --> R2[rag/indexer.ts\nprocessFileForIndex]
-        R2 --> R3[rag/embeddings.ts\nEmbed via Xenova / Docker]
-        R3 --> R4[rag/vector-store.ts\nVectorStore.upsert]
-        R4 --> R5[(LanceDB\n.anatoly/rag/)]
+    subgraph DOCBOOT ["② Doc Bootstrap (first run only)"]
+        D1["doc-scaffolder.ts\nCreate .anatoly/docs/ structure"]
+        D2["doc-llm-executor.ts\nGenerate pages via Claude Sonnet"]
+        D1 --> D2
     end
 
-    subgraph EVAL ["③ Evaluation Phase (per file, concurrent)"]
-        T -->|evaluate list| FE[file-evaluator.ts\nevaluateFile]
-        D -->|UsageGraph| FE
-        R5 -->|SimilarityResult[]| FE
+    subgraph RAG ["③ RAG Indexing (optional)"]
+        R1["rag/indexer.ts · buildFunctionCards()"]
+        R2["rag/embeddings.ts · embedCodeBatch()\n(Xenova Jina v2 or Docker nomic-embed-code)"]
+        R3["rag/nlp-summarizer.ts · generateNlpSummaries()\n→ embedNlpBatch() (MiniLM-L6 or Qwen3)"]
+        R4["rag/vector-store.ts · VectorStore.upsert()"]
+        R5[("LanceDB\n.anatoly/rag/lancedb/")]
+        R1 --> R2 --> R3 --> R4 --> R5
+    end
 
-        FE --> AX1[axes/utility.ts]
-        FE --> AX2[axes/duplication.ts]
-        FE --> AX3[axes/correction.ts]
-        FE --> AX4[axes/overengineering.ts]
-        FE --> AX5[axes/tests.ts]
-        FE --> AX6[axes/best-practices.ts]
-        FE --> AX7[axes/documentation.ts]
-
-        AX1 & AX2 & AX3 & AX4 & AX5 & AX6 & AX7 -->|AxisResult| AE[axis-evaluator.ts\nrunSingleTurnQuery]
-        AE <-->|Claude Agent SDK| LLM[(Claude API)]
-        AE -->|AxisResult[]| AM[axis-merger.ts\nmergeAxisResults]
-        AM -->|ReviewFile| DEL{deliberation\nenabled?}
-        DEL -->|yes| DL[deliberation.ts\nOpus pass]
+    subgraph EVAL ["④ Review Phase (per file, concurrent)"]
+        W["worker-pool.ts · runWorkerPool()\n(concurrency 1–10)"]
+        FE["file-evaluator.ts · evaluateFile()"]
+        DR["docs-resolver.ts · resolveRelevantDocs()\n+ VectorStore.searchHybrid()"]
+        AX["axis-evaluator.ts · 7 axes (Promise.allSettled)\nHaiku ×5 · Sonnet ×2"]
+        AM["axis-merger.ts · mergeAxisResults()"]
+        DEL{"deliberation\nenabled?"}
+        DL["deliberation.ts · applyDeliberation()\n(Opus)"]
+        RW["progress-manager.ts\n.rev.json written atomically"]
+        W --> FE --> DR --> AX --> AM --> DEL
+        DEL -->|yes| DL --> RW
         DEL -->|no| RW
-        DL -->|refined ReviewFile| RW[review-writer.ts\nwriteReviewOutput]
-        RW --> FS[(fa:fa-folder .anatoly/\nreviews/*.rev.json)]
     end
 
-    subgraph OUTPUT ["④ Output Phase"]
-        FS --> REP[reporter.ts\ngenerateReport]
-        REP --> MD([fa:fa-file-alt report.md])
-        REP --> BADGE([README.md badge])
+    subgraph OUTPUT ["⑤ Doc Update + ⑥ Report"]
+        DU["doc-pipeline.ts · runDocGeneration()\n(changed files only)"]
+        RP["reporter.ts · generateReport()\n→ report.html"]
+        BA["badge.ts · injectBadge()\n→ README.md"]
+        DU --> RP --> BA
     end
 
-    style INPUT fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style RAG fill:#1e3a5f,stroke:#2563eb,color:#e2e8f0
-    style EVAL fill:#1c2a1e,stroke:#16a34a,color:#e2e8f0
-    style OUTPUT fill:#2d1e3e,stroke:#7c3aed,color:#e2e8f0
+    CLI --> SETUP --> DOCBOOT --> RAG --> EVAL --> OUTPUT
+    SETUP -- "Task[], TriageMap" --> EVAL
+    RAG -- "VectorStore" --> EVAL
+    DOCBOOT -- ".anatoly/docs/" --> EVAL
+    EVAL -- ".rev.json" --> OUTPUT
+
+    style SETUP   fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style DOCBOOT fill:#292019,stroke:#92400e,color:#e2e8f0
+    style RAG     fill:#1e3a5f,stroke:#2563eb,color:#e2e8f0
+    style EVAL    fill:#1c2a1e,stroke:#16a34a,color:#e2e8f0
+    style OUTPUT  fill:#2d1e3e,stroke:#7c3aed,color:#e2e8f0
 ```
 
 ---
 
-## Stage 1 — Input Phase
+## Stage 1 — Setup Phase
 
 ### Config Loading
 
-The pipeline starts by loading and validating `.anatoly.yml` with `loadConfig()` from `src/utils/config-loader.ts`. The resolved `Config` object governs every downstream decision: which axes are enabled, which Claude model to use, concurrency limits, RAG settings, and scan globs.
+`loadConfig()` from `src/utils/config-loader.ts` reads `.anatoly.yml` and validates it via Zod. The resolved `Config` object governs every downstream decision: enabled axes, Claude model selection, concurrency limits, RAG settings, and scan globs.
 
 ### File Scanning (`src/core/scanner.ts`)
 
-`scanProject(projectRoot, config)` discovers every file that matches the `scan.include` / `scan.exclude` globs, then parses each one:
+`scanProject(projectRoot, config)` discovers every file matching `scan.include` / `scan.exclude`, then parses each one:
 
-1. **Language detection** via `src/core/language-detect.ts` — identifies TypeScript, JavaScript, Python, Go, etc., and optionally a framework (React, Next.js, …).
-2. **AST parsing** via `web-tree-sitter` + `tree-sitter-typescript`. If tree-sitter fails, `src/core/language-adapters.ts` falls back to heuristic regex extraction.
-3. **Symbol extraction** — every function, class, method, hook, type alias, constant, and enum is captured as a `SymbolInfo` with `line_start`, `line_end`, `exported`, and `kind`.
-4. **SHA-256 hashing** — `computeFileHash()` produces the file's content hash. Files whose hash matches a `DONE` entry in `progress.json` are skipped automatically (cache hit).
+1. **Language detection** — `src/core/language-detect.ts` identifies TypeScript, JavaScript, Python, Go, Rust, and others from extension and shebang.
+2. **AST parsing** — `web-tree-sitter` loads WASM grammars. TypeScript/TSX uses the bundled `tree-sitter-typescript` package. Other languages load dynamically from cache or CDN.
+3. **Symbol extraction** — `src/core/language-adapters.ts` traverses the AST to emit `SymbolInfo[]` (name, kind, exported, line range). Falls back to heuristic regex extraction on parse failure.
+4. **SHA-256 hashing** — `computeFileHash()` produces the content hash. Files whose hash matches a `DONE` entry in `progress.json` are skipped at zero cost.
 
-The output is a `Task[]`, each written atomically to `.anatoly/tasks/<file>.task.json`.
+Each file yields a `Task` written atomically to `.anatoly/tasks/<file>.task.json`:
 
 ```typescript
-// src/core/scanner.ts
-const { tasks, skippedCount } = await scanProject(
-  '/home/user/myproject',
-  config
-)
-// tasks[0] shape:
-// {
-//   version: 1,
-//   file: 'src/api/router.ts',
-//   hash: 'f3a9...',
-//   symbols: [{ name: 'createRouter', kind: 'function', exported: true, line_start: 12, line_end: 78 }],
-//   language: 'typescript',
-//   parse_method: 'ast',
-//   framework: 'express'
-// }
+interface Task {
+  version: 1;
+  file: string;           // relative path from projectRoot
+  hash: string;           // SHA-256 of file content
+  symbols: SymbolInfo[];  // { name, kind, exported, line_start, line_end }
+  language?: string;      // e.g. 'typescript'
+  parse_method?: 'ast' | 'heuristic';
+  framework?: string;     // e.g. 'react', 'express'
+  scanned_at: string;     // ISO 8601
+}
 ```
 
 ### Usage Graph (`src/core/usage-graph.ts`)
 
-`buildUsageGraph(tasks, projectRoot)` performs a full static import analysis across the scanned task list. It produces a `UsageGraph` that maps every exported symbol to the set of files that import it. This graph is later injected into the `utility` axis context so the LLM can accurately distinguish live exports from dead code.
+`buildUsageGraph(tasks, projectRoot)` performs static import analysis across all tasks. The resulting `UsageGraph` maps every exported symbol to the files that import it — used by the `utility` axis to distinguish live exports from dead code.
 
 ### Triage (`src/core/triage.ts`)
 
-`triageFile(task, config)` classifies each `Task` before any LLM call is made:
+`triageFile(task, source)` classifies each file before any LLM call:
 
-| Classification | Criteria | Outcome |
-|---|---|---|
-| `skip` | Barrel re-exports, type-only files, constants-only modules, generated files | Synthetic `CLEAN` review, no LLM call |
-| `evaluate` | All other files | Proceeds to evaluation |
+| Tier | Criteria |
+|------|----------|
+| `skip` | Barrel re-exports, type-only files, constants-only modules, < 10 lines |
+| `evaluate` | All other files |
 
-Skipped files receive a synthetic `ReviewFile` with `verdict: 'CLEAN'` and are immediately written to `.anatoly/reviews/`.
-
----
-
-## Stage 2 — RAG Indexing (Optional)
-
-When `rag.enabled: true` in config, `indexProject()` from `src/rag/orchestrator.ts` runs before evaluation.
-
-### Indexing Pipeline
-
-1. **Function card construction** (`src/rag/indexer.ts`) — for each function/method symbol, builds a `FunctionCard` containing the signature, a `behavioralProfile` string, `keyConcepts[]`, `complexityScore`, and a body SHA-256 hash for cache invalidation.
-2. **Code embedding** (`src/rag/embeddings.ts`) — each card is embedded with a code-specific transformer model (Xenova local or Docker TEI). GPU availability is detected via `src/rag/hardware-detect.ts` to select the fastest backend.
-3. **Optional NLP dual embedding** (`src/rag/nlp-summarizer.ts`) — an LLM generates a natural-language summary of each function, which is embedded separately. At query time, results from both vectors are fused via `VectorStore.hybridSearch()`.
-4. **Database upsert** (`src/rag/vector-store.ts`) — cards are upserted into a LanceDB table at `.anatoly/rag/`. Unchanged cards (same `bodyHash`) are skipped.
-5. **Doc indexing** (`src/rag/doc-indexer.ts`) — Markdown sections from the project's `/docs/` directory are also embedded and stored, enabling the `documentation` axis to find the most relevant pages for each file.
-
-```typescript
-// src/rag/orchestrator.ts
-const ragResult = await indexProject({
-  projectRoot: '/home/user/myproject',
-  tasks,
-  config,
-  pipelineState,
-})
-// ragResult.vectorStore is passed downstream to file-evaluator.ts
-```
-
-At query time, the `duplication` axis calls `vectorStore.search(queryVector, 10)` or `vectorStore.hybridSearch(codeVec, nlpVec, config.rag.code_weight)` to retrieve `SimilarityResult[]` for each function being evaluated.
+Skipped files receive a synthetic `CLEAN` review immediately; no API call is made.
 
 ---
 
-## Stage 3 — Evaluation Phase
+## Stage 2 — Doc Bootstrap *(first run only)*
 
-This is the core of the pipeline. `evaluateFile()` from `src/core/file-evaluator.ts` is called for each non-skipped file. Files are processed concurrently up to `config.llm.concurrency` (default: 4).
+`src/core/doc-scaffolder.ts` creates the `.anatoly/docs/` directory structure on first invocation. `src/core/doc-llm-executor.ts` then generates each page via Claude Sonnet using `query()` from `@anthropic-ai/claude-agent-sdk`. The number of pages that fail to generate determines whether a second Review Pass is scheduled after Stage 5.
 
-### AxisContext Assembly
+---
 
-Before invoking any axis, `evaluateFile()` assembles an `AxisContext` object:
+## Stage 3 — RAG Indexing
+
+`indexProject()` from `src/rag/orchestrator.ts` runs four sequential sub-phases when `rag.enabled: true`:
+
+**Code phase** — `src/rag/indexer.ts · buildFunctionCards()` extracts each function's signature, cyclomatic complexity score (1–5), internal call list, and a body hash for cache invalidation. `src/rag/embeddings.ts · embedCodeBatch()` embeds cards with the code model:
+- Lite mode: `jinaai/jina-embeddings-v2-base-code` via `@xenova/transformers` (768 dimensions)
+- Advanced mode: `nomic-embed-code` via Docker GGUF container (3584 dimensions)
+
+GPU availability is auto-detected via `src/rag/hardware-detect.ts`.
+
+**NLP phase** *(dual embedding only)* — `src/rag/nlp-summarizer.ts · generateNlpSummaries()` calls Claude Haiku to produce natural-language summaries (cached in `nlp-summary-cache.json`). `embedNlpBatch()` embeds them:
+- Lite: `Xenova/all-MiniLM-L6-v2` (384 dimensions)
+- Advanced: `Qwen3-Embedding-8B` (4096 dimensions)
+
+**Upsert phase** — `src/rag/vector-store.ts · VectorStore.upsert()` writes rows into a LanceDB table at `.anatoly/rag/lancedb/`. IDs are 16-char hex strings from `buildFunctionId()`; paths are sanitised before SQL-like where clauses.
+
+**Doc phase** — `src/rag/doc-indexer.ts · indexDocSections()` embeds `.anatoly/docs/` markdown sections as `type: 'doc_section'` rows, enabling the `documentation` axis to retrieve relevant pages via vector search.
+
+---
+
+## Stage 4 — Review Phase
+
+`src/core/worker-pool.ts · runWorkerPool()` dispatches files to a concurrent worker pool (1–10 workers). For each non-skipped file, `src/core/file-evaluator.ts · evaluateFile()` runs:
+
+### 1. Context Assembly
 
 ```typescript
 interface AxisContext {
-  task: Task                        // file metadata & symbol list
-  fileContent: string               // raw source code
-  config: Config
-  projectRoot: string
-  usageGraph?: UsageGraph           // import/export graph (for utility axis)
-  preResolvedRag?: PreResolvedRagEntry[]  // RAG hits per function (for duplication axis)
-  fileDeps?: FileDependencyContext   // resolved runtime + type-only deps
-  projectTree?: string              // compact ASCII directory tree
-  testFileContent?: string          // co-located test file, if found
-  docsTree?: string | null          // project /docs/ outline
-  relevantDocs?: RelevantDoc[]      // most relevant doc pages (via RAG or convention)
-  conversationDir?: string          // path for transcript storage
-  semaphore?: Semaphore             // global LLM concurrency limiter
+  task: Task;
+  fileContent: string;
+  config: Config;
+  projectRoot: string;
+  usageGraph?: UsageGraph;
+  preResolvedRag?: PreResolvedRag;    // RAG hits pre-fetched per symbol
+  fileDeps?: FileDependencyContext;
+  projectTree?: string;
+  testFileContent?: string;
+  docsTree?: string | null;
+  relevantDocs?: RelevantDoc[];
+  conversationDir?: string;
+  semaphore?: Semaphore;
 }
 ```
 
-### The 7 Axes
+`src/core/docs-resolver.ts · resolveRelevantDocs()` calls `VectorStore.searchHybrid(codeVector, nlpVector, limit, codeWeight)` to retrieve the most semantically relevant documentation sections for the file's symbols.
 
-All seven axis evaluators implement the same interface: `evaluate(ctx: AxisContext, abort: AbortController): Promise<AxisResult>`. They run concurrently via `Promise.allSettled()`.
+### 2. Seven-Axis Parallel Evaluation
 
-| Axis | Module | What It Evaluates | Per-Symbol Verdict Values |
-|---|---|---|---|
-| `correction` | `axes/correction.ts` | Syntax errors, logic bugs, type errors | `OK` / `NEEDS_FIX` / `ERROR` |
-| `utility` | `axes/utility.ts` | Dead code, unused exports, low-value symbols | `USED` / `DEAD` / `LOW_VALUE` |
-| `duplication` | `axes/duplication.ts` | Near-duplicate functions across files (via RAG) | `UNIQUE` / `DUPLICATE` |
-| `overengineering` | `axes/overengineering.ts` | Excessive abstraction, unnecessary complexity | `LEAN` / `ACCEPTABLE` / `OVER` |
-| `tests` | `axes/tests.ts` | Test coverage quality | `GOOD` / `WEAK` / `NONE` |
-| `best_practices` | `axes/best-practices.ts` | Language-specific rules (17 rules per language) | `PASS` / `FAIL` per rule |
-| `documentation` | `axes/documentation.ts` | JSDoc coverage, concept-to-docs mapping | `DOCUMENTED` / `PARTIAL` / `UNDOCUMENTED` |
+All axes implement `evaluate(ctx: AxisContext, abort: AbortController): Promise<AxisResult>` and run concurrently via `Promise.allSettled()`:
 
-### LLM Invocation (`src/core/axis-evaluator.ts`)
+| Axis | Module | Model | What It Evaluates |
+|------|--------|-------|-------------------|
+| `utility` | `axes/utility.ts` | Haiku | Dead code, unused exports |
+| `duplication` | `axes/duplication.ts` | Haiku | Near-duplicate functions (via RAG) |
+| `overengineering` | `axes/overengineering.ts` | Haiku | Excessive abstraction |
+| `tests` | `axes/tests.ts` | Haiku | Test coverage quality |
+| `documentation` | `axes/documentation.ts` | Haiku | JSDoc coverage, concept-to-docs mapping |
+| `correction` | `axes/correction.ts` | Sonnet | Bugs, type errors, logic errors |
+| `best_practices` | `axes/best-practices.ts` | Sonnet | Language-specific rules |
 
-Each axis delegates to `runSingleTurnQuery()`, which:
+Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which invokes `query()` from `@anthropic-ai/claude-agent-sdk`, extracts JSON from the response, and validates it against an axis-specific Zod schema. A global `Semaphore` in `src/core/sdk-semaphore.ts` caps total in-flight SDK calls across all workers and axes.
 
-1. Selects the correct system prompt via `src/core/prompt-resolver.ts` — prompts cascade from framework-specific → language-specific → default.
-2. Constructs the user message by embedding the file content, symbol list, pre-computed context (usage graph, RAG hits, relevant docs, etc.).
-3. Calls `query()` from `@anthropic-ai/claude-agent-sdk` with the configured model.
-4. Extracts the JSON payload from the response using `extractJson()` (`src/utils/extract-json.ts`).
-5. Validates the result against the axis-specific Zod schema.
-6. Returns an `AxisResult` with verdicts, actions, token counts, cost, and duration.
+### 3. Result Merging (`src/core/axis-merger.ts`)
 
-A global `Semaphore` (capacity = `config.llm.sdk_concurrency`, default: 8) prevents unbounded concurrent SDK calls across all files and axes.
+`mergeAxisResults(task, axisResults[])` combines seven `AxisResult` objects into a single `ReviewFile`:
 
-### Result Merging (`src/core/axis-merger.ts`)
+- Per-symbol verdicts are merged field-by-field (each axis writes its own column).
+- Coherence rules are applied (e.g., `utility: DEAD` → `tests: NONE`).
+- Actions are de-duplicated, sorted by severity, and assigned sequential IDs.
+- File verdict: `CRITICAL` if any symbol has a high-confidence error; `NEEDS_REFACTOR` if any actionable issue exists; `CLEAN` otherwise.
 
-`mergeAxisResults(task, axisResults)` combines all seven `AxisResult` objects into a single `ReviewFile`:
+### 4. Optional Deliberation (`src/core/deliberation.ts`)
 
-- **Per-symbol verdicts** are merged field-by-field (each axis writes its own column).
-- **Coherence rules** are applied — for example, a symbol with `utility: 'DEAD'` automatically receives `tests: 'NONE'` (no point testing dead code).
-- **Actions** from all axes are de-duplicated, sorted by severity, and assigned sequential IDs.
-- **File verdict** is computed: `CRITICAL` if any symbol has `correction: 'ERROR'` with confidence ≥ 60; `NEEDS_REFACTOR` if any actionable issue exists with confidence ≥ 60; `CLEAN` otherwise.
-- **`axis_meta`** records per-axis cost, duration, model name, and token counts.
+When `llm.deliberation: true`, `applyDeliberation()` sends the merged `ReviewFile` to Claude Opus for a coherence review. Findings below 85% confidence may be reclassified. Results are stored in `ReviewFile.deliberation`.
 
-### Optional Deliberation (`src/core/deliberation.ts`)
+### 5. Output
 
-When `llm.deliberation: true`, the merged `ReviewFile` is sent to `deliberation_model` (default: `claude-opus-4-6`) for a final review pass. Opus may:
-
-- Reclassify borderline verdicts (e.g., lower confidence `DEAD` → `LOW_VALUE`).
-- Remove actions that don't apply after full context review.
-- Record reclassifications in `src/core/correction-memory.ts` so future runs can pre-calibrate.
-
-The deliberation pass produces a `DeliberationResult` embedded in the final `ReviewFile.deliberation` field.
-
-### Review Output (`src/core/review-writer.ts`)
-
-`writeReviewOutput()` atomically writes two files per evaluated source file:
-
-- `.anatoly/reviews/<file>.rev.json` — machine-readable `ReviewFile` (Zod-validated JSON, v2 schema)
-- `.anatoly/reviews/<file>.rev.md` — human-readable Markdown rendition
-
-`src/core/progress-manager.ts` updates the file's status from `IN_PROGRESS` → `DONE` (or `ERROR`) in `.anatoly/cache/progress.json` immediately after.
-
----
-
-## Stage 4 — Output Phase
-
-### Report Generation (`src/core/reporter.ts`)
-
-`generateReport(projectRoot)` aggregates all `.rev.json` files and produces the final report:
-
-1. **Load reviews** — reads every `ReviewFile` from `.anatoly/reviews/`.
-2. **Classify** — groups files into `clean`, `findings`, and `errors` buckets.
-3. **Count** — tallies issues per axis and per severity level.
-4. **Synthesize** — produces ranked, actionable recommendations.
-5. **Write** — emits `.anatoly/runs/<runId>/report.md`.
-
-The global verdict follows the same `CRITICAL` → `NEEDS_REFACTOR` → `CLEAN` hierarchy applied at the file level.
+`src/core/progress-manager.ts` atomically advances the file's status to `DONE` in `progress.json`. The final `ReviewFile` is written to `.anatoly/reviews/<file>.rev.json`.
 
 ```typescript
-// src/core/reporter.ts
-const { reportPath, data } = await generateReport('/home/user/myproject')
-// data.globalVerdict: 'NEEDS_REFACTOR'
-// data.fileCount: 42
-// data.criticalFiles: ['src/api/auth.ts']
-// data.actionCount: 17
+interface ReviewFile {
+  version: 1;
+  file: string;
+  verdict: 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL';
+  symbols: SymbolReview[];        // per-symbol verdict per axis
+  best_practices?: { score: number; rules: Rule[] };
+  actions: Action[];              // { id, description, severity, effort, category }
+  axis_meta: Record<string, { calls: number; totalCostUsd: number; inputTokens: number; outputTokens: number }>;
+  docs_coverage?: { target_lines: number; covered_lines: number };
+  degraded?: boolean;             // true if any axis threw
+}
 ```
-
-### Badge Injection
-
-If `badge.enabled: true`, the pipeline injects an SVG audit badge into the project's `README.md` reflecting the global verdict (`CLEAN` / `NEEDS_REFACTOR` / `CRITICAL`).
 
 ---
 
-## Artifact Layout
+## Stage 5 & 6 — Doc Update and Report
 
-All pipeline state is contained within `.anatoly/` at the project root:
+`src/core/doc-pipeline.ts · runDocGeneration()` regenerates only `.anatoly/docs/` pages whose source files changed (checked via task hash vs. doc-cache entries).
 
-```
-.anatoly/
-├── cache/
-│   ├── progress.json        # FileStatus per path (PENDING / IN_PROGRESS / DONE / ERROR)
-│   └── rag-code.cache       # Code embedding cache (bodyHash → vector)
-├── tasks/
-│   └── src/api/router.ts.task.json   # Task (scanned metadata per file)
-├── reviews/
-│   ├── src/api/router.ts.rev.json    # ReviewFile v2 (machine-readable)
-│   └── src/api/router.ts.rev.md      # Rendered review (human-readable)
-├── logs/
-│   └── src/api/router.ts/            # Per-axis LLM transcripts
-├── rag/
-│   └── (LanceDB tables)              # Vector store (code + NLP embeddings)
-└── runs/
-    └── 20260322-143201/
-        └── report.md                 # Final aggregated audit report
-```
+<!-- Note: docs may be outdated — verified against source. The report output is report.html, not report.md as referenced in some earlier documentation versions. -->
+
+`src/core/reporter.ts · generateReport()` reads all `.rev.json` files, aggregates findings by severity and axis, and writes `report.html` into the run directory. `src/core/badge.ts · injectBadge()` optionally updates `README.md` with an audit badge reflecting the global `CLEAN / NEEDS_REFACTOR / CRITICAL` verdict.
 
 ---
 
 ## Concurrency Model
 
-Two independent concurrency controls prevent resource exhaustion:
+Two independent limits prevent resource exhaustion:
 
 | Setting | Config Key | Default | Controls |
-|---|---|---|---|
-| **File concurrency** | `llm.concurrency` | `4` | Number of files evaluated in parallel |
-| **SDK concurrency** | `llm.sdk_concurrency` | `8` | Max simultaneous in-flight Claude API calls (global semaphore across all files × axes) |
+|---------|------------|---------|----------|
+| File concurrency | `llm.concurrency` | `4` | Files evaluated in parallel |
+| SDK concurrency | `llm.sdk_concurrency` | `8` | Max in-flight Claude API calls (global, across all files × axes) |
 
-Within a single file, all 7 axes are dispatched with `Promise.allSettled()` — a failure in one axis never blocks the others.
+Each in-flight call is paired with an `AbortController` stored in `RunContext.activeAborts`. On `SIGINT`, all controllers are triggered and Docker containers are stopped before process exit.
+
+---
+
+## Artifact Layout
+
+```
+.anatoly/
+├── cache/
+│   └── progress.json             # PENDING / IN_PROGRESS / DONE / ERROR per file
+├── tasks/
+│   └── src/api/router.ts.task.json
+├── reviews/
+│   └── src/api/router.ts.rev.json
+├── rag/
+│   ├── lancedb/                  # LanceDB vector tables
+│   ├── rag-cache.json            # Code embedding cache (file hash → indexed)
+│   └── nlp-summary-cache.json    # NLP summary cache (bodyHash → summary)
+├── docs/                         # Generated internal documentation
+└── <runId>/
+    ├── report.html               # Aggregated audit report
+    ├── report-index.json
+    ├── run-config.json
+    ├── run-metrics.json
+    ├── anatoly.ndjson            # Pino structured log
+    ├── reviews/                  # Snapshot of .rev.json for this run
+    └── conversations/            # Raw LLM I/O transcripts
+```
 
 ---
 
@@ -304,19 +291,19 @@ Within a single file, all 7 axes are dispatched with `Promise.allSettled()` — 
 
 ```typescript
 import { scanProject } from './src/core/scanner.js'
-import { loadConfig } from './src/utils/config-loader.js'
+import { loadConfig }  from './src/utils/config-loader.js'
 
 const projectRoot = process.cwd()
 const config = loadConfig(projectRoot)
 
 const { tasks, skippedCount } = await scanProject(projectRoot, config)
 
-const example = tasks.find(t => t.file === 'src/api/router.ts')!
-console.log(example)
+const task = tasks.find(t => t.file === 'src/api/router.ts')!
+console.log(task)
 // {
 //   version: 1,
 //   file: 'src/api/router.ts',
-//   hash: 'a3f9b12c...',
+//   hash: 'f3a9b12c...',
 //   symbols: [
 //     { name: 'createRouter', kind: 'function', exported: true, line_start: 12, line_end: 78 },
 //     { name: 'RouteHandler', kind: 'type',     exported: true, line_start:  8, line_end:  9 }
@@ -328,75 +315,57 @@ console.log(example)
 // }
 ```
 
-### Evaluating a single file programmatically
+### Running RAG indexing and querying similar functions
 
 ```typescript
-import { evaluateFile } from './src/core/file-evaluator.js'
-import { buildUsageGraph } from './src/core/usage-graph.js'
-import { loadConfig } from './src/utils/config-loader.js'
-import { loadTasks } from './src/utils/cache.js'
+import { indexProject }  from './src/rag/orchestrator.js'
+import { loadConfig }    from './src/utils/config-loader.js'
+import { scanProject }   from './src/core/scanner.js'
 
 const projectRoot = process.cwd()
 const config = loadConfig(projectRoot)
-const tasks = loadTasks(projectRoot)
-const usageGraph = buildUsageGraph(tasks, projectRoot)
+const { tasks } = await scanProject(projectRoot, config)
 
-const result = await evaluateFile({
-  task: tasks.find(t => t.file === 'src/api/router.ts')!,
-  projectRoot,
-  config,
-  usageGraph,
-  vectorStore: undefined, // pass VectorStore instance when RAG is enabled
-})
+const { vectorStore } = await indexProject({ projectRoot, tasks, config })
 
-console.log(result.review.verdict)           // 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL'
-console.log(result.review.symbols[0].utility) // 'USED' | 'DEAD' | 'LOW_VALUE'
-console.log(result.review.actions)            // Action[]
+// Find functions semantically similar to a query vector
+const results = await vectorStore.searchHybrid(codeEmbedding, nlpEmbedding, 10, 0.7)
+for (const { card, score } of results) {
+  console.log(`${card.name} (${card.filePath}) — score: ${score.toFixed(3)}`)
+}
 ```
 
-### Reading the merged ReviewFile from disk
+### Reading a `ReviewFile` from disk
 
 ```typescript
-import { readFileSync } from 'node:fs'
+import { readFileSync }   from 'node:fs'
 import { ReviewFileSchema } from './src/schemas/review.js'
 
-const raw = readFileSync('.anatoly/reviews/src/api/router.ts.rev.json', 'utf8')
+const raw    = readFileSync('.anatoly/reviews/src/api/router.ts.rev.json', 'utf8')
 const review = ReviewFileSchema.parse(JSON.parse(raw))
+
+console.log(review.verdict) // 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL'
 
 for (const sym of review.symbols) {
   if (sym.utility === 'DEAD') {
-    console.log(`Dead code: ${sym.name} (line ${sym.line_start})`)
+    console.log(`Dead export: ${sym.name} at line ${sym.line_start}`)
   }
   if (sym.duplication === 'DUPLICATE' && sym.duplicate_target) {
     console.log(`Duplicate of ${sym.duplicate_target.symbol} in ${sym.duplicate_target.file}`)
   }
 }
-```
 
-### Running the full pipeline from Node
-
-```typescript
-import { run } from './src/commands/run.js'
-
-await run({
-  projectRoot: '/home/user/myproject',
-  configPath: '.anatoly.yml',
-  rag: true,
-  deliberation: true,
-  concurrency: 4,
-})
-// Writes: .anatoly/reviews/**/*.rev.json
-//         .anatoly/runs/<id>/report.md
-//         README.md (badge)
+for (const action of review.actions) {
+  console.log(`[${action.severity}] ${action.description}`)
+}
 ```
 
 ---
 
 ## See Also
 
-- [Architecture Overview](./01-Overview.md) — high-level component map and design principles.
-- [Module Inventory](./02-Module-Inventory.md) — full reference for every module in `src/`.
-- [RAG System](../03-Core-Concepts/04-RAG-System.md) — deep dive into vector indexing and hybrid search.
-- [Evaluation Axes](../03-Core-Concepts/02-Evaluation-Axes.md) — per-axis prompt design, verdict semantics, and coherence rules.
+- [Architecture Overview](./01-Pipeline-Overview.md) — component map and design principles.
+- [Seven-Axis System](./02-Seven-Axis-System.md) — per-axis prompt design, verdict semantics, and coherence rules.
+- [RAG Engine](./03-RAG-Engine.md) — embedding models, LanceDB schema, and hybrid search internals.
+- [Deliberation Pass](./05-Deliberation-Pass.md) — Opus coherence review and confidence reclassification.
 - [Configuration Reference](../04-Reference/01-Configuration.md) — all `.anatoly.yml` keys with defaults.
-- [State & Caching](../04-Reference/03-State-and-Caching.md) — `progress.json` schema and cache invalidation logic.
