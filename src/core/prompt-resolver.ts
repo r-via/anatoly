@@ -35,6 +35,7 @@ import deliberationPrompt from '../prompts/deliberation/deliberation.system.md';
 import docWriterPrompt from '../prompts/doc-generation/doc-writer.system.md';
 import docWriterArchPrompt from '../prompts/doc-generation/doc-writer.architecture.system.md';
 import docWriterApiPrompt from '../prompts/doc-generation/doc-writer.api-reference.system.md';
+import docStructureReviewPrompt from '../prompts/doc-generation/doc-structure-review.system.md';
 import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
@@ -93,6 +94,7 @@ function registerDefaults(): void {
   register('doc-generation', docWriterPrompt);
   register('doc-generation.architecture', docWriterArchPrompt);
   register('doc-generation.api-reference', docWriterApiPrompt);
+  register('doc-generation.structure-review', docStructureReviewPrompt);
 
   // --- RAG ---
   register('rag.section-refiner', sectionRefinerPrompt);
