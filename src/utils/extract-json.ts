@@ -13,9 +13,24 @@ export function extractJson(text: string): string | null {
     return fenceMatch[1].trim();
   }
 
-  // Find the first { and track brace nesting to find its matching }
-  const start = text.indexOf('{');
-  if (start === -1) return null;
+  // Find the first { or [ and track nesting to find its matching closer
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
+
+  let start: number;
+  let open: string;
+  let close: string;
+
+  if (objStart === -1 && arrStart === -1) return null;
+  if (arrStart === -1 || (objStart !== -1 && objStart < arrStart)) {
+    start = objStart;
+    open = '{';
+    close = '}';
+  } else {
+    start = arrStart;
+    open = '[';
+    close = ']';
+  }
 
   let depth = 0;
   let inString = false;
@@ -41,8 +56,8 @@ export function extractJson(text: string): string | null {
 
     if (inString) continue;
 
-    if (ch === '{') depth++;
-    else if (ch === '}') {
+    if (ch === open) depth++;
+    else if (ch === close) {
       depth--;
       if (depth === 0) {
         return text.slice(start, i + 1);

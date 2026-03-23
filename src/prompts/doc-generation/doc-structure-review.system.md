@@ -21,7 +21,7 @@ Your job is to review and fix structural issues, then return the corrected files
 ## Output format
 
 Return a JSON array of file corrections. Each entry is an object with:
-- `path`: the relative file path (e.g. `index.md`, `05-Modules/core.md`)
+- `path`: the relative file path (e.g. `index.md`, `05-Modules/01-core.md`)
 - `content`: the full corrected file content
 
 Only include files that need changes. If no files need changes, return an empty array `[]`.

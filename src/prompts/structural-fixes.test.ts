@@ -103,7 +103,7 @@ describe('Story 34.2 — guard-rails.system.md exists and is registered', () => 
 
   it('registry contains 37 entries', () => {
     const keys = _getRegistryKeys();
-    expect(keys.length).toBe(37);
+    expect(keys.length).toBe(38);
   });
 });
 

@@ -154,7 +154,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains exactly 37 entries after reset', () => {
+  it('registry contains exactly 38 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -162,7 +162,7 @@ describe('universal registry — new domain keys', () => {
       'documentation.bash', 'documentation.python', 'documentation.rust', 'documentation.go',
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
-      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference',
+      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.structure-review',
       'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
     ];
     for (const key of expectedKeys) {
@@ -198,7 +198,11 @@ describe('Story 33.4 — registry coherence', () => {
       return 'deliberation/deliberation.system.md';
     }
     // doc-generation → doc-generation/doc-writer.system.md
-    // doc-generation.X → doc-generation/doc-writer.X.system.md
+    // doc-generation.X → doc-generation/doc-writer.X.system.md (for doc-writer variants)
+    // doc-generation.structure-review → doc-generation/doc-structure-review.system.md (standalone)
+    if (key === 'doc-generation.structure-review') {
+      return 'doc-generation/doc-structure-review.system.md';
+    }
     if (key.startsWith('doc-generation')) {
       const variant = key.replace('doc-generation', '').replace(/^\./, '');
       return variant
@@ -283,6 +287,7 @@ describe('Story 33.4 — registry coherence', () => {
         "doc-generation",
         "doc-generation.api-reference",
         "doc-generation.architecture",
+        "doc-generation.structure-review",
         "documentation",
         "documentation.bash",
         "documentation.csharp",

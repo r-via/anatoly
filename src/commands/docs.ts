@@ -118,36 +118,7 @@ export function registerDocsCommand(program: Command): void {
       let completed = 0;
       const total = genResult.prompts.length;
 
-      const executor: DocExecutor = async ({ system, user, model }) => {
-        const q = query({
-          prompt: user,
-          options: {
-            systemPrompt: system,
-            model,
-            cwd: projectRoot,
-            allowedTools: [],
-            permissionMode: 'bypassPermissions' as const,
-            allowDangerouslySkipPermissions: true,
-          },
-        });
-
-        let resultText = '';
-        let costUsd = 0;
-
-        for await (const message of q) {
-          if (message.type === 'result') {
-            if (message.subtype === 'success') {
-              resultText = (message as { result: string }).result;
-              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-            } else {
-              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
-            }
-          }
-        }
-
-        return { text: resultText, costUsd };
-      };
+      const executor = createDocExecutor(projectRoot);
 
       const result = await executeDocPrompts({
         prompts: genResult.prompts,
@@ -171,6 +142,20 @@ export function registerDocsCommand(program: Command): void {
       console.log(`  ${chalk.green('✓')} internal docs rebuilt — ${summary}`);
       if (result.totalCostUsd > 0) {
         console.log(`  cost: $${result.totalCostUsd.toFixed(4)}`);
+      }
+
+      // Structure review pass
+      console.log(`  reviewing structure via Opus...`);
+      try {
+        const reviewResult = await reviewDocStructure(scaffoldResult.outputDir, projectRoot, docsPath, executor);
+        if (reviewResult.filesFixed > 0) {
+          console.log(`  ${chalk.green('✓')} fixed ${reviewResult.filesFixed} structural issues`);
+        }
+        if (reviewResult.costUsd > 0) {
+          console.log(`  review cost: $${reviewResult.costUsd.toFixed(4)}`);
+        }
+      } catch {
+        console.log(`  ${chalk.yellow('⚠')} structure review skipped (LLM error)`);
       }
     });
 
@@ -198,36 +183,7 @@ export function registerDocsCommand(program: Command): void {
 
       console.log(`  ${chalk.yellow('●')} Structure review ${chalk.dim('(opus)')}`);
 
-      const executor: DocExecutor = async ({ system, user, model }) => {
-        const q = query({
-          prompt: user,
-          options: {
-            systemPrompt: system,
-            model,
-            cwd: projectRoot,
-            allowedTools: [],
-            permissionMode: 'bypassPermissions' as const,
-            allowDangerouslySkipPermissions: true,
-          },
-        });
-
-        let resultText = '';
-        let costUsd = 0;
-
-        for await (const message of q) {
-          if (message.type === 'result') {
-            if (message.subtype === 'success') {
-              resultText = (message as { result: string }).result;
-              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-            } else {
-              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
-            }
-          }
-        }
-
-        return { text: resultText, costUsd };
-      };
+      const executor = createDocExecutor(projectRoot);
 
       try {
         const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor, {
