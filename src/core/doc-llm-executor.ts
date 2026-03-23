@@ -11,7 +11,7 @@
  */
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
@@ -129,8 +129,17 @@ async function executeOnePage(
 // --- Structure review pass ---
 
 export interface DocStructureReviewResult {
+  filesScanned: number;
   filesFixed: number;
+  fixedPaths: string[];
   costUsd: number;
+}
+
+export interface DocStructureReviewCallbacks {
+  onCollected?: (fileCount: number, totalSizeKb: number) => void;
+  onLlmStart?: () => void;
+  onLlmDone?: (durationMs: number) => void;
+  onFileFixed?: (path: string) => void;
 }
 
 /**
@@ -142,9 +151,13 @@ export async function reviewDocStructure(
   projectRoot: string,
   docsPath: string,
   executor: DocExecutor,
+  callbacks?: DocStructureReviewCallbacks,
 ): Promise<DocStructureReviewResult> {
   const files = collectMarkdownFiles(outputDir);
-  if (files.length === 0) return { filesFixed: 0, costUsd: 0 };
+  if (files.length === 0) return { filesScanned: 0, filesFixed: 0, fixedPaths: [], costUsd: 0 };
+
+  const totalSize = files.reduce((sum, f) => sum + f.content.length, 0);
+  callbacks?.onCollected?.(files.length, Math.round(totalSize / 1024));
 
   // Build the user message with all file contents
   const parts: string[] = [`# Documentation files (${files.length} total)\n`];
@@ -153,36 +166,46 @@ export async function reviewDocStructure(
     parts.push(`## FILE: ${relPath}\n\`\`\`markdown\n${file.content}\n\`\`\`\n`);
   }
 
+  callbacks?.onLlmStart?.();
+  const llmStart = Date.now();
+
   const system = resolveSystemPrompt('doc-generation.structure-review');
   const result = await executor({ system, user: parts.join('\n'), model: 'opus' });
 
+  callbacks?.onLlmDone?.(Date.now() - llmStart);
+
   // Parse corrections from JSON response
   const jsonStr = extractJson(result.text);
-  if (!jsonStr) return { filesFixed: 0, costUsd: result.costUsd };
+  if (!jsonStr) return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
 
   let corrections: Array<{ path: string; content: string }>;
   try {
     corrections = JSON.parse(jsonStr) as Array<{ path: string; content: string }>;
   } catch {
-    return { filesFixed: 0, costUsd: result.costUsd };
+    return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
   }
 
   if (!Array.isArray(corrections) || corrections.length === 0) {
-    return { filesFixed: 0, costUsd: result.costUsd };
+    return { filesScanned: files.length, filesFixed: 0, fixedPaths: [], costUsd: result.costUsd };
   }
 
   // Apply corrections
-  let filesFixed = 0;
+  const fixedPaths: string[] = [];
+  const resolvedOutputDir = resolve(outputDir);
   for (const fix of corrections) {
     if (!fix.path || typeof fix.content !== 'string') continue;
     const fullPath = join(outputDir, fix.path);
+    const resolvedFull = resolve(fullPath);
+    // Confine writes to outputDir — reject path traversal (e.g. "../../.bashrc")
+    if (!resolvedFull.startsWith(resolvedOutputDir + sep) && resolvedFull !== resolvedOutputDir) continue;
     assertSafeOutputPath(fullPath, projectRoot, docsPath);
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, fix.content, 'utf-8');
-    filesFixed++;
+    fixedPaths.push(fix.path);
+    callbacks?.onFileFixed?.(fix.path);
   }
 
-  return { filesFixed, costUsd: result.costUsd };
+  return { filesScanned: files.length, filesFixed: fixedPaths.length, fixedPaths, costUsd: result.costUsd };
 }
 
 function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: string }> {

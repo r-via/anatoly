@@ -15,6 +15,39 @@ import { executeDocPrompts, reviewDocStructure, type DocExecutor } from '../core
 import { Semaphore } from '../core/sdk-semaphore.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+function createDocExecutor(projectRoot: string): DocExecutor {
+  return async ({ system, user, model }) => {
+    const q = query({
+      prompt: user,
+      options: {
+        systemPrompt: system,
+        model,
+        cwd: projectRoot,
+        allowedTools: [],
+        permissionMode: 'bypassPermissions' as const,
+        allowDangerouslySkipPermissions: true,
+      },
+    });
+
+    let resultText = '';
+    let costUsd = 0;
+
+    for await (const message of q) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          resultText = (message as { result: string }).result;
+          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        } else {
+          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+          throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+        }
+      }
+    }
+
+    return { text: resultText, costUsd };
+  };
+}
+
 export function registerDocsCommand(program: Command): void {
   const docs = program
     .command('docs')
@@ -163,7 +196,7 @@ export function registerDocsCommand(program: Command): void {
       const config = loadConfig(projectRoot);
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
-      console.log(`  reviewing ${chalk.bold('.anatoly/docs/')} structure via Opus...`);
+      console.log(`  ${chalk.yellow('●')} Structure review ${chalk.dim('(opus)')}`);
 
       const executor: DocExecutor = async ({ system, user, model }) => {
         const q = query({
@@ -197,18 +230,33 @@ export function registerDocsCommand(program: Command): void {
       };
 
       try {
-        const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor);
+        const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor, {
+          onCollected: (fileCount, sizeKb) => {
+            console.log(`    ${chalk.dim('collected')} ${fileCount} files (${sizeKb} KB)`);
+          },
+          onLlmStart: () => {
+            console.log(`    ${chalk.dim('sending to Opus for analysis...')}`);
+          },
+          onLlmDone: (durationMs) => {
+            const secs = (durationMs / 1000).toFixed(1);
+            console.log(`    ${chalk.dim(`analysis complete (${secs}s)`)}`);
+          },
+          onFileFixed: (path) => {
+            console.log(`    ${chalk.yellow('fixed')} ${path}`);
+          },
+        });
 
         if (result.filesFixed === 0) {
-          console.log(`  ${chalk.green('✓')} no structural issues found`);
+          console.log(`  ${chalk.green('✓')} Structure review — no issues across ${result.filesScanned} files`);
         } else {
-          console.log(`  ${chalk.green('✓')} fixed ${result.filesFixed} files`);
+          console.log(`  ${chalk.green('✓')} Structure review — fixed ${result.filesFixed}/${result.filesScanned} files`);
         }
         if (result.costUsd > 0) {
-          console.log(`  cost: $${result.costUsd.toFixed(4)}`);
+          console.log(`    ${chalk.dim(`cost: $${result.costUsd.toFixed(4)}`)}`);
         }
       } catch (err) {
-        console.error(chalk.red(`  review failed: ${err instanceof Error ? err.message : String(err)}`));
+        console.log(`  ${chalk.red('×')} Structure review — failed`);
+        console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);
         process.exitCode = 1;
       }
     });
