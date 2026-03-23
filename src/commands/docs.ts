@@ -160,7 +160,7 @@ export function registerDocsCommand(program: Command): void {
     });
 
   docs
-    .command('review-internal')
+    .command('lint')
     .description('Lint .anatoly/docs/ structure (fix preamble, fences, check index, links)')
     .action(() => {
       const projectRoot = process.cwd();
