@@ -15,8 +15,6 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
-import { resolveSystemPrompt } from './prompt-resolver.js';
-import { extractJson } from '../utils/extract-json.js';
 
 // --- Public interfaces ---
 
@@ -126,168 +124,228 @@ async function executeOnePage(
   }
 }
 
-// --- Structure review pass ---
+// --- Structure review pass (deterministic) ---
 
 export interface DocStructureReviewResult {
   filesScanned: number;
   filesFixed: number;
   fixedPaths: string[];
+  issues: StructureIssue[];
   costUsd: number;
+}
+
+export interface StructureIssue {
+  path: string;
+  rule: string;
+  detail: string;
+  fixed: boolean;
 }
 
 export interface DocStructureReviewCallbacks {
   onCollected?: (fileCount: number, totalSizeKb: number) => void;
-  onLlmStart?: () => void;
-  onLlmDone?: (durationMs: number) => void;
-  onFileFixed?: (path: string) => void;
+  onCheck?: (rule: string, issueCount: number) => void;
+  onFileFixed?: (path: string, rule: string) => void;
 }
 
 export interface DocStructureReviewOptions {
   callbacks?: DocStructureReviewCallbacks;
-  /** Directory to write the full conversation log and action summary. */
   logDir?: string;
 }
 
 /**
- * Reads all .md files in outputDir, sends them to Opus for structural review,
- * and overwrites any files that need fixes. Single LLM call.
+ * Deterministic structure linter for .anatoly/docs/.
+ * No LLM call — all checks are regex/filesystem-based.
  */
-export async function reviewDocStructure(
+export function reviewDocStructure(
   outputDir: string,
   projectRoot: string,
   docsPath: string,
-  executor: DocExecutor,
+  _executor?: DocExecutor, // kept for API compat, unused
   optionsOrCallbacks?: DocStructureReviewOptions | DocStructureReviewCallbacks,
-): Promise<DocStructureReviewResult> {
-  // Accept both { callbacks, logDir } and bare callbacks for backwards compat
+): DocStructureReviewResult {
   const opts: DocStructureReviewOptions =
-    optionsOrCallbacks && ('onCollected' in optionsOrCallbacks || 'onLlmStart' in optionsOrCallbacks || 'onLlmDone' in optionsOrCallbacks || 'onFileFixed' in optionsOrCallbacks)
+    optionsOrCallbacks && ('onCollected' in optionsOrCallbacks || 'onCheck' in optionsOrCallbacks || 'onFileFixed' in optionsOrCallbacks)
       ? { callbacks: optionsOrCallbacks as DocStructureReviewCallbacks }
       : (optionsOrCallbacks as DocStructureReviewOptions) ?? {};
   const { callbacks, logDir } = opts;
 
   const files = collectMarkdownFiles(outputDir);
-  if (files.length === 0) return { filesScanned: 0, filesFixed: 0, fixedPaths: [], costUsd: 0 };
+  if (files.length === 0) return { filesScanned: 0, filesFixed: 0, fixedPaths: [], issues: [], costUsd: 0 };
 
   const totalSize = files.reduce((sum, f) => sum + f.content.length, 0);
   callbacks?.onCollected?.(files.length, Math.round(totalSize / 1024));
 
-  // Build the user message with all file contents
-  const userParts: string[] = [`# Documentation files (${files.length} total)\n`];
-  for (const file of files) {
-    const relPath = relative(outputDir, file.fullPath);
-    userParts.push(`## FILE: ${relPath}\n\`\`\`markdown\n${file.content}\n\`\`\`\n`);
+  const fileMap = new Map<string, { fullPath: string; content: string }>();
+  for (const f of files) {
+    fileMap.set(relative(outputDir, f.fullPath), f);
   }
-  const userMessage = userParts.join('\n');
+  const allPaths = new Set(fileMap.keys());
 
-  callbacks?.onLlmStart?.();
-  const llmStart = Date.now();
-  const timestamp = new Date().toISOString();
+  const issues: StructureIssue[] = [];
+  const modified = new Map<string, string>(); // relPath → new content
 
-  const system = resolveSystemPrompt('doc-generation.structure-review');
-  const result = await executor({ system, user: userMessage, model: 'opus' });
-
-  const durationMs = Date.now() - llmStart;
-  callbacks?.onLlmDone?.(durationMs);
-
-  // Parse corrections from JSON response
-  const jsonStr = extractJson(result.text);
-
-  let corrections: Array<{ path: string; content: string }> = [];
-  if (jsonStr) {
-    try {
-      const parsed = JSON.parse(jsonStr) as unknown;
-      if (Array.isArray(parsed)) corrections = parsed as Array<{ path: string; content: string }>;
-    } catch {
-      // leave corrections empty
+  // --- Check 1: LLM preamble ---
+  for (const [relPath, file] of fileMap) {
+    const headingIdx = file.content.search(/^# /m);
+    if (headingIdx > 0) {
+      const preamble = file.content.slice(0, headingIdx).trim();
+      if (preamble.length > 0) {
+        const fixed = file.content.slice(headingIdx);
+        modified.set(relPath, fixed);
+        issues.push({ path: relPath, rule: 'preamble', detail: `removed ${preamble.length} chars before heading`, fixed: true });
+      }
     }
   }
+  callbacks?.onCheck?.('preamble', issues.filter(i => i.rule === 'preamble').length);
 
-  // Apply corrections
+  // --- Check 2: Wrapping markdown fences ---
+  const fenceBefore = issues.length;
+  for (const [relPath, file] of fileMap) {
+    const content = modified.get(relPath) ?? file.content;
+    const fenceRe = /^```(?:markdown|md)\s*\n([\s\S]*?)\n```\s*$/;
+    const match = content.match(fenceRe);
+    if (match) {
+      modified.set(relPath, match[1]);
+      issues.push({ path: relPath, rule: 'wrapping-fence', detail: 'removed wrapping ```markdown fence', fixed: true });
+    }
+  }
+  callbacks?.onCheck?.('wrapping-fence', issues.length - fenceBefore);
+
+  // --- Check 3: Heading hierarchy (exactly one h1, no skipped levels) ---
+  const headingBefore = issues.length;
+  for (const [relPath, file] of fileMap) {
+    const content = modified.get(relPath) ?? file.content;
+    const headings = [...content.matchAll(/^(#{1,6}) /gm)].map(m => m[1].length);
+    const h1Count = headings.filter(h => h === 1).length;
+    if (h1Count === 0) {
+      issues.push({ path: relPath, rule: 'heading-hierarchy', detail: 'missing h1 heading', fixed: false });
+    } else if (h1Count > 1) {
+      issues.push({ path: relPath, rule: 'heading-hierarchy', detail: `${h1Count} h1 headings (expected 1)`, fixed: false });
+    }
+  }
+  callbacks?.onCheck?.('heading-hierarchy', issues.length - headingBefore);
+
+  // --- Check 4: File numbering gaps within directories ---
+  const numberBefore = issues.length;
+  const dirs = new Map<string, string[]>();
+  for (const relPath of allPaths) {
+    if (relPath === 'index.md' || relPath === '.cache.json') continue;
+    const parts = relPath.split('/');
+    if (parts.length === 2) {
+      const dir = parts[0];
+      const existing = dirs.get(dir) ?? [];
+      existing.push(parts[1]);
+      dirs.set(dir, existing);
+    }
+  }
+  for (const [dir, filesInDir] of dirs) {
+    const numbered = filesInDir
+      .map(f => ({ file: f, num: parseInt(f.match(/^(\d+)-/)?.[1] ?? '', 10) }))
+      .filter(f => !isNaN(f.num))
+      .sort((a, b) => a.num - b.num);
+    for (let i = 0; i < numbered.length; i++) {
+      const expected = i + 1;
+      if (numbered[i].num !== expected) {
+        issues.push({ path: `${dir}/${numbered[i].file}`, rule: 'numbering-gap', detail: `numbered ${String(numbered[i].num).padStart(2, '0')} but expected ${String(expected).padStart(2, '0')}`, fixed: false });
+      }
+    }
+  }
+  callbacks?.onCheck?.('numbering-gap', issues.length - numberBefore);
+
+  // --- Check 5: Index completeness and orphans ---
+  const indexBefore = issues.length;
+  const indexFile = fileMap.get('index.md');
+  if (indexFile) {
+    const indexContent = modified.get('index.md') ?? indexFile.content;
+    const linkedPaths = new Set([...indexContent.matchAll(/\[.*?\]\((.*?\.md)\)/g)].map(m => m[1]));
+    // Missing from index
+    for (const relPath of allPaths) {
+      if (relPath === 'index.md' || relPath === '.cache.json') continue;
+      if (!linkedPaths.has(relPath)) {
+        issues.push({ path: 'index.md', rule: 'index-missing', detail: `${relPath} not linked in index`, fixed: false });
+      }
+    }
+    // Orphan links in index
+    for (const linked of linkedPaths) {
+      if (!allPaths.has(linked)) {
+        issues.push({ path: 'index.md', rule: 'index-orphan', detail: `links to ${linked} which does not exist`, fixed: false });
+      }
+    }
+  }
+  callbacks?.onCheck?.('index', issues.length - indexBefore);
+
+  // --- Check 6: Broken internal links ---
+  const linksBefore = issues.length;
+  for (const [relPath, file] of fileMap) {
+    const content = modified.get(relPath) ?? file.content;
+    const dir = relPath.includes('/') ? relPath.split('/').slice(0, -1).join('/') : '';
+    const links = [...content.matchAll(/\[.*?\]\((\.\.?\/.*?\.md|[a-zA-Z].*?\.md)\)/g)];
+    for (const link of links) {
+      const target = link[1];
+      // Resolve relative path
+      const resolved = dir ? join(dir, target).split('\\').join('/') : target;
+      const normalized = resolved.replace(/^\.\//, '');
+      if (!allPaths.has(normalized)) {
+        issues.push({ path: relPath, rule: 'broken-link', detail: `links to ${target} (resolved: ${normalized}) — file not found`, fixed: false });
+      }
+    }
+  }
+  callbacks?.onCheck?.('broken-link', issues.length - linksBefore);
+
+  // --- Check 7: Index section ordering ---
+  const orderBefore = issues.length;
+  if (indexFile) {
+    const indexContent = modified.get('index.md') ?? indexFile.content;
+    const sectionNumbers = [...indexContent.matchAll(/^## (\d+)\./gm)].map(m => parseInt(m[1], 10));
+    for (let i = 1; i < sectionNumbers.length; i++) {
+      if (sectionNumbers[i] < sectionNumbers[i - 1]) {
+        issues.push({ path: 'index.md', rule: 'index-order', detail: `section ${sectionNumbers[i]} appears after section ${sectionNumbers[i - 1]}`, fixed: false });
+      }
+    }
+  }
+  callbacks?.onCheck?.('index-order', issues.length - orderBefore);
+
+  // Apply auto-fixable changes
   const fixedPaths: string[] = [];
   const resolvedOutputDir = resolve(outputDir);
-  for (const fix of corrections) {
-    if (!fix.path || typeof fix.content !== 'string') continue;
-    const fullPath = join(outputDir, fix.path);
+  for (const [relPath, newContent] of modified) {
+    const fullPath = join(outputDir, relPath);
     const resolvedFull = resolve(fullPath);
     if (!resolvedFull.startsWith(resolvedOutputDir + sep) && resolvedFull !== resolvedOutputDir) continue;
     assertSafeOutputPath(fullPath, projectRoot, docsPath);
-    mkdirSync(dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, fix.content, 'utf-8');
-    fixedPaths.push(fix.path);
-    callbacks?.onFileFixed?.(fix.path);
+    writeFileSync(fullPath, newContent, 'utf-8');
+    fixedPaths.push(relPath);
+    for (const issue of issues.filter(i => i.path === relPath && i.fixed)) {
+      callbacks?.onFileFixed?.(relPath, issue.rule);
+    }
   }
 
   const reviewResult: DocStructureReviewResult = {
     filesScanned: files.length,
     filesFixed: fixedPaths.length,
     fixedPaths,
-    costUsd: result.costUsd,
+    issues,
+    costUsd: 0,
   };
 
-  // Write conversation log
+  // Write log
   if (logDir) {
     mkdirSync(logDir, { recursive: true });
-
-    // Full conversation (system + user + assistant)
-    const convoLines: string[] = [
-      `# Conversation: structure-review`,
-      '',
-      '| Field | Value |',
-      '|-------|-------|',
-      `| Model | opus |`,
-      `| Timestamp | ${timestamp} |`,
-      `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
-      `| Cost | $${result.costUsd.toFixed(4)} |`,
-      `| Files scanned | ${files.length} |`,
-      `| Files fixed | ${fixedPaths.length} |`,
-      '',
-      '---',
-      '',
-      '## System',
-      '',
-      system,
-      '',
-      '---',
-      '',
-      '## User',
-      '',
-      userMessage,
-      '',
-      '---',
-      '',
-      '## Assistant',
-      '',
-      result.text,
-      '',
-      '---',
-      '',
-      `## Result`,
-      '',
-      `| Field | Value |`,
-      `|-------|-------|`,
-      `| Success | ${fixedPaths.length >= 0 ? 'true' : 'false'} |`,
-      `| Corrections parsed | ${corrections.length} |`,
-      `| Corrections applied | ${fixedPaths.length} |`,
-      `| Cost | $${result.costUsd.toFixed(4)} |`,
-    ];
-    writeFileSync(join(logDir, 'conversation.md'), convoLines.join('\n'), 'utf-8');
-
-    // Action summary (compact, for quick review)
+    const timestamp = new Date().toISOString();
     const summaryLines: string[] = [
-      `# Structure Review Summary`,
+      `# Structure Review — ${timestamp}`,
       '',
-      `- **Timestamp:** ${timestamp}`,
-      `- **Duration:** ${(durationMs / 1000).toFixed(1)}s`,
-      `- **Cost:** $${result.costUsd.toFixed(4)}`,
       `- **Files scanned:** ${files.length}`,
-      `- **Files fixed:** ${fixedPaths.length}`,
+      `- **Issues found:** ${issues.length}`,
+      `- **Auto-fixed:** ${fixedPaths.length} files`,
       '',
     ];
-    if (fixedPaths.length > 0) {
-      summaryLines.push('## Fixed files', '');
-      for (const p of fixedPaths) {
-        summaryLines.push(`- \`${p}\``);
+    if (issues.length > 0) {
+      summaryLines.push('## Issues', '');
+      summaryLines.push('| File | Rule | Detail | Fixed |');
+      summaryLines.push('|------|------|--------|-------|');
+      for (const issue of issues) {
+        summaryLines.push(`| \`${issue.path}\` | ${issue.rule} | ${issue.detail} | ${issue.fixed ? 'yes' : 'no'} |`);
       }
     } else {
       summaryLines.push('No structural issues found.');

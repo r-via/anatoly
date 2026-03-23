@@ -787,20 +787,22 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
-    // Structure review pass (Opus) — clean preamble, fix index, validate links
+    // Structure lint pass — clean preamble, fences, check index/links
     if (result.pagesWritten > 0 && !ctx.interrupted) {
-      ctx.pipelineState?.updateTask(taskId, 'structure review…');
-      ctx.renderer?.logPlain(`[${taskId}] running structure review (opus)`);
+      ctx.pipelineState?.updateTask(taskId, 'structure lint…');
       try {
         const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
         const runLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
-        const reviewResult = await reviewDocStructure(outputDir, ctx.projectRoot, docsPath, executor, { logDir: runLogDir });
-        log.info({ filesFixed: reviewResult.filesFixed, fixedPaths: reviewResult.fixedPaths, costUsd: reviewResult.costUsd }, 'doc structure review complete');
+        const reviewResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: runLogDir });
+        log.info({ filesFixed: reviewResult.filesFixed, fixedPaths: reviewResult.fixedPaths, issues: reviewResult.issues.length }, 'doc structure lint complete');
         if (reviewResult.filesFixed > 0) {
-          ctx.renderer?.logPlain(`[${taskId}] structure review fixed ${reviewResult.filesFixed} files`);
+          ctx.renderer?.logPlain(`[${taskId}] structure lint fixed ${reviewResult.filesFixed} files`);
+        }
+        if (reviewResult.issues.filter(i => !i.fixed).length > 0) {
+          ctx.renderer?.logPlain(`[${taskId}] ${reviewResult.issues.filter(i => !i.fixed).length} structural issues need manual attention`);
         }
       } catch (reviewErr) {
-        log.warn({ err: reviewErr }, 'doc structure review failed — continuing');
+        log.warn({ err: reviewErr }, 'doc structure lint failed — continuing');
       }
     }
   } finally {

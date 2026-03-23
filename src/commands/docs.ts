@@ -161,8 +161,8 @@ export function registerDocsCommand(program: Command): void {
 
   docs
     .command('review-internal')
-    .description('Run Opus structure review on .anatoly/docs/ (fix preamble, index, broken links)')
-    .action(async () => {
+    .description('Lint .anatoly/docs/ structure (fix preamble, fences, check index, links)')
+    .action(() => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -181,46 +181,48 @@ export function registerDocsCommand(program: Command): void {
       const config = loadConfig(projectRoot);
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
-      // Create log directory with timestamp
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const logDir = resolve(projectRoot, '.anatoly', 'logs', `structure-review_${ts}`);
 
-      console.log(`  ${chalk.yellow('●')} Structure review ${chalk.dim('(opus)')}`);
-
-      const executor = createDocExecutor(projectRoot);
+      console.log(`  ${chalk.yellow('●')} Structure lint`);
 
       try {
-        const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor, {
+        const result = reviewDocStructure(docsDir, projectRoot, docsPath, undefined, {
           logDir,
           callbacks: {
             onCollected: (fileCount, sizeKb) => {
               console.log(`    ${chalk.dim('collected')} ${fileCount} files (${sizeKb} KB)`);
             },
-            onLlmStart: () => {
-              console.log(`    ${chalk.dim('sending to Opus for analysis...')}`);
+            onCheck: (rule, count) => {
+              if (count > 0) {
+                console.log(`    ${chalk.yellow(rule)} ${count} issue${count > 1 ? 's' : ''}`);
+              } else {
+                console.log(`    ${chalk.green(rule)} ok`);
+              }
             },
-            onLlmDone: (durationMs) => {
-              const secs = (durationMs / 1000).toFixed(1);
-              console.log(`    ${chalk.dim(`analysis complete (${secs}s)`)}`);
-            },
-            onFileFixed: (path) => {
-              console.log(`    ${chalk.yellow('fixed')} ${path}`);
+            onFileFixed: (path, rule) => {
+              console.log(`    ${chalk.green('fixed')} ${path} (${rule})`);
             },
           },
         });
 
-        if (result.filesFixed === 0) {
-          console.log(`  ${chalk.green('✓')} Structure review — no issues across ${result.filesScanned} files`);
+        console.log('');
+        const unfixed = result.issues.filter(i => !i.fixed);
+        if (result.issues.length === 0) {
+          console.log(`  ${chalk.green('✓')} no issues across ${result.filesScanned} files`);
+        } else if (unfixed.length === 0) {
+          console.log(`  ${chalk.green('✓')} ${result.issues.length} issues auto-fixed in ${result.filesFixed} files`);
         } else {
-          console.log(`  ${chalk.green('✓')} Structure review — fixed ${result.filesFixed}/${result.filesScanned} files`);
+          console.log(`  ${chalk.yellow('!')} ${result.issues.length} issues — ${result.filesFixed} files auto-fixed, ${unfixed.length} need manual attention:`);
+          for (const issue of unfixed) {
+            console.log(`    ${chalk.dim('›')} ${issue.path}: ${issue.detail}`);
+          }
         }
-        if (result.costUsd > 0) {
-          console.log(`    ${chalk.dim(`cost: $${result.costUsd.toFixed(4)}`)}`);
-        }
+
         const relLogDir = relative(projectRoot, logDir);
-        console.log(`    ${chalk.dim(`log:  ${relLogDir}/`)}`);
+        console.log(`    ${chalk.dim(`log: ${relLogDir}/`)}`);
       } catch (err) {
-        console.log(`  ${chalk.red('×')} Structure review — failed`);
+        console.log(`  ${chalk.red('×')} Structure lint — failed`);
         console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);
         process.exitCode = 1;
       }
