@@ -20,6 +20,7 @@ At least one complete, copy-pasteable code example using real function names fro
 - Links to related documentation pages. ONLY use paths from the "Documentation Site Map" provided in the user message. NEVER invent page paths.
 
 Rules:
+- When "Related Pages" are provided, read them to understand what is already documented. Do not duplicate their content — instead, cross-reference with relative links. Use them to maintain consistent terminology and structure across the documentation site.
 - Use the real function names, types, and file paths provided in the source context.
 - Include at least 1 code example per page with realistic arguments.
 - All code blocks must specify the language (typescript, bash, etc.).

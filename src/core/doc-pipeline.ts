@@ -25,7 +25,7 @@ import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mappi
 import { assertSafeOutputPath } from './docs-guard.js';
 import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
 import { buildPageContext, type SourceFile } from './source-context.js';
-import { buildPagePrompt, type PageInfo, type PagePrompt } from './doc-generator.js';
+import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
 import type { Task } from '../schemas/task.js';
 
 // --- Public interfaces ---
@@ -138,7 +138,8 @@ export function runDocGeneration(
       description: `Documentation for ${pagePath}`,
     };
     const allPages = pageMappings.map(m => m.pagePath);
-    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages });
+    const neighbors = loadNeighborPages(outputDir, pagePath, allPages);
+    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages, neighbors });
     prompts.push(prompt);
   }
 
@@ -356,4 +357,39 @@ function loadSourceFiles(projectRoot: string, filePaths: string[]): SourceFile[]
   }
 
   return files;
+}
+
+/**
+ * Loads existing doc pages from the same section as context for cross-referencing.
+ * Only includes pages that already have real content (not scaffold-only).
+ * Also always includes index.md for TOC awareness.
+ */
+function loadNeighborPages(outputDir: string, currentPage: string, allPages: string[]): DocNeighbor[] {
+  const neighbors: DocNeighbor[] = [];
+  const currentSection = currentPage.split('/')[0]; // e.g. "05-Modules"
+
+  // Include index.md
+  const indexPath = join(outputDir, 'index.md');
+  if (existsSync(indexPath)) {
+    neighbors.push({ path: 'index.md', content: readFileSync(indexPath, 'utf-8') });
+  }
+
+  // Include same-section pages that already have generated content
+  for (const page of allPages) {
+    if (page === currentPage || page === 'index.md') continue;
+    const section = page.split('/')[0];
+    if (section !== currentSection) continue;
+
+    const fullPath = join(outputDir, page);
+    if (!existsSync(fullPath)) continue;
+
+    const content = readFileSync(fullPath, 'utf-8');
+    // Skip scaffold-only pages (only have hints, no real content)
+    if (content.includes('<!-- SCAFFOLDING') && content.replace(/<!--[\s\S]*?-->/g, '').replace(/^#+\s.*/gm, '').trim().length < 200) {
+      continue;
+    }
+    neighbors.push({ path: page, content });
+  }
+
+  return neighbors;
 }

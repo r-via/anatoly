@@ -38,15 +38,20 @@ export interface PagePrompt {
  * Builds the system + user prompt for LLM documentation generation.
  * Prompt content varies by page type (architecture, API reference, etc.).
  */
+export interface DocNeighbor {
+  path: string;
+  content: string;
+}
+
 export function buildPagePrompt(
   page: PageInfo,
   pageContext: PageContext,
   packageJson: Record<string, unknown>,
-  options?: { model?: string; allPages?: string[] },
+  options?: { model?: string; allPages?: string[]; neighbors?: DocNeighbor[] },
 ): PagePrompt {
   const model = options?.model ?? DEFAULT_MODEL;
   const system = buildSystemPrompt(page.path);
-  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages);
+  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages, options?.neighbors);
   return { pagePath: page.path, system, user, model };
 }
 
@@ -74,6 +79,7 @@ function buildUserMessage(
   ctx: PageContext,
   pkg: Record<string, unknown>,
   allPages?: string[],
+  neighbors?: DocNeighbor[],
 ): string {
   const parts: string[] = [];
 
@@ -83,6 +89,18 @@ function buildUserMessage(
     parts.push('These are ALL the pages in this documentation site. In "See Also", ONLY link to pages from this list:');
     for (const p of allPages) {
       parts.push(`  - ${p}`);
+    }
+    parts.push('');
+  }
+
+  // Related pages — existing content from the same section for cross-referencing
+  if (neighbors && neighbors.length > 0) {
+    parts.push('## Related Pages (for context — do not duplicate their content)');
+    for (const n of neighbors) {
+      // Include first 80 lines max to keep prompt size manageable
+      const lines = n.content.split('\n');
+      const truncated = lines.length > 80 ? lines.slice(0, 80).join('\n') + '\n…(truncated)' : n.content;
+      parts.push(`\n### ${n.path}\n\`\`\`markdown\n${truncated}\n\`\`\``);
     }
     parts.push('');
   }
