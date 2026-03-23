@@ -42,11 +42,11 @@ export function buildPagePrompt(
   page: PageInfo,
   pageContext: PageContext,
   packageJson: Record<string, unknown>,
-  options?: { model?: string },
+  options?: { model?: string; allPages?: string[] },
 ): PagePrompt {
   const model = options?.model ?? DEFAULT_MODEL;
   const system = buildSystemPrompt(page.path);
-  const user = buildUserMessage(page, pageContext, packageJson);
+  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages);
   return { pagePath: page.path, system, user, model };
 }
 
@@ -73,8 +73,19 @@ function buildUserMessage(
   page: PageInfo,
   ctx: PageContext,
   pkg: Record<string, unknown>,
+  allPages?: string[],
 ): string {
   const parts: string[] = [];
+
+  // Documentation site map — Sonnet must only link to these pages
+  if (allPages && allPages.length > 0) {
+    parts.push('## Documentation Site Map');
+    parts.push('These are ALL the pages in this documentation site. In "See Also", ONLY link to pages from this list:');
+    for (const p of allPages) {
+      parts.push(`  - ${p}`);
+    }
+    parts.push('');
+  }
 
   // Page metadata
   parts.push(`## Page: ${page.title}`);

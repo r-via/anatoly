@@ -137,7 +137,8 @@ export function runDocGeneration(
       title: pagePath.split('/').pop()?.replace('.md', '') ?? pagePath,
       description: `Documentation for ${pagePath}`,
     };
-    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson);
+    const allPages = pageMappings.map(m => m.pagePath);
+    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages });
     prompts.push(prompt);
   }
 

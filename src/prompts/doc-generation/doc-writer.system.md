@@ -17,7 +17,7 @@ Detailed documentation appropriate for the page type.
 At least one complete, copy-pasteable code example using real function names from the project.
 
 ## See Also
-- Links to related documentation pages in the same documentation set.
+- Links to related documentation pages. ONLY use paths from the "Documentation Site Map" provided in the user message. NEVER invent page paths.
 
 Rules:
 - Use the real function names, types, and file paths provided in the source context.
