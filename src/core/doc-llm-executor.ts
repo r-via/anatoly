@@ -15,6 +15,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
+import { resolveSystemPrompt } from './prompt-resolver.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // --- Public interfaces ---
 
@@ -372,4 +374,163 @@ function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: s
 
   walk(dir);
   return results.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+}
+
+// --- Coherence review agent (Opus multi-turn) ---
+
+export interface DocCoherenceReviewResult {
+  loopsCompleted: number;
+  linterIssuesBefore: number;
+  linterIssuesAfter: number;
+  costUsd: number;
+  durationMs: number;
+}
+
+export interface DocCoherenceReviewParams {
+  outputDir: string;
+  projectRoot: string;
+  docsPath: string;
+  maxLoops?: number;
+  abortController?: AbortController;
+  logDir?: string;
+  callbacks?: {
+    onLoopStart?: (loop: number) => void;
+    onLoopEnd?: (loop: number, linterIssues: number) => void;
+  };
+}
+
+/**
+ * Multi-turn Opus agent that reads all doc pages, identifies cross-page
+ * coherence issues, and fixes them using Read/Write tools.
+ * Runs up to maxLoops audit-fix-verify cycles with the deterministic
+ * linter as verification after each loop.
+ */
+export async function runDocCoherenceReview(params: DocCoherenceReviewParams): Promise<DocCoherenceReviewResult> {
+  const {
+    outputDir,
+    projectRoot,
+    docsPath,
+    maxLoops = 3,
+    abortController,
+    logDir,
+    callbacks,
+  } = params;
+
+  const start = Date.now();
+  let totalCostUsd = 0;
+  const conversationLog: string[] = [];
+
+  // Build system prompt
+  const systemPrompt = resolveSystemPrompt('doc-generation.coherence-review');
+
+  // Build file listing for the user message
+  const files = collectMarkdownFiles(outputDir);
+  const fileListing = files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
+
+  // Initial linter run to know the baseline
+  const baselineLint = reviewDocStructure(outputDir, projectRoot, docsPath);
+  const linterIssuesBefore = baselineLint.issues.filter(i => !i.fixed).length;
+
+  let linterIssuesAfter = linterIssuesBefore;
+  let loopsCompleted = 0;
+
+  for (let loop = 1; loop <= maxLoops; loop++) {
+    callbacks?.onLoopStart?.(loop);
+
+    // Build user message — first loop gets full instructions, subsequent loops get linter feedback
+    let userMessage: string;
+    if (loop === 1) {
+      userMessage = [
+        `The documentation directory is your current working directory.`,
+        ``,
+        `## Files in this documentation site (${files.length} total)`,
+        fileListing,
+        ``,
+        `Please read all pages, identify coherence issues, and fix them.`,
+      ].join('\n');
+    } else {
+      const currentLint = reviewDocStructure(outputDir, projectRoot, docsPath);
+      const unfixed = currentLint.issues.filter(i => !i.fixed);
+      userMessage = [
+        `The linter still found ${unfixed.length} issues after your last pass:`,
+        '',
+        ...unfixed.map(i => `- **${i.path}**: [${i.rule}] ${i.detail}`),
+        '',
+        'Please fix these remaining issues.',
+      ].join('\n');
+    }
+
+    conversationLog.push(`\n# Loop ${loop}\n\n## User\n\n${userMessage}\n`);
+
+    // Run the Opus agent
+    const ac = abortController ?? new AbortController();
+    const q = query({
+      prompt: userMessage,
+      options: {
+        systemPrompt,
+        model: 'opus',
+        cwd: outputDir,
+        allowedTools: ['Read', 'Write'],
+        permissionMode: 'bypassPermissions' as const,
+        allowDangerouslySkipPermissions: true,
+        maxTurns: 50,
+        abortController: ac,
+      },
+    });
+
+    let resultText = '';
+    for await (const message of q) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          resultText = (message as { result: string }).result;
+          totalCostUsd += (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        } else {
+          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+          conversationLog.push(`\n## Error\n\n${errMsg}\n`);
+          break;
+        }
+      }
+    }
+
+    conversationLog.push(`\n## Assistant\n\n${resultText}\n`);
+
+    // Verify with deterministic linter
+    const verifyLint = reviewDocStructure(outputDir, projectRoot, docsPath);
+    linterIssuesAfter = verifyLint.issues.filter(i => !i.fixed).length;
+    loopsCompleted = loop;
+
+    callbacks?.onLoopEnd?.(loop, linterIssuesAfter);
+
+    // Early exit if clean
+    if (linterIssuesAfter === 0) break;
+  }
+
+  // Write conversation log
+  if (logDir) {
+    mkdirSync(logDir, { recursive: true });
+
+    const timestamp = new Date().toISOString();
+    const durationMs = Date.now() - start;
+
+    const header = [
+      `# Coherence Review — ${timestamp}`,
+      '',
+      `- **Loops:** ${loopsCompleted}/${maxLoops}`,
+      `- **Duration:** ${(durationMs / 1000).toFixed(1)}s`,
+      `- **Cost:** $${totalCostUsd.toFixed(4)}`,
+      `- **Linter issues before:** ${linterIssuesBefore}`,
+      `- **Linter issues after:** ${linterIssuesAfter}`,
+      '',
+    ].join('\n');
+
+    writeFileSync(join(logDir, 'coherence-review.md'), header + conversationLog.join('\n'), 'utf-8');
+  }
+
+  return {
+    loopsCompleted,
+    linterIssuesBefore,
+    linterIssuesAfter,
+    costUsd: totalCostUsd,
+    durationMs: Date.now() - start,
+  };
 }

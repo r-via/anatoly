@@ -51,7 +51,7 @@ import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
-import { executeDocPrompts, reviewDocStructure, type DocExecutor } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -787,22 +787,52 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
-    // Structure lint pass — clean preamble, fences, check index/links
+    // Structure lint — deterministic preamble/fence cleanup
     if (result.pagesWritten > 0 && !ctx.interrupted) {
       ctx.pipelineState?.updateTask(taskId, 'structure lint…');
       try {
         const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-        const runLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
-        const reviewResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: runLogDir });
-        log.info({ filesFixed: reviewResult.filesFixed, fixedPaths: reviewResult.fixedPaths, issues: reviewResult.issues.length }, 'doc structure lint complete');
-        if (reviewResult.filesFixed > 0) {
-          ctx.renderer?.logPlain(`[${taskId}] structure lint fixed ${reviewResult.filesFixed} files`);
+        const lintLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
+        const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: lintLogDir });
+        log.info({ filesFixed: lintResult.filesFixed, issues: lintResult.issues.length }, 'doc structure lint complete');
+        if (lintResult.filesFixed > 0) {
+          ctx.renderer?.logPlain(`[${taskId}] structure lint fixed ${lintResult.filesFixed} files`);
         }
-        if (reviewResult.issues.filter(i => !i.fixed).length > 0) {
-          ctx.renderer?.logPlain(`[${taskId}] ${reviewResult.issues.filter(i => !i.fixed).length} structural issues need manual attention`);
-        }
-      } catch (reviewErr) {
-        log.warn({ err: reviewErr }, 'doc structure lint failed — continuing');
+      } catch (lintErr) {
+        log.warn({ err: lintErr }, 'doc structure lint failed — continuing');
+      }
+    }
+
+    // Coherence review — Opus multi-turn agent fixes cross-page issues
+    if (result.pagesWritten > 0 && !ctx.interrupted) {
+      ctx.pipelineState?.updateTask(taskId, 'coherence review…');
+      try {
+        const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+        const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
+        const coherenceResult = await runDocCoherenceReview({
+          outputDir,
+          projectRoot: ctx.projectRoot,
+          docsPath,
+          abortController: ac,
+          logDir: coherenceLogDir,
+          callbacks: {
+            onLoopStart: (loop) => {
+              ctx.pipelineState?.updateTask(taskId, `coherence loop ${loop}…`);
+              ctx.renderer?.logPlain(`[${taskId}] coherence review loop ${loop}`);
+            },
+            onLoopEnd: (loop, issues) => {
+              ctx.renderer?.logPlain(`[${taskId}] loop ${loop} done — ${issues} linter issues remaining`);
+            },
+          },
+        });
+        log.info({
+          loops: coherenceResult.loopsCompleted,
+          issuesBefore: coherenceResult.linterIssuesBefore,
+          issuesAfter: coherenceResult.linterIssuesAfter,
+          costUsd: coherenceResult.costUsd,
+        }, 'doc coherence review complete');
+      } catch (coherenceErr) {
+        log.warn({ err: coherenceErr }, 'doc coherence review failed — continuing');
       }
     }
   } finally {

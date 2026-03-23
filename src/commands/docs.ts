@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { executeDocPrompts, reviewDocStructure, type DocExecutor } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -223,6 +223,119 @@ export function registerDocsCommand(program: Command): void {
         console.log(`    ${chalk.dim(`log: ${relLogDir}/`)}`);
       } catch (err) {
         console.log(`  ${chalk.red('×')} Structure lint — failed`);
+        console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);
+        process.exitCode = 1;
+      }
+    });
+
+  docs
+    .command('review-internal')
+    .description('Run structure lint + Opus coherence review on .anatoly/docs/')
+    .option('--max-loops <n>', 'max audit-fix-verify loops', '3')
+    .option('--lint-only', 'skip Opus coherence review, only run deterministic lint')
+    .action(async (opts: { maxLoops?: string; lintOnly?: boolean }) => {
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      if (!existsSync(docsDir)) {
+        console.error(chalk.red('No internal docs found. Run `anatoly docs rebuild` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const config = loadConfig(projectRoot);
+      const docsPath = config.documentation?.docs_path ?? 'docs';
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+      // Step 1: Deterministic lint
+      const lintLogDir = resolve(projectRoot, '.anatoly', 'logs', `structure-lint_${ts}`);
+      console.log(`  ${chalk.yellow('●')} Structure lint`);
+
+      const lintResult = reviewDocStructure(docsDir, projectRoot, docsPath, undefined, {
+        logDir: lintLogDir,
+        callbacks: {
+          onCollected: (fileCount, sizeKb) => {
+            console.log(`    ${chalk.dim('collected')} ${fileCount} files (${sizeKb} KB)`);
+          },
+          onCheck: (rule, count) => {
+            if (count > 0) {
+              console.log(`    ${chalk.yellow(rule)} ${count} issue${count > 1 ? 's' : ''}`);
+            } else {
+              console.log(`    ${chalk.green(rule)} ok`);
+            }
+          },
+          onFileFixed: (path, rule) => {
+            console.log(`    ${chalk.green('fixed')} ${path} (${rule})`);
+          },
+        },
+      });
+
+      const unfixed = lintResult.issues.filter(i => !i.fixed);
+      if (lintResult.issues.length === 0) {
+        console.log(`  ${chalk.green('✓')} Structure lint — clean`);
+      } else {
+        console.log(`  ${chalk.green('✓')} Structure lint — ${lintResult.filesFixed} auto-fixed, ${unfixed.length} remaining`);
+      }
+
+      // Step 2: Opus coherence review (unless --lint-only)
+      if (opts.lintOnly) {
+        if (unfixed.length > 0) {
+          console.log('');
+          for (const issue of unfixed) {
+            console.log(`    ${chalk.dim('›')} ${issue.path}: ${issue.detail}`);
+          }
+        }
+        console.log(`    ${chalk.dim(`log: ${relative(projectRoot, lintLogDir)}/`)}`);
+        return;
+      }
+
+      if (unfixed.length === 0 && lintResult.filesFixed === 0) {
+        console.log(`    ${chalk.dim('skipping coherence review — no issues')}`);
+        return;
+      }
+
+      console.log('');
+      console.log(`  ${chalk.yellow('●')} Coherence review ${chalk.dim('(opus)')}`);
+
+      const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', `coherence-review_${ts}`);
+
+      try {
+        const result = await runDocCoherenceReview({
+          outputDir: docsDir,
+          projectRoot,
+          docsPath,
+          maxLoops: parseInt(opts.maxLoops ?? '3', 10),
+          logDir: coherenceLogDir,
+          callbacks: {
+            onLoopStart: (loop) => {
+              console.log(`    ${chalk.dim(`loop ${loop}…`)}`);
+            },
+            onLoopEnd: (loop, issues) => {
+              if (issues === 0) {
+                console.log(`    ${chalk.green(`loop ${loop} done — clean`)}`);
+              } else {
+                console.log(`    ${chalk.yellow(`loop ${loop} done — ${issues} linter issues remaining`)}`);
+              }
+            },
+          },
+        });
+
+        console.log('');
+        if (result.linterIssuesAfter === 0) {
+          console.log(`  ${chalk.green('✓')} Coherence review — all issues resolved in ${result.loopsCompleted} loop${result.loopsCompleted > 1 ? 's' : ''}`);
+        } else {
+          console.log(`  ${chalk.yellow('!')} Coherence review — ${result.linterIssuesBefore} → ${result.linterIssuesAfter} issues (${result.loopsCompleted} loops)`);
+        }
+        console.log(`    ${chalk.dim(`cost: $${result.costUsd.toFixed(4)} · ${(result.durationMs / 1000).toFixed(1)}s`)}`);
+        console.log(`    ${chalk.dim(`log: ${relative(projectRoot, coherenceLogDir)}/`)}`);
+      } catch (err) {
+        console.log(`  ${chalk.red('×')} Coherence review — failed`);
         console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);
         process.exitCode = 1;
       }
