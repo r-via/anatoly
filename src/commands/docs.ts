@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, type DocExecutor } from '../core/doc-llm-executor.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -138,6 +138,78 @@ export function registerDocsCommand(program: Command): void {
       console.log(`  ${chalk.green('✓')} internal docs rebuilt — ${summary}`);
       if (result.totalCostUsd > 0) {
         console.log(`  cost: $${result.totalCostUsd.toFixed(4)}`);
+      }
+    });
+
+  docs
+    .command('review-internal')
+    .description('Run Opus structure review on .anatoly/docs/ (fix preamble, index, broken links)')
+    .action(async () => {
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      if (!existsSync(docsDir)) {
+        console.error(chalk.red('No internal docs found. Run `anatoly docs rebuild` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const config = loadConfig(projectRoot);
+      const docsPath = config.documentation?.docs_path ?? 'docs';
+
+      console.log(`  reviewing ${chalk.bold('.anatoly/docs/')} structure via Opus...`);
+
+      const executor: DocExecutor = async ({ system, user, model }) => {
+        const q = query({
+          prompt: user,
+          options: {
+            systemPrompt: system,
+            model,
+            cwd: projectRoot,
+            allowedTools: [],
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+          },
+        });
+
+        let resultText = '';
+        let costUsd = 0;
+
+        for await (const message of q) {
+          if (message.type === 'result') {
+            if (message.subtype === 'success') {
+              resultText = (message as { result: string }).result;
+              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+            } else {
+              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+            }
+          }
+        }
+
+        return { text: resultText, costUsd };
+      };
+
+      try {
+        const result = await reviewDocStructure(docsDir, projectRoot, docsPath, executor);
+
+        if (result.filesFixed === 0) {
+          console.log(`  ${chalk.green('✓')} no structural issues found`);
+        } else {
+          console.log(`  ${chalk.green('✓')} fixed ${result.filesFixed} files`);
+        }
+        if (result.costUsd > 0) {
+          console.log(`  cost: $${result.costUsd.toFixed(4)}`);
+        }
+      } catch (err) {
+        console.error(chalk.red(`  review failed: ${err instanceof Error ? err.message : String(err)}`));
+        process.exitCode = 1;
       }
     });
 

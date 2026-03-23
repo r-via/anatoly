@@ -51,7 +51,7 @@ import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
-import { executeDocPrompts, type DocExecutor } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -786,6 +786,22 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     }
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
+
+    // Structure review pass (Opus) — clean preamble, fix index, validate links
+    if (result.pagesWritten > 0 && !ctx.interrupted) {
+      ctx.pipelineState?.updateTask(taskId, 'structure review…');
+      ctx.renderer?.logPlain(`[${taskId}] running structure review (opus)`);
+      try {
+        const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+        const reviewResult = await reviewDocStructure(outputDir, ctx.projectRoot, docsPath, executor);
+        log.info({ filesFixed: reviewResult.filesFixed, costUsd: reviewResult.costUsd }, 'doc structure review complete');
+        if (reviewResult.filesFixed > 0) {
+          ctx.renderer?.logPlain(`[${taskId}] structure review fixed ${reviewResult.filesFixed} files`);
+        }
+      } catch (reviewErr) {
+        log.warn({ err: reviewErr }, 'doc structure review failed — continuing');
+      }
+    }
   } finally {
     ctx.activeAborts.delete(ac);
   }

@@ -137,8 +137,8 @@ describe('runDocScaffold', () => {
     const result = runDocScaffold(tempDir, pkg, tasks);
 
     // Module page should be created as a real file
-    expect(result.scaffoldResult.pagesCreated).toContain('05-Modules/core.md');
-    const modulePath = join(result.outputDir, '05-Modules/core.md');
+    expect(result.scaffoldResult.pagesCreated).toContain('05-Modules/01-core.md');
+    const modulePath = join(result.outputDir, '05-Modules/01-core.md');
     const content = readFileSync(modulePath, 'utf-8');
     expect(content).toContain('# core');
     expect(content).toContain('<!-- SCAFFOLDING:');

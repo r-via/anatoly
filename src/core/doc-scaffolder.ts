@@ -233,7 +233,14 @@ function buildIndexContent(projectName: string, pages: PageDef[]): string {
     }
   }
 
-  for (const [section, sectionPages] of sections) {
+  // Sort sections by their numeric path prefix so the index is ordered correctly
+  const sortedSections = [...sections.entries()].sort((a, b) => {
+    const numA = parseInt(a[1][0]?.path.match(/^(\d+)-/)?.[1] ?? '99', 10);
+    const numB = parseInt(b[1][0]?.path.match(/^(\d+)-/)?.[1] ?? '99', 10);
+    return numA - numB;
+  });
+
+  for (const [section, sectionPages] of sortedSections) {
     // Derive section number from path prefix (e.g., '05-Development/...' → '5')
     const firstPath = sectionPages[0]?.path ?? '';
     const prefix = firstPath.split('/')[0] ?? '';

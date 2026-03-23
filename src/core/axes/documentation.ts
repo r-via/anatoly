@@ -120,7 +120,7 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
 
 export class DocumentationEvaluator implements AxisEvaluator {
   readonly id = 'documentation' as const;
-  readonly defaultModel = 'haiku' as const;
+  readonly defaultModel = 'sonnet' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     // AC 31.17.9: JSON files have no documentation convention — skip with all DOCUMENTED

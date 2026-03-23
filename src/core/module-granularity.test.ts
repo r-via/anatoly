@@ -29,7 +29,7 @@ describe('resolveModuleGranularity', () => {
     const pages = resolveModuleGranularity(modules);
 
     expect(pages).toHaveLength(1);
-    expect(pages[0].path).toBe('05-Modules/core.md');
+    expect(pages[0].path).toBe('05-Modules/01-core.md');
     expect(pages[0].title).toBe('core');
   });
 
@@ -49,8 +49,8 @@ describe('resolveModuleGranularity', () => {
 
     expect(pages).toHaveLength(2);
     const paths = pages.map(p => p.path);
-    expect(paths).toContain('05-Modules/logger.md');
-    expect(paths).toContain('05-Modules/cache.md');
+    expect(paths).toContain('05-Modules/01-cache.md');
+    expect(paths).toContain('05-Modules/02-logger.md');
   });
 
   // --- AC3: file < 200 LOC → skip ---
@@ -83,7 +83,7 @@ describe('resolveModuleGranularity', () => {
     const pages = resolveModuleGranularity(modules);
 
     expect(pages).toHaveLength(1);
-    expect(pages[0].path).toBe('05-Modules/doc-indexer.md');
+    expect(pages[0].path).toBe('05-Modules/01-doc-indexer.md');
   });
 
   // --- Mixed: directory with 3+ qualifying files → directory-level ---
@@ -103,7 +103,7 @@ describe('resolveModuleGranularity', () => {
     const pages = resolveModuleGranularity(modules);
 
     expect(pages).toHaveLength(1);
-    expect(pages[0].path).toBe('05-Modules/services.md');
+    expect(pages[0].path).toBe('05-Modules/01-services.md');
   });
 
   // --- Mixed: 2 qualifying files plus small ones → file-level for qualifying only ---
@@ -124,8 +124,8 @@ describe('resolveModuleGranularity', () => {
 
     expect(pages).toHaveLength(2);
     const paths = pages.map(p => p.path);
-    expect(paths).toContain('05-Modules/logger.md');
-    expect(paths).toContain('05-Modules/cache.md');
+    expect(paths).toContain('05-Modules/01-cache.md');
+    expect(paths).toContain('05-Modules/02-logger.md');
     // Small files don't get pages
     expect(paths).not.toContain('05-Modules/helpers.md');
   });
@@ -142,7 +142,7 @@ describe('resolveModuleGranularity', () => {
     const pages = resolveModuleGranularity(modules);
 
     expect(pages).toHaveLength(1);
-    expect(pages[0].path).toBe('05-Modules/file-evaluator.md');
+    expect(pages[0].path).toBe('05-Modules/01-file-evaluator.md');
   });
 
   // --- Multiple directories ---
@@ -168,10 +168,10 @@ describe('resolveModuleGranularity', () => {
     const pages = resolveModuleGranularity(modules);
 
     const paths = pages.map(p => p.path);
-    expect(paths).toContain('05-Modules/core.md');      // directory-level
-    expect(paths).toContain('05-Modules/logger.md');     // file-level
-    expect(paths).not.toContain('05-Modules/helpers.md'); // skipped
-    expect(paths).not.toContain('05-Modules/tiny.md');    // skipped
+    expect(paths).toContain('05-Modules/01-core.md');      // directory-level
+    expect(paths).toContain('05-Modules/02-logger.md');    // file-level
+    expect(paths).not.toContain('05-Modules/helpers.md');  // skipped
+    expect(paths).not.toContain('05-Modules/tiny.md');     // skipped
   });
 
   // --- Page metadata ---

@@ -73,6 +73,14 @@ export function resolveModuleGranularity(modules: ModuleDir[]): ModulePage[] {
     }
   }
 
+  // Sort alphabetically and assign numbered prefixes (01-, 02-, ...)
+  pages.sort((a, b) => a.path.localeCompare(b.path));
+  for (let i = 0; i < pages.length; i++) {
+    const prefix = String(i + 1).padStart(2, '0');
+    const filename = pages[i].path.split('/').pop()!;
+    pages[i].path = `05-Modules/${prefix}-${filename}`;
+  }
+
   return pages;
 }
 
