@@ -63,7 +63,13 @@ export interface PageWorkList {
   orphans: OrphanItem[];
 }
 
+export type GapDetectionScope = 'internal' | 'project';
+
 export interface GapDetectionOptions {
+  /** Which doc set to analyze. 'internal' = .anatoly/docs/, 'project' = docs/ (or custom path). */
+  scope?: GapDetectionScope; // default 'internal'
+  /** Path to project docs (only used when scope='project'). Default: 'docs' */
+  projectDocsPath?: string;
   gapThreshold?: number;   // default 0.60
   driftThreshold?: number; // default 0.85
   onProgress?: (current: number, total: number) => void;
@@ -104,10 +110,33 @@ export async function detectDocGaps(
 ): Promise<GapDetectionResult> {
   const gapThreshold = options?.gapThreshold ?? 0.60;
   const driftThreshold = options?.driftThreshold ?? 0.85;
+  const scope = options?.scope ?? 'internal';
+
+  // Determine the doc path prefix to filter results
+  const docPrefix = scope === 'internal'
+    ? '.anatoly/docs/'
+    : (options?.projectDocsPath ?? 'docs') + '/';
 
   // Load all function cards with their NLP vectors
   const cardsWithVectors = await vectorStore.listAllWithNlpVectors();
-  const allDocSections = await vectorStore.listDocSections();
+  const allDocSections = (await vectorStore.listDocSections())
+    .filter(ds => ds.filePath.startsWith(docPrefix));
+
+  if (allDocSections.length === 0) {
+    // No doc sections for this scope — everything is NOT_FOUND
+    return {
+      totalFunctions: cardsWithVectors.length,
+      totalDocSections: 0,
+      notFound: cardsWithVectors.map(({ card }) => ({ functionCard: card, classification: 'NOT_FOUND' as const, bestMatch: null, similarity: 0 })),
+      lowRelevance: [],
+      covered: [],
+      orphans: [],
+      byPage: new Map(),
+    };
+  }
+
+  // Build a set of doc section IDs in scope for filtering search results
+  const scopedDocIds = new Set(allDocSections.map(ds => ds.id));
 
   const notFound: GapItem[] = [];
   const lowRelevance: GapItem[] = [];
@@ -116,7 +145,7 @@ export async function detectDocGaps(
   // Track which doc sections are matched (for orphan detection)
   const matchedDocIds = new Set<string>();
 
-  // For each function card, find the most similar doc section
+  // For each function card, find the most similar doc section in scope
   for (let i = 0; i < cardsWithVectors.length; i++) {
     const { card, nlpVector } = cardsWithVectors[i];
     options?.onProgress?.(i + 1, cardsWithVectors.length);
@@ -127,15 +156,16 @@ export async function detectDocGaps(
       continue;
     }
 
-    // Query doc index for best match
-    const results = await vectorStore.searchDocSections(nlpVector, 1, 0.0);
+    // Query doc index — fetch extra results to filter by scope
+    const results = await vectorStore.searchDocSections(nlpVector, 10, 0.0);
+    const scopedResults = results.filter(r => scopedDocIds.has(r.card.id));
 
-    if (results.length === 0) {
+    if (scopedResults.length === 0) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });
       continue;
     }
 
-    const best = results[0];
+    const best = scopedResults[0];
     const docSection: DocSectionEntry = {
       id: best.card.id,
       filePath: best.card.filePath,
@@ -155,7 +185,7 @@ export async function detectDocGaps(
     }
   }
 
-  // Orphan detection: doc sections with no matching function card
+  // Orphan detection: doc sections in scope with no matching function card
   const orphans: OrphanItem[] = allDocSections
     .filter(ds => !matchedDocIds.has(ds.id))
     .map(ds => ({
@@ -203,21 +233,22 @@ export async function detectDocGaps(
 
 // --- Formatting for CLI display ---
 
-export function formatGapSummary(result: GapDetectionResult): string {
+export function formatGapSummary(result: GapDetectionResult, scope: GapDetectionScope = 'internal', docsPath?: string): string {
+  const target = scope === 'internal' ? '.anatoly/docs/' : (docsPath ?? 'docs/');
   const lines: string[] = [
-    `Target: .anatoly/docs/ (internal documentation)`,
+    `Target: ${target} (${scope === 'internal' ? 'internal' : 'project'} documentation)`,
     '',
     `Functions analyzed: ${result.totalFunctions} (from code index)`,
-    `Doc sections analyzed: ${result.totalDocSections} (from .anatoly/docs/ index)`,
+    `Doc sections analyzed: ${result.totalDocSections} (from ${target} index)`,
     '',
-    `  NOT_FOUND:           ${result.notFound.length} functions not in .anatoly/docs/`,
+    `  NOT_FOUND:           ${result.notFound.length} functions not in ${target}`,
     `  FOUND_LOW_RELEVANCE: ${result.lowRelevance.length} functions with stale/weak coverage`,
     `  FOUND_COVERED:       ${result.covered.length} functions well documented`,
-    `  ORPHAN_DOC:          ${result.orphans.length} .anatoly/docs/ sections with no matching code`,
+    `  ORPHAN_DOC:          ${result.orphans.length} ${target} sections with no matching code`,
   ];
 
   if (result.notFound.length > 0) {
-    lines.push('', 'Top undocumented functions (not in .anatoly/docs/):');
+    lines.push('', `Top undocumented functions (not in ${target}):`);
     for (const item of result.notFound.slice(0, 15)) {
       lines.push(`  - ${item.functionCard.name} (${item.functionCard.filePath})`);
     }
@@ -227,14 +258,14 @@ export function formatGapSummary(result: GapDetectionResult): string {
   }
 
   if (result.lowRelevance.length > 0) {
-    lines.push('', 'Functions with stale coverage in .anatoly/docs/:');
+    lines.push('', `Functions with stale coverage in ${target}:`);
     for (const item of result.lowRelevance.slice(0, 10)) {
       lines.push(`  - ${item.functionCard.name} → ${item.bestMatch?.name ?? '?'} (sim ${item.similarity.toFixed(2)})`);
     }
   }
 
   if (result.orphans.length > 0) {
-    lines.push('', 'Orphan sections in .anatoly/docs/ (no matching code):');
+    lines.push('', `Orphan sections in ${target} (no matching code):`);
     for (const item of result.orphans.slice(0, 10)) {
       lines.push(`  - ${item.docSection.name} (${item.docSection.filePath})`);
     }

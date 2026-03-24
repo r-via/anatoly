@@ -618,18 +618,34 @@ export function registerDocsCommand(program: Command): void {
     });
 
   docs
-    .command('gap-detection')
-    .description('Analyze coverage gaps between code index and doc index (no LLM, pure vector analysis)')
+    .command('gap-detection <scope>')
+    .description('Analyze coverage gaps between code index and doc index. Scope: "internal" (.anatoly/docs/) or "project" (docs/)')
     .option('--gap-threshold <n>', 'similarity below this = NOT_FOUND', '0.60')
     .option('--drift-threshold <n>', 'similarity below this = LOW_RELEVANCE', '0.85')
     .option('--json', 'output as JSON')
-    .action(async (opts: { gapThreshold?: string; driftThreshold?: string; json?: boolean }) => {
+    .action(async (scope: string, opts: { gapThreshold?: string; driftThreshold?: string; json?: boolean }) => {
       const projectRoot = process.cwd();
+
+      if (scope !== 'internal' && scope !== 'project') {
+        console.error(chalk.red(`Invalid scope "${scope}". Use "internal" (.anatoly/docs/) or "project" (docs/).`));
+        process.exitCode = 1;
+        return;
+      }
 
       // Check that RAG index exists
       const ragDir = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
       if (!existsSync(ragDir)) {
-        console.error(chalk.red('No RAG index found. Run `anatoly docs scaffold` or `anatoly run` first.'));
+        console.error(chalk.red('No RAG index found. Run `anatoly docs index` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const config = loadConfig(projectRoot);
+      const docsPath = config.documentation?.docs_path ?? 'docs';
+      const targetDir = scope === 'internal' ? '.anatoly/docs' : docsPath;
+
+      if (!existsSync(resolve(projectRoot, targetDir))) {
+        console.error(chalk.red(`${targetDir}/ not found.${scope === 'internal' ? ' Run `anatoly docs scaffold` first.' : ''}`));
         process.exitCode = 1;
         return;
       }
@@ -638,16 +654,10 @@ export function registerDocsCommand(program: Command): void {
       const store = new VectorStore(projectRoot, tableName);
       await store.init();
 
-      // Verify indexes are populated
+      // Verify code index is populated
       const allCards = await store.listAll();
-      const allDocs = await store.listDocSections();
       if (allCards.length === 0) {
         console.error(chalk.red('Code index is empty. Run `anatoly docs index` first.'));
-        process.exitCode = 1;
-        return;
-      }
-      if (allDocs.length === 0) {
-        console.error(chalk.red('Doc index is empty. Run `anatoly docs index` first (requires .anatoly/docs/).'));
         process.exitCode = 1;
         return;
       }
@@ -655,10 +665,12 @@ export function registerDocsCommand(program: Command): void {
       const gapThreshold = parseFloat(opts.gapThreshold ?? '0.60');
       const driftThreshold = parseFloat(opts.driftThreshold ?? '0.85');
 
-      console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`(gap < ${gapThreshold}, drift < ${driftThreshold})`)}`);
+      console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`${scope} · gap < ${gapThreshold} · drift < ${driftThreshold}`)}`);
       console.log('');
 
       const result = await detectDocGaps(store, {
+        scope: scope as 'internal' | 'project',
+        projectDocsPath: docsPath,
         gapThreshold,
         driftThreshold,
         onProgress: (current, total) => {
@@ -670,17 +682,19 @@ export function registerDocsCommand(program: Command): void {
 
       if (!opts.json) {
         process.stdout.write('\r\x1b[K');
-        console.log(formatGapSummary(result));
+        console.log(formatGapSummary(result, scope as 'internal' | 'project', docsPath));
         console.log('');
 
         const totalWork = result.notFound.length + result.lowRelevance.length + result.orphans.length;
         if (totalWork === 0) {
-          console.log(`  ${chalk.green('✓')} All ${result.covered.length} functions are documented`);
+          console.log(`  ${chalk.green('✓')} All ${result.covered.length} functions are documented in ${targetDir}/`);
         } else {
-          console.log(`  ${chalk.yellow('!')} ${totalWork} items need attention`);
+          console.log(`  ${chalk.yellow('!')} ${totalWork} items need attention in ${targetDir}/`);
         }
       } else {
         const output = {
+          scope,
+          target: targetDir,
           totalFunctions: result.totalFunctions,
           totalDocSections: result.totalDocSections,
           notFound: result.notFound.map(i => ({ function: i.functionCard.name, file: i.functionCard.filePath, similarity: i.similarity })),
