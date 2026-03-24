@@ -803,8 +803,8 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       }
     }
 
-    // Coherence review — Opus multi-turn agent fixes cross-page issues
-    if (result.pagesWritten > 0 && !ctx.interrupted) {
+    // Coherence review — only on first run (bootstrap). Use `anatoly docs review-internal` for on-demand.
+    if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
       ctx.pipelineState?.updateTask(taskId, 'coherence review…');
       try {
         const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
