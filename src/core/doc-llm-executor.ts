@@ -247,10 +247,20 @@ export function reviewDocStructure(
       .map(f => ({ file: f, num: parseInt(f.match(/^(\d+)-/)?.[1] ?? '', 10) }))
       .filter(f => !isNaN(f.num))
       .sort((a, b) => a.num - b.num);
+    const unnumbered = filesInDir.filter(f => !/^\d+-/.test(f));
+
+    // Check numbering gaps
     for (let i = 0; i < numbered.length; i++) {
       const expected = i + 1;
       if (numbered[i].num !== expected) {
         issues.push({ path: `${dir}/${numbered[i].file}`, rule: 'numbering-gap', detail: `numbered ${String(numbered[i].num).padStart(2, '0')} but expected ${String(expected).padStart(2, '0')}`, fixed: false });
+      }
+    }
+
+    // Check mixed numbering: if some files are numbered, all should be
+    if (numbered.length > 0 && unnumbered.length > 0) {
+      for (const file of unnumbered) {
+        issues.push({ path: `${dir}/${file}`, rule: 'numbering-gap', detail: `unnumbered file in directory with numbered files — should be numbered`, fixed: false });
       }
     }
   }
