@@ -110,13 +110,13 @@ export function registerDocsCommand(program: Command): void {
         plain: opts.plain ?? false,
         bannerMotd: 'Doc Scaffold',
         tasks: [
-          { id: 'scaffold', label: 'Scaffold (Sonnet)' },
-          { id: 'coherence-1', label: 'Lint + coherence (Opus)' },
-          { id: 'rag-code', label: 'Indexing & embedding code' },
-          { id: 'rag-nlp', label: 'Summaries & embedding code' },
-          { id: 'rag-doc', label: 'Chunking & embedding docs' },
-          { id: 'update', label: 'Update (Sonnet + RAG)' },
-          { id: 'coherence-2', label: 'Lint + coherence (Opus)' },
+          { id: 'scaffold', label: 'Internal doc — Scaffold (Sonnet)' },
+          { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Opus)' },
+          { id: 'rag-code', label: 'RAG — Indexing & embedding code' },
+          { id: 'rag-nlp', label: 'RAG — Summaries & embedding code' },
+          { id: 'rag-doc', label: 'RAG — Chunking & embedding docs' },
+          { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
+          { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Opus)' },
         ],
         execute: async (ctx) => {
           // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
