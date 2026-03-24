@@ -37,6 +37,7 @@ export interface ExecuteDocPromptsParams {
   docsPath?: string;
   semaphore: Semaphore;
   executor: DocExecutor;
+  onPageStart?: (pagePath: string) => void;
   onPageComplete?: (pagePath: string) => void;
   onPageError?: (pagePath: string, error: Error) => void;
 }
@@ -57,14 +58,14 @@ export interface DocLlmResult {
  * Uses Promise.allSettled so a single page failure doesn't block others.
  */
 export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
-  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, onPageComplete, onPageError } = params;
+  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, onPageStart, onPageComplete, onPageError } = params;
 
   if (prompts.length === 0) {
     return { pagesWritten: 0, pagesFailed: 0, totalCostUsd: 0, errors: [] };
   }
 
   const results = await Promise.allSettled(
-    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, onPageComplete, onPageError)),
+    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, onPageStart, onPageComplete, onPageError)),
   );
 
   let pagesWritten = 0;
@@ -98,11 +99,13 @@ async function executeOnePage(
   docsPath: string,
   semaphore: Semaphore,
   executor: DocExecutor,
+  onPageStart?: (pagePath: string) => void,
   onPageComplete?: (pagePath: string) => void,
   onPageError?: (pagePath: string, error: Error) => void,
 ): Promise<{ costUsd: number }> {
   await semaphore.acquire();
   try {
+    onPageStart?.(prompt.pagePath);
     const result = await executor({
       system: prompt.system,
       user: prompt.user,
@@ -594,6 +597,7 @@ export interface DocContentReviewParams {
   callbacks?: {
     onStart?: () => void;
     onDone?: () => void;
+    onToolUse?: (tool: string, filePath: string) => void;
   };
 }
 
@@ -642,6 +646,14 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
         if (message.subtype === 'success') {
           resultText = (message as { result: string }).result;
           costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        }
+      }
+      if (message.type === 'assistant' && callbacks?.onToolUse) {
+        const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
+        for (const block of msg.content ?? []) {
+          if (block.type === 'tool_use' && block.name && block.input?.file_path) {
+            callbacks.onToolUse(block.name, block.input.file_path);
+          }
         }
       }
     }

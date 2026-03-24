@@ -117,9 +117,9 @@ async function runDocUpdate(
       callbacks: {
         onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `structural loop ${loop}…`),
         onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[structural] loop ${loop} done — ${issues} remaining`),
-        onToolUse: (tool, filePath) => {
-          if (tool === 'Read') ctx.state.trackFile(filePath);
-          else if (tool === 'Write') { ctx.state.trackFile(filePath); ctx.state.untrackFile(filePath); }
+        onToolUse: (_tool, filePath) => {
+          ctx.state.trackFile(filePath);
+          ctx.state.untrackFile(filePath);
         },
       },
     });
@@ -148,6 +148,10 @@ async function runDocUpdate(
         callbacks: {
           onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
           onDone: () => {},
+          onToolUse: (_tool, filePath) => {
+            ctx.state.trackFile(filePath);
+            ctx.state.untrackFile(filePath);
+          },
         },
       });
       ctx.addCost(contentResult.costUsd);
@@ -291,11 +295,16 @@ export function registerDocsCommand(program: Command): void {
               executor: ctx.executor,
               onPageComplete: (pagePath) => {
                 completed++;
+                ctx.state.untrackFile(pagePath);
                 ctx.state.updateTask('scaffold', `${completed}/${total} pages`);
                 ctx.renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);
               },
               onPageError: (pagePath, err) => {
+                ctx.state.untrackFile(pagePath);
                 ctx.renderer.logPlain(`[scaffold] ${chalk.red('×')} ${pagePath} — ${err.message}`);
+              },
+              onPageStart: (pagePath) => {
+                ctx.state.trackFile(pagePath);
               },
             });
 
