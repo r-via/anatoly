@@ -11,4 +11,12 @@ if ('NO_COLOR' in process.env) {
 }
 
 const program = createProgram();
-program.parse();
+// Keep process alive until parseAsync resolves (needed for async commands in plain mode)
+const keepAlive = setInterval(() => {}, 60_000);
+program.parseAsync()
+  .catch((err: unknown) => {
+    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    process.exitCode = 1;
+  })
+  .finally(() => clearInterval(keepAlive));
