@@ -429,9 +429,10 @@ export async function detectDocGapsV2(
   options?.onProgress?.('modules', 0, domains.length);
   const domainReports = await strategy1_moduleDomains(domains, modulePages, vectorStore, scope, options ?? {});
 
-  // Strategy 2: Reference pages
-  options?.onProgress?.('references', 0, refPages.length);
-  const refReports = strategy2_referencePages(refPages, allCards);
+  // Strategy 2: Reference pages (disabled — needs per-capability entry extractors)
+  // Reference pages are handled by strategy 1 via domain matching for now.
+  options?.onProgress?.('references', 0, 0);
+  const refReports: ReferenceReport[] = [];
 
   // Strategy 3: Conceptual pages
   options?.onProgress?.('concepts', 0, 1);
