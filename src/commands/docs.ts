@@ -67,7 +67,9 @@ export function registerDocsCommand(program: Command): void {
         tasks: [
           { id: 'scaffold', label: 'Scaffold (Sonnet)' },
           { id: 'coherence-1', label: 'Lint + coherence (Opus)' },
-          { id: 'rag-index', label: 'RAG index' },
+          { id: 'rag-code', label: 'Indexing & embedding code' },
+          { id: 'rag-nlp', label: 'Summaries & embedding code' },
+          { id: 'rag-doc', label: 'Chunking & embedding docs' },
           { id: 'update', label: 'Update (Sonnet + RAG)' },
           { id: 'coherence-2', label: 'Lint + coherence (Opus)' },
         ],
@@ -144,8 +146,16 @@ export function registerDocsCommand(program: Command): void {
             ctx.state.completeTask('coherence-1', 'failed');
           }
 
-          // --- Step 4: RAG INDEX ---
-          ctx.state.startTask('rag-index', 'indexing…');
+          // --- Step 4: RAG INDEX (3 sub-phases, same as run) ---
+          let ragPhase = 'code';
+          const ragPhaseToTaskId: Record<string, string> = {
+            code: 'rag-code',
+            nlp: 'rag-nlp',
+            upsert: 'rag-nlp', // upsert updates the active nlp task
+            doc: 'rag-doc',
+          };
+          ctx.state.startTask('rag-code', '0/?');
+
           try {
             const ragResult = await indexProjectStandalone({
               projectRoot: ctx.projectRoot,
@@ -154,15 +164,47 @@ export function registerDocsCommand(program: Command): void {
               semaphore: ctx.semaphore,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
-                ctx.state.updateTask('rag-index', `${current}/${total}`);
+                const taskId = ragPhaseToTaskId[ragPhase];
+                if (taskId) ctx.state.updateTask(taskId, `${current}/${total}`);
               },
               onPhase: (phase) => {
-                ctx.state.updateTask('rag-index', phase);
+                const prevTaskId = ragPhaseToTaskId[ragPhase];
+                const nextTaskId = ragPhaseToTaskId[phase];
+                // Complete previous phase task
+                if (prevTaskId && prevTaskId !== nextTaskId) {
+                  const prevTask = ctx.state.tasks.find(t => t.id === prevTaskId);
+                  ctx.state.completeTask(prevTaskId, prevTask?.detail === '\u2014' ? 'done' : prevTask?.detail ?? 'done');
+                }
+                ragPhase = phase;
+                // Start next phase task
+                if (nextTaskId) ctx.state.startTask(nextTaskId, '0/?');
               },
+              onFileStart: (file) => ctx.state.trackFile(file),
+              onFileDone: (file) => ctx.state.untrackFile(file),
             });
-            ctx.state.completeTask('rag-index', `${ragResult.totalCards} cards, ${ragResult.docSectionsIndexed} doc sections`);
+
+            // Complete final RAG task
+            const finalTaskId = ragPhaseToTaskId[ragPhase];
+            if (finalTaskId) {
+              const detail = ragPhase === 'doc'
+                ? `${ragResult.docSectionsIndexed} sections`
+                : `${ragResult.totalCards} cards`;
+              ctx.state.completeTask(finalTaskId, detail);
+            }
+            // Ensure all 3 tasks are completed
+            if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done')) {
+              ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
+            }
+            if (ctx.state.tasks.find(t => t.id === 'rag-nlp' && t.status !== 'done')) {
+              ctx.state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+            }
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
+              ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
+            }
           } catch (err) {
-            ctx.state.completeTask('rag-index', 'failed');
+            ctx.state.completeTask('rag-code', 'failed');
+            ctx.state.completeTask('rag-nlp', 'failed');
+            ctx.state.completeTask('rag-doc', 'failed');
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
           }
 
