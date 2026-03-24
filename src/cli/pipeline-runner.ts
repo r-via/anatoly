@@ -134,6 +134,12 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
       const task = state.tasks.find(t => t.id === id);
       if (task) console.log(`  ● ${task.label}${detail ? ` — ${detail}` : ''}`);
     };
+    const origUpdate = state.updateTask.bind(state);
+    state.updateTask = (id: string, detail: string) => {
+      origUpdate(id, detail);
+      const task = state.tasks.find(t => t.id === id);
+      if (task) console.log(`  … ${task.label} — ${detail}`);
+    };
     const origComplete = state.completeTask.bind(state);
     state.completeTask = (id: string, detail: string) => {
       const task = state.tasks.find(t => t.id === id);
