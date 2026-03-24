@@ -409,6 +409,7 @@ export interface DocCoherenceReviewParams {
   callbacks?: {
     onLoopStart?: (loop: number) => void;
     onLoopEnd?: (loop: number, linterIssues: number) => void;
+    onToolUse?: (tool: string, filePath: string) => void;
   };
 }
 
@@ -515,6 +516,15 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
           const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
           conversationLog.push(`\n## Error\n\n${errMsg}\n`);
           break;
+        }
+      }
+      // Track tool use for UI display
+      if (message.type === 'assistant' && callbacks?.onToolUse) {
+        const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
+        for (const block of msg.content ?? []) {
+          if (block.type === 'tool_use' && block.name && block.input?.file_path) {
+            callbacks.onToolUse(block.name, block.input.file_path);
+          }
         }
       }
     }

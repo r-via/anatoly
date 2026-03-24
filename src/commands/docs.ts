@@ -114,6 +114,10 @@ async function runDocUpdate(
       callbacks: {
         onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `structural loop ${loop}…`),
         onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[structural] loop ${loop} done — ${issues} remaining`),
+        onToolUse: (tool, filePath) => {
+          if (tool === 'Read') ctx.state.trackFile(filePath);
+          else if (tool === 'Write') { ctx.state.trackFile(filePath); ctx.state.untrackFile(filePath); }
+        },
       },
     });
     ctx.addCost(structResult.costUsd);
@@ -319,6 +323,10 @@ export function registerDocsCommand(program: Command): void {
                 },
                 onLoopEnd: (loop, issues) => {
                   ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
+                },
+                onToolUse: (tool, filePath) => {
+                  if (tool === 'Read') ctx.state.trackFile(filePath);
+                  else if (tool === 'Write') { ctx.state.trackFile(filePath); ctx.state.untrackFile(filePath); }
                 },
               },
             });
