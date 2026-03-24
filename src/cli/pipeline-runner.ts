@@ -32,6 +32,7 @@ import type { Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
+import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // --- Public interfaces ---
@@ -156,37 +157,51 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 
 function createExecutor(projectRoot: string): DocExecutor {
   return async ({ system, user, model }) => {
-    const q = query({
-      prompt: user,
-      options: {
-        systemPrompt: system,
-        model,
-        cwd: projectRoot,
-        allowedTools: [],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-      },
-    });
+    return retryWithBackoff(
+      async () => {
+        const q = query({
+          prompt: user,
+          options: {
+            systemPrompt: system,
+            model,
+            cwd: projectRoot,
+            allowedTools: [],
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+          },
+        });
 
-    let resultText = '';
-    let costUsd = 0;
+        let resultText = '';
+        let costUsd = 0;
 
-    for await (const message of q) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          resultText = (message as { result: string }).result;
-          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-        } else {
-          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-          throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+        for await (const message of q) {
+          if (message.type === 'result') {
+            if (message.subtype === 'success') {
+              resultText = (message as { result: string }).result;
+              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+            } else {
+              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+            }
+          }
         }
-      }
-    }
 
-    if (!resultText) {
-      throw new Error('SDK returned no result — LLM stream was empty');
-    }
+        if (!resultText) {
+          throw new Error('SDK returned no result — LLM stream was empty');
+        }
 
-    return { text: resultText, costUsd };
+        return { text: resultText, costUsd };
+      },
+      {
+        maxRetries: 5,
+        baseDelayMs: 5_000,
+        maxDelayMs: 60_000,
+        jitterFactor: 0.2,
+        filePath: 'doc-executor',
+        onRetry: (attempt, delayMs) => {
+          console.log(`  rate limited — retry ${attempt}/5 in ${(delayMs / 1000).toFixed(0)}s`);
+        },
+      },
+    );
   };
 }
