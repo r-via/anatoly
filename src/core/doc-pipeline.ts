@@ -251,8 +251,28 @@ function buildPageMappings(
 ): PageMapping[] {
   const mappings: PageMapping[] = [];
 
+  // Build a set of module base-names already covered by module-granularity pages
+  // (e.g. "05-Modules/02-core.md" → "core"). Doc-mapping catch-all entries that
+  // target the same module name (e.g. "05-Modules/core.md") must be skipped to
+  // avoid duplicate pages for the same source directory.
+  const moduleGranularityNames = new Set<string>();
+  for (const page of scaffoldResult.scaffoldResult.allPages) {
+    if (page.startsWith('05-Modules/')) {
+      // Strip section prefix + optional numeric prefix: "05-Modules/02-core.md" → "core"
+      const filename = page.split('/').pop()!;
+      const baseName = filename.replace(/^\d+-/, '').replace(/\.md$/, '');
+      moduleGranularityNames.add(baseName);
+    }
+  }
+
   // For each doc mapping, find the source files that map to it
   for (const dm of scaffoldResult.docMappings) {
+    // Skip catch-all doc-mapping entries that duplicate a module-granularity page
+    if (dm.strategy === 'catch-all' && dm.docPage.startsWith('05-Modules/')) {
+      const filename = dm.docPage.split('/').pop()!;
+      const baseName = filename.replace(/\.md$/, '');
+      if (moduleGranularityNames.has(baseName)) continue;
+    }
     const sourceFiles = tasks
       .filter(t => {
         const parts = t.file.split('/');

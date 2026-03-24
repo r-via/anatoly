@@ -11,7 +11,9 @@ Read every .md file in this directory. Identify and fix cross-page coherence iss
 3. **Duplicate content** — substantial paragraphs repeated across pages. Keep the content in the most specific page, replace duplicates with a cross-reference link.
 4. **Inconsistent structure** — pages in the same section using different heading patterns or section ordering. Align with the majority pattern.
 5. **Orphan pages** — pages not linked from index.md or any other page. Add a link from the most relevant page.
-6. **Index completeness** — ensure index.md links to every .md file that exists. Remove links to files that don't exist.
+6. **Index completeness** — ensure index.md links to every .md file that exists. Remove links to files that don't exist. Index entries must be ordered by numeric prefix.
+7. **File numbering** — within each directory, files must be consistently numbered. If some files have numeric prefixes (e.g. `01-Overview.md`) and others don't (e.g. `utils.md`), rename the unnumbered files to follow the sequence. If duplicate pages cover the same topic (e.g. `02-core.md` and `core.md`), merge content into the numbered file and delete the unnumbered duplicate.
+8. **Duplicate files** — if two files in the same directory document the same module/topic, merge them into one. Keep the numbered version, consolidate content from the unnumbered version, then delete the unnumbered file.
 
 ## Writing rules
 
@@ -33,7 +35,7 @@ When rewriting a file, follow these rules exactly:
 
 ## Constraints
 
-- NEVER create new files. Only fix existing ones.
+- NEVER create new files. You may delete duplicate/unnumbered files after merging their content into the numbered version.
 - NEVER rewrite prose for style or quality — only fix coherence issues.
 - NEVER change code examples.
 - Preserve existing heading hierarchy within each file.
