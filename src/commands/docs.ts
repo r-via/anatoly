@@ -333,7 +333,7 @@ export function registerDocsCommand(program: Command): void {
                 } else if (ragPhase === 'nlp') {
                   ctx.state.completeTask('rag-nlp', `${nlpProcessed} files`);
                 } else if (ragPhase === 'doc-project') {
-                  ctx.state.completeTask('rag-doc-project', ctx.state.tasks.find(t => t.id === 'rag-doc-project')?.detail ?? 'done');
+                  // Completed in final block with actual section count from ragResult
                 }
                 ragPhase = phase;
                 const taskId = ragPhaseToTaskId[phase];
@@ -668,7 +668,7 @@ export function registerDocsCommand(program: Command): void {
                 } else if (ragPhase === 'nlp') {
                   ctx.state.completeTask('rag-nlp', `${idxNlpProcessed} files`);
                 } else if (ragPhase === 'doc-project') {
-                  ctx.state.completeTask('rag-doc-project', ctx.state.tasks.find(t => t.id === 'rag-doc-project')?.detail ?? 'done');
+                  // Completed in final block with actual section count from ragResult
                 }
                 ragPhase = phase;
                 const phaseMap: Record<string, string> = { code: 'rag-code', nlp: 'rag-nlp', 'doc-project': 'rag-doc-project', 'doc-internal': 'rag-doc-internal' };
