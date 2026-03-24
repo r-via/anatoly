@@ -322,7 +322,8 @@ export function registerRunCommand(program: Command): void {
         if (ctx.enableRag) {
           pipelineState.addTask('rag-code', 'Indexing & embedding code');
           pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
-          pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
+          pipelineState.addTask('rag-doc-project', 'Chunking & embedding project docs');
+          pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('internal-docs', 'Internal docs');
@@ -980,7 +981,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
   state.relabelTask('rag-code', `Indexing & embedding code (${codeModel})`);
   state.relabelTask('rag-nlp', `Summaries & embedding code (${nlpModel})`);
-  state.relabelTask('rag-doc', `Chunking & embedding docs (${nlpModel})`);
+  state.relabelTask('rag-doc-project', `Chunking & embedding project docs (${nlpModel})`);
+  state.relabelTask('rag-doc-internal', `Chunking & embedding internal docs (${nlpModel})`);
 
   let ragResult: RagIndexResult | undefined;
 
@@ -993,7 +995,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     code: 'rag-code',
     nlp: 'rag-nlp',
     upsert: 'rag-upsert',
-    doc: 'rag-doc',
+    'doc-project': 'rag-doc-project',
+    'doc-internal': 'rag-doc-internal',
   };
 
   state.startTask('rag-code', '0/?');
@@ -1068,11 +1071,10 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     const nlpTask = state.tasks.find(t => t.id === 'rag-nlp');
     state.completeTask('rag-nlp', nlpTask?.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
     state.completeTask('rag-upsert', 'done');
-    if (ragResult.docSectionsIndexed > 0) {
-      state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
-    } else {
-      state.completeTask('rag-doc', 'done');
-    }
+    state.completeTask('rag-doc-project', ragResult.projectDocSections > 0
+      ? `${ragResult.projectDocSections} sections` : 'done');
+    state.completeTask('rag-doc-internal', ragResult.internalDocSections > 0
+      ? `${ragResult.internalDocSections} sections` : 'done');
   }
 
   const ragDuration = Date.now() - ragStart;

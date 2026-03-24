@@ -222,7 +222,8 @@ export function registerDocsCommand(program: Command): void {
           { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Opus)' },
           { id: 'rag-code', label: 'RAG — Indexing & embedding code' },
           { id: 'rag-nlp', label: 'RAG — Summaries & embedding code' },
-          { id: 'rag-doc', label: 'RAG — Chunking & embedding docs (internal + project)' },
+          { id: 'rag-doc-project', label: 'RAG — Chunking & embedding project docs' },
+          { id: 'rag-doc-internal', label: 'RAG — Chunking & embedding internal docs' },
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
           { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Opus)' },
         ],
@@ -305,8 +306,8 @@ export function registerDocsCommand(program: Command): void {
           const ragPhaseToTaskId: Record<string, string> = {
             code: 'rag-code',
             nlp: 'rag-nlp',
-            upsert: 'rag-upsert', // hidden phase, not a visible task
-            doc: 'rag-doc',
+            'doc-project': 'rag-doc-project',
+            'doc-internal': 'rag-doc-internal',
           };
           ctx.state.startTask('rag-code', '0/?');
 
@@ -319,8 +320,10 @@ export function registerDocsCommand(program: Command): void {
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
                 if (ragPhase === 'nlp') nlpProcessed = current;
-                const taskId = ragPhase === 'upsert' ? undefined : ragPhaseToTaskId[ragPhase];
-                if (taskId) ctx.state.updateTask(taskId, `${current}/${total}`);
+                if (ragPhase !== 'upsert') {
+                  const taskId = ragPhaseToTaskId[ragPhase];
+                  if (taskId) ctx.state.updateTask(taskId, `${current}/${total}`);
+                }
               },
               onPhase: (phase) => {
                 // Complete previous visible task
@@ -329,13 +332,12 @@ export function registerDocsCommand(program: Command): void {
                   ctx.state.completeTask('rag-code', t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
                 } else if (ragPhase === 'nlp') {
                   ctx.state.completeTask('rag-nlp', `${nlpProcessed} files`);
+                } else if (ragPhase === 'doc-project') {
+                  ctx.state.completeTask('rag-doc-project', ctx.state.tasks.find(t => t.id === 'rag-doc-project')?.detail ?? 'done');
                 }
-                // upsert is a hidden phase — don't complete/start any visible task
                 ragPhase = phase;
-                // Start next visible task
-                if (phase === 'code') ctx.state.startTask('rag-code', '0/?');
-                if (phase === 'nlp') ctx.state.startTask('rag-nlp', '0/?');
-                if (phase === 'doc') ctx.state.startTask('rag-doc', '0/?');
+                const taskId = ragPhaseToTaskId[phase];
+                if (taskId) ctx.state.startTask(taskId, '0/?');
               },
               onFileStart: (file) => ctx.state.trackFile(file),
               onFileDone: (file) => ctx.state.untrackFile(file),
@@ -343,29 +345,21 @@ export function registerDocsCommand(program: Command): void {
 
             // Complete final RAG task
             const finalTaskId = ragPhaseToTaskId[ragPhase];
-            if (finalTaskId) {
-              const detail = ragPhase === 'doc'
-                ? `${ragResult.docSectionsIndexed} sections`
-                : `${ragResult.totalCards} cards`;
-              ctx.state.completeTask(finalTaskId, detail);
-            }
-            // Ensure all 3 tasks are completed with meaningful details
-            if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done')) {
+            // Ensure all tasks are completed with meaningful details
+            if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done'))
               ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
-            }
             const nlpTask = ctx.state.tasks.find(t => t.id === 'rag-nlp');
-            if (nlpTask && nlpTask.status !== 'done') {
-              ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending'
-                ? 'cached'
-                : `${ragResult.totalCards} cards`);
-            }
-            if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
-              ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
-            }
+            if (nlpTask && nlpTask.status !== 'done')
+              ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc-project' && t.status !== 'done'))
+              ctx.state.completeTask('rag-doc-project', `${ragResult.projectDocSections} sections`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc-internal' && t.status !== 'done'))
+              ctx.state.completeTask('rag-doc-internal', `${ragResult.internalDocSections} sections`);
           } catch (err) {
             ctx.state.completeTask('rag-code', 'failed');
             ctx.state.completeTask('rag-nlp', 'failed');
-            ctx.state.completeTask('rag-doc', 'failed');
+            ctx.state.completeTask('rag-doc-project', 'failed');
+            ctx.state.completeTask('rag-doc-internal', 'failed');
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
           }
 
@@ -636,7 +630,8 @@ export function registerDocsCommand(program: Command): void {
           { id: 'scan', label: 'Scanning project' },
           { id: 'rag-code', label: 'Indexing & embedding code' },
           { id: 'rag-nlp', label: 'Summaries & embedding code' },
-          { id: 'rag-doc', label: 'Chunking & embedding docs' },
+          { id: 'rag-doc-project', label: 'Chunking & embedding project docs' },
+          { id: 'rag-doc-internal', label: 'Chunking & embedding internal docs' },
         ],
         execute: async (ctx) => {
           // Step 1: Scan
@@ -661,7 +656,8 @@ export function registerDocsCommand(program: Command): void {
               onProgress: (current, total) => {
                 if (ragPhase === 'nlp') idxNlpProcessed = current;
                 if (ragPhase !== 'upsert') {
-                  const tid = ragPhase === 'code' ? 'rag-code' : ragPhase === 'nlp' ? 'rag-nlp' : ragPhase === 'doc' ? 'rag-doc' : undefined;
+                  const phaseMap: Record<string, string> = { code: 'rag-code', nlp: 'rag-nlp', 'doc-project': 'rag-doc-project', 'doc-internal': 'rag-doc-internal' };
+                  const tid = phaseMap[ragPhase];
                   if (tid) ctx.state.updateTask(tid, `${current}/${total}`);
                 }
               },
@@ -671,11 +667,13 @@ export function registerDocsCommand(program: Command): void {
                   ctx.state.completeTask('rag-code', t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
                 } else if (ragPhase === 'nlp') {
                   ctx.state.completeTask('rag-nlp', `${idxNlpProcessed} files`);
+                } else if (ragPhase === 'doc-project') {
+                  ctx.state.completeTask('rag-doc-project', ctx.state.tasks.find(t => t.id === 'rag-doc-project')?.detail ?? 'done');
                 }
                 ragPhase = phase;
-                if (phase === 'code') ctx.state.startTask('rag-code', '0/?');
-                if (phase === 'nlp') ctx.state.startTask('rag-nlp', '0/?');
-                if (phase === 'doc') ctx.state.startTask('rag-doc', '0/?');
+                const phaseMap: Record<string, string> = { code: 'rag-code', nlp: 'rag-nlp', 'doc-project': 'rag-doc-project', 'doc-internal': 'rag-doc-internal' };
+                const taskId = phaseMap[phase];
+                if (taskId) ctx.state.startTask(taskId, '0/?');
               },
               onFileStart: (file) => ctx.state.trackFile(file),
               onFileDone: (file) => ctx.state.untrackFile(file),
@@ -686,15 +684,16 @@ export function registerDocsCommand(program: Command): void {
               ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
             const idxNlp = ctx.state.tasks.find(t => t.id === 'rag-nlp');
             if (idxNlp && idxNlp.status !== 'done')
-              ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending'
-                ? 'cached'
-                : `${ragResult.totalCards} cards`);
-            if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done'))
-              ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
+              ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc-project' && t.status !== 'done'))
+              ctx.state.completeTask('rag-doc-project', `${ragResult.projectDocSections} sections`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc-internal' && t.status !== 'done'))
+              ctx.state.completeTask('rag-doc-internal', `${ragResult.internalDocSections} sections`);
           } catch (err) {
             ctx.state.completeTask('rag-code', 'failed');
             ctx.state.completeTask('rag-nlp', 'failed');
-            ctx.state.completeTask('rag-doc', 'failed');
+            ctx.state.completeTask('rag-doc-project', 'failed');
+            ctx.state.completeTask('rag-doc-internal', 'failed');
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
             process.exitCode = 1;
           }

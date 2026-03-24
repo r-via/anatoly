@@ -39,7 +39,7 @@ export interface RagIndexOptions {
   onFileStart?: (file: string) => void;
   onFileDone?: (file: string) => void;
   /** Called when indexing transitions between phases. */
-  onPhase?: (phase: 'code' | 'nlp' | 'upsert' | 'doc') => void;
+  onPhase?: (phase: 'code' | 'nlp' | 'upsert' | 'doc-project' | 'doc-internal') => void;
   isInterrupted: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
@@ -53,8 +53,12 @@ export interface RagIndexResult {
   filesIndexed: number;
   totalCards: number;
   totalFiles: number;
-  /** Number of doc sections indexed from /docs/. */
+  /** Total doc sections indexed (project + internal). */
   docSectionsIndexed: number;
+  /** Doc sections from project docs/ */
+  projectDocSections: number;
+  /** Doc sections from .anatoly/docs/ */
+  internalDocSections: number;
 }
 
 /**
@@ -372,39 +376,22 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
   }
 
-  // Index doc sections from /docs/ and .anatoly/docs/
-  // Count total files across both passes for a single cumulative progress bar
+  // Index doc sections from /docs/ (project) and .anatoly/docs/ (internal)
   let docSectionsIndexed = 0;
-  let docFilesProcessed = 0;
-  let docFilesTotal = 0;
-
-  // Pre-count files in both doc directories
-  const projectDocsDir = resolve(projectRoot, options.docsDir ?? 'docs');
-  const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
-  if (existsSync(projectDocsDir)) {
-    docFilesTotal += globSync(['**/*.md'], { cwd: projectDocsDir }).length;
-  }
-  if (existsSync(internalDocsDir)) {
-    docFilesTotal += globSync(['**/*.md'], { cwd: internalDocsDir }).length;
-  }
-
-  const cumulativeProgress = (current: number, _total: number) => {
-    docFilesProcessed++;
-    onProgress?.(docFilesProcessed, docFilesTotal);
-  };
-
-  onPhase?.('doc');
+  let projectDocSections = 0;
+  let internalDocSections = 0;
 
   // Project docs (docs/)
+  onPhase?.('doc-project');
   try {
-    docSectionsIndexed += await indexDocSections({
+    projectDocSections = await indexDocSections({
       projectRoot,
       vectorStore: store,
       docsDir: options.docsDir,
       cacheSuffix,
       chunkModel: options.indexModel,
       onLog,
-      onProgress: cumulativeProgress,
+      onProgress,
       onFileStart,
       onFileDone,
       isInterrupted,
@@ -413,20 +400,22 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       concurrency,
       docSource: 'project',
     });
+    docSectionsIndexed += projectDocSections;
   } catch (err) {
     onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
   }
 
   // Internal docs (.anatoly/docs/)
+  onPhase?.('doc-internal');
   try {
-    docSectionsIndexed += await indexDocSections({
+    internalDocSections = await indexDocSections({
       projectRoot,
       vectorStore: store,
       docsDir: join('.anatoly', 'docs'),
       cacheSuffix: `${cacheSuffix}-internal`,
       chunkModel: options.indexModel,
       onLog,
-      onProgress: cumulativeProgress,
+      onProgress,
       onFileStart,
       onFileDone,
       isInterrupted,
@@ -435,6 +424,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       concurrency,
       docSource: 'internal',
     });
+    docSectionsIndexed += internalDocSections;
   } catch (err) {
     onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
   }
@@ -460,5 +450,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     totalCards: stats.totalCards,
     totalFiles: stats.totalFiles,
     docSectionsIndexed,
+    projectDocSections,
+    internalDocSections,
   };
 }
