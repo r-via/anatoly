@@ -13,6 +13,7 @@ import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
+import { indexProjectStandalone } from '../rag/standalone.js';
 
 export function registerDocsCommand(program: Command): void {
   const docs = program
@@ -149,16 +150,95 @@ export function registerDocsCommand(program: Command): void {
           }
 
           // --- Step 4: RAG INDEX ---
-          ctx.state.startTask('rag-index', 'pending RAG integration');
-          ctx.state.completeTask('rag-index', 'skipped (standalone mode)');
+          ctx.state.startTask('rag-index', 'indexing…');
+          try {
+            const ragResult = await indexProjectStandalone({
+              projectRoot: ctx.projectRoot,
+              tasks,
+              docsDir: ctx.docsPath,
+              semaphore: ctx.semaphore,
+              onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
+              onProgress: (current, total) => {
+                ctx.state.updateTask('rag-index', `${current}/${total}`);
+              },
+              onPhase: (phase) => {
+                ctx.state.updateTask('rag-index', phase);
+              },
+            });
+            ctx.state.completeTask('rag-index', `${ragResult.totalCards} cards, ${ragResult.docSectionsIndexed} doc sections`);
+          } catch (err) {
+            ctx.state.completeTask('rag-index', 'failed');
+            ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
+          }
 
-          // --- Step 5: UPDATE with RAG ---
-          ctx.state.startTask('update', 'pending RAG integration');
-          ctx.state.completeTask('update', 'skipped (standalone mode)');
+          // --- Step 5: UPDATE with RAG (re-generate, cache invalidated by coherence writes) ---
+          ctx.state.startTask('update', 'checking cache…');
+          const genResult2 = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, ctx.pkg);
+
+          if (genResult2.prompts.length === 0) {
+            ctx.state.completeTask('update', 'all cached');
+          } else {
+            let completed2 = 0;
+            const total2 = genResult2.prompts.length;
+            ctx.state.updateTask('update', `0/${total2} pages`);
+
+            const llmResult2 = await executeDocPrompts({
+              prompts: genResult2.prompts,
+              outputDir,
+              projectRoot: ctx.projectRoot,
+              semaphore: ctx.semaphore,
+              executor: ctx.executor,
+              onPageComplete: (pagePath) => {
+                completed2++;
+                ctx.state.updateTask('update', `${completed2}/${total2} pages`);
+                ctx.renderer.logPlain(`[update] ${completed2}/${total2} ${pagePath}`);
+              },
+              onPageError: (pagePath, err) => {
+                ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err.message}`);
+              },
+            });
+
+            ctx.addCost(llmResult2.totalCostUsd);
+            ctx.state.completeTask('update', llmResult2.pagesFailed > 0
+              ? `${llmResult2.pagesWritten} written, ${llmResult2.pagesFailed} failed`
+              : `${llmResult2.pagesWritten} pages updated`);
+          }
 
           // --- Step 6: LINT + COHERENCE on updated pages ---
-          ctx.state.startTask('lint-2', 'pending RAG integration');
-          ctx.state.completeTask('lint-2', 'skipped (standalone mode)');
+          ctx.state.startTask('lint-2', 'checking structure…');
+          if (genResult2.prompts.length > 0) {
+            const lintResult2 = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+            const lintIssues2 = lintResult2.issues.filter(i => !i.fixed).length;
+
+            if (lintIssues2 > 0 || lintResult2.filesFixed > 0) {
+              ctx.state.updateTask('lint-2', 'coherence review…');
+              const ts2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+              const coherenceLogDir2 = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-2_${ts2}`);
+
+              try {
+                const coherenceResult2 = await runDocCoherenceReview({
+                  outputDir,
+                  projectRoot: ctx.projectRoot,
+                  docsPath: ctx.docsPath,
+                  logDir: coherenceLogDir2,
+                  callbacks: {
+                    onLoopStart: (loop) => ctx.state.updateTask('lint-2', `coherence loop ${loop}…`),
+                    onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence-2] loop ${loop} done — ${issues} remaining`),
+                  },
+                });
+                ctx.addCost(coherenceResult2.costUsd);
+                ctx.state.completeTask('lint-2', coherenceResult2.linterIssuesAfter === 0
+                  ? `clean (${coherenceResult2.loopsCompleted} loops)`
+                  : `${coherenceResult2.linterIssuesAfter} issues remaining`);
+              } catch {
+                ctx.state.completeTask('lint-2', 'coherence failed');
+              }
+            } else {
+              ctx.state.completeTask('lint-2', 'clean');
+            }
+          } else {
+            ctx.state.completeTask('lint-2', 'skipped (no updates)');
+          }
         },
       });
 
