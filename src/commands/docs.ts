@@ -27,7 +27,12 @@ export function registerDocsCommand(program: Command): void {
     .description('Scaffold documentation. Scope: "internal" (default, generates .anatoly/docs/) or "project" (copies internal → docs/)')
     .option('-y, --yes', 'skip confirmation prompt')
     .option('--plain', 'linear sequential output')
-    .action(async (scope: string | undefined, opts: { yes?: boolean; plain?: boolean }) => {
+    .action(async (scope: string | undefined, opts: { yes?: boolean; plain?: boolean }, cmd: { parent?: { parent?: { opts: () => Record<string, unknown> } } }) => {
+      // --plain may be captured by the root program (global option), read from parent chain
+      const globalOpts = cmd.parent?.parent?.opts?.() ?? {};
+      const plain = opts.plain ?? (globalOpts['plain'] as boolean | undefined) ?? false;
+      const yes = opts.yes ?? false;
+
       const effectiveScope = scope ?? 'internal';
       if (effectiveScope !== 'internal' && effectiveScope !== 'project') {
         console.error(chalk.red(`Invalid scope "${effectiveScope}". Use "internal" or "project".`));
@@ -62,7 +67,7 @@ export function registerDocsCommand(program: Command): void {
           console.log('');
           // Recursive call to scaffold internal
           const { execSync } = await import('node:child_process');
-          execSync(`node ${resolve(projectRoot, 'dist', 'index.js')} docs scaffold internal -y${opts.plain ? ' --plain' : ''}`, {
+          execSync(`node ${resolve(projectRoot, 'dist', 'index.js')} docs scaffold internal -y${plain ? ' --plain' : ''}`, {
             cwd: projectRoot,
             stdio: 'inherit',
           });
@@ -84,7 +89,7 @@ export function registerDocsCommand(program: Command): void {
       const docsDir = internalDocsDir;
 
       // Confirmation (skipped with -y or --plain)
-      if (!opts.yes && !opts.plain) {
+      if (!yes && !plain) {
         if (existsSync(docsDir)) {
           console.log(`This will delete and regenerate ${chalk.bold('.anatoly/docs/')}`);
         } else {
@@ -107,7 +112,7 @@ export function registerDocsCommand(program: Command): void {
 
       const result = await runPipeline({
         projectRoot,
-        plain: opts.plain ?? false,
+        plain,
         bannerMotd: 'Doc Scaffold',
         tasks: [
           { id: 'scaffold', label: 'Internal doc — Scaffold (Sonnet)' },
@@ -550,7 +555,9 @@ export function registerDocsCommand(program: Command): void {
     .description('Incremental RAG indexing: code cards + NLP summaries + doc chunks')
     .option('--plain', 'linear sequential output')
     .option('--rebuild', 'force full re-index (ignore cache)')
-    .action(async (opts: { plain?: boolean; rebuild?: boolean }) => {
+    .action(async (opts: { plain?: boolean; rebuild?: boolean }, cmd: { parent?: { parent?: { opts: () => Record<string, unknown> } } }) => {
+      const globalPlain = cmd.parent?.parent?.opts?.()?.['plain'] as boolean | undefined;
+      const plainMode = opts.plain ?? globalPlain ?? false;
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -591,7 +598,7 @@ export function registerDocsCommand(program: Command): void {
 
       const result = await runPipeline({
         projectRoot,
-        plain: opts.plain ?? false,
+        plain: plainMode,
         bannerMotd: 'Doc Index',
         tasks: [
           { id: 'scan', label: 'Scanning project' },
