@@ -17,6 +17,108 @@ import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.j
 import { detectDocGaps, formatGapSummary } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 
+// --- Shared: RAG-driven update + lint + coherence ---
+
+import type { PipelineContext } from '../cli/pipeline-runner.js';
+
+async function runDocUpdate(
+  ctx: PipelineContext,
+  outputDir: string,
+  updateTaskId: string,
+  coherenceTaskId: string,
+): Promise<void> {
+  ctx.state.startTask(updateTaskId, 'gap detection…');
+
+  const tableName = resolveRagTableName(ctx.projectRoot);
+  const store = new VectorStore(ctx.projectRoot, tableName);
+  await store.init();
+
+  const gapResult = await detectDocGaps(store, {
+    scope: 'internal',
+    onProgress: (current, total) => {
+      ctx.state.updateTask(updateTaskId, `analyzing ${current}/${total} functions…`);
+    },
+  });
+
+  const workItems = gapResult.notFound.length + gapResult.lowRelevance.length;
+  if (workItems === 0) {
+    ctx.state.completeTask(updateTaskId, `${gapResult.covered.length} functions covered, 0 gaps`);
+    ctx.state.startTask(coherenceTaskId, 'skipped (no updates)');
+    ctx.state.completeTask(coherenceTaskId, 'skipped (no updates)');
+    return;
+  }
+
+  ctx.state.updateTask(updateTaskId, `${workItems} gaps found, updating…`);
+  ctx.renderer.logPlain(`[update] ${gapResult.notFound.length} NOT_FOUND, ${gapResult.lowRelevance.length} LOW_RELEVANCE`);
+
+  const pagesWithWork = Array.from(gapResult.byPage.values())
+    .filter(p => p.notFound.length > 0 || p.lowRelevance.length > 0);
+
+  let pagesUpdated = 0;
+  for (const pageWork of pagesWithWork) {
+    const pagePath = pageWork.pagePath;
+    const fullPath = join(outputDir, pagePath);
+    const currentContent = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : '';
+
+    const gapLines: string[] = [];
+    for (const item of pageWork.notFound) {
+      gapLines.push(`NOT_FOUND: ${item.functionCard.name} (${item.functionCard.filePath})`);
+      gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
+      gapLines.push(`  Signature: ${item.functionCard.signature}`);
+      gapLines.push(`  → Create documentation for this function.\n`);
+    }
+    for (const item of pageWork.lowRelevance) {
+      gapLines.push(`LOW_RELEVANCE: ${item.functionCard.name} (${item.functionCard.filePath}) — sim ${item.similarity.toFixed(2)}`);
+      gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
+      gapLines.push(`  Matched section: ${item.bestMatch?.name ?? 'unknown'}`);
+      gapLines.push(`  → Review and update the matching section.\n`);
+    }
+
+    const system = `You are a technical documentation updater. You receive a documentation page and a list of functions that are missing or have stale documentation. Update the page to include or fix these functions. Do NOT rewrite sections that are already correct. Output ONLY the raw Markdown content — begin with the existing # heading. NEVER add preamble.`;
+    const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
+
+    try {
+      const result = await ctx.executor({ system, user, model: 'sonnet' });
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, result.text, 'utf-8');
+      ctx.addCost(result.costUsd);
+      pagesUpdated++;
+      ctx.state.updateTask(updateTaskId, `${pagesUpdated}/${pagesWithWork.length} pages`);
+      ctx.renderer.logPlain(`[update] ${pagesUpdated}/${pagesWithWork.length} ${pagePath}`);
+    } catch (err) {
+      ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${workItems} gaps filled)`);
+
+  // Lint + coherence on updated pages
+  ctx.state.startTask(coherenceTaskId, 'linting…');
+  reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+  ctx.state.updateTask(coherenceTaskId, 'coherence review…');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-update_${ts}`);
+
+  try {
+    const coherenceResult = await runDocCoherenceReview({
+      outputDir,
+      projectRoot: ctx.projectRoot,
+      docsPath: ctx.docsPath,
+      logDir: coherenceLogDir,
+      callbacks: {
+        onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `coherence loop ${loop}…`),
+        onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} remaining`),
+      },
+    });
+    ctx.addCost(coherenceResult.costUsd);
+    ctx.state.completeTask(coherenceTaskId, coherenceResult.linterIssuesAfter === 0
+      ? `clean (${coherenceResult.loopsCompleted} loops)`
+      : `${coherenceResult.linterIssuesAfter} issues remaining`);
+  } catch {
+    ctx.state.completeTask(coherenceTaskId, 'coherence failed');
+  }
+}
+
 export function registerDocsCommand(program: Command): void {
   const docs = program
     .command('docs')
@@ -266,101 +368,8 @@ export function registerDocsCommand(program: Command): void {
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
           }
 
-          // --- Step 5: RAG-DRIVEN UPDATE (gap detection + targeted regeneration) ---
-          ctx.state.startTask('update', 'gap detection…');
-
-          // Open vector store for gap detection (must use same table as indexer)
-          const tableName = resolveRagTableName(ctx.projectRoot);
-          const store = new VectorStore(ctx.projectRoot, tableName);
-          await store.init();
-
-          const gapResult = await detectDocGaps(store, {
-            scope: 'internal',
-            onProgress: (current, total) => {
-              ctx.state.updateTask('update', `analyzing ${current}/${total} functions…`);
-            },
-          });
-
-          const workItems = gapResult.notFound.length + gapResult.lowRelevance.length;
-          if (workItems === 0) {
-            ctx.state.completeTask('update', `${gapResult.covered.length} functions covered, 0 gaps`);
-          } else {
-            ctx.state.updateTask('update', `${workItems} gaps found, updating…`);
-            ctx.renderer.logPlain(`[update] ${gapResult.notFound.length} NOT_FOUND, ${gapResult.lowRelevance.length} LOW_RELEVANCE`);
-
-            // Group gaps by page and regenerate each page with gap context
-            const pagesWithWork = Array.from(gapResult.byPage.values())
-              .filter(p => p.notFound.length > 0 || p.lowRelevance.length > 0);
-
-            let pagesUpdated = 0;
-            for (const pageWork of pagesWithWork) {
-              // Build a targeted prompt for this page
-              const pagePath = pageWork.pagePath;
-              const fullPath = join(outputDir, pagePath);
-              const currentContent = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : '';
-
-              const gapLines: string[] = [];
-              for (const item of pageWork.notFound) {
-                gapLines.push(`NOT_FOUND: ${item.functionCard.name} (${item.functionCard.filePath})`);
-                gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
-                gapLines.push(`  Signature: ${item.functionCard.signature}`);
-                gapLines.push(`  → Create documentation for this function.\n`);
-              }
-              for (const item of pageWork.lowRelevance) {
-                gapLines.push(`LOW_RELEVANCE: ${item.functionCard.name} (${item.functionCard.filePath}) — sim ${item.similarity.toFixed(2)}`);
-                gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
-                gapLines.push(`  Matched section: ${item.bestMatch?.name ?? 'unknown'}`);
-                gapLines.push(`  → Review and update the matching section.\n`);
-              }
-
-              const system = `You are a technical documentation updater. You receive a documentation page and a list of functions that are missing or have stale documentation. Update the page to include or fix these functions. Do NOT rewrite sections that are already correct. Output ONLY the raw Markdown content — begin with the existing # heading. NEVER add preamble.`;
-              const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
-
-              try {
-                const result = await ctx.executor({ system, user, model: 'sonnet' });
-                mkdirSync(dirname(fullPath), { recursive: true });
-                writeFileSync(fullPath, result.text, 'utf-8');
-                ctx.addCost(result.costUsd);
-                pagesUpdated++;
-                ctx.state.updateTask('update', `${pagesUpdated}/${pagesWithWork.length} pages`);
-                ctx.renderer.logPlain(`[update] ${pagesUpdated}/${pagesWithWork.length} ${pagePath}`);
-              } catch (err) {
-                ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err instanceof Error ? err.message : String(err)}`);
-              }
-            }
-
-            ctx.state.completeTask('update', `${pagesUpdated} pages updated (${workItems} gaps filled)`);
-          }
-
-          // --- Step 6: LINT + COHERENCE on updated pages ---
-          ctx.state.startTask('coherence-2', 'linting…');
-          if (workItems > 0) {
-            reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-            ctx.state.updateTask('coherence-2', 'coherence review…');
-            const ts2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            const coherenceLogDir2 = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-2_${ts2}`);
-
-            try {
-              const coherenceResult2 = await runDocCoherenceReview({
-                outputDir,
-                projectRoot: ctx.projectRoot,
-                docsPath: ctx.docsPath,
-                logDir: coherenceLogDir2,
-                callbacks: {
-                  onLoopStart: (loop) => ctx.state.updateTask('coherence-2', `coherence loop ${loop}…`),
-                  onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence-2] loop ${loop} done — ${issues} remaining`),
-                },
-              });
-              ctx.addCost(coherenceResult2.costUsd);
-              ctx.state.completeTask('coherence-2', coherenceResult2.linterIssuesAfter === 0
-                ? `clean (${coherenceResult2.loopsCompleted} loops)`
-                : `${coherenceResult2.linterIssuesAfter} issues remaining`);
-            } catch {
-              ctx.state.completeTask('coherence-2', 'coherence failed');
-            }
-          } else {
-            ctx.state.completeTask('coherence-2', 'skipped (no updates)');
-          }
+          // --- Steps 5-6: RAG-DRIVEN UPDATE + LINT + COHERENCE ---
+          await runDocUpdate(ctx, outputDir, 'update', 'coherence-2');
         },
       });
 
@@ -678,6 +687,55 @@ export function registerDocsCommand(program: Command): void {
       const elapsed = (result.durationMs / 1000).toFixed(1);
       console.log('');
       console.log(`  ${chalk.green('✓')} Index complete — ${elapsed}s`);
+    });
+
+  docs
+    .command('update')
+    .description('RAG-driven doc update: gap detection → targeted Sonnet update → lint + coherence')
+    .option('--plain', 'linear sequential output')
+    .action(async (opts: { plain?: boolean }, cmd: { parent?: { parent?: { opts: () => Record<string, unknown> } } }) => {
+      const globalPlain = cmd.parent?.parent?.opts?.()?.['plain'] as boolean | undefined;
+      const plain = opts.plain ?? globalPlain ?? false;
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      if (!existsSync(docsDir)) {
+        console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      // Check RAG index exists
+      const ragDir = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+      if (!existsSync(ragDir)) {
+        console.error(chalk.red('No RAG index found. Run `anatoly docs index` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await runPipeline({
+        projectRoot,
+        plain,
+        bannerMotd: 'Doc Update',
+        tasks: [
+          { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
+          { id: 'coherence', label: 'Internal doc — Lint + coherence (Opus)' },
+        ],
+        execute: async (ctx) => {
+          const outputDir = resolve(ctx.projectRoot, '.anatoly', 'docs');
+          await runDocUpdate(ctx, outputDir, 'update', 'coherence');
+        },
+      });
+
+      const elapsed = (result.durationMs / 1000).toFixed(1);
+      console.log('');
+      console.log(`  ${chalk.green('✓')} Doc update complete — ${elapsed}s · $${result.totalCostUsd.toFixed(4)}`);
     });
 
   docs
