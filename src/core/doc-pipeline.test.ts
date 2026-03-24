@@ -8,6 +8,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runDocScaffold, runDocGeneration } from './doc-pipeline.js';
 import type { Task } from '../schemas/task.js';
+import type { ProjectProfile } from './language-detect.js';
+
+const EMPTY_PROFILE: ProjectProfile = {
+  languages: { languages: [], totalFiles: 0 },
+  frameworks: [],
+  types: ['Library'],
+  capabilities: [],
+  primaryLanguage: null,
+};
 
 function makeTask(file: string, symbols: Array<{ name: string; exported: boolean; line_start: number; line_end: number }>): Task {
   return {
@@ -45,8 +54,9 @@ describe('runDocScaffold', () => {
         { name: 'mergeResults', exported: true, line_start: 1, line_end: 200 },
       ]),
     ];
+    const frontendProfile: ProjectProfile = { ...EMPTY_PROFILE, types: ['Frontend'] };
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', frontendProfile);
 
     expect(result.projectTypes).toContain('Frontend');
     expect(result.scaffoldResult.pagesCreated.length).toBeGreaterThan(0);
@@ -64,8 +74,9 @@ describe('runDocScaffold', () => {
       dependencies: { react: '^18.0.0', prisma: '^5.0.0', express: '^4.0.0' },
     };
     const tasks: Task[] = [];
+    const multiProfile: ProjectProfile = { ...EMPTY_PROFILE, types: ['Frontend', 'ORM', 'Backend API'] };
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', multiProfile);
 
     expect(result.projectTypes).toContain('Frontend');
     expect(result.projectTypes).toContain('ORM');
@@ -76,7 +87,7 @@ describe('runDocScaffold', () => {
     const pkg = { name: 'lib' };
     const tasks: Task[] = [];
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     expect(result.projectTypes).toEqual(['Library']);
   });
@@ -88,15 +99,15 @@ describe('runDocScaffold', () => {
     const tasks: Task[] = [];
 
     // Should not throw because it targets .anatoly/docs/
-    expect(() => runDocScaffold(tempDir, pkg, tasks)).not.toThrow();
+    expect(() => runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE)).not.toThrow();
   });
 
   it('should not overwrite existing pages on second run', () => {
     const pkg = { name: 'test' };
     const tasks: Task[] = [];
 
-    const result1 = runDocScaffold(tempDir, pkg, tasks);
-    const result2 = runDocScaffold(tempDir, pkg, tasks);
+    const result1 = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
+    const result2 = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // Second run should skip all previously created pages (except index.md which is always regenerated)
     expect(result2.scaffoldResult.pagesSkipped.length).toBeGreaterThan(0);
@@ -110,7 +121,7 @@ describe('runDocScaffold', () => {
       ]),
     ];
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     const routeMapping = result.docMappings.find(m => m.sourceDir === 'routes');
     expect(routeMapping).toBeDefined();
@@ -134,7 +145,7 @@ describe('runDocScaffold', () => {
       ]),
     ];
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // Module page should be created as a real file
     expect(result.scaffoldResult.pagesCreated).toContain('05-Modules/01-core.md');
@@ -149,7 +160,7 @@ describe('runDocScaffold', () => {
     // No tasks → no modules
     const tasks: Task[] = [];
 
-    const result = runDocScaffold(tempDir, pkg, tasks);
+    const result = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // Library with no modules → 05-Development
     expect(result.scaffoldResult.pagesCreated.some(p => p.startsWith('05-Development/'))).toBe(true);
@@ -182,7 +193,7 @@ describe('runDocGeneration', () => {
       ]),
     ];
 
-    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
     const result = runDocGeneration(tempDir, scaffold, tasks, pkg);
 
     // First run — all pages are new (added), should have prompts
@@ -199,7 +210,7 @@ describe('runDocGeneration', () => {
       ]),
     ];
 
-    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // First run — generates cache
     const result1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
@@ -220,7 +231,7 @@ describe('runDocGeneration', () => {
       ]),
     ];
 
-    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // First run
     runDocGeneration(tempDir, scaffold, tasks, pkg);
@@ -245,7 +256,7 @@ describe('runDocGeneration', () => {
       ]),
     ];
 
-    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
     const result = runDocGeneration(tempDir, scaffold, tasks, pkg);
 
     // Every prompt should have a pagePath so the executor knows where to write
@@ -260,7 +271,7 @@ describe('runDocGeneration', () => {
     const pkg = { name: 'test' };
     const tasks: Task[] = [];
 
-    const scaffold = runDocScaffold(tempDir, pkg, tasks);
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
     runDocGeneration(tempDir, scaffold, tasks, pkg);
 
     const cachePath = join(scaffold.outputDir, '.cache.json');

@@ -50,7 +50,7 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
-import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
+import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -120,6 +120,8 @@ interface RunContext {
   bootstrapPagesFailed: number;
   /** Total pages attempted during bootstrap */
   bootstrapTotalPages: number;
+  /** Unified project profile — set during setup, used by doc pipeline */
+  profile?: ProjectProfile;
   /** Doc pipeline result — set after doc scaffold + generation phases */
   docPipelineResult?: DocPipelineResult;
   /** Doc report result — set during report phase */
@@ -500,6 +502,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // Detect languages & frameworks for project info display
   const profile = detectProjectProfile(ctx.projectRoot);
+  ctx.profile = profile;
   const langLine = formatLanguageLine(profile.languages.languages);
   const fwLine = formatFrameworkLine(profile.frameworks);
   if (!projectInfo && (langLine || fwLine)) {
@@ -856,7 +859,7 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
 
     // Scaffold + generate (first time)
     ctx.renderer?.logPlain(`[${taskId}] scaffolding & generating internal documentation...`);
-    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile!);
     const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
     ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
@@ -899,7 +902,7 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
     // Scaffold only for new modules (idempotent, skips existing pages)
-    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath);
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile!);
     const newPages = scaffoldResult.scaffoldResult.pagesCreated.length;
 
     // Generate only stale/new pages (cache-aware)

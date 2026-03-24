@@ -11,6 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
+import { detectProjectProfile } from '../core/language-detect.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -102,7 +103,8 @@ export function registerDocsCommand(program: Command): void {
       const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
-      const scaffoldResult = runDocScaffold(projectRoot, pkg, tasks, docsPath);
+      const profile = detectProjectProfile(projectRoot);
+      const scaffoldResult = runDocScaffold(projectRoot, pkg, tasks, docsPath, profile);
       console.log(`  scaffolded ${scaffoldResult.scaffoldResult.pagesCreated.length} pages`);
 
       const genResult = runDocGeneration(projectRoot, scaffoldResult, tasks, pkg);

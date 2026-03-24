@@ -18,7 +18,7 @@
  * Scoring runs against user's docs/, NOT against .anatoly/docs/.
  */
 
-import type { ProjectType } from './project-type-detector.js';
+import type { ProjectType } from './language-detect.js';
 
 export type DocVerdict = 'DOCUMENTED' | 'PARTIAL' | 'UNDOCUMENTED';
 

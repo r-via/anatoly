@@ -13,6 +13,7 @@ import {
   EXTENSION_MAP,
   FILENAME_MAP,
   DEFAULT_EXCLUDES,
+  type FrameworkInfo,
 } from './language-detect.js';
 
 vi.mock('../utils/git.js', () => ({
@@ -296,7 +297,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'react', name: 'React', language: 'typescript',
+        id: 'react', name: 'React', language: 'typescript', category: 'frontend',
       });
     });
 
@@ -311,7 +312,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'nextjs', name: 'Next.js', language: 'typescript',
+        id: 'nextjs', name: 'Next.js', language: 'typescript', category: 'fullstack',
       });
       expect(result.frameworks).not.toContainEqual(
         expect.objectContaining({ id: 'react' }),
@@ -331,7 +332,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'nextjs', name: 'Next.js', language: 'typescript',
+        id: 'nextjs', name: 'Next.js', language: 'typescript', category: 'fullstack',
       });
       // React suppressed by Next.js
       expect(result.frameworks).not.toContainEqual(
@@ -368,7 +369,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'django', name: 'Django', language: 'python',
+        id: 'django', name: 'Django', language: 'python', category: 'fullstack',
       });
     });
 
@@ -381,7 +382,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'fastapi', name: 'FastAPI', language: 'python',
+        id: 'fastapi', name: 'FastAPI', language: 'python', category: 'backend',
       });
     });
 
@@ -396,7 +397,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'actix', name: 'Actix Web', language: 'rust',
+        id: 'actix', name: 'Actix Web', language: 'rust', category: 'backend',
       });
     });
 
@@ -411,7 +412,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'gin', name: 'Gin', language: 'go',
+        id: 'gin', name: 'Gin', language: 'go', category: 'backend',
       });
     });
 
@@ -432,7 +433,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'aspnet', name: 'ASP.NET', language: 'csharp',
+        id: 'aspnet', name: 'ASP.NET', language: 'csharp', category: 'backend',
       });
     });
 
@@ -455,7 +456,7 @@ describe('language-detect', () => {
       const result = detectProjectProfile('/project');
 
       expect(result.frameworks).toContainEqual({
-        id: 'spring', name: 'Spring', language: 'java',
+        id: 'spring', name: 'Spring', language: 'java', category: 'fullstack',
       });
     });
 
@@ -573,16 +574,16 @@ describe('language-detect', () => {
 
   describe('formatFrameworkLine', () => {
     it('AC 31.3.2: formats multiple frameworks', () => {
-      const fws = [
-        { id: 'nextjs', name: 'Next.js', language: 'typescript' },
-        { id: 'prisma', name: 'Prisma', language: 'typescript' },
+      const fws: FrameworkInfo[] = [
+        { id: 'nextjs', name: 'Next.js', language: 'typescript', category: 'fullstack' },
+        { id: 'prisma', name: 'Prisma', language: 'typescript', category: 'orm' },
       ];
 
       expect(formatFrameworkLine(fws)).toBe('Next.js · Prisma');
     });
 
     it('formats a single framework', () => {
-      const fws = [{ id: 'react', name: 'React', language: 'typescript' }];
+      const fws: FrameworkInfo[] = [{ id: 'react', name: 'React', language: 'typescript', category: 'frontend' }];
 
       expect(formatFrameworkLine(fws)).toBe('React');
     });

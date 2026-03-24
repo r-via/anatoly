@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scaffoldDocs, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
-import type { ProjectType } from './project-type-detector.js';
+import type { ProjectType } from './language-detect.js';
 
 /**
  * Story 29.2: Documentation Structure Scaffolder

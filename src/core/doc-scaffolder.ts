@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { ProjectType } from './project-type-detector.js';
+import type { ProjectType } from './language-detect.js';
 
 export interface ScaffoldResult {
   pagesCreated: string[];

@@ -14,7 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { ProjectType } from './project-type-detector.js';
+import type { ProjectType } from './language-detect.js';
 import { scoreDocumentation, type DocScore, type DocScoringInput } from './doc-scoring.js';
 import { resolveUserDocPlan, type DocPageEntry, type UserDocPlan } from './user-doc-plan.js';
 import { buildDocRecommendations, type DocGap, type DocRecommendation } from './doc-recommendations.js';
