@@ -607,13 +607,13 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      // Drop doc-related caches only (chunk caches + doc index caches, NOT code summaries)
+      // Drop doc-related caches + NLP summary cache (contains docSummary needed for gap detection)
       if (opts.dropCache) {
         const ragDir = resolve(projectRoot, '.anatoly', 'rag');
         if (existsSync(ragDir)) {
-          const docCachePatterns = ['doc_chunk_cache_', 'cache_advanced-internal', 'cache_lite-internal'];
+          const cachePatterns = ['doc_chunk_cache_', 'cache_advanced-internal', 'cache_lite-internal', 'nlp_summary_cache_'];
           const cacheFiles = readdirSync(ragDir).filter(f =>
-            f.endsWith('.json') && docCachePatterns.some(p => f.includes(p)),
+            f.endsWith('.json') && cachePatterns.some(p => f.includes(p)),
           );
           for (const file of cacheFiles) {
             rmSync(resolve(ragDir, file));
