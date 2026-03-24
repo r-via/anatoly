@@ -11,9 +11,12 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { detectProjectProfile } from '../core/language-detect.js';
+import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { PipelineState } from '../cli/pipeline-state.js';
+import { ScreenRenderer } from '../cli/screen-renderer.js';
+import { printBanner } from '../utils/banner.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 function createDocExecutor(projectRoot: string): DocExecutor {
@@ -55,8 +58,8 @@ export function registerDocsCommand(program: Command): void {
     .description('Manage internal documentation (.anatoly/docs/)');
 
   docs
-    .command('rebuild')
-    .description('Delete and regenerate all internal documentation from scratch')
+    .command('scaffold')
+    .description('Full doc scaffold pipeline: generate → lint → coherence → RAG → refine → lint → coherence → re-index')
     .option('-y, --yes', 'skip confirmation prompt')
     .option('--plain', 'linear sequential output')
     .action(async (opts: { yes?: boolean; plain?: boolean }) => {
@@ -90,74 +93,134 @@ export function registerDocsCommand(program: Command): void {
       // Delete existing
       if (existsSync(docsDir)) {
         rmSync(docsDir, { recursive: true, force: true });
-        console.log(`  ${chalk.red('×')} deleted .anatoly/docs/`);
       }
 
-      // Load config and scan
+      // Setup
       const config = loadConfig(projectRoot);
-      console.log('  scanning project...');
-      await scanProject(projectRoot, config);
-      const tasks = loadTasks(projectRoot);
-
-      // Scaffold + generate
       const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
       const docsPath = config.documentation?.docs_path ?? 'docs';
-
       const profile = detectProjectProfile(projectRoot);
-      const scaffoldResult = runDocScaffold(projectRoot, pkg, tasks, docsPath, profile);
-      console.log(`  scaffolded ${scaffoldResult.scaffoldResult.pagesCreated.length} pages`);
-
-      const genResult = runDocGeneration(projectRoot, scaffoldResult, tasks, pkg);
-      if (genResult.prompts.length === 0) {
-        console.log(`  ${chalk.green('✓')} all pages cached — nothing to generate`);
-        return;
-      }
-
-      console.log(`  generating ${genResult.prompts.length} pages via Sonnet...`);
-
-      // Execute LLM
       const semaphore = new Semaphore(config.llm.sdk_concurrency);
-      let completed = 0;
-      const total = genResult.prompts.length;
-
       const executor = createDocExecutor(projectRoot);
+      const plain = opts.plain ?? false;
+      const startTime = Date.now();
+      let totalCostUsd = 0;
 
-      const result = await executeDocPrompts({
-        prompts: genResult.prompts,
-        outputDir: scaffoldResult.outputDir,
-        projectRoot,
-        semaphore,
-        executor,
-        onPageComplete: (pagePath) => {
-          completed++;
-          console.log(`  ${chalk.green('✓')} [${completed}/${total}] ${pagePath}`);
-        },
-        onPageError: (pagePath, err) => {
-          console.log(`  ${chalk.red('×')} [${completed + 1}/${total}] ${pagePath} — ${err.message}`);
-        },
-      });
+      // Initialize pipeline UI
+      const pipelineState = new PipelineState();
+      pipelineState.setSemaphore(semaphore);
+      pipelineState.addTask('scaffold', 'Scaffolding documentation');
+      pipelineState.addTask('lint-1', 'Structure lint');
+      pipelineState.addTask('coherence-1', 'Coherence review');
+      // Steps 4-6 (RAG → update → coherence) are future — placeholder for now
+      const renderer = new ScreenRenderer(pipelineState, { plain });
 
-      console.log('');
-      const summary = result.pagesFailed > 0
-        ? `${result.pagesWritten} written, ${result.pagesFailed} failed`
-        : `${result.pagesWritten} pages written`;
-      console.log(`  ${chalk.green('✓')} internal docs rebuilt — ${summary}`);
-      if (result.totalCostUsd > 0) {
-        console.log(`  cost: $${result.totalCostUsd.toFixed(4)}`);
+      // Print banner + project info
+      if (!plain) {
+        printBanner('Doc Scaffold');
+        const langLine = formatLanguageLine(profile.languages.languages);
+        const fwLine = formatFrameworkLine(profile.frameworks);
+        if (langLine) console.log(`  ${chalk.dim('languages')}  ${langLine}`);
+        if (fwLine) console.log(`  ${chalk.dim('frameworks')} ${fwLine}`);
+        console.log(`  ${chalk.dim('types')}      ${profile.types.join(', ')}`);
+        console.log('');
       }
 
-      // Structure review pass
-      console.log(`  reviewing structure via Opus...`);
+      renderer.start();
+
       try {
-        const reviewResult = await reviewDocStructure(scaffoldResult.outputDir, projectRoot, docsPath, executor);
-        if (reviewResult.filesFixed > 0) {
-          console.log(`  ${chalk.green('✓')} fixed ${reviewResult.filesFixed} structural issues`);
+        // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
+        pipelineState.startTask('scaffold', 'scanning project…');
+        await scanProject(projectRoot, config);
+        const tasks = loadTasks(projectRoot);
+
+        pipelineState.updateTask('scaffold', 'scaffolding pages…');
+        const scaffoldResult = runDocScaffold(projectRoot, pkg, tasks, docsPath, profile);
+        const genResult = runDocGeneration(projectRoot, scaffoldResult, tasks, pkg);
+        const outputDir = scaffoldResult.outputDir;
+
+        if (genResult.prompts.length === 0) {
+          pipelineState.completeTask('scaffold', 'all cached');
+        } else {
+          let completed = 0;
+          const total = genResult.prompts.length;
+          pipelineState.updateTask('scaffold', `0/${total} pages`);
+
+          const result = await executeDocPrompts({
+            prompts: genResult.prompts,
+            outputDir,
+            projectRoot,
+            semaphore,
+            executor,
+            onPageComplete: (pagePath) => {
+              completed++;
+              pipelineState.updateTask('scaffold', `${completed}/${total} pages`);
+              renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);
+            },
+            onPageError: (pagePath, err) => {
+              renderer.logPlain(`[scaffold] ${chalk.red('×')} ${pagePath} — ${err.message}`);
+            },
+          });
+
+          totalCostUsd += result.totalCostUsd;
+          const detail = result.pagesFailed > 0
+            ? `${result.pagesWritten} written, ${result.pagesFailed} failed`
+            : `${result.pagesWritten} pages written`;
+          pipelineState.completeTask('scaffold', detail);
         }
-        if (reviewResult.costUsd > 0) {
-          console.log(`  review cost: $${reviewResult.costUsd.toFixed(4)}`);
+
+        // --- Step 2: LINT + COHERENCE ---
+        pipelineState.startTask('lint-1', 'checking structure…');
+        const lintResult = reviewDocStructure(outputDir, projectRoot, docsPath);
+        const lintIssues = lintResult.issues.filter(i => !i.fixed).length;
+        pipelineState.completeTask('lint-1', lintResult.filesFixed > 0
+          ? `${lintResult.filesFixed} auto-fixed, ${lintIssues} remaining`
+          : lintIssues > 0 ? `${lintIssues} issues` : 'clean');
+
+        // --- Step 3: COHERENCE ---
+        pipelineState.startTask('coherence-1', 'reviewing coherence…');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
+
+        try {
+          const coherenceResult = await runDocCoherenceReview({
+            outputDir,
+            projectRoot,
+            docsPath,
+            logDir: coherenceLogDir,
+            callbacks: {
+              onLoopStart: (loop) => {
+                pipelineState.updateTask('coherence-1', `loop ${loop}…`);
+              },
+              onLoopEnd: (loop, issues) => {
+                renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
+              },
+            },
+          });
+          totalCostUsd += coherenceResult.costUsd;
+          pipelineState.completeTask('coherence-1',
+            coherenceResult.linterIssuesAfter === 0
+              ? `clean (${coherenceResult.loopsCompleted} loops)`
+              : `${coherenceResult.linterIssuesBefore} → ${coherenceResult.linterIssuesAfter} issues`,
+          );
+        } catch {
+          pipelineState.completeTask('coherence-1', 'failed');
         }
-      } catch {
-        console.log(`  ${chalk.yellow('⚠')} structure review skipped (LLM error)`);
+
+        // TODO: Steps 4-6 (RAG index → update with RAG → coherence → re-index)
+        // Will be implemented when RAG integration is available in standalone mode
+
+      } finally {
+        renderer.stop();
+      }
+
+      // Summary
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log('');
+      console.log(`  ${chalk.green('✓')} Doc scaffold complete — ${elapsed}s · $${totalCostUsd.toFixed(4)}`);
+      console.log(`    ${chalk.dim(`docs: .anatoly/docs/`)}`);
+      if (existsSync(resolve(projectRoot, '.anatoly', 'logs', 'docs'))) {
+        console.log(`    ${chalk.dim(`logs: .anatoly/logs/docs/`)}`);
       }
     });
 
@@ -175,7 +238,7 @@ export function registerDocsCommand(program: Command): void {
 
       const docsDir = resolve(projectRoot, '.anatoly', 'docs');
       if (!existsSync(docsDir)) {
-        console.error(chalk.red('No internal docs found. Run `anatoly docs rebuild` first.'));
+        console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
         return;
       }
@@ -246,7 +309,7 @@ export function registerDocsCommand(program: Command): void {
 
       const docsDir = resolve(projectRoot, '.anatoly', 'docs');
       if (!existsSync(docsDir)) {
-        console.error(chalk.red('No internal docs found. Run `anatoly docs rebuild` first.'));
+        console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
         return;
       }
@@ -351,7 +414,7 @@ export function registerDocsCommand(program: Command): void {
       const docsDir = resolve(projectRoot, '.anatoly', 'docs');
 
       if (!existsSync(docsDir)) {
-        console.log('  No internal docs found. Run `anatoly docs rebuild` or `anatoly run` to generate.');
+        console.log('  No internal docs found. Run `anatoly docs scaffold` or `anatoly run` to generate.');
         return;
       }
 
