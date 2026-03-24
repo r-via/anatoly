@@ -424,6 +424,75 @@ export function registerDocsCommand(program: Command): void {
     });
 
   docs
+    .command('index')
+    .description('Incremental RAG indexing: code cards + NLP summaries + doc chunks')
+    .option('--plain', 'linear sequential output')
+    .option('--rebuild', 'force full re-index (ignore cache)')
+    .action(async (opts: { plain?: boolean; rebuild?: boolean }) => {
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      if (!existsSync(docsDir)) {
+        console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await runPipeline({
+        projectRoot,
+        plain: opts.plain ?? false,
+        bannerMotd: 'Doc Index',
+        tasks: [
+          { id: 'scan', label: 'Scanning project' },
+          { id: 'rag-index', label: 'RAG indexing' },
+        ],
+        execute: async (ctx) => {
+          // Step 1: Scan
+          ctx.state.startTask('scan', 'scanning…');
+          await scanProject(ctx.projectRoot, ctx.config);
+          const tasks = loadTasks(ctx.projectRoot);
+          ctx.state.completeTask('scan', `${tasks.length} files`);
+
+          // Step 2: RAG index (code + NLP summaries + doc chunks)
+          ctx.state.startTask('rag-index', 'indexing…');
+          try {
+            const ragResult = await indexProjectStandalone({
+              projectRoot: ctx.projectRoot,
+              tasks,
+              rebuild: opts.rebuild,
+              docsDir: ctx.docsPath,
+              semaphore: ctx.semaphore,
+              onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
+              onProgress: (current, total) => {
+                ctx.state.updateTask('rag-index', `${current}/${total}`);
+              },
+              onPhase: (phase) => {
+                ctx.state.updateTask('rag-index', phase);
+              },
+            });
+            ctx.addCost(0); // RAG indexing uses local embeddings, no API cost
+            ctx.state.completeTask('rag-index',
+              `${ragResult.totalCards} cards · ${ragResult.docSectionsIndexed} doc sections`);
+          } catch (err) {
+            ctx.state.completeTask('rag-index', 'failed');
+            ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
+            process.exitCode = 1;
+          }
+        },
+      });
+
+      const elapsed = (result.durationMs / 1000).toFixed(1);
+      console.log('');
+      console.log(`  ${chalk.green('✓')} Index complete — ${elapsed}s`);
+    });
+
+  docs
     .command('gap-detection')
     .description('Analyze coverage gaps between code index and doc index (no LLM, pure vector analysis)')
     .option('--gap-threshold <n>', 'similarity below this = NOT_FOUND', '0.60')
