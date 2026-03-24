@@ -859,7 +859,8 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
 
     // Scaffold + generate (first time)
     ctx.renderer?.logPlain(`[${taskId}] scaffolding & generating internal documentation...`);
-    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile!);
+    if (!ctx.profile) throw new Error('project profile not detected — cannot run doc pipeline');
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile);
     const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
     ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
@@ -902,7 +903,8 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
     // Scaffold only for new modules (idempotent, skips existing pages)
-    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile!);
+    if (!ctx.profile) throw new Error('project profile not detected — cannot run doc pipeline');
+    const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile);
     const newPages = scaffoldResult.scaffoldResult.pagesCreated.length;
 
     // Generate only stale/new pages (cache-aware)

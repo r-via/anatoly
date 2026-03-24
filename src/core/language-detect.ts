@@ -525,7 +525,7 @@ function applySuppression(detected: FrameworkInfo[]): FrameworkInfo[] {
   const detectedIds = new Set(detected.map((f) => f.id));
   const suppressed = new Set<string>();
 
-  for (const fw of JS_FRAMEWORKS) {
+  for (const fw of ALL_FRAMEWORK_DEFS) {
     if (fw.suppresses && detectedIds.has(fw.id)) {
       for (const s of fw.suppresses) {
         suppressed.add(s);

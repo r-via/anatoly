@@ -76,7 +76,12 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const showProfile = opts.showProfile ?? true;
 
   const config = loadConfig(projectRoot);
-  const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+  let pkg: Record<string, unknown> = {};
+  try {
+    pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+  } catch {
+    // No package.json (Go, Rust, Python projects) — continue with empty manifest
+  }
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
   const semaphore = new Semaphore(config.llm.sdk_concurrency);
@@ -160,6 +165,10 @@ function createExecutor(projectRoot: string): DocExecutor {
           throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
         }
       }
+    }
+
+    if (!resultText) {
+      throw new Error('SDK returned no result — LLM stream was empty');
     }
 
     return { text: resultText, costUsd };

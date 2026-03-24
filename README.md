@@ -156,7 +156,7 @@ npx anatoly rag-status           # Show RAG index stats (includes dual embedding
 npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state (runs, cache, RAG, internal docs)
 npx anatoly reset --keep-docs    # Wipe state but keep internal docs
-npx anatoly docs rebuild         # Delete and regenerate all internal documentation
+npx anatoly docs scaffold        # Delete and regenerate all internal documentation
 npx anatoly docs status          # Show internal docs coverage
 npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)

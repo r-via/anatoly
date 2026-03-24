@@ -332,12 +332,12 @@ anatoly clean-runs [--keep <n>] [--yes]
 
 ## Internal Docs
 
-### `docs rebuild`
+### `docs scaffold`
 
 Deletes and fully regenerates all internal documentation under `.anatoly/docs/` via Claude Sonnet.
 
 ```bash
-anatoly docs rebuild [--yes] [--plain]
+anatoly docs scaffold [--yes] [--plain]
 ```
 
 ### `docs status`
