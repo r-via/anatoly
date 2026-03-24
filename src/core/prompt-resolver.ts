@@ -36,6 +36,7 @@ import docWriterPrompt from '../prompts/doc-generation/doc-internal-writer.syste
 import docWriterArchPrompt from '../prompts/doc-generation/doc-internal-writer.architecture.system.md';
 import docWriterApiPrompt from '../prompts/doc-generation/doc-internal-writer.api-reference.system.md';
 import docCoherenceReviewPrompt from '../prompts/doc-generation/doc-internal-coherence-review.system.md';
+import docUpdaterPrompt from '../prompts/doc-generation/doc-internal-updater.system.md';
 import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
@@ -95,6 +96,7 @@ function registerDefaults(): void {
   register('doc-generation.architecture', docWriterArchPrompt);
   register('doc-generation.api-reference', docWriterApiPrompt);
   register('doc-generation.coherence-review', docCoherenceReviewPrompt);
+  register('doc-generation.updater', docUpdaterPrompt);
 
   // --- RAG ---
   register('rag.section-refiner', sectionRefinerPrompt);

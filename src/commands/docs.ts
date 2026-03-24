@@ -16,6 +16,7 @@ import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGaps, formatGapSummary } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
+import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -74,7 +75,7 @@ async function runDocUpdate(
       gapLines.push(`  → Review and update the matching section.\n`);
     }
 
-    const system = `You are a technical documentation updater. You receive a documentation page and a list of functions that are missing or have stale documentation. Update the page to include or fix these functions. Do NOT rewrite sections that are already correct. Output ONLY the raw Markdown content — begin with the existing # heading. NEVER add preamble.`;
+    const system = resolveSystemPrompt('doc-generation.updater');
     const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
 
     try {

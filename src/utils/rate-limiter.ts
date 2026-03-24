@@ -23,17 +23,20 @@ export interface RetryWithBackoffOptions {
 }
 
 /**
- * Check if an error is a rate limit (429) error.
+ * Check if an error is retryable (rate limit 429, overloaded 529, or server 500/503).
  * The Anthropic SDK wraps these in various ways.
  */
 export function isRateLimitError(error: unknown): boolean {
+  const check = (msg: string): boolean =>
+    msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit')
+    || msg.includes('529') || msg.includes('overloaded')
+    || msg.includes('500') || msg.includes('503');
+
   if (error instanceof AnatolyError && (error.code === 'SDK_ERROR')) {
-    const msg = error.message.toLowerCase();
-    return msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit');
+    return check(error.message.toLowerCase());
   }
   if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit');
+    return check(error.message.toLowerCase());
   }
   return false;
 }
