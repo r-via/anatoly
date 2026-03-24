@@ -14,7 +14,7 @@ import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
-import { detectDocGaps, formatGapSummary } from '../core/doc-gap-detection.js';
+import { detectDocGaps, detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
@@ -34,45 +34,49 @@ async function runDocUpdate(
   const store = new VectorStore(ctx.projectRoot, tableName);
   await store.init();
 
-  const gapResult = await detectDocGaps(store, {
+  const gapReport = await detectDocGapsV2(store, {
     scope: 'internal',
-    onProgress: (current, total) => {
-      ctx.state.updateTask(updateTaskId, `analyzing ${current}/${total} functions…`);
+    onProgress: (phase, current, total) => {
+      ctx.state.updateTask(updateTaskId, `${phase}: ${current}/${total}…`);
     },
   });
 
-  const workItems = gapResult.notFound.length + gapResult.lowRelevance.length;
-  if (workItems === 0) {
-    ctx.state.completeTask(updateTaskId, `${gapResult.covered.length} functions covered, 0 gaps`);
+  // Collect all pages that need work
+  const pagesWithWork = [
+    ...gapReport.domains
+      .filter(d => d.functionsMissing.length > 0 && d.matchedPage)
+      .map(d => ({ page: d.matchedPage!, missing: d.functionsMissing, refMissing: [] as string[] })),
+    ...gapReport.references
+      .filter(r => r.missing.length > 0)
+      .map(r => ({ page: r.page, missing: [] as Array<{ name: string; file: string; docSummary: string }>, refMissing: r.missing })),
+  ];
+
+  const totalGaps = gapReport.pagesToCreate.length + pagesWithWork.length + gapReport.conceptsToDocument.length;
+  if (totalGaps === 0) {
+    ctx.state.completeTask(updateTaskId, `${gapReport.moduleCoverage.covered}/${gapReport.moduleCoverage.total} domains covered, 0 gaps`);
     ctx.state.startTask(coherenceTaskId, 'skipped (no updates)');
     ctx.state.completeTask(coherenceTaskId, 'skipped (no updates)');
     return;
   }
 
-  ctx.state.updateTask(updateTaskId, `${workItems} gaps found, updating…`);
-  ctx.renderer.logPlain(`[update] ${gapResult.notFound.length} NOT_FOUND, ${gapResult.lowRelevance.length} LOW_RELEVANCE`);
-
-  const pagesWithWork = Array.from(gapResult.byPage.values())
-    .filter(p => p.notFound.length > 0 || p.lowRelevance.length > 0);
+  ctx.state.updateTask(updateTaskId, `${totalGaps} gaps found, updating…`);
+  ctx.renderer.logPlain(`[update] ${gapReport.pagesToCreate.length} pages to create, ${pagesWithWork.length} pages to update, ${gapReport.conceptsToDocument.length} concepts missing`);
 
   let pagesUpdated = 0;
-  for (const pageWork of pagesWithWork) {
-    const pagePath = pageWork.pagePath;
+  for (const work of pagesWithWork) {
+    const pagePath = work.page;
     const fullPath = join(outputDir, pagePath);
     const currentContent = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : '';
 
     const gapLines: string[] = [];
-    for (const item of pageWork.notFound) {
-      gapLines.push(`NOT_FOUND: ${item.functionCard.name} (${item.functionCard.filePath})`);
-      gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
-      gapLines.push(`  Signature: ${item.functionCard.signature}`);
+    for (const fn of work.missing) {
+      gapLines.push(`MISSING FUNCTION: ${fn.name} (${fn.file})`);
+      gapLines.push(`  Doc summary: ${fn.docSummary || 'no summary'}`);
       gapLines.push(`  → Create documentation for this function.\n`);
     }
-    for (const item of pageWork.lowRelevance) {
-      gapLines.push(`LOW_RELEVANCE: ${item.functionCard.name} (${item.functionCard.filePath}) — sim ${item.similarity.toFixed(2)}`);
-      gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
-      gapLines.push(`  Matched section: ${item.bestMatch?.name ?? 'unknown'}`);
-      gapLines.push(`  → Review and update the matching section.\n`);
+    for (const entry of work.refMissing) {
+      gapLines.push(`MISSING ENTRY: ${entry}`);
+      gapLines.push(`  → Add this entry to the reference page.\n`);
     }
 
     const system = resolveSystemPrompt('doc-generation.updater');
@@ -91,7 +95,7 @@ async function runDocUpdate(
     }
   }
 
-  ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${workItems} gaps filled)`);
+  ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${totalGaps} gaps)`);
 
   // Lint + coherence on updated pages
   ctx.state.startTask(coherenceTaskId, 'linting…');
@@ -799,46 +803,32 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const gapThreshold = parseFloat(opts.gapThreshold ?? '0.60');
-      const driftThreshold = parseFloat(opts.driftThreshold ?? '0.85');
-
-      console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`${scope} · gap < ${gapThreshold} · drift < ${driftThreshold}`)}`);
+      console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`${scope} · 3-strategy analysis`)}`);
       console.log('');
 
-      const result = await detectDocGaps(store, {
+      const report = await detectDocGapsV2(store, {
         scope: scope as 'internal' | 'project',
-        gapThreshold,
-        driftThreshold,
-        onProgress: (current, total) => {
+        projectDocsPath: docsPath,
+        onProgress: (phase, current, total) => {
           if (!opts.json) {
-            process.stdout.write(`\r    analyzing ${current}/${total} functions…`);
+            process.stdout.write(`\r    ${phase}: ${current}/${total}…`);
           }
         },
       });
 
       if (!opts.json) {
         process.stdout.write('\r\x1b[K');
-        console.log(formatGapSummary(result, scope as 'internal' | 'project', docsPath));
-        console.log('');
+        console.log(formatGapReportV2(report));
 
-        const totalWork = result.notFound.length + result.lowRelevance.length + result.orphans.length;
-        if (totalWork === 0) {
-          console.log(`  ${chalk.green('✓')} All ${result.covered.length} functions are documented in ${targetDir}/`);
+        const totalGaps = report.pagesToCreate.length + report.pagesToUpdate.length + report.conceptsToDocument.length;
+        console.log('');
+        if (totalGaps === 0) {
+          console.log(`  ${chalk.green('✓')} Documentation is healthy`);
         } else {
-          console.log(`  ${chalk.yellow('!')} ${totalWork} items need attention in ${targetDir}/`);
+          console.log(`  ${chalk.yellow('!')} ${totalGaps} items need attention`);
         }
       } else {
-        const output = {
-          scope,
-          target: targetDir,
-          totalFunctions: result.totalFunctions,
-          totalDocSections: result.totalDocSections,
-          notFound: result.notFound.map(i => ({ function: i.functionCard.name, file: i.functionCard.filePath, similarity: i.similarity })),
-          lowRelevance: result.lowRelevance.map(i => ({ function: i.functionCard.name, file: i.functionCard.filePath, matchedSection: i.bestMatch?.name, similarity: i.similarity })),
-          covered: result.covered.length,
-          orphans: result.orphans.map(i => ({ section: i.docSection.name, file: i.docSection.filePath })),
-        };
-        console.log(JSON.stringify(output, null, 2));
+        console.log(JSON.stringify(report, null, 2));
       }
     });
 
