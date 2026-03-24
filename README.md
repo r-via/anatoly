@@ -50,7 +50,8 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs) to eliminate API-misunderstanding false positives
 - **Deliberation memory** — persistent reclassification registry prevents repeated false positives across runs, covers all axes
 - **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
-- **RAG-powered documentation review** — function summaries (Haiku) and `/docs/` sections are embedded as NLP vectors. The documentation axis (Haiku) evaluates quality by semantic similarity — no manual mapping. Separate from `anatoly docs` (Sonnet) which *generates* `.anatoly/docs/` pages
+- **RAG-powered documentation review** — function summaries (Haiku) and doc sections are embedded as NLP vectors. The documentation axis evaluates quality by semantic similarity. Separate from `anatoly docs` which manages internal documentation
+- **Internal doc pipeline** — `anatoly docs scaffold` generates `.anatoly/docs/` via Sonnet (parallel scaffold → Opus coherence review → RAG index → gap-driven update). Incremental updates at each run via RAG gap detection (cosine similarity, $0). `anatoly docs scaffold project` copies internal docs to `docs/` for publishing
 - **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
@@ -76,9 +77,9 @@ Every file is evaluated through seven independent axes, running in parallel. Eac
 | **Duplication** | Haiku | `UNIQUE` `DUPLICATE` | Semantically similar functions across the codebase |
 | **Correction** | Sonnet | `OK` `NEEDS_FIX` `ERROR` | Bugs, logic errors, async issues (two-pass with dependency verification) |
 | **Overengineering** | Haiku | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
-| **Tests** | Haiku | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
+| **Tests** | Sonnet | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
 | **Best Practices** | Sonnet | Score 0-10, 17 rules | Language-specific best-practice violations (context-aware) |
-| **Documentation** | Haiku | `DOCUMENTED` `PARTIAL` `UNDOCUMENTED` | JSDoc gaps on exports, /docs/ desynchronization |
+| **Documentation** | Sonnet | `DOCUMENTED` `PARTIAL` `UNDOCUMENTED` | JSDoc gaps on exports, /docs/ desynchronization |
 
 Run specific axes with `--axes`:
 
@@ -135,79 +136,91 @@ npm install -g anatoly
 anatoly run
 ```
 
-The `run` command executes the full pipeline: **scan** → **estimate** → **triage** → **usage graph** → **RAG index** → **review** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it.
+The `run` command executes the full pipeline: **scan** → **estimate** → **triage** → **usage graph** → **RAG index** → **review** → **doc update** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it. Internal docs are auto-scaffolded on first run if `.anatoly/docs/` doesn't exist.
 
 ## Usage
 
 ```bash
-npx anatoly run                  # Full pipeline: scan → estimate → index → review → report
-npx anatoly run --dual-embedding # Enable dual code+NLP embedding for improved duplication detection
+# Core pipeline
+npx anatoly run                  # Full pipeline: scan → estimate → index → review → doc update → report
 npx anatoly run --run-id X       # Custom run ID (default: YYYY-MM-DD_HHmmss)
 npx anatoly watch                # Daemon mode: initial scan + incremental re-review on change/delete
+
+# Individual phases
 npx anatoly scan                 # Parse AST + compute SHA-256 hashes
 npx anatoly estimate             # Estimate token cost (local, no API calls)
 npx anatoly review               # Run Claude agent on pending files
 npx anatoly report               # Aggregate reviews → report.md
+
+# Documentation management
+npx anatoly docs scaffold              # Generate .anatoly/docs/ (full pipeline: scaffold → coherence → RAG → update)
+npx anatoly docs scaffold project      # Copy .anatoly/docs/ → docs/ (scaffolds internal first if needed)
+npx anatoly docs index                 # Incremental RAG indexing: code + NLP summaries + doc chunks
+npx anatoly docs index --rebuild       # Force full re-index
+npx anatoly docs gap-detection internal  # Analyze coverage gaps in .anatoly/docs/ vs code (no LLM, $0)
+npx anatoly docs gap-detection project   # Analyze coverage gaps in docs/ vs code
+npx anatoly docs lint                  # Deterministic structure lint on .anatoly/docs/
+npx anatoly docs review-internal       # Lint + Opus coherence review on .anatoly/docs/
+npx anatoly docs status                # Show internal docs coverage
+
+# Auto-clean (Ralph pattern)
 npx anatoly clean report.1.md      # Generate Ralph artifacts from a shard's findings
 npx anatoly clean-run report.1.md  # Generate + run Ralph loop to auto-clean findings
 npx anatoly clean-sync report.1.md # Sync completed clean tasks back to the report
+
+# Maintenance
 npx anatoly status               # Show current audit progress
-npx anatoly rag-status           # Show RAG index stats (includes dual embedding mode)
+npx anatoly rag-status           # Show RAG index stats
 npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state (runs, cache, RAG, internal docs)
 npx anatoly reset --keep-docs    # Wipe state but keep internal docs
-npx anatoly docs scaffold        # Delete and regenerate all internal documentation
-npx anatoly docs status          # Show internal docs coverage
 npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
 npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (Docker GGUF)
-npx anatoly setup-embeddings --check  # Check embedding setup status
-npx anatoly setup-embeddings --ab-test  # A/B quality validation against fp16 reference
 
 # Useful flags
 npx anatoly run --dry-run        # Simulate: scan, estimate, triage — no API calls
 npx anatoly run --no-deliberation # Skip the Opus deliberation pass
 npx anatoly run --no-rag         # Skip RAG indexing
+npx anatoly run --plain          # Linear output for CI/scripts
 ```
 
 > See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference and all CLI flags.
 
 ### Dual Embedding (Code + NLP)
 
-By default, Anatoly uses **code-only embedding** -- function bodies are embedded directly using a code-specific model (Jina v2 by default) for structural similarity matching. This catches duplicates that look alike syntactically.
+Anatoly always uses **dual embedding** — two specialized models working together:
 
-Enable **dual embedding** (`--dual-embedding` or `rag.dual_embedding: true` in config) to add a second **NLP semantic layer**. In dual mode, Anatoly uses the `index_model` (Haiku by default) to generate a natural language summary, key concepts, and behavioral profile for each function, then embeds that NLP text with a dedicated NLP model (Qwen3-Embedding-8B via sidecar, or all-MiniLM-L6-v2 via ONNX in lite mode).
+- **Code embedding** — function bodies embedded directly for structural similarity (catches syntactic duplicates)
+- **NLP embedding** — Haiku generates a natural language summary, key concepts, and behavioral profile for each function, then embedded with a dedicated NLP model (catches semantic duplicates)
 
-During duplication search, both scores are combined:
+During search, both scores are combined via hybrid similarity:
 
 ```
 hybrid_score = code_weight × code_similarity + (1 - code_weight) × nlp_similarity
 ```
 
-This catches duplicates that the code-only approach misses -- functions that **do the same thing** but are implemented differently (different libraries, different paradigms, different naming). The code embedding catches structural similarity; the NLP embedding catches intentional similarity.
+This catches functions that **do the same thing** but are implemented differently (different libraries, different paradigms, different naming).
+
+The NLP embeddings also power **doc gap detection** — comparing function summaries against documentation chunks to find undocumented code.
 
 #### Embedding models
 
-At startup, Anatoly detects available hardware (RAM, GPU) and selects the best embedding model. You can override model selection in config or via CLI:
+At startup, Anatoly detects available hardware and selects the best models:
+
+| Mode | Code Model | NLP Model | Requirements |
+|------|-----------|-----------|-------------|
+| **Advanced (GGUF)** | nomic-embed-code (3584d) | Qwen3-Embedding-8B (4096d) | Docker + NVIDIA GPU ≥ 12 GB VRAM |
+| **Lite (ONNX)** | Jina v2 (768d) | all-MiniLM-L6-v2 (384d) | CPU only |
 
 ```yaml
 # .anatoly.yml
 rag:
   enabled: true
-  dual_embedding: true   # Enable NLP summaries + hybrid search
-  code_model: auto        # 'auto' = hardware-based selection (default: jina-v2-base-code)
-  nlp_model: auto         # 'auto' = Qwen3-Embedding-8B (4096d) via sidecar, else all-MiniLM-L6-v2 (384d)
-  code_weight: 0.6        # 60% code similarity, 40% NLP similarity (default)
+  code_model: auto   # 'auto' = hardware-based selection
+  nlp_model: auto    # 'auto' = best available
+  code_weight: 0.6   # 60% code similarity, 40% NLP similarity
 ```
-
-```bash
-# CLI overrides
-npx anatoly run --dual-embedding --code-model nomic-ai/nomic-embed-code --nlp-model Qwen/Qwen3-Embedding-8B
-```
-
-Using separate specialized models (code model for structure, NLP model for semantics) produces better results than a single general-purpose model for both tasks.
-
-> **Note:** Dual embedding adds LLM API calls during indexing (one call per file with functions). This increases indexing cost but significantly improves cross-file duplication detection for semantically similar functions.
 
 ---
 
