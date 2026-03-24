@@ -16,6 +16,7 @@ import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
 export interface NlpSummary {
   summary: string;
+  docSummary: string;
   keyConcepts: string[];
   behavioralProfile: FunctionCard['behavioralProfile'];
 }
@@ -23,6 +24,7 @@ export interface NlpSummary {
 const NlpFunctionSchema = z.object({
   name: z.string(),
   summary: z.string().max(400),
+  docSummary: z.string().max(400).optional().default(''),
   keyConcepts: z.array(z.string()).min(1).max(7),
   behavioralProfile: BehavioralProfileSchema,
 });
@@ -108,6 +110,7 @@ export async function generateNlpSummaries(
       if (card) {
         result.set(card.id, {
           summary: fn.summary,
+          docSummary: fn.docSummary ?? '',
           keyConcepts: fn.keyConcepts,
           behavioralProfile: fn.behavioralProfile,
         });

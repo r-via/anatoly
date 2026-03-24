@@ -15,6 +15,7 @@
 
 import type { VectorStore } from '../rag/vector-store.js';
 import type { FunctionCard, DocSectionEntry } from '../rag/types.js';
+import { embedNlp } from '../rag/embeddings.js';
 
 // --- Types ---
 
@@ -135,19 +136,23 @@ export async function detectDocGaps(
   // Track which doc sections are matched (for orphan detection)
   const matchedDocIds = new Set<string>();
 
-  // For each function card, find the most similar doc section in scope
+  // For each function card, embed its docSummary and find the most similar doc section
   for (let i = 0; i < cardsWithVectors.length; i++) {
-    const { card, nlpVector } = cardsWithVectors[i];
+    const { card, docSummary } = cardsWithVectors[i];
     options?.onProgress?.(i + 1, cardsWithVectors.length);
 
-    // Skip cards with no NLP vector (embedding not available)
-    if (!nlpVector || nlpVector.length === 0 || nlpVector.every(v => v === 0)) {
+    // Use docSummary for query (documentation-oriented semantic space)
+    // Fall back to code summary if docSummary is empty (legacy cards)
+    const queryText = docSummary || card.summary || card.signature;
+    if (!queryText || queryText.length < 10) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });
       continue;
     }
 
+    const queryVector = await embedNlp(queryText);
+
     // Query doc index — filtered by source attribute
-    const scopedResults = await vectorStore.searchDocSections(nlpVector, 3, 0.0, scope);
+    const scopedResults = await vectorStore.searchDocSections(queryVector, 3, 0.0, scope);
 
     if (scopedResults.length === 0) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });

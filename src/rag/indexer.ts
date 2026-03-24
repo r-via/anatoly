@@ -211,6 +211,7 @@ export async function applyNlpSummaries(
       enrichedCards.push({
         ...card,
         summary: summary.summary,
+        docSummary: summary.docSummary,
         keyConcepts: summary.keyConcepts,
         behavioralProfile: summary.behavioralProfile,
       });
@@ -244,6 +245,7 @@ export function enrichCardsWithSummaries(
       enrichedCards.push({
         ...card,
         summary: summary.summary,
+        docSummary: summary.docSummary,
         keyConcepts: summary.keyConcepts,
         behavioralProfile: summary.behavioralProfile,
       });

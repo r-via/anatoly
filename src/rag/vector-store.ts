@@ -34,6 +34,7 @@ interface VectorRow {
   filePath: string;
   name: string;
   summary: string;
+  docSummary: string;
   keyConcepts: string;       // JSON-serialized string[]
   signature: string;
   behavioralProfile: string;
@@ -126,6 +127,7 @@ export class VectorStore {
       filePath: card.filePath,
       name: card.name,
       summary: card.summary ?? '',
+      docSummary: card.docSummary ?? '',
       keyConcepts: JSON.stringify(card.keyConcepts ?? []),
       signature: card.signature,
       behavioralProfile: card.behavioralProfile ?? 'utility',
@@ -350,6 +352,7 @@ export class VectorStore {
       filePath: sec.filePath,
       name: sec.name,
       summary: sec.summary,
+      docSummary: '',
       keyConcepts: '[]',
       signature: '',
       behavioralProfile: '',
@@ -447,17 +450,17 @@ export class VectorStore {
   }
 
   /**
-   * List all function cards with their NLP vectors (for cross-index gap detection).
+   * List all function cards with their NLP vectors and docSummary (for gap detection).
    */
-  async listAllWithNlpVectors(): Promise<Array<{ card: FunctionCard; nlpVector: number[] }>> {
+  async listAllWithNlpVectors(): Promise<Array<{ card: FunctionCard; nlpVector: number[]; docSummary: string }>> {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'nlp_vector'])
+      .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'nlp_vector'])
       .toArray();
     return rows
       .filter((r) => r.type !== 'doc_section')
-      .map((r) => ({ card: rowToCard(r), nlpVector: toNumberArray(r.nlp_vector) }));
+      .map((r) => ({ card: rowToCard(r), nlpVector: toNumberArray(r.nlp_vector), docSummary: String(r.docSummary ?? '') }));
   }
 
   /**
@@ -635,6 +638,7 @@ function rowToCard(row: Record<string, unknown>): FunctionCard {
     name: String(row.name ?? ''),
     signature: String(row.signature ?? ''),
     summary: String(row.summary ?? ''),
+    docSummary: String(row.docSummary ?? ''),
     keyConcepts: safeParseJsonArray(row.keyConcepts),
     behavioralProfile: (VALID_BEHAVIORAL_PROFILES.has(profile)
       ? profile

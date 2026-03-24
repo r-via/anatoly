@@ -19,6 +19,7 @@ export const FunctionCardSchema = z.object({
   name: z.string(),
   signature: z.string(),
   summary: z.string().max(400).optional(),
+  docSummary: z.string().max(400).optional(),
   keyConcepts: z.array(z.string()).optional(),
   behavioralProfile: BehavioralProfileSchema.optional(),
   complexityScore: z.number().int().min(1).max(5),

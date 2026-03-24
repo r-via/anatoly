@@ -369,7 +369,7 @@ describe('loadNlpSummaryCache', () => {
       entries: {
         abc123: {
           bodyHash: 'deadbeef01234567',
-          summary: { summary: 'Adds two numbers', keyConcepts: ['math'], behavioralProfile: 'pure' },
+          summary: { summary: 'Adds two numbers', docSummary: '', keyConcepts: ['math'], behavioralProfile: 'pure' },
         },
       },
     };
@@ -410,7 +410,7 @@ describe('saveNlpSummaryCache', () => {
       entries: {
         fn1: {
           bodyHash: 'hash1',
-          summary: { summary: 'test', keyConcepts: ['a'], behavioralProfile: 'utility' },
+          summary: { summary: 'test', docSummary: '', keyConcepts: ['a'], behavioralProfile: 'utility' },
         },
       },
     };
@@ -428,11 +428,11 @@ describe('saveNlpSummaryCache', () => {
       entries: {
         fn1: {
           bodyHash: 'aabb',
-          summary: { summary: 'first', keyConcepts: ['x', 'y'], behavioralProfile: 'async' },
+          summary: { summary: 'first', docSummary: '', keyConcepts: ['x', 'y'], behavioralProfile: 'async' },
         },
         fn2: {
           bodyHash: 'ccdd',
-          summary: { summary: 'second', keyConcepts: ['z'], behavioralProfile: 'pure' },
+          summary: { summary: 'second', docSummary: '', keyConcepts: ['z'], behavioralProfile: 'pure' },
         },
       },
     };
