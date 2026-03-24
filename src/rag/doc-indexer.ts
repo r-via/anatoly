@@ -427,7 +427,12 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onFileDone?.(relPath);
   };
 
-  await Promise.allSettled(changedFiles.map(processFile));
+  // Process files with bounded concurrency (max 4 parallel) to avoid overwhelming the UI
+  const DOC_CONCURRENCY = 4;
+  for (let i = 0; i < changedFiles.length; i += DOC_CONCURRENCY) {
+    const batch = changedFiles.slice(i, i + DOC_CONCURRENCY);
+    await Promise.allSettled(batch.map(processFile));
+  }
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
