@@ -125,6 +125,22 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     addCost: (usd: number) => { totalCostUsd += usd; },
   };
 
+  // In plain mode, log task transitions to console
+  if (plain) {
+    const origStart = state.startTask.bind(state);
+    state.startTask = (id: string, detail?: string) => {
+      origStart(id, detail);
+      const task = state.tasks.find(t => t.id === id);
+      if (task) console.log(`  ● ${task.label}${detail ? ` — ${detail}` : ''}`);
+    };
+    const origComplete = state.completeTask.bind(state);
+    state.completeTask = (id: string, detail: string) => {
+      const task = state.tasks.find(t => t.id === id);
+      origComplete(id, detail);
+      if (task) console.log(`  ✓ ${task.label} — ${detail}`);
+    };
+  }
+
   renderer.start();
   try {
     await execute(ctx);
