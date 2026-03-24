@@ -325,8 +325,8 @@ export function registerDocsCommand(program: Command): void {
                   ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
                 },
                 onToolUse: (tool, filePath) => {
-                  if (tool === 'Read') ctx.state.trackFile(filePath);
-                  else if (tool === 'Write') { ctx.state.trackFile(filePath); ctx.state.untrackFile(filePath); }
+                  ctx.state.trackFile(filePath);
+                  ctx.state.untrackFile(filePath);
                 },
               },
             });
