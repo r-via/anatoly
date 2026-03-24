@@ -114,7 +114,7 @@ export function registerDocsCommand(program: Command): void {
           { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Opus)' },
           { id: 'rag-code', label: 'RAG — Indexing & embedding code' },
           { id: 'rag-nlp', label: 'RAG — Summaries & embedding code' },
-          { id: 'rag-doc', label: 'RAG — Chunking & embedding docs' },
+          { id: 'rag-doc', label: 'RAG — Chunking & embedding docs (internal + project)' },
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
           { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Opus)' },
         ],
