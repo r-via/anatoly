@@ -198,10 +198,11 @@ export function registerDocsCommand(program: Command): void {
 
           // --- Step 4: RAG INDEX (3 sub-phases, same as run) ---
           let ragPhase = 'code';
+          let nlpProcessed = 0;
           const ragPhaseToTaskId: Record<string, string> = {
             code: 'rag-code',
             nlp: 'rag-nlp',
-            upsert: 'rag-nlp', // upsert updates the active nlp task
+            upsert: 'rag-upsert', // hidden phase, not a visible task
             doc: 'rag-doc',
           };
           ctx.state.startTask('rag-code', '0/?');
@@ -214,20 +215,24 @@ export function registerDocsCommand(program: Command): void {
               semaphore: ctx.semaphore,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
-                const taskId = ragPhaseToTaskId[ragPhase];
+                if (ragPhase === 'nlp') nlpProcessed = current;
+                const taskId = ragPhase === 'upsert' ? undefined : ragPhaseToTaskId[ragPhase];
                 if (taskId) ctx.state.updateTask(taskId, `${current}/${total}`);
               },
               onPhase: (phase) => {
-                const prevTaskId = ragPhaseToTaskId[ragPhase];
-                const nextTaskId = ragPhaseToTaskId[phase];
-                // Complete previous phase task
-                if (prevTaskId && prevTaskId !== nextTaskId) {
-                  const prevTask = ctx.state.tasks.find(t => t.id === prevTaskId);
-                  ctx.state.completeTask(prevTaskId, prevTask?.detail === '\u2014' ? 'done' : prevTask?.detail ?? 'done');
+                // Complete previous visible task
+                if (ragPhase === 'code') {
+                  const t = ctx.state.tasks.find(t => t.id === 'rag-code');
+                  ctx.state.completeTask('rag-code', t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
+                } else if (ragPhase === 'nlp') {
+                  ctx.state.completeTask('rag-nlp', `${nlpProcessed} files`);
                 }
+                // upsert is a hidden phase — don't complete/start any visible task
                 ragPhase = phase;
-                // Start next phase task
-                if (nextTaskId) ctx.state.startTask(nextTaskId, '0/?');
+                // Start next visible task
+                if (phase === 'code') ctx.state.startTask('rag-code', '0/?');
+                if (phase === 'nlp') ctx.state.startTask('rag-nlp', '0/?');
+                if (phase === 'doc') ctx.state.startTask('rag-doc', '0/?');
               },
               onFileStart: (file) => ctx.state.trackFile(file),
               onFileDone: (file) => ctx.state.untrackFile(file),
@@ -616,7 +621,7 @@ export function registerDocsCommand(program: Command): void {
 
           // Step 2: RAG index (3 sub-phases)
           let ragPhase = 'code';
-          const phaseToTask: Record<string, string> = { code: 'rag-code', nlp: 'rag-nlp', upsert: 'rag-nlp', doc: 'rag-doc' };
+          let idxNlpProcessed = 0;
           ctx.state.startTask('rag-code', '0/?');
 
           try {
@@ -628,18 +633,23 @@ export function registerDocsCommand(program: Command): void {
               semaphore: ctx.semaphore,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
-                const tid = phaseToTask[ragPhase];
-                if (tid) ctx.state.updateTask(tid, `${current}/${total}`);
+                if (ragPhase === 'nlp') idxNlpProcessed = current;
+                if (ragPhase !== 'upsert') {
+                  const tid = ragPhase === 'code' ? 'rag-code' : ragPhase === 'nlp' ? 'rag-nlp' : ragPhase === 'doc' ? 'rag-doc' : undefined;
+                  if (tid) ctx.state.updateTask(tid, `${current}/${total}`);
+                }
               },
               onPhase: (phase) => {
-                const prev = phaseToTask[ragPhase];
-                const next = phaseToTask[phase];
-                if (prev && prev !== next) {
-                  const t = ctx.state.tasks.find(t => t.id === prev);
-                  ctx.state.completeTask(prev, t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
+                if (ragPhase === 'code') {
+                  const t = ctx.state.tasks.find(t => t.id === 'rag-code');
+                  ctx.state.completeTask('rag-code', t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
+                } else if (ragPhase === 'nlp') {
+                  ctx.state.completeTask('rag-nlp', `${idxNlpProcessed} files`);
                 }
                 ragPhase = phase;
-                if (next) ctx.state.startTask(next, '0/?');
+                if (phase === 'code') ctx.state.startTask('rag-code', '0/?');
+                if (phase === 'nlp') ctx.state.startTask('rag-nlp', '0/?');
+                if (phase === 'doc') ctx.state.startTask('rag-doc', '0/?');
               },
               onFileStart: (file) => ctx.state.trackFile(file),
               onFileDone: (file) => ctx.state.untrackFile(file),
