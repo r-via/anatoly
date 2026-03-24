@@ -86,7 +86,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
   const semaphore = new Semaphore(config.llm.sdk_concurrency);
-  const executor = createExecutor(projectRoot);
+  const executor = createExecutor(projectRoot, semaphore);
 
   let totalCostUsd = 0;
   const startTime = Date.now();
@@ -155,9 +155,11 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 
 // --- Internal ---
 
-function createExecutor(projectRoot: string): DocExecutor {
+function createExecutor(projectRoot: string, semaphore: Semaphore): DocExecutor {
   return async ({ system, user, model }) => {
-    return retryWithBackoff(
+    await semaphore.acquire();
+    try {
+    return await retryWithBackoff(
       async () => {
         const q = query({
           prompt: user,
@@ -203,5 +205,8 @@ function createExecutor(projectRoot: string): DocExecutor {
         },
       },
     );
+    } finally {
+      semaphore.release();
+    }
   };
 }
