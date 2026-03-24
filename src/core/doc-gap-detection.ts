@@ -114,6 +114,9 @@ interface Domain {
   avgDocVector: number[];
 }
 
+/** Max functions per domain before splitting into sub-domains by file. */
+const DOMAIN_SPLIT_THRESHOLD = 50;
+
 function extractDomain(filePath: string): string {
   const parts = filePath.split('/');
   const srcIdx = parts.indexOf('src');
@@ -123,17 +126,46 @@ function extractDomain(filePath: string): string {
   return parts[0] || 'root';
 }
 
-function groupByDomain(cards: Array<{ card: FunctionCard; docVector: number[] }>): Domain[] {
-  const map = new Map<string, Array<{ card: FunctionCard; docVector: number[] }>>();
+function extractSubDomain(filePath: string): string {
+  // Use directory + filename (without extension) as sub-domain
+  // e.g. src/core/scanner.ts → core/scanner
+  const parts = filePath.split('/');
+  const srcIdx = parts.indexOf('src');
+  if (srcIdx >= 0 && srcIdx + 1 < parts.length - 1) {
+    const module = parts[srcIdx + 1];
+    const file = parts[parts.length - 1].replace(/\.[^.]+$/, ''); // strip extension
+    return `${module}/${file}`;
+  }
+  return filePath.replace(/\.[^.]+$/, '');
+}
 
+function groupByDomain(cards: Array<{ card: FunctionCard; docVector: number[] }>): Domain[] {
+  // First pass: group by top-level domain
+  const coarseMap = new Map<string, Array<{ card: FunctionCard; docVector: number[] }>>();
   for (const entry of cards) {
     const domain = extractDomain(entry.card.filePath);
-    const list = map.get(domain) ?? [];
+    const list = coarseMap.get(domain) ?? [];
     list.push(entry);
-    map.set(domain, list);
+    coarseMap.set(domain, list);
   }
 
-  return Array.from(map.entries())
+  // Second pass: split large domains into sub-domains by file
+  const finalMap = new Map<string, Array<{ card: FunctionCard; docVector: number[] }>>();
+  for (const [domain, fns] of coarseMap) {
+    if (fns.length > DOMAIN_SPLIT_THRESHOLD) {
+      // Split by file
+      for (const entry of fns) {
+        const sub = extractSubDomain(entry.card.filePath);
+        const list = finalMap.get(sub) ?? [];
+        list.push(entry);
+        finalMap.set(sub, list);
+      }
+    } else {
+      finalMap.set(domain, fns);
+    }
+  }
+
+  return Array.from(finalMap.entries())
     .filter(([, fns]) => fns.length >= 2) // skip single-function domains
     .map(([name, fns]) => ({
       name,
