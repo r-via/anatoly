@@ -197,17 +197,17 @@ describe('Story 33.4 — registry coherence', () => {
     if (key === 'deliberation') {
       return 'deliberation/deliberation.system.md';
     }
-    // doc-generation → doc-generation/doc-writer.system.md
-    // doc-generation.X → doc-generation/doc-writer.X.system.md (for doc-writer variants)
-    // doc-generation.structure-review → doc-generation/doc-structure-review.system.md (standalone)
+    // doc-generation → doc-generation/doc-internal-writer.system.md
+    // doc-generation.X → doc-generation/doc-internal-writer.X.system.md (for writer variants)
+    // doc-generation.coherence-review → doc-generation/doc-internal-coherence-review.system.md
     if (key === 'doc-generation.coherence-review') {
       return 'doc-generation/doc-internal-coherence-review.system.md';
     }
     if (key.startsWith('doc-generation')) {
       const variant = key.replace('doc-generation', '').replace(/^\./, '');
       return variant
-        ? `doc-generation/doc-writer.${variant}.system.md`
-        : 'doc-generation/doc-writer.system.md';
+        ? `doc-generation/doc-internal-writer.${variant}.system.md`
+        : 'doc-generation/doc-internal-writer.system.md';
     }
     // rag.X → rag/X.system.md (strip rag. prefix)
     if (key.startsWith('rag.')) {
