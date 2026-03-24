@@ -1065,7 +1065,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Set final completion details on all rag tasks
   if (ragResult) {
     state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
-    state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+    const nlpTask = state.tasks.find(t => t.id === 'rag-nlp');
+    state.completeTask('rag-nlp', nlpTask?.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
     state.completeTask('rag-upsert', 'done');
     if (ragResult.docSectionsIndexed > 0) {
       state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
