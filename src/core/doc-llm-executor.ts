@@ -405,6 +405,7 @@ export interface DocCoherenceReviewParams {
   maxLoops?: number;
   abortController?: AbortController;
   logDir?: string;
+  semaphore?: Semaphore;
   callbacks?: {
     onLoopStart?: (loop: number) => void;
     onLoopEnd?: (loop: number, linterIssues: number) => void;
@@ -425,6 +426,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     maxLoops = 3,
     abortController,
     logDir,
+    semaphore,
     callbacks,
   } = params;
 
@@ -485,8 +487,11 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
 
     conversationLog.push(`\n# Loop ${loop}\n\n## User\n\n${userMessage}\n`);
 
-    // Run the Opus agent
+    // Run the Opus agent (acquire semaphore slot so UI shows 1/N active)
+    if (semaphore) await semaphore.acquire();
     const ac = abortController ?? new AbortController();
+    let resultText = '';
+    try {
     const q = query({
       prompt: userMessage,
       options: {
@@ -501,7 +506,6 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
       },
     });
 
-    let resultText = '';
     for await (const message of q) {
       if (message.type === 'result') {
         if (message.subtype === 'success') {
@@ -513,6 +517,10 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
           break;
         }
       }
+    }
+
+    } finally {
+      if (semaphore) semaphore.release();
     }
 
     conversationLog.push(`\n## Assistant\n\n${resultText}\n`);
@@ -572,6 +580,7 @@ export interface DocContentReviewParams {
   gapReportText: string;
   abortController?: AbortController;
   logDir?: string;
+  semaphore?: Semaphore;
   callbacks?: {
     onStart?: () => void;
     onDone?: () => void;
@@ -583,7 +592,7 @@ export interface DocContentReviewParams {
  * to fill content gaps. Focused on content only — not structure.
  */
 export async function runDocContentReview(params: DocContentReviewParams): Promise<DocContentReviewResult> {
-  const { outputDir, gapReportText, abortController, logDir, callbacks } = params;
+  const { outputDir, gapReportText, abortController, logDir, semaphore, callbacks } = params;
 
   const start = Date.now();
   callbacks?.onStart?.();
@@ -600,29 +609,34 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
   ].join('\n');
 
   const ac = abortController ?? new AbortController();
-  const q = query({
-    prompt: userMessage,
-    options: {
-      systemPrompt,
-      model: 'opus',
-      cwd: outputDir,
-      allowedTools: ['Read', 'Write'],
-      permissionMode: 'bypassPermissions' as const,
-      allowDangerouslySkipPermissions: true,
-      maxTurns: 50,
-      abortController: ac,
-    },
-  });
-
   let resultText = '';
   let costUsd = 0;
-  for await (const message of q) {
-    if (message.type === 'result') {
-      if (message.subtype === 'success') {
-        resultText = (message as { result: string }).result;
-        costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+  if (semaphore) await semaphore.acquire();
+  try {
+    const q = query({
+      prompt: userMessage,
+      options: {
+        systemPrompt,
+        model: 'opus',
+        cwd: outputDir,
+        allowedTools: ['Read', 'Write'],
+        permissionMode: 'bypassPermissions' as const,
+        allowDangerouslySkipPermissions: true,
+        maxTurns: 50,
+        abortController: ac,
+      },
+    });
+
+    for await (const message of q) {
+      if (message.type === 'result') {
+        if (message.subtype === 'success') {
+          resultText = (message as { result: string }).result;
+          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        }
       }
     }
+  } finally {
+    if (semaphore) semaphore.release();
   }
 
   callbacks?.onDone?.();

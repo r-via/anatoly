@@ -109,6 +109,7 @@ async function runDocUpdate(
       outputDir,
       projectRoot: ctx.projectRoot,
       docsPath: ctx.docsPath,
+      semaphore: ctx.semaphore,
       logDir: structLogDir,
       callbacks: {
         onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `structural loop ${loop}…`),
@@ -136,6 +137,7 @@ async function runDocUpdate(
         projectRoot: ctx.projectRoot,
         gapReportText: formatGapReportV2(gapReport),
         logDir: contentLogDir,
+        semaphore: ctx.semaphore,
         callbacks: {
           onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
           onDone: () => {},
@@ -309,6 +311,7 @@ export function registerDocsCommand(program: Command): void {
               outputDir,
               projectRoot: ctx.projectRoot,
               docsPath: ctx.docsPath,
+              semaphore: ctx.semaphore,
               logDir: coherenceLogDir,
               callbacks: {
                 onLoopStart: (loop) => {
