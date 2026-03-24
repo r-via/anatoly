@@ -447,6 +447,20 @@ export class VectorStore {
   }
 
   /**
+   * List all function cards with their NLP vectors (for cross-index gap detection).
+   */
+  async listAllWithNlpVectors(): Promise<Array<{ card: FunctionCard; nlpVector: number[] }>> {
+    if (!this.table) return [];
+    const rows = await this.table
+      .query()
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'nlp_vector'])
+      .toArray();
+    return rows
+      .filter((r) => r.type !== 'doc_section')
+      .map((r) => ({ card: rowToCard(r), nlpVector: toNumberArray(r.nlp_vector) }));
+  }
+
+  /**
    * List all cards (without embedding vectors).
    */
   async listAll(): Promise<FunctionCard[]> {

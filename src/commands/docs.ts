@@ -14,6 +14,8 @@ import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone } from '../rag/standalone.js';
+import { detectDocGaps, formatGapSummary } from '../core/doc-gap-detection.js';
+import { VectorStore } from '../rag/vector-store.js';
 
 export function registerDocsCommand(program: Command): void {
   const docs = program
@@ -418,6 +420,66 @@ export function registerDocsCommand(program: Command): void {
         console.log(`  ${chalk.red('×')} Coherence review — failed`);
         console.error(`    ${chalk.red(err instanceof Error ? err.message : String(err))}`);
         process.exitCode = 1;
+      }
+    });
+
+  docs
+    .command('gap-detection')
+    .description('Analyze coverage gaps between code index and doc index (no LLM, pure vector analysis)')
+    .option('--gap-threshold <n>', 'similarity below this = NOT_FOUND', '0.60')
+    .option('--drift-threshold <n>', 'similarity below this = LOW_RELEVANCE', '0.85')
+    .option('--json', 'output as JSON')
+    .action(async (opts: { gapThreshold?: string; driftThreshold?: string; json?: boolean }) => {
+      const projectRoot = process.cwd();
+
+      // Check that RAG index exists
+      const ragDir = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+      if (!existsSync(ragDir)) {
+        console.error(chalk.red('No RAG index found. Run `anatoly docs scaffold` or `anatoly run` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const store = new VectorStore(projectRoot);
+      await store.init();
+
+      const gapThreshold = parseFloat(opts.gapThreshold ?? '0.60');
+      const driftThreshold = parseFloat(opts.driftThreshold ?? '0.85');
+
+      console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`(gap < ${gapThreshold}, drift < ${driftThreshold})`)}`);
+      console.log('');
+
+      const result = await detectDocGaps(store, {
+        gapThreshold,
+        driftThreshold,
+        onProgress: (current, total) => {
+          if (!opts.json) {
+            process.stdout.write(`\r    analyzing ${current}/${total} functions…`);
+          }
+        },
+      });
+
+      if (!opts.json) {
+        process.stdout.write('\r\x1b[K');
+        console.log(formatGapSummary(result));
+        console.log('');
+
+        const totalWork = result.notFound.length + result.lowRelevance.length + result.orphans.length;
+        if (totalWork === 0) {
+          console.log(`  ${chalk.green('✓')} All ${result.covered.length} functions are documented`);
+        } else {
+          console.log(`  ${chalk.yellow('!')} ${totalWork} items need attention`);
+        }
+      } else {
+        const output = {
+          totalFunctions: result.totalFunctions,
+          totalDocSections: result.totalDocSections,
+          notFound: result.notFound.map(i => ({ function: i.functionCard.name, file: i.functionCard.filePath, similarity: i.similarity })),
+          lowRelevance: result.lowRelevance.map(i => ({ function: i.functionCard.name, file: i.functionCard.filePath, matchedSection: i.bestMatch?.name, similarity: i.similarity })),
+          covered: result.covered.length,
+          orphans: result.orphans.map(i => ({ section: i.docSection.name, file: i.docSection.filePath })),
+        };
+        console.log(JSON.stringify(output, null, 2));
       }
     });
 
