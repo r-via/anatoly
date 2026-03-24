@@ -62,9 +62,12 @@ export function registerDocsCommand(program: Command): void {
         plain: opts.plain ?? false,
         bannerMotd: 'Doc Scaffold',
         tasks: [
-          { id: 'scaffold', label: 'Scaffolding documentation' },
-          { id: 'lint-1', label: 'Structure lint' },
-          { id: 'coherence-1', label: 'Coherence review' },
+          { id: 'scaffold', label: 'Scaffold (Sonnet)' },
+          { id: 'lint-1', label: 'Lint + coherence' },
+          { id: 'coherence-1', label: 'Coherence review (Opus)' },
+          { id: 'rag-index', label: 'RAG index' },
+          { id: 'update', label: 'Update (Sonnet + RAG)' },
+          { id: 'lint-2', label: 'Lint + coherence' },
         ],
         execute: async (ctx) => {
           // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
@@ -145,7 +148,17 @@ export function registerDocsCommand(program: Command): void {
             ctx.state.completeTask('coherence-1', 'failed');
           }
 
-          // TODO: Steps 4-6 (RAG index → update with RAG → coherence → re-index)
+          // --- Step 4: RAG INDEX ---
+          ctx.state.startTask('rag-index', 'pending RAG integration');
+          ctx.state.completeTask('rag-index', 'skipped (standalone mode)');
+
+          // --- Step 5: UPDATE with RAG ---
+          ctx.state.startTask('update', 'pending RAG integration');
+          ctx.state.completeTask('update', 'skipped (standalone mode)');
+
+          // --- Step 6: LINT + COHERENCE on updated pages ---
+          ctx.state.startTask('lint-2', 'pending RAG integration');
+          ctx.state.completeTask('lint-2', 'skipped (standalone mode)');
         },
       });
 
