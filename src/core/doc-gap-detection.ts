@@ -300,18 +300,25 @@ function strategy2_referencePages(
     // Determine what entries this page should list
     let expectedEntries: string[] = [];
 
-    if (pageLower.includes('cli')) {
-      // CLI Reference: extract command names from function cards in src/commands/
-      const commandFns = allCards.filter(c => c.filePath.includes('/commands/'));
-      expectedEntries = commandFns.map(c => c.name);
-    } else if (pageLower.includes('types') || pageLower.includes('interface')) {
-      // Types page: exported types/interfaces from schemas
-      const schemaFns = allCards.filter(c => c.filePath.includes('/schemas/'));
-      expectedEntries = schemaFns.map(c => c.name);
-    } else {
-      // Other reference pages: all exported functions in related modules
-      continue; // skip for now — only CLI and Types for MVP
-    }
+    // Generic: find all function cards whose docSummary or name should appear
+    // in this reference page. Match by searching which cards mention this page's
+    // topic in their docSummary, or whose module maps to this reference page.
+    //
+    // Use the function name as the expected entry — it's the most reliable
+    // identifier across all frameworks and languages.
+    // Also extract short identifiers from docSummary (quoted terms like `run`, `scaffold`).
+    const relatedCards = allCards.filter(c => {
+      const doc = (c.docSummary ?? '').toLowerCase();
+      const name = c.name.toLowerCase();
+      // Match cards that are related to this reference page's topic
+      return pageLower.split('/').some(segment =>
+        segment.length > 3 && (doc.includes(segment.replace(/^\d+-/, '').replace('.md', '')) || name.includes(segment.replace(/^\d+-/, '').replace('.md', ''))),
+      );
+    });
+
+    if (relatedCards.length === 0) continue;
+
+    expectedEntries = relatedCards.map(c => c.name);
 
     // Check presence
     const missing: string[] = [];
@@ -441,14 +448,14 @@ export async function detectDocGapsV2(
     .filter(d => d.classification === 'NOT_FOUND')
     .map(d => `05-Modules/${d.domain}.md`);
 
-  const pagesToUpdate = [
+  const pagesToUpdate = [...new Set([
     ...domainReports
       .filter(d => d.functionsMissing.length > 0 && d.matchedPage)
       .map(d => d.matchedPage!),
     ...refReports
       .filter(r => r.missing.length > 0)
       .map(r => r.page),
-  ];
+  ])];
 
   const conceptsToDocument = conceptReports
     .filter(c => !c.mentioned)
