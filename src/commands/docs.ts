@@ -23,11 +23,18 @@ export function registerDocsCommand(program: Command): void {
     .description('Manage internal documentation (.anatoly/docs/)');
 
   docs
-    .command('scaffold')
-    .description('Full doc scaffold pipeline: generate → lint → coherence → RAG → refine → lint → coherence → re-index')
+    .command('scaffold [scope]')
+    .description('Scaffold documentation. Scope: "internal" (default, generates .anatoly/docs/) or "project" (copies internal → docs/)')
     .option('-y, --yes', 'skip confirmation prompt')
     .option('--plain', 'linear sequential output')
-    .action(async (opts: { yes?: boolean; plain?: boolean }) => {
+    .action(async (scope: string | undefined, opts: { yes?: boolean; plain?: boolean }) => {
+      const effectiveScope = scope ?? 'internal';
+      if (effectiveScope !== 'internal' && effectiveScope !== 'project') {
+        console.error(chalk.red(`Invalid scope "${effectiveScope}". Use "internal" or "project".`));
+        process.exitCode = 1;
+        return;
+      }
+
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -36,7 +43,45 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const config = loadConfig(projectRoot);
+      const projectDocsPath = config.documentation?.docs_path ?? 'docs';
+      const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const projectDocsDir = resolve(projectRoot, projectDocsPath);
+
+      // --- Project scope: copy internal → project docs ---
+      if (effectiveScope === 'project') {
+        if (existsSync(projectDocsDir)) {
+          console.error(chalk.red(`${projectDocsPath}/ already exists. Delete it first or use gap-detection to update.`));
+          process.exitCode = 1;
+          return;
+        }
+
+        // If internal doesn't exist, scaffold it first
+        if (!existsSync(internalDocsDir)) {
+          console.log(`  ${chalk.yellow('●')} No internal docs found — scaffolding first…`);
+          console.log('');
+          // Recursive call to scaffold internal
+          const { execSync } = await import('node:child_process');
+          execSync(`node ${resolve(projectRoot, 'dist', 'index.js')} docs scaffold internal -y${opts.plain ? ' --plain' : ''}`, {
+            cwd: projectRoot,
+            stdio: 'inherit',
+          });
+          console.log('');
+        }
+
+        // Copy .anatoly/docs/ → docs/
+        const { cpSync } = await import('node:fs');
+        cpSync(internalDocsDir, projectDocsDir, { recursive: true });
+        // Remove internal artifacts from the copy
+        const cachePath = join(projectDocsDir, '.cache.json');
+        if (existsSync(cachePath)) rmSync(cachePath);
+
+        console.log(`  ${chalk.green('✓')} Copied .anatoly/docs/ → ${projectDocsPath}/`);
+        return;
+      }
+
+      // --- Internal scope: full scaffold pipeline ---
+      const docsDir = internalDocsDir;
 
       // Confirmation
       if (!opts.yes) {
