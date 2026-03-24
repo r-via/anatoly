@@ -449,6 +449,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
       newChunkCache[relPath] = { sha, sections: [] };
+      onFileDone?.(relPath);
       return;
     }
 
