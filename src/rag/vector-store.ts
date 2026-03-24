@@ -387,7 +387,8 @@ export class VectorStore {
     if (!this.table || ids.length === 0) return;
     for (const id of ids) {
       try {
-        await this.table.delete(`id = '${id}' AND type = 'doc_section'`);
+        const safeId = sanitizeId(id);
+        await this.table.delete(`id = '${safeId}' AND type = 'doc_section'`);
       } catch {
         // May not exist
       }

@@ -74,7 +74,6 @@ export interface IndexedFileResult {
 
 /**
  * Read source and build cards + code embeddings for a single file.
- * Read source and build cards + code embeddings for a single file.
  */
 function readAndBuildCards(
   projectRoot: string,

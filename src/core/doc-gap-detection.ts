@@ -68,8 +68,6 @@ export type GapDetectionScope = 'internal' | 'project';
 export interface GapDetectionOptions {
   /** Which doc set to analyze. 'internal' = .anatoly/docs/, 'project' = docs/ (or custom path). */
   scope?: GapDetectionScope; // default 'internal'
-  /** Path to project docs (only used when scope='project'). Default: 'docs' */
-  projectDocsPath?: string;
   gapThreshold?: number;   // default 0.60
   driftThreshold?: number; // default 0.85
   onProgress?: (current: number, total: number) => void;

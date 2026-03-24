@@ -270,6 +270,7 @@ export function registerDocsCommand(program: Command): void {
           await store.init();
 
           const gapResult = await detectDocGaps(store, {
+            scope: 'internal',
             onProgress: (current, total) => {
               ctx.state.updateTask('update', `analyzing ${current}/${total} functions…`);
             },
@@ -722,7 +723,6 @@ export function registerDocsCommand(program: Command): void {
 
       const result = await detectDocGaps(store, {
         scope: scope as 'internal' | 'project',
-        projectDocsPath: docsPath,
         gapThreshold,
         driftThreshold,
         onProgress: (current, total) => {
