@@ -70,7 +70,6 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
     : { device: 'cpu', backend: effectiveBackend } as EmbeddingsReadyFlag;
   const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag);
 
-  const dualEmbedding = resolvedModels.nlpModel !== resolvedModels.codeModel;
   const ragMode = effectiveBackend === 'advanced-gguf' ? 'advanced' : 'lite';
 
   try {
@@ -79,7 +78,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       tasks,
       rebuild,
       concurrency: config.llm.concurrency,
-      dualEmbedding,
+      dualEmbedding: true,
       indexModel: config.llm.index_model,
       resolvedModels,
       ragMode: ragMode as 'lite' | 'advanced',

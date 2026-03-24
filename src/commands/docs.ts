@@ -198,8 +198,8 @@ export function registerDocsCommand(program: Command): void {
             const nlpTask = ctx.state.tasks.find(t => t.id === 'rag-nlp');
             if (nlpTask && nlpTask.status !== 'done') {
               ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending'
-                ? 'skipped (no dual embedding)'
-                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (no dual embedding)');
+                ? 'cached'
+                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'cached');
             }
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
@@ -597,8 +597,8 @@ export function registerDocsCommand(program: Command): void {
             const idxNlp = ctx.state.tasks.find(t => t.id === 'rag-nlp');
             if (idxNlp && idxNlp.status !== 'done')
               ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending'
-                ? 'skipped (no dual embedding)'
-                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (no dual embedding)');
+                ? 'cached'
+                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'cached');
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
           } catch (err) {
