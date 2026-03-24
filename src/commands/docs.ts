@@ -613,15 +613,13 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      // Drop all Haiku caches if --drop-cache
+      // Drop all caches if --drop-cache (Haiku summaries, chunks, and index caches)
       if (opts.dropCache) {
         const ragDir = resolve(projectRoot, '.anatoly', 'rag');
-        for (const file of ['nlp_summary_cache_advanced.json', 'nlp_summary_cache_lite.json',
-          'doc_chunk_cache_advanced.json', 'doc_chunk_cache_lite.json',
-          'doc_chunk_cache_advanced-internal.json', 'doc_chunk_cache_lite-internal.json']) {
-          const path = resolve(ragDir, file);
-          if (existsSync(path)) {
-            rmSync(path);
+        if (existsSync(ragDir)) {
+          const cacheFiles = readdirSync(ragDir).filter(f => f.endsWith('.json'));
+          for (const file of cacheFiles) {
+            rmSync(resolve(ragDir, file));
             console.log(`  ${chalk.dim('dropped')} ${file}`);
           }
         }
