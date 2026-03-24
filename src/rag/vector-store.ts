@@ -43,6 +43,8 @@ interface VectorRow {
   lastIndexed: string;
   vector: number[];
   nlp_vector: number[];
+  /** Embedding of docSummary (documentation-oriented semantic space, for gap detection). */
+  doc_vector: number[];
   /** Discriminator: 'function' (default) or 'doc_section'. */
   type: string;
   /** Doc source: 'internal' (.anatoly/docs/) or 'project' (docs/). Empty for function cards. */
@@ -52,6 +54,7 @@ interface VectorRow {
 /** Options for upserting cards with optional NLP embeddings. */
 export interface UpsertOptions {
   nlpEmbeddings?: number[][];
+  docEmbeddings?: number[][];
 }
 
 export class VectorStore {
@@ -121,6 +124,7 @@ export class VectorStore {
     if (!this.db) throw new Error('VectorStore not initialized');
 
     const nlpEmbeddings = options?.nlpEmbeddings;
+    const docEmbeddings = options?.docEmbeddings;
 
     const rows: VectorRow[] = cards.map((card, i) => ({
       id: card.id,
@@ -137,6 +141,7 @@ export class VectorStore {
       vector: embeddings[i],
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
       nlp_vector: nlpEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
+      doc_vector: docEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
       type: 'function',
       source: '',
     }));
@@ -361,6 +366,7 @@ export class VectorStore {
       lastIndexed: new Date().toISOString(),
       vector: new Array(getCodeDim()).fill(0),
       nlp_vector: nlpEmbeddings[i],
+      doc_vector: new Array(getNlpDim()).fill(0),
       type: 'doc_section',
       source: docSource,
     }));
@@ -452,15 +458,15 @@ export class VectorStore {
   /**
    * List all function cards with their NLP vectors and docSummary (for gap detection).
    */
-  async listAllWithNlpVectors(): Promise<Array<{ card: FunctionCard; nlpVector: number[]; docSummary: string }>> {
+  async listAllWithDocVectors(): Promise<Array<{ card: FunctionCard; docVector: number[] }>> {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'nlp_vector'])
+      .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'doc_vector'])
       .toArray();
     return rows
       .filter((r) => r.type !== 'doc_section')
-      .map((r) => ({ card: rowToCard(r), nlpVector: toNumberArray(r.nlp_vector), docSummary: String(r.docSummary ?? '') }));
+      .map((r) => ({ card: rowToCard(r), docVector: toNumberArray(r.doc_vector) }));
   }
 
   /**

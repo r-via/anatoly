@@ -8,7 +8,7 @@ import { globSync } from 'tinyglobby';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
 import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, embedNlp, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
@@ -71,6 +71,8 @@ export interface IndexedFileResult {
   embeddings: number[][];
   /** NLP embeddings (same length as cards). */
   nlpEmbeddings?: number[][];
+  /** Doc-oriented NLP embeddings for gap detection (same length as cards). */
+  docEmbeddings?: number[][];
   /** Card IDs where NLP summarization failed (zero vector). Excluded from cache. */
   nlpFailedIds?: Set<string>;
   /** NLP summary cache entries produced during this file's processing. */
@@ -191,13 +193,14 @@ export async function processFileForDualIndex(
   }
 
   // Apply all NLP summaries (cached + new) and generate NLP embeddings
-  const { enrichedCards, nlpEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
+  const { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
 
   return {
     task,
     cards: enrichedCards,
     embeddings: codeEmbeddings,
     nlpEmbeddings,
+    docEmbeddings,
     nlpFailedIds,
     nlpCacheUpdates,
   };
@@ -328,6 +331,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       if (result.cards.length > 0 && !result.nlpEmbeddings) {
         onFileStart?.(result.task.file);
         result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
+        result.docEmbeddings = await generateDocEmbeddings(result.cards);
         onFileDone?.(result.task.file);
       }
       nlpCounter++;
@@ -348,6 +352,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     await store.deleteByFile(result.task.file);
     await store.upsert(result.cards, result.embeddings, {
       nlpEmbeddings: result.nlpEmbeddings,
+      docEmbeddings: result.docEmbeddings,
     });
     cardsIndexed += result.cards.length;
     filesIndexed++;

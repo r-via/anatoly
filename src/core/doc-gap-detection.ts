@@ -15,7 +15,6 @@
 
 import type { VectorStore } from '../rag/vector-store.js';
 import type { FunctionCard, DocSectionEntry } from '../rag/types.js';
-import { embedNlp } from '../rag/embeddings.js';
 
 // --- Types ---
 
@@ -112,7 +111,7 @@ export async function detectDocGaps(
   const scope = options?.scope ?? 'internal';
 
   // Load all function cards with their NLP vectors
-  const cardsWithVectors = await vectorStore.listAllWithNlpVectors();
+  const cardsWithVectors = await vectorStore.listAllWithDocVectors();
   // Filter doc sections by source attribute (set during indexing)
   const allDocSections = await vectorStore.listDocSections(scope);
 
@@ -136,23 +135,19 @@ export async function detectDocGaps(
   // Track which doc sections are matched (for orphan detection)
   const matchedDocIds = new Set<string>();
 
-  // For each function card, embed its docSummary and find the most similar doc section
+  // For each function card, use pre-computed doc_vector to find the most similar doc section
   for (let i = 0; i < cardsWithVectors.length; i++) {
-    const { card, docSummary } = cardsWithVectors[i];
+    const { card, docVector } = cardsWithVectors[i];
     options?.onProgress?.(i + 1, cardsWithVectors.length);
 
-    // Use docSummary for query (documentation-oriented semantic space)
-    // Fall back to code summary if docSummary is empty (legacy cards)
-    const queryText = docSummary || card.summary || card.signature;
-    if (!queryText || queryText.length < 10) {
+    // Skip cards with no doc vector (embedding not available)
+    if (!docVector || docVector.length === 0 || docVector.every(v => v === 0)) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });
       continue;
     }
 
-    const queryVector = await embedNlp(queryText);
-
-    // Query doc index — filtered by source attribute
-    const scopedResults = await vectorStore.searchDocSections(queryVector, 3, 0.0, scope);
+    // Query doc index with pre-computed doc_vector — filtered by source attribute
+    const scopedResults = await vectorStore.searchDocSections(docVector, 3, 0.0, scope);
 
     if (scopedResults.length === 0) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });

@@ -64,6 +64,7 @@ vi.mock('./indexer.js', () => ({
   applyNlpSummaries: vi.fn().mockResolvedValue({ enrichedCards: [], nlpEmbeddings: [] }),
   enrichCardsWithSummaries: vi.fn().mockImplementation((cards: unknown[]) => ({ enrichedCards: cards, nlpFailedIds: new Set() })),
   generateNlpEmbeddings: vi.fn().mockResolvedValue([]),
+  generateDocEmbeddings: vi.fn().mockResolvedValue([]),
   extractFunctionBody: vi.fn().mockReturnValue('export function foo() { return 1; }'),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
   saveRagCache: vi.fn(),

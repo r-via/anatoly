@@ -198,9 +198,10 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
 export async function applyNlpSummaries(
   cards: FunctionCard[],
   nlpSummaries: Map<string, NlpSummary>,
-): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][]; nlpFailedIds: Set<string> }> {
+): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][]; docEmbeddings: number[][]; nlpFailedIds: Set<string> }> {
   const enrichedCards: FunctionCard[] = [];
   const nlpEmbeddings: number[][] = [];
+  const docEmbeddings: number[][] = [];
   const nlpFailedIds = new Set<string>();
   const nlpDimSize = getNlpDim();
   const zeroVector = new Array(nlpDimSize).fill(0);
@@ -217,15 +218,18 @@ export async function applyNlpSummaries(
       });
       const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile ?? '');
       nlpEmbeddings.push(await embedNlp(nlpText));
+      // Embed docSummary in doc-oriented semantic space for gap detection
+      const docText = summary.docSummary || summary.summary;
+      docEmbeddings.push(await embedNlp(docText));
     } else {
       enrichedCards.push(card);
-      // Zero vector: card has no NLP summary, won't activate hybrid search
       nlpEmbeddings.push([...zeroVector]);
+      docEmbeddings.push([...zeroVector]);
       nlpFailedIds.add(card.id);
     }
   }
 
-  return { enrichedCards, nlpEmbeddings, nlpFailedIds };
+  return { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds };
 }
 
 /**
@@ -290,6 +294,36 @@ export async function generateNlpEmbeddings(
   }
 
   return nlpEmbeddings;
+}
+
+/**
+ * Generate doc-oriented NLP embeddings for gap detection.
+ * Uses docSummary (falls back to summary) for each card.
+ */
+export async function generateDocEmbeddings(
+  cards: FunctionCard[],
+): Promise<number[][]> {
+  const nlpDimSize = getNlpDim();
+  const zeroVector = new Array(nlpDimSize).fill(0);
+
+  const textsToEmbed: string[] = [];
+  const textIndices: number[] = [];
+  for (let i = 0; i < cards.length; i++) {
+    const text = cards[i].docSummary || cards[i].summary;
+    if (text) {
+      textsToEmbed.push(text);
+      textIndices.push(i);
+    }
+  }
+
+  const batchResults = await embedNlpBatch(textsToEmbed);
+
+  const docEmbeddings: number[][] = cards.map(() => [...zeroVector]);
+  for (let j = 0; j < textIndices.length; j++) {
+    docEmbeddings[textIndices[j]] = batchResults[j];
+  }
+
+  return docEmbeddings;
 }
 
 function cachePath(projectRoot: string, cacheSuffix?: string): string {
