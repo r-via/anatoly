@@ -419,6 +419,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         isInterrupted,
         conversationDir: options.conversationDir,
         semaphore: options.semaphore,
+        concurrency,
       });
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
@@ -439,6 +440,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         isInterrupted,
         conversationDir: options.conversationDir,
         semaphore: options.semaphore,
+        concurrency,
       });
     } catch (err) {
       onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);

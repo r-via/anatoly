@@ -305,6 +305,8 @@ export interface DocIndexOptions {
   conversationDir?: string;
   /** Global SDK concurrency semaphore. */
   semaphore?: Semaphore;
+  /** Max parallel file processing (default 4, should match code indexing concurrency). */
+  concurrency?: number;
 }
 
 /**
@@ -314,7 +316,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4 } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -427,10 +429,9 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onFileDone?.(relPath);
   };
 
-  // Process files with bounded concurrency (max 4 parallel) to avoid overwhelming the UI
-  const DOC_CONCURRENCY = 4;
-  for (let i = 0; i < changedFiles.length; i += DOC_CONCURRENCY) {
-    const batch = changedFiles.slice(i, i + DOC_CONCURRENCY);
+  // Process files with bounded concurrency to avoid overwhelming the UI
+  for (let i = 0; i < changedFiles.length; i += concurrency) {
+    const batch = changedFiles.slice(i, i + concurrency);
     await Promise.allSettled(batch.map(processFile));
   }
 
