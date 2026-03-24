@@ -12,3 +12,4 @@ coverage/
 .temp
 *compiled.*
 .vhs/
+cli-tester

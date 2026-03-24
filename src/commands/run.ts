@@ -154,12 +154,6 @@ export function registerRunCommand(program: Command): void {
     .option('--verbose', 'show detailed operation logs')
     .action(async (cmdOpts: { runId?: string; axes?: string }) => {
       const projectRoot = resolve('.');
-      if (!existsSync(resolve(projectRoot, 'package.json'))) {
-        console.error(`error: no package.json found in ${projectRoot}`);
-        console.error('Are you at the root of your project?');
-        process.exitCode = 2;
-        return;
-      }
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
@@ -850,7 +844,10 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
 
   try {
-    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    let pkg: Record<string, unknown> = {};
+    try {
+      pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    } catch { /* no package.json — non-JS project */ }
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
     // Scaffold + generate (first time)
@@ -895,7 +892,10 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const start = Date.now();
 
   try {
-    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    let pkg: Record<string, unknown> = {};
+    try {
+      pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    } catch { /* no package.json — non-JS project */ }
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
     // Scaffold only for new modules (idempotent, skips existing pages)

@@ -34,6 +34,39 @@ function ragCachePath(projectRoot: string, suffix: string): string {
   return resolve(projectRoot, '.anatoly', 'rag', `cache_${suffix}.json`);
 }
 
+// ---------------------------------------------------------------------------
+// Doc chunk cache (stores Haiku chunking results by file SHA)
+// ---------------------------------------------------------------------------
+
+interface DocChunkCacheEntry {
+  sha: string;
+  sections: Array<{ heading: string; embedText: string; content: string }>;
+}
+
+interface DocChunkCache {
+  [filePath: string]: DocChunkCacheEntry;
+}
+
+function docChunkCachePath(projectRoot: string, suffix: string): string {
+  return resolve(projectRoot, '.anatoly', 'rag', `doc_chunk_cache_${suffix}.json`);
+}
+
+function loadDocChunkCache(projectRoot: string, suffix: string): DocChunkCache {
+  const path = docChunkCachePath(projectRoot, suffix);
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as DocChunkCache;
+  } catch {
+    return {};
+  }
+}
+
+function saveDocChunkCache(projectRoot: string, suffix: string, cache: DocChunkCache): void {
+  const path = docChunkCachePath(projectRoot, suffix);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(cache, null, 2));
+}
+
 function computeDocSha(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -334,6 +367,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
   const newCache: DocCacheData = {};
+  const chunkCache = loadDocChunkCache(projectRoot, cacheSuffix);
+  const newChunkCache: DocChunkCache = {};
 
   const changedFiles: Array<{ relPath: string; source: string; sha: string }> = [];
   let cachedCount = 0;
@@ -399,12 +434,21 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onFileStart?.(relPath);
     onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
-    const sections = chunkModel
-      ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore)
-      : fallbackParseH2(relPath, source);
+    // Check chunk cache — reuse Haiku results if file SHA matches
+    const cachedChunks = chunkCache[relPath];
+    let sections: DocSection[];
+    if (cachedChunks && cachedChunks.sha === sha) {
+      sections = cachedChunks.sections.map(s => ({ filePath: relPath, ...s }));
+      onLog(`rag: ${relPath} → ${sections.length} sections (from chunk cache)`);
+    } else {
+      sections = chunkModel
+        ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore)
+        : fallbackParseH2(relPath, source);
+    }
 
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
+      newChunkCache[relPath] = { sha, sections: [] };
       return;
     }
 
@@ -426,6 +470,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
 
     await vectorStore.upsertDocSections(cards, nlpEmbeddings, docSource);
     newCache[relPath] = { sha, sectionIds };
+    newChunkCache[relPath] = { sha, sections: sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })) };
     totalIndexed += sections.length;
     onLog(`rag: ${relPath} → ${sections.length} sections`);
     onFileDone?.(relPath);
@@ -438,6 +483,13 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   }
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
+  // Merge chunk cache: keep entries for unchanged files, add new entries
+  const mergedChunkCache: DocChunkCache = {};
+  for (const [path, entry] of Object.entries(chunkCache)) {
+    if (newCache[path]) mergedChunkCache[path] = entry; // file still exists and cached
+  }
+  Object.assign(mergedChunkCache, newChunkCache); // add/overwrite with new entries
+  saveDocChunkCache(projectRoot, cacheSuffix, mergedChunkCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
 
   return totalIndexed;
