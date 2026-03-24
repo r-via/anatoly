@@ -182,7 +182,7 @@ export function registerDocsCommand(program: Command): void {
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const logDir = resolve(projectRoot, '.anatoly', 'logs', `structure-review_${ts}`);
+      const logDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `structure-review_${ts}`);
 
       console.log(`  ${chalk.yellow('●')} Structure lint`);
 
@@ -254,7 +254,7 @@ export function registerDocsCommand(program: Command): void {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
       // Step 1: Deterministic lint
-      const lintLogDir = resolve(projectRoot, '.anatoly', 'logs', `structure-lint_${ts}`);
+      const lintLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `structure-lint_${ts}`);
       console.log(`  ${chalk.yellow('●')} Structure lint`);
 
       const lintResult = reviewDocStructure(docsDir, projectRoot, docsPath, undefined, {
@@ -303,7 +303,7 @@ export function registerDocsCommand(program: Command): void {
       console.log('');
       console.log(`  ${chalk.yellow('●')} Coherence review ${chalk.dim('(opus)')}`);
 
-      const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', `coherence-review_${ts}`);
+      const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
 
       try {
         const result = await runDocCoherenceReview({

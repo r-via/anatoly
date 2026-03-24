@@ -217,7 +217,9 @@ export function reviewDocStructure(
   const headingBefore = issues.length;
   for (const [relPath, file] of fileMap) {
     const content = modified.get(relPath) ?? file.content;
-    const headings = [...content.matchAll(/^(#{1,6}) /gm)].map(m => m[1].length);
+    // Strip fenced code blocks so that shell comments (# ...) are not counted as headings
+    const stripped = content.replace(/^```[\s\S]*?^```/gm, '');
+    const headings = [...stripped.matchAll(/^(#{1,6}) /gm)].map(m => m[1].length);
     const h1Count = headings.filter(h => h === 1).length;
     if (h1Count === 0) {
       issues.push({ path: relPath, rule: 'heading-hierarchy', detail: 'missing h1 heading', fixed: false });

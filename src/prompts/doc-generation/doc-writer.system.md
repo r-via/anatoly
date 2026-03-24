@@ -23,7 +23,7 @@ Rules:
 - When "Related Pages" are provided, read them to understand what is already documented. Do not duplicate their content — instead, cross-reference with relative links. Use them to maintain consistent terminology and structure across the documentation site.
 - Use the real function names, types, and file paths provided in the source context.
 - Include at least 1 code example per page with realistic arguments.
-- All code blocks must specify the language (typescript, bash, etc.).
+- EVERY code block MUST have a language tag (```typescript, ```bash, ```yaml, ```json, etc.). A code block without a language tag is a build error — shell comments like `# ...` inside untagged blocks are parsed as markdown headings and break the documentation structure. NEVER use bare ``` without a language.
 - Your response is written directly to a .md file. Output ONLY the raw Markdown content — begin immediately with `# {Page Title}` as the very first line.
 - NEVER add preamble, thinking, or commentary before the heading (e.g. "Now I have everything…", "Here is the documentation…", "Let me write…").
 - NEVER wrap the output in markdown code fences (``` or ```markdown). The output IS the markdown file.
