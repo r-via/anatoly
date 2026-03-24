@@ -11,46 +11,8 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
-import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
-import { Semaphore } from '../core/sdk-semaphore.js';
-import { PipelineState } from '../cli/pipeline-state.js';
-import { ScreenRenderer } from '../cli/screen-renderer.js';
-import { printBanner } from '../utils/banner.js';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-
-function createDocExecutor(projectRoot: string): DocExecutor {
-  return async ({ system, user, model }) => {
-    const q = query({
-      prompt: user,
-      options: {
-        systemPrompt: system,
-        model,
-        cwd: projectRoot,
-        allowedTools: [],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-      },
-    });
-
-    let resultText = '';
-    let costUsd = 0;
-
-    for await (const message of q) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          resultText = (message as { result: string }).result;
-          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-        } else {
-          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-          throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
-        }
-      }
-    }
-
-    return { text: resultText, costUsd };
-  };
-}
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
+import { runPipeline } from '../cli/pipeline-runner.js';
 
 export function registerDocsCommand(program: Command): void {
   const docs = program
@@ -95,129 +57,102 @@ export function registerDocsCommand(program: Command): void {
         rmSync(docsDir, { recursive: true, force: true });
       }
 
-      // Setup
-      const config = loadConfig(projectRoot);
-      const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
-      const docsPath = config.documentation?.docs_path ?? 'docs';
-      const profile = detectProjectProfile(projectRoot);
-      const semaphore = new Semaphore(config.llm.sdk_concurrency);
-      const executor = createDocExecutor(projectRoot);
-      const plain = opts.plain ?? false;
-      const startTime = Date.now();
-      let totalCostUsd = 0;
+      const result = await runPipeline({
+        projectRoot,
+        plain: opts.plain ?? false,
+        bannerMotd: 'Doc Scaffold',
+        tasks: [
+          { id: 'scaffold', label: 'Scaffolding documentation' },
+          { id: 'lint-1', label: 'Structure lint' },
+          { id: 'coherence-1', label: 'Coherence review' },
+        ],
+        execute: async (ctx) => {
+          // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
+          ctx.state.startTask('scaffold', 'scanning project…');
+          await scanProject(ctx.projectRoot, ctx.config);
+          const tasks = loadTasks(ctx.projectRoot);
 
-      // Initialize pipeline UI
-      const pipelineState = new PipelineState();
-      pipelineState.setSemaphore(semaphore);
-      pipelineState.addTask('scaffold', 'Scaffolding documentation');
-      pipelineState.addTask('lint-1', 'Structure lint');
-      pipelineState.addTask('coherence-1', 'Coherence review');
-      // Steps 4-6 (RAG → update → coherence) are future — placeholder for now
-      const renderer = new ScreenRenderer(pipelineState, { plain });
+          ctx.state.updateTask('scaffold', 'scaffolding pages…');
+          const scaffoldResult = runDocScaffold(ctx.projectRoot, ctx.pkg, tasks, ctx.docsPath, ctx.profile);
+          const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, ctx.pkg);
+          const outputDir = scaffoldResult.outputDir;
 
-      // Print banner + project info
-      if (!plain) {
-        printBanner('Doc Scaffold');
-        const langLine = formatLanguageLine(profile.languages.languages);
-        const fwLine = formatFrameworkLine(profile.frameworks);
-        if (langLine) console.log(`  ${chalk.dim('languages')}  ${langLine}`);
-        if (fwLine) console.log(`  ${chalk.dim('frameworks')} ${fwLine}`);
-        console.log(`  ${chalk.dim('types')}      ${profile.types.join(', ')}`);
-        console.log('');
-      }
+          if (genResult.prompts.length === 0) {
+            ctx.state.completeTask('scaffold', 'all cached');
+          } else {
+            let completed = 0;
+            const total = genResult.prompts.length;
+            ctx.state.updateTask('scaffold', `0/${total} pages`);
 
-      renderer.start();
-
-      try {
-        // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
-        pipelineState.startTask('scaffold', 'scanning project…');
-        await scanProject(projectRoot, config);
-        const tasks = loadTasks(projectRoot);
-
-        pipelineState.updateTask('scaffold', 'scaffolding pages…');
-        const scaffoldResult = runDocScaffold(projectRoot, pkg, tasks, docsPath, profile);
-        const genResult = runDocGeneration(projectRoot, scaffoldResult, tasks, pkg);
-        const outputDir = scaffoldResult.outputDir;
-
-        if (genResult.prompts.length === 0) {
-          pipelineState.completeTask('scaffold', 'all cached');
-        } else {
-          let completed = 0;
-          const total = genResult.prompts.length;
-          pipelineState.updateTask('scaffold', `0/${total} pages`);
-
-          const result = await executeDocPrompts({
-            prompts: genResult.prompts,
-            outputDir,
-            projectRoot,
-            semaphore,
-            executor,
-            onPageComplete: (pagePath) => {
-              completed++;
-              pipelineState.updateTask('scaffold', `${completed}/${total} pages`);
-              renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);
-            },
-            onPageError: (pagePath, err) => {
-              renderer.logPlain(`[scaffold] ${chalk.red('×')} ${pagePath} — ${err.message}`);
-            },
-          });
-
-          totalCostUsd += result.totalCostUsd;
-          const detail = result.pagesFailed > 0
-            ? `${result.pagesWritten} written, ${result.pagesFailed} failed`
-            : `${result.pagesWritten} pages written`;
-          pipelineState.completeTask('scaffold', detail);
-        }
-
-        // --- Step 2: LINT + COHERENCE ---
-        pipelineState.startTask('lint-1', 'checking structure…');
-        const lintResult = reviewDocStructure(outputDir, projectRoot, docsPath);
-        const lintIssues = lintResult.issues.filter(i => !i.fixed).length;
-        pipelineState.completeTask('lint-1', lintResult.filesFixed > 0
-          ? `${lintResult.filesFixed} auto-fixed, ${lintIssues} remaining`
-          : lintIssues > 0 ? `${lintIssues} issues` : 'clean');
-
-        // --- Step 3: COHERENCE ---
-        pipelineState.startTask('coherence-1', 'reviewing coherence…');
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
-
-        try {
-          const coherenceResult = await runDocCoherenceReview({
-            outputDir,
-            projectRoot,
-            docsPath,
-            logDir: coherenceLogDir,
-            callbacks: {
-              onLoopStart: (loop) => {
-                pipelineState.updateTask('coherence-1', `loop ${loop}…`);
+            const llmResult = await executeDocPrompts({
+              prompts: genResult.prompts,
+              outputDir,
+              projectRoot: ctx.projectRoot,
+              semaphore: ctx.semaphore,
+              executor: ctx.executor,
+              onPageComplete: (pagePath) => {
+                completed++;
+                ctx.state.updateTask('scaffold', `${completed}/${total} pages`);
+                ctx.renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);
               },
-              onLoopEnd: (loop, issues) => {
-                renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
+              onPageError: (pagePath, err) => {
+                ctx.renderer.logPlain(`[scaffold] ${chalk.red('×')} ${pagePath} — ${err.message}`);
               },
-            },
-          });
-          totalCostUsd += coherenceResult.costUsd;
-          pipelineState.completeTask('coherence-1',
-            coherenceResult.linterIssuesAfter === 0
-              ? `clean (${coherenceResult.loopsCompleted} loops)`
-              : `${coherenceResult.linterIssuesBefore} → ${coherenceResult.linterIssuesAfter} issues`,
-          );
-        } catch {
-          pipelineState.completeTask('coherence-1', 'failed');
-        }
+            });
 
-        // TODO: Steps 4-6 (RAG index → update with RAG → coherence → re-index)
-        // Will be implemented when RAG integration is available in standalone mode
+            ctx.addCost(llmResult.totalCostUsd);
+            const detail = llmResult.pagesFailed > 0
+              ? `${llmResult.pagesWritten} written, ${llmResult.pagesFailed} failed`
+              : `${llmResult.pagesWritten} pages written`;
+            ctx.state.completeTask('scaffold', detail);
+          }
 
-      } finally {
-        renderer.stop();
-      }
+          // --- Step 2: LINT ---
+          ctx.state.startTask('lint-1', 'checking structure…');
+          const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+          const lintIssues = lintResult.issues.filter(i => !i.fixed).length;
+          ctx.state.completeTask('lint-1', lintResult.filesFixed > 0
+            ? `${lintResult.filesFixed} auto-fixed, ${lintIssues} remaining`
+            : lintIssues > 0 ? `${lintIssues} issues` : 'clean');
+
+          // --- Step 3: COHERENCE ---
+          ctx.state.startTask('coherence-1', 'reviewing coherence…');
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
+
+          try {
+            const coherenceResult = await runDocCoherenceReview({
+              outputDir,
+              projectRoot: ctx.projectRoot,
+              docsPath: ctx.docsPath,
+              logDir: coherenceLogDir,
+              callbacks: {
+                onLoopStart: (loop) => {
+                  ctx.state.updateTask('coherence-1', `loop ${loop}…`);
+                },
+                onLoopEnd: (loop, issues) => {
+                  ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
+                },
+              },
+            });
+            ctx.addCost(coherenceResult.costUsd);
+            ctx.state.completeTask('coherence-1',
+              coherenceResult.linterIssuesAfter === 0
+                ? `clean (${coherenceResult.loopsCompleted} loops)`
+                : `${coherenceResult.linterIssuesBefore} → ${coherenceResult.linterIssuesAfter} issues`,
+            );
+          } catch {
+            ctx.state.completeTask('coherence-1', 'failed');
+          }
+
+          // TODO: Steps 4-6 (RAG index → update with RAG → coherence → re-index)
+        },
+      });
 
       // Summary
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      const elapsed = (result.durationMs / 1000).toFixed(1);
       console.log('');
-      console.log(`  ${chalk.green('✓')} Doc scaffold complete — ${elapsed}s · $${totalCostUsd.toFixed(4)}`);
+      console.log(`  ${chalk.green('✓')} Doc scaffold complete — ${elapsed}s · $${result.totalCostUsd.toFixed(4)}`);
       console.log(`    ${chalk.dim(`docs: .anatoly/docs/`)}`);
       if (existsSync(resolve(projectRoot, '.anatoly', 'logs', 'docs'))) {
         console.log(`    ${chalk.dim(`logs: .anatoly/logs/docs/`)}`);
