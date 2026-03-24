@@ -515,7 +515,9 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Index',
         tasks: [
           { id: 'scan', label: 'Scanning project' },
-          { id: 'rag-index', label: 'RAG indexing' },
+          { id: 'rag-code', label: 'Indexing & embedding code' },
+          { id: 'rag-nlp', label: 'Summaries & embedding code' },
+          { id: 'rag-doc', label: 'Chunking & embedding docs' },
         ],
         execute: async (ctx) => {
           // Step 1: Scan
@@ -524,8 +526,11 @@ export function registerDocsCommand(program: Command): void {
           const tasks = loadTasks(ctx.projectRoot);
           ctx.state.completeTask('scan', `${tasks.length} files`);
 
-          // Step 2: RAG index (code + NLP summaries + doc chunks)
-          ctx.state.startTask('rag-index', 'indexing…');
+          // Step 2: RAG index (3 sub-phases)
+          let ragPhase = 'code';
+          const phaseToTask: Record<string, string> = { code: 'rag-code', nlp: 'rag-nlp', upsert: 'rag-nlp', doc: 'rag-doc' };
+          ctx.state.startTask('rag-code', '0/?');
+
           try {
             const ragResult = await indexProjectStandalone({
               projectRoot: ctx.projectRoot,
@@ -535,17 +540,34 @@ export function registerDocsCommand(program: Command): void {
               semaphore: ctx.semaphore,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
-                ctx.state.updateTask('rag-index', `${current}/${total}`);
+                const tid = phaseToTask[ragPhase];
+                if (tid) ctx.state.updateTask(tid, `${current}/${total}`);
               },
               onPhase: (phase) => {
-                ctx.state.updateTask('rag-index', phase);
+                const prev = phaseToTask[ragPhase];
+                const next = phaseToTask[phase];
+                if (prev && prev !== next) {
+                  const t = ctx.state.tasks.find(t => t.id === prev);
+                  ctx.state.completeTask(prev, t?.detail === '\u2014' ? 'done' : t?.detail ?? 'done');
+                }
+                ragPhase = phase;
+                if (next) ctx.state.startTask(next, '0/?');
               },
+              onFileStart: (file) => ctx.state.trackFile(file),
+              onFileDone: (file) => ctx.state.untrackFile(file),
             });
-            ctx.addCost(0); // RAG indexing uses local embeddings, no API cost
-            ctx.state.completeTask('rag-index',
-              `${ragResult.totalCards} cards · ${ragResult.docSectionsIndexed} doc sections`);
+
+            // Ensure all tasks completed
+            if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done'))
+              ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-nlp' && t.status !== 'done'))
+              ctx.state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+            if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done'))
+              ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
           } catch (err) {
-            ctx.state.completeTask('rag-index', 'failed');
+            ctx.state.completeTask('rag-code', 'failed');
+            ctx.state.completeTask('rag-nlp', 'failed');
+            ctx.state.completeTask('rag-doc', 'failed');
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
             process.exitCode = 1;
           }
