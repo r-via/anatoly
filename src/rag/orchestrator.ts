@@ -22,10 +22,8 @@ export type RagMode = 'lite' | 'advanced';
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
-  /** Model used for NLP summary generation (dual embedding mode). */
+  /** Model used for NLP summary generation. */
   indexModel?: string;
-  /** Enable dual embedding (code + NLP). Requires indexModel. */
-  dualEmbedding?: boolean;
   /** Resolved embedding models (from hardware detection). Configures code/NLP model selection. */
   resolvedModels?: ResolvedModels;
   /** RAG mode determines table name and cache file. */
@@ -54,8 +52,6 @@ export interface RagIndexResult {
   filesIndexed: number;
   totalCards: number;
   totalFiles: number;
-  /** Whether dual embedding (code + NLP) was used during indexing. */
-  dualEmbedding: boolean;
   /** Number of doc sections indexed from /docs/. */
   docSectionsIndexed: number;
 }
@@ -68,7 +64,7 @@ export interface IndexedFileResult {
   task: Task;
   cards: FunctionCard[];
   embeddings: number[][];
-  /** NLP embeddings (same length as cards). Only present when dual embedding is enabled. */
+  /** NLP embeddings (same length as cards). */
   nlpEmbeddings?: number[][];
   /** Card IDs where NLP summarization failed (zero vector). Excluded from cache. */
   nlpFailedIds?: Set<string>;
@@ -221,10 +217,8 @@ export async function processFileForDualIndex(
 
 /**
  * Run the RAG indexing phase: build function cards from AST,
- * compute code embeddings locally, and upsert into the vector store.
- *
- * When dualEmbedding is enabled, also generates NLP summaries via LLM
- * and computes NLP embeddings for hybrid search.
+ * compute code embeddings locally, generate NLP summaries via LLM,
+ * compute NLP embeddings for hybrid search, and upsert into the vector store.
  */
 /** Derive LanceDB table name and cache suffix from RAG mode. */
 export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffix: string } {
@@ -233,18 +227,16 @@ export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffi
 
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, onPhase, isInterrupted } = options;
-  const dualMode = !!(options.dualEmbedding && options.indexModel);
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
-  onLog?.(`rag: mode=${effectiveMode} table=${tableName} dual=${dualMode} codeRuntime=${options.resolvedModels?.codeRuntime ?? '?'}`);
+  onLog?.(`rag: mode=${effectiveMode} table=${tableName} codeRuntime=${options.resolvedModels?.codeRuntime ?? '?'}`);
 
   setEmbeddingLogger(onLog);
 
   // Configure embedding models if resolved models provided
   if (options.resolvedModels) {
-    const nlpInfo = dualMode ? ` + nlp=${options.resolvedModels.nlpModel} (${options.resolvedModels.nlpRuntime})` : '';
-    onLog?.(`rag: models — code=${options.resolvedModels.codeModel} (${options.resolvedModels.codeRuntime})${nlpInfo}`);
+    onLog?.(`rag: models — code=${options.resolvedModels.codeModel} (${options.resolvedModels.codeRuntime}) + nlp=${options.resolvedModels.nlpModel} (${options.resolvedModels.nlpRuntime})`);
     configureModels(options.resolvedModels);
   }
 
@@ -287,7 +279,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   const log = contextLogger();
   log.debug(
-    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length, dualEmbedding: dualMode },
+    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
     'RAG index: filtering files',
   );
 
@@ -302,8 +294,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     });
   });
 
-  // Load NLP summary cache for per-function body-hash caching (dual mode only)
-  const nlpSummaryCache = dualMode ? loadNlpSummaryCache(projectRoot, cacheSuffix) : undefined;
+  // Load NLP summary cache for per-function body-hash caching
+  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
 
   // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
@@ -316,14 +308,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     isInterrupted,
     handler: async (task) => {
       const idx = ++fileCounter;
-      const modeLabel = dualMode ? ' [dual]' : '';
-      onLog(`[${idx}/${tasksToIndex.length}]${modeLabel} ${task.file}`);
+      onLog(`[${idx}/${tasksToIndex.length}] ${task.file}`);
       onFileStart?.(task.file);
 
       try {
-        const result = dualMode
-          ? await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir, options.semaphore)
-          : await processFileForIndex(projectRoot, task, cache);
+        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir, options.semaphore);
 
         if (result.cards.length > 0) {
           results.push(result);
@@ -344,7 +333,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   // Batch NLP embeddings: all code embeddings are done, now generate NLP embeddings
   // in a single pass. This avoids swapping GGUF containers back and forth per file.
-  if (dualMode && results.length > 0) {
+  if (results.length > 0) {
     onPhase?.('nlp');
     onLog?.(`rag: generating NLP embeddings for ${results.length} files (batch)...`);
     let nlpCounter = 0;
@@ -389,62 +378,58 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   if (results.length > 0) {
     saveRagCache(projectRoot, cache, cacheSuffix);
 
-    // Merge and save NLP summary cache updates (dual mode only)
-    if (nlpSummaryCache) {
-      for (const result of results) {
-        if (result.nlpCacheUpdates) {
-          Object.assign(nlpSummaryCache.entries, result.nlpCacheUpdates);
-        }
+    // Merge and save NLP summary cache updates
+    for (const result of results) {
+      if (result.nlpCacheUpdates) {
+        Object.assign(nlpSummaryCache.entries, result.nlpCacheUpdates);
       }
-      saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
     }
+    saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
   }
 
-  // Index doc sections from /docs/ and .anatoly/docs/ (dual mode only — needs NLP embeddings)
+  // Index doc sections from /docs/ and .anatoly/docs/
   let docSectionsIndexed = 0;
-  if (dualMode) {
-    onPhase?.('doc');
-    // Project docs (docs/)
-    try {
-      docSectionsIndexed += await indexDocSections({
-        projectRoot,
-        vectorStore: store,
-        docsDir: options.docsDir,
-        cacheSuffix,
-        chunkModel: options.indexModel,
-        onLog,
-        onProgress,
-        onFileStart,
-        onFileDone,
-        isInterrupted,
-        conversationDir: options.conversationDir,
-        semaphore: options.semaphore,
-        concurrency,
-      });
-    } catch (err) {
-      onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
-    }
+  onPhase?.('doc');
+  // Project docs (docs/)
+  try {
+    docSectionsIndexed += await indexDocSections({
+      projectRoot,
+      vectorStore: store,
+      docsDir: options.docsDir,
+      cacheSuffix,
+      chunkModel: options.indexModel,
+      onLog,
+      onProgress,
+      onFileStart,
+      onFileDone,
+      isInterrupted,
+      conversationDir: options.conversationDir,
+      semaphore: options.semaphore,
+      concurrency,
+    });
+  } catch (err) {
+    onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+  }
 
-    // Internal docs (.anatoly/docs/) — Story 29.18
-    try {
-      docSectionsIndexed += await indexDocSections({
-        projectRoot,
-        vectorStore: store,
-        docsDir: join('.anatoly', 'docs'),
-        cacheSuffix: `${cacheSuffix}-internal`,
-        chunkModel: options.indexModel,
-        onLog,
-        onProgress,
-        onFileStart,
-        onFileDone,
-        isInterrupted,
-        conversationDir: options.conversationDir,
-        semaphore: options.semaphore,
-        concurrency,
-      });
-    } catch (err) {
-      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
-    }
+  // Internal docs (.anatoly/docs/) — Story 29.18
+  try {
+    docSectionsIndexed += await indexDocSections({
+      projectRoot,
+      vectorStore: store,
+      docsDir: join('.anatoly', 'docs'),
+      cacheSuffix: `${cacheSuffix}-internal`,
+      chunkModel: options.indexModel,
+      onLog,
+      onProgress,
+      onFileStart,
+      onFileDone,
+      isInterrupted,
+      conversationDir: options.conversationDir,
+      semaphore: options.semaphore,
+      concurrency,
+    });
+  } catch (err) {
+    onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
   }
 
   const stats = await store.stats();
@@ -456,7 +441,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       cached: tasksWithFunctions.length - tasksToIndex.length,
       totalCards: stats.totalCards,
       totalFiles: stats.totalFiles,
-      dualEmbedding: dualMode,
       docSectionsIndexed,
     },
     'RAG index summary',
@@ -468,7 +452,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     filesIndexed,
     totalCards: stats.totalCards,
     totalFiles: stats.totalFiles,
-    dualEmbedding: dualMode,
     docSectionsIndexed,
   };
 }

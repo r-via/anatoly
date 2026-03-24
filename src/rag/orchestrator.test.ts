@@ -47,8 +47,7 @@ vi.mock('./vector-store.js', () => {
     upsert = vi.fn().mockResolvedValue(undefined);
     listIndexedFiles = vi.fn().mockResolvedValue(new Set<string>());
     deleteByFile = vi.fn().mockResolvedValue(undefined);
-    stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false });
-    hasDualEmbedding = false;
+    stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0, lastIndexed: null });
   }
   return {
     VectorStore: MockVectorStore,
@@ -63,6 +62,8 @@ vi.mock('./indexer.js', () => ({
   needsReindex: vi.fn().mockReturnValue(true),
   embedCards: vi.fn().mockResolvedValue([]),
   applyNlpSummaries: vi.fn().mockResolvedValue({ enrichedCards: [], nlpEmbeddings: [] }),
+  enrichCardsWithSummaries: vi.fn().mockImplementation((cards: unknown[]) => ({ enrichedCards: cards, nlpFailedIds: new Set() })),
+  generateNlpEmbeddings: vi.fn().mockResolvedValue([]),
   extractFunctionBody: vi.fn().mockReturnValue('export function foo() { return 1; }'),
   loadRagCache: vi.fn().mockReturnValue({ entries: {} }),
   saveRagCache: vi.fn(),
@@ -380,6 +381,7 @@ describe('indexProject ragMode', () => {
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
       ragMode: 'advanced',
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -403,7 +405,6 @@ describe('indexProject dual doc indexing (Story 29.18)', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
-      dualEmbedding: true,
       indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,

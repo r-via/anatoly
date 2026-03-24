@@ -84,7 +84,6 @@ interface RunContext {
   /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
   triageMap: Map<string, TriageResult>;
   deliberation: boolean;
-  dualEmbedding: boolean;
   resolvedModels?: ResolvedModels;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
@@ -230,7 +229,6 @@ export function registerRunCommand(program: Command): void {
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
           : config.llm.deliberation ?? true,
-        dualEmbedding: true,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -276,7 +274,6 @@ export function registerRunCommand(program: Command): void {
           projectRoot,
           concurrency,
           ragMode: ctx.ragMode,
-          dualEmbedding: ctx.dualEmbedding,
           enableRag: ctx.enableRag,
           noCache: ctx.noCache,
           rebuildRag: ctx.rebuildRag,
@@ -330,8 +327,8 @@ export function registerRunCommand(program: Command): void {
         }
         if (ctx.enableRag) {
           pipelineState.addTask('rag-code', 'Indexing & embedding code');
-          if (ctx.dualEmbedding) pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
-          if (ctx.dualEmbedding) pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
+          pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
+          pipelineState.addTask('rag-doc', 'Chunking & embedding docs');
         }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('internal-docs', 'Internal docs');
@@ -530,7 +527,6 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     const needsSidecar = ctx.ragMode === 'advanced'
       || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
     ctx.resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
-    ctx.dualEmbedding = true; // always dual: code + NLP embeddings in both modes
 
     rl?.info({
       hardware: {
@@ -545,7 +541,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const ragLabel = ctx.enableRag
     ? ctx.resolvedRagMode === 'advanced'
       ? `advanced — code: nomic-7B / nlp: Qwen3-8B`
-      : (ctx.dualEmbedding ? `lite — code: jina-v2 / nlp: MiniLM` : `lite — code: jina-v2`)
+      : `lite — code: jina-v2 / nlp: MiniLM`
     : 'off';
   configRows.push(
     { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.llm.sdk_concurrency} SDK slots` },
@@ -1009,7 +1005,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       rebuild: ctx.rebuildRag,
       concurrency: ctx.concurrency,
       verbose: ctx.verbose,
-      dualEmbedding: ctx.dualEmbedding,
       indexModel,
       resolvedModels: ctx.resolvedModels,
       ragMode: ctx.resolvedRagMode,
@@ -1070,13 +1065,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Set final completion details on all rag tasks
   if (ragResult) {
     state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
-    if (ragResult.dualEmbedding) {
-      state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
-    }
+    state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
     state.completeTask('rag-upsert', 'done');
     if (ragResult.docSectionsIndexed > 0) {
       state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
-    } else if (ctx.dualEmbedding) {
+    } else {
       state.completeTask('rag-doc', 'done');
     }
   }

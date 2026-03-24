@@ -78,7 +78,6 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       tasks,
       rebuild,
       concurrency: config.llm.concurrency,
-      dualEmbedding: true,
       indexModel: config.llm.index_model,
       resolvedModels,
       ragMode: ragMode as 'lite' | 'advanced',

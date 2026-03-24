@@ -58,7 +58,6 @@ export class VectorStore {
   private db: Connection | null = null;
   private table: Table | null = null;
   private onLog: (message: string) => void = () => {};
-  private _hasDualEmbedding = false;
   private _cachedCodeDim: number | undefined;
   private _cachedNlpDim: number | undefined;
 
@@ -67,11 +66,6 @@ export class VectorStore {
     this.tableName = tableName ?? DEFAULT_TABLE_NAME;
     this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
     if (onLog) this.onLog = onLog;
-  }
-
-  /** Whether the index contains NLP vectors (dual embedding). */
-  get hasDualEmbedding(): boolean {
-    return this._hasDualEmbedding;
   }
 
   async init(): Promise<void> {
@@ -100,7 +94,6 @@ export class VectorStore {
           if ('nlp_vector' in sample[0]) {
             const nlpVec = toNumberArray(sample[0].nlp_vector);
             if (nlpVec.length > 0 && nlpVec.some((v) => v !== 0)) {
-              this._hasDualEmbedding = true;
               this._cachedNlpDim = nlpVec.length;
               // Warn if stored NLP vector dimension doesn't match current model
               const expectedNlpDim = getNlpDim();
@@ -147,7 +140,6 @@ export class VectorStore {
       // Create table with first batch
       this.onLog(`vector-store: creating table ${this.tableName} (${rows.length} rows, vector dim=${rows[0].vector.length})`);
       this.table = await this.db.createTable(this.tableName, rows);
-      if (nlpEmbeddings) this._hasDualEmbedding = true;
       return;
     }
 
@@ -159,7 +151,6 @@ export class VectorStore {
       // Table might be empty or IDs don't exist — that's fine
     }
     await this.table.add(rows);
-    if (nlpEmbeddings) this._hasDualEmbedding = true;
   }
 
   /**
@@ -524,7 +515,6 @@ export class VectorStore {
       // Table might not exist
     }
     this.table = null;
-    this._hasDualEmbedding = false;
     this._cachedCodeDim = undefined;
     this._cachedNlpDim = undefined;
   }
@@ -546,7 +536,7 @@ export class VectorStore {
    */
   async stats(): Promise<RagStats> {
     if (!this.table) {
-      return { totalCards: 0, totalFiles: 0, lastIndexed: null, dualEmbedding: false, docSections: 0, cardsWithSummary: 0 };
+      return { totalCards: 0, totalFiles: 0, lastIndexed: null, docSections: 0, cardsWithSummary: 0 };
     }
 
     // Fetch filePath, lastIndexed, type, and summary for aggregation
@@ -580,7 +570,6 @@ export class VectorStore {
       totalCards,
       totalFiles: files.size,
       lastIndexed: lastIndexed || null,
-      dualEmbedding: this._hasDualEmbedding,
       codeDim: this._cachedCodeDim,
       nlpDim: this._cachedNlpDim,
       docSections,

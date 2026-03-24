@@ -199,7 +199,7 @@ export function registerDocsCommand(program: Command): void {
             if (nlpTask && nlpTask.status !== 'done') {
               ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending'
                 ? 'cached'
-                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'cached');
+                : `${ragResult.totalCards} cards`);
             }
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
@@ -598,7 +598,7 @@ export function registerDocsCommand(program: Command): void {
             if (idxNlp && idxNlp.status !== 'done')
               ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending'
                 ? 'cached'
-                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'cached');
+                : `${ragResult.totalCards} cards`);
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
           } catch (err) {

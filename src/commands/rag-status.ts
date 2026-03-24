@@ -34,17 +34,15 @@ function printStats(mode: string, stats: RagStats, resolved: { codeModel: string
     const pct = Math.round((stats.cardsWithSummary / stats.totalCards) * 100);
     console.log(`    summaries    ${stats.cardsWithSummary}/${stats.totalCards} (${pct}%)`);
   }
-  console.log(`    mode         ${stats.dualEmbedding ? chalk.cyan('dual (code + NLP)') : 'code-only'}`);
+  console.log(`    mode         ${chalk.cyan('dual (code + NLP)')}`);
   const codeDimLabel = stats.codeDim && stats.codeDim !== resolved.codeDim
     ? `${stats.codeDim}d`
     : `${resolved.codeDim}d`;
   console.log(`    code model   ${chalk.dim(resolved.codeModel)} (${codeDimLabel})`);
-  if (stats.dualEmbedding) {
-    const nlpDimLabel = stats.nlpDim && stats.nlpDim !== resolved.nlpDim
-      ? `${stats.nlpDim}d`
-      : `${resolved.nlpDim}d`;
-    console.log(`    nlp model    ${chalk.dim(resolved.nlpModel)} (${nlpDimLabel})`);
-  }
+  const nlpDimLabel = stats.nlpDim && stats.nlpDim !== resolved.nlpDim
+    ? `${stats.nlpDim}d`
+    : `${resolved.nlpDim}d`;
+  console.log(`    nlp model    ${chalk.dim(resolved.nlpModel)} (${nlpDimLabel})`);
   if (stats.lastIndexed) {
     console.log(`    indexed      ${stats.lastIndexed}`);
   }

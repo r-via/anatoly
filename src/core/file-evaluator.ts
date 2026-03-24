@@ -132,11 +132,11 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   }
 
   // Resolve relevant docs for documentation axis
-  // Use RAG NLP search when vector store has dual embedding (semantic matching),
+  // Use RAG NLP search when vector store is available (semantic matching),
   // fall back to convention-based matching (with dual source support) otherwise
   let relevantDocs: RelevantDoc[] | undefined = undefined;
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
-  if (opts.ragEnabled && opts.vectorStore?.hasDualEmbedding) {
+  if (opts.ragEnabled && opts.vectorStore) {
     try {
       relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot, config.llm.model);
       docResolveMethod = 'rag';
@@ -335,24 +335,20 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
     (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
   );
 
-  // Use hybrid search when dual embedding is available
-  const useDual = opts.vectorStore.hasDualEmbedding;
   const codeWeight = opts.codeWeight ?? 0.6;
 
   const preResolved: PreResolvedRag = [];
   for (const symbol of functionSymbols) {
     const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
     try {
-      const results = useDual
-        ? await opts.vectorStore.searchByIdHybrid(functionId, codeWeight)
-        : await opts.vectorStore.searchById(functionId);
+      const results = await opts.vectorStore.searchByIdHybrid(functionId, codeWeight);
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
       contextLogger().info({
         event: 'rag_search',
         symbol: symbol.name,
         file: task.file,
-        searchMethod: useDual ? 'hybrid' : 'code-only',
-        codeWeight: useDual ? codeWeight : undefined,
+        searchMethod: 'hybrid',
+        codeWeight,
         candidateCount: results.length,
         topScore: results.length > 0 ? results[0].score : null,
         topCandidate: results.length > 0 ? `${results[0].card.name}@${results[0].card.filePath}` : null,
