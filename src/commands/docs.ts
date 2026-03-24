@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
@@ -191,12 +191,15 @@ export function registerDocsCommand(program: Command): void {
                 : `${ragResult.totalCards} cards`;
               ctx.state.completeTask(finalTaskId, detail);
             }
-            // Ensure all 3 tasks are completed
+            // Ensure all 3 tasks are completed with meaningful details
             if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done')) {
               ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
             }
-            if (ctx.state.tasks.find(t => t.id === 'rag-nlp' && t.status !== 'done')) {
-              ctx.state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+            const nlpTask = ctx.state.tasks.find(t => t.id === 'rag-nlp');
+            if (nlpTask && nlpTask.status !== 'done') {
+              ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending'
+                ? 'skipped (single model)'
+                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (single model)');
             }
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
@@ -258,10 +261,8 @@ export function registerDocsCommand(program: Command): void {
 
               try {
                 const result = await ctx.executor({ system, user, model: 'sonnet' });
-                const { writeFileSync: wfs, mkdirSync: mks } = await import('node:fs');
-                const { dirname: dn } = await import('node:path');
-                mks(dn(fullPath), { recursive: true });
-                wfs(fullPath, result.text, 'utf-8');
+                mkdirSync(dirname(fullPath), { recursive: true });
+                writeFileSync(fullPath, result.text, 'utf-8');
                 ctx.addCost(result.costUsd);
                 pagesUpdated++;
                 ctx.state.updateTask('update', `${pagesUpdated}/${pagesWithWork.length} pages`);
@@ -386,7 +387,7 @@ export function registerDocsCommand(program: Command): void {
     });
 
   docs
-    .command('review-internal')
+    .command('coherence')
     .description('Run structure lint + Opus coherence review on .anatoly/docs/')
     .option('--max-loops <n>', 'max audit-fix-verify loops', '3')
     .option('--lint-only', 'skip Opus coherence review, only run deterministic lint')
@@ -593,8 +594,11 @@ export function registerDocsCommand(program: Command): void {
             // Ensure all tasks completed
             if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done'))
               ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
-            if (ctx.state.tasks.find(t => t.id === 'rag-nlp' && t.status !== 'done'))
-              ctx.state.completeTask('rag-nlp', `${ragResult.totalCards} cards`);
+            const idxNlp = ctx.state.tasks.find(t => t.id === 'rag-nlp');
+            if (idxNlp && idxNlp.status !== 'done')
+              ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending'
+                ? 'skipped (no dual embedding)'
+                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (no dual embedding)');
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
           } catch (err) {
@@ -702,7 +706,6 @@ export function registerDocsCommand(program: Command): void {
       let total = 0;
       let scaffoldOnly = 0;
       const countFiles = (dir: string) => {
-        const { readdirSync, statSync } = require('node:fs');
         for (const entry of readdirSync(dir)) {
           const full = join(dir, entry);
           if (statSync(full).isDirectory()) {

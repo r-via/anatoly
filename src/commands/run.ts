@@ -806,7 +806,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       }
     }
 
-    // Coherence review — only on first run (bootstrap). Use `anatoly docs review-internal` for on-demand.
+    // Coherence review — only on first run (bootstrap). Use `anatoly docs coherence` for on-demand.
     if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
       ctx.pipelineState?.updateTask(taskId, 'coherence review…');
       try {
