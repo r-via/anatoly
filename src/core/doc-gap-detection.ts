@@ -205,17 +205,19 @@ export async function detectDocGaps(
 
 export function formatGapSummary(result: GapDetectionResult): string {
   const lines: string[] = [
-    `Functions analyzed: ${result.totalFunctions}`,
-    `Doc sections analyzed: ${result.totalDocSections}`,
+    `Target: .anatoly/docs/ (internal documentation)`,
     '',
-    `  NOT_FOUND:           ${result.notFound.length} functions not documented`,
-    `  FOUND_LOW_RELEVANCE: ${result.lowRelevance.length} functions with stale/weak docs`,
+    `Functions analyzed: ${result.totalFunctions} (from code index)`,
+    `Doc sections analyzed: ${result.totalDocSections} (from .anatoly/docs/ index)`,
+    '',
+    `  NOT_FOUND:           ${result.notFound.length} functions not in .anatoly/docs/`,
+    `  FOUND_LOW_RELEVANCE: ${result.lowRelevance.length} functions with stale/weak coverage`,
     `  FOUND_COVERED:       ${result.covered.length} functions well documented`,
-    `  ORPHAN_DOC:          ${result.orphans.length} doc sections with no matching code`,
+    `  ORPHAN_DOC:          ${result.orphans.length} .anatoly/docs/ sections with no matching code`,
   ];
 
   if (result.notFound.length > 0) {
-    lines.push('', 'Top undocumented functions:');
+    lines.push('', 'Top undocumented functions (not in .anatoly/docs/):');
     for (const item of result.notFound.slice(0, 15)) {
       lines.push(`  - ${item.functionCard.name} (${item.functionCard.filePath})`);
     }
@@ -225,14 +227,14 @@ export function formatGapSummary(result: GapDetectionResult): string {
   }
 
   if (result.lowRelevance.length > 0) {
-    lines.push('', 'Functions with stale documentation:');
+    lines.push('', 'Functions with stale coverage in .anatoly/docs/:');
     for (const item of result.lowRelevance.slice(0, 10)) {
       lines.push(`  - ${item.functionCard.name} → ${item.bestMatch?.name ?? '?'} (sim ${item.similarity.toFixed(2)})`);
     }
   }
 
   if (result.orphans.length > 0) {
-    lines.push('', 'Orphan doc sections (no matching code):');
+    lines.push('', 'Orphan sections in .anatoly/docs/ (no matching code):');
     for (const item of result.orphans.slice(0, 10)) {
       lines.push(`  - ${item.docSection.name} (${item.docSection.filePath})`);
     }
