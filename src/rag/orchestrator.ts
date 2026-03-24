@@ -317,6 +317,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   // Batch NLP embeddings: all code embeddings are done, now generate NLP embeddings
   // in a single pass. This avoids swapping GGUF containers back and forth per file.
+  onLog?.(`rag: code phase done — ${results.length} files with cards (of ${tasksToIndex.length} indexed)`);
   if (results.length > 0) {
     onPhase?.('nlp');
     onLog?.(`rag: generating NLP embeddings for ${results.length} files (batch)...`);
