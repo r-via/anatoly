@@ -245,6 +245,20 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     cache = { entries: {} };
     saveRagCache(projectRoot, cache, cacheSuffix);
   }
+  // Also purge doc caches if store has no doc sections (rebuild scenario)
+  if (storeStats.docSections === 0) {
+    const { loadDocCacheFromRagCache: loadDc, saveDocCacheToRagCache: saveDc } = await import('./doc-indexer.js');
+    const projectDocCache = loadDc(projectRoot, cacheSuffix);
+    if (Object.keys(projectDocCache).length > 0) {
+      onLog?.('vector store has no doc sections — purging project doc cache');
+      saveDc(projectRoot, cacheSuffix, {});
+    }
+    const internalDocCache = loadDc(projectRoot, `${cacheSuffix}-internal`);
+    if (Object.keys(internalDocCache).length > 0) {
+      onLog?.('vector store has no doc sections — purging internal doc cache');
+      saveDc(projectRoot, `${cacheSuffix}-internal`, {});
+    }
+  }
 
   // Pre-warm code embedding model (always needed, starts the GGUF code container)
   // Use a non-empty string — nomic-embed-code crashes on empty input
