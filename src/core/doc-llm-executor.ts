@@ -557,3 +557,94 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     durationMs: Date.now() - start,
   };
 }
+
+// --- Content review agent (Opus, gap-report-driven) ---
+
+export interface DocContentReviewResult {
+  costUsd: number;
+  durationMs: number;
+}
+
+export interface DocContentReviewParams {
+  outputDir: string;
+  projectRoot: string;
+  /** The gap report formatted as text, injected into the user message. */
+  gapReportText: string;
+  abortController?: AbortController;
+  logDir?: string;
+  callbacks?: {
+    onStart?: () => void;
+    onDone?: () => void;
+  };
+}
+
+/**
+ * Opus agent that receives the gap analysis report and updates doc pages
+ * to fill content gaps. Focused on content only — not structure.
+ */
+export async function runDocContentReview(params: DocContentReviewParams): Promise<DocContentReviewResult> {
+  const { outputDir, gapReportText, abortController, logDir, callbacks } = params;
+
+  const start = Date.now();
+  callbacks?.onStart?.();
+
+  const systemPrompt = resolveSystemPrompt('doc-generation.content-review');
+  const userMessage = [
+    'Your current working directory contains the documentation files.',
+    '',
+    '## Gap Analysis Report',
+    '',
+    gapReportText,
+    '',
+    'Please read the pages listed above and add the missing content.',
+  ].join('\n');
+
+  const ac = abortController ?? new AbortController();
+  const q = query({
+    prompt: userMessage,
+    options: {
+      systemPrompt,
+      model: 'opus',
+      cwd: outputDir,
+      allowedTools: ['Read', 'Write'],
+      permissionMode: 'bypassPermissions' as const,
+      allowDangerouslySkipPermissions: true,
+      maxTurns: 50,
+      abortController: ac,
+    },
+  });
+
+  let resultText = '';
+  let costUsd = 0;
+  for await (const message of q) {
+    if (message.type === 'result') {
+      if (message.subtype === 'success') {
+        resultText = (message as { result: string }).result;
+        costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+      }
+    }
+  }
+
+  callbacks?.onDone?.();
+
+  if (logDir) {
+    mkdirSync(logDir, { recursive: true });
+    const timestamp = new Date().toISOString();
+    const logContent = [
+      `# Content Review — ${timestamp}`,
+      '',
+      `- **Duration:** ${((Date.now() - start) / 1000).toFixed(1)}s`,
+      `- **Cost:** $${costUsd.toFixed(4)}`,
+      '',
+      '## System',
+      '', systemPrompt, '',
+      '## User',
+      '', userMessage, '',
+      '## Assistant',
+      '', resultText,
+    ].join('\n');
+    writeFileSync(join(logDir, 'content-review.md'), logContent, 'utf-8');
+  }
+
+  return { costUsd, durationMs: Date.now() - start };
+}

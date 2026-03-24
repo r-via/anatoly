@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, runDocContentReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGaps, detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
@@ -97,30 +97,55 @@ async function runDocUpdate(
 
   ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${totalGaps} gaps)`);
 
-  // Lint + coherence on updated pages
-  ctx.state.startTask(coherenceTaskId, 'linting…');
+  // Pass 1: Structural coherence (lint + Opus fixes structure/numbering/links)
+  ctx.state.startTask(coherenceTaskId, 'structural lint…');
   reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-  ctx.state.updateTask(coherenceTaskId, 'coherence review…');
+  ctx.state.updateTask(coherenceTaskId, 'structural review…');
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-update_${ts}`);
+  const structLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `structural-review_${ts}`);
 
   try {
-    const coherenceResult = await runDocCoherenceReview({
+    const structResult = await runDocCoherenceReview({
       outputDir,
       projectRoot: ctx.projectRoot,
       docsPath: ctx.docsPath,
-      logDir: coherenceLogDir,
+      logDir: structLogDir,
       callbacks: {
-        onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `coherence loop ${loop}…`),
-        onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} remaining`),
+        onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `structural loop ${loop}…`),
+        onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[structural] loop ${loop} done — ${issues} remaining`),
       },
     });
-    ctx.addCost(coherenceResult.costUsd);
-    ctx.state.completeTask(coherenceTaskId, coherenceResult.linterIssuesAfter === 0
-      ? `clean (${coherenceResult.loopsCompleted} loops)`
-      : `${coherenceResult.linterIssuesAfter} issues remaining`);
+    ctx.addCost(structResult.costUsd);
+    ctx.state.completeTask(coherenceTaskId, structResult.linterIssuesAfter === 0
+      ? `structural clean (${structResult.loopsCompleted} loops)`
+      : `${structResult.linterIssuesAfter} structural issues remaining`);
   } catch {
-    ctx.state.completeTask(coherenceTaskId, 'coherence failed');
+    ctx.state.completeTask(coherenceTaskId, 'structural review failed');
+  }
+
+  // Pass 2: Content coherence (Opus fills gaps from gap report)
+  const contentTaskId = coherenceTaskId + '-content';
+  // Only run if we have a gap report with actual gaps
+  if (totalGaps > 0) {
+    ctx.state.startTask(contentTaskId, 'content review…');
+    const contentLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `content-review_${ts}`);
+
+    try {
+      const contentResult = await runDocContentReview({
+        outputDir,
+        projectRoot: ctx.projectRoot,
+        gapReportText: formatGapReportV2(gapReport),
+        logDir: contentLogDir,
+        callbacks: {
+          onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
+          onDone: () => {},
+        },
+      });
+      ctx.addCost(contentResult.costUsd);
+      ctx.state.completeTask(contentTaskId, `done ($${contentResult.costUsd.toFixed(4)})`);
+    } catch {
+      ctx.state.completeTask(contentTaskId, 'content review failed');
+    }
   }
 }
 
@@ -745,7 +770,8 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Update',
         tasks: [
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
-          { id: 'coherence', label: 'Internal doc — Lint + coherence (Opus)' },
+          { id: 'coherence', label: 'Internal doc — Structural coherence (Opus)' },
+          { id: 'coherence-content', label: 'Internal doc — Content review (Opus)' },
         ],
         execute: async (ctx) => {
           const outputDir = resolve(ctx.projectRoot, '.anatoly', 'docs');
