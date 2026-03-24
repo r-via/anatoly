@@ -444,6 +444,29 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
+      // Check that docs are generated (not scaffold-only)
+      const { readdirSync, statSync } = await import('node:fs');
+      let hasScaffoldOnly = false;
+      const checkScaffold = (dir: string) => {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry);
+          if (statSync(full).isDirectory()) { checkScaffold(full); continue; }
+          if (!entry.endsWith('.md') || entry === 'index.md') continue;
+          const content = readFileSync(full, 'utf-8');
+          if (content.includes('<!-- SCAFFOLDING')) {
+            hasScaffoldOnly = true;
+            return;
+          }
+        }
+      };
+      checkScaffold(docsDir);
+      if (hasScaffoldOnly) {
+        console.error(chalk.red('Internal docs contain scaffold-only pages (<!-- SCAFFOLDING markers).'));
+        console.error(chalk.red('Run `anatoly docs scaffold` to generate content first.'));
+        process.exitCode = 1;
+        return;
+      }
+
       const result = await runPipeline({
         projectRoot,
         plain: opts.plain ?? false,
