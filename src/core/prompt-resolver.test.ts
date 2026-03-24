@@ -201,7 +201,7 @@ describe('Story 33.4 — registry coherence', () => {
     // doc-generation.X → doc-generation/doc-writer.X.system.md (for doc-writer variants)
     // doc-generation.structure-review → doc-generation/doc-structure-review.system.md (standalone)
     if (key === 'doc-generation.coherence-review') {
-      return 'doc-generation/doc-coherence-review.system.md';
+      return 'doc-generation/doc-internal-coherence-review.system.md';
     }
     if (key.startsWith('doc-generation')) {
       const variant = key.replace('doc-generation', '').replace(/^\./, '');

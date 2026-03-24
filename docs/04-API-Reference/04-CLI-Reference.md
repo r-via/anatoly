@@ -1,482 +1,427 @@
 # CLI Reference
 
-> Complete reference for all `anatoly` CLI commands, options, and arguments.
+> Complete reference for the `anatoly` command-line interface.
 
 ## Overview
 
-The `anatoly` binary exposes a suite of commands that cover the full deep-audit lifecycle: scanning source files, estimating cost, running AI-powered reviews, generating reports, maintaining the RAG index, and integrating with Claude Code via hooks. All commands are registered from `src/commands/index.ts` and built on the `commander` library.
-
-## Prerequisites
-
-- **Node.js** ≥ 20.19
-
-## Installation
+`anatoly` is the primary executable installed by `@r-via/anatoly`. It exposes an audit pipeline for TypeScript codebases through a set of sub-commands built on [Commander.js](https://github.com/tj/commander.js). The entry point is `./dist/index.js`, registered as the `anatoly` binary.
 
 ```bash
-npm install @r-via/anatoly
+anatoly [global-options] <command> [command-options]
 ```
 
-The `postinstall` script (`scripts/download-model.js`) downloads required embedding model weights automatically.
+## Global Options
 
----
+Global options are accepted by every sub-command and override values set in `.anatoly.yml`.
 
-## Command Quick Reference
-
-| Command | Description |
+| Option | Description |
 |---|---|
-| [`scan`](#scan) | Parse AST and hash all source files |
-| [`estimate`](#estimate) | Show startup summary without LLM calls |
-| [`run`](#run) | Full pipeline: scan → review → report |
-| [`review`](#review) | Run agentic review on pending files |
-| [`report`](#report) | Aggregate reviews into a Markdown report |
-| [`watch`](#watch) | Watch files and incrementally re-review |
-| [`status`](#status) | Show audit progress and findings summary |
-| [`rag-status`](#rag-status) | Inspect RAG index statistics or function cards |
-| [`init`](#init) | Generate a commented `.anatoly.yml` config |
-| [`setup-embeddings`](#setup-embeddings) | Install GPU embedding backends |
-| [`reset`](#reset) | Clear all cache, reviews, logs, and RAG data |
-| [`clean-runs`](#clean-runs) | Delete run history from `.anatoly/runs/` |
-| [`docs`](#docs) | Manage internal documentation |
-| [`hook`](#hook) | Claude Code integration hooks |
-| [`clean`](#clean) | Generate Ralph remediation artifacts |
-| [`clean-run`](#clean-run) | Execute Ralph autocorrection loop |
-| [`clean-sync`](#clean-sync) | Sync completed fixes back to axis reports |
+| `--config <path>` | Path to `.anatoly.yml` config file |
+| `--verbose` | Show detailed operation logs |
+| `--no-cache` | Ignore SHA-256 cache, re-review all files |
+| `--file <glob>` | Restrict scope to matching files |
+| `--plain` | Disable log-update, linear sequential output |
+| `--no-color` | Disable chalk colors (also respects `$NO_COLOR`) |
+| `--no-rag` | Disable semantic RAG cross-file analysis |
+| `--rebuild-rag` | Force full RAG re-indexation |
+| `--rag-lite` | Force lite RAG mode (Jina dual embedding) |
+| `--rag-advanced` | Force advanced RAG mode (GGUF Docker GPU) |
+| `--code-model <model>` | Embedding model for code vectors (default: auto-detect) |
+| `--nlp-model <model>` | Embedding model for NLP vectors (default: auto-detect) |
+| `--open` | Open report in default app after generation |
+| `--concurrency <n>` | Number of concurrent reviews (1–10) |
+| `--sdk-concurrency <n>` | Max concurrent SDK calls (1–20) |
+| `--no-triage` | Disable triage, review all files with full agent |
+| `--deliberation` | Enable Opus deliberation pass after axis merge |
+| `--no-deliberation` | Disable deliberation pass (overrides config) |
+| `--no-badge` | Skip README badge injection after audit |
+| `--badge-verdict` | Include audit verdict in README badge |
+| `--dry-run` | Scan, estimate, triage, then show what would happen |
+| `--log-level <level>` | Set log level: `fatal` `error` `warn` `info` `debug` `trace` |
+| `--log-file <path>` | Write logs to file in NDJSON format |
 
 ---
 
-## Core Pipeline
+## Commands
+
+### `init`
+
+Generates a `.anatoly.yml` config file with all defaults commented out.
+
+```bash
+anatoly init [options]
+```
+
+| Option | Description |
+|---|---|
+| `--force` | Overwrite an existing `.anatoly.yml` |
+
+---
 
 ### `scan`
 
-Parses the AST of every source file and computes SHA-256 hashes. Results are stored in the task cache to enable incremental reviews.
+Parses AST and computes SHA-256 hashes for all source files. Outputs per-file metrics and logs file discovery events. Does not invoke the LLM.
 
 ```bash
 anatoly scan
-```
-
-**Output:**
-
-```
-anatoly — scan
-  files     132
-  new       18
-  cached    114
 ```
 
 ---
 
 ### `estimate`
 
-Displays the full startup summary table — project info, evaluator list, triage breakdown, RAG config, token count, and calibrated ETA — without making any LLM calls.
+Shows the startup summary table without making any LLM calls. Auto-scans if no tasks exist, detects the project profile, resolves RAG modes, and displays setup information.
 
 ```bash
 anatoly estimate
 ```
 
-Runs an implicit `scan` if no task directory exists.
-
 ---
 
 ### `run`
 
-Executes the complete audit pipeline: scan → estimate → review → report. Accepts the broadest set of options to control scope, concurrency, caching, RAG behaviour, and output.
+Executes the full audit pipeline: `scan → estimate → triage → RAG indexing → review → report`. This is the primary command for running a complete audit.
 
 ```bash
 anatoly run [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
 | `--run-id <id>` | Custom run ID (alphanumeric, dashes, underscores) |
-| `--axes <list>` | Comma-separated axes to enable (e.g. `correction,tests`) |
-| `--no-cache` | Ignore SHA-256 cache; re-review all files |
-| `--file <glob>` | Restrict review scope to matching files |
-| `--concurrency <n>` | Concurrent file reviews (1–10) |
+| `--axes <list>` | Comma-separated axes to evaluate (see below) |
+| `--no-cache` | Ignore SHA-256 cache, re-review all files |
+| `--file <glob>` | Restrict scope to matching files |
+| `--concurrency <n>` | Number of concurrent reviews (1–10) |
 | `--sdk-concurrency <n>` | Max concurrent SDK calls (1–20) |
-| `--no-rag` | Disable RAG cross-file analysis |
-| `--rag-lite` | Force lite RAG mode (Jina dual embedding) |
-| `--rag-advanced` | Force advanced RAG mode (GGUF GPU Docker) |
+| `--no-rag` | Disable semantic RAG cross-file analysis |
+| `--rag-lite` | Force lite RAG mode |
+| `--rag-advanced` | Force advanced RAG mode (GGUF Docker GPU) |
 | `--rebuild-rag` | Force full RAG re-indexation |
 | `--code-model <model>` | Embedding model for code vectors |
 | `--nlp-model <model>` | Embedding model for NLP vectors |
-| `--no-triage` | Disable triage; review all files with the full agent |
+| `--no-triage` | Disable triage, review all files with full agent |
 | `--deliberation` | Enable Opus deliberation pass after axis merge |
 | `--no-deliberation` | Disable deliberation pass |
 | `--no-badge` | Skip README badge injection |
 | `--badge-verdict` | Include audit verdict in README badge |
-| `--open` | Open report in default application after generation |
-| `--dry-run` | Simulate without executing reviews |
-| `--plain` | Disable log-update; use linear sequential output |
+| `--open` | Open report after generation |
+| `--dry-run` | Simulate: scan, estimate, triage, then stop |
+| `--plain` | Disable log-update, linear sequential output |
 | `--verbose` | Show detailed operation logs |
 
-**Pipeline phases:**
-
-1. **Setup** — scan, estimate, triage, build usage graph
-2. **Bootstrap-Doc** *(first run only)* — scaffold and generate internal documentation
-3. **RAG Index** *(if enabled)* — index and embed code, summaries, and docs
-4. **Review pass 1** — evaluate all pending files with enabled axes
-5. **Internal Docs** — update documentation for changed source files
-6. **Review pass 2** *(first run only, if bootstrap complete)* — re-evaluate with updated docs
-7. **Report** — aggregate findings, generate Markdown report, inject badge
-
-**Output:**
-
-```
-Done — 132 files | 14 findings | 118 clean (22 skipped · 110 evaluated) | 4m 32s
-
-  run          run-2026-03-23-001
-  report       .anatoly/report.md
-  reviews      .anatoly/reviews/
-  transcripts  .anatoly/runs/run-2026-03-23-001/transcripts/
-  log          .anatoly/runs/run-2026-03-23-001/run.log
-
-  Cost: $0.43 in API calls · $0.00 with Claude Code
-```
+**Axes** — valid values for `--axes`: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`
 
 ---
 
 ### `review`
 
-Runs the agentic review on all pending files sequentially. Unlike `run`, this command does not scan, triage, or generate a report — it reviews pending tasks only.
+Runs agentic review on all pending files sequentially. Useful when resuming a previously interrupted `run`.
 
 ```bash
-anatoly review [--axes <list>]
+anatoly review [options]
 ```
 
-On invocation, all files previously marked `DONE` or `CACHED` are reset to `PENDING`, so the command always re-reviews the full working set.
-
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
-| `--axes <list>` | Comma-separated axes to evaluate |
+| `--axes <list>` | Comma-separated axes to evaluate (e.g. `correction,tests`) |
 
 ---
 
 ### `report`
 
-Aggregates review results from `.anatoly/reviews/` into a structured Markdown report.
+Aggregates completed review results into a structured Markdown report. Supports both run-scoped and legacy report modes.
 
 ```bash
-anatoly report [--run <id>] [--open]
+anatoly report [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
 | `--run <id>` | Generate report from a specific run (default: latest) |
-| `--open` | Open the report in the default application after generation |
+
+---
+
+### `status`
+
+Shows current audit progress, findings summary, progress bars, and per-file status counts.
+
+```bash
+anatoly status
+```
 
 ---
 
 ### `watch`
 
-Watches configured file patterns for changes and incrementally re-scans and re-reviews modified files. Debounces rapid saves with a 200 ms stability window.
+Watches for file changes and incrementally re-scans and re-reviews modified files. Uses chokidar internally; regenerates the report after each review.
 
 ```bash
-anatoly watch [--axes <list>]
+anatoly watch [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
-| `--axes <list>` | Comma-separated axes to evaluate |
-
-Handles file deletions by cleaning up associated reviews and tasks. Regenerates the report after each successful review. Graceful shutdown on `SIGINT`.
-
----
-
-## Inspection
-
-### `status`
-
-Displays current audit progress, file counts, findings by axis, and global verdict.
-
-```bash
-anatoly status
-```
-
-**Output:**
-
-```
-anatoly — status
-
-  progress    [████████████░░░░░░░░░░] 55% (73/132)
-
-  total       132
-  pending     59
-  done        73
-  cached      0
-
-  verdict     WARN
-  findings    9
-    correction  4
-    tests       3
-    utility     2
-
-  latest run  run-2026-03-23-001
-  report      .anatoly/report.md
-  reviews     .anatoly/reviews/
-```
+| `--axes <list>` | Comma-separated axes to evaluate (e.g. `correction,tests`) |
 
 ---
 
 ### `rag-status`
 
-Shows statistics for the RAG index (lite and/or advanced modes), or inspects a specific function card by name.
+Shows RAG index status with vector store statistics. Optionally searches or lists function cards and doc sections.
 
 ```bash
 anatoly rag-status [function] [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Argument / Option | Description |
 |---|---|
+| `[function]` | Optional function name to search in the index |
 | `--all` | List all indexed function cards |
 | `--docs` | List all indexed doc sections |
 | `--json` | Output as JSON |
 
-**Output:**
-
-```
-anatoly — rag-status
-
-  lite index
-    cards        150
-    files        45
-    summaries    120/150 (80%)
-    mode         dual (code + NLP)
-    code model   jina-v2 (768d)
-    nlp model    MiniLM (384d)
-    indexed      2026-03-23T10:30:00Z
-```
-
 ---
-
-## Configuration & Setup
-
-### `init`
-
-Generates a `.anatoly.yml` file in the project root with all configuration defaults, with every line commented out for reference.
-
-```bash
-anatoly init [--force]
-```
-
-**Options:**
-
-| Flag | Description |
-|---|---|
-| `--force` | Overwrite an existing `.anatoly.yml` |
-
----
-
-### `setup-embeddings`
-
-Installs embedding backends (lite/fp16/GGUF) for GPU-accelerated semantic search. Delegates to the bundled `setup-embeddings.sh` script.
-
-```bash
-anatoly setup-embeddings [--check] [--ab-test]
-```
-
-**Options:**
-
-| Flag | Description |
-|---|---|
-| `--check` | Check current embedding setup status without installing |
-| `--ab-test` | Run A/B comparison between bf16 and GGUF embedding quality |
-
----
-
-## Maintenance
 
 ### `reset`
 
-Clears all generated artefacts: tasks, reviews, logs, cache, runs, RAG index, internal docs, progress state, report, lock file, and memory files.
+Clears all cache, reviews, logs, tasks, report, RAG index, and internal docs. Includes LanceDB vector store cleanup.
 
 ```bash
 anatoly reset [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
-| `-y, --yes` | Skip confirmation prompt |
-| `--keep-rag` | Preserve the RAG index (`.anatoly/rag/`) |
-| `--keep-docs` | Preserve internal documentation (`.anatoly/docs/`) |
+| `-y, --yes` | Skip confirmation prompt (for CI/scripts) |
+| `--keep-rag` | Keep the RAG index (embeddings are slow to rebuild) |
+| `--keep-docs` | Keep internal documentation (`.anatoly/docs/`) |
 
 ---
 
 ### `clean-runs`
 
-Deletes run directories from `.anatoly/runs/`, with an optional retention count.
+Deletes runs from `.anatoly/runs/`. Without `--keep`, all runs are removed.
 
 ```bash
-anatoly clean-runs [--keep <n>] [--yes]
+anatoly clean-runs [options]
 ```
 
-**Options:**
-
-| Flag | Description |
+| Option | Description |
 |---|---|
-| `--keep <n>` | Retain the N most recent runs |
-| `-y, --yes` | Skip confirmation (required in non-interactive environments) |
+| `--keep <n>` | Keep the N most recent runs |
+| `-y, --yes` | Skip confirmation prompt (for CI/scripts) |
 
 ---
 
-## Internal Docs
+### `setup-embeddings`
 
-### `docs scaffold`
-
-Deletes and fully regenerates all internal documentation under `.anatoly/docs/` via Claude Sonnet.
+Installs GPU embedding backends (lite / fp16 / GGUF) by delegating to a setup script.
 
 ```bash
-anatoly docs scaffold [--yes] [--plain]
+anatoly setup-embeddings [options]
 ```
 
-### `docs status`
+| Option | Description |
+|---|---|
+| `--check` | Check current embedding setup status without installing |
+| `--ab-test` | Run A/B test comparing bf16 vs GGUF embedding quality |
 
-Displays the count of scaffolded vs. generated internal documentation pages.
+---
+
+### `clean`
+
+Generates Ralph (autonomous agent) artifacts from audit findings. Produces a PRD with user stories, a `CLAUDE.md` with agent instructions, and a `progress.txt` learnings log.
+
+```bash
+anatoly clean
+```
+
+---
+
+### `clean-run`
+
+Runs the Ralph remediation loop against the specified report file. Requires a non-`main`/`master` branch; includes a circuit breaker and git-based rollback.
+
+```bash
+anatoly clean-run <report-file> [options]
+```
+
+| Argument / Option | Description |
+|---|---|
+| `<report-file>` | Path to the audit report file to remediate |
+| `-n, --iterations <n>` | Max Ralph iterations (default: `10`) |
+
+---
+
+### `clean-sync`
+
+Syncs completed Ralph tasks back to axis reports. Updates shard checkboxes and the axis index when all actions in a shard are complete.
+
+```bash
+anatoly clean-sync
+```
+
+---
+
+### `docs`
+
+Manages internal documentation under `.anatoly/docs/`. All functionality is exposed through sub-commands.
+
+#### `docs scaffold`
+
+Scaffolds documentation. `scope` is `internal` (default, generates `.anatoly/docs/`) or `project` (copies internal docs to `docs/`).
+
+```bash
+anatoly docs scaffold [scope] [options]
+```
+
+| Option | Description |
+|---|---|
+| `-y, --yes` | Skip confirmation prompt |
+| `--plain` | Linear sequential output |
+
+#### `docs lint`
+
+Lints `.anatoly/docs/` structure: fixes preamble, fences, checks index integrity, and validates links.
+
+```bash
+anatoly docs lint
+```
+
+#### `docs coherence`
+
+Runs deterministic structure lint followed by an Opus coherence review on `.anatoly/docs/`.
+
+```bash
+anatoly docs coherence [options]
+```
+
+| Option | Description |
+|---|---|
+| `--max-loops <n>` | Max audit-fix-verify loops (default: `3`) |
+| `--lint-only` | Skip Opus coherence review, only run deterministic lint |
+
+#### `docs index`
+
+Performs incremental RAG indexing: code cards, NLP summaries, and doc chunks.
+
+```bash
+anatoly docs index [options]
+```
+
+| Option | Description |
+|---|---|
+| `--plain` | Linear sequential output |
+| `--rebuild` | Force full re-index (ignore cache) |
+
+#### `docs gap-detection`
+
+Analyzes coverage gaps between the code index and the doc index. `scope` is `internal` (`.anatoly/docs/`) or `project` (`docs/`).
+
+```bash
+anatoly docs gap-detection <scope> [options]
+```
+
+| Option | Description |
+|---|---|
+| `--gap-threshold <n>` | Similarity below this value = `NOT_FOUND` (default: `0.60`) |
+| `--drift-threshold <n>` | Similarity below this value = `LOW_RELEVANCE` (default: `0.85`) |
+| `--json` | Output as JSON |
+
+#### `docs status`
+
+Shows internal documentation generation status.
 
 ```bash
 anatoly docs status
 ```
 
-**Output:**
-
-```
-  .anatoly/docs/: 45 pages (30 generated, 15 scaffolded-only)
-```
-
 ---
 
-## Hook Integration
+### `hook` (internal)
 
-### `hook init`
+Registers Claude Code integration hooks. These sub-commands are invoked by Claude Code's hook system and are **not intended for direct user invocation**.
 
-Generates the Claude Code hooks configuration in `.claude/settings.json`, registering the `PostToolUse` and `Stop` hooks.
-
-```bash
-anatoly hook init
-```
-
-The generated configuration wires up:
-- **PostToolUse** (on `Edit` / `Write`): calls `anatoly hook on-edit` asynchronously
-- **Stop**: calls `anatoly hook on-stop` with a 180 s timeout
-
-### `hook on-edit`
-
-Internal. Reads a Claude Code `PostToolUse` JSON payload from stdin and spawns a detached background review for the edited file. Skips non-TypeScript files and debounces rapid edits.
-
-```bash
-anatoly hook on-edit
-```
-
-### `hook on-stop`
-
-Internal. Waits up to 120 s for any running background reviews to complete, collects findings above the configured `min_confidence` threshold, and emits a Claude Code Stop hook payload that blocks task completion and injects findings as feedback.
-
-```bash
-anatoly hook on-stop
-```
-
----
-
-## Remediation (Ralph Loop)
-
-### `clean`
-
-Generates Ralph remediation artefacts (`prd.json`, `CLAUDE.md`, `progress.txt`) from an axis shard report.
-
-```bash
-anatoly clean <axis>
-```
-
-`<axis>` is one of `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, or `all`.
-
-### `clean-run`
-
-Runs the Ralph autocorrection loop against a shard report file, iterating until all findings are resolved or a circuit-breaker threshold is reached.
-
-```bash
-anatoly clean-run <report-file> [-n <iterations>]
-```
-
-**Options:**
-
-| Flag | Description |
+| Sub-command | Description |
 |---|---|
-| `-n, --iterations <n>` | Maximum Ralph iterations (default: 10) |
-
-The circuit breaker opens after 3 consecutive iterations with no progress, or 5 consecutive iterations that produce the same error. On open, the working tree is rolled back to the last good commit.
-
-### `clean-sync`
-
-Reads completed stories from `prd.json` and checks off the corresponding action items in axis shard reports.
-
-```bash
-anatoly clean-sync <axis>
-```
+| `hook on-edit` | `PostToolUse` hook: queues a background review for the edited file |
+| `hook on-stop` | `Stop` hook: waits for reviews, then injects findings as feedback |
+| `hook init` | Generates `.claude/settings.json` with hook configuration |
 
 ---
 
 ## Examples
 
-**Run a full audit restricted to `correction` and `tests` axes, without cache:**
+### Run a full audit
 
 ```bash
-anatoly run --axes correction,tests --no-cache
+anatoly run --axes correction,tests --concurrency 4 --open
 ```
 
-**Run a full audit on a single file with verbose output:**
+### Preview scope without LLM calls
 
 ```bash
-anatoly run --file "src/core/scanner.ts" --verbose
+anatoly run --dry-run --verbose
 ```
 
-**Check progress during a running audit:**
+### Audit only files matching a glob
 
 ```bash
-anatoly status
+anatoly run --file "src/core/**/*.ts" --no-rag
 ```
 
-**Inspect the RAG index and list all indexed function cards:**
+### Generate a report from a specific run
 
 ```bash
-anatoly rag-status --all
+anatoly report --run 2024-01-15-abc123
 ```
 
-**Set up Claude Code hooks for the autocorrection loop:**
+### Inspect a function card in the RAG index
 
 ```bash
-anatoly hook init
+anatoly rag-status loadConfig --json
 ```
 
-**Reset everything except the RAG index (embeddings are slow to rebuild):**
+### Reset everything except the RAG index
 
 ```bash
 anatoly reset --keep-rag --yes
 ```
 
-**Generate a remediation PRD for the `correction` axis and start the Ralph loop:**
+### Retain only the three most recent runs
 
 ```bash
-anatoly clean correction
-anatoly clean-run .anatoly/runs/run-2026-03-23-001/shards/correction/shard.0.md -n 5
+anatoly clean-runs --keep 3 --yes
+```
+
+### Scaffold then lint internal documentation
+
+```bash
+anatoly docs scaffold internal --yes
+anatoly docs lint
+```
+
+### Watch for file changes during development
+
+```bash
+anatoly watch --axes correction,best_practices
+```
+
+### Generate the config template
+
+```bash
+anatoly init
+# Edit .anatoly.yml with project-specific settings
 ```
 
 ---
 
 ## See Also
 
-- [Configuration Reference](../03-Configuration/01-Config-File.md) — `.anatoly.yml` schema and all configuration keys
-- [RAG Overview](../02-Concepts/04-RAG.md) — How the semantic search index works
-- [Hook Integration](../02-Concepts/06-Hook-Integration.md) — Claude Code autocorrection loop architecture
-- [Ralph Clean Loop](../02-Concepts/07-Ralph-Clean-Loop.md) — Automated remediation workflow
-- [Internal Documentation](../02-Concepts/05-Internal-Docs.md) — How `.anatoly/docs/` is generated and used
+- [Configuration Schema](02-Configuration-Schema.md) — all `.anatoly.yml` keys that correspond to the global options above
+- [Public API](01-Public-API.md) — exported TypeScript functions underlying each command
+- [Common Workflows](../03-Guides/01-Common-Workflows.md) — step-by-step guides for typical audit scenarios
+- [Advanced Configuration](../03-Guides/02-Advanced-Configuration.md) — tuning concurrency, RAG mode, and model overrides
+- [Module: commands](../05-Modules/01-commands.md) — source-level reference for all command registration functions
+- [Troubleshooting](../03-Guides/03-Troubleshooting.md) — common errors and diagnostics
