@@ -208,42 +208,75 @@ export function registerDocsCommand(program: Command): void {
             ctx.renderer.logPlain(`[rag] ${chalk.red(err instanceof Error ? err.message : String(err))}`);
           }
 
-          // --- Step 5: UPDATE with RAG (re-generate, cache invalidated by coherence writes) ---
-          ctx.state.startTask('update', 'checking cache…');
-          const genResult2 = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, ctx.pkg);
+          // --- Step 5: RAG-DRIVEN UPDATE (gap detection + targeted regeneration) ---
+          ctx.state.startTask('update', 'gap detection…');
 
-          if (genResult2.prompts.length === 0) {
-            ctx.state.completeTask('update', 'all cached');
+          // Open vector store for gap detection
+          const store = new VectorStore(ctx.projectRoot);
+          await store.init();
+
+          const gapResult = await detectDocGaps(store, {
+            onProgress: (current, total) => {
+              ctx.state.updateTask('update', `analyzing ${current}/${total} functions…`);
+            },
+          });
+
+          const workItems = gapResult.notFound.length + gapResult.lowRelevance.length;
+          if (workItems === 0) {
+            ctx.state.completeTask('update', `${gapResult.covered.length} functions covered, 0 gaps`);
           } else {
-            let completed2 = 0;
-            const total2 = genResult2.prompts.length;
-            ctx.state.updateTask('update', `0/${total2} pages`);
+            ctx.state.updateTask('update', `${workItems} gaps found, updating…`);
+            ctx.renderer.logPlain(`[update] ${gapResult.notFound.length} NOT_FOUND, ${gapResult.lowRelevance.length} LOW_RELEVANCE`);
 
-            const llmResult2 = await executeDocPrompts({
-              prompts: genResult2.prompts,
-              outputDir,
-              projectRoot: ctx.projectRoot,
-              semaphore: ctx.semaphore,
-              executor: ctx.executor,
-              onPageComplete: (pagePath) => {
-                completed2++;
-                ctx.state.updateTask('update', `${completed2}/${total2} pages`);
-                ctx.renderer.logPlain(`[update] ${completed2}/${total2} ${pagePath}`);
-              },
-              onPageError: (pagePath, err) => {
-                ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err.message}`);
-              },
-            });
+            // Group gaps by page and regenerate each page with gap context
+            const pagesWithWork = Array.from(gapResult.byPage.values())
+              .filter(p => p.notFound.length > 0 || p.lowRelevance.length > 0);
 
-            ctx.addCost(llmResult2.totalCostUsd);
-            ctx.state.completeTask('update', llmResult2.pagesFailed > 0
-              ? `${llmResult2.pagesWritten} written, ${llmResult2.pagesFailed} failed`
-              : `${llmResult2.pagesWritten} pages updated`);
+            let pagesUpdated = 0;
+            for (const pageWork of pagesWithWork) {
+              // Build a targeted prompt for this page
+              const pagePath = pageWork.pagePath;
+              const fullPath = join(outputDir, pagePath);
+              const currentContent = existsSync(fullPath) ? readFileSync(fullPath, 'utf-8') : '';
+
+              const gapLines: string[] = [];
+              for (const item of pageWork.notFound) {
+                gapLines.push(`NOT_FOUND: ${item.functionCard.name} (${item.functionCard.filePath})`);
+                gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
+                gapLines.push(`  Signature: ${item.functionCard.signature}`);
+                gapLines.push(`  → Create documentation for this function.\n`);
+              }
+              for (const item of pageWork.lowRelevance) {
+                gapLines.push(`LOW_RELEVANCE: ${item.functionCard.name} (${item.functionCard.filePath}) — sim ${item.similarity.toFixed(2)}`);
+                gapLines.push(`  Summary: ${item.functionCard.summary ?? 'no summary'}`);
+                gapLines.push(`  Matched section: ${item.bestMatch?.name ?? 'unknown'}`);
+                gapLines.push(`  → Review and update the matching section.\n`);
+              }
+
+              const system = `You are a technical documentation updater. You receive a documentation page and a list of functions that are missing or have stale documentation. Update the page to include or fix these functions. Do NOT rewrite sections that are already correct. Output ONLY the raw Markdown content — begin with the existing # heading. NEVER add preamble.`;
+              const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
+
+              try {
+                const result = await ctx.executor({ system, user, model: 'sonnet' });
+                const { writeFileSync: wfs, mkdirSync: mks } = await import('node:fs');
+                const { dirname: dn } = await import('node:path');
+                mks(dn(fullPath), { recursive: true });
+                wfs(fullPath, result.text, 'utf-8');
+                ctx.addCost(result.costUsd);
+                pagesUpdated++;
+                ctx.state.updateTask('update', `${pagesUpdated}/${pagesWithWork.length} pages`);
+                ctx.renderer.logPlain(`[update] ${pagesUpdated}/${pagesWithWork.length} ${pagePath}`);
+              } catch (err) {
+                ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+
+            ctx.state.completeTask('update', `${pagesUpdated} pages updated (${workItems} gaps filled)`);
           }
 
-          // --- Step 5: LINT + COHERENCE on updated pages ---
+          // --- Step 6: LINT + COHERENCE on updated pages ---
           ctx.state.startTask('coherence-2', 'linting…');
-          if (genResult2.prompts.length > 0) {
+          if (workItems > 0) {
             reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
             ctx.state.updateTask('coherence-2', 'coherence review…');
             const ts2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
