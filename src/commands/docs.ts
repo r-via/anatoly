@@ -64,11 +64,10 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Scaffold',
         tasks: [
           { id: 'scaffold', label: 'Scaffold (Sonnet)' },
-          { id: 'lint-1', label: 'Lint + coherence' },
-          { id: 'coherence-1', label: 'Coherence review (Opus)' },
+          { id: 'coherence-1', label: 'Lint + coherence (Opus)' },
           { id: 'rag-index', label: 'RAG index' },
           { id: 'update', label: 'Update (Sonnet + RAG)' },
-          { id: 'lint-2', label: 'Lint + coherence' },
+          { id: 'coherence-2', label: 'Lint + coherence (Opus)' },
         ],
         execute: async (ctx) => {
           // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---
@@ -111,16 +110,10 @@ export function registerDocsCommand(program: Command): void {
             ctx.state.completeTask('scaffold', detail);
           }
 
-          // --- Step 2: LINT ---
-          ctx.state.startTask('lint-1', 'checking structure…');
-          const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-          const lintIssues = lintResult.issues.filter(i => !i.fixed).length;
-          ctx.state.completeTask('lint-1', lintResult.filesFixed > 0
-            ? `${lintResult.filesFixed} auto-fixed, ${lintIssues} remaining`
-            : lintIssues > 0 ? `${lintIssues} issues` : 'clean');
-
-          // --- Step 3: COHERENCE ---
-          ctx.state.startTask('coherence-1', 'reviewing coherence…');
+          // --- Step 2: LINT + COHERENCE ---
+          ctx.state.startTask('coherence-1', 'linting…');
+          reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+          ctx.state.updateTask('coherence-1', 'coherence review…');
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
           const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
 
@@ -204,40 +197,34 @@ export function registerDocsCommand(program: Command): void {
               : `${llmResult2.pagesWritten} pages updated`);
           }
 
-          // --- Step 6: LINT + COHERENCE on updated pages ---
-          ctx.state.startTask('lint-2', 'checking structure…');
+          // --- Step 5: LINT + COHERENCE on updated pages ---
+          ctx.state.startTask('coherence-2', 'linting…');
           if (genResult2.prompts.length > 0) {
-            const lintResult2 = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-            const lintIssues2 = lintResult2.issues.filter(i => !i.fixed).length;
+            reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+            ctx.state.updateTask('coherence-2', 'coherence review…');
+            const ts2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            const coherenceLogDir2 = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-2_${ts2}`);
 
-            if (lintIssues2 > 0 || lintResult2.filesFixed > 0) {
-              ctx.state.updateTask('lint-2', 'coherence review…');
-              const ts2 = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-              const coherenceLogDir2 = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review-2_${ts2}`);
-
-              try {
-                const coherenceResult2 = await runDocCoherenceReview({
-                  outputDir,
-                  projectRoot: ctx.projectRoot,
-                  docsPath: ctx.docsPath,
-                  logDir: coherenceLogDir2,
-                  callbacks: {
-                    onLoopStart: (loop) => ctx.state.updateTask('lint-2', `coherence loop ${loop}…`),
-                    onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence-2] loop ${loop} done — ${issues} remaining`),
-                  },
-                });
-                ctx.addCost(coherenceResult2.costUsd);
-                ctx.state.completeTask('lint-2', coherenceResult2.linterIssuesAfter === 0
-                  ? `clean (${coherenceResult2.loopsCompleted} loops)`
-                  : `${coherenceResult2.linterIssuesAfter} issues remaining`);
-              } catch {
-                ctx.state.completeTask('lint-2', 'coherence failed');
-              }
-            } else {
-              ctx.state.completeTask('lint-2', 'clean');
+            try {
+              const coherenceResult2 = await runDocCoherenceReview({
+                outputDir,
+                projectRoot: ctx.projectRoot,
+                docsPath: ctx.docsPath,
+                logDir: coherenceLogDir2,
+                callbacks: {
+                  onLoopStart: (loop) => ctx.state.updateTask('coherence-2', `coherence loop ${loop}…`),
+                  onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[coherence-2] loop ${loop} done — ${issues} remaining`),
+                },
+              });
+              ctx.addCost(coherenceResult2.costUsd);
+              ctx.state.completeTask('coherence-2', coherenceResult2.linterIssuesAfter === 0
+                ? `clean (${coherenceResult2.loopsCompleted} loops)`
+                : `${coherenceResult2.linterIssuesAfter} issues remaining`);
+            } catch {
+              ctx.state.completeTask('coherence-2', 'coherence failed');
             }
           } else {
-            ctx.state.completeTask('lint-2', 'skipped (no updates)');
+            ctx.state.completeTask('coherence-2', 'skipped (no updates)');
           }
         },
       });
