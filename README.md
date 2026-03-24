@@ -160,7 +160,7 @@ npx anatoly docs index --rebuild       # Force full re-index
 npx anatoly docs gap-detection internal  # Analyze coverage gaps in .anatoly/docs/ vs code (no LLM, $0)
 npx anatoly docs gap-detection project   # Analyze coverage gaps in docs/ vs code
 npx anatoly docs lint                  # Deterministic structure lint on .anatoly/docs/
-npx anatoly docs review-internal       # Lint + Opus coherence review on .anatoly/docs/
+npx anatoly docs coherence             # Lint + Opus coherence review on .anatoly/docs/
 npx anatoly docs status                # Show internal docs coverage
 
 # Auto-clean (Ralph pattern)
