@@ -512,6 +512,20 @@ export function registerDocsCommand(program: Command): void {
       const store = new VectorStore(projectRoot);
       await store.init();
 
+      // Verify indexes are populated
+      const allCards = await store.listAll();
+      const allDocs = await store.listDocSections();
+      if (allCards.length === 0) {
+        console.error(chalk.red('Code index is empty. Run `anatoly docs index` first.'));
+        process.exitCode = 1;
+        return;
+      }
+      if (allDocs.length === 0) {
+        console.error(chalk.red('Doc index is empty. Run `anatoly docs index` first (requires .anatoly/docs/).'));
+        process.exitCode = 1;
+        return;
+      }
+
       const gapThreshold = parseFloat(opts.gapThreshold ?? '0.60');
       const driftThreshold = parseFloat(opts.driftThreshold ?? '0.85');
 
