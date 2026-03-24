@@ -442,14 +442,25 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     // Build user message — first loop gets full instructions, subsequent loops get linter feedback
     let userMessage: string;
     if (loop === 1) {
-      userMessage = [
+      const parts = [
         `The documentation directory is your current working directory.`,
         ``,
         `## Files in this documentation site (${files.length} total)`,
         fileListing,
         ``,
-        `Please read all pages, identify coherence issues, and fix them.`,
-      ].join('\n');
+      ];
+      // Include linter issues as starting context
+      const unfixed = baselineLint.issues.filter(i => !i.fixed);
+      if (unfixed.length > 0) {
+        parts.push(`## Known structural issues (from linter)`);
+        parts.push(``);
+        for (const i of unfixed) {
+          parts.push(`- **${i.path}**: [${i.rule}] ${i.detail}`);
+        }
+        parts.push(``);
+      }
+      parts.push(`Please read all pages, identify coherence issues, and fix them.`);
+      userMessage = parts.join('\n');
     } else {
       const currentLint = reviewDocStructure(outputDir, projectRoot, docsPath);
       const unfixed = currentLint.issues.filter(i => !i.fixed);
