@@ -12,8 +12,8 @@ Read every .md file in this directory. Identify and fix cross-page coherence iss
 4. **Inconsistent structure** — pages in the same section using different heading patterns or section ordering. Align with the majority pattern.
 5. **Orphan pages** — pages not linked from index.md or any other page. Add a link from the most relevant page.
 6. **Index completeness** — ensure index.md links to every .md file that exists. Remove links to files that don't exist. Index entries must be ordered by numeric prefix.
-7. **File numbering** — within each directory, files must be consistently numbered. If some files have numeric prefixes (e.g. `01-Overview.md`) and others don't (e.g. `utils.md`), rename the unnumbered files to follow the sequence. If duplicate pages cover the same topic (e.g. `02-core.md` and `core.md`), merge content into the numbered file and delete the unnumbered duplicate.
-8. **Duplicate files** — if two files in the same directory document the same module/topic, merge them into one. Keep the numbered version, consolidate content from the unnumbered version, then delete the unnumbered file.
+7. **File numbering** — within each directory, ALL files must have numeric prefixes (`01-`, `02-`, etc.). If a file has no prefix (e.g. `utils.md`), rename it by writing a new file with the next number in the sequence (e.g. `07-utils.md`) with the same content, then delete the old file. Update all links in index.md and other pages.
+8. **Duplicate files** — if two files in the same directory document the same module/topic (e.g. `02-core.md` and `core.md`), keep the numbered version, merge any unique content from the unnumbered version into it, then delete the unnumbered file. Update all links in index.md and other pages.
 
 ## Writing rules
 
