@@ -198,8 +198,8 @@ export function registerDocsCommand(program: Command): void {
             const nlpTask = ctx.state.tasks.find(t => t.id === 'rag-nlp');
             if (nlpTask && nlpTask.status !== 'done') {
               ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending'
-                ? 'skipped (single model)'
-                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (single model)');
+                ? 'skipped (no dual embedding)'
+                : ragResult.dualEmbedding ? `${ragResult.totalCards} cards` : 'skipped (no dual embedding)');
             }
             if (ctx.state.tasks.find(t => t.id === 'rag-doc' && t.status !== 'done')) {
               ctx.state.completeTask('rag-doc', `${ragResult.docSectionsIndexed} sections`);
