@@ -570,8 +570,9 @@ export function registerDocsCommand(program: Command): void {
     .command('index')
     .description('Incremental RAG indexing: code cards + NLP summaries + doc chunks')
     .option('--plain', 'linear sequential output')
-    .option('--rebuild', 'force full re-index (ignore cache)')
-    .action(async (opts: { plain?: boolean; rebuild?: boolean }, cmd: { parent?: { parent?: { opts: () => Record<string, unknown> } } }) => {
+    .option('--rebuild', 'force full re-index (re-embed, reuse Haiku caches)')
+    .option('--drop-cache', 'drop all caches including Haiku summaries and chunks (use with --rebuild)')
+    .action(async (opts: { plain?: boolean; rebuild?: boolean; dropCache?: boolean }, cmd: { parent?: { parent?: { opts: () => Record<string, unknown> } } }) => {
       const globalPlain = cmd.parent?.parent?.opts?.()?.['plain'] as boolean | undefined;
       const plainMode = opts.plain ?? globalPlain ?? false;
       const projectRoot = process.cwd();
@@ -610,6 +611,20 @@ export function registerDocsCommand(program: Command): void {
         console.error(chalk.red('Run `anatoly docs scaffold` to generate content first.'));
         process.exitCode = 1;
         return;
+      }
+
+      // Drop all Haiku caches if --drop-cache
+      if (opts.dropCache) {
+        const ragDir = resolve(projectRoot, '.anatoly', 'rag');
+        for (const file of ['nlp_summary_cache_advanced.json', 'nlp_summary_cache_lite.json',
+          'doc_chunk_cache_advanced.json', 'doc_chunk_cache_lite.json',
+          'doc_chunk_cache_advanced-internal.json', 'doc_chunk_cache_lite-internal.json']) {
+          const path = resolve(ragDir, file);
+          if (existsSync(path)) {
+            rmSync(path);
+            console.log(`  ${chalk.dim('dropped')} ${file}`);
+          }
+        }
       }
 
       const result = await runPipeline({
