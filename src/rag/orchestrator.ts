@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { resolve, join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { globSync } from 'tinyglobby';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
@@ -372,8 +373,28 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
 
   // Index doc sections from /docs/ and .anatoly/docs/
+  // Count total files across both passes for a single cumulative progress bar
   let docSectionsIndexed = 0;
+  let docFilesProcessed = 0;
+  let docFilesTotal = 0;
+
+  // Pre-count files in both doc directories
+  const projectDocsDir = resolve(projectRoot, options.docsDir ?? 'docs');
+  const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
+  if (existsSync(projectDocsDir)) {
+    docFilesTotal += globSync(['**/*.md'], { cwd: projectDocsDir }).length;
+  }
+  if (existsSync(internalDocsDir)) {
+    docFilesTotal += globSync(['**/*.md'], { cwd: internalDocsDir }).length;
+  }
+
+  const cumulativeProgress = (current: number, _total: number) => {
+    docFilesProcessed++;
+    onProgress?.(docFilesProcessed, docFilesTotal);
+  };
+
   onPhase?.('doc');
+
   // Project docs (docs/)
   try {
     docSectionsIndexed += await indexDocSections({
@@ -383,7 +404,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       cacheSuffix,
       chunkModel: options.indexModel,
       onLog,
-      onProgress,
+      onProgress: cumulativeProgress,
       onFileStart,
       onFileDone,
       isInterrupted,
@@ -396,7 +417,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
   }
 
-  // Internal docs (.anatoly/docs/) — Story 29.18
+  // Internal docs (.anatoly/docs/)
   try {
     docSectionsIndexed += await indexDocSections({
       projectRoot,
@@ -405,7 +426,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       cacheSuffix: `${cacheSuffix}-internal`,
       chunkModel: options.indexModel,
       onLog,
-      onProgress,
+      onProgress: cumulativeProgress,
       onFileStart,
       onFileDone,
       isInterrupted,
