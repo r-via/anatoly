@@ -83,14 +83,17 @@ async function runDocUpdate(
     const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
 
     try {
+      ctx.state.trackFile(pagePath);
       const result = await ctx.executor({ system, user, model: 'sonnet' });
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, result.text, 'utf-8');
       ctx.addCost(result.costUsd);
       pagesUpdated++;
+      ctx.state.untrackFile(pagePath);
       ctx.state.updateTask(updateTaskId, `${pagesUpdated}/${pagesWithWork.length} pages`);
       ctx.renderer.logPlain(`[update] ${pagesUpdated}/${pagesWithWork.length} ${pagePath}`);
     } catch (err) {
+      ctx.state.untrackFile(pagePath);
       ctx.renderer.logPlain(`[update] ${chalk.red('×')} ${pagePath} — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
