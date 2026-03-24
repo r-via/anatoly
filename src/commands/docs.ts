@@ -88,8 +88,8 @@ export function registerDocsCommand(program: Command): void {
       // --- Internal scope: full scaffold pipeline ---
       const docsDir = internalDocsDir;
 
-      // Confirmation (skipped with -y or --plain)
-      if (!yes && !plain) {
+      // Confirmation (skipped with -y)
+      if (!yes) {
         if (existsSync(docsDir)) {
           console.log(`This will delete and regenerate ${chalk.bold('.anatoly/docs/')}`);
         } else {
