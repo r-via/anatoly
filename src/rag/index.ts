@@ -14,7 +14,7 @@ export type { NlpSummary } from './nlp-summarizer.js';
 export { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, CODE_MODEL_ID, NLP_MODEL_ID, MODEL_REGISTRY, GGUF_DOCKER_IMAGE, GGUF_CODE_PORT, GGUF_NLP_PORT, GGUF_CODE_MODEL_FILE, GGUF_NLP_MODEL_FILE, GGUF_MIN_VRAM_GB } from './hardware-detect.js';
 export type { HardwareProfile, ModelInfo, ResolvedModels, EmbeddingBackend, EmbeddingsReadyFlag } from './hardware-detect.js';
 export { startTeiContainers, stopTeiContainers, areTeiContainersRunning, TEI_DOCKER_IMAGE, TEI_CODE_PORT, TEI_NLP_PORT } from './docker-tei.js';
-export { indexProject, processFileForIndex, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
+export { indexProject, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
 export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks } from './doc-indexer.js';
 export type { DocSection, DocIndexOptions } from './doc-indexer.js';

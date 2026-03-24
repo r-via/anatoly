@@ -47,7 +47,7 @@ export function createProgram(): Command {
     .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
     .option('--rag-advanced', 'force advanced RAG mode (GGUF Docker GPU)')
     .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
-    .option('--nlp-model <model>', 'embedding model for NLP vectors in dual mode (default: auto-detect)')
+    .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
     .option('--open', 'open report in default app after generation')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)

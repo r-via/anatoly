@@ -44,6 +44,8 @@ interface VectorRow {
   nlp_vector: number[];
   /** Discriminator: 'function' (default) or 'doc_section'. */
   type: string;
+  /** Doc source: 'internal' (.anatoly/docs/) or 'project' (docs/). Empty for function cards. */
+  source: string;
 }
 
 /** Options for upserting cards with optional NLP embeddings. */
@@ -79,7 +81,7 @@ export class VectorStore {
     if (tableNames.includes(this.tableName)) {
       this.table = await this.db.openTable(this.tableName);
 
-      // Detect dual embedding and warn on dimension mismatches
+      // Detect dimension mismatches between stored and current models
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0) {
@@ -111,7 +113,7 @@ export class VectorStore {
 
   /**
    * Upsert FunctionCards with their embedding vectors into the store.
-   * Optionally includes NLP embedding vectors for dual-embedding mode.
+   * Includes NLP embedding vectors alongside code embeddings.
    */
   async upsert(cards: FunctionCard[], embeddings: number[][], options?: UpsertOptions): Promise<void> {
     if (cards.length === 0) return;
@@ -134,6 +136,7 @@ export class VectorStore {
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
       nlp_vector: nlpEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
       type: 'function',
+      source: '',
     }));
 
     if (!this.table) {
@@ -207,6 +210,7 @@ export class VectorStore {
     queryEmbedding: number[],
     limit: number = 5,
     minScore: number = 0.50,
+    docSource?: 'internal' | 'project',
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
 
@@ -217,7 +221,9 @@ export class VectorStore {
       .toArray();
 
     return results
-      .filter((row: Record<string, unknown>) => row.type === 'doc_section')
+      .filter((row: Record<string, unknown>) =>
+        row.type === 'doc_section' && (!docSource || row.source === docSource),
+      )
       .flatMap((row: Record<string, unknown>) => {
         const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
         return score >= minScore ? [{ card: rowToCard(row), score }] : [];
@@ -334,6 +340,7 @@ export class VectorStore {
   async upsertDocSections(
     sections: Array<{ id: string; filePath: string; name: string; summary: string }>,
     nlpEmbeddings: number[][],
+    docSource: 'internal' | 'project' = 'project',
   ): Promise<void> {
     if (sections.length === 0) return;
     if (!this.db) throw new Error('VectorStore not initialized');
@@ -352,6 +359,7 @@ export class VectorStore {
       vector: new Array(getCodeDim()).fill(0),
       nlp_vector: nlpEmbeddings[i],
       type: 'doc_section',
+      source: docSource,
     }));
 
     if (!this.table) {
@@ -466,20 +474,21 @@ export class VectorStore {
   /**
    * List all doc_section rows in the index.
    */
-  async listDocSections(): Promise<DocSectionEntry[]> {
+  async listDocSections(docSource?: 'internal' | 'project'): Promise<DocSectionEntry[]> {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'lastIndexed', 'type'])
+      .select(['id', 'filePath', 'name', 'summary', 'lastIndexed', 'type', 'source'])
       .toArray();
     return rows
-      .filter((r) => r.type === 'doc_section')
+      .filter((r) => r.type === 'doc_section' && (!docSource || r.source === docSource))
       .map((r) => ({
         id: r.id as string,
         filePath: r.filePath as string,
         name: r.name as string,
         summary: r.summary as string,
         lastIndexed: r.lastIndexed as string,
+        source: (r.source === 'internal' ? 'internal' : 'project') as 'internal' | 'project',
       }));
   }
 

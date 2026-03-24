@@ -22,8 +22,8 @@ export type RagMode = 'lite' | 'advanced';
 export interface RagIndexOptions {
   projectRoot: string;
   tasks: Task[];
-  /** Model used for NLP summary generation. */
-  indexModel?: string;
+  /** Model used for NLP summary generation (required — always dual). */
+  indexModel: string;
   /** Resolved embedding models (from hardware detection). Configures code/NLP model selection. */
   resolvedModels?: ResolvedModels;
   /** RAG mode determines table name and cache file. */
@@ -74,7 +74,7 @@ export interface IndexedFileResult {
 
 /**
  * Read source and build cards + code embeddings for a single file.
- * Shared core logic for both code-only and dual-embedding modes.
+ * Read source and build cards + code embeddings for a single file.
  */
 function readAndBuildCards(
   projectRoot: string,
@@ -108,24 +108,8 @@ function readAndBuildCards(
 }
 
 /**
- * Process a single file for RAG indexing: build cards from AST + embed code directly.
- * No LLM call — purely local operation (code embedding only).
- */
-export async function processFileForIndex(
-  projectRoot: string,
-  task: Task,
-  cache: { entries: Record<string, string> },
-): Promise<IndexedFileResult> {
-  const built = readAndBuildCards(projectRoot, task, cache);
-  if (!built) return { task, cards: [], embeddings: [] };
-
-  return { task, cards: built.toIndex, embeddings: await built.embeddings };
-}
-
-/**
- * Process a single file for dual-embedding RAG indexing:
- * builds cards from AST, embeds code locally, then generates NLP summaries
- * via LLM and embeds the NLP text. Reads the file only once.
+ * Process a single file for RAG indexing: build cards from AST, embed code
+ * locally, generate NLP summaries via LLM, and embed the NLP text.
  */
 export async function processFileForDualIndex(
   projectRoot: string,
@@ -312,7 +296,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onFileStart?.(task.file);
 
       try {
-        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel!, nlpSummaryCache, true, options.conversationDir, options.semaphore);
+        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.semaphore);
 
         if (result.cards.length > 0) {
           results.push(result);
@@ -366,7 +350,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     filesIndexed++;
 
     // Update cache entries for this file's cards.
-    // In dual mode, skip cards where NLP failed (zero vector) so they
+    // Skip cards where NLP failed (zero vector) so they
     // get retried on the next run instead of being served stale.
     for (const card of result.cards) {
       if (result.nlpFailedIds?.has(card.id)) continue;
@@ -406,6 +390,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       conversationDir: options.conversationDir,
       semaphore: options.semaphore,
       concurrency,
+      docSource: 'project',
     });
   } catch (err) {
     onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
@@ -427,6 +412,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       conversationDir: options.conversationDir,
       semaphore: options.semaphore,
       concurrency,
+      docSource: 'internal',
     });
   } catch (err) {
     onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);

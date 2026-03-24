@@ -10,7 +10,7 @@ const { workerPoolSpy } = vi.hoisted(() => {
   return { workerPoolSpy };
 });
 
-// Mock fs for processFileForIndex (reads source files)
+// Mock fs for processFileForDualIndex (reads source files)
 // Mock existsSync for test isolation
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn().mockReturnValue('export function foo() { return 1; }'),
@@ -92,7 +92,7 @@ vi.mock('../core/worker-pool.js', () => ({
   runWorkerPool: workerPoolSpy,
 }));
 
-import { indexProject, processFileForIndex, ragModeArtifacts } from './orchestrator.js';
+import { indexProject, ragModeArtifacts } from './orchestrator.js';
 import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
@@ -122,6 +122,7 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
+      indexModel: 'haiku',
       concurrency: 6,
       onLog: vi.fn(),
       isInterrupted: () => false,
@@ -135,6 +136,7 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -149,6 +151,7 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted,
     });
@@ -169,6 +172,7 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [taskWithFunctions, taskWithoutFunctions],
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -184,6 +188,7 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks,
+      indexModel: 'haiku',
       concurrency: 3,
       onLog: vi.fn(),
       isInterrupted: () => false,
@@ -195,7 +200,7 @@ describe('indexProject', () => {
     expect(poolArgs().concurrency).toBe(3);
   });
 
-  it('should call processFileForIndex directly (no retryWithBackoff for local indexation)', async () => {
+  it('should call processFileForDualIndex via worker pool (no retryWithBackoff for local indexation)', async () => {
     // Make workerPool invoke the handler
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     workerPoolSpy.mockImplementation(async (opts: any) => {
@@ -208,11 +213,12 @@ describe('indexProject', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
 
-    // buildFunctionCards is called inside processFileForIndex
+    // buildFunctionCards is called inside processFileForDualIndex
     expect(buildFunctionCards).toHaveBeenCalled();
   });
 });
@@ -228,71 +234,6 @@ function makeCard(name: string, filePath: string): FunctionCard {
     lastIndexed: '2024-01-01T00:00:00.000Z',
   };
 }
-
-describe('processFileForIndex', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('returns empty for task with no function symbols', async () => {
-    const task: Task = {
-      version: 1,
-      file: 'src/types.ts',
-      hash: 'abc123',
-      symbols: [{ name: 'MyType', kind: 'type', line_start: 1, line_end: 5, exported: true }],
-      scanned_at: '2024-01-01T00:00:00.000Z',
-    };
-
-    const result = await processFileForIndex('/tmp/test', task, { entries: {} });
-
-    expect(result.cards).toEqual([]);
-    expect(result.embeddings).toEqual([]);
-  });
-
-  it('filters out cached cards via needsReindex', async () => {
-    const card1 = makeCard('foo', 'src/a.ts');
-    const card2 = makeCard('bar', 'src/a.ts');
-
-    vi.mocked(buildFunctionCards).mockReturnValue([card1, card2]);
-    // card1 is cached (needsReindex=false), card2 needs reindex
-    vi.mocked(needsReindex)
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
-    vi.mocked(embedCards).mockResolvedValue([[0.1, 0.2]]);
-
-    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), { entries: {} });
-
-    expect(result.cards).toEqual([card2]);
-  });
-
-  it('returns empty when all cards are cached', async () => {
-    const card = makeCard('foo', 'src/a.ts');
-
-    vi.mocked(buildFunctionCards).mockReturnValue([card]);
-    vi.mocked(needsReindex).mockReturnValue(false);
-
-    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), { entries: { 'card-foo': 'abc123' } });
-
-    expect(result.cards).toEqual([]);
-    expect(result.embeddings).toEqual([]);
-    expect(embedCards).not.toHaveBeenCalled();
-  });
-
-  it('generates embeddings for cards that need reindexing', async () => {
-    const card = makeCard('foo', 'src/a.ts');
-    const embedding = [0.1, 0.2, 0.3];
-
-    vi.mocked(buildFunctionCards).mockReturnValue([card]);
-    vi.mocked(needsReindex).mockReturnValue(true);
-    vi.mocked(embedCards).mockResolvedValue([embedding]);
-
-    const result = await processFileForIndex('/tmp/test', makeTask('src/a.ts'), { entries: {} });
-
-    expect(result.cards).toEqual([card]);
-    expect(result.embeddings).toEqual([embedding]);
-    expect(result.task.file).toBe('src/a.ts');
-  });
-});
 
 describe('ragModeArtifacts', () => {
   it('returns lite table name and cache suffix for lite mode', () => {
@@ -320,6 +261,7 @@ describe('indexProject ragMode', () => {
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
       ragMode: 'lite',
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -336,6 +278,7 @@ describe('indexProject ragMode', () => {
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
       ragMode: 'advanced',
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -351,6 +294,7 @@ describe('indexProject ragMode', () => {
     await indexProject({
       projectRoot: '/tmp/test',
       tasks: [makeTask('src/a.ts')],
+      indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
     });
@@ -399,7 +343,7 @@ describe('indexProject dual doc indexing (Story 29.18)', () => {
     workerPoolSpy.mockResolvedValue({ completed: 0, errored: 0, skipped: 0 });
   });
 
-  it('indexes .anatoly/docs/ with separate cache suffix in dual mode', async () => {
+  it('indexes .anatoly/docs/ with separate cache suffix', async () => {
     const { indexDocSections: indexDocSectionsMock } = await import('./doc-indexer.js');
 
     await indexProject({

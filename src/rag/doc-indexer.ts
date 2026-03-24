@@ -307,6 +307,8 @@ export interface DocIndexOptions {
   semaphore?: Semaphore;
   /** Max parallel file processing (default 4, should match code indexing concurrency). */
   concurrency?: number;
+  /** Doc source discriminator for the vector store. */
+  docSource?: 'internal' | 'project';
 }
 
 /**
@@ -316,7 +318,7 @@ export interface DocIndexOptions {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<number> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4 } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
@@ -422,7 +424,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     onLog(`rag: embedding ${textsToEmbed.length} sections for ${relPath}...`);
     const nlpEmbeddings = await embedNlpBatch(textsToEmbed);
 
-    await vectorStore.upsertDocSections(cards, nlpEmbeddings);
+    await vectorStore.upsertDocSections(cards, nlpEmbeddings, docSource);
     newCache[relPath] = { sha, sectionIds };
     totalIndexed += sections.length;
     onLog(`rag: ${relPath} → ${sections.length} sections`);

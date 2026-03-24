@@ -41,7 +41,7 @@ export interface RagStats {
   lastIndexed: string | null;
   /** Actual code vector dimension stored in the table. */
   codeDim?: number;
-  /** Actual NLP vector dimension stored in the table (when dual embedding). */
+  /** Actual NLP vector dimension stored in the table. */
   nlpDim?: number;
   /** Number of doc_section rows in the index. */
   docSections: number;
@@ -56,4 +56,6 @@ export interface DocSectionEntry {
   name: string;
   summary: string;
   lastIndexed: string;
+  /** 'internal' (.anatoly/docs/) or 'project' (docs/). */
+  source: 'internal' | 'project';
 }

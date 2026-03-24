@@ -112,15 +112,10 @@ export async function detectDocGaps(
   const driftThreshold = options?.driftThreshold ?? 0.85;
   const scope = options?.scope ?? 'internal';
 
-  // Determine the doc path prefix to filter results
-  const docPrefix = scope === 'internal'
-    ? '.anatoly/docs/'
-    : (options?.projectDocsPath ?? 'docs') + '/';
-
   // Load all function cards with their NLP vectors
   const cardsWithVectors = await vectorStore.listAllWithNlpVectors();
-  const allDocSections = (await vectorStore.listDocSections())
-    .filter(ds => ds.filePath.startsWith(docPrefix));
+  // Filter doc sections by source attribute (set during indexing)
+  const allDocSections = await vectorStore.listDocSections(scope);
 
   if (allDocSections.length === 0) {
     // No doc sections for this scope — everything is NOT_FOUND
@@ -134,9 +129,6 @@ export async function detectDocGaps(
       byPage: new Map(),
     };
   }
-
-  // Build a set of doc section IDs in scope for filtering search results
-  const scopedDocIds = new Set(allDocSections.map(ds => ds.id));
 
   const notFound: GapItem[] = [];
   const lowRelevance: GapItem[] = [];
@@ -156,9 +148,8 @@ export async function detectDocGaps(
       continue;
     }
 
-    // Query doc index — fetch extra results to filter by scope
-    const results = await vectorStore.searchDocSections(nlpVector, 10, 0.0);
-    const scopedResults = results.filter(r => scopedDocIds.has(r.card.id));
+    // Query doc index — filtered by source attribute
+    const scopedResults = await vectorStore.searchDocSections(nlpVector, 3, 0.0, scope);
 
     if (scopedResults.length === 0) {
       notFound.push({ functionCard: card, classification: 'NOT_FOUND', bestMatch: null, similarity: 0 });
@@ -172,6 +163,7 @@ export async function detectDocGaps(
       name: best.card.name,
       summary: best.card.summary ?? '',
       lastIndexed: best.card.lastIndexed,
+      source: scope,
     };
 
     if (best.score < gapThreshold) {
