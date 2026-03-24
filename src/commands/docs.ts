@@ -13,7 +13,7 @@ import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
-import { indexProjectStandalone } from '../rag/standalone.js';
+import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGaps, formatGapSummary } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 
@@ -214,8 +214,9 @@ export function registerDocsCommand(program: Command): void {
           // --- Step 5: RAG-DRIVEN UPDATE (gap detection + targeted regeneration) ---
           ctx.state.startTask('update', 'gap detection…');
 
-          // Open vector store for gap detection
-          const store = new VectorStore(ctx.projectRoot);
+          // Open vector store for gap detection (must use same table as indexer)
+          const tableName = resolveRagTableName(ctx.projectRoot);
+          const store = new VectorStore(ctx.projectRoot, tableName);
           await store.init();
 
           const gapResult = await detectDocGaps(store, {
@@ -633,7 +634,8 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const store = new VectorStore(projectRoot);
+      const tableName = resolveRagTableName(projectRoot);
+      const store = new VectorStore(projectRoot, tableName);
       await store.init();
 
       // Verify indexes are populated

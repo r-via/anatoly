@@ -33,6 +33,18 @@ export interface StandaloneRagOptions {
   semaphore?: Semaphore;
 }
 
+/**
+ * Resolve the RAG table name for the current hardware/config.
+ * Use this to open VectorStore with the correct table outside of indexing.
+ */
+export function resolveRagTableName(projectRoot: string): string {
+  const hardware = detectHardware();
+  const readyFlag = readEmbeddingsReadyFlag(projectRoot);
+  const backend = determineBackend(readyFlag, hardware);
+  const mode = backend === 'advanced-gguf' ? 'advanced' : 'lite';
+  return `function_cards_${mode}`;
+}
+
 export async function indexProjectStandalone(opts: StandaloneRagOptions): Promise<RagIndexResult> {
   const {
     projectRoot,
