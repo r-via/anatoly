@@ -501,7 +501,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
         allowedTools: ['Read', 'Write'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
-        maxTurns: 50,
+        maxTurns: 200,
         abortController: ac,
       },
     });
@@ -622,7 +622,7 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
         allowedTools: ['Read', 'Write'],
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
-        maxTurns: 50,
+        maxTurns: 200,
         abortController: ac,
       },
     });
