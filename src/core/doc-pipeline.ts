@@ -20,7 +20,7 @@ import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { type ProjectProfile, type ProjectType } from './language-detect.js';
 import { scaffoldDocs, type ScaffoldResult } from './doc-scaffolder.js';
-import { resolveModuleGranularity, type ModuleDir } from './module-granularity.js';
+import { resolveModuleGranularity, extractModuleName, type ModuleDir } from './module-granularity.js';
 import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mapping.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
@@ -226,15 +226,10 @@ function buildModuleDirs(tasks: Task[]): ModuleDir[] {
   const dirMap = new Map<string, { name: string; loc: number }[]>();
 
   for (const task of tasks) {
+    const dirName = extractModuleName(task.file);
+    if (!dirName) continue;
+
     const parts = task.file.split('/');
-    if (parts.length < 2) continue;
-
-    // Use the first directory under src/ (or the first directory if no src/)
-    const srcIdx = parts.indexOf('src');
-    const dirIdx = srcIdx >= 0 ? srcIdx + 1 : 0;
-    if (dirIdx >= parts.length - 1) continue;
-
-    const dirName = parts[dirIdx];
     const fileName = parts[parts.length - 1];
 
     // Estimate LOC from symbol line ranges

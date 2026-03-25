@@ -15,6 +15,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ProjectType } from './language-detect.js';
+import { extractModuleName } from './module-granularity.js';
 import { scoreDocumentation, type DocScore, type DocScoringInput } from './doc-scoring.js';
 import { resolveUserDocPlan, type DocPageEntry, type UserDocPlan } from './user-doc-plan.js';
 import { buildDocRecommendations, type DocGap, type DocRecommendation } from './doc-recommendations.js';
@@ -172,14 +173,10 @@ function buildScoringInput(
   // Count modules > 200 LOC from tasks
   const moduleDirs = new Map<string, number>();
   for (const task of input.tasks) {
-    const parts = task.file.split('/');
-    const srcIdx = parts.indexOf('src');
-    const dirIdx = srcIdx >= 0 ? srcIdx + 1 : 0;
-    if (dirIdx < parts.length - 1) {
-      const dirName = parts[dirIdx];
-      const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
-      moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
-    }
+    const dirName = extractModuleName(task.file);
+    if (!dirName) continue;
+    const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
+    moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
   }
 
   const totalModules = Array.from(moduleDirs.values()).filter(loc => loc >= 200).length;

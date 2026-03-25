@@ -84,6 +84,40 @@ export function resolveModuleGranularity(modules: ModuleDir[]): ModulePage[] {
   return pages;
 }
 
+/**
+ * Extract a module/directory name from a task file path.
+ *
+ * Handles two common layouts:
+ * - Standard: `src/core/file.ts`  → `"core"` (first dir after `src/`)
+ * - Workspace: `crate-name/src/file.rs` → `"crate-name"` (dir before `src/`)
+ *
+ * Returns `null` when no meaningful module directory can be determined
+ * (e.g. files directly in `src/` with no parent crate directory).
+ */
+export function extractModuleName(filePath: string): string | null {
+  const parts = filePath.split('/');
+  const srcIdx = parts.indexOf('src');
+
+  if (srcIdx >= 0) {
+    // Try standard layout first: src/<module>/file.ext
+    const afterSrc = srcIdx + 1;
+    if (afterSrc < parts.length - 1) {
+      return parts[afterSrc];
+    }
+    // Workspace layout: <crate>/src/file.ext
+    if (srcIdx > 0) {
+      return parts[srcIdx - 1];
+    }
+  }
+
+  // No src/ found — use first directory if available
+  if (parts.length >= 2) {
+    return parts[0];
+  }
+
+  return null;
+}
+
 /** Convert a PascalCase or camelCase string to kebab-case. */
 function toKebabCase(str: string): string {
   return str

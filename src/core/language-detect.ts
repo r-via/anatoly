@@ -501,6 +501,18 @@ function deriveTypes(
     }
   }
 
+  // Rust workspace / CLI detection from Cargo.toml
+  const cargoToml = safeReadFile(join(projectRoot, 'Cargo.toml'));
+  if (cargoToml) {
+    if (/^\[workspace\]/m.test(cargoToml)) {
+      types.add('Monorepo');
+    }
+    // Rust CLI from [[bin]] section (even without a CLI framework like clap)
+    if (!types.has('CLI') && /^\[\[bin\]\]/m.test(cargoToml)) {
+      types.add('CLI');
+    }
+  }
+
   // Go CLI detection from main.go pattern
   if (gitFiles && !types.has('CLI')) {
     if (gitFiles.has('main.go') || gitFiles.has('cmd/main.go')) {

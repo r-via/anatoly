@@ -475,8 +475,10 @@ describe('language-detect', () => {
       expect(result.frameworks).toEqual([]);
     });
 
-    it('AC 31.2.12: does not read config files for undetected languages', () => {
-      // Only TypeScript files — should not read go.mod, Cargo.toml, etc.
+    it('AC 31.2.12: does not read config files for undetected languages (except workspace manifests)', () => {
+      // Only TypeScript files — should not read go.mod, etc.
+      // Cargo.toml IS read because deriveTypes checks it for workspace detection
+      // (same as package.json is always read for monorepo/CLI detection).
       mockedGit.mockReturnValue(new Set(['src/index.ts', 'src/util.ts', 'package.json']));
       mockFiles({
         '/project/package.json': JSON.stringify({ dependencies: {} }),
@@ -484,11 +486,9 @@ describe('language-detect', () => {
 
       detectProjectProfile('/project');
 
-      // readFileSync should only be called for package.json
       const readPaths = mockedReadFile.mock.calls.map(c => String(c[0]));
       expect(readPaths).not.toContain('/project/requirements.txt');
       expect(readPaths).not.toContain('/project/pyproject.toml');
-      expect(readPaths).not.toContain('/project/Cargo.toml');
       expect(readPaths).not.toContain('/project/go.mod');
       expect(readPaths).not.toContain('/project/pom.xml');
     });
