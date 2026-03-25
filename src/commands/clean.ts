@@ -256,7 +256,7 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
  */
 export function registerCleanCommand(program: Command): void {
   program
-    .command('clean <axis>')
+    .command('generate <axis>')
     .description('Generate Ralph artifacts from axis findings (axis name or "all")')
     .action((axis: string) => {
       const projectRoot = process.cwd();
@@ -341,6 +341,6 @@ export function registerCleanCommand(program: Command): void {
       console.log(`  progress.txt  \u2014 learnings log with Codebase Patterns section`);
       console.log('');
       console.log('To start the clean loop:');
-      console.log(chalk.cyan(`  npx anatoly clean-run ${axis}`));
+      console.log(chalk.cyan(`  npx anatoly clean run ${axis}`));
     });
 }

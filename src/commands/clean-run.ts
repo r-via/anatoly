@@ -122,7 +122,7 @@ function openCircuitBreaker(
 function finalSync(projectRoot: string, reportFile: string): void {
   try {
     console.log(chalk.blue('Final sync...'));
-    execSync(`npx anatoly clean-sync ${reportFile}`, {
+    execSync(`npx anatoly clean sync ${reportFile}`, {
       cwd: projectRoot,
       stdio: 'inherit',
     });
@@ -134,7 +134,7 @@ function finalSync(projectRoot: string, reportFile: string): void {
 /** Registers the `clean-run` CLI sub-command on the given Commander {@link program}. */
 export function registerCleanRunCommand(program: Command): void {
   program
-    .command('clean-run <target>')
+    .command('run <target>')
     .description('Run Ralph loop to remediate findings (axis name, "all", or shard file path)')
     .option('-n, --iterations <n>', 'max Ralph iterations', '50')
     .action(async (target: string, opts: { iterations: string }) => {
@@ -176,7 +176,7 @@ export function registerCleanRunCommand(program: Command): void {
       // Generate artifacts if not already present
       if (!existsSync(prdPath) || !existsSync(claudeMdPath)) {
         console.log(chalk.blue('Generating clean artifacts...'));
-        execSync(`npx anatoly clean ${target}`, {
+        execSync(`npx anatoly clean generate ${target}`, {
           cwd: projectRoot,
           stdio: 'inherit',
         });
@@ -285,7 +285,7 @@ export function registerCleanRunCommand(program: Command): void {
 
         // Sync completed fixes back to the report
         try {
-          execSync(`npx anatoly clean-sync ${reportFile}`, {
+          execSync(`npx anatoly clean sync ${reportFile}`, {
             cwd: projectRoot,
             stdio: 'pipe',
           });

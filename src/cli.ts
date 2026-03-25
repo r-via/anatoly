@@ -97,13 +97,16 @@ export function createProgram(): Command {
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);
-  registerCleanRunsCommand(program);
+  // Parent "clean" command with subcommands: generate, run, sync, runs
+  const cleanCmd = program.command('clean').description('Ralph cleaning commands (generate, run, sync, runs)');
+  registerCleanCommand(cleanCmd);
+  registerCleanRunCommand(cleanCmd);
+  registerCleanSyncCommand(cleanCmd);
+  registerCleanRunsCommand(cleanCmd);
+
   registerResetCommand(program);
   registerRagStatusCommand(program);
   registerHookCommand(program);
-  registerCleanCommand(program);
-  registerCleanRunCommand(program);
-  registerCleanSyncCommand(program);
   registerSetupEmbeddingsCommand(program);
   registerInitCommand(program);
   registerDocsCommand(program);
