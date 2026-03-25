@@ -13,6 +13,7 @@
 
 import { execSync, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import {
   GGUF_DOCKER_IMAGE,
@@ -169,7 +170,7 @@ export async function startGgufContainers(
   onLog?: (message: string) => void,
   onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
-  modelsDirectory = resolve(projectRoot, '.anatoly', 'models');
+  modelsDirectory = resolve(homedir(), '.anatoly', 'models');
   logFn = onLog;
   progressFn = onProgress;
 

@@ -28,12 +28,13 @@ export function registerSetupEmbeddingsCommand(program: Command): void {
     .command('setup-embeddings')
     .description('Install embedding backends (lite/fp16/gguf) for GPU-accelerated embeddings')
     .option('--check', 'check current embedding setup status without installing')
-    .option('--ab-test', 'run A/B test comparing bf16 vs GGUF embedding quality')
-    .action((opts: { check?: boolean; abTest?: boolean }) => {
+    .action((opts: { check?: boolean }) => {
       const script = findSetupScript();
       const args: string[] = [];
-      if (opts.abTest) args.push('--ab-test');
-      else if (opts.check) args.push('--check');
-      execFileSync('bash', [script, ...args], { stdio: 'inherit' });
+      if (opts.check) args.push('--check');
+      execFileSync('bash', [script, ...args], {
+        stdio: 'inherit',
+        env: { ...process.env, ANATOLY_PROJECT_ROOT: process.cwd() },
+      });
     });
 }
