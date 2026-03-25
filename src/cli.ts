@@ -9,7 +9,6 @@ import {
   registerEstimateCommand,
   registerReviewCommand,
   registerReportCommand,
-  registerReportUpstreamCommand,
   registerRunCommand,
   registerWatchCommand,
   registerStatusCommand,
@@ -94,8 +93,7 @@ export function createProgram(): Command {
   registerScanCommand(program);
   registerEstimateCommand(program);
   registerReviewCommand(program);
-  const reportCmd = registerReportCommand(program);
-  registerReportUpstreamCommand(reportCmd);
+  registerReportCommand(program);
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);

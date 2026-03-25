@@ -14,8 +14,8 @@ import { verdictColor } from '../utils/format.js';
 import { isLockActive } from '../utils/lock.js';
 
 /** Registers the `report` CLI sub-command on the given Commander program. @param program The root Commander instance. */
-export function registerReportCommand(program: Command): Command {
-  const reportCmd = program
+export function registerReportCommand(program: Command): void {
+  program
     .command('report')
     .description('Aggregate review results into a structured Markdown report')
     .option('--run <id>', 'generate report from a specific run (default: latest)')
@@ -67,8 +67,6 @@ export function registerReportCommand(program: Command): Command {
         if (shouldOpen) openFile(reportPath);
       }
     });
-
-  return reportCmd;
 }
 
 function printReportSummary(
