@@ -28,6 +28,10 @@ export interface CircuitBreakerState {
  * A "no progress" iteration is one where no git commits were made and HEAD is unchanged.
  */
 export const CB_NO_PROGRESS_THRESHOLD = 3;
+/**
+ * Number of consecutive iterations with the same error before the circuit breaker opens.
+ * Prevents the loop from burning tokens on a recurring issue that the agent cannot resolve.
+ */
 export const CB_SAME_ERROR_THRESHOLD = 5;
 
 export function isValidSha(sha: string): boolean {
