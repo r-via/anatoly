@@ -42,6 +42,7 @@ type BestPracticesResponse = z.infer<typeof BestPracticesResponseSchema>;
 
 export type FileContext = 'react-component' | 'api-handler' | 'utility' | 'test' | 'config' | 'general';
 
+/** Infers a coarse {@link FileContext} category from the file path and content for best-practices scoring. */
 export function detectFileContext(filePath: string, fileContent: string): FileContext {
   const lower = filePath.toLowerCase();
   if (lower.includes('.test.') || lower.includes('.spec.')) return 'test';
@@ -81,10 +82,12 @@ export function detectFileContext(filePath: string, fileContent: string): FileCo
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/** Builds the system prompt for the best-practices axis LLM call. */
 export function buildBestPracticesSystemPrompt(): string {
   return resolveSystemPrompt('best_practices');
 }
 
+/** Assembles the user message for the best-practices axis, including file content, stats, and project context. */
 export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -139,6 +142,7 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/** Evaluator that scores a file against the 17 best-practices rules via an LLM call. */
 export class BestPracticesEvaluator implements AxisEvaluator {
   readonly id = 'best_practices' as const;
   readonly defaultModel = 'sonnet' as const;
