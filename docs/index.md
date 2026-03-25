@@ -1,6 +1,6 @@
 # Anatoly - Documentation Index
 
-> **Anatoly** v0.5.0 -- Autonomous AI audit agent for TypeScript codebases.
+> **Anatoly** v0.5.0 -- Autonomous AI audit agent for codebases.
 > Deep, evidence-backed code reviews powered by Claude AI and semantic RAG.
 >
 > License: AGPL-3.0

@@ -9,6 +9,7 @@ import {
   registerEstimateCommand,
   registerReviewCommand,
   registerReportCommand,
+  registerReportUpstreamCommand,
   registerRunCommand,
   registerWatchCommand,
   registerStatusCommand,
@@ -44,7 +45,7 @@ export function createProgram(): Command {
   const program = new Command()
     .name('anatoly')
     .version(pkgVersion)
-    .description('Deep Audit Agent for TypeScript codebases')
+    .description('Deep Audit Agent for codebases')
     .option('--config <path>', 'path to .anatoly.yml config file')
     .option('--verbose', 'show detailed operation logs')
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
@@ -93,7 +94,8 @@ export function createProgram(): Command {
   registerScanCommand(program);
   registerEstimateCommand(program);
   registerReviewCommand(program);
-  registerReportCommand(program);
+  const reportCmd = registerReportCommand(program);
+  registerReportUpstreamCommand(reportCmd);
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);

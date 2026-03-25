@@ -6,6 +6,7 @@ export { registerScanCommand } from './scan.js';
 export { registerEstimateCommand } from './estimate.js';
 export { registerReviewCommand } from './review.js';
 export { registerReportCommand } from './report.js';
+export { registerReportUpstreamCommand } from './report-upstream.js';
 export { registerRunCommand } from './run.js';
 export { registerWatchCommand } from './watch.js';
 export { registerStatusCommand } from './status.js';

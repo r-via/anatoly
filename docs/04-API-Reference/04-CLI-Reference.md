@@ -4,7 +4,7 @@
 
 ## Overview
 
-`anatoly` is the primary executable installed by `@r-via/anatoly`. It exposes an audit pipeline for TypeScript codebases through a set of sub-commands built on [Commander.js](https://github.com/tj/commander.js). The entry point is `./dist/index.js`, registered as the `anatoly` binary.
+`anatoly` is the primary executable installed by `@r-via/anatoly`. It exposes an audit pipeline for codebases through a set of sub-commands built on [Commander.js](https://github.com/tj/commander.js). The entry point is `./dist/index.js`, registered as the `anatoly` binary.
 
 ```bash
 anatoly [global-options] <command> [command-options]

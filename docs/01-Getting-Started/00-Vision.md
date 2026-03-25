@@ -12,7 +12,7 @@ Just like the real Anatoly, the strength is disproportionate to the appearance. 
 
 ## Mission
 
-Anatoly exists to solve a problem that linters and static analysis cannot: **architectural rot in TypeScript codebases**.
+Anatoly exists to solve a problem that linters and static analysis cannot: **architectural rot in codebases**.
 
 Traditional tools catch syntax violations and stylistic inconsistencies. They operate on individual files with pattern-matching rules. They cannot answer questions like:
 

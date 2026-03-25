@@ -1,6 +1,6 @@
 # Pipeline Overview
 
-Anatoly executes an 8-phase pipeline that transforms a TypeScript codebase into a structured audit report. Each phase feeds its output into the next, and the pipeline supports resumability through persistent progress tracking.
+Anatoly executes an 8-phase pipeline that transforms a codebase into a structured audit report. Each phase feeds its output into the next, and the pipeline supports resumability through persistent progress tracking.
 
 ## The 8 Phases
 
