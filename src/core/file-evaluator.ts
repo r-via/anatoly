@@ -7,6 +7,7 @@ import { resolve, basename, dirname, extname } from 'node:path';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
+import { isRateLimitStandbyError } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
@@ -248,6 +249,19 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }
     transcriptParts.push(chunk);
     opts.onTranscriptChunk?.(chunk + '\n---\n\n');
+  }
+
+  // If ALL axes failed and at least one is a tier-level rate limit, propagate it
+  // so the outer retryWithBackoff can enter standby mode instead of marking the
+  // file as degraded.
+  if (successResults.length === 0 && failedAxes.length > 0) {
+    const standbyErr = settledResults
+      .filter((s): s is PromiseRejectedResult => s.status === 'rejected')
+      .map((s) => s.reason)
+      .find(isRateLimitStandbyError);
+    if (standbyErr) {
+      throw standbyErr;
+    }
   }
 
   // Extract best_practices and docs_coverage data from dedicated evaluators

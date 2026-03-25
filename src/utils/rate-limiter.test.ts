@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi } from 'vitest';
-import { retryWithBackoff, isRateLimitError, calculateBackoff } from './rate-limiter.js';
+import { retryWithBackoff, isRateLimitError, calculateBackoff, RateLimitStandbyError, isRateLimitStandbyError } from './rate-limiter.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
 
 describe('isRateLimitError', () => {
@@ -142,5 +142,82 @@ describe('retryWithBackoff', () => {
     ).rejects.toThrow('some error');
 
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should sleep until resetsAt + 5min on RateLimitStandbyError then retry', async () => {
+    // Reset time is 100ms from now (+ 5 min margin will be applied internally)
+    const resetsAtMs = Date.now() + 100;
+    const standbyErr = new RateLimitStandbyError(resetsAtMs);
+
+    const fn = vi.fn()
+      .mockRejectedValueOnce(standbyErr)
+      .mockResolvedValue('recovered');
+
+    const onStandby = vi.fn();
+
+    // Use fake timers to avoid actually waiting 5 minutes
+    vi.useFakeTimers();
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 5,
+      baseDelayMs: 10,
+      maxDelayMs: 100,
+      jitterFactor: 0,
+      filePath: 'test.ts',
+      onStandby,
+    });
+
+    // Advance past the standby wait (resetsAt + 5 min margin)
+    await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+
+    const result = await promise;
+    expect(result).toBe('recovered');
+    expect(onStandby).toHaveBeenCalledWith(resetsAtMs, 'test.ts');
+    expect(fn).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it('should abort standby sleep when interrupted', async () => {
+    const resetsAtMs = Date.now() + 10 * 60 * 1000; // 10 min from now
+    const standbyErr = new RateLimitStandbyError(resetsAtMs);
+
+    let interrupted = false;
+    const fn = vi.fn().mockRejectedValue(standbyErr);
+
+    vi.useFakeTimers();
+    const promise = retryWithBackoff(fn, {
+      maxRetries: 5,
+      baseDelayMs: 10,
+      maxDelayMs: 100,
+      jitterFactor: 0,
+      filePath: 'test.ts',
+      isInterrupted: () => interrupted,
+    }).catch((e) => e); // Catch so the rejection doesn't leak
+
+    // Simulate interrupt after 1 second
+    await vi.advanceTimersByTimeAsync(1000);
+    interrupted = true;
+    await vi.advanceTimersByTimeAsync(500);
+
+    const result = await promise;
+    expect(result).toBeInstanceOf(RateLimitStandbyError);
+
+    vi.useRealTimers();
+  });
+});
+
+describe('RateLimitStandbyError', () => {
+  it('should carry the resetsAtMs timestamp', () => {
+    const ts = Date.now() + 3600_000;
+    const err = new RateLimitStandbyError(ts);
+    expect(err.resetsAtMs).toBe(ts);
+    expect(err.code).toBe('SDK_ERROR');
+    expect(err.recoverable).toBe(true);
+  });
+
+  it('should be detected by isRateLimitStandbyError', () => {
+    const err = new RateLimitStandbyError(Date.now());
+    expect(isRateLimitStandbyError(err)).toBe(true);
+    expect(isRateLimitStandbyError(new Error('nope'))).toBe(false);
   });
 });

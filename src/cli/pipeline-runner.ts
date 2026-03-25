@@ -32,7 +32,7 @@ import type { Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
-import { retryWithBackoff } from '../utils/rate-limiter.js';
+import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 // --- Public interfaces ---
@@ -251,8 +251,18 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
 
         let resultText = '';
         let costUsd = 0;
+        let rateLimitResetsAt: number | undefined;
 
         for await (const message of q) {
+          // Detect tier-level rate limit event
+          if (message.type === 'rate_limit_event') {
+            const info = (message as Record<string, unknown>).rate_limit_info as
+              { status?: string; resetsAt?: number } | undefined;
+            if (info?.status === 'rejected' && typeof info.resetsAt === 'number') {
+              rateLimitResetsAt = info.resetsAt * 1000;
+            }
+          }
+
           if (message.type === 'result') {
             if (message.subtype === 'success') {
               resultText = (message as { result: string }).result;
@@ -262,6 +272,11 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
             }
           }
+        }
+
+        // Tier-level rate limit: SDK returned "success" with rate limit text
+        if (rateLimitResetsAt != null && costUsd === 0) {
+          throw new RateLimitStandbyError(rateLimitResetsAt);
         }
 
         if (!resultText) {
@@ -278,6 +293,11 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
         filePath: 'doc-executor',
         onRetry: (attempt, delayMs) => {
           console.log(`  rate limited — retry ${attempt}/5 in ${(delayMs / 1000).toFixed(0)}s`);
+        },
+        onStandby: (resetsAtMs) => {
+          const MARGIN_MS = 5 * 60 * 1000;
+          const resumeStr = new Date(resetsAtMs + MARGIN_MS).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          console.log(`  sleeping until ${resumeStr} (rate limit)`);
         },
       },
     );

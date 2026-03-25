@@ -5,6 +5,43 @@
 import { AnatolyError, ERROR_CODES } from './errors.js';
 import { contextLogger } from './log-context.js';
 
+// ---------------------------------------------------------------------------
+// Rate-limit standby error
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when the SDK emits a `rate_limit_event` with `status === 'rejected'`.
+ * Carries the reset timestamp so callers can sleep until the limit lifts.
+ */
+export class RateLimitStandbyError extends AnatolyError {
+  /** Unix-epoch milliseconds when the rate limit resets. */
+  public readonly resetsAtMs: number;
+
+  constructor(resetsAtMs: number) {
+    const resetsDate = new Date(resetsAtMs);
+    const timeStr = resetsDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    super(
+      `Rate limit rejected — resets at ${timeStr}`,
+      ERROR_CODES.SDK_ERROR,
+      true,
+      'sleeping until rate limit expires, then retrying automatically',
+    );
+    this.resetsAtMs = resetsAtMs;
+  }
+}
+
+/**
+ * Check whether an error is a {@link RateLimitStandbyError} (tier-level rate
+ * limit with a known reset time).
+ */
+export function isRateLimitStandbyError(error: unknown): error is RateLimitStandbyError {
+  return error instanceof RateLimitStandbyError;
+}
+
+// ---------------------------------------------------------------------------
+// Retry options
+// ---------------------------------------------------------------------------
+
 export interface RetryWithBackoffOptions {
   /** Maximum number of retries on rate limit errors. */
   maxRetries: number;
@@ -16,6 +53,8 @@ export interface RetryWithBackoffOptions {
   jitterFactor: number;
   /** Optional callback for logging retry messages. */
   onRetry?: (attempt: number, delayMs: number, filePath: string) => void;
+  /** Called when entering standby mode (tier-level rate limit with known reset time). */
+  onStandby?: (resetsAtMs: number, filePath: string) => void;
   /** File path for error messages. */
   filePath: string;
   /** Called to check whether to abort retries early (e.g. SIGINT). */
@@ -23,14 +62,16 @@ export interface RetryWithBackoffOptions {
 }
 
 /**
- * Check if an error is retryable (rate limit 429, overloaded 529, or server 500/503).
+ * Check if an error is retryable: rate limit 429, overloaded 529, server
+ * 500/503, or a Claude Code subprocess crash ("exited with code").
  * The Anthropic SDK wraps these in various ways.
  */
 export function isRateLimitError(error: unknown): boolean {
   const check = (msg: string): boolean =>
     msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit')
     || msg.includes('529') || msg.includes('overloaded')
-    || msg.includes('500') || msg.includes('503');
+    || msg.includes('500') || msg.includes('503')
+    || msg.includes('exited with code');
 
   if (error instanceof AnatolyError && (error.code === 'SDK_ERROR')) {
     return check(error.message.toLowerCase());
@@ -57,15 +98,22 @@ export function calculateBackoff(
   return Math.round(clampedDelay * jitter);
 }
 
+/** Extra margin added after the reset time before retrying (5 minutes). */
+const STANDBY_MARGIN_MS = 5 * 60 * 1000;
+
 /**
  * Execute an async function with automatic retry on rate limit (429) errors.
  * Uses exponential backoff with jitter.
+ *
+ * When a {@link RateLimitStandbyError} is caught (tier-level rate limit with a
+ * known reset time), the function sleeps until `resetsAt + 5 min` and then
+ * retries — the attempt counter is reset so normal retries remain available.
  */
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
   options: RetryWithBackoffOptions,
 ): Promise<T> {
-  const { maxRetries, baseDelayMs, maxDelayMs, jitterFactor, onRetry, filePath, isInterrupted } = options;
+  const { maxRetries, baseDelayMs, maxDelayMs, jitterFactor, onRetry, onStandby, filePath, isInterrupted } = options;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -73,6 +121,28 @@ export async function retryWithBackoff<T>(
     } catch (error) {
       // If interrupted, stop retrying immediately
       if (isInterrupted?.()) throw error;
+
+      // --- Tier-level rate limit with known reset time ---
+      if (isRateLimitStandbyError(error)) {
+        const waitMs = Math.max(0, error.resetsAtMs + STANDBY_MARGIN_MS - Date.now());
+        const resumeDate = new Date(error.resetsAtMs + STANDBY_MARGIN_MS);
+        const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        contextLogger().info(
+          { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr },
+          'rate limit standby — sleeping until reset',
+        );
+        onStandby?.(error.resetsAtMs, filePath);
+
+        if (waitMs > 0) {
+          await sleep(waitMs, isInterrupted);
+        }
+        if (isInterrupted?.()) throw error;
+
+        // Reset attempt counter — this is a legitimate pause, not a failure
+        attempt = -1;
+        continue;
+      }
 
       if (!isRateLimitError(error) || attempt === maxRetries) {
         // Not a rate limit error or exhausted retries

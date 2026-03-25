@@ -719,36 +719,51 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
   ctx.pipelineState?.startTask(taskId, startDetail);
 
   let completed = 0;
-  const executor: DocExecutor = async ({ system, user, model }) => {
-    const q = query({
-      prompt: user,
-      options: {
-        systemPrompt: system,
-        model,
-        cwd: ctx.projectRoot,
-        allowedTools: [],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        abortController: ac,
-      },
-    });
+  const executor: DocExecutor = ({ system, user, model }) => {
+    return retryWithBackoff(
+      async () => {
+        const q = query({
+          prompt: user,
+          options: {
+            systemPrompt: system,
+            model,
+            cwd: ctx.projectRoot,
+            allowedTools: [],
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+            abortController: ac,
+          },
+        });
 
-    let resultText = '';
-    let costUsd = 0;
+        let resultText = '';
+        let costUsd = 0;
 
-    for await (const message of q) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          resultText = (message as { result: string }).result;
-          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-        } else {
-          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-          throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+        for await (const message of q) {
+          if (message.type === 'result') {
+            if (message.subtype === 'success') {
+              resultText = (message as { result: string }).result;
+              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+            } else {
+              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+            }
+          }
         }
-      }
-    }
 
-    return { text: resultText, costUsd };
+        return { text: resultText, costUsd };
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 5_000,
+        maxDelayMs: 60_000,
+        jitterFactor: 0.2,
+        filePath: 'doc-gen',
+        isInterrupted: () => ctx.interrupted,
+        onRetry: (attempt, delayMs) => {
+          log.warn({ attempt, delayMs }, 'doc generation retrying');
+        },
+      },
+    );
   };
 
   try {
@@ -1264,6 +1279,13 @@ async function runReviewPhase(
               rl?.info({ event: 'retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
               const delaySec = (delayMs / 1000).toFixed(0);
               state.setRetryMessage(filePath, `retry ${delaySec}s (${attempt}/5)`);
+            },
+            onStandby: (resetsAtMs) => {
+              const MARGIN_MS = 5 * 60 * 1000;
+              const resumeDate = new Date(resetsAtMs + MARGIN_MS);
+              const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              rl?.info({ event: 'standby', file: filePath, resetsAt: resetsAtMs, resumeAt: resumeStr }, 'sleeping until rate limit expired');
+              state.setRetryMessage(filePath, `sleeping until ${resumeStr} (rate limit)`);
             },
           },
         );

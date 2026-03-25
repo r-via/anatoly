@@ -17,6 +17,7 @@ import { resolveSystemPrompt } from './prompt-resolver.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
+import { RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { contextLogger } from '../utils/log-context.js';
 import type { Semaphore } from './sdk-semaphore.js';
 
@@ -434,9 +435,22 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
   let cacheCreationTokens = 0;
   let sessionId = '';
 
+  /** Tracks the latest rate_limit_event reset time (epoch ms) seen during this query. */
+  let rateLimitResetsAt: number | undefined;
+
   try {
     for await (const message of q) {
       transcriptLines.push(formatMessage(message));
+
+      // --- Detect tier-level rate limit (SDK emits before the result) ---
+      if (message.type === 'rate_limit_event') {
+        const info = (message as Record<string, unknown>).rate_limit_info as
+          { status?: string; resetsAt?: number } | undefined;
+        if (info?.status === 'rejected' && typeof info.resetsAt === 'number') {
+          // resetsAt is a unix timestamp in seconds from the SDK
+          rateLimitResetsAt = info.resetsAt * 1000;
+        }
+      }
 
       // Stream assistant response to conversation dump for crash-safety
       if (convPath && message.type === 'assistant') {
@@ -519,6 +533,14 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
       ERROR_CODES.SDK_ERROR,
       true,
     );
+  }
+
+  // Guard: tier-level rate limit was detected during the stream.
+  // The SDK returns a "success" result with the rate-limit message as text
+  // (e.g. "You've hit your limit · resets 5pm") and $0 cost. Throw a
+  // RateLimitStandbyError so the outer retry loop can sleep until reset.
+  if (rateLimitResetsAt != null && costUsd === 0) {
+    throw new RateLimitStandbyError(rateLimitResetsAt);
   }
 
   // Guard: SDK completed without yielding a result message
