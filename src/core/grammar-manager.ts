@@ -33,6 +33,14 @@ export interface GrammarStats {
   downloaded: string[];
 }
 
+/**
+ * Handle for resolving tree-sitter WASM grammars by language identifier.
+ *
+ * Use {@link createGrammarManager} to obtain an instance. The `resolve` method
+ * returns the absolute filesystem path to the cached `.wasm` file, downloading
+ * it on first access, or `null` if the language is not in the registry or the
+ * download fails.
+ */
 export interface GrammarManager {
   resolve(languageId: string): Promise<string | null>;
   stats(): GrammarStats;
@@ -67,6 +75,20 @@ function loadManifest(path: string): Record<string, ManifestEntry> {
 
 // --- Public API ---
 
+/**
+ * Creates a {@link GrammarManager} that lazily downloads and caches tree-sitter
+ * WASM grammars under `<projectRoot>/.anatoly/grammars/`.
+ *
+ * On first call to `resolve(languageId)`, the grammar is fetched from the
+ * jsdelivr CDN and written to disk alongside an integrity manifest. Subsequent
+ * calls return the cached path without a network request.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param fetcher - Optional HTTP fetcher function used to download WASM files.
+ *   Defaults to Node's global `fetch()`. Inject a custom implementation for
+ *   testing or to route through a proxy.
+ * @returns A {@link GrammarManager} instance with `resolve` and `stats` methods.
+ */
 export function createGrammarManager(
   projectRoot: string,
   fetcher?: (url: string) => Promise<Buffer | null>,

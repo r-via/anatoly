@@ -149,6 +149,19 @@ function getNlpEmbedder(): Promise<any> {
 
 const MAX_GGUF_CHARS = 8000;
 
+/**
+ * Embed a single text via a GGUF llama.cpp Docker container's HTTP API.
+ *
+ * Truncates input to {@link MAX_GGUF_CHARS} to avoid OOM in the container.
+ * Retries on transient failures with a 2-second backoff between attempts.
+ * Handles multiple llama.cpp response formats (nested array, flat array,
+ * and legacy `results` wrapper).
+ *
+ * @param text - The text to embed.
+ * @param port - Host port of the running llama.cpp container.
+ * @param retries - Number of retry attempts on failure (default: 2).
+ * @returns The embedding vector as a number array.
+ */
 async function embedViaGguf(text: string, port: number, retries = 2): Promise<number[]> {
   // Truncate to avoid OOM in llama.cpp container
   if (text.length > MAX_GGUF_CHARS) {

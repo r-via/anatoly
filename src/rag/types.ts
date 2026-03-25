@@ -4,6 +4,13 @@
 
 import { z } from 'zod';
 
+/**
+ * Zod enum schema classifying a function's runtime behaviour for the RAG
+ * index.  Values: `pure` (no side effects, deterministic), `sideEffectful`
+ * (I/O or external mutations), `async` (returns a promise), `memoized`
+ * (caches results), `stateful` (maintains internal state across calls),
+ * `utility` (generic helper without domain logic).
+ */
 export const BehavioralProfileSchema = z.enum([
   'pure',
   'sideEffectful',
@@ -13,6 +20,15 @@ export const BehavioralProfileSchema = z.enum([
   'utility',
 ]);
 
+/**
+ * Zod object schema defining the canonical shape of a function card stored
+ * in the RAG index.  Each card captures a function's identity, signature,
+ * and analysis metadata.  Notable constraints: `summary` and `docSummary`
+ * are capped at 400 characters; `complexityScore` is an integer from 1 to 5;
+ * `lastIndexed` must be an ISO-8601 datetime string.  `summary` is the
+ * LLM-generated behavioural summary while `docSummary` is extracted from
+ * existing JSDoc or inline documentation.
+ */
 export const FunctionCardSchema = z.object({
   id: z.string(),
   filePath: z.string(),

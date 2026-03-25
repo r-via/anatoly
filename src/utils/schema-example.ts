@@ -51,6 +51,19 @@ const DEFAULT_STRING = 'example text value';
 // generateSchemaExample — produce a minimal valid example from a Zod schema
 // ---------------------------------------------------------------------------
 
+/**
+ * Produce a minimal valid example value from a Zod schema by recursively
+ * walking the schema tree.  String fields are given contextual defaults when
+ * {@link hint} matches an entry in the internal `STRING_HINTS` table (e.g.
+ * `"file"` yields `"src/example.ts"`).  Numeric fields honour `greater_than`
+ * / `less_than` checks and pick a value at 85 % of the range; safe-integers
+ * are rounded.  Enum fields return the first declared value.
+ *
+ * @param schema - The Zod schema to generate an example for.
+ * @param hint   - Optional field-name hint used to select a contextual string
+ *                 default (ignored for non-string schemas).
+ * @returns A plain JS value that satisfies {@link schema}.
+ */
 export function generateSchemaExample(schema: z.ZodType, hint?: string): unknown {
   const def = getDef(schema);
 
@@ -119,6 +132,16 @@ interface EnumAnnotation {
   allValues: string[];
 }
 
+/**
+ * Recursively traverse a Zod schema and collect every enum annotation
+ * (first declared value plus the full value list).  A `seen` set prevents
+ * infinite loops when the schema contains cycles.
+ *
+ * @param schema - Root Zod schema to traverse.
+ * @param seen   - Accumulator of already-visited schema nodes (used
+ *                 internally for cycle detection).
+ * @returns Array of {@link EnumAnnotation} objects found in the tree.
+ */
 function collectEnums(schema: z.ZodType, seen = new Set<z.ZodType>()): EnumAnnotation[] {
   if (seen.has(schema)) return [];
   seen.add(schema);
@@ -165,6 +188,16 @@ function collectEnums(schema: z.ZodType, seen = new Set<z.ZodType>()): EnumAnnot
 // formatSchemaExample — JSON string with inline enum comments
 // ---------------------------------------------------------------------------
 
+/**
+ * Generate a pretty-printed JSON example from a Zod schema with inline
+ * comments listing every allowed enum value.  Enum values that share the
+ * same first entry are deduplicated so that only the first occurrence is
+ * annotated.
+ *
+ * @param schema - The Zod schema to format.
+ * @returns A JSON string with `// value1 | value2 | ...` comments appended
+ *          to lines containing enum values.
+ */
 export function formatSchemaExample(schema: z.ZodType): string {
   const example = generateSchemaExample(schema);
   const enums = collectEnums(schema);

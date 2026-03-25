@@ -31,6 +31,15 @@ if ('NO_COLOR' in process.env) {
   chalk.level = 0;
 }
 
+/**
+ * Create and configure the Anatoly CLI program.
+ *
+ * Builds a Commander instance with all global options, registers a `preAction`
+ * hook that initializes the logger (validating `--log-level`, resolving
+ * verbosity), and registers all subcommands (scan, review, report, run, etc.).
+ *
+ * @returns Fully configured Commander program ready to be parsed.
+ */
 export function createProgram(): Command {
   const program = new Command()
     .name('anatoly')

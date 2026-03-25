@@ -41,18 +41,25 @@ export const AxesConfigSchema = z.object({
   documentation: AxisConfigSchema.default({ enabled: true }),
 });
 
+/** LLM configuration controlling model selection, parallelism, and review behaviour. */
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   index_model: z.string().default('claude-haiku-4-5-20251001'),
   fast_model: z.string().optional(),
+  /** Enable agentic tool use (file read, grep, glob) during LLM review passes. */
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(600),
   max_retries: z.int().min(1).max(10).default(3),
+  /** Maximum number of files reviewed in parallel. */
   concurrency: z.int().min(1).max(10).default(4),
+  /** Maximum concurrent Anthropic SDK requests across all files. */
   sdk_concurrency: z.int().min(1).max(32).default(24),
   min_confidence: z.int().min(0).max(100).default(70),
+  /** Maximum agentic iterations before the reviewer must produce a final verdict. */
   max_stop_iterations: z.int().min(1).max(10).default(3),
+  /** Enable a second-pass deliberation review to reclassify borderline findings. */
   deliberation: z.boolean().default(true),
+  /** Model used for the deliberation (second-pass) review. */
   deliberation_model: z.string().default('claude-opus-4-6'),
   axes: AxesConfigSchema.default({
     utility: { enabled: true },
@@ -77,6 +84,7 @@ export const RagConfigSchema = z.object({
 
 export const BadgeConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  /** When true, display the pass/fail verdict label (e.g. CLEAN / NEEDS_REFACTOR) on the badge. */
   verdict: z.boolean().default(false),
   link: z.string().url().default('https://github.com/r-via/anatoly'),
 });
@@ -89,6 +97,7 @@ export const LoggingConfigSchema = z.object({
 
 export const DocumentationConfigSchema = z.object({
   docs_path: z.string().default('docs'),
+  /** Map from doc page name (key) to source module globs (values) that the page covers. */
   module_mapping: z.record(z.string(), z.array(z.string())).optional(),
 });
 

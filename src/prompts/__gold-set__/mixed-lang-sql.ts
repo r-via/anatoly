@@ -18,6 +18,11 @@ interface PaginatedResult<T> {
   pageSize: number;
 }
 
+/**
+ * Retrieves all active users from the database, ordered alphabetically by name.
+ * @param db - The better-sqlite3 database connection.
+ * @returns An array of active {@link User} objects sorted by name ascending.
+ */
 export function getActiveUsers(db: Database): User[] {
   const stmt: Statement = db.prepare(`
     SELECT id, name, email, active
@@ -37,6 +42,17 @@ export function getUserById(db: Database, id: number): User | undefined {
   return stmt.get(id) as User | undefined;
 }
 
+/**
+ * Searches users by name or email using a LIKE pattern match and returns
+ * paginated results. Pages are 1-indexed.
+ * @param db - The better-sqlite3 database connection.
+ * @param query - The search term; matched against both `name` and `email` with
+ *   a surrounding `%` wildcard (i.e. `LIKE '%query%'`).
+ * @param page - The 1-indexed page number to retrieve.
+ * @param pageSize - The maximum number of results per page.
+ * @returns A {@link PaginatedResult} containing the matching users (sorted by
+ *   name ascending) and the total count of all matching rows.
+ */
 export function searchUsers(
   db: Database,
   query: string,
@@ -64,6 +80,13 @@ export function searchUsers(
   return { data, total, page, pageSize };
 }
 
+/**
+ * Inserts a new user into the database with `active` set to `1`.
+ * @param db - The better-sqlite3 database connection.
+ * @param name - The user's display name.
+ * @param email - The user's email address.
+ * @returns The numeric primary key (row ID) of the newly inserted user.
+ */
 export function insertUser(db: Database, name: string, email: string): number {
   const stmt: Statement = db.prepare(`
     INSERT INTO users (name, email, active)
@@ -73,6 +96,14 @@ export function insertUser(db: Database, name: string, email: string): number {
   return Number(result.lastInsertRowid);
 }
 
+/**
+ * Soft-deletes a user by setting their `active` flag to `0`. Only affects
+ * users that are currently active.
+ * @param db - The better-sqlite3 database connection.
+ * @param id - The primary key of the user to deactivate.
+ * @returns `true` if a row was updated (user existed and was active), `false`
+ *   if the user was not found or was already inactive.
+ */
 export function deactivateUser(db: Database, id: number): boolean {
   const stmt: Statement = db.prepare(`
     UPDATE users
@@ -83,6 +114,14 @@ export function deactivateUser(db: Database, id: number): boolean {
   return result.changes > 0;
 }
 
+/**
+ * Permanently deletes inactive users whose `updated_at` timestamp is older
+ * than the specified number of days.
+ * @param db - The better-sqlite3 database connection.
+ * @param olderThanDays - The age threshold in days; inactive users with an
+ *   `updated_at` earlier than `now - olderThanDays` are deleted.
+ * @returns The number of rows deleted.
+ */
 export function deleteInactiveUsers(db: Database, olderThanDays: number): number {
   const stmt: Statement = db.prepare(`
     DELETE FROM users

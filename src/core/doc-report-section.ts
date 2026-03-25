@@ -13,6 +13,13 @@
 
 // --- Public interfaces ---
 
+/**
+ * Symbol-level documentation coverage metrics for the audit report.
+ *
+ * Distinguishes between project docs (`docs/`) and internal reference
+ * docs (`.anatoly/docs/`) to show how much of the public API surface
+ * is documented in each location.
+ */
 export interface SymbolCoverage {
   projectDocumented: number;
   internalDocumented: number;

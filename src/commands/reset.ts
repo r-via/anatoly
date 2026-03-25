@@ -62,6 +62,7 @@ function countResetItems(anatolyDir: string, keepRag: boolean, keepDocs: boolean
   return { dirs, files, total: dirs.length + files.length };
 }
 
+/** Registers the `reset` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerResetCommand(program: Command): void {
   program
     .command('reset')

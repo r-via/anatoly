@@ -50,6 +50,15 @@ function removeContainer(name: string): void {
   }
 }
 
+/**
+ * Start a detached Docker container running llama.cpp in embedding-serving
+ * mode with GPU pass-through (`--gpus all`, `--embedding`, `--pooling last`).
+ * Any previous container with the same name is force-removed first.
+ *
+ * @param name - Docker container name (used for identification and cleanup).
+ * @param modelFile - GGUF model filename relative to the mounted models directory.
+ * @param hostPort - Host port mapped to the container's internal port 8080.
+ */
 function runContainer(name: string, modelFile: string, hostPort: number): void {
   removeContainer(name);
 
@@ -70,6 +79,17 @@ function runContainer(name: string, modelFile: string, hostPort: number): void {
   execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
 }
 
+/**
+ * Poll a container's `/health` endpoint until it responds with HTTP 200 or
+ * the overall timeout expires. Each individual fetch is aborted after 2 s to
+ * avoid hanging on an unresponsive server, while the outer loop retries every
+ * 1 s up to `timeoutMs` total elapsed time.
+ *
+ * @param port - Host port to poll (http://127.0.0.1:{port}/health).
+ * @param timeoutMs - Maximum wall-clock time (ms) to wait before giving up.
+ * @param onProgress - Optional callback invoked each second with elapsed seconds.
+ * @returns `true` if the container became healthy, `false` if the timeout was reached.
+ */
 async function waitForContainer(
   port: number,
   timeoutMs: number,
@@ -164,6 +184,11 @@ export function activePort(): number {
 /**
  * Validate prerequisites for GGUF containers (model files, Docker daemon).
  * Starts the code model by default so the first embedCode() call is instant.
+ *
+ * @param projectRoot - Project root path (reserved for future per-project config).
+ * @param onLog - Optional callback for status/error messages during startup.
+ * @param onProgress - Optional callback invoked with elapsed seconds while waiting for readiness.
+ * @returns `true` if the code-model container started and became healthy, `false` on any failure.
  */
 export async function startGgufContainers(
   projectRoot: string,

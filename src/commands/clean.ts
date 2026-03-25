@@ -37,6 +37,11 @@ const EFFORT_SET = new Set(['trivial', 'small', 'large']);
 /**
  * Parse unchecked checkboxes from a shard (or index) report file.
  * Returns only unchecked `- [ ]` actions with valid ACT-IDs.
+ *
+ * @param content - Raw Markdown content of a shard report file containing
+ *   checkbox action lines (e.g. `- [ ] <!-- ACT-xxx --> ...`).
+ * @returns An array of {@link CleanItem} objects, one per unchecked action
+ *   that has a valid ACT-ID, severity, source file, and description.
  */
 export function parseUncheckedActions(content: string): CleanItem[] {
   const items: CleanItem[] = [];
@@ -240,6 +245,15 @@ When all stories in prd.json have \`"passes": true\`, output exactly:
 `;
 }
 
+/**
+ * Registers the `clean` CLI sub-command on the given Commander program.
+ *
+ * The sub-command generates Ralph remediation artifacts (prd.json, CLAUDE.md,
+ * progress.txt) from unchecked axis findings. Accepts a single axis name or
+ * `"all"` to aggregate findings across every axis.
+ *
+ * @param program - The root Commander {@link Command} instance to attach the sub-command to.
+ */
 export function registerCleanCommand(program: Command): void {
   program
     .command('clean <axis>')

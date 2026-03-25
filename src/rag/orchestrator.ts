@@ -18,10 +18,22 @@ import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections } from './doc-indexer.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
 
+/**
+ * RAG indexing mode. Determines the LanceDB table name and cache file suffix
+ * used for vector storage. `'lite'` uses lightweight code-only embeddings;
+ * `'advanced'` adds NLP summaries and hybrid search capabilities.
+ */
 export type RagMode = 'lite' | 'advanced';
 
+/**
+ * Configuration options for the RAG indexing pipeline. Controls which files
+ * are indexed, how embeddings are generated, and provides lifecycle callbacks
+ * for progress reporting and interruption.
+ */
 export interface RagIndexOptions {
+  /** Absolute path to the project root directory. All task file paths are resolved relative to this. */
   projectRoot: string;
+  /** AST-parsed task descriptors for each source file to index. */
   tasks: Task[];
   /** Model used for NLP summary generation (required — always dual). */
   indexModel: string;
@@ -31,15 +43,23 @@ export interface RagIndexOptions {
   ragMode?: RagMode;
   /** Directory containing markdown docs for doc section indexing (default: 'docs'). */
   docsDir?: string;
+  /** When true, drops and rebuilds the LanceDB table and purges index caches. */
   rebuild?: boolean;
+  /** Maximum number of files to process in parallel (default: 4). */
   concurrency?: number;
+  /** Enable verbose logging output. */
   verbose?: boolean;
+  /** Callback invoked for each log message during indexing. */
   onLog: (message: string) => void;
+  /** Callback reporting indexing progress as (current, total) file counts. */
   onProgress?: (current: number, total: number) => void;
+  /** Callback invoked when a file begins processing. */
   onFileStart?: (file: string) => void;
+  /** Callback invoked when a file finishes processing. */
   onFileDone?: (file: string) => void;
   /** Called when indexing transitions between phases. */
   onPhase?: (phase: 'code' | 'nlp' | 'upsert' | 'doc-project' | 'doc-internal') => void;
+  /** Returns true if the indexing run should be aborted (checked between files). */
   isInterrupted: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
@@ -47,11 +67,21 @@ export interface RagIndexOptions {
   semaphore?: Semaphore;
 }
 
+/**
+ * Summary statistics returned after a RAG indexing run. The `*Indexed` counters
+ * reflect how many items were newly processed in this run, while the `total*`
+ * counters reflect the cumulative state of the vector store after indexing.
+ */
 export interface RagIndexResult {
+  /** The initialized vector store instance (ready for queries after indexing). */
   vectorStore: VectorStore;
+  /** Number of function cards newly indexed in this run. */
   cardsIndexed: number;
+  /** Number of source files that had cards indexed in this run. */
   filesIndexed: number;
+  /** Total function cards in the vector store after indexing (including previously cached). */
   totalCards: number;
+  /** Total source files represented in the vector store after indexing. */
   totalFiles: number;
   /** Total doc sections indexed (project + internal). */
   docSectionsIndexed: number;
@@ -81,6 +111,16 @@ export interface IndexedFileResult {
 
 /**
  * Read source and build cards + code embeddings for a single file.
+ * Filters the task's symbols to function/method/hook kinds, reads the source
+ * from disk, builds function cards, and kicks off code embedding generation.
+ *
+ * @param projectRoot - Absolute path to the project root for resolving file paths.
+ * @param task - AST-parsed task descriptor for the file to process.
+ * @param cache - RAG index cache mapping card IDs to file hashes; cards already
+ *   cached with the current hash are skipped.
+ * @returns The source text, cards needing indexing, and a promise for their code
+ *   embeddings, or `null` if no functions need indexing (no function symbols,
+ *   file unreadable, or all cards already cached).
  */
 function readAndBuildCards(
   projectRoot: string,
@@ -116,6 +156,22 @@ function readAndBuildCards(
 /**
  * Process a single file for RAG indexing: build cards from AST, embed code
  * locally, generate NLP summaries via LLM, and embed the NLP text.
+ *
+ * @param projectRoot - Absolute path to the project root for resolving file paths.
+ * @param task - AST-parsed task descriptor for the file to process.
+ * @param cache - RAG index cache mapping card IDs to file hashes; used to skip
+ *   cards that are already up-to-date.
+ * @param indexModel - LLM model identifier used for NLP summary generation.
+ * @param nlpSummaryCache - Pre-loaded NLP summary cache; entries whose body hash
+ *   matches are reused without an LLM call.
+ * @param deferNlpEmbeddings - When true, skips NLP embedding generation and only
+ *   enriches cards with summaries. Used during the code phase so NLP embeddings
+ *   can be batched later to avoid GGUF container swaps.
+ * @param conversationDir - Full path to the conversations directory for LLM
+ *   conversation dumps (optional).
+ * @param semaphore - Global SDK concurrency semaphore to limit parallel LLM calls.
+ * @returns An {@link IndexedFileResult} containing the processed cards and their
+ *   embeddings. Returns an empty-cards result if no functions need indexing.
  */
 export async function processFileForDualIndex(
   projectRoot: string,
@@ -206,16 +262,25 @@ export async function processFileForDualIndex(
   };
 }
 
-/**
- * Run the RAG indexing phase: build function cards from AST,
- * compute code embeddings locally, generate NLP summaries via LLM,
- * compute NLP embeddings for hybrid search, and upsert into the vector store.
- */
 /** Derive LanceDB table name and cache suffix from RAG mode. */
 export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffix: string } {
   return { tableName: `function_cards_${mode}`, cacheSuffix: mode };
 }
 
+/**
+ * Run the full RAG indexing pipeline: build function cards from AST, compute
+ * code embeddings locally, generate NLP summaries via LLM, compute NLP
+ * embeddings for hybrid search, and upsert everything into the vector store.
+ * Also indexes doc sections from project and internal documentation directories.
+ *
+ * Execution proceeds in phases: code embedding, NLP embedding (batched),
+ * vector store upsert, project doc indexing, and internal doc indexing.
+ * Stale entries for files no longer in the project are garbage-collected
+ * before indexing begins.
+ *
+ * @param options - Configuration controlling the indexing run. See {@link RagIndexOptions}.
+ * @returns Summary statistics for the completed indexing run. See {@link RagIndexResult}.
+ */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, onPhase, isInterrupted } = options;
   const effectiveMode = options.ragMode ?? 'lite';

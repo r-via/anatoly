@@ -11,6 +11,19 @@ const FLASH_DURATION_MS = 2000;
 const TASK_WIDTH = 70;
 const SEPARATOR = '\u2500'.repeat(TASK_WIDTH);
 
+/**
+ * Terminal UI renderer for the Anatoly pipeline.
+ *
+ * Operates in two modes:
+ * - **Fancy mode** (default): clears the screen, hides the cursor, and runs a
+ *   100 ms refresh loop that redraws the banner, task list, and in-flight file
+ *   status in-place using ANSI escape sequences.
+ * - **Plain mode** (`opts.plain = true`): all rendering is disabled; output is
+ *   emitted line-by-line via {@link logPlain}.
+ *
+ * Lifecycle: call {@link start} to begin rendering and {@link stop} to halt
+ * the refresh interval and restore the cursor.
+ */
 export class ScreenRenderer {
   private interval: ReturnType<typeof setInterval> | null = null;
   private spinFrame = 0;
@@ -23,6 +36,7 @@ export class ScreenRenderer {
     private opts: { plain: boolean } = { plain: false },
   ) {}
 
+  /** Clear the screen, print the banner, and begin the 100 ms refresh loop (no-op in plain mode). */
   start(): void {
     if (this.opts.plain) return;
 
@@ -34,6 +48,7 @@ export class ScreenRenderer {
     this.interval = setInterval(() => this.render(), 100);
   }
 
+  /** Stop the refresh loop, perform a final render, and restore the cursor (no-op in plain mode). */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;

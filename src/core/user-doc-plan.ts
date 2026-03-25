@@ -47,6 +47,12 @@ export interface UserDocPlan {
 /**
  * Resolves the user's documentation plan from their existing docs/ pages.
  * Returns null if no pages exist (no docs/ directory).
+ *
+ * @param pages - Array of doc page entries discovered in the user's docs directory,
+ *                each containing a relative path and head content for classification.
+ * @param docsDir - Base directory name for user documentation (defaults to `"docs"`).
+ * @returns Classified plan with section mappings and page entries, or null if
+ *          no pages are provided.
  */
 export function resolveUserDocPlan(
   pages: DocPageEntry[],

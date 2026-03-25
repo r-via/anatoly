@@ -137,6 +137,13 @@ export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf';
 // but the type is kept for backwards-compatible config reads.
 // At runtime, only 'lite' and 'advanced-gguf' are active backends.
 
+/**
+ * Shape of the `.anatoly/embeddings-ready.json` flag file written by
+ * `setup-embeddings.sh` after successful embedding backend configuration.
+ *
+ * Read at runtime by {@link readEmbeddingsReadyFlag} to determine which
+ * embedding backend and models to use.
+ */
 export interface EmbeddingsReadyFlag {
   model?: string;
   dim?: number;

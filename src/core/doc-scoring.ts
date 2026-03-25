@@ -119,6 +119,15 @@ const TYPE_SECTIONS: Partial<Record<ProjectType, RegExp[]>> = {
   'Monorepo': [/package-overview|packages/i],
 };
 
+/**
+ * Compute the structural presence score by merging {@link BASE_REQUIRED}
+ * patterns with type-specific patterns from {@link TYPE_SECTIONS}, then
+ * counting how many required page patterns are matched by user doc pages.
+ *
+ * @param userDocPages - Relative paths of pages found in the user's docs/ directory.
+ * @param projectTypes - Detected project types used to add extra required section patterns.
+ * @returns Percentage (0-100) of required documentation sections present.
+ */
 function computeStructural(
   userDocPages: string[],
   projectTypes: ProjectType[],
@@ -164,6 +173,19 @@ interface Weights {
   navigation: number;
 }
 
+/**
+ * Compute per-dimension weight percentages adjusted by detected project types.
+ *
+ * Certain project types award bonus weight to the structural or API-coverage
+ * dimensions (e.g. Backend API / ORM / Frontend / Monorepo boost structural;
+ * Library boosts API coverage). The bonus is funded by proportionally reducing
+ * the smaller dimensions (moduleCoverage, contentQuality, navigation) so that
+ * total weights always sum to 100. A {@link Math.max} guard prevents the
+ * navigation weight from going negative when bonuses are large.
+ *
+ * @param types - Detected project types that drive weight adjustments.
+ * @returns A {@link Weights} object whose values sum to 100.
+ */
 function computeWeights(types: ProjectType[]): Weights {
   let structBonus = 0;
   let apiBonus = 0;

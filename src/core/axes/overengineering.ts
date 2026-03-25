@@ -17,6 +17,7 @@ const OverengineeringSymbolSchema = BaseSymbolSchema.extend({
   overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE']),
 });
 
+/** Zod schema validating the LLM response for the overengineering axis. */
 export const OverengineeringResponseSchema = z.object({
   symbols: z.array(OverengineeringSymbolSchema),
 });
@@ -31,6 +32,16 @@ export function buildOverengineeringSystemPrompt(): string {
   return resolveSystemPrompt('overengineering');
 }
 
+/**
+ * Builds the user-message prompt for the overengineering axis LLM call.
+ *
+ * Assembles file content, symbol list, installed dependencies (capped at 40),
+ * and project-tree structure with fragmentation-detection heuristics into a
+ * Markdown prompt.
+ *
+ * @param ctx Axis evaluation context with file content, symbols, dependencies, and project tree.
+ * @returns The assembled prompt string.
+ */
 export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -87,6 +98,12 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/**
+ * Axis evaluator for overengineering detection. Performs a semaphore-guarded
+ * LLM query to assess complexity and unnecessary abstraction per symbol,
+ * injecting correction-memory reclassifications when available. Defaults to
+ * `sonnet` model.
+ */
 export class OverengineeringEvaluator implements AxisEvaluator {
   readonly id = 'overengineering' as const;
   readonly defaultModel = 'sonnet' as const;

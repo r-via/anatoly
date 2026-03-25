@@ -88,7 +88,13 @@ async function loadLanguage(wasmModule: string): Promise<Language> {
 
 /**
  * Parse a source file and extract symbols using the appropriate language adapter.
- * Falls back to heuristic parsing for files with no registered adapter.
+ * Falls back to heuristic parsing for files with no registered adapter or
+ * when grammar loading fails (e.g. network offline).
+ *
+ * @param filePath - Relative file path used to determine the language adapter
+ *                   via its extension.
+ * @param source - Raw source code content of the file.
+ * @returns Array of extracted symbols; empty array if parsing fails entirely.
  */
 export async function parseFile(
   filePath: string,

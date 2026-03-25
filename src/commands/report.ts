@@ -13,6 +13,7 @@ import { openFile } from '../utils/open.js';
 import { verdictColor } from '../utils/format.js';
 import { isLockActive } from '../utils/lock.js';
 
+/** Registers the `report` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerReportCommand(program: Command): void {
   program
     .command('report')

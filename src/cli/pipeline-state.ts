@@ -28,6 +28,23 @@ export interface SummaryState {
 
 export type PipelinePhase = 'rag' | 'review' | 'summary';
 
+/**
+ * Shared mutable state bag for the review pipeline, consumed by the
+ * screen renderer to draw live progress.
+ *
+ * Owns three concerns:
+ * - **Task lifecycle** — tasks progress through pending -> active -> done.
+ *   `startTask` sets `_activeTaskId` as a side-effect so the renderer can
+ *   suppress the agents counter during upsert operations.
+ * - **Per-file axis progress** — `trackFile` / `markAxisDone` / `untrackFile`
+ *   track axis completion per file. `untrackFile` stamps `doneAt` instead of
+ *   deleting so the renderer can flash a brief completion highlight;
+ *   `reapDoneFiles` garbage-collects entries after the flash expires.
+ *   `markAxisDone` silently clears any pending `retryMsg`.
+ * - **Phase & summary** — `phase` reflects the current pipeline stage
+ *   (rag -> review -> summary) and `summary` holds the final output paths
+ *   and cost once the run completes.
+ */
 export class PipelineState {
   readonly tasks: TaskState[] = [];
   readonly activeFiles = new Map<string, FileState>();

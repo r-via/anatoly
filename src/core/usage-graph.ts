@@ -93,6 +93,19 @@ function resolveImportPath(
 
 /**
  * Extract import relationships from a single file's source code.
+ *
+ * Parses named, default, namespace, and re-export statements (including
+ * type-only variants) and resolves each specifier to a project-relative path.
+ * For namespace imports and star re-exports, `allExportsByFile` is used to
+ * expand the wildcard into individual symbol entries.
+ *
+ * @param source - Raw source code of the importing file.
+ * @param importerAbsPath - Absolute path of the importing file (used for specifier resolution).
+ * @param projectRoot - Absolute path to the project root (for computing relative paths).
+ * @param allExportsByFile - Map of project-relative file paths to their exported symbol names;
+ *   used to expand namespace (`import * as`) and star (`export *`) imports.
+ * @returns Array of resolved import edges, each containing the symbol name, source file,
+ *   importer file, and whether the import is type-only.
  */
 function extractImports(
   source: string,

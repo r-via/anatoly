@@ -35,14 +35,33 @@ export interface PagePrompt {
 // --- Main entry point ---
 
 /**
- * Builds the system + user prompt for LLM documentation generation.
- * Prompt content varies by page type (architecture, API reference, etc.).
+ * A neighboring documentation page used as cross-reference context during generation.
+ * Neighbors are sibling pages from the same documentation section whose existing content
+ * is included in the LLM prompt so the generated page can avoid duplication and maintain
+ * consistent cross-linking.
  */
 export interface DocNeighbor {
   path: string;
   content: string;
 }
 
+/**
+ * Builds the system + user prompt pair for LLM-based documentation generation of a single page.
+ *
+ * Assembles a page-type-aware system prompt (e.g. architecture, API reference) and a user
+ * message containing source context, project metadata, and optional cross-reference material.
+ * Returns a {@link PagePrompt} ready to be sent to the LLM.
+ *
+ * @param page - Metadata (path, title, description) for the documentation page to generate.
+ * @param pageContext - Extracted source context (file tree, exports, import graph) for the page.
+ * @param packageJson - Parsed package.json providing project name, version, scripts, and dependencies.
+ * @param options - Optional generation settings.
+ * @param options.model - LLM model identifier; defaults to {@link DEFAULT_MODEL} (`'sonnet'`).
+ * @param options.allPages - Full list of documentation page paths used to constrain cross-links.
+ * @param options.neighbors - Existing sibling pages whose content is included for cross-reference context.
+ * @param options.readme - Project README content included as high-level context (truncated to 100 lines).
+ * @returns A {@link PagePrompt} containing the page path, system prompt, user message, and model.
+ */
 export function buildPagePrompt(
   page: PageInfo,
   pageContext: PageContext,
@@ -209,6 +228,13 @@ function buildUserMessage(
   return parts.join('\n');
 }
 
+/**
+ * Formats a {@link SymbolContext} into a Markdown block for inclusion in the LLM user prompt.
+ *
+ * Produces a `### name (kind) - filePath` header followed by the symbol's JSDoc (if present),
+ * its TypeScript signature in a fenced code block, and optionally the first lines of its body
+ * in a separate fenced code block.
+ */
 function formatSymbol(sym: SymbolContext): string {
   const header = `\n### ${sym.name} (${sym.kind}) — ${sym.filePath}`;
   const parts: string[] = [header];

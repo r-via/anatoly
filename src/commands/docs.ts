@@ -169,6 +169,7 @@ async function runDocUpdate(
   }
 }
 
+/** Registers the `docs` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerDocsCommand(program: Command): void {
   const docs = program
     .command('docs')

@@ -32,18 +32,35 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Configuration for {@link evaluateFile} — bundles every input the
+ * file-level evaluation pipeline needs: source context, axis evaluators,
+ * optional RAG/dependency/deliberation features, and progress callbacks.
+ */
 export interface EvaluateFileOptions {
+  /** Absolute path to the project root. */
   projectRoot: string;
+  /** The scanned task describing the file and its symbols. */
   task: Task;
+  /** Resolved project configuration (model, axes, thresholds, etc.). */
   config: Config;
+  /** Axis evaluators to run in parallel against this file. */
   evaluators: AxisEvaluator[];
+  /** Controller used to abort in-flight LLM calls (e.g. on Ctrl+C). */
   abortController: AbortController;
+  /** Absolute path to the current run directory (for output artifacts). */
   runDir: string;
+  /** Cross-file usage graph for utility/dead-code analysis. */
   usageGraph?: UsageGraph;
+  /** Pre-built vector store for RAG similarity search. */
   vectorStore?: VectorStore;
+  /** Whether RAG-based duplicate detection is enabled. */
   ragEnabled?: boolean;
+  /** Resolved dependency metadata (package.json, lock files, etc.). */
   depMeta?: DependencyMeta;
+  /** ASCII tree of the project directory structure. */
   projectTree?: string;
+  /** When true (default), run an optional deliberation pass to reconcile conflicting axis scores. */
   deliberation?: boolean;
   /** ASCII tree of docs/ directory for documentation axis */
   docsTree?: string | null;
@@ -55,6 +72,7 @@ export interface EvaluateFileOptions {
   codeWeight?: number;
   /** Full path to conversations/ dir for LLM conversation dumps */
   conversationDir?: string;
+  /** Callback fired after each axis evaluator finishes (success or failure). */
   onAxisComplete?: (axisId: AxisId) => void;
   /** Stream transcript chunks to disk as each axis completes. */
   onTranscriptChunk?: (chunk: string) => void;
@@ -96,9 +114,14 @@ export interface EvaluateFileResult {
  * 1. Reads the file content once
  * 2. Pre-resolves RAG similarity (if enabled)
  * 3. Executes all evaluators concurrently via Promise.allSettled
- * 4. Extracts best_practices data if present
+ * 4. Extracts best_practices and docs_coverage data if present
  * 5. Merges results into a single ReviewFile v2
- * 6. Reports axis completion via callback
+ * 6. Optionally runs a deliberation pass to reconcile conflicting scores
+ *
+ * @param opts - Full evaluation configuration (see {@link EvaluateFileOptions}).
+ * @returns A {@link EvaluateFileResult} containing the merged review, aggregate
+ *   cost/token metrics, a human-readable transcript, per-axis timing breakdown,
+ *   and a list of any axis IDs that failed during evaluation.
  */
 export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateFileResult> {
   const { projectRoot, task, config, evaluators, abortController, usageGraph, onAxisComplete } = opts;

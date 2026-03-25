@@ -27,6 +27,7 @@ function generateExampleConfig(): string {
   return `# Anatoly configuration — uncomment and customize as needed.\n# All values shown are defaults.\n\n${commented}`;
 }
 
+/** Registers the `init` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerInitCommand(program: Command): void {
   program
     .command('init')

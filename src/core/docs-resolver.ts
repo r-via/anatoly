@@ -13,7 +13,9 @@ const MAX_PAGES = 3;
 const MAX_LINES_PER_PAGE = 300;
 
 // RAG-based doc matching limits
+/** Maximum number of doc sections returned by a single RAG similarity search. */
 export const RAG_MAX_SECTIONS = 5;
+/** Maximum number of lines loaded per doc section during RAG-based resolution. */
 export const RAG_MAX_LINES_PER_SECTION = 100;
 
 /** Doc injection budget = 20% of model context window. */
@@ -110,6 +112,15 @@ function renderTree(entries: TreeEntry[]): string {
  * Resolve documentation pages relevant to the given source file.
  * Uses config-driven mapping first, then convention-based fallback.
  * Returns at most MAX_PAGES pages, each truncated to MAX_LINES_PER_PAGE lines.
+ *
+ * @param filePath - Relative path of the source file to find docs for.
+ * @param docsTree - ASCII tree of the docs directory (null if none exists).
+ * @param config - Project configuration containing `documentation` settings.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param opts - Optional overrides.
+ * @param opts.docsDir - Absolute path to the docs directory (defaults to config-derived path).
+ * @param opts.source - Tag each returned doc as `'project'` or `'internal'`.
+ * @returns Array of relevant doc objects, capped at MAX_PAGES.
  */
 export function resolveRelevantDocs(
   filePath: string,
@@ -175,6 +186,15 @@ export function resolveRelevantDocs(
 /**
  * Resolve docs from both project (docs/) and internal (.anatoly/docs/) sources.
  * Merges results with source tags, interleaving to give equal representation.
+ *
+ * @param filePath - Relative path of the source file to find docs for.
+ * @param config - Project configuration containing `documentation` settings.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param opts - Source trees and directories for dual-source resolution.
+ * @param opts.docsTree - ASCII tree of the project docs directory (null if none).
+ * @param opts.internalDocsTree - ASCII tree of the internal `.anatoly/docs/` directory (null if none).
+ * @param opts.internalDocsDir - Absolute path to the internal docs directory.
+ * @returns Interleaved array of relevant docs from both sources, capped at MAX_PAGES.
  */
 export function resolveAllRelevantDocs(
   filePath: string,

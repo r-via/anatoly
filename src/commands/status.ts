@@ -11,6 +11,7 @@ import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
 import { buildProgressBar, verdictColor } from '../utils/format.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
 
+/** Registers the `status` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerStatusCommand(program: Command): void {
   program
     .command('status')

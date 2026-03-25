@@ -60,6 +60,20 @@ export function formatTokenSummary(
   return parts.join(' / ');
 }
 
+/**
+ * Count actionable findings across all symbols in a review file.
+ *
+ * Tallies symbols that trigger any of eight axis conditions (DEAD utility,
+ * DUPLICATE duplication, OVER overengineering, NEEDS_FIX/ERROR correction,
+ * WEAK/NONE tests, UNDOCUMENTED exported documentation, and PARTIAL
+ * documentation) plus best-practices rules with FAIL status. Symbols below
+ * the given confidence threshold are skipped entirely.
+ *
+ * @param review - The parsed review file containing symbols and optional best_practices.
+ * @param minConfidence - Minimum confidence (0-100) a symbol must have to be
+ *   counted; defaults to 0 (include all symbols).
+ * @returns The total number of actionable findings.
+ */
 export function countReviewFindings(review: ReviewFile, minConfidence: number = 0): number {
   let findings = 0;
   for (const s of review.symbols) {

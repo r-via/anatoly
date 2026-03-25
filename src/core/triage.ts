@@ -32,6 +32,13 @@ function isBarrelExport(task: Task, source: string): boolean {
  *
  * In the axis-based pipeline, there is no distinction between fast/deep —
  * all non-skip files go through the same per-axis evaluator pipeline.
+ *
+ * Skip reasons: `barrel-export`, `trivial`, `type-only`, `constants-only`.
+ * Evaluate reasons: `internal`, `simple`, `complex`.
+ *
+ * @param task - Scanned task containing file path and parsed symbols.
+ * @param source - Raw source code of the file.
+ * @returns A {@link TriageResult} with the assigned tier and a reason string.
  */
 export function triageFile(task: Task, source: string): TriageResult {
   const lineCount = source.split('\n').length;
@@ -81,6 +88,12 @@ export function triageFile(task: Task, source: string): TriageResult {
  * Generate a synthetic CLEAN review for a skipped file.
  * Produces a valid ReviewFile with is_generated=true and skip_reason.
  * Zero API calls.
+ *
+ * @param task - Scanned task whose symbols will be populated with safe defaults
+ *   (correction: `OK`, overengineering: `LEAN`, utility: `USED`,
+ *    duplication: `UNIQUE`, confidence: 100).
+ * @param reason - Triage skip reason (e.g. `barrel-export`, `trivial`).
+ * @returns A complete {@link ReviewFile} with verdict `CLEAN` and `is_generated: true`.
  */
 export function generateSkipReview(task: Task, reason: string): ReviewFile {
   const detail = `Trivial file — auto-skipped by triage (${reason})`;

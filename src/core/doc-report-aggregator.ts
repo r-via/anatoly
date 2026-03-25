@@ -25,10 +25,20 @@ import type { Task } from '../schemas/task.js';
 
 // --- Public interfaces ---
 
+/**
+ * Input bundle for the documentation report aggregation pipeline.
+ *
+ * Carries project metadata, review results, and task data needed to score
+ * documentation coverage, detect gaps, and render the final report section.
+ */
 export interface DocReportInput {
+  /** Absolute path to the project root directory. */
   projectRoot: string;
+  /** Detected project types (e.g. 'node', 'python') that influence scoring weights. */
   projectTypes: ProjectType[];
+  /** Per-file review results containing symbol documentation status and docs_coverage data. */
   reviews: ReviewFile[];
+  /** Parsed task entries used to estimate module LOC for coverage calculations. */
   tasks: Task[];
   /** Total pages in .anatoly/docs/ */
   idealPageCount: number;
@@ -51,6 +61,13 @@ export interface DocReportResult {
 
 /**
  * Aggregates all documentation data into report components.
+ *
+ * Orchestrates the four-step pipeline: (1) resolve the user doc plan from
+ * their docs/ directory, (2) compute documentation scoring input and score,
+ * (3) build gap analysis from reviews, and (4) render the final report section.
+ *
+ * @param input - Bundled project metadata, reviews, and task data for the pipeline.
+ * @returns Score, recommendations, rendered report section, and resolved user doc plan.
  */
 export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const docsDir = resolve(input.projectRoot, input.docsPath ?? 'docs');
@@ -116,6 +133,17 @@ function scanDir(baseDir: string, currentDir: string, pages: DocPageEntry[]): vo
 
 /**
  * Builds scoring input from reviews and doc page data.
+ *
+ * Aggregates two export-coverage counters: `projectExportsDocumented` counts
+ * only DOCUMENTED exports (strict public-API metric), while
+ * `internalExportsDocumented` also includes PARTIAL exports (lenient internal
+ * metric). Modules with >= 200 LOC (estimated from task symbol line ranges)
+ * are checked for matching user doc pages. Content quality is derived from the
+ * average `docs_coverage.score_pct` across reviews.
+ *
+ * @param input - The full pipeline input containing reviews, tasks, and project metadata.
+ * @param userDocPages - Doc page entries scanned from the user's docs/ directory.
+ * @returns A {@link DocScoringInput} ready for {@link scoreDocumentation}.
  */
 function buildScoringInput(
   input: DocReportInput,
@@ -188,6 +216,19 @@ function buildScoringInput(
 
 /**
  * Builds documentation gaps from review data for recommendation generation.
+ *
+ * Produces three gap categories:
+ * - `missing_page` when user docs/ has fewer pages than the ideal count.
+ * - `missing_jsdoc` for each exported symbol marked UNDOCUMENTED (placed under
+ *   the convention path `04-API-Reference/01-Public-API.md`).
+ * - `missing_page` / `outdated_content` from per-review `docs_coverage` concepts
+ *   (falls back to `05-Modules/unknown.md` when no doc_path is provided).
+ *
+ * @param reviews - Per-file review results containing symbol and docs_coverage data.
+ * @param _score - Reserved for future score-aware gap weighting (currently unused).
+ * @param idealPageCount - Target number of documentation pages for the project.
+ * @param userPageCount - Actual number of markdown pages in the user's docs/ directory.
+ * @returns An array of {@link DocGap} entries for downstream recommendation building.
  */
 function buildGapsFromReviews(
   reviews: ReviewFile[],
@@ -249,6 +290,17 @@ function buildGapsFromReviews(
 
 /**
  * Builds report stats from pipeline data.
+ *
+ * Assembles page counts (new, refreshed, cached), symbol-level coverage
+ * metrics from the scoring input, and sync status by recommendation type.
+ * The `syncByType` field is omitted (set to `undefined`) when there are no
+ * pages to create and no outdated content, so the rendered report section
+ * can skip the sync-status block entirely.
+ *
+ * @param input - The full pipeline input providing project root, cache results, and page sources.
+ * @param scoringInput - Pre-computed scoring metrics (export counts, module counts).
+ * @param recommendations - Generated recommendations used to derive sync-status counts.
+ * @returns A {@link DocReportStats} object ready for {@link renderDocReferenceSection}.
  */
 function buildReportStats(
   input: DocReportInput,

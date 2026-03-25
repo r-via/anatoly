@@ -62,6 +62,11 @@ export interface FrameworkInfo {
   category: FrameworkCategory;
 }
 
+/**
+ * Aggregate output of {@link detectProjectProfile}, combining language distribution,
+ * detected frameworks, high-level project types, and granular capabilities into a
+ * single snapshot of the project's technology stack.
+ */
 export interface ProjectProfile {
   languages: LanguageDistribution;
   frameworks: FrameworkInfo[];
@@ -118,6 +123,17 @@ export const DEFAULT_EXCLUDES: string[] = [
 
 // --- Framework registry ---
 
+/**
+ * Internal definition for a detectable framework, used by the framework registry arrays.
+ *
+ * @remarks
+ * - `deps` — package/module names whose presence in a manifest triggers detection.
+ * - `suppresses` — framework IDs to remove from results when this framework is detected
+ *   (e.g. Next.js suppresses bare React).
+ * - `configFiles` — reserved for future config-file-based detection; currently unused.
+ * - `impliesTypes` / `impliesCapabilities` — derived project metadata when this framework
+ *   is detected.
+ */
 interface FrameworkDef {
   id: string;
   name: string;
@@ -273,8 +289,15 @@ export function detectLanguages(
 }
 
 /**
- * Detect project profile: languages + frameworks.
- * Calls detectLanguages() then reads config files for detected languages.
+ * Build a complete {@link ProjectProfile} for the given project root.
+ *
+ * Scans git-tracked files to compute language distribution, detects frameworks
+ * from package manifests and config files, then derives high-level project types
+ * and granular capabilities from the results.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns A {@link ProjectProfile} containing languages, frameworks, types,
+ *          capabilities, and the primary language.
  */
 export function detectProjectProfile(projectRoot: string): ProjectProfile {
   const gitFiles = getGitTrackedFiles(projectRoot);

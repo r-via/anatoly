@@ -79,6 +79,14 @@ export function resolveDocMappings(dirs: SourceDir[]): DocMapping[] {
   return mappings;
 }
 
+/**
+ * Resolve a single source directory to a documentation page using the
+ * four-step fallback strategy: convention, synonym, framework, catch-all.
+ *
+ * @param dir - Source directory to classify.
+ * @returns The resolved mapping, or null if no match is found (unreachable
+ *          in practice since the catch-all always produces a result).
+ */
 function resolveOne(dir: SourceDir): DocMapping | null {
   const name = dir.name.toLowerCase();
 

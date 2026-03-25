@@ -23,6 +23,7 @@ function findSetupScript(): string {
   throw new Error('setup-embeddings.sh not found — is the scripts/ directory present?');
 }
 
+/** Registers the `setup-embeddings` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerSetupEmbeddingsCommand(program: Command): void {
   program
     .command('setup-embeddings')

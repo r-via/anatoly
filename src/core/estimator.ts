@@ -106,7 +106,19 @@ export function countTokens(text: string): number {
 
 /**
  * Estimate token usage for a given set of tasks.
- * Reads actual file content to get accurate input token counts.
+ * Reads actual file content to get accurate input token counts via
+ * cl100k_base encoding. When a file cannot be read (e.g. deleted since
+ * scan), falls back to a heuristic based on symbol line ranges
+ * (`(line_end - line_start + 1) * 8` tokens per symbol).
+ *
+ * Token accounting per task:
+ * - **input** = `SYSTEM_PROMPT_TOKENS` + actual file tokens + `PER_FILE_OVERHEAD_TOKENS`
+ * - **output** = `OUTPUT_BASE_PER_FILE` + symbol count * `OUTPUT_TOKENS_PER_SYMBOL`
+ *
+ * @param projectRoot - Absolute path to the project root for resolving task file paths.
+ * @param tasks - Array of scanned Task objects whose files will be token-counted.
+ * @returns An object with `inputTokens` (estimated prompt tokens across all tasks),
+ *   `outputTokens` (estimated completion tokens), and `symbols` (total symbol count).
  */
 export function estimateTasksTokens(
   projectRoot: string,

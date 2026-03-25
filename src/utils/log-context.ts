@@ -61,6 +61,11 @@ export function getLogContext(): LogContext | undefined {
  *
  * This is the recommended way to log inside pipeline code — call
  * `contextLogger()` and then use the returned logger.
+ *
+ * @param namespace - Optional component name; when provided it is added to the
+ *                    logger bindings as the `component` field.
+ * @returns A pino child logger with the current context (and optional
+ *          `component`) bound, or the base logger when no bindings apply.
  */
 export function contextLogger(namespace?: string): Logger {
   const base = getLogger();

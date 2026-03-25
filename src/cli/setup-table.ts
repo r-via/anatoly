@@ -4,6 +4,19 @@
 
 import chalk from 'chalk';
 
+/**
+ * Data structure consumed by {@link renderSetupTable} to build the setup
+ * summary output (either a Unicode box-drawing table or plain-text lines).
+ *
+ * @property project - Optional project metadata (name, version, detected
+ *   languages/frameworks). Omit for non-Node or anonymous projects.
+ * @property config - Key-value rows for the "Configuration" section (e.g.
+ *   model name, concurrency, docs path).
+ * @property axes - Key-value rows for the "Evaluation Axes" section, listing
+ *   the review axes enabled for this run and their configured weights/labels.
+ * @property pipeline - Rows for the "Pipeline Summary" section, each showing
+ *   a completed phase and a brief detail string.
+ */
 export interface SetupTableData {
   project?: { name: string; version: string; languages?: string; frameworks?: string };
   config: { key: string; value: string }[];
@@ -11,10 +24,34 @@ export interface SetupTableData {
   pipeline: { phase: string; detail: string }[];
 }
 
+/**
+ * Strips the `claude-` prefix and any trailing 8-digit date suffix from a
+ * model identifier to produce a shorter display name.
+ *
+ * @example
+ * shortModelName('claude-3-5-sonnet-20241022'); // => '3-5-sonnet'
+ *
+ * @param model - Full model identifier string (e.g. `"claude-3-5-sonnet-20241022"`).
+ * @returns The abbreviated model name suitable for display in tables and logs.
+ */
 export function shortModelName(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
+/**
+ * Renders a multi-section setup summary to stdout.
+ *
+ * When `plain` is `false`, outputs a Unicode box-drawing table with coloured
+ * section headers (Project Info, Configuration, Evaluation Axes, Pipeline
+ * Summary). When `plain` is `true`, outputs indented key-value lines without
+ * box characters or ANSI colours, suitable for CI logs and piped output.
+ *
+ * Column widths are computed dynamically from the longest key and value across
+ * all sections so the table aligns consistently.
+ *
+ * @param data - The {@link SetupTableData} to render.
+ * @param plain - When `true`, emit plain-text output instead of a styled table.
+ */
 export function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const checkPrefix = 2; // "✔ " visible chars prepended to pipeline phase
   // Build project rows for width calculation

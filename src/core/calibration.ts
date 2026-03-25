@@ -156,10 +156,6 @@ export function recalibrateFromRuns(projectRoot: string): CalibrationData {
   };
 }
 
-/**
- * Estimate total review duration in minutes for a set of files,
- * using calibration data for active axes with concurrency factor.
- */
 /** Estimated deliberation time per file (Opus pass, ~45s median) */
 const DELIBERATION_MS_PER_FILE = 45_000;
 /** Fraction of files that typically require deliberation (~60%) */
@@ -167,6 +163,24 @@ const DELIBERATION_FILE_RATIO = 0.6;
 /** Estimated RAG indexing overhead in ms (lite ~30s, advanced ~5min) */
 const RAG_INDEX_MS = 300_000;
 
+/**
+ * Estimate total review duration in minutes for a set of files,
+ * using calibration data for active axes with concurrency factor.
+ *
+ * The estimate is composed of three sequential phases:
+ * 1. RAG indexing (fixed overhead, skippable via `options.rag`)
+ * 2. Axis evaluation (wall time = slowest axis, divided by concurrency)
+ * 3. Deliberation (per-file Opus pass for ~60% of files, skippable via `options.deliberation`)
+ *
+ * @param calibration - Per-axis timing data from previous runs.
+ * @param fileCount - Number of files to review.
+ * @param activeAxes - Axis IDs that will be evaluated.
+ * @param concurrency - Number of concurrent file reviews.
+ * @param concurrencyEfficiency - Scaling factor for parallel efficiency (default: 0.75).
+ * @param options - Optional flags to include/exclude RAG and deliberation phases
+ *                  (both default to `true` when omitted).
+ * @returns Estimated wall-clock time in whole minutes (rounded up).
+ */
 export function estimateCalibratedMinutes(
   calibration: CalibrationData,
   fileCount: number,

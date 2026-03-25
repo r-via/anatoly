@@ -10,6 +10,7 @@ import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 
+/** Registers the `scan` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerScanCommand(program: Command): void {
   program
     .command('scan')

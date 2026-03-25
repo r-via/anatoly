@@ -30,10 +30,24 @@ const AXIS_DEFAULTS: Record<AxisId, string> = {
  * Merge per-axis evaluation results into a single ReviewFile v2.
  *
  * - Combines symbol-level results from each axis
- * - Applies inter-axis coherence rules (e.g. DEAD → tests:NONE)
- * - Merges actions from all axes
+ * - Applies inter-axis coherence rules (e.g. DEAD -> tests:NONE)
+ * - Merges actions from all axes, deduplicating synthesized actions against
+ *   LLM-generated ones by target symbol
  * - Computes verdict from merged symbols
  * - Builds axis_meta from cost/duration data
+ *
+ * @param task - The parsed task containing file path and symbol metadata.
+ * @param results - Per-axis evaluation results to merge.
+ * @param bestPractices - Optional best-practices evaluation result; when
+ *   present, used for contradiction detection against correction findings.
+ * @param failedAxes - Axis IDs that crashed during evaluation; their symbols
+ *   receive default values with crash sentinel details.
+ * @param enabledAxes - When provided, axes not in this set are marked as
+ *   skipped ('-') rather than defaulted.
+ * @param docsCoverage - Optional docs-coverage result to include in the
+ *   output ReviewFile.
+ * @returns A fully assembled ReviewFile v2 with merged symbols, actions, and
+ *   computed verdict.
  */
 export function mergeAxisResults(
   task: Task,
@@ -196,6 +210,10 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
  * Apply inter-axis coherence rules.
  * - If utility=DEAD, force tests=NONE (no point testing dead code)
  * - If correction=ERROR, force overengineering=ACCEPTABLE (complexity is secondary to correctness)
+ * - If utility=DEAD, force documentation=UNDOCUMENTED (dead code does not need docs)
+ *
+ * @param sym - The merged symbol review to apply coherence rules to.
+ * @returns A new SymbolReview with any coherence corrections applied.
  */
 function applyCoherenceRules(sym: SymbolReview): SymbolReview {
   let result = sym;
@@ -228,8 +246,14 @@ function mergeActions(results: AxisResult[]): Action[] {
 
 /**
  * Synthesize actions from merged symbol findings.
- * Generates actions for DEAD, DUPLICATE, OVER, and LOW_VALUE findings
- * that axes don't produce on their own.
+ *
+ * Generates actions for DEAD, DUPLICATE, OVER, LOW_VALUE, UNDOCUMENTED
+ * (exported symbols only), and PARTIAL documentation findings that axes
+ * don't produce on their own. Symbols with confidence below 30 are skipped.
+ *
+ * @param symbols - The merged symbol reviews to synthesize actions from.
+ * @returns An array of synthesized actions (with placeholder id=0, to be
+ *   reassigned by the caller).
  */
 function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
   const actions: Action[] = [];

@@ -48,6 +48,7 @@ function extractFilePath(stdinJson: string): string | null {
   }
 }
 
+/** Registers the `hook` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerHookCommand(program: Command): void {
   const hookCmd = program
     .command('hook')

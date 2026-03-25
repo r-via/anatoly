@@ -23,6 +23,12 @@ export const FileProgressSchema = z.object({
   axes: z.array(z.string()).optional(),
 });
 
+/**
+ * Schema for the top-level progress manifest persisted per run.
+ *
+ * `version: z.literal(1)` enforces an exact schema version so that future
+ * changes can be detected and migrated rather than silently misinterpreted.
+ */
 export const ProgressSchema = z.object({
   version: z.literal(1),
   started_at: z.string(),

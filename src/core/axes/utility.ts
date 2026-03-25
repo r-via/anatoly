@@ -32,6 +32,17 @@ export function buildUtilitySystemPrompt(): string {
   return resolveSystemPrompt('utility');
 }
 
+/**
+ * Builds the user-message prompt for the utility axis LLM call.
+ *
+ * Assembles a multi-section Markdown prompt containing the file source,
+ * symbols to evaluate, and — when a usage graph is available — a
+ * "Pre-computed Import Analysis" section that distinguishes direct imports,
+ * type-only imports, and transitive usage for each exported symbol.
+ *
+ * @param ctx - Axis evaluation context (task, file content, usage graph, etc.)
+ * @returns Formatted prompt string ready to send as the user message.
+ */
 export function buildUtilityUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 

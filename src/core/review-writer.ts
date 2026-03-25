@@ -37,6 +37,13 @@ export function writeReviewOutput(
 /**
  * Persist an axis evaluation transcript to the logs directory.
  * When runDir is provided, writes into the run-scoped logs directory.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param filePath - Relative path of the reviewed file; used to derive the
+ *                   log file base name via {@link toOutputName}.
+ * @param transcript - Raw transcript content to write.
+ * @param runDir - Optional run-scoped directory; when set, logs are written
+ *                 into `<runDir>/logs/` instead of `.anatoly/logs/`.
  */
 export function writeTranscript(
   projectRoot: string,

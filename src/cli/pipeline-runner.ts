@@ -42,6 +42,27 @@ export interface PipelineTask {
   label: string;
 }
 
+/**
+ * Runtime context passed to the {@link PipelineOptions.execute} callback.
+ *
+ * Bundles every resource the execute function needs so callers never have to
+ * wire up boilerplate themselves.
+ *
+ * @property projectRoot - Absolute path to the project being processed.
+ * @property config - Resolved Anatoly configuration (merged defaults + user overrides).
+ * @property pkg - Parsed `package.json` contents, or `{}` for non-Node projects.
+ * @property docsPath - Relative path to the documentation directory (from config).
+ * @property profile - Detected language/framework/type profile of the project.
+ * @property semaphore - Concurrency gate for SDK calls; callers acquire/release
+ *   it themselves to avoid deadlocks.
+ * @property executor - LLM dispatch abstraction — sends a system+user prompt
+ *   pair to the configured model and returns the response text plus cost.
+ * @property state - Mutable pipeline state used to track task progress.
+ * @property renderer - Screen renderer that redraws task status on each tick.
+ * @property plain - When `true`, output is plain text (no ANSI escape codes).
+ * @property addCost - Callback that accumulates incremental LLM cost (in USD)
+ *   into the pipeline's running total, returned in {@link PipelineResult}.
+ */
 export interface PipelineContext {
   projectRoot: string;
   config: Config;
@@ -56,6 +77,23 @@ export interface PipelineContext {
   addCost: (usd: number) => void;
 }
 
+/**
+ * Options accepted by {@link runPipeline} to configure and execute a pipeline.
+ *
+ * @property projectRoot - Absolute path to the project root directory.
+ * @property plain - When `true`, disables ANSI styling and box-drawing; emits
+ *   plain-text task progress to stdout instead.
+ * @property bannerMotd - "Message of the day" string shown in the startup
+ *   banner (e.g. `"Doc Scaffold"`, `"Review"`).
+ * @property tasks - Ordered list of pipeline tasks to register in the state
+ *   tracker before execution begins.
+ * @property showProfile - Whether to print the detected language/framework
+ *   profile below the banner. Defaults to `true`.
+ * @property execute - User-supplied async callback that performs the actual
+ *   work. It receives a fully-initialised {@link PipelineContext} and should
+ *   drive task state transitions and call `ctx.addCost()` as costs accrue.
+ *   Errors thrown from this callback are re-thrown after the renderer is stopped.
+ */
 export interface PipelineOptions {
   projectRoot: string;
   plain: boolean;
@@ -72,6 +110,20 @@ export interface PipelineResult {
 
 // --- Main entry point ---
 
+/**
+ * Orchestrates a full pipeline run: loads config, detects the project profile,
+ * wires up the screen renderer, prints the banner, then delegates to the
+ * user-supplied {@link PipelineOptions.execute} callback.
+ *
+ * In plain mode, task state transitions are logged as simple console lines
+ * instead of being rendered with ANSI redraws.
+ *
+ * @param opts - Pipeline configuration and the async execute callback.
+ * @returns A {@link PipelineResult} containing the wall-clock duration and
+ *   the accumulated LLM cost in USD.
+ * @throws Re-throws any error raised by `opts.execute` after the renderer has
+ *   been cleanly stopped.
+ */
 export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult> {
   const { projectRoot, plain, bannerMotd, tasks, execute } = opts;
   const showProfile = opts.showProfile ?? true;
@@ -167,6 +219,18 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 
 // --- Internal ---
 
+/**
+ * Creates a {@link DocExecutor} that dispatches LLM calls via the Claude Agent
+ * SDK with automatic retry and exponential back-off on rate-limit errors.
+ *
+ * **Important:** the provided semaphore is intentionally *not* acquired inside
+ * this executor. Callers (e.g. `executeDocPrompts`, `runDocUpdate`) manage
+ * their own concurrency control to avoid deadlocks.
+ *
+ * @param projectRoot - Absolute path used as the SDK working directory.
+ * @param _semaphore - Reserved for future use; concurrency is managed externally.
+ * @returns An async executor function conforming to the {@link DocExecutor} contract.
+ */
 function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor {
   // Note: semaphore is NOT acquired here — callers (executeDocPrompts, runDocUpdate)
   // handle their own concurrency control. Acquiring here would cause deadlocks.

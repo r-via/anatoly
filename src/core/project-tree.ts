@@ -91,6 +91,17 @@ function condenseDeep(node: TreeNode, maxDepth: number, currentDepth: number): v
   }
 }
 
+/**
+ * Collapse single-child directory chains into condensed path segments
+ * (e.g. `a/ -> b/ -> c/` becomes `"a/b/c"`).
+ *
+ * After collapsing, recursively continues condensing any remaining
+ * children to handle deeply nested branches.
+ *
+ * @param parent - Parent node whose child map will be updated in-place.
+ * @param key - Current key of `node` in the parent's children map.
+ * @param node - The directory node to start collapsing from.
+ */
 function collapseChain(parent: TreeNode, key: string, node: TreeNode): void {
   // Collapse single-child directory chains: a/ -> b/ -> c/ => "a/b/c"
   let current = node;

@@ -29,6 +29,14 @@ export interface ReclassificationEntry {
 /** @deprecated Use ReclassificationEntry instead */
 export type FalsePositiveEntry = ReclassificationEntry;
 
+/**
+ * Versioned container for deliberation reclassification entries.
+ *
+ * Persisted to `.anatoly/deliberation-memory.json` and loaded/saved by
+ * {@link loadDeliberationMemory} / {@link saveDeliberationMemory}.
+ * The `version: 1` literal enforces the current schema version for
+ * forward-compatible migration gating.
+ */
 export interface DeliberationMemory {
   version: 1;
   false_positives: ReclassificationEntry[];

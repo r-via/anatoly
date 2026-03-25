@@ -125,6 +125,14 @@ export function registerPrompt(key: string, content: string): void {
  * Resolve the most specific system prompt for an axis.
  * Cascade order: framework → language → default.
  * Returns the prompt content string of the first match.
+ *
+ * @param axisId - Axis identifier (e.g. `"utility"`, `"best_practices"`)
+ *                 or composite key (e.g. `"doc-generation"`, `"rag.section-refiner"`).
+ * @param language - Optional language variant (e.g. `"python"`, `"rust"`).
+ * @param framework - Optional framework variant (e.g. `"react"`, `"nextjs"`);
+ *                    checked before language in the cascade.
+ * @returns The resolved prompt content string.
+ * @throws {Error} If no default prompt is registered for the given axisId.
  */
 export function resolveSystemPrompt(
   axisId: string,

@@ -41,6 +41,19 @@ export function buildDuplicationSystemPrompt(): string {
   return resolveSystemPrompt('duplication');
 }
 
+/**
+ * Builds the user-message prompt for the duplication axis LLM call.
+ *
+ * The message is a multi-section Markdown string containing:
+ * - the file path, language metadata, and full source code;
+ * - the list of symbols to evaluate with their line ranges;
+ * - a RAG section with semantically similar candidates (including their
+ *   source snippets when available), or a fallback instruction to mark
+ *   all symbols UNIQUE when no RAG data is present.
+ *
+ * @param ctx - Axis evaluation context (file content, task, RAG results, etc.).
+ * @returns The assembled prompt string ready for the LLM.
+ */
 export function buildDuplicationUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -141,6 +154,15 @@ function readCandidateSource(projectRoot: string, filePath: string, functionName
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/**
+ * Axis evaluator for duplication detection.
+ *
+ * Classifies each symbol in a file as `UNIQUE` or `DUPLICATE` by sending
+ * the source code together with RAG-retrieved similar candidates to an LLM,
+ * then parsing the structured response against {@link DuplicationResponseSchema}.
+ * Implements the {@link AxisEvaluator} interface with `id = 'duplication'` and
+ * a default model of `'haiku'`.
+ */
 export class DuplicationEvaluator implements AxisEvaluator {
   readonly id = 'duplication' as const;
   readonly defaultModel = 'haiku' as const;

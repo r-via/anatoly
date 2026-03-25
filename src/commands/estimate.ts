@@ -19,6 +19,7 @@ import { detectHardware, readEmbeddingsReadyFlag } from '../rag/hardware-detect.
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 
+/** Registers the `estimate` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerEstimateCommand(program: Command): void {
   program
     .command('estimate')

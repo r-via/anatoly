@@ -92,6 +92,26 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
 
 // --- Internal ---
 
+/**
+ * Execute a single doc-generation prompt through the executor, writing the
+ * result to disk. Acquires a semaphore slot for the duration of the call
+ * and releases it in a finally block to guarantee no leaks.
+ *
+ * Side effects: creates subdirectories as needed, validates the output path
+ * via `assertSafeOutputPath` to prevent writes into the live docs/ tree,
+ * and writes the generated content to `outputDir/<pagePath>`.
+ *
+ * @param prompt - The page prompt containing system/user messages, model, and target pagePath.
+ * @param outputDir - Root directory where generated pages are written.
+ * @param projectRoot - Absolute path to the project root (used for path safety checks).
+ * @param docsPath - Relative path to the user-facing docs directory (guarded from writes).
+ * @param semaphore - Concurrency limiter; acquired before the LLM call and released after.
+ * @param executor - The LLM executor function that produces text and cost.
+ * @param onPageStart - Optional callback fired before the executor call.
+ * @param onPageComplete - Optional callback fired after a successful write.
+ * @param onPageError - Optional callback fired when the executor or write throws.
+ * @returns The LLM cost in USD for this page.
+ */
 async function executeOnePage(
   prompt: DocPrompt,
   outputDir: string,
@@ -158,8 +178,30 @@ export interface DocStructureReviewOptions {
 }
 
 /**
- * Deterministic structure linter for .anatoly/docs/.
+ * Deterministic structure linter for `.anatoly/docs/`.
  * No LLM call — all checks are regex/filesystem-based.
+ *
+ * Runs seven checks in order:
+ * 1. **preamble** — strips text before the first `# ` heading (auto-fixed).
+ * 2. **wrapping-fence** — removes wrapping ````markdown` fences (auto-fixed).
+ * 3. **heading-hierarchy** — verifies exactly one h1 and no skipped levels.
+ * 4. **numbering-gap** — detects file numbering gaps and mixed numbered/unnumbered files.
+ * 5. **index completeness** — flags pages missing from `index.md` and orphan links.
+ * 6. **broken-link** — resolves internal `.md` links and reports dead references.
+ * 7. **index-order** — checks that `## N.` section headings appear in ascending order.
+ *
+ * Auto-fixable issues (preamble, wrapping-fence) are written back to disk
+ * within the `outputDir` boundary. A summary log is written to `logDir`
+ * when provided.
+ *
+ * @param outputDir - Root directory containing the generated doc pages.
+ * @param projectRoot - Absolute path to the project root (used for path safety).
+ * @param docsPath - Relative path to the user-facing docs directory (guarded from writes).
+ * @param _executor - Unused; kept for API compatibility.
+ * @param optionsOrCallbacks - Either a `DocStructureReviewOptions` object or
+ *   a bare `DocStructureReviewCallbacks` object (legacy overload, auto-wrapped).
+ * @returns A {@link DocStructureReviewResult} with scan counts, auto-fixed paths,
+ *   the full issue list, and a zero `costUsd` (no LLM involved).
  */
 export function reviewDocStructure(
   outputDir: string,

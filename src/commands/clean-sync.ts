@@ -59,7 +59,18 @@ export function checkShardInIndex(indexContent: string, shardFilename: string): 
 
 /**
  * Sync completed stories for a single axis.
- * Returns { shardChecked, allDone }.
+ *
+ * Iterates over every `shard.*.md` file in the axis directory, checks off
+ * ACT-ID checkboxes that correspond to completed stories, and updates the
+ * axis index when a shard becomes fully checked.
+ *
+ * @param runDir - Absolute path to the resolved run directory.
+ * @param axis - The report axis identifier to sync (e.g. `"documentation"`).
+ * @param completedStories - PRD stories whose `passes` flag is `true` and
+ *   whose checkboxes should be marked as done in the shard files.
+ * @returns An object with `shardChecked` (number of newly checked actions
+ *   across all shards) and `allDone` (`true` when every shard in the axis
+ *   has all its checkboxes checked).
  */
 function syncAxis(
   runDir: string,
@@ -114,6 +125,15 @@ function syncAxis(
   return { shardChecked: totalChecked, allDone: allShardsDone };
 }
 
+/**
+ * Registers the `clean-sync` CLI sub-command on the given Commander program.
+ *
+ * The sub-command syncs completed user stories from a `prd.json` back to the
+ * axis shard reports by checking off their ACT-ID checkboxes. Accepts a single
+ * axis name or `"all"` to sync every axis at once.
+ *
+ * @param program - The root Commander {@link Command} instance to attach the sub-command to.
+ */
 export function registerCleanSyncCommand(program: Command): void {
   program
     .command('clean-sync <axis>')

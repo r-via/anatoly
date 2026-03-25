@@ -121,6 +121,16 @@ const TYPE_PAGES: Record<string, PageDef[]> = {
  * - Always regenerates index.md
  * - When no 05-Modules/ pages exist, 06-Development is renumbered to 05-Development
  * - Optional sourceHints map provides project-context-aware hints per page
+ *
+ * @param outputDir   - Absolute path to the target directory (e.g. `.anatoly/docs/`).
+ * @param projectTypes - Detected project types used to select type-specific pages.
+ * @param packageJson  - Parsed `package.json`; the `name` field is used for the index title.
+ * @param sourceHints  - Optional map of page path to extra SCAFFOLDING hint strings
+ *                       derived from source analysis.
+ * @param dynamicModulePages - Optional additional {@link PageDef} entries from
+ *                             `resolveModuleGranularity` (Story 29.16).
+ * @returns A {@link ScaffoldResult} listing created pages, skipped pages, and
+ *          whether `index.md` was regenerated.
  */
 export function scaffoldDocs(
   outputDir: string,

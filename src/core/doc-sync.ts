@@ -54,6 +54,12 @@ const ACTIONABLE_TYPES = new Set<RecommendationType>([
  *
  * Uses injected I/O callbacks so the function is pure and testable.
  * Non-actionable recommendation types are returned in skipped.
+ *
+ * @param recommendations - Array of doc recommendations to process.
+ * @param io - Injected I/O callbacks for reading and writing files.
+ * @param opts - Optional settings; `docsPath` overrides the target directory
+ *               (defaults to `"docs"`).
+ * @returns A report of applied sync results and skipped recommendations.
  */
 export function syncDocs(
   recommendations: DocRecommendation[],

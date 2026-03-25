@@ -45,8 +45,7 @@ export function createRunDir(projectRoot: string, runId: string): string {
 }
 
 /**
- * Create a mini-run directory for standalone commands (scan, estimate, review, watch).
- * Returns paths needed by the command — the caller creates the logger.
+ * Paths returned by {@link createMiniRun} for standalone command runs.
  */
 export interface MiniRunPaths {
   runId: string;
@@ -55,6 +54,18 @@ export interface MiniRunPaths {
   conversationDir: string;
 }
 
+/**
+ * Create a mini-run directory for standalone commands (scan, estimate, review, watch).
+ *
+ * Generates a timestamped run ID with the given prefix, creates the full run
+ * directory structure (including logs, reviews, and conversations subdirs), and
+ * updates the `latest` symlink. Returns the paths the caller needs to set up
+ * logging and store conversation artifacts.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param prefix - Short label prepended to the generated run ID (e.g. "scan", "review").
+ * @returns Paths for the newly created mini-run directory.
+ */
 export function createMiniRun(projectRoot: string, prefix: string): MiniRunPaths {
   const runId = generateRunId(prefix);
   const runDir = createRunDir(projectRoot, runId);

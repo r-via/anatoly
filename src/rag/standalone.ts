@@ -45,6 +45,20 @@ export function resolveRagTableName(projectRoot: string): string {
   return `function_cards_${mode}`;
 }
 
+/**
+ * Run RAG indexing as a standalone operation (outside of `anatoly run`).
+ *
+ * Detects hardware capabilities, starts GGUF Docker containers when advanced
+ * mode is available, resolves embedding models, and delegates to
+ * {@link indexProject}. If GGUF containers fail to start, the function
+ * silently falls back to ONNX lite mode. GGUF and TEI containers are
+ * unconditionally stopped in the `finally` block regardless of the active
+ * backend.
+ *
+ * @param opts - Configuration and callbacks for the indexing run
+ *               (see {@link StandaloneRagOptions}).
+ * @returns The {@link RagIndexResult} produced by the underlying orchestrator.
+ */
 export async function indexProjectStandalone(opts: StandaloneRagOptions): Promise<RagIndexResult> {
   const {
     projectRoot,

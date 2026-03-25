@@ -59,6 +59,16 @@ export interface DocPipelineResult {
  * 2. Resolves module granularity from scanner tasks
  * 3. Resolves code→doc mappings
  * 4. Scaffolds .anatoly/docs/ with guard
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param packageJson - Parsed `package.json` contents, forwarded to the scaffolder
+ *   for metadata extraction (name, description, etc.).
+ * @param tasks - Scanner task list used to derive module directories and source mappings.
+ * @param docsPath - Relative path to the user-facing docs directory (default `"docs"`);
+ *   used by the output-path guard to prevent overwriting user docs.
+ * @param profile - Unified project profile providing detected project types.
+ * @returns Scaffold result containing project types, generated scaffold structure,
+ *   code-to-doc mappings, and the output directory path.
  */
 export function runDocScaffold(
   projectRoot: string,
@@ -102,6 +112,15 @@ export function runDocScaffold(
  * LLM calls are NOT executed here — the caller (run.ts) handles them via
  * the SDK with the global semaphore. This function returns PagePrompt[]
  * that the caller executes and writes to disk.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param scaffoldResult - Output from {@link runDocScaffold}, providing the
+ *   scaffold structure, doc mappings, and output directory.
+ * @param tasks - Scanner task list used to resolve source files for each page.
+ * @param packageJson - Parsed `package.json` contents, forwarded to page prompt
+ *   building for project metadata.
+ * @returns Generation result with cache status, prompt list for LLM execution,
+ *   and counts of generated, removed, and total pages.
  */
 export function runDocGeneration(
   projectRoot: string,
@@ -253,6 +272,19 @@ function buildSourceDirs(tasks: Task[]): SourceDir[] {
 
 /**
  * Builds page-to-source-file mappings for cache checking.
+ *
+ * For each doc mapping produced by the scaffold phase, collects the scanner
+ * task files that belong to that source directory. Catch-all doc-mapping
+ * entries are skipped when a module-granularity page already covers the same
+ * module name to avoid duplicate pages. Scaffolded pages that have no source
+ * mapping (e.g. Overview, Installation) are assigned `package.json` as their
+ * synthetic source so the cache treats them as valid and never marks them
+ * as removed.
+ *
+ * @param scaffoldResult - Output from {@link runDocScaffold} containing doc
+ *   mappings, scaffold structure, and the list of all pages.
+ * @param tasks - Scanner task list providing the source file inventory.
+ * @returns Array of page mappings linking each doc page to its source files.
  */
 function buildPageMappings(
   scaffoldResult: DocScaffoldResult,

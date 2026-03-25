@@ -10,6 +10,7 @@ import { isLockActive } from '../utils/lock.js';
 import { listRuns } from '../utils/run-id.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 
+/** Registers the `clean-runs` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerCleanRunsCommand(program: Command): void {
   program
     .command('clean-runs')

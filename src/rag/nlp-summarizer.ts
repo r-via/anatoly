@@ -41,6 +41,17 @@ function getNlpSystemPrompt(): string {
   return resolveSystemPrompt('rag.nlp-summarizer');
 }
 
+/**
+ * Build the user-message prompt sent to the NLP summarization model.
+ *
+ * Each function body is truncated to 2 000 characters. When a body is missing
+ * from `functionBodies` (index gap), the card's `signature` is used as a fallback.
+ *
+ * @param filePath       - Source file path included as context in the prompt header.
+ * @param cards          - Function cards to summarize.
+ * @param functionBodies - Parallel array of raw function bodies (same order as `cards`).
+ * @returns The assembled prompt string ready for the LLM user message.
+ */
 function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodies: string[]): string {
   const parts: string[] = [];
   parts.push(`File: \`${filePath}\``);

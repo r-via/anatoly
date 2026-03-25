@@ -49,6 +49,7 @@ function printStats(mode: string, stats: RagStats, resolved: { codeModel: string
   console.log('');
 }
 
+/** Registers the `rag-status` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerRagStatusCommand(program: Command): void {
   program
     .command('rag-status [function]')

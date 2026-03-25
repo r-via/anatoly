@@ -14,6 +14,13 @@ export const DuplicateTargetSchema = z.object({
   similarity: z.string(),
 });
 
+/**
+ * Zod schema for a single symbol-level review entry.
+ *
+ * Each axis field (correction, overengineering, utility, duplication, tests,
+ * documentation) uses `'-'` as a sentinel value meaning "not evaluated" --
+ * the axis was skipped or not applicable for this symbol.
+ */
 export const SymbolReviewSchema = z.object({
   name: z.string(),
   kind: z.enum(['function', 'class', 'method', 'type', 'constant', 'variable', 'enum', 'hook']),
@@ -74,6 +81,12 @@ export const BestPracticesRuleSeveritySchema = z.enum(['CRITICAL', 'HIGH', 'MEDI
 
 export const BestPracticesRuleStatusSchema = z.enum(['PASS', 'WARN', 'FAIL']);
 
+/**
+ * Zod schema for a single best-practices rule evaluation.
+ *
+ * `rule_id` is constrained to 1..17, matching the total number of rules in
+ * the best-practices checklist.
+ */
 export const BestPracticesRuleSchema = z.object({
   rule_id: z.int().min(1).max(17),
   rule_name: z.string().min(1),
@@ -110,6 +123,13 @@ export const DocRecommendationTypeSchema = z.enum([
   'incomplete_jsdoc',
 ]);
 
+/**
+ * Zod schema for a documentation recommendation (Epic 29).
+ *
+ * - `path_ideal` — canonical documentation path where the content should live.
+ * - `path_user` — actual file path in the user's project (may differ from ideal).
+ * - `content_ref` — reference to the source-code symbol or concept this recommendation covers.
+ */
 export const DocRecommendationSchema = z.object({
   type: DocRecommendationTypeSchema,
   path_ideal: z.string(),
@@ -134,6 +154,13 @@ export const AxisMetaEntrySchema = z.object({
 // ReviewFile — accepts version 1 or 2 for backward compatibility
 // ---------------------------------------------------------------------------
 
+/**
+ * Zod schema for a complete per-file review output.
+ *
+ * Accepts both version 1 and version 2 payloads for backward compatibility.
+ * Version 2 adds optional fields: `best_practices`, `docs_coverage`,
+ * `doc_recommendations`, `axis_meta`, and `deliberation`.
+ */
 export const ReviewFileSchema = z.object({
   version: z.union([z.literal(1), z.literal(2)]),
   file: z.string(),

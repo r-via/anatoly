@@ -69,6 +69,14 @@ export interface PageContext {
  * Builds the source code context for a scaffolded documentation page.
  * Extracts exported symbols, re-exports, and import graph based on page type.
  * Applies token-based truncation with priority ordering.
+ *
+ * @param pagePath - Scaffold-relative page path (e.g. '02-Architecture/overview.md');
+ *   paths starting with `02-Architecture/` additionally receive an import graph.
+ * @param sourceFiles - Source files relevant to this page, each with parsed symbols.
+ * @param options - Optional configuration.
+ * @param options.maxTokens - Token budget for the serialised context (default: 8000).
+ * @returns A {@link PageContext} with exports, internals, re-exports, import graph,
+ *   token count, and a `truncated` flag indicating whether priority-based pruning occurred.
  */
 export function buildPageContext(
   pagePath: string,
@@ -142,6 +150,18 @@ function extractSignature(content: string, symbol: SymbolInfo): string {
   return line;
 }
 
+/**
+ * Extract the JSDoc block immediately preceding a symbol declaration.
+ *
+ * Scans backward from the symbol's start line looking for a closing `* /`
+ * then continues upward to find the opening `/**`. Blank lines before the
+ * closing tag are skipped, but a blank line inside the block terminates the
+ * search (the comment is not considered contiguous JSDoc).
+ *
+ * @param content - Full file source text.
+ * @param symbol - Symbol whose preceding JSDoc should be extracted.
+ * @returns The raw JSDoc string (including delimiters) or `null` if none is found.
+ */
 function extractJsdoc(content: string, symbol: SymbolInfo): string | null {
   const lines = content.split('\n');
   const startIdx = symbol.line_start - 1;

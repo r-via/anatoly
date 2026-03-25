@@ -32,6 +32,14 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   FILE_NOT_FOUND: 'make sure you are running Anatoly from your project root',
 };
 
+/**
+ * Structured error class for user-facing Anatoly failures.
+ *
+ * Carries a machine-readable {@link ErrorCode}, a `recoverable` flag indicating
+ * whether the operation can be retried, and an optional `hint` with an actionable
+ * recovery step. When no explicit hint is provided, a default hint is resolved
+ * from {@link DEFAULT_HINTS} based on the error code.
+ */
 export class AnatolyError extends Error {
   public readonly hint: string;
 

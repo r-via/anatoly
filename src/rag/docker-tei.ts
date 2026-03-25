@@ -154,6 +154,13 @@ export async function startTeiContainers(
 
 /**
  * Start a single TEI container (used during A/B test where models run sequentially).
+ *
+ * @param name - Which container to start: `"code"` or `"nlp"`.
+ * @param modelId - HuggingFace model ID to load in the container.
+ * @param onLog - Optional callback for status messages.
+ * @param onProgress - Optional callback receiving elapsed seconds during health-check polling.
+ * @returns `true` if the container became healthy, `false` on any failure
+ *          (Docker unavailable, health-check timeout, or startup error).
  */
 export async function startTeiContainer(
   name: 'code' | 'nlp',

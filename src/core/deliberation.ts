@@ -48,11 +48,34 @@ type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the system prompt for the deliberation LLM pass.
+ *
+ * Resolves the `deliberation` prompt template and injects the current axis
+ * count into every `{{AXIS_COUNT}}` placeholder.
+ *
+ * @returns The fully interpolated system prompt string.
+ */
 export function buildDeliberationSystemPrompt(): string {
   const raw = resolveSystemPrompt('deliberation');
   return raw.replace(/\{\{AXIS_COUNT\}\}/g, String(ALL_AXIS_IDS.length));
 }
 
+/**
+ * Build the user-facing message for the deliberation LLM pass.
+ *
+ * Assembles a structured Markdown prompt containing:
+ * - The merged ReviewFile serialized as JSON
+ * - The full source code of the file under review
+ * - Inline deliberation rules: skip clean symbols, address all axis findings
+ *   per symbol together, protect ERROR (require confidence >= 95 to downgrade),
+ *   require confidence >= 85 for reclassification, and prohibit adding new
+ *   findings, symbols, or actions
+ *
+ * @param review - The merged ReviewFile from all axis evaluators.
+ * @param fileContent - The raw source code of the file being reviewed.
+ * @returns The fully assembled user message string for the deliberation LLM call.
+ */
 export function buildDeliberationUserMessage(review: ReviewFile, fileContent: string): string {
   const reviewJson = JSON.stringify(review, null, 2);
   return `## Merged ReviewFile (from ${ALL_AXIS_IDS.length} axis evaluators)
@@ -151,6 +174,14 @@ export function needsDeliberation(review: ReviewFile): boolean {
  * - Removes invalidated actions
  * - Applies Opus verdict
  * - Enriches symbol detail with deliberation reasoning
+ *
+ * @param review - The original merged ReviewFile to update.
+ * @param deliberation - The parsed deliberation response from Opus.
+ * @param projectRoot - When provided, reclassifications are recorded to the
+ *   correction-memory file via {@link recordReclassification} so that future
+ *   runs can learn from false-positive patterns.
+ * @returns A new ReviewFile with deliberation results applied and verdict
+ *   recomputed for coherence.
  */
 export function applyDeliberation(
   review: ReviewFile,

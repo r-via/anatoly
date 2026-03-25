@@ -51,12 +51,34 @@ interface VectorRow {
   source: string;
 }
 
-/** Options for upserting cards with optional NLP embeddings. */
+/**
+ * Options for upserting function cards with optional auxiliary embedding vectors.
+ *
+ * Both fields are parallel arrays aligned with the cards array passed to
+ * {@link VectorStore.upsert}. When omitted, zero-vectors are stored.
+ */
 export interface UpsertOptions {
+  /** NLP embedding vectors for natural-language similarity search. */
   nlpEmbeddings?: number[][];
+  /** Documentation-oriented embedding vectors used for gap detection. */
   docEmbeddings?: number[][];
 }
 
+/**
+ * LanceDB-backed vector store for function cards and documentation sections.
+ *
+ * Stores two distinct row types in a single table:
+ * - **function** rows — code-level function cards with code, NLP, and doc embedding vectors.
+ * - **doc_section** rows — documentation section summaries with NLP vectors only.
+ *
+ * Lifecycle: call {@link init} before any other method to open (or create) the
+ * LanceDB connection and table.  Dimension mismatches between stored vectors
+ * and the current embedding model are detected and logged during init.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param tableName - LanceDB table name (default: `'function_cards'`).
+ * @param onLog - Optional logging callback for diagnostic messages.
+ */
 export class VectorStore {
   private dbPath: string;
   private projectRoot: string;

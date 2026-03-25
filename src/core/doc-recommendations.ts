@@ -27,6 +27,12 @@ export type RecommendationType =
   | 'missing_jsdoc'
   | 'incomplete_jsdoc';
 
+/**
+ * A raw documentation gap detected during analysis, before transformation
+ * into a dual-output {@link DocRecommendation}. Represents a single deficiency
+ * (missing page, outdated content, incomplete JSDoc, etc.) located by its
+ * ideal path within `.anatoly/docs/`.
+ */
 export interface DocGap {
   type: RecommendationType;
   /** Page path within .anatoly/docs/ (e.g., "05-Modules/rag.md") */
@@ -39,10 +45,15 @@ export interface DocGap {
   existingUserPath?: string;
 }
 
+/**
+ * An enriched documentation recommendation with dual output paths.
+ * Produced by {@link buildDocRecommendations} from a {@link DocGap}.
+ */
 export interface DocRecommendation {
   type: RecommendationType;
   path_ideal: string;
   path_user: string;
+  /** Reference to the authoritative content source (always the `.anatoly/docs/` ideal path). */
   content_ref: string;
   rationale: string;
   priority: 'high' | 'medium' | 'low';
@@ -121,6 +132,19 @@ export function buildDocRecommendations(
 
 // --- Path resolution ---
 
+/**
+ * Determine the user-facing file path for a documentation gap.
+ *
+ * Resolution order:
+ * 1. Use `gap.existingUserPath` when already known.
+ * 2. Map via {@link UserDocPlan} concept-based section mappings.
+ * 3. Fall back to mirroring the ideal path under `docsPath`.
+ *
+ * @param gap - The documentation gap to resolve a user path for.
+ * @param plan - Optional user doc plan providing concept-to-directory mappings.
+ * @param docsPath - Base directory for user-facing docs (e.g. `"docs"`).
+ * @returns The resolved user-facing file path string.
+ */
 function resolveUserPath(gap: DocGap, plan: UserDocPlan | null, docsPath: string): string {
   // Explicit existing path takes precedence
   if (gap.existingUserPath) {

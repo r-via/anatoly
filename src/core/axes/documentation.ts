@@ -29,7 +29,7 @@ const DocsCoverageSchema = z.object({
   score_pct: z.number().min(0).max(100),
 });
 
-/** Zod schema for documentation response validation. */
+/** Zod schema validating the LLM response for the documentation axis. */
 export const DocumentationResponseSchema = z.object({
   symbols: z.array(DocumentationSymbolSchema),
   docs_coverage: DocsCoverageSchema.optional(),
@@ -47,7 +47,16 @@ export function buildDocumentationSystemPrompt(): string {
   return resolveSystemPrompt('documentation');
 }
 
-/** Builds the user message for the documentation evaluator. */
+/**
+ * Builds the user-message prompt for the documentation axis LLM call.
+ *
+ * Assembles file content, symbol list, project documentation pages (scored),
+ * internal reference docs (context-only, not scored), docs-tree listing, and a
+ * no-docs fallback into a Markdown prompt.
+ *
+ * @param ctx Axis evaluation context with file content, symbols, docs tree, and relevant docs.
+ * @returns The assembled prompt string.
+ */
 export function buildDocumentationUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -120,7 +129,12 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
-/** Evaluator that scores files on the documentation axis. */
+/**
+ * Axis evaluator for documentation quality. Performs a semaphore-guarded LLM
+ * query to assess inline and project-level documentation per symbol, injecting
+ * correction-memory reclassifications when available. JSON files are
+ * short-circuited to all-DOCUMENTED results. Defaults to `sonnet` model.
+ */
 export class DocumentationEvaluator implements AxisEvaluator {
   readonly id = 'documentation' as const;
   readonly defaultModel = 'sonnet' as const;

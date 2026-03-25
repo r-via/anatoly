@@ -34,6 +34,13 @@ const CoverageDataSchema = z.object({
   lines_covered: z.int().min(0),
 });
 
+/**
+ * Zod schema for a scanner task — the unit of work produced by `scanProject`.
+ *
+ * Each task represents a single source file with its SHA-256 content hash,
+ * extracted symbols, and optional metadata (coverage, language, framework).
+ * The `version: 1` literal enables future schema migrations.
+ */
 export const TaskSchema = z.object({
   version: z.literal(1),
   file: z.string(),
