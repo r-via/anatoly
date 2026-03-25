@@ -47,11 +47,11 @@ export function buildPagePrompt(
   page: PageInfo,
   pageContext: PageContext,
   packageJson: Record<string, unknown>,
-  options?: { model?: string; allPages?: string[]; neighbors?: DocNeighbor[] },
+  options?: { model?: string; allPages?: string[]; neighbors?: DocNeighbor[]; readme?: string },
 ): PagePrompt {
   const model = options?.model ?? DEFAULT_MODEL;
   const system = buildSystemPrompt(page.path);
-  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages, options?.neighbors);
+  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages, options?.neighbors, options?.readme);
   return { pagePath: page.path, system, user, model };
 }
 
@@ -80,8 +80,18 @@ function buildUserMessage(
   pkg: Record<string, unknown>,
   allPages?: string[],
   neighbors?: DocNeighbor[],
+  readme?: string,
 ): string {
   const parts: string[] = [];
+
+  // Project README — high-level context (read-only, may be stale)
+  if (readme) {
+    const lines = readme.split('\n');
+    const truncated = lines.length > 100 ? lines.slice(0, 100).join('\n') + '\n…(truncated)' : readme;
+    parts.push('## Project README (read-only context — do not duplicate, use for understanding)');
+    parts.push(truncated);
+    parts.push('');
+  }
 
   // Documentation site map — Sonnet must only link to these pages
   if (allPages && allPages.length > 0) {

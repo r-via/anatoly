@@ -27,6 +27,7 @@ import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeD
 import { buildPageContext, type SourceFile } from './source-context.js';
 import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
 import type { Task } from '../schemas/task.js';
+import { readFileSync as readFs } from 'node:fs';
 
 // --- Public interfaces ---
 
@@ -123,6 +124,14 @@ export function runDocGeneration(
   // Check cache
   const cacheResult = checkDocCache(cache, pageMappings, currentHashes);
 
+  // Load README.md as context (read-only, may be stale)
+  let readme: string | undefined;
+  try {
+    readme = readFs(resolve(projectRoot, 'README.md'), 'utf-8');
+  } catch {
+    // No README — that's fine
+  }
+
   // Build prompts for stale + added pages
   const prompts: PagePrompt[] = [];
   const pagesToGenerate = [...cacheResult.stale, ...cacheResult.added];
@@ -140,7 +149,7 @@ export function runDocGeneration(
     };
     const allPages = pageMappings.map(m => m.pagePath);
     const neighbors = loadNeighborPages(outputDir, pagePath, allPages);
-    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages, neighbors });
+    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages, neighbors, readme });
     prompts.push(prompt);
   }
 
