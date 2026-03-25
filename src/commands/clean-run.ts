@@ -39,6 +39,7 @@ export function isValidSha(sha: string): boolean {
   return SHA_RE.test(sha);
 }
 
+/** Returns the current HEAD commit SHA for the repository at {@link cwd}, or an empty string on failure. */
 export function getGitSha(cwd: string): string {
   try {
     return execSync('git rev-parse HEAD', { cwd, stdio: 'pipe' }).toString().trim();
