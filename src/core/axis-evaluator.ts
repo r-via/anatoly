@@ -24,6 +24,7 @@ import type { Semaphore } from './sdk-semaphore.js';
 // Pre-resolved RAG types (moved from prompt-builder.ts)
 // ---------------------------------------------------------------------------
 
+/** A single pre-resolved RAG lookup for one symbol, mapping it to similarity results from the vector index. */
 export interface PreResolvedRagEntry {
   symbolName: string;
   lineStart: number;
