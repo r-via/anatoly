@@ -55,6 +55,7 @@ export interface ConceptReport {
 
 // --- Combined result ---
 
+/** Combined result of the three-strategy V2 gap detection, with per-strategy coverage stats and actionable items. */
 export interface GapReportV2 {
   scope: GapDetectionScope;
   target: string;
@@ -77,6 +78,7 @@ export interface GapReportV2 {
   conceptsToDocument: Array<{ concept: string; frequency: number; suggestedPage: string }>;
 }
 
+/** Options bag for V2 gap detection. Threshold pairs control gap (missing) vs drift (low-relevance) classification. */
 export interface GapDetectionV2Options {
   scope?: GapDetectionScope;
   projectDocsPath?: string;
@@ -95,6 +97,7 @@ export interface GapDetectionV2Options {
 // Page classification
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Classify a doc page by path: 'module' if path contains "module", 'reference' for api-reference/cli/types/schema/endpoint, otherwise 'conceptual'. */
 export function classifyPage(pagePath: string): PageType {
   const lower = pagePath.toLowerCase();
   if (lower.includes('module')) return 'module';
@@ -139,6 +142,7 @@ function extractSubDomain(filePath: string): string {
   return filePath.replace(/\.[^.]+$/, '');
 }
 
+/** Group function cards into domains, splitting large domains into sub-domains by file. Skips single-function domains. */
 function groupByDomain(cards: Array<{ card: FunctionCard; docVector: number[] }>): Domain[] {
   // First pass: group by top-level domain
   const coarseMap = new Map<string, Array<{ card: FunctionCard; docVector: number[] }>>();
@@ -186,6 +190,7 @@ interface DocPage {
   content?: string; // full text for reference/concept checks
 }
 
+/** Aggregate doc sections from the vector store into per-page groups with type classification. avgNlpVector is deferred (set to []). */
 async function groupByPage(
   vectorStore: VectorStore,
   scope: GapDetectionScope,
@@ -222,6 +227,7 @@ async function groupByPage(
 // Strategy 1: Module pages — domain vector matching
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Strategy 1: match code domains to module pages via macro (domain→page) + micro (function→page) vector similarity. */
 async function strategy1_moduleDomains(
   domains: Domain[],
   modulePages: DocPage[],
@@ -319,6 +325,7 @@ async function strategy1_moduleDomains(
 // Strategy 2: Reference pages — structural diff
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Strategy 2: check reference pages for missing function entries via normalized path-segment matching. */
 function strategy2_referencePages(
   refPages: DocPage[],
   allCards: FunctionCard[],
@@ -381,6 +388,7 @@ function strategy2_referencePages(
 // Strategy 3: Conceptual pages — key concept coverage
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Strategy 3: identify top key concepts by frequency and check if they appear in conceptual pages. */
 function strategy3_conceptualPages(
   conceptualPages: DocPage[],
   allCards: FunctionCard[],
@@ -625,7 +633,7 @@ function l2Normalize(v: number[]): number[] {
 
 /** @deprecated Use detectDocGapsV2 instead */
 export type GapClassification = 'NOT_FOUND' | 'FOUND_LOW_RELEVANCE' | 'FOUND_COVERED' | 'ORPHAN_DOC';
-/** @deprecated Use GapReportV2 instead */
+/** Legacy V1 gap detection result with flat per-function classifications. @deprecated Use {@link GapReportV2} instead. */
 export interface GapDetectionResult {
   totalFunctions: number;
   totalDocSections: number;
@@ -635,7 +643,7 @@ export interface GapDetectionResult {
   orphans: Array<{ docSection: DocSectionEntry; classification: 'ORPHAN_DOC'; bestMatchFunction: string | null; similarity: number }>;
   byPage: Map<string, { pagePath: string; notFound: unknown[]; lowRelevance: unknown[]; covered: unknown[]; orphans: unknown[] }>;
 }
-/** @deprecated Use detectDocGapsV2 instead */
+/** @deprecated Use {@link detectDocGapsV2} instead. Note: `gapThreshold`/`driftThreshold` options are ignored when delegating to V2. */
 export async function detectDocGaps(vectorStore: VectorStore, options?: { scope?: GapDetectionScope; projectDocsPath?: string; gapThreshold?: number; driftThreshold?: number; onProgress?: (c: number, t: number) => void }): Promise<GapDetectionResult> {
   // Delegate to v2 and map back to v1 format
   const v2 = await detectDocGapsV2(vectorStore, { scope: options?.scope, projectDocsPath: options?.projectDocsPath });
