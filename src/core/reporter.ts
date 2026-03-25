@@ -1397,7 +1397,7 @@ function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number;
 }
 
 /**
- * Build an ASCII health bar: `████████░░` (10 chars wide).
+ * Build an emoji health bar: 🟩🟩🟩🟩🟩🟩🟩🟩⬜⬜ (10 squares, color by pct).
  */
 function healthBar(pct: number): string {
   const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
@@ -1672,7 +1672,6 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   const totalCorr = data.counts.correction.high + data.counts.correction.medium + data.counts.correction.low;
   const topFindings = extractTopFindings(data, 10);
   if (topFindings.length > 0) {
-    const showing = Math.min(topFindings.length, totalCorr);
     lines.push('## Critical Findings');
     lines.push('');
     for (const f of topFindings) {
@@ -1681,8 +1680,8 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
       lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
     }
     lines.push('');
-    if (totalCorr > showing) {
-      lines.push(`> Showing top ${showing} of ${totalCorr} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
+    if (totalCorr > topFindings.length) {
+      lines.push(`> Showing top ${topFindings.length} of ${totalCorr} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
     } else {
       lines.push(`> Browse all findings by axis in the [Axes](#axes) section above.`);
     }
@@ -1712,16 +1711,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     for (const r of data.degradedFiles) {
       // Extract which axes crashed from the detail strings
       const crashedAxes = new Set<string>();
-      const axisTagPattern = /\[([A-Z_]+)\]\s*\*\(axis crashed/g;
-      for (const s of r.symbols) {
-        let m: RegExpExecArray | null;
-        while ((m = axisTagPattern.exec(s.detail)) !== null) {
-          // The tag before the crash is the verdict value (e.g. USED, OK), not the axis name.
-          // Instead, scan each axis field for its default value paired with crash sentinel.
-          axisTagPattern.lastIndex = m.index + 1;
-        }
-      }
-      // More reliable: check which axis fields still have their default values on crashed symbols
+      // Check which axis fields still have their default values on crashed symbols
       for (const s of r.symbols) {
         if (!s.detail.includes(CRASH_SENTINEL)) continue;
         // Parse the detail segments: [VALUE] *(axis crashed ...)*

@@ -67,6 +67,9 @@ export interface RetryWithBackoffOptions {
  * The Anthropic SDK wraps these in various ways.
  */
 export function isRateLimitError(error: unknown): boolean {
+  // Standby errors are handled separately — never treat as regular rate limit
+  if (isRateLimitStandbyError(error)) return false;
+
   const check = (msg: string): boolean =>
     msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit')
     || msg.includes('529') || msg.includes('overloaded')
@@ -100,6 +103,8 @@ export function calculateBackoff(
 
 /** Extra margin added after the reset time before retrying (5 minutes). */
 const STANDBY_MARGIN_MS = 5 * 60 * 1000;
+/** Max standby sleep cycles before giving up. */
+const MAX_STANDBY_CYCLES = 3;
 
 /**
  * Execute an async function with automatic retry on rate limit (429) errors.
@@ -114,6 +119,7 @@ export async function retryWithBackoff<T>(
   options: RetryWithBackoffOptions,
 ): Promise<T> {
   const { maxRetries, baseDelayMs, maxDelayMs, jitterFactor, onRetry, onStandby, filePath, isInterrupted } = options;
+  let standbyCycles = 0;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -124,12 +130,17 @@ export async function retryWithBackoff<T>(
 
       // --- Tier-level rate limit with known reset time ---
       if (isRateLimitStandbyError(error)) {
+        standbyCycles++;
+        if (standbyCycles > MAX_STANDBY_CYCLES) {
+          throw new Error(`Rate limit standby exhausted after ${MAX_STANDBY_CYCLES} cycles — giving up`);
+        }
+
         const waitMs = Math.max(0, error.resetsAtMs + STANDBY_MARGIN_MS - Date.now());
         const resumeDate = new Date(error.resetsAtMs + STANDBY_MARGIN_MS);
         const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         contextLogger().info(
-          { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr },
+          { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr, standbyCycles },
           'rate limit standby — sleeping until reset',
         );
         onStandby?.(error.resetsAtMs, filePath);

@@ -737,14 +737,28 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 
         let resultText = '';
         let costUsd = 0;
+        let rateLimitResetsAt: number | undefined;
 
         for await (const message of q) {
+          // Detect tier-level rate limit event
+          if (message.type === 'rate_limit_event') {
+            const info = (message as Record<string, unknown>).rate_limit_info as
+              { status?: string; resetsAt?: number } | undefined;
+            if (info?.status === 'rejected' && typeof info.resetsAt === 'number') {
+              rateLimitResetsAt = info.resetsAt * 1000;
+            }
+          }
+
           if (message.type === 'result') {
             if (message.subtype === 'success') {
               resultText = (message as { result: string }).result;
               costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
             } else {
               const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              if (rateLimitResetsAt) {
+                const { RateLimitStandbyError } = await import('../utils/rate-limiter.js');
+                throw new RateLimitStandbyError(rateLimitResetsAt);
+              }
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
             }
           }
