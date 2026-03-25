@@ -48,6 +48,7 @@ export function getGitSha(cwd: string): string {
   }
 }
 
+/** Returns `true` when committed files have changed between {@link sinceSha} and HEAD. */
 export function hasGitChanges(cwd: string, sinceSha: string): boolean {
   if (!isValidSha(sinceSha)) return false;
   try {
