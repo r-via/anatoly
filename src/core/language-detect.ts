@@ -113,6 +113,7 @@ export const DEFAULT_EXCLUDES: string[] = [
   'target/',
   'bin/',
   'obj/',
+  '.anatoly/',
 ];
 
 // --- Framework registry ---

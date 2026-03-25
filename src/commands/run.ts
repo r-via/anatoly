@@ -1027,9 +1027,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     state.completeTask('rag-nlp', nlpTask?.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
     state.completeTask('rag-upsert', 'done');
     state.completeTask('rag-doc-project', ragResult.projectDocSections > 0
-      ? `${ragResult.projectDocSections} sections` : 'done');
+      ? `${ragResult.projectDocSections} sections` : 'no project docs');
     state.completeTask('rag-doc-internal', ragResult.internalDocSections > 0
-      ? `${ragResult.internalDocSections} sections` : 'done');
+      ? `${ragResult.internalDocSections} sections` : 'no internal docs');
   }
 
   const ragDuration = Date.now() - ragStart;

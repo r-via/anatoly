@@ -281,10 +281,7 @@ export function determineBackend(
     return flag.backend;
   }
 
-  // Infer from hardware: GPU + Docker + toolkit + VRAM → gguf, else → lite
-  if (hardware.hasGpu && hardware.hasDocker && hardware.hasNvidiaContainerToolkit && (hardware.vramGB ?? 0) >= GGUF_MIN_VRAM_GB) {
-    return 'advanced-gguf';
-  }
+  // No setup flag → always lite (advanced-gguf requires setup-embeddings)
   return 'lite';
 }
 
