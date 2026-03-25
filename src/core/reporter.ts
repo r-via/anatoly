@@ -1554,59 +1554,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   lines.push(`> ${verdictParts.join(' · ')}`);
   lines.push('');
 
-  // ── 2. EXECUTIVE SUMMARY ───────────────────────────────────────────────
-  const dc = data.counts.dead;
-  const dup = data.counts.duplicate;
-  const ov = data.counts.overengineering;
-  const cor = data.counts.correction;
-  const tst = data.counts.tests;
-  const doc = data.counts.documentation;
-  const bp = data.counts.best_practices;
-  const totalDead = dc.high + dc.medium + dc.low;
-  const totalDup = dup.high + dup.medium + dup.low;
-  const totalOver = ov.high + ov.medium + ov.low;
-  const totalCorr = cor.high + cor.medium + cor.low;
-  const totalTests = tst.high + tst.medium + tst.low;
-  const totalDocs = doc.high + doc.medium + doc.low;
-  const totalBp = bp.high + bp.medium + bp.low;
-
-  if (totalDead + totalDup + totalOver + totalCorr + totalTests + totalDocs + totalBp > 0) {
-    lines.push('## Findings Summary');
-    lines.push('');
-    lines.push('| Category | High | Medium | Low | Total |');
-    lines.push('|----------|------|--------|-----|-------|');
-    if (totalCorr > 0) lines.push(`| Correction errors | ${cor.high} | ${cor.medium} | ${cor.low} | ${totalCorr} |`);
-    if (totalDead > 0) lines.push(`| Dead code | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
-    if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
-    if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
-    if (totalTests > 0) lines.push(`| Test coverage gaps | ${tst.high} | ${tst.medium} | ${tst.low} | ${totalTests} |`);
-    if (totalBp > 0) lines.push(`| Best practices | ${bp.high} | ${bp.medium} | ${bp.low} | ${totalBp} |`);
-    if (totalDocs > 0) lines.push(`| Documentation gaps | ${doc.high} | ${doc.medium} | ${doc.low} | ${totalDocs} |`);
-    lines.push('');
-  }
-
-  // ── 3. CRITICAL FINDINGS ───────────────────────────────────────────────
-  const topFindings = extractTopFindings(data, 10);
-  if (topFindings.length > 0) {
-    const totalCorrFindings = totalCorr;
-    const showing = Math.min(topFindings.length, totalCorrFindings);
-    lines.push('## Critical Findings');
-    lines.push('');
-    for (const f of topFindings) {
-      const icon = f.correction === 'ERROR' ? '🔴' : '🟡';
-      const oneLiner = f.detail.length > 120 ? f.detail.slice(0, 117) + '...' : f.detail;
-      lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
-    }
-    lines.push('');
-    if (totalCorrFindings > showing) {
-      lines.push(`> Showing top ${showing} of ${totalCorrFindings} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
-    } else {
-      lines.push(`> Browse all findings by axis in the [Axes](#axes) section below.`);
-    }
-    lines.push('');
-  }
-
-  // ── 4. AXES OVERVIEW (fused: navigation + health + findings) ───────────
+  // ── 2. AXES OVERVIEW (health + findings + links — single source of truth) ──
   const countsKeyMap: Record<ReportAxisId, keyof typeof data.counts> = {
     correction: 'correction',
     utility: 'dead',
@@ -1644,6 +1592,27 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     }
   }
   lines.push('');
+
+  // ── 3. CRITICAL FINDINGS ───────────────────────────────────────────────
+  const totalCorr = data.counts.correction.high + data.counts.correction.medium + data.counts.correction.low;
+  const topFindings = extractTopFindings(data, 10);
+  if (topFindings.length > 0) {
+    const showing = Math.min(topFindings.length, totalCorr);
+    lines.push('## Critical Findings');
+    lines.push('');
+    for (const f of topFindings) {
+      const icon = f.correction === 'ERROR' ? '🔴' : '🟡';
+      const oneLiner = f.detail.length > 120 ? f.detail.slice(0, 117) + '...' : f.detail;
+      lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
+    }
+    lines.push('');
+    if (totalCorr > showing) {
+      lines.push(`> Showing top ${showing} of ${totalCorr} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
+    } else {
+      lines.push(`> Browse all findings by axis in the [Axes](#axes) section above.`);
+    }
+    lines.push('');
+  }
 
   // ── 5. DOCUMENTATION REFERENCE (rewritten for public readability) ─────
   if (docReferenceSection) {
