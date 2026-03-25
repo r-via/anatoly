@@ -189,7 +189,8 @@ export class ScreenRenderer {
   }
 
   private renderCurrentFilesHeader(): string {
-    return '  In progress';
+    const label = this.state.inProgressLabel || 'In progress';
+    return `  ${label}`;
   }
 
   private renderFileLine(file: FileState, maxPathWidth: number): string {

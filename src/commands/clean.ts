@@ -130,34 +130,31 @@ function generateClaudeMd(cleanName: string, cleanDir: string, projectRoot: stri
 
 ## Role
 
-You are an autonomous TypeScript correction agent working in a Ralph loop.
-Your job is to clean audit findings one at a time.
+You are an autonomous correction agent working in a Ralph loop.
+Your job is to fix ALL findings in a batch — they all target the same file and axis.
 
 ## Key Files
 
 | File | Path | Purpose |
 |------|------|---------|
-| PRD | \`${cleanDir}/prd.json\` | User stories — pick the first with \`"passes": false\` |
+| Batch | \`${cleanDir}/current-batch.json\` | Array of stories to fix this iteration (same file, same axis) |
 | Progress | \`${cleanDir}/progress.txt\` | Learnings log — **read Codebase Patterns first** |
 | Reviews | \`${reviewsPath}\` | Per-file \`.rev.md\` with axis-by-axis detail |
 
 ## Workflow
 
-1. Read \`${cleanDir}/prd.json\` — find the first user story where \`"passes": false\`
+1. Read \`${cleanDir}/current-batch.json\` — this is an array of stories, all for the same file
 2. Read \`${cleanDir}/progress.txt\` — check the **Codebase Patterns** section first for learnings from previous iterations
-3. Check you're on the correct branch from PRD \`branchName\`. If not, check it out or create from main.
-4. Read the corresponding \`.rev.md\` file for detailed context on the finding
-5. Fix the issue in the source code
-6. Verify: \`npm run build && npm test\`
-7. Commit: \`git commit -m "fix: [FIX-NNN] - short description"\`
-8. Update \`${cleanDir}/prd.json\`: set \`"passes": true\` for the completed story
-9. Append your progress to \`${cleanDir}/progress.txt\` (see format below)
-10. If all stories have \`"passes": true\`, output \`<promise>COMPLETE</promise>\`
+3. Read the corresponding \`.rev.md\` file for detailed context on the findings
+4. Fix ALL issues in the batch
+5. Verify: \`npm run build && npm test\`
+6. Commit with a range: \`git commit -m "fix: [FIX-NNN..MMM] - short description"\`
+7. Update \`${cleanDir}/current-batch.json\`: set \`"passes": true\` for each fixed story
+8. Append your progress to \`${cleanDir}/progress.txt\` (see format below)
 
 ## Constraints
 
-- Only modify files matching: \`src/**/*.ts\`, \`test/**/*.ts\`, \`*.test.ts\`
-- One fix per iteration — do not batch multiple stories
+- Fix all stories in the batch — they share the same file, treat them as one unit of work
 - Always verify \`npm run build && npm test\` before committing
 - Read the \`.rev.md\` transcript for full axis-by-axis context before fixing
 
@@ -174,39 +171,9 @@ Your job is to clean audit findings one at a time.
 
 Violation of these rules wastes iterations and burns tokens for zero progress.
 
-## Adaptive PRD
+## Skip a Story
 
-The \`prd.json\` is a **living document**. You may modify it during your iteration:
-
-### Reprioritize
-If you discover that a later story should be fixed first (e.g., it blocks other fixes, or is a root cause), you may reorder priorities by updating the \`"priority"\` field. Always fix the **lowest priority number** story with \`"passes": false\`.
-
-### Add Discovered Stories
-If fixing a story reveals a **new issue** not covered by existing stories, you may add it to \`prd.json\`:
-\`\`\`json
-{
-  "id": "FIX-DIS-001",
-  "actId": "DISCOVERED",
-  "title": "Fix: <description>",
-  "description": "<what you found and why it matters>",
-  "acceptanceCriteria": [
-    "The issue is resolved",
-    "\`npm run build\` succeeds",
-    "\`npm test\` passes"
-  ],
-  "priority": 999,
-  "passes": false,
-  "notes": "Discovered during FIX-NNN iteration"
-}
-\`\`\`
-
-### Skip a Story
-If a story is **impossible to fix** (e.g., the finding is a false positive, or the code was already deleted), set \`"passes": true\` and add a \`"skipped": "reason"\` field. Log the reason in progress.txt.
-
-### Rules
-- Never remove existing stories — only add or update
-- Log all PRD changes in progress.txt with rationale
-- Discovered stories with \`actId: "DISCOVERED"\` will not sync to report checkboxes (this is expected)
+If a story is **impossible to fix** (e.g., false positive, code already deleted), set \`"passes": true\` for that story in \`current-batch.json\` and add a \`"skipped": "reason"\` field. Log the reason in progress.txt. Other stories in the batch must still be fixed.
 
 ## Progress Report Format
 
@@ -235,13 +202,6 @@ that are **general and reusable**, not fix-specific details.
 npm run build && npm test
 \`\`\`
 
-## Completion Signal
-
-When all stories in prd.json have \`"passes": true\`, output exactly:
-
-\`\`\`
-<promise>COMPLETE</promise>
-\`\`\`
 `;
 }
 

@@ -51,6 +51,8 @@ export class PipelineState {
   phase: PipelinePhase = 'rag';
   semaphore?: Semaphore;
   summary?: SummaryState;
+  /** Optional override for the "In progress" section header. */
+  inProgressLabel?: string;
   /** Current active task id — used to suppress agents counter during upsert */
   private _activeTaskId?: string;
 

@@ -10,6 +10,8 @@ import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { DISCOVERED_ACT_ID } from './clean.js';
 import { REPORT_AXIS_IDS } from '../core/reporter.js';
+import { PipelineState } from '../cli/pipeline-state.js';
+import { ScreenRenderer } from '../cli/screen-renderer.js';
 
 const SHA_RE = /^[a-f0-9]{40}$/;
 
@@ -163,16 +165,15 @@ function openCircuitBreaker(
     }
   }
 
-  finalSync(projectRoot, reportFile);
+  syncToReport(projectRoot, reportFile);
   process.exitCode = 1;
 }
 
-function finalSync(projectRoot: string, reportFile: string): void {
+function syncToReport(projectRoot: string, reportFile: string): void {
   try {
-    console.log(chalk.blue('Final sync...'));
     execSync(`npx anatoly clean sync ${reportFile}`, {
       cwd: projectRoot,
-      stdio: 'inherit',
+      stdio: 'pipe',
     });
   } catch {
     // Non-fatal
@@ -268,9 +269,19 @@ export function registerCleanRunCommand(program: Command): void {
         console.log(chalk.green(`\u2713 Already on branch ${branchName}`));
       }
 
-      console.log('');
-      console.log(chalk.blue(`Ralph clean loop \u2014 ${maxIterations} iterations max`));
-      console.log('');
+      // --- Read initial PRD to get total count ---
+      const initialPrd: { userStories: PrdStory[] } = JSON.parse(readFileSync(prdPath, 'utf-8'));
+      const allOriginal = initialPrd.userStories.filter((s) => s.actId !== DISCOVERED_ACT_ID);
+      const totalStories = allOriginal.length;
+      const initialFixed = allOriginal.filter((s) => s.passes).length;
+
+      // --- Pipeline display ---
+      const state = new PipelineState();
+      state.addTask('clean', 'Auto cleaning');
+      state.startTask('clean', `${initialFixed}/${totalStories} findings fixed`);
+
+      const renderer = new ScreenRenderer(state);
+      renderer.start();
 
       // Circuit breaker state
       const cb: CircuitBreakerState = {
@@ -281,11 +292,13 @@ export function registerCleanRunCommand(program: Command): void {
       };
 
       const PROTECTED_BRANCHES = new Set(['main', 'master']);
+      let fixedCount = initialFixed;
 
       for (let i = 1; i <= maxIterations; i++) {
         // Per-iteration guard: abort if somehow back on a protected branch
         const iterBranch = execSync('git branch --show-current', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
         if (PROTECTED_BRANCHES.has(iterBranch)) {
+          renderer.stop();
           console.error(chalk.red(`ABORT: detected protected branch "${iterBranch}" at iteration ${i} — refusing to continue.`));
           process.exitCode = 1;
           return;
@@ -296,6 +309,7 @@ export function registerCleanRunCommand(program: Command): void {
         try {
           masterPrd = JSON.parse(readFileSync(prdPath, 'utf-8'));
         } catch {
+          renderer.stop();
           console.error(chalk.red('Failed to parse prd.json — aborting.'));
           process.exitCode = 1;
           return;
@@ -306,18 +320,27 @@ export function registerCleanRunCommand(program: Command): void {
         );
         const totalRemaining = originalStories.filter((s) => !s.passes).length;
         if (totalRemaining === 0) {
-          console.log('');
-          console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
-          finalSync(projectRoot, reportFile);
+          state.completeTask('clean', `${totalStories}/${totalStories} findings fixed`);
+          state.setSummary({
+            headline: chalk.bold.green('Done') + ` \u2014 all ${totalStories} findings remediated in ${i - 1} iterations`,
+            paths: [
+              { key: 'branch', value: chalk.cyan(branchName) },
+              { key: 'progress', value: chalk.cyan(`${cleanDir}/progress.txt`) },
+            ],
+            cost: '',
+          });
+          renderer.stop();
+          syncToReport(projectRoot, reportFile);
           return;
         }
 
         const batches = groupStoriesByAxisFile(originalStories);
-        const nextBatch = batches.find((b) => b.stories.some((s) => !s.passes));
+        const pendingBatches = batches.filter((b) => b.stories.some((s) => !s.passes));
+        const nextBatch = pendingBatches[0];
         if (!nextBatch) {
-          console.log('');
-          console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
-          finalSync(projectRoot, reportFile);
+          state.completeTask('clean', `${totalStories}/${totalStories} findings fixed`);
+          renderer.stop();
+          syncToReport(projectRoot, reportFile);
           return;
         }
         const pendingStories = nextBatch.stories.filter((s) => !s.passes);
@@ -325,10 +348,19 @@ export function registerCleanRunCommand(program: Command): void {
         const lastId = pendingStories[pendingStories.length - 1].id;
         const batchLabel = pendingStories.length === 1 ? firstId : `${firstId}..${lastId}`;
 
-        console.log('===============================================================');
-        console.log(`  Ralph Iteration ${i} of ${maxIterations} — [${nextBatch.axis}, ${nextBatch.file}]`);
-        console.log(`  ${pendingStories.length} stories in batch (${batchLabel}) · ${totalRemaining} remaining total`);
-        console.log('===============================================================');
+        // Update pipeline display
+        state.updateTask('clean', `${fixedCount}/${totalStories} findings fixed`);
+        state.inProgressLabel = `In progress \u2014 loop ${i}/${maxIterations}`;
+        state.setPhase('review');
+
+        // Show current batch as in-progress file + next 3 as pending
+        state.activeFiles.clear();
+        state.trackFile(`${batchLabel}  ${nextBatch.axis}/${nextBatch.file} (${pendingStories.length} stories)`, { axesTotal: 0 });
+        for (const upcoming of pendingBatches.slice(1, 4)) {
+          const upStories = upcoming.stories.filter((s) => !s.passes);
+          const upLabel = upStories.length === 1 ? upStories[0].id : `${upStories[0].id}..${upStories[upStories.length - 1].id}`;
+          state.trackFile(`${upLabel}  ${upcoming.axis}/${upcoming.file} (${upStories.length} stories)`, { axesTotal: 0 });
+        }
 
         // Write batch file for the agent
         const batchPath = join(cleanDir, 'current-batch.json');
@@ -336,21 +368,21 @@ export function registerCleanRunCommand(program: Command): void {
 
         const preSha = getGitSha(projectRoot);
 
-        // Read CLAUDE.md fresh each iteration (it doesn't change, but keep it clean)
+        // Read CLAUDE.md fresh each iteration
         const claudeMd = readFileSync(claudeMdPath, 'utf-8');
 
-        // Spawn a fresh Claude Code instance — stream output in real-time
+        // Spawn a fresh Claude Code instance
         const { exitCode } = await new Promise<{ exitCode: number }>((res) => {
           const args = ['--dangerously-skip-permissions', '--print'];
           if (opts.model) args.push('--model', opts.model);
           const child = spawn('claude', args, {
             cwd: projectRoot,
-            stdio: ['pipe', 'pipe', 'inherit'],
+            stdio: ['pipe', 'pipe', 'pipe'],
           });
 
-          child.stdout!.on('data', (chunk: Buffer) => {
-            process.stdout.write(chunk);
-          });
+          // Suppress agent output — pipeline display owns the terminal
+          child.stdout!.resume();
+          child.stderr!.resume();
 
           child.on('close', (code) => {
             clearTimeout(timer);
@@ -362,10 +394,8 @@ export function registerCleanRunCommand(program: Command): void {
             res({ exitCode: 1 });
           });
 
-          // Feed prompt via stdin then close
           child.stdin!.end(claudeMd);
 
-          // Timeout scales with batch size: 15 min base + 5 min per story
           const timeoutMs = (15 + pendingStories.length * 5) * 60 * 1000;
           const timer = setTimeout(() => {
             child.kill();
@@ -377,26 +407,25 @@ export function registerCleanRunCommand(program: Command): void {
         // Sync current-batch.json results back to master PRD
         try {
           const updatedBatch: PrdStory[] = JSON.parse(readFileSync(batchPath, 'utf-8'));
+          let batchFixed = 0;
           for (const updatedStory of updatedBatch) {
             const idx = masterPrd.userStories.findIndex((s) => s.id === updatedStory.id);
             if (idx !== -1) {
+              if (updatedStory.passes && !masterPrd.userStories[idx].passes) batchFixed++;
               masterPrd.userStories[idx] = updatedStory;
             }
           }
           writeFileSync(prdPath, JSON.stringify(masterPrd, null, 2));
-        } catch {
-          // Non-fatal — PRD sync failed, stories stay as-is
-        }
-
-        // Sync completed fixes back to the report
-        try {
-          execSync(`npx anatoly clean sync ${reportFile}`, {
-            cwd: projectRoot,
-            stdio: 'pipe',
-          });
+          fixedCount += batchFixed;
         } catch {
           // Non-fatal
         }
+
+        // Mark current batch as done in the display
+        state.activeFiles.clear();
+
+        // Sync completed fixes back to the report
+        syncToReport(projectRoot, reportFile);
 
         // --- Circuit breaker evaluation ---
         const postSha = getGitSha(projectRoot);
@@ -410,15 +439,15 @@ export function registerCleanRunCommand(program: Command): void {
           cb.consecutiveNoProgress++;
         }
 
-        // Error counter is independent of progress — an iteration can make progress but still exit with error
         if (hasError && !madeProgress) {
           cb.consecutiveSameError++;
         } else {
           cb.consecutiveSameError = 0;
         }
 
-        // Check circuit breaker thresholds
         if (cb.consecutiveNoProgress >= CB_NO_PROGRESS_THRESHOLD) {
+          state.completeTask('clean', `${fixedCount}/${totalStories} findings fixed (stalled)`);
+          renderer.stop();
           openCircuitBreaker(
             'No progress detected',
             `${cb.consecutiveNoProgress} consecutive iterations without changes`,
@@ -428,6 +457,8 @@ export function registerCleanRunCommand(program: Command): void {
         }
 
         if (cb.consecutiveSameError >= CB_SAME_ERROR_THRESHOLD) {
+          state.completeTask('clean', `${fixedCount}/${totalStories} findings fixed (errors)`);
+          renderer.stop();
           openCircuitBreaker(
             'Repeated errors detected',
             `${cb.consecutiveSameError} consecutive iterations with errors`,
@@ -435,19 +466,12 @@ export function registerCleanRunCommand(program: Command): void {
           );
           return;
         }
-
-        // Warn in half-open state
-        if (cb.consecutiveNoProgress >= 2) {
-          console.log(chalk.yellow(`  Warning: ${cb.consecutiveNoProgress} iterations without progress (circuit breaker at ${CB_NO_PROGRESS_THRESHOLD})`));
-        }
-
-        console.log(`\nIteration ${i} complete.\n`);
       }
 
-      console.log('');
+      state.completeTask('clean', `${fixedCount}/${totalStories} findings fixed (max iterations)`);
+      renderer.stop();
       console.log(chalk.yellow(`Ralph reached max iterations (${maxIterations}).`));
-      console.log(chalk.yellow(`Check .anatoly/clean/${cleanName}/progress.txt for status.`));
-      finalSync(projectRoot, reportFile);
+      syncToReport(projectRoot, reportFile);
       process.exitCode = 1;
     });
 }

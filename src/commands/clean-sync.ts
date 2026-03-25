@@ -41,7 +41,8 @@ export function checkAction(content: string, actId: string): { content: string; 
  */
 export function allActionsChecked(content: string): boolean {
   const unchecked = /^- \[ \] <!-- ACT-[a-f0-9]+-\d+ -->/m;
-  return !unchecked.test(content);
+  const checked = /^- \[x\] <!-- ACT-[a-f0-9]+-\d+ -->/m;
+  return !unchecked.test(content) && checked.test(content);
 }
 
 /**

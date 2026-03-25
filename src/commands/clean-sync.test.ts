@@ -53,8 +53,8 @@ describe('checkAction', () => {
 });
 
 describe('allActionsChecked', () => {
-  it('should return true when no ACT checkboxes exist', () => {
-    expect(allActionsChecked('No checkboxes here')).toBe(true);
+  it('should return false when no ACT checkboxes exist', () => {
+    expect(allActionsChecked('No checkboxes here')).toBe(false);
   });
 
   it('should return true when all ACT checkboxes are checked', () => {

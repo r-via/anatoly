@@ -8,6 +8,8 @@ import {
   CircuitBreakerState,
   CB_NO_PROGRESS_THRESHOLD,
   CB_SAME_ERROR_THRESHOLD,
+  groupStoriesByAxisFile,
+  type PrdStory,
 } from './clean-run.js';
 
 describe('isValidSha', () => {
@@ -31,6 +33,83 @@ describe('isValidSha', () => {
 
   it('should reject strings longer than 40 chars', () => {
     expect(isValidSha('a'.repeat(41))).toBe(false);
+  });
+});
+
+function makeStory(overrides: Partial<PrdStory> & { id: string }): PrdStory {
+  return {
+    actId: 'ACT-test',
+    passes: false,
+    notes: 'Source axis: correction',
+    description: 'Resolve high finding in `src/foo.rs`: some issue',
+    priority: 1,
+    ...overrides,
+  } as PrdStory;
+}
+
+describe('groupStoriesByAxisFile', () => {
+  it('should group stories with same axis and file', () => {
+    const stories = [
+      makeStory({ id: 'FIX-001', priority: 1 }),
+      makeStory({ id: 'FIX-002', priority: 2 }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].axis).toBe('correction');
+    expect(batches[0].file).toBe('src/foo.rs');
+    expect(batches[0].stories).toHaveLength(2);
+  });
+
+  it('should separate stories with different axes', () => {
+    const stories = [
+      makeStory({ id: 'FIX-001', notes: 'Source axis: correction' }),
+      makeStory({ id: 'FIX-002', notes: 'Source axis: documentation' }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches).toHaveLength(2);
+    expect(batches.map((b) => b.axis).sort()).toEqual(['correction', 'documentation']);
+  });
+
+  it('should separate stories with different files', () => {
+    const stories = [
+      makeStory({ id: 'FIX-001', description: 'Resolve in `src/a.rs`: issue' }),
+      makeStory({ id: 'FIX-002', description: 'Resolve in `src/b.rs`: issue' }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches).toHaveLength(2);
+    expect(batches.map((b) => b.file).sort()).toEqual(['src/a.rs', 'src/b.rs']);
+  });
+
+  it('should sort batches by lowest priority', () => {
+    const stories = [
+      makeStory({ id: 'FIX-010', priority: 10, description: 'Resolve in `src/b.rs`: issue' }),
+      makeStory({ id: 'FIX-001', priority: 1, description: 'Resolve in `src/a.rs`: issue' }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches[0].file).toBe('src/a.rs');
+    expect(batches[1].file).toBe('src/b.rs');
+  });
+
+  it('should handle stories with missing notes', () => {
+    const stories = [
+      makeStory({ id: 'FIX-001', notes: undefined }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].axis).toBe('');
+  });
+
+  it('should handle stories with missing description', () => {
+    const stories = [
+      makeStory({ id: 'FIX-001', description: undefined }),
+    ];
+    const batches = groupStoriesByAxisFile(stories);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].file).toBe('');
+  });
+
+  it('should return empty array for no stories', () => {
+    expect(groupStoriesByAxisFile([])).toEqual([]);
   });
 });
 
