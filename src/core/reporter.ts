@@ -583,6 +583,8 @@ export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): 
   const lines: string[] = [];
   const name = axisDisplayName(report.axis);
 
+  lines.push(`[← Back to report](../report.md)`);
+  lines.push('');
   lines.push(`# ${name}`);
   lines.push('');
 
@@ -751,6 +753,8 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   const lines: string[] = [];
   const name = axisDisplayName(axis);
 
+  lines.push(`[← Back to ${name}](./index.md) · [← Back to report](../report.md)`);
+  lines.push('');
   lines.push(`# ${name} — Shard ${shard.index}`);
   lines.push('');
 
@@ -1600,7 +1604,7 @@ function extractTopFindings(data: ReportData, limit: number): Array<{ file: stri
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
  */
-export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string): string {
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string): string {
   const lines: string[] = [];
 
   // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
@@ -1638,6 +1642,11 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   };
   const axisReportSet = new Set(axisReports.map((r) => r.axis));
 
+  // Helper to resolve links — absolute when reportsBaseUrl is set, relative otherwise
+  const axisLink = (axis: string) => reportsBaseUrl
+    ? `${reportsBaseUrl}/axes/${axis}/index.md`
+    : `./axes/${axis}/index.md`;
+
   lines.push('## Axes');
   lines.push('');
   lines.push('| Axis | Health | Findings | Details |');
@@ -1657,7 +1666,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
 
     if (axisReportSet.has(axis)) {
       const findingsStr = parts.join(' · ') || '—';
-      const link = `[View →](./axes/${axis}/index.md)`;
+      const link = `[View →](${axisLink(axis)})`;
       lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
     } else {
       // No findings — full green bar but show the actual verdict breakdown
@@ -1681,7 +1690,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     }
     lines.push('');
     if (totalCorr > topFindings.length) {
-      lines.push(`> Showing top ${topFindings.length} of ${totalCorr} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
+      lines.push(`> Showing top ${topFindings.length} of ${totalCorr} correction findings. See [axes/correction/](${axisLink('correction')}) for the full list.`);
     } else {
       lines.push(`> Browse all findings by axis in the [Axes](#axes) section above.`);
     }
@@ -1991,6 +2000,7 @@ export function generateReport(
   triageStats?: TriageStats,
   runStats?: RunStats,
   docReferenceSection?: string,
+  reportsBaseUrl?: string,
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
@@ -2005,7 +2015,7 @@ export function generateReport(
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl));
 
   // Write per-axis folders
   for (const report of axisReports) {
