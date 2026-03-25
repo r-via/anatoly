@@ -20,6 +20,10 @@ export interface ImportRef {
   type: 'import' | 'source' | 'require';
 }
 
+/**
+ * Contract for language-specific tree-sitter adapters.
+ * `wasmModule` is null for languages that lack a tree-sitter grammar and rely on heuristic extraction instead.
+ */
 export interface LanguageAdapter {
   readonly extensions: readonly string[];
   readonly languageId: string;
@@ -232,6 +236,7 @@ function extractPythonImports(source: string): ImportRef[] {
 
 // --- Python adapter ---
 
+/** Python adapter using a two-pass strategy: checks `__all__` for explicit exports, falls back to underscore-prefix convention. */
 export class PythonAdapter implements LanguageAdapter {
   readonly extensions = ['.py'] as const;
   readonly languageId = 'python';
@@ -495,6 +500,7 @@ function hasJavaModifier(node: TSNode, modifier: string): boolean {
   return mods ? mods.text.includes(modifier) : false;
 }
 
+/** Java adapter that extracts both top-level types and their members (methods, fields) from class/interface bodies. */
 export class JavaAdapter implements LanguageAdapter {
   readonly extensions = ['.java'] as const;
   readonly languageId = 'java';
@@ -585,6 +591,7 @@ function hasCSharpModifier(node: TSNode, modifier: string): boolean {
   return node.namedChildren.some((c) => c.type === 'modifier' && c.text === modifier);
 }
 
+/** C# adapter that recursively traverses namespace declarations to extract types and their members. */
 export class CSharpAdapter implements LanguageAdapter {
   readonly extensions = ['.cs'] as const;
   readonly languageId = 'csharp';
@@ -660,6 +667,7 @@ export class CSharpAdapter implements LanguageAdapter {
 const SQL_CREATE_RE =
   /CREATE\s+(?:OR\s+REPLACE\s+)?(?:(TABLE|FUNCTION|PROCEDURE|VIEW|INDEX|TRIGGER))\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/gi;
 
+/** SQL adapter (no tree-sitter grammar). `extractSymbols` returns []; use `heuristicExtract` to parse CREATE statements. */
 export class SqlAdapter implements LanguageAdapter {
   readonly extensions = ['.sql'] as const;
   readonly languageId = 'sql';
@@ -700,6 +708,7 @@ export class SqlAdapter implements LanguageAdapter {
 const YAML_TOP_LEVEL_KEY_RE = /^([a-zA-Z_][\w-]*):/gm;
 const YAML_NESTED_KEY_RE = /^  ([a-zA-Z_][\w-]*):/gm;
 
+/** YAML adapter (no tree-sitter grammar). `extractSymbols` returns []; `heuristicExtract` maps top-level keys to variables and nested keys to constants. */
 export class YamlAdapter implements LanguageAdapter {
   readonly extensions = ['.yml', '.yaml'] as const;
   readonly languageId = 'yaml';
@@ -741,6 +750,7 @@ export class YamlAdapter implements LanguageAdapter {
 
 // --- JSON adapter ---
 
+/** JSON adapter (no tree-sitter grammar). `extractSymbols` returns []; `heuristicExtract` maps top-level object keys to variable symbols. */
 export class JsonAdapter implements LanguageAdapter {
   readonly extensions = ['.json'] as const;
   readonly languageId = 'json';
@@ -787,6 +797,7 @@ const adapters: LanguageAdapter[] = [
   new JsonAdapter(),
 ];
 
+/** Pre-populated registry mapping dot-prefixed file extensions (e.g. `'.ts'`) to their {@link LanguageAdapter}. */
 export const ADAPTER_REGISTRY = new Map<string, LanguageAdapter>();
 
 for (const adapter of adapters) {
@@ -816,7 +827,8 @@ function countSignificantLines(source: string): number {
 
 /**
  * Fallback parser for files with no registered adapter.
- * Extracts approximate symbols via regex patterns.
+ * Dispatches by filename to Makefile-target, Dockerfile-stage, or generic UPPER_SNAKE constant extraction.
+ * Files with fewer than 5 significant lines are skipped.
  */
 export function heuristicParse(source: string, filename?: string): SymbolInfo[] {
   if (countSignificantLines(source) < 5) return [];
