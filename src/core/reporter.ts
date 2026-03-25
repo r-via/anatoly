@@ -1515,6 +1515,8 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   // ── 3. CRITICAL FINDINGS ───────────────────────────────────────────────
   const topFindings = extractTopFindings(data, 10);
   if (topFindings.length > 0) {
+    const totalCorrFindings = totalCorr;
+    const showing = Math.min(topFindings.length, totalCorrFindings);
     lines.push('## Critical Findings');
     lines.push('');
     for (const f of topFindings) {
@@ -1523,45 +1525,52 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
       lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
     }
     lines.push('');
-  }
-
-  // ── 4. AXES OVERVIEW (fused: navigation + health + findings) ───────────
-  if (axisReports.length === 0) {
-    lines.push('All files clean.');
-    lines.push('');
-  } else {
-    lines.push('## Axes');
-    lines.push('');
-    lines.push('| Axis | Health | Findings | Details |');
-    lines.push('|------|--------|----------|---------|');
-    for (const report of axisReports) {
-      const name = axisDisplayName(report.axis);
-      const { pct, label } = axisHealthPercent(data, report.axis);
-      const bar = healthBar(pct);
-      const link = `[View →](./axes/${report.axis}/index.md)`;
-
-      // Inline severity counts for this axis — map ReportAxisId to counts key
-      const countsKeyMap: Record<ReportAxisId, keyof typeof data.counts> = {
-        correction: 'correction',
-        utility: 'dead',
-        duplication: 'duplicate',
-        overengineering: 'overengineering',
-        tests: 'tests',
-        documentation: 'documentation',
-        'best-practices': 'best_practices',
-      };
-      const c = data.counts[countsKeyMap[report.axis]];
-      const parts: string[] = [];
-      if (c.high > 0) parts.push(`${c.high} high`);
-      if (c.medium > 0) parts.push(`${c.medium} med`);
-      if (c.low > 0) parts.push(`${c.low} low`);
-      const findingsStr = parts.join(' · ') || '—';
-
-      const healthLabel = report.axis === 'best-practices' ? `\`${bar}\` ${label}` : `\`${bar}\` ${pct}% ${label}`;
-      lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
+    if (totalCorrFindings > showing) {
+      lines.push(`> Showing top ${showing} of ${totalCorrFindings} correction findings. See [axes/correction/](./axes/correction/index.md) for the full list.`);
+    } else {
+      lines.push(`> Browse all findings by axis in the [Axes](#axes) section below.`);
     }
     lines.push('');
   }
+
+  // ── 4. AXES OVERVIEW (fused: navigation + health + findings) ───────────
+  const countsKeyMap: Record<ReportAxisId, keyof typeof data.counts> = {
+    correction: 'correction',
+    utility: 'dead',
+    duplication: 'duplicate',
+    overengineering: 'overengineering',
+    tests: 'tests',
+    documentation: 'documentation',
+    'best-practices': 'best_practices',
+  };
+  const axisReportSet = new Set(axisReports.map((r) => r.axis));
+
+  lines.push('## Axes');
+  lines.push('');
+  lines.push('| Axis | Health | Findings | Details |');
+  lines.push('|------|--------|----------|---------|');
+  for (const axis of REPORT_AXIS_IDS) {
+    const name = axisDisplayName(axis);
+    const { pct, label } = axisHealthPercent(data, axis);
+    const bar = healthBar(pct);
+
+    const c = data.counts[countsKeyMap[axis]];
+    const parts: string[] = [];
+    if (c.high > 0) parts.push(`${c.high} high`);
+    if (c.medium > 0) parts.push(`${c.medium} med`);
+    if (c.low > 0) parts.push(`${c.low} low`);
+
+    const healthLabel = axis === 'best-practices' ? `\`${bar}\` ${label}` : `\`${bar}\` ${pct}% ${label}`;
+
+    if (axisReportSet.has(axis)) {
+      const findingsStr = parts.join(' · ') || '—';
+      const link = `[View →](./axes/${axis}/index.md)`;
+      lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
+    } else {
+      lines.push(`| ${name} | ${healthLabel} | All clear | — |`);
+    }
+  }
+  lines.push('');
 
   // ── 5. DOCUMENTATION REFERENCE ─────────────────────────────────────────
   if (docReferenceSection) {
@@ -1584,7 +1593,31 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     lines.push('> One or more axis evaluators crashed for these files. Verdicts may be unreliable — re-run recommended.');
     lines.push('');
     for (const r of data.degradedFiles) {
-      lines.push(`- \`${r.file}\``);
+      // Extract which axes crashed from the detail strings
+      const crashedAxes = new Set<string>();
+      const axisTagPattern = /\[([A-Z_]+)\]\s*\*\(axis crashed/g;
+      for (const s of r.symbols) {
+        let m: RegExpExecArray | null;
+        while ((m = axisTagPattern.exec(s.detail)) !== null) {
+          // The tag before the crash is the verdict value (e.g. USED, OK), not the axis name.
+          // Instead, scan each axis field for its default value paired with crash sentinel.
+          axisTagPattern.lastIndex = m.index + 1;
+        }
+      }
+      // More reliable: check which axis fields still have their default values on crashed symbols
+      for (const s of r.symbols) {
+        if (!s.detail.includes(CRASH_SENTINEL)) continue;
+        // Parse the detail segments: [VALUE] *(axis crashed ...)*
+        const segments = s.detail.split(/\s*\|\s*/);
+        const axisOrder: string[] = ['utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation'];
+        for (let i = 0; i < segments.length && i < axisOrder.length; i++) {
+          if (segments[i].includes(CRASH_SENTINEL)) {
+            crashedAxes.add(axisOrder[i]);
+          }
+        }
+      }
+      const axisInfo = crashedAxes.size > 0 ? ` — crashed: ${[...crashedAxes].join(', ')}` : '';
+      lines.push(`- \`${r.file}\`${axisInfo}`);
     }
     lines.push('');
   }
