@@ -69,6 +69,10 @@ export function hasUncommittedChanges(cwd: string): boolean {
   }
 }
 
+/**
+ * Hard-resets the repo at {@link cwd} to {@link sha}, stashing uncommitted changes first.
+ * Returns `true` on success.
+ */
 export function rollbackToSha(cwd: string, sha: string): boolean {
   if (!isValidSha(sha)) return false;
   if (hasUncommittedChanges(cwd)) {
