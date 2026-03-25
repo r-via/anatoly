@@ -1589,7 +1589,9 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
       const link = `[View →](./axes/${axis}/index.md)`;
       lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
     } else {
-      lines.push(`| ${name} | ${healthLabel} | All clear | — |`);
+      // No findings — show a clean 100% bar regardless of verdict distribution
+      const cleanBar = healthBar(100);
+      lines.push(`| ${name} | ${cleanBar} All clear | — | — |`);
     }
   }
   lines.push('');
