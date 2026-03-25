@@ -55,35 +55,65 @@ import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocE
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+/**
+ * Mutable context bag threaded through every phase of a single `run` command
+ * invocation. Populated incrementally during setup and consumed by review,
+ * report, and doc-generation phases.
+ */
 interface RunContext {
+  /** Absolute path to the project being audited */
   projectRoot: string;
+  /** Parsed anatoly configuration (anatoly.config.json) */
   config: Config;
+  /** Unique identifier for this run (timestamp-based or user-supplied) */
   runId: string;
+  /** Absolute path to the run output directory (.anatoly/runs/<runId>) */
   runDir: string;
+  /** Maximum number of files to review in parallel */
   concurrency: number;
+  /** Disable colour/ANSI output */
   plain: boolean;
+  /** Enable verbose logging */
   verbose?: boolean;
+  /** Glob pattern to restrict reviewed files */
   fileFilter?: string;
+  /** Skip review cache — re-evaluate all files */
   noCache: boolean;
+  /** Whether RAG indexing is enabled */
   enableRag: boolean;
+  /** User-requested RAG mode from CLI */
   ragMode: 'lite' | 'advanced' | 'auto';
+  /** Actual RAG mode resolved after hardware detection */
   resolvedRagMode?: RagMode;
+  /** Force full RAG index rebuild */
   rebuildRag?: boolean;
+  /** Open the report in the browser after completion */
   shouldOpen?: boolean;
+  /** Whether triage skip-tier logic is active */
   triageEnabled: boolean;
+  /** Set to true on SIGINT to request graceful shutdown */
   interrupted: boolean;
+  /** Path to the run lock file (prevents concurrent runs) */
   lockPath?: string;
+  /** Active AbortControllers for in-flight SDK calls (aborted on SIGINT) */
   activeAborts: Set<AbortController>;
+  /** Running count of files successfully reviewed */
   filesReviewed: number;
+  /** Running total of findings across all reviewed files */
   totalFindings: number;
+  /** Total number of files discovered during scanning */
   totalFiles: number;
+  /** Count of skipped (cached) vs evaluated files */
   reviewCounts: { skipped: number; evaluated: number };
+  /** Epoch timestamp when the run started */
   startTime: number;
   /** All loaded tasks — set during setup phase, used in report phase for time estimation */
   allTasks: Task[];
   /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
   triageMap: Map<string, TriageResult>;
+  /** Whether multi-axis deliberation is enabled */
   deliberation: boolean;
+  /** Resolved model IDs for each axis (set after calibration) */
   resolvedModels?: ResolvedModels;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
@@ -123,6 +153,16 @@ interface RunContext {
   docReportResult?: DocReportResult;
 }
 
+/**
+ * Registers the `run` CLI sub-command on the given Commander program.
+ *
+ * The `run` command executes the full audit pipeline: scan, estimate, triage,
+ * review (parallel axis evaluation), and report generation, with optional RAG
+ * indexing and doc-generation phases. Handles SIGINT graceful shutdown and
+ * interactive re-run prompting.
+ *
+ * @param program The root Commander instance to attach the command to.
+ */
 export function registerRunCommand(program: Command): void {
   program
     .command('run')
@@ -795,6 +835,10 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 /**
  * Bootstrap internal docs: scaffold structure + generate all pages.
  * Only runs on first run (no .anatoly/docs/ yet). Story 29.21.
+ * Errors are caught and logged as warnings (non-fatal).
+ *
+ * @param ctx Run context providing projectRoot, config, and SDK semaphore.
+ * @param tasks Scanned task list for doc-generator context.
  */
 async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   const taskId = 'bootstrap-doc';
@@ -842,6 +886,10 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
 /**
  * Update internal docs: regenerate only pages whose source code changed.
  * No scaffold — uses existing structure. Runs every run post-review. Story 29.21.
+ * Falls back gracefully when no prompts are generated.
+ *
+ * @param ctx Run context providing projectRoot, config, and SDK semaphore.
+ * @param tasks Scanned task list for doc-generator context.
  */
 async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const taskId = 'internal-docs';
@@ -1543,11 +1591,15 @@ function runReportPhase(ctx: RunContext): void {
 }
 
 /**
- * Copy .rev.json files for CACHED files from the accumulative cache
+ * Copy .rev.json and .rev.md files for CACHED files from the accumulative cache
  * into the current runDir/reviews directory.
  *
  * This ensures the report always reflects the full project state, not just
  * the files that were re-reviewed in this run.
+ *
+ * @param projectRoot Absolute path to the project root.
+ * @param currentRunDir Absolute path to the current run output directory.
+ * @param pm Progress manager holding the cached-file manifest.
  */
 function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: ProgressManager): void {
   const progress = pm.getProgress();
@@ -1583,6 +1635,10 @@ function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: Progr
 /**
  * Persist a .rev.json and .rev.md into the accumulative cache directory.
  * Always overwrites — the latest review is the source of truth.
+ * Failures are silently swallowed (non-fatal, logged at debug level).
+ *
+ * @param projectRoot Absolute path to the project root.
+ * @param review Parsed review file to cache.
  */
 function cacheReview(projectRoot: string, review: ReviewFile): void {
   const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
