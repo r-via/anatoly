@@ -12,6 +12,7 @@ import { formatReclassificationsForAxis } from '../correction-memory.js';
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
 // ---------------------------------------------------------------------------
 
+/** Zod schema for a single best-practices rule evaluation result. The `rule_id` is bounded 1–17 matching the fixed rule set. */
 const BestPracticesRuleResponseSchema = z.object({
   rule_id: z.int().min(1).max(17),
   rule_name: z.string(),

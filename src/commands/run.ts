@@ -784,6 +784,9 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
         log.warn({ err: coherenceErr }, 'doc coherence review failed — continuing');
       }
     }
+
+    // Re-complete with final detail after post-processing (structure lint / coherence may have overwritten it)
+    ctx.pipelineState?.completeTask(taskId, detail);
   } finally {
     ctx.activeAborts.delete(ac);
   }
@@ -982,9 +985,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         ragPhase = phase;
         // Complete previous phase task
         if (prevTaskId && prevTaskId !== nextTaskId) {
-          const prevTask = state.tasks.find((t) => t.id === prevTaskId);
-          const detail = prevTask?.detail === '\u2014' ? 'done' : prevTask?.detail ?? 'done';
-          state.completeTask(prevTaskId, detail);
+          state.completeTask(prevTaskId, 'done');
           // Remove upsert synthetic file when leaving upsert phase
           if (prevTaskId === 'rag-upsert') {
             state.activeFiles.delete('Saving index\u2026');

@@ -29,6 +29,7 @@ const DocsCoverageSchema = z.object({
   score_pct: z.number().min(0).max(100),
 });
 
+/** Zod schema for documentation response validation. */
 export const DocumentationResponseSchema = z.object({
   symbols: z.array(DocumentationSymbolSchema),
   docs_coverage: DocsCoverageSchema.optional(),
@@ -46,6 +47,7 @@ export function buildDocumentationSystemPrompt(): string {
   return resolveSystemPrompt('documentation');
 }
 
+/** Builds the user message for the documentation evaluator. */
 export function buildDocumentationUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -118,6 +120,7 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/** Evaluator that scores files on the documentation axis. */
 export class DocumentationEvaluator implements AxisEvaluator {
   readonly id = 'documentation' as const;
   readonly defaultModel = 'sonnet' as const;
