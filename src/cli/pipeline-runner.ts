@@ -167,11 +167,11 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 
 // --- Internal ---
 
-function createExecutor(projectRoot: string, semaphore: Semaphore): DocExecutor {
+function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor {
+  // Note: semaphore is NOT acquired here — callers (executeDocPrompts, runDocUpdate)
+  // handle their own concurrency control. Acquiring here would cause deadlocks.
   return async ({ system, user, model }) => {
-    await semaphore.acquire();
-    try {
-    return await retryWithBackoff(
+    return retryWithBackoff(
       async () => {
         const q = query({
           prompt: user,
@@ -217,8 +217,5 @@ function createExecutor(projectRoot: string, semaphore: Semaphore): DocExecutor 
         },
       },
     );
-    } finally {
-      semaphore.release();
-    }
   };
 }
