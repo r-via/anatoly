@@ -18,6 +18,7 @@ const TestsSymbolSchema = BaseSymbolSchema.extend({
   tests: z.enum(['GOOD', 'WEAK', 'NONE']),
 });
 
+/** Zod schema validating the LLM response for the tests axis. */
 export const TestsResponseSchema = z.object({
   symbols: z.array(TestsSymbolSchema),
 });
@@ -28,10 +29,20 @@ type TestsResponse = z.infer<typeof TestsResponseSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/** Resolves the system prompt template for the tests axis. */
 export function buildTestsSystemPrompt(): string {
   return resolveSystemPrompt('tests');
 }
 
+/**
+ * Builds the user-message prompt for the tests axis LLM call.
+ *
+ * Assembles source code, test file content (truncated to 500 lines), coverage
+ * table, usage-graph callers, and project structure into a Markdown prompt.
+ *
+ * @param ctx Axis evaluation context with file content, test content, coverage, and graph data.
+ * @returns The assembled prompt string.
+ */
 export function buildTestsUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -122,6 +133,11 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/**
+ * Axis evaluator for test quality. Performs a semaphore-guarded LLM query
+ * to assess test coverage/quality per symbol, injecting correction-memory
+ * reclassifications when available. Defaults to `sonnet` model.
+ */
 export class TestsEvaluator implements AxisEvaluator {
   readonly id = 'tests' as const;
   readonly defaultModel = 'sonnet' as const;

@@ -15,6 +15,11 @@ const MARKER_REGEX = new RegExp(
 
 const DEFAULT_LINK = 'https://github.com/r-via/anatoly';
 
+/**
+ * Options for badge injection into a project's README.md.
+ * The `verdict` field is only used when `includeVerdict` is also `true`;
+ * otherwise the badge renders without a verdict colour/label.
+ */
 export interface BadgeOptions {
   projectRoot: string;
   verdict?: Verdict;
@@ -22,11 +27,27 @@ export interface BadgeOptions {
   link?: string;
 }
 
+/**
+ * Result of a badge injection attempt.
+ * - `{injected: false, updated: false}` — README.md missing or unwritable.
+ * - `{injected: true, updated: false}` — badge newly appended.
+ * - `{injected: true, updated: true}` — existing badge block replaced.
+ */
 export interface BadgeResult {
   injected: boolean;
   updated: boolean;
 }
 
+/**
+ * Builds a Shields.io Markdown badge image link. When `includeVerdict` is true
+ * and a `verdict` is provided, the badge includes a colour-coded verdict label
+ * (green/yellow/red). Parentheses in the link URL are percent-encoded.
+ *
+ * @param verdict Optional file verdict to encode in the badge.
+ * @param includeVerdict Whether to render the verdict label and colour.
+ * @param link Override URL the badge links to (defaults to the Anatoly repo).
+ * @returns Markdown image-link string.
+ */
 export function buildBadgeMarkdown(
   verdict?: Verdict,
   includeVerdict?: boolean,
@@ -54,6 +75,16 @@ export function buildBadgeMarkdown(
   return `[![Checked by Anatoly](${baseUrl}/checked%20by-Anatoly-blue)](${target})`;
 }
 
+/**
+ * Injects or replaces the Anatoly badge block in the project's README.md.
+ *
+ * Silently returns `{injected: false, updated: false}` when README.md is absent
+ * or not writable. Writes to README.md in-place, normalising trailing newlines
+ * to exactly one.
+ *
+ * @param options Badge options including project root, verdict, and link.
+ * @returns Result indicating whether the badge was injected/updated.
+ */
 export function injectBadge(options: BadgeOptions): BadgeResult {
   const readmePath = join(options.projectRoot, 'README.md');
 
