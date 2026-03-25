@@ -22,6 +22,7 @@ const BestPracticesRuleResponseSchema = z.object({
   lines: z.string().optional(),
 });
 
+/** Zod schema for a single code-improvement suggestion with optional before/after snippets. */
 const BestPracticesSuggestionSchema = z.object({
   description: z.string(),
   before: z.string().optional(),
