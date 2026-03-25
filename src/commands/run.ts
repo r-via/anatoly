@@ -1466,7 +1466,7 @@ function runReportPhase(ctx: RunContext): void {
   if (state) {
     state.completeTask('report', 'done');
     state.setSummary({
-      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
+      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
       paths: [
         { key: 'run', value: ctx.runId },
         { key: 'report', value: chalk.cyan(rel(reportPath)) },
@@ -1484,7 +1484,7 @@ function runReportPhase(ctx: RunContext): void {
   // Plain mode: print summary to stdout
   if (ctx.plain || !state) {
     console.log('');
-    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${data.findingFiles.length} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
+    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
     console.log('');
     console.log(`  run          ${ctx.runId}`);
     console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
