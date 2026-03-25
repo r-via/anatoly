@@ -131,6 +131,7 @@ function finalSync(projectRoot: string, reportFile: string): void {
   }
 }
 
+/** Registers the `clean-run` CLI sub-command on the given Commander {@link program}. */
 export function registerCleanRunCommand(program: Command): void {
   program
     .command('clean-run <target>')
