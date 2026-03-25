@@ -136,7 +136,7 @@ export function registerCleanRunCommand(program: Command): void {
   program
     .command('clean-run <target>')
     .description('Run Ralph loop to remediate findings (axis name, "all", or shard file path)')
-    .option('-n, --iterations <n>', 'max Ralph iterations', '10')
+    .option('-n, --iterations <n>', 'max Ralph iterations', '50')
     .action(async (target: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
 
