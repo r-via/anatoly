@@ -34,6 +34,7 @@ export const CB_NO_PROGRESS_THRESHOLD = 3;
  */
 export const CB_SAME_ERROR_THRESHOLD = 5;
 
+/** Checks whether a string is a full 40-character lowercase hex SHA. */
 export function isValidSha(sha: string): boolean {
   return SHA_RE.test(sha);
 }
