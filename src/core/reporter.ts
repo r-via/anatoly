@@ -18,6 +18,11 @@ export interface TriageStats {
   estimatedTimeSaved: number;
 }
 
+/**
+ * Aggregated statistics for a single audit run.
+ * `axisStats` is keyed by {@link AxisId} strings; each value tracks LLM call counts,
+ * timing, cost, and token usage (including prompt-cache read vs creation tokens).
+ */
 export interface RunStats {
   runId: string;
   durationMs: number;
@@ -50,6 +55,9 @@ export interface ReportData {
 /**
  * Load all .rev.json files from a reviews directory.
  * When runDir is provided, reads from the run-scoped reviews directory.
+ * @param projectRoot - Absolute path to the project root (used to resolve the default `.anatoly/reviews` directory).
+ * @param runDir - Optional run-scoped directory; when set, reviews are read from `<runDir>/reviews/` instead.
+ * @returns Parsed review files sorted alphabetically by file path, skipping any malformed entries.
  */
 export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] {
   const reviewsDir = runDir ? join(runDir, 'reviews') : resolve(projectRoot, '.anatoly', 'reviews');
@@ -108,6 +116,8 @@ function isDegradedReview(review: ReviewFile): boolean {
 /**
  * Recompute file verdict from symbols — standardizes the LLM's verdict.
  * Low-confidence findings (< 60) are ignored for verdict purposes.
+ * @param review - The review file to evaluate.
+ * @returns `'CRITICAL'` if any high-confidence ERROR, `'NEEDS_REFACTOR'` if actionable issues or best-practices FAILs exist, otherwise `'CLEAN'`.
  */
 export function computeFileVerdict(review: ReviewFile): Verdict {
   const symbols = review.symbols;
@@ -155,6 +165,10 @@ function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
 
 /**
  * Aggregate all reviews into a ReportData structure.
+ * Counts findings by axis and severity, collects actions, and classifies files into clean/finding/degraded buckets.
+ * @param reviews - All parsed review files for the run.
+ * @param errorFiles - Optional list of file paths that failed evaluation entirely (e.g. parse errors).
+ * @returns A fully populated {@link ReportData} with counts, sorted actions, and computed verdicts.
  */
 export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): ReportData {
   const counts = {
@@ -237,6 +251,8 @@ const SHARD_SIZE = 10;
 /**
  * Sort finding files: CRITICAL first, then NEEDS_REFACTOR, then by finding
  * count descending, then by max confidence descending.
+ * @param files - Review files to sort (not mutated; a sorted copy is returned).
+ * @returns A new array sorted by verdict severity, then finding count, then max confidence.
  */
 export function sortFindingFiles(files: ReviewFile[]): ReviewFile[] {
   return [...files].sort((a, b) => {
@@ -266,6 +282,8 @@ export interface ShardInfo {
 
 /**
  * Build shards from finding files, max SHARD_SIZE files per shard.
+ * @param data - The aggregated report data whose `findingFiles` are sorted and chunked.
+ * @returns An array of {@link ShardInfo} objects, each containing up to {@link SHARD_SIZE} files.
  */
 export function buildShards(data: ReportData): ShardInfo[] {
   const sorted = sortFindingFiles(data.findingFiles);
@@ -354,6 +372,9 @@ export interface AxisReport {
 
 /**
  * Determine if a review has a finding on a specific axis.
+ * @param review - The review file to inspect.
+ * @param axis - The report axis to check (e.g. `'correction'`, `'best-practices'`).
+ * @returns `true` if any reliable symbol (confidence >= 30) has an actionable finding on the given axis.
  */
 export function hasAxisFinding(review: ReviewFile, axis: ReportAxisId): boolean {
   const reliable = review.symbols.filter((s) => s.confidence >= 30);
@@ -378,6 +399,8 @@ export function hasAxisFinding(review: ReviewFile, axis: ReportAxisId): boolean 
 /**
  * Build axis-scoped reports: for each axis, filter files with findings on that axis,
  * scope actions by source, and shard the result.
+ * @param data - The aggregated report data to partition by axis.
+ * @returns One {@link AxisReport} per axis that has at least one finding, in display order.
  */
 export function buildAxisReports(data: ReportData): AxisReport[] {
   const reports: AxisReport[] = [];
@@ -520,6 +543,8 @@ function renderAxisMethodology(axis: ReportAxisId): string[] {
 
 /**
  * Render the index for a single axis: stats, shard links, methodology.
+ * @param report - The axis report containing files, actions, and shards to render.
+ * @returns A complete markdown string for the axis index page.
  */
 export function renderAxisIndex(report: AxisReport): string {
   const lines: string[] = [];
@@ -685,6 +710,9 @@ function renderAxisVerdictDistribution(report: AxisReport): string[] {
 
 /**
  * Render a shard for a specific axis — only shows findings relevant to that axis.
+ * @param axis - The report axis this shard belongs to.
+ * @param shard - The shard info containing the files and actions to render.
+ * @returns A markdown string with findings table, action items, and per-file details.
  */
 export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   const lines: string[] = [];
@@ -1067,6 +1095,12 @@ function renderDeliberationSummary(data: ReportData): string[] {
 
 /**
  * Render the master index (report.md) — navigation hub pointing to per-axis reports.
+ * @param data - Aggregated report data (verdicts, counts, actions).
+ * @param axisReports - Per-axis reports used to render axis navigation links.
+ * @param triageStats - Optional triage statistics (files scanned vs skipped).
+ * @param runStats - Optional run-level timing, cost, and token statistics.
+ * @param docReferenceSection - Optional markdown section listing referenced documentation.
+ * @returns The full markdown string for the master report index page.
  */
 export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string): string {
   const lines: string[] = [];
@@ -1456,6 +1490,13 @@ export function renderShard(shard: ShardInfo): string {
 /**
  * Generate the axis-based report: master index + per-axis folders with indexes and shards.
  * When runDir is provided, reads reviews from and writes report to the run directory.
+ * @param projectRoot - Absolute path to the project root.
+ * @param errorFiles - File paths that failed evaluation (included in the report as errors).
+ * @param runDir - Optional run-scoped directory for reading reviews and writing the report.
+ * @param triageStats - Optional triage statistics to include in the master index.
+ * @param runStats - Optional run-level timing/cost statistics.
+ * @param docReferenceSection - Optional markdown section for referenced documentation.
+ * @returns An object with `reportPath`, aggregated `data`, legacy `shards`, and per-axis `axisReports`.
  */
 export function generateReport(
   projectRoot: string,
