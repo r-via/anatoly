@@ -1406,6 +1406,78 @@ function healthBar(pct: number): string {
 }
 
 /**
+ * Re-render the raw documentation reference section for the public report.
+ * Parses the original rendered section and produces a more readable version
+ * with explanations of each metric.
+ */
+function renderPublicDocSection(raw: string): string[] {
+  const lines: string[] = [];
+  lines.push('## Documentation Coverage');
+  lines.push('');
+  lines.push('Anatoly generates internal reference docs (`.anatoly/docs/`) for every exported symbol in your codebase.');
+  lines.push('This section compares your existing project documentation against the ideal coverage.');
+  lines.push('');
+
+  // Parse the raw section to extract metrics
+  const pagesMatch = raw.match(/updated:\s*(\d+)\s*pages\s*\(([^)]+)\)/);
+  if (pagesMatch) {
+    lines.push(`**Reference pages:** ${pagesMatch[1]} pages generated (${pagesMatch[2]})`);
+    lines.push('');
+  }
+
+  // Parse symbol coverage lines
+  const projectMatch = raw.match(/Project docs \(docs\/\):\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
+  const internalMatch = raw.match(/Internal ref \(\.anatoly\/docs\/\):\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
+  const modulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules/);
+
+  if (projectMatch || internalMatch) {
+    lines.push('| Metric | Coverage | Description |');
+    lines.push('|--------|----------|-------------|');
+
+    if (projectMatch) {
+      const pct = parseInt(projectMatch[1]);
+      const bar = healthBar(pct);
+      lines.push(`| Your docs (docs/) | ${bar} ${pct}% (${projectMatch[2]}/${projectMatch[3]}) | Exported symbols documented in your project's docs/ directory |`);
+    }
+    if (internalMatch) {
+      const pct = parseInt(internalMatch[1]);
+      const bar = healthBar(pct);
+      lines.push(`| Anatoly ref (.anatoly/docs/) | ${bar} ${pct}% (${internalMatch[2]}/${internalMatch[3]}) | Auto-generated reference pages for your codebase |`);
+    }
+    if (modulesMatch) {
+      const pct = parseInt(modulesMatch[1]);
+      const bar = healthBar(pct);
+      lines.push(`| Module guides | ${bar} ${pct}% (${modulesMatch[2]}/${modulesMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
+    }
+    lines.push('');
+  }
+
+  // Sync status
+  const syncMatch = raw.match(/Sync status:\s*(.+)/);
+  if (syncMatch) {
+    lines.push(`**Next steps:** ${syncMatch[1]} — run \`anatoly docs sync\` to update your project documentation.`);
+    lines.push('');
+  }
+
+  // New pages
+  const newPagesLines = raw.split('\n').filter((l) => l.trimStart().startsWith('+ .anatoly/docs/'));
+  if (newPagesLines.length > 0) {
+    lines.push('<details>');
+    lines.push(`<summary><strong>New pages generated (${newPagesLines.length})</strong></summary>`);
+    lines.push('');
+    for (const l of newPagesLines) {
+      const trimmed = l.trim();
+      lines.push(`- ${trimmed.replace(/^\+\s*/, '')}`);
+    }
+    lines.push('');
+    lines.push('</details>');
+    lines.push('');
+  }
+
+  return lines;
+}
+
+/**
  * Extract the correction-relevant snippet from a combined multi-axis detail string.
  * Looks for `[ERROR] ...` or `[NEEDS_FIX] ...` segments.
  */
@@ -1573,9 +1645,9 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   }
   lines.push('');
 
-  // ── 5. DOCUMENTATION REFERENCE ─────────────────────────────────────────
+  // ── 5. DOCUMENTATION REFERENCE (rewritten for public readability) ─────
   if (docReferenceSection) {
-    lines.push(docReferenceSection);
+    lines.push(...renderPublicDocSection(docReferenceSection));
     lines.push('');
   }
 
