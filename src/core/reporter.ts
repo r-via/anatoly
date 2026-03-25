@@ -1311,6 +1311,315 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
 }
 
 // ---------------------------------------------------------------------------
+// Public report renderer (user-facing, polished)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a "health" percentage for an axis based on the "good" verdict ratio.
+ */
+function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string } {
+  const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
+
+  switch (axis) {
+    case 'correction': {
+      const total = reliable.filter((s) => s.correction !== '-').length;
+      const ok = reliable.filter((s) => s.correction === 'OK').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'OK' };
+    }
+    case 'utility': {
+      const total = reliable.filter((s) => s.utility !== '-').length;
+      const ok = reliable.filter((s) => s.utility === 'USED').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'used' };
+    }
+    case 'duplication': {
+      const total = reliable.filter((s) => s.duplication !== '-').length;
+      const ok = reliable.filter((s) => s.duplication === 'UNIQUE').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'unique' };
+    }
+    case 'overengineering': {
+      const total = reliable.filter((s) => s.overengineering !== '-').length;
+      const ok = reliable.filter((s) => s.overengineering === 'LEAN').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'lean' };
+    }
+    case 'tests': {
+      const total = reliable.filter((s) => s.tests !== '-').length;
+      const ok = reliable.filter((s) => s.tests === 'GOOD').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'covered' };
+    }
+    case 'documentation': {
+      const total = reliable.filter((s) => s.documentation !== '-').length;
+      const ok = reliable.filter((s) => s.documentation === 'DOCUMENTED').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'documented' };
+    }
+    case 'best-practices': {
+      const bpReviews = data.reviews.filter((r) => r.best_practices);
+      if (bpReviews.length === 0) return { pct: 100, label: '/ 10' };
+      const avg = bpReviews.reduce((sum, r) => sum + r.best_practices!.score, 0) / bpReviews.length;
+      return { pct: Math.round(avg * 10), label: `avg ${avg.toFixed(1)} / 10` };
+    }
+  }
+}
+
+/**
+ * Build an ASCII health bar: `████████░░` (10 chars wide).
+ */
+function healthBar(pct: number): string {
+  const filled = Math.round(pct / 10);
+  return '█'.repeat(filled) + '░'.repeat(10 - filled);
+}
+
+/**
+ * Extract the correction-relevant snippet from a combined multi-axis detail string.
+ * Looks for `[ERROR] ...` or `[NEEDS_FIX] ...` segments.
+ */
+function extractCorrectionDetail(detail: string, correction: string): string {
+  // Try to find the tagged section: [ERROR] ... or [NEEDS_FIX] ...
+  const tag = correction === 'ERROR' ? 'ERROR' : 'NEEDS_FIX';
+  const regex = new RegExp(`\\[${tag}\\]\\s*(.+?)(?:\\s*\\||$)`);
+  const match = detail.match(regex);
+  if (match) return match[1].trim();
+
+  // Fallback: take first sentence, stripping leading axis tags
+  return detail.replace(/^\[.*?\]\s*/g, '').split(/\.\s/)[0].trim();
+}
+
+/**
+ * Extract the top critical/high findings for the "Critical Findings" section.
+ * Returns a sorted list of { file, symbol, detail } tuples.
+ */
+function extractTopFindings(data: ReportData, limit: number): Array<{ file: string; symbol: string; severity: 'high' | 'medium'; detail: string; correction: string }> {
+  const findings: Array<{ file: string; symbol: string; severity: 'high' | 'medium'; detail: string; correction: string }> = [];
+
+  for (const review of data.reviews) {
+    for (const s of review.symbols.filter((sym) => sym.confidence >= 30)) {
+      if (s.correction === 'ERROR') {
+        const snippet = extractCorrectionDetail(s.detail, 'ERROR');
+        findings.push({ file: review.file, symbol: s.name, severity: 'high', detail: snippet, correction: 'ERROR' });
+      } else if (s.correction === 'NEEDS_FIX' && s.confidence >= 60) {
+        const snippet = extractCorrectionDetail(s.detail, 'NEEDS_FIX');
+        findings.push({ file: review.file, symbol: s.name, severity: s.confidence >= 80 ? 'high' : 'medium', detail: snippet, correction: 'NEEDS_FIX' });
+      }
+    }
+  }
+
+  // Sort: ERROR first, then high-confidence NEEDS_FIX
+  findings.sort((a, b) => {
+    if (a.correction === 'ERROR' && b.correction !== 'ERROR') return -1;
+    if (b.correction === 'ERROR' && a.correction !== 'ERROR') return 1;
+    if (a.severity === 'high' && b.severity !== 'high') return -1;
+    if (b.severity === 'high' && a.severity !== 'high') return 1;
+    return 0;
+  });
+
+  return findings.slice(0, limit);
+}
+
+/**
+ * Render the public-facing report (public_report.md).
+ * Designed for readability: hero block with value KPIs, health scorecard,
+ * top findings, and compact run details in a cold zone.
+ */
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string): string {
+  const lines: string[] = [];
+
+  // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
+  lines.push('<p align="center">');
+  lines.push('  <img src="https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg" width="400" alt="Anatoly" />');
+  lines.push('</p>');
+  lines.push('');
+  lines.push('# Anatoly Audit Report');
+  lines.push('');
+
+  // Value one-liner
+  const durationMin = runStats ? (runStats.durationMs / 60_000).toFixed(0) : '?';
+  const costUsd = runStats ? `$${runStats.costUsd.toFixed(2)}` : '?';
+  const findingCount = data.findingFiles.length;
+  const errorSymbols = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30 && s.correction === 'ERROR'));
+
+  lines.push(`> **${data.totalFiles} files** reviewed in **${durationMin} min** — **${costUsd}** in AI analysis so you don't have to.`);
+
+  const verdictParts = [`Verdict: **${data.globalVerdict}**`];
+  if (errorSymbols.length > 0) verdictParts.push(`${errorSymbols.length} critical bug${errorSymbols.length > 1 ? 's' : ''} found`);
+  verdictParts.push(`${findingCount} file${findingCount !== 1 ? 's' : ''} with findings`);
+  lines.push(`> ${verdictParts.join(' · ')}`);
+  lines.push('');
+
+  // ── 2. EXECUTIVE SUMMARY ───────────────────────────────────────────────
+  const dc = data.counts.dead;
+  const dup = data.counts.duplicate;
+  const ov = data.counts.overengineering;
+  const cor = data.counts.correction;
+  const tst = data.counts.tests;
+  const doc = data.counts.documentation;
+  const bp = data.counts.best_practices;
+  const totalDead = dc.high + dc.medium + dc.low;
+  const totalDup = dup.high + dup.medium + dup.low;
+  const totalOver = ov.high + ov.medium + ov.low;
+  const totalCorr = cor.high + cor.medium + cor.low;
+  const totalTests = tst.high + tst.medium + tst.low;
+  const totalDocs = doc.high + doc.medium + doc.low;
+  const totalBp = bp.high + bp.medium + bp.low;
+
+  if (totalDead + totalDup + totalOver + totalCorr + totalTests + totalDocs + totalBp > 0) {
+    lines.push('## Findings Summary');
+    lines.push('');
+    lines.push('| Category | High | Medium | Low | Total |');
+    lines.push('|----------|------|--------|-----|-------|');
+    if (totalCorr > 0) lines.push(`| Correction errors | ${cor.high} | ${cor.medium} | ${cor.low} | ${totalCorr} |`);
+    if (totalDead > 0) lines.push(`| Dead code | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
+    if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
+    if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
+    if (totalTests > 0) lines.push(`| Test coverage gaps | ${tst.high} | ${tst.medium} | ${tst.low} | ${totalTests} |`);
+    if (totalBp > 0) lines.push(`| Best practices | ${bp.high} | ${bp.medium} | ${bp.low} | ${totalBp} |`);
+    if (totalDocs > 0) lines.push(`| Documentation gaps | ${doc.high} | ${doc.medium} | ${doc.low} | ${totalDocs} |`);
+    lines.push('');
+  }
+
+  // ── 3. CRITICAL FINDINGS ───────────────────────────────────────────────
+  const topFindings = extractTopFindings(data, 10);
+  if (topFindings.length > 0) {
+    lines.push('## Critical Findings');
+    lines.push('');
+    for (const f of topFindings) {
+      const icon = f.correction === 'ERROR' ? '🔴' : '🟡';
+      const oneLiner = f.detail.length > 120 ? f.detail.slice(0, 117) + '...' : f.detail;
+      lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
+    }
+    lines.push('');
+  }
+
+  // ── 4. AXES OVERVIEW (fused: navigation + health + findings) ───────────
+  if (axisReports.length === 0) {
+    lines.push('All files clean.');
+    lines.push('');
+  } else {
+    lines.push('## Axes');
+    lines.push('');
+    lines.push('| Axis | Health | Findings | Details |');
+    lines.push('|------|--------|----------|---------|');
+    for (const report of axisReports) {
+      const name = axisDisplayName(report.axis);
+      const { pct, label } = axisHealthPercent(data, report.axis);
+      const bar = healthBar(pct);
+      const link = `[View →](./axes/${report.axis}/index.md)`;
+
+      // Inline severity counts for this axis — map ReportAxisId to counts key
+      const countsKeyMap: Record<ReportAxisId, keyof typeof data.counts> = {
+        correction: 'correction',
+        utility: 'dead',
+        duplication: 'duplicate',
+        overengineering: 'overengineering',
+        tests: 'tests',
+        documentation: 'documentation',
+        'best-practices': 'best_practices',
+      };
+      const c = data.counts[countsKeyMap[report.axis]];
+      const parts: string[] = [];
+      if (c.high > 0) parts.push(`${c.high} high`);
+      if (c.medium > 0) parts.push(`${c.medium} med`);
+      if (c.low > 0) parts.push(`${c.low} low`);
+      const findingsStr = parts.join(' · ') || '—';
+
+      const healthLabel = report.axis === 'best-practices' ? `\`${bar}\` ${label}` : `\`${bar}\` ${pct}% ${label}`;
+      lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
+    }
+    lines.push('');
+  }
+
+  // ── 5. DOCUMENTATION REFERENCE ─────────────────────────────────────────
+  if (docReferenceSection) {
+    lines.push(docReferenceSection);
+    lines.push('');
+  }
+
+  // ── 6. ERROR / DEGRADED FILES ──────────────────────────────────────────
+  if (data.errorFiles.length > 0) {
+    lines.push('## Files in Error');
+    lines.push('');
+    for (const f of data.errorFiles) {
+      lines.push(`- \`${f}\``);
+    }
+    lines.push('');
+  }
+  if (data.degradedFiles.length > 0) {
+    lines.push('## Degraded Reviews');
+    lines.push('');
+    lines.push('> One or more axis evaluators crashed for these files. Verdicts may be unreliable — re-run recommended.');
+    lines.push('');
+    for (const r of data.degradedFiles) {
+      lines.push(`- \`${r.file}\``);
+    }
+    lines.push('');
+  }
+
+  // ── 7. RUN DETAILS (cold zone) ────────────────────────────────────────
+  if (runStats) {
+    lines.push('---');
+    lines.push('');
+    lines.push('<details>');
+    lines.push('<summary><strong>Run Details</strong></summary>');
+    lines.push('');
+    const dMin = (runStats.durationMs / 60_000).toFixed(1);
+    lines.push(`Run \`${runStats.runId}\` · ${dMin} min · $${runStats.costUsd.toFixed(2)}`);
+    if (runStats.degradedReviews > 0) {
+      lines.push(` · ${runStats.degradedReviews} degraded reviews`);
+    }
+    lines.push('');
+
+    // Per-axis breakdown (the "proof")
+    const axes = Object.entries(runStats.axisStats);
+    if (axes.length > 0) {
+      lines.push('| Axis | Calls | Duration | Cost | Tokens (in/out) |');
+      lines.push('|------|-------|----------|------|-----------------|');
+      for (const [axKey, s] of axes) {
+        const dur = (s.totalDurationMs / 60000).toFixed(1);
+        lines.push(`| ${axKey} | ${s.calls} | ${dur}m | $${s.totalCostUsd.toFixed(2)} | ${s.totalInputTokens} / ${s.totalOutputTokens} |`);
+      }
+      lines.push('');
+    }
+
+    // Phase durations
+    const phases = Object.entries(runStats.phaseDurations);
+    if (phases.length > 0) {
+      lines.push('**Phase durations:**');
+      lines.push('');
+      lines.push('| Phase | Duration |');
+      lines.push('|-------|----------|');
+      for (const [phase, ms] of phases) {
+        const dur = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+        lines.push(`| ${phase} | ${dur} |`);
+      }
+      lines.push('');
+    }
+
+    lines.push('</details>');
+    lines.push('');
+  }
+
+  // ── 8. METHODOLOGY (compact) ──────────────────────────────────────────
+  lines.push('<details>');
+  lines.push('<summary><strong>Methodology</strong></summary>');
+  lines.push('');
+  lines.push('Each file is evaluated through 7 independent axis evaluators running in parallel.');
+  lines.push('Every symbol is analysed individually with a confidence score (0–100).');
+  lines.push('Findings below 30% confidence are discarded; those below 60% are excluded from verdicts.');
+  lines.push('');
+  lines.push('**Verdicts:** CLEAN (no findings) · NEEDS_REFACTOR (confirmed findings) · CRITICAL (ERROR-level bugs)');
+  lines.push('');
+  lines.push('**Severity:** High = ERROR or high-confidence NEEDS_FIX/DEAD/DUPLICATE · Medium = lower confidence or OVER · Low = minor');
+  lines.push('');
+  lines.push('See each axis folder for detailed rating criteria.');
+  lines.push('');
+  lines.push('</details>');
+  lines.push('');
+
+  lines.push(`*Generated: ${new Date().toISOString()}*`);
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Legacy API — renderShard kept for backward compatibility with tests
 // ---------------------------------------------------------------------------
 
@@ -1514,8 +1823,12 @@ export function generateReport(
   const baseDir = runDir ?? resolve(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
-  // Write master index
+  // Write master index (internal, full detail)
   writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection));
+
+  // Write public report (user-facing, polished)
+  const publicReportPath = join(baseDir, 'public_report.md');
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection));
 
   // Write per-axis folders
   for (const report of axisReports) {

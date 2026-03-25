@@ -4,9 +4,9 @@
 
 import type { Command } from 'commander';
 import chalk from 'chalk';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, relative, dirname, join } from 'node:path';
-import { generateReport, type AxisReport } from '../core/reporter.js';
+import { generateReport, type AxisReport, type RunStats } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -47,9 +47,18 @@ export function registerReportCommand(program: Command): void {
         }
       }
 
+      // Try to load run-metrics.json for runStats (used by public_report.md)
+      let runStats: RunStats | undefined;
+      const metricsPath = runDir ? join(runDir, 'run-metrics.json') : undefined;
+      if (metricsPath && existsSync(metricsPath)) {
+        try {
+          runStats = JSON.parse(readFileSync(metricsPath, 'utf-8')) as RunStats;
+        } catch { /* ignore malformed metrics */ }
+      }
+
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
-        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir);
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats);
         printReportSummary(data, axisReports, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {
