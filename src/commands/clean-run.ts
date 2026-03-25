@@ -59,6 +59,7 @@ export function hasGitChanges(cwd: string, sinceSha: string): boolean {
   }
 }
 
+/** Returns `true` when the working tree at {@link cwd} has staged or unstaged changes. */
 export function hasUncommittedChanges(cwd: string): boolean {
   try {
     const status = execSync('git status --porcelain', { cwd, stdio: 'pipe' }).toString().trim();
