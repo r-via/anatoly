@@ -1401,7 +1401,8 @@ function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number;
  */
 function healthBar(pct: number): string {
   const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
-  return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  const square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  return square.repeat(filled) + '⬜'.repeat(10 - filled);
 }
 
 /**
@@ -1560,7 +1561,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     if (c.medium > 0) parts.push(`${c.medium} med`);
     if (c.low > 0) parts.push(`${c.low} low`);
 
-    const healthLabel = axis === 'best-practices' ? `\`${bar}\` ${label}` : `\`${bar}\` ${pct}% ${label}`;
+    const healthLabel = axis === 'best-practices' ? `${bar} ${label}` : `${bar} ${pct}% ${label}`;
 
     if (axisReportSet.has(axis)) {
       const findingsStr = parts.join(' · ') || '—';
