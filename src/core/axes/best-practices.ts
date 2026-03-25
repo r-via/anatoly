@@ -27,6 +27,7 @@ const BestPracticesSuggestionSchema = z.object({
   after: z.string().optional(),
 });
 
+/** Zod schema for the structured LLM response from the best-practices axis evaluation. */
 export const BestPracticesResponseSchema = z.object({
   score: z.number().min(0).max(10),
   rules: z.array(BestPracticesRuleResponseSchema),
