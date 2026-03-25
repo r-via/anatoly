@@ -17,6 +17,8 @@ import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { retryWithBackoff } from '../utils/rate-limiter.js';
+import { contextLogger } from '../utils/log-context.js';
 
 // --- Public interfaces ---
 
@@ -97,20 +99,8 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
  * result to disk. Acquires a semaphore slot for the duration of the call
  * and releases it in a finally block to guarantee no leaks.
  *
- * Side effects: creates subdirectories as needed, validates the output path
- * via `assertSafeOutputPath` to prevent writes into the live docs/ tree,
- * and writes the generated content to `outputDir/<pagePath>`.
- *
- * @param prompt - The page prompt containing system/user messages, model, and target pagePath.
- * @param outputDir - Root directory where generated pages are written.
- * @param projectRoot - Absolute path to the project root (used for path safety checks).
- * @param docsPath - Relative path to the user-facing docs directory (guarded from writes).
- * @param semaphore - Concurrency limiter; acquired before the LLM call and released after.
- * @param executor - The LLM executor function that produces text and cost.
- * @param onPageStart - Optional callback fired before the executor call.
- * @param onPageComplete - Optional callback fired after a successful write.
- * @param onPageError - Optional callback fired when the executor or write throws.
- * @returns The LLM cost in USD for this page.
+ * Retry logic lives in the executor itself (via {@link retryWithBackoff}),
+ * not here — this keeps the semaphore scope tight.
  */
 async function executeOnePage(
   prompt: DocPrompt,
@@ -538,42 +528,62 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     const ac = abortController ?? new AbortController();
     let resultText = '';
     try {
-    const q = query({
-      prompt: userMessage,
-      options: {
-        systemPrompt,
-        model: 'opus',
-        cwd: outputDir,
-        allowedTools: ['Read', 'Write'],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        maxTurns: 200,
-        abortController: ac,
-      },
-    });
+      const { text, costUsd } = await retryWithBackoff(
+        async () => {
+          const q = query({
+            prompt: userMessage,
+            options: {
+              systemPrompt,
+              model: 'opus',
+              cwd: outputDir,
+              allowedTools: ['Read', 'Write'],
+              permissionMode: 'bypassPermissions' as const,
+              allowDangerouslySkipPermissions: true,
+              maxTurns: 200,
+              abortController: ac,
+            },
+          });
 
-    for await (const message of q) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          resultText = (message as { result: string }).result;
-          totalCostUsd += (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-        } else {
-          const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-          conversationLog.push(`\n## Error\n\n${errMsg}\n`);
-          break;
-        }
-      }
-      // Track tool use for UI display
-      if (message.type === 'assistant' && callbacks?.onToolUse) {
-        const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
-        for (const block of msg.content ?? []) {
-          if (block.type === 'tool_use' && block.name && block.input?.file_path) {
-            callbacks.onToolUse(block.name, block.input.file_path);
+          let text = '';
+          let costUsd = 0;
+          for await (const message of q) {
+            if (message.type === 'result') {
+              if (message.subtype === 'success') {
+                text = (message as { result: string }).result;
+                costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+              } else {
+                const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+                throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+              }
+            }
+            // Track tool use for UI display
+            if (message.type === 'assistant' && callbacks?.onToolUse) {
+              const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
+              for (const block of msg.content ?? []) {
+                if (block.type === 'tool_use' && block.name && block.input?.file_path) {
+                  callbacks.onToolUse(block.name, block.input.file_path);
+                }
+              }
+            }
           }
-        }
-      }
-    }
-
+          return { text, costUsd };
+        },
+        {
+          maxRetries: 3,
+          baseDelayMs: 5_000,
+          maxDelayMs: 60_000,
+          jitterFactor: 0.2,
+          filePath: 'coherence-review',
+          onRetry: (attempt, delayMs) => {
+            contextLogger().warn({ attempt, delayMs }, 'coherence review retrying');
+          },
+        },
+      );
+      resultText = text;
+      totalCostUsd += costUsd;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      conversationLog.push(`\n## Error\n\n${errMsg}\n`);
     } finally {
       if (semaphore) semaphore.release();
     }
@@ -669,36 +679,58 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
   let costUsd = 0;
   if (semaphore) await semaphore.acquire();
   try {
-    const q = query({
-      prompt: userMessage,
-      options: {
-        systemPrompt,
-        model: 'opus',
-        cwd: outputDir,
-        allowedTools: ['Read', 'Write'],
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
-        maxTurns: 200,
-        abortController: ac,
-      },
-    });
+    const result = await retryWithBackoff(
+      async () => {
+        const q = query({
+          prompt: userMessage,
+          options: {
+            systemPrompt,
+            model: 'opus',
+            cwd: outputDir,
+            allowedTools: ['Read', 'Write'],
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+            maxTurns: 200,
+            abortController: ac,
+          },
+        });
 
-    for await (const message of q) {
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          resultText = (message as { result: string }).result;
-          costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-        }
-      }
-      if (message.type === 'assistant' && callbacks?.onToolUse) {
-        const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
-        for (const block of msg.content ?? []) {
-          if (block.type === 'tool_use' && block.name && block.input?.file_path) {
-            callbacks.onToolUse(block.name, block.input.file_path);
+        let text = '';
+        let cost = 0;
+        for await (const message of q) {
+          if (message.type === 'result') {
+            if (message.subtype === 'success') {
+              text = (message as { result: string }).result;
+              cost = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+            } else {
+              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
+            }
+          }
+          if (message.type === 'assistant' && callbacks?.onToolUse) {
+            const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
+            for (const block of msg.content ?? []) {
+              if (block.type === 'tool_use' && block.name && block.input?.file_path) {
+                callbacks.onToolUse(block.name, block.input.file_path);
+              }
+            }
           }
         }
-      }
-    }
+        return { text, cost };
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 5_000,
+        maxDelayMs: 60_000,
+        jitterFactor: 0.2,
+        filePath: 'content-review',
+        onRetry: (attempt, delayMs) => {
+          contextLogger().warn({ attempt, delayMs }, 'content review retrying');
+        },
+      },
+    );
+    resultText = result.text;
+    costUsd = result.cost;
   } finally {
     if (semaphore) semaphore.release();
   }

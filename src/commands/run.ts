@@ -1293,7 +1293,10 @@ async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
         cacheReview(ctx.projectRoot, result.review);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
-        pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
+        const succeededAxes = result.failedAxes.length > 0
+          ? evaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
+          : evaluators.map(e => e.id);
+        pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
         ctx.filesReviewed++;
         ctx.reviewCounts.evaluated++;
         completedCount++;

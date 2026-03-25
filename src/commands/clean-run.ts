@@ -371,36 +371,52 @@ export function registerCleanRunCommand(program: Command): void {
         // Read CLAUDE.md fresh each iteration
         const claudeMd = readFileSync(claudeMdPath, 'utf-8');
 
-        // Spawn a fresh Claude Code instance
-        const { exitCode } = await new Promise<{ exitCode: number }>((res) => {
-          const args = ['--dangerously-skip-permissions', '--print'];
-          if (opts.model) args.push('--model', opts.model);
-          const child = spawn('claude', args, {
-            cwd: projectRoot,
-            stdio: ['pipe', 'pipe', 'pipe'],
+        // Spawn a fresh Claude Code instance with retry on transient failures
+        const MAX_SPAWN_RETRIES = 2;
+        let exitCode = 1;
+        for (let attempt = 0; attempt <= MAX_SPAWN_RETRIES; attempt++) {
+          if (attempt > 0) {
+            const delayMs = 5_000 * Math.pow(2, attempt - 1); // 5s, 10s
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+
+          exitCode = await new Promise<number>((res) => {
+            const args = ['--dangerously-skip-permissions', '--print'];
+            if (opts.model) args.push('--model', opts.model);
+            const child = spawn('claude', args, {
+              cwd: projectRoot,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+
+            // Suppress agent output — pipeline display owns the terminal
+            child.stdout!.resume();
+            child.stderr!.resume();
+
+            child.on('close', (code) => {
+              clearTimeout(timer);
+              res(code ?? 1);
+            });
+
+            child.on('error', () => {
+              clearTimeout(timer);
+              res(1);
+            });
+
+            child.stdin!.end(claudeMd);
+
+            const timeoutMs = (15 + pendingStories.length * 5) * 60 * 1000;
+            const timer = setTimeout(() => {
+              child.kill();
+            }, timeoutMs);
           });
 
-          // Suppress agent output — pipeline display owns the terminal
-          child.stdout!.resume();
-          child.stderr!.resume();
-
-          child.on('close', (code) => {
-            clearTimeout(timer);
-            res({ exitCode: code ?? 1 });
-          });
-
-          child.on('error', () => {
-            clearTimeout(timer);
-            res({ exitCode: 1 });
-          });
-
-          child.stdin!.end(claudeMd);
-
-          const timeoutMs = (15 + pendingStories.length * 5) * 60 * 1000;
-          const timer = setTimeout(() => {
-            child.kill();
-          }, timeoutMs);
-        });
+          if (exitCode === 0) break;
+          // Check if the batch made partial progress (wrote results) — don't retry
+          try {
+            const updatedBatch: PrdStory[] = JSON.parse(readFileSync(batchPath, 'utf-8'));
+            if (updatedBatch.some((s) => s.passes)) break;
+          } catch { /* batch not written yet — retry */ }
+        }
 
         const hasError = exitCode !== 0;
 

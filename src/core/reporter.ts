@@ -1406,6 +1406,77 @@ function healthBar(pct: number): string {
 }
 
 /**
+ * Build a compact verdict breakdown string for an axis (e.g. "94% lean · 6% acceptable").
+ * Used for "All clear" axes where health bar is 100% but verdicts are mixed.
+ */
+function axisVerdictBreakdown(data: ReportData, axis: ReportAxisId): string {
+  const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
+
+  const countAndFormat = (entries: Array<{ label: string; count: number }>, total: number): string => {
+    if (total === 0) return 'No data';
+    return entries
+      .filter((e) => e.count > 0)
+      .map((e) => `${Math.round((e.count / total) * 100)}% ${e.label}`)
+      .join(' · ');
+  };
+
+  switch (axis) {
+    case 'correction': {
+      const all = reliable.filter((s) => s.correction !== '-');
+      return countAndFormat([
+        { label: 'OK', count: all.filter((s) => s.correction === 'OK').length },
+        { label: 'needs fix', count: all.filter((s) => s.correction === 'NEEDS_FIX').length },
+      ], all.length);
+    }
+    case 'utility': {
+      const all = reliable.filter((s) => s.utility !== '-');
+      return countAndFormat([
+        { label: 'used', count: all.filter((s) => s.utility === 'USED').length },
+        { label: 'dead', count: all.filter((s) => s.utility === 'DEAD').length },
+        { label: 'low value', count: all.filter((s) => s.utility === 'LOW_VALUE').length },
+      ], all.length);
+    }
+    case 'duplication': {
+      const all = reliable.filter((s) => s.duplication !== '-');
+      return countAndFormat([
+        { label: 'unique', count: all.filter((s) => s.duplication === 'UNIQUE').length },
+        { label: 'duplicate', count: all.filter((s) => s.duplication === 'DUPLICATE').length },
+      ], all.length);
+    }
+    case 'overengineering': {
+      const all = reliable.filter((s) => s.overengineering !== '-');
+      return countAndFormat([
+        { label: 'lean', count: all.filter((s) => s.overengineering === 'LEAN').length },
+        { label: 'acceptable', count: all.filter((s) => s.overengineering === 'ACCEPTABLE').length },
+        { label: 'over', count: all.filter((s) => s.overengineering === 'OVER').length },
+      ], all.length);
+    }
+    case 'tests': {
+      const all = reliable.filter((s) => s.tests !== '-');
+      return countAndFormat([
+        { label: 'good', count: all.filter((s) => s.tests === 'GOOD').length },
+        { label: 'weak', count: all.filter((s) => s.tests === 'WEAK').length },
+        { label: 'none', count: all.filter((s) => s.tests === 'NONE').length },
+      ], all.length);
+    }
+    case 'documentation': {
+      const all = reliable.filter((s) => s.documentation !== '-');
+      return countAndFormat([
+        { label: 'documented', count: all.filter((s) => s.documentation === 'DOCUMENTED').length },
+        { label: 'partial', count: all.filter((s) => s.documentation === 'PARTIAL').length },
+        { label: 'undocumented', count: all.filter((s) => s.documentation === 'UNDOCUMENTED').length },
+      ], all.length);
+    }
+    case 'best-practices': {
+      const bpReviews = data.reviews.filter((r) => r.best_practices);
+      if (bpReviews.length === 0) return 'No data';
+      const avg = bpReviews.reduce((sum, r) => sum + r.best_practices!.score, 0) / bpReviews.length;
+      return `avg ${avg.toFixed(1)} / 10`;
+    }
+  }
+}
+
+/**
  * Re-render the raw documentation reference section for the public report.
  * Parses the original rendered section and produces a more readable version
  * with explanations of each metric.
@@ -1589,9 +1660,10 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
       const link = `[View →](./axes/${axis}/index.md)`;
       lines.push(`| ${name} | ${healthLabel} | ${findingsStr} | ${link} |`);
     } else {
-      // No findings — show a clean 100% bar regardless of verdict distribution
+      // No findings — full green bar but show the actual verdict breakdown
       const cleanBar = healthBar(100);
-      lines.push(`| ${name} | ${cleanBar} All clear | — | — |`);
+      const breakdown = axisVerdictBreakdown(data, axis);
+      lines.push(`| ${name} | ${cleanBar} ${breakdown} | All clear | — |`);
     }
   }
   lines.push('');
