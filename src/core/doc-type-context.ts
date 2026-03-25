@@ -10,7 +10,7 @@
  * a context provider that extracts relevant information.
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { ProjectType } from './language-detect.js';
@@ -146,13 +146,16 @@ function resolveCliBinName(projectRoot: string, pkg: Record<string, unknown>): s
 
 function runHelp(projectRoot: string, binName: string, args: string[]): string | null {
   try {
-    // Use npx for JS projects to find local bins, direct path otherwise
+    // Resolve local bin from node_modules/.bin/ instead of npx (avoids auto-install)
     const isLocalBin = !binName.startsWith('/') && !binName.startsWith('./');
-    const cmd = isLocalBin
-      ? `npx --yes ${binName} ${args.join(' ')} --help`
-      : `${binName} ${args.join(' ')} --help`;
+    const resolvedBin = isLocalBin
+      ? resolve(projectRoot, 'node_modules', '.bin', binName)
+      : resolve(projectRoot, binName);
 
-    const output = execSync(cmd, {
+    if (!existsSync(resolvedBin)) return null;
+
+    // Use execFileSync to avoid shell interpretation of arguments
+    const output = execFileSync(resolvedBin, [...args, '--help'], {
       cwd: projectRoot,
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -188,8 +191,8 @@ function extractSubcommands(helpText: string): string[] {
       const match = line.match(/^\s{2,}(\S+)/);
       if (match) {
         const cmd = match[1];
-        // Skip help command and options-like entries
-        if (cmd !== 'help' && !cmd.startsWith('-') && !cmd.startsWith('[')) {
+        // Skip help command, options-like entries, and validate name
+        if (cmd !== 'help' && !cmd.startsWith('-') && !cmd.startsWith('[') && /^[a-zA-Z0-9_-]+$/.test(cmd)) {
           commands.push(cmd);
         }
       }

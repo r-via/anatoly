@@ -3,11 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * Doc Gap Detection v2 — Three-Strategy Architecture
+ * Doc Gap Detection v2 — Two-Strategy Architecture
  *
  * Strategy 1: Module pages — domain vector matching (macro + micro)
- * Strategy 2: Reference pages — structural diff (entry presence check)
- * Strategy 3: Conceptual pages — key concept coverage
+ * Strategy 2: Conceptual pages — key concept coverage
  *
  * No LLM calls. No Docker. Pure vector math + string matching.
  */
@@ -307,10 +306,6 @@ async function strategy1_moduleDomains(
 
   return reports;
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// Strategy 2: Reference pages — structural diff
-// ═══════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════
 // Strategy 3: Conceptual pages — key concept coverage

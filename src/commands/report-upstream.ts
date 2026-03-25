@@ -169,12 +169,13 @@ function getRemoteNwo(projectRoot: string, remote: string): UpstreamRepo | null 
     }).trim();
 
     // Parse GitHub URL: https://github.com/owner/repo.git or git@github.com:owner/repo.git
+    const SAFE_NWO = /^[a-zA-Z0-9._-]+$/;
     const httpsMatch = url.match(/github\.com\/([^/]+)\/([^/.]+)/);
-    if (httpsMatch) {
+    if (httpsMatch && SAFE_NWO.test(httpsMatch[1]) && SAFE_NWO.test(httpsMatch[2])) {
       return { owner: httpsMatch[1], repo: httpsMatch[2], full: `${httpsMatch[1]}/${httpsMatch[2]}` };
     }
     const sshMatch = url.match(/github\.com:([^/]+)\/([^/.]+)/);
-    if (sshMatch) {
+    if (sshMatch && SAFE_NWO.test(sshMatch[1]) && SAFE_NWO.test(sshMatch[2])) {
       return { owner: sshMatch[1], repo: sshMatch[2], full: `${sshMatch[1]}/${sshMatch[2]}` };
     }
   } catch {
@@ -224,23 +225,15 @@ function buildIssueBody(localReportPath: string, reportUrl: string): string {
 
 function createIssue(upstream: UpstreamRepo, body: string): string | null {
   try {
+    // Always use --body-file stdin to avoid shell injection via body content
     const result = execSync(
-      `gh issue create --repo "${upstream.full}" --title "Anatoly Audit Report" --body "${body.replace(/"/g, '\\"')}"`,
-      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+      `gh issue create --repo "${upstream.full}" --title "Anatoly Audit Report" --body-file -`,
+      { input: body, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     ).trim();
     return result;
   } catch (err) {
-    // Body with special chars — use stdin instead
-    try {
-      const result = execSync(
-        `gh issue create --repo "${upstream.full}" --title "Anatoly Audit Report" --body-file -`,
-        { input: body, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
-      ).trim();
-      return result;
-    } catch (err2) {
-      const msg = err2 instanceof Error ? err2.message : String(err2);
-      console.error(chalk.red(`Failed to create issue: ${msg}`));
-      return null;
-    }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(chalk.red(`Failed to create issue: ${msg}`));
+    return null;
   }
 }

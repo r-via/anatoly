@@ -14,7 +14,7 @@ import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, runDocContentReview } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
-import { detectDocGaps, detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
+import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
