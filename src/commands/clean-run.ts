@@ -23,6 +23,10 @@ export interface CircuitBreakerState {
   lastGoodSha: string;
 }
 
+/**
+ * Number of consecutive no-progress iterations before the circuit breaker opens.
+ * A "no progress" iteration is one where no git commits were made and HEAD is unchanged.
+ */
 export const CB_NO_PROGRESS_THRESHOLD = 3;
 export const CB_SAME_ERROR_THRESHOLD = 5;
 
