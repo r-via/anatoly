@@ -42,6 +42,8 @@ export type PreResolvedRag = PreResolvedRagEntry[];
 /**
  * Compose the full system prompt for an axis evaluator.
  * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt → schema example (if provided).
+ * @param axisPrompt - The axis-specific system prompt text.
+ * @param schema - Optional Zod schema; when provided, a formatted example is appended.
  */
 export function composeAxisSystemPrompt(axisPrompt: string, schema?: z.ZodType): string {
   const wrapper = resolveSystemPrompt('_shared.json-evaluator-wrapper');
@@ -66,6 +68,7 @@ export type AxisId =
   | 'best_practices'
   | 'documentation';
 
+/** Input bundle passed to every axis evaluator's `evaluate()` method. */
 export interface AxisContext {
   task: Task;
   fileContent: string;
@@ -98,6 +101,7 @@ export interface RelevantDoc {
   source?: 'project' | 'internal';
 }
 
+/** Per-symbol output record produced by an axis evaluator. */
 export interface AxisSymbolResult {
   name: string;
   line_start: number;
@@ -110,6 +114,7 @@ export interface AxisSymbolResult {
   duplicate_target?: { file: string; symbol: string; similarity: string };
 }
 
+/** Complete result of one axis evaluation run, including per-symbol verdicts, actions, and cost metrics. */
 export interface AxisResult {
   axisId: AxisId;
   symbols: AxisSymbolResult[];
@@ -125,6 +130,7 @@ export interface AxisResult {
   transcript: string;
 }
 
+/** Contract implemented by all axis evaluators. `defaultModel` selects haiku (fast) or sonnet (capable). */
 export interface AxisEvaluator {
   readonly id: AxisId;
   readonly defaultModel: 'sonnet' | 'haiku';
@@ -189,6 +195,7 @@ export function resolveDeliberationModel(config: Config): string {
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------
 
+/** Parameters for a single-turn LLM query executed via {@link runSingleTurnQuery}. */
 export interface SingleTurnQueryParams {
   systemPrompt: string;
   userMessage: string;
