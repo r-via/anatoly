@@ -45,10 +45,7 @@ async function runDocUpdate(
   const pagesWithWork = [
     ...gapReport.domains
       .filter(d => d.functionsMissing.length > 0 && d.matchedPage)
-      .map(d => ({ page: d.matchedPage!, missing: d.functionsMissing, refMissing: [] as string[] })),
-    ...gapReport.references
-      .filter(r => r.missing.length > 0)
-      .map(r => ({ page: r.page, missing: [] as Array<{ name: string; file: string; docSummary: string }>, refMissing: r.missing })),
+      .map(d => ({ page: d.matchedPage!, missing: d.functionsMissing })),
   ];
 
   const totalGaps = gapReport.pagesToCreate.length + pagesWithWork.length + gapReport.conceptsToDocument.length;
@@ -74,11 +71,6 @@ async function runDocUpdate(
       gapLines.push(`  Doc summary: ${fn.docSummary || 'no summary'}`);
       gapLines.push(`  → Create documentation for this function.\n`);
     }
-    for (const entry of work.refMissing) {
-      gapLines.push(`MISSING ENTRY: ${entry}`);
-      gapLines.push(`  → Add this entry to the reference page.\n`);
-    }
-
     const system = resolveSystemPrompt('doc-generation.updater');
     const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
 

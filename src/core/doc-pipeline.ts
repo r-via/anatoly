@@ -26,6 +26,7 @@ import { assertSafeOutputPath } from './docs-guard.js';
 import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
 import { buildPageContext, type SourceFile } from './source-context.js';
 import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
+import { collectTypeContext } from './doc-type-context.js';
 import type { Task } from '../schemas/task.js';
 
 // --- Public interfaces ---
@@ -150,6 +151,9 @@ export function runDocGeneration(
     // No README — that's fine
   }
 
+  // Collect type-specific context once (e.g. CLI --help output)
+  const typeContext = collectTypeContext(projectRoot, scaffoldResult.projectTypes, packageJson);
+
   // Build prompts for stale + added pages
   const prompts: PagePrompt[] = [];
   const pagesToGenerate = [...cacheResult.stale, ...cacheResult.added];
@@ -167,7 +171,7 @@ export function runDocGeneration(
     };
     const allPages = pageMappings.map(m => m.pagePath);
     const neighbors = loadNeighborPages(outputDir, pagePath, allPages);
-    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages, neighbors, readme });
+    const prompt = buildPagePrompt(pageInfo, pageContext, packageJson, { allPages, neighbors, readme, typeContext });
     prompts.push(prompt);
   }
 

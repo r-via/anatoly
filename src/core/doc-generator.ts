@@ -14,6 +14,7 @@
 
 import type { PageContext, SymbolContext } from './source-context.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
+import type { TypeContextSection } from './doc-type-context.js';
 
 export const DEFAULT_MODEL = 'sonnet';
 
@@ -66,11 +67,11 @@ export function buildPagePrompt(
   page: PageInfo,
   pageContext: PageContext,
   packageJson: Record<string, unknown>,
-  options?: { model?: string; allPages?: string[]; neighbors?: DocNeighbor[]; readme?: string },
+  options?: { model?: string; allPages?: string[]; neighbors?: DocNeighbor[]; readme?: string; typeContext?: TypeContextSection[] },
 ): PagePrompt {
   const model = options?.model ?? DEFAULT_MODEL;
   const system = buildSystemPrompt(page.path);
-  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages, options?.neighbors, options?.readme);
+  const user = buildUserMessage(page, pageContext, packageJson, options?.allPages, options?.neighbors, options?.readme, options?.typeContext);
   return { pagePath: page.path, system, user, model };
 }
 
@@ -100,6 +101,7 @@ function buildUserMessage(
   allPages?: string[],
   neighbors?: DocNeighbor[],
   readme?: string,
+  typeContext?: TypeContextSection[],
 ): string {
   const parts: string[] = [];
 
@@ -193,6 +195,13 @@ function buildUserMessage(
       for (const [name, cmd] of scripts) {
         parts.push(`  - ${name}: ${cmd}`);
       }
+    }
+  }
+
+  // Type-specific context (CLI help, API docs, etc.)
+  if (typeContext && typeContext.length > 0) {
+    for (const section of typeContext) {
+      parts.push(`\n## ${section.heading}\n${section.content}`);
     }
   }
 

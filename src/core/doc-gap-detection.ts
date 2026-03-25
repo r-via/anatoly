@@ -35,15 +35,6 @@ export interface DomainReport {
   functionsMissing: Array<{ name: string; file: string; docSummary: string }>;
 }
 
-// --- Strategy 2: Reference reports ---
-
-export interface ReferenceReport {
-  page: string;
-  entriesListed: number;
-  entriesTotal: number;
-  missing: string[];
-}
-
 // --- Strategy 3: Concept reports ---
 
 export interface ConceptReport {
@@ -63,10 +54,6 @@ export interface GapReportV2 {
   // Strategy 1
   domains: DomainReport[];
   moduleCoverage: { covered: number; total: number };
-
-  // Strategy 2
-  references: ReferenceReport[];
-  referenceCoverage: { listed: number; total: number };
 
   // Strategy 3
   concepts: ConceptReport[];
@@ -325,65 +312,6 @@ async function strategy1_moduleDomains(
 // Strategy 2: Reference pages — structural diff
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Strategy 2: check reference pages for missing function entries via normalized path-segment matching. */
-function strategy2_referencePages(
-  refPages: DocPage[],
-  allCards: FunctionCard[],
-): ReferenceReport[] {
-  const reports: ReferenceReport[] = [];
-
-  for (const page of refPages) {
-    const pageContent = (page.content ?? '').toLowerCase();
-    const pageLower = page.path.toLowerCase();
-
-    // Determine what entries this page should list
-    let expectedEntries: string[] = [];
-
-    // Generic: find all function cards whose docSummary or name should appear
-    // in this reference page. Match by searching which cards mention this page's
-    // topic in their docSummary, or whose module maps to this reference page.
-    //
-    // Use the function name as the expected entry — it's the most reliable
-    // identifier across all frameworks and languages.
-    // Also extract short identifiers from docSummary (quoted terms like `run`, `scaffold`).
-    const relatedCards = allCards.filter(c => {
-      const doc = (c.docSummary ?? '').toLowerCase();
-      const name = c.name.toLowerCase();
-      // Match cards that are related to this reference page's topic
-      return pageLower.split('/').some(segment =>
-        segment.length > 3 && (doc.includes(segment.replace(/^\d+-/, '').replace('.md', '')) || name.includes(segment.replace(/^\d+-/, '').replace('.md', ''))),
-      );
-    });
-
-    if (relatedCards.length === 0) continue;
-
-    expectedEntries = relatedCards.map(c => c.name);
-
-    // Check presence
-    const missing: string[] = [];
-    let listed = 0;
-
-    for (const entry of expectedEntries) {
-      const normalized = entry.replace(/[-_]/g, '').toLowerCase();
-      const pageNormalized = pageContent.replace(/[-_]/g, '');
-      if (pageNormalized.includes(normalized)) {
-        listed++;
-      } else {
-        missing.push(entry);
-      }
-    }
-
-    reports.push({
-      page: page.path,
-      entriesListed: listed,
-      entriesTotal: expectedEntries.length,
-      missing,
-    });
-  }
-
-  return reports;
-}
-
 // ═══════════════════════════════════════════════════════════════════════
 // Strategy 3: Conceptual pages — key concept coverage
 // ═══════════════════════════════════════════════════════════════════════
@@ -467,7 +395,6 @@ export async function detectDocGapsV2(
 
   // Classify pages
   const modulePages = pages.filter(p => p.type === 'module');
-  const refPages = pages.filter(p => p.type === 'reference');
   const conceptualPages = pages.filter(p => p.type === 'conceptual');
 
   // Group code by domain
@@ -477,19 +404,12 @@ export async function detectDocGapsV2(
   options?.onProgress?.('modules', 0, domains.length);
   const domainReports = await strategy1_moduleDomains(domains, modulePages, vectorStore, scope, options ?? {});
 
-  // Strategy 2: Reference pages (disabled — needs per-capability entry extractors)
-  // Reference pages are handled by strategy 1 via domain matching for now.
-  options?.onProgress?.('references', 0, 0);
-  const refReports: ReferenceReport[] = [];
-
   // Strategy 3: Conceptual pages
   options?.onProgress?.('concepts', 0, 1);
   const conceptReports = strategy3_conceptualPages(conceptualPages, allCards, options ?? {});
 
   // Compute summaries
   const coveredDomains = domainReports.filter(d => d.classification === 'COVERED').length;
-  const totalRef = refReports.reduce((sum, r) => sum + r.entriesTotal, 0);
-  const listedRef = refReports.reduce((sum, r) => sum + r.entriesListed, 0);
   const mentionedConcepts = conceptReports.filter(c => c.mentioned).length;
 
   // Actionable lists — derive modules directory from existing module pages
@@ -504,9 +424,6 @@ export async function detectDocGapsV2(
     ...domainReports
       .filter(d => d.functionsMissing.length > 0 && d.matchedPage)
       .map(d => d.matchedPage!),
-    ...refReports
-      .filter(r => r.missing.length > 0)
-      .map(r => r.page),
   ])];
 
   const conceptsToDocument = conceptReports
@@ -518,8 +435,6 @@ export async function detectDocGapsV2(
     target,
     domains: domainReports,
     moduleCoverage: { covered: coveredDomains, total: domainReports.length },
-    references: refReports,
-    referenceCoverage: { listed: listedRef, total: totalRef },
     concepts: conceptReports,
     conceptCoverage: { mentioned: mentionedConcepts, total: conceptReports.length },
     pagesToCreate,
@@ -539,7 +454,6 @@ export function formatGapReportV2(report: GapReportV2): string {
     '═'.repeat(50),
     '',
     `Module coverage:     ${report.moduleCoverage.covered}/${report.moduleCoverage.total} domains documented`,
-    `Reference coverage:  ${report.referenceCoverage.listed}/${report.referenceCoverage.total} entries listed`,
     `Conceptual coverage: ${report.conceptCoverage.mentioned}/${report.conceptCoverage.total} key concepts mentioned`,
   ];
 
@@ -563,20 +477,6 @@ export function formatGapReportV2(report: GapReportV2): string {
     }
     if (allMissing.length > 10) {
       lines.push(`  … and ${allMissing.length - 10} more`);
-    }
-  }
-
-  // Reference gaps
-  for (const r of report.references) {
-    if (r.missing.length > 0) {
-      lines.push('', `Reference: ${r.page} — ${r.entriesListed}/${r.entriesTotal} entries`);
-      lines.push('  Missing:');
-      for (const m of r.missing.slice(0, 10)) {
-        lines.push(`    - ${m}`);
-      }
-      if (r.missing.length > 10) {
-        lines.push(`    … and ${r.missing.length - 10} more`);
-      }
     }
   }
 
