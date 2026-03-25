@@ -203,8 +203,9 @@ function findingsNeedVerification(
 }
 
 /**
- * Apply verification results: override pass 1 findings with pass 2 verdicts.
- * Records false positives in the correction memory for future runs.
+ * Apply verification results: override pass-1 findings with pass-2 verdicts.
+ * Records false positives in the correction memory for future runs and filters
+ * out actions whose lines fall within symbols reclassified to OK.
  */
 function applyVerification(
   pass1: CorrectionResponse,
