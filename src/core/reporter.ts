@@ -440,7 +440,7 @@ export function buildAxisReports(data: ReportData): AxisReport[] {
 // ---------------------------------------------------------------------------
 
 /** Map language to its doc comment convention name. */
-function docCommentTerm(language?: string): string {
+export function docCommentTerm(language?: string): string {
   switch (language) {
     case 'rust': return '`///` doc comment';
     case 'python': return 'docstring';
@@ -579,7 +579,7 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
  * @param report - The axis report containing files, actions, and shards to render.
  * @returns A complete markdown string for the axis index page.
  */
-export function renderAxisIndex(report: AxisReport): string {
+export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): string {
   const lines: string[] = [];
   const name = axisDisplayName(report.axis);
 
@@ -609,7 +609,7 @@ export function renderAxisIndex(report: AxisReport): string {
   lines.push(...renderAxisVerdictDistribution(report));
 
   // Methodology
-  lines.push(...renderAxisMethodology(report.axis, derivePrimaryLanguage(report.files)));
+  lines.push(...renderAxisMethodology(report.axis, derivePrimaryLanguage(allReviews ?? report.files)));
 
   lines.push(`*Generated: ${new Date().toISOString()}*`);
   lines.push('');
@@ -1315,7 +1315,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   const bpLabel = bestPracticesLabel(lang);
   const docTerm = docCommentTerm(lang);
   lines.push(`| Best Practices | sonnet | Score 0–10 | Does the file follow ${bpLabel} best practices? |`);
-  lines.push(`| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with ${docTerm}s? |`);
+  lines.push(`| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with ${docTerm}? |`);
   lines.push('');
   lines.push('See each axis folder for detailed rating criteria and methodology.');
   lines.push('');
@@ -1873,7 +1873,7 @@ export function generateReport(
     mkdirSync(axisDir, { recursive: true });
 
     // Write axis index
-    writeFileSync(join(axisDir, 'index.md'), renderAxisIndex(report));
+    writeFileSync(join(axisDir, 'index.md'), renderAxisIndex(report, data.reviews));
 
     // Write axis shards
     for (const shard of report.shards) {

@@ -11,14 +11,8 @@ import { contextLogger } from '../utils/log-context.js';
 // Language-aware doc comment terminology
 // ---------------------------------------------------------------------------
 
-function docActionTerm(language?: string): string {
-  switch (language) {
-    case 'rust': return 'doc comment';
-    case 'python': return 'docstring';
-    case 'go': return 'Go doc comment';
-    default: return 'JSDoc';
-  }
-}
+import { docCommentTerm } from './reporter.js';
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -331,7 +325,7 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
     }
 
     if (sym.documentation === 'UNDOCUMENTED' && sym.exported) {
-      const term = docActionTerm(language);
+      const term = docCommentTerm(language);
       actions.push({
         id: 0,
         description: `Add ${term} documentation for exported symbol: \`${sym.name}\``,
@@ -345,7 +339,7 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
     }
 
     if (sym.documentation === 'PARTIAL') {
-      const term = docActionTerm(language);
+      const term = docCommentTerm(language);
       actions.push({
         id: 0,
         description: `Complete ${term} documentation for: \`${sym.name}\``,

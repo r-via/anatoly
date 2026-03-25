@@ -254,7 +254,7 @@ function buildGapsFromReviews(
     for (const sym of review.symbols) {
       if (sym.exported && sym.documentation === 'UNDOCUMENTED') {
         gaps.push({
-          type: 'missing_jsdoc',
+          type: 'missing_jsdoc', // canonical enum value regardless of language (JSDoc, docstring, doc comment)
           idealPath: `04-API-Reference/01-Public-API.md`,
           rationale: `Exported ${sym.kind} ${sym.name} in ${review.file} has no documentation`,
           priority: 'medium',

@@ -2,9 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, dirname, relative, extname, join } from 'node:path';
-import { existsSync } from 'node:fs';
 import type { Task } from '../schemas/task.js';
 import { contextLogger } from '../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
@@ -332,10 +331,31 @@ function buildRustCrateMap(
     return crateMap;
   }
 
-  const memberStrings = membersMatch[1]
+  const memberPatterns = membersMatch[1]
     .split(',')
     .map((s) => s.trim().replace(/^["']|["']$/g, ''))
     .filter((s) => s.length > 0);
+
+  // Expand glob patterns (e.g. "crates/*") into actual directories
+  const memberStrings: string[] = [];
+  for (const pattern of memberPatterns) {
+    if (pattern.includes('*')) {
+      const parentDir = pattern.replace(/\/?\*.*$/, '');
+      const absParent = join(projectRoot, parentDir);
+      try {
+        const entries = readdirSync(absParent, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            memberStrings.push(join(parentDir, entry.name));
+          }
+        }
+      } catch {
+        // Parent dir doesn't exist — skip
+      }
+    } else {
+      memberStrings.push(pattern);
+    }
+  }
 
   for (const memberDir of memberStrings) {
     const memberCargoPath = join(projectRoot, memberDir, 'Cargo.toml');
@@ -444,11 +464,16 @@ function resolveNonTsImportPath(
       return resolveRustModulePath(parts, crateSrcDir, taskFileSet);
     }
 
-    // super:: — resolve relative to parent module directory
+    // super:: — resolve relative to parent module directory (supports chained super::super::)
     if (importSource.startsWith('super::')) {
-      const parts = importSource.slice('super::'.length).split('::');
-      const parentDir = dirname(importerDir);
-      return resolveRustModulePath(parts, parentDir, taskFileSet);
+      let remaining = importSource;
+      let baseDir = importerDir;
+      while (remaining.startsWith('super::')) {
+        remaining = remaining.slice('super::'.length);
+        baseDir = dirname(baseDir);
+      }
+      const parts = remaining.split('::').filter(Boolean);
+      return resolveRustModulePath(parts, baseDir, taskFileSet);
     }
 
     // self:: — resolve relative to current module directory
