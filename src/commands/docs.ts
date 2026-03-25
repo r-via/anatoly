@@ -101,9 +101,16 @@ async function runDocUpdate(
   ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${totalGaps} gaps)`);
 
   // Pass 1: Structural coherence (lint + Opus fixes structure/numbering/links)
-  ctx.state.startTask(coherenceTaskId, 'structural lint…');
-  reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-  ctx.state.updateTask(coherenceTaskId, 'structural review…');
+  ctx.state.startTask(coherenceTaskId, 'linting…');
+  const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+  const autoFixed = lintResult.filesFixed;
+  const unfixedIssues = lintResult.issues.filter(i => !i.fixed);
+  ctx.renderer.logPlain(`[lint] ${lintResult.issues.length} issues found, ${autoFixed} auto-fixed, ${unfixedIssues.length} for Opus`);
+  for (const issue of unfixedIssues.slice(0, 10)) {
+    ctx.renderer.logPlain(`[lint]   ${issue.path}: [${issue.rule}] ${issue.detail}`);
+  }
+  if (unfixedIssues.length > 10) ctx.renderer.logPlain(`[lint]   … and ${unfixedIssues.length - 10} more`);
+  ctx.state.updateTask(coherenceTaskId, `coherence review… (${unfixedIssues.length} issues)`);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const structLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `structural-review_${ts}`);
 
@@ -318,8 +325,14 @@ export function registerDocsCommand(program: Command): void {
 
           // --- Step 2: LINT + COHERENCE ---
           ctx.state.startTask('coherence-1', 'linting…');
-          reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-          ctx.state.updateTask('coherence-1', 'coherence review…');
+          const scaffoldLint = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+          const scaffoldUnfixed = scaffoldLint.issues.filter(i => !i.fixed);
+          ctx.renderer.logPlain(`[lint] ${scaffoldLint.issues.length} issues, ${scaffoldLint.filesFixed} auto-fixed, ${scaffoldUnfixed.length} for Opus`);
+          for (const issue of scaffoldUnfixed.slice(0, 10)) {
+            ctx.renderer.logPlain(`[lint]   ${issue.path}: [${issue.rule}] ${issue.detail}`);
+          }
+          if (scaffoldUnfixed.length > 10) ctx.renderer.logPlain(`[lint]   … and ${scaffoldUnfixed.length - 10} more`);
+          ctx.state.updateTask('coherence-1', `coherence review… (${scaffoldUnfixed.length} issues)`);
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
           const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
 
