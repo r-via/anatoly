@@ -71,6 +71,17 @@ function computeDocSha(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
+/**
+ * Load doc-section cache entries from the shared RAG cache JSON file.
+ *
+ * Reads `cache_{suffix}.json` and extracts the `docEntries` key, which is a
+ * sub-section of the multi-purpose RAG cache file. Returns an empty object if
+ * the file is missing or unparseable.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param suffix - Cache variant discriminator (e.g. `'lite'` or `'advanced'`).
+ * @returns Mapping of relative file paths to their cached doc entry (SHA + section IDs).
+ */
 export function loadDocCacheFromRagCache(projectRoot: string, suffix: string): DocCacheData {
   const path = ragCachePath(projectRoot, suffix);
   if (!existsSync(path)) return {};
@@ -82,6 +93,18 @@ export function loadDocCacheFromRagCache(projectRoot: string, suffix: string): D
   }
 }
 
+/**
+ * Persist doc-section cache entries back into the shared RAG cache JSON file.
+ *
+ * Performs a merge-preserve write: reads existing top-level keys from
+ * `cache_{suffix}.json`, overwrites only the `docEntries` key, and writes
+ * the result back. This avoids clobbering other cache sections (e.g. code
+ * indexing entries) stored in the same file.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param suffix - Cache variant discriminator (e.g. `'lite'` or `'advanced'`).
+ * @param docEntries - The doc cache data to persist.
+ */
 export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docEntries: DocCacheData): void {
   const path = ragCachePath(projectRoot, suffix);
   let data: Record<string, unknown> = {};
@@ -237,6 +260,18 @@ function stripNonProse(text: string): string {
     .trim();
 }
 
+/**
+ * Parse a Markdown document into {@link DocSection} entries by splitting on `## ` (H2) headings.
+ *
+ * Behaviour notes:
+ * - Content before the first H2 is flushed as an "Introduction" section.
+ * - H1 (`# `) lines in the preamble are silently skipped (treated as the page title, not content).
+ * - Sections whose prose content (after {@link stripNonProse}) is shorter than 50 characters are discarded.
+ *
+ * @param filePath - Relative path to the doc file (passed through to each section).
+ * @param source - Raw Markdown source text.
+ * @returns Array of doc sections, one per H2 block that meets the minimum prose threshold.
+ */
 function fallbackParseH2(filePath: string, source: string): DocSection[] {
   const sections: DocSection[] = [];
   const lines = source.split('\n');
@@ -290,17 +325,54 @@ function fallbackParseH2(filePath: string, source: string): DocSection[] {
 // Public helpers (kept for backward compat / tests)
 // ---------------------------------------------------------------------------
 
+/**
+ * Strip non-prose elements from Markdown text for embedding.
+ *
+ * Despite its name, this removes more than just code blocks — it delegates to
+ * {@link stripNonProse} which also strips inline code backticks, Markdown
+ * tables, blockquotes, HTML tags, and horizontal rules.
+ *
+ * Kept as an exported alias for backward compatibility.
+ *
+ * @param text - Raw Markdown text to clean.
+ * @returns Prose-only text suitable for NLP embedding.
+ */
 export function stripCodeBlocks(text: string): string {
   return stripNonProse(text);
 }
 
+/**
+ * Produce a deterministic 16-hex-char ID for a doc section.
+ *
+ * The ID is the first 16 characters of the SHA-256 hex digest of the string
+ * `"doc:{filePath}:{heading}"`.
+ *
+ * @param filePath - Relative path to the doc file.
+ * @param heading - Section heading text.
+ * @returns A 16-character hexadecimal section ID.
+ */
 export function buildDocSectionId(filePath: string, heading: string): string {
   const input = `doc:${filePath}:${heading}`;
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 
+/**
+ * Alias for {@link fallbackParseH2}, kept as an export for backward compatibility
+ * with existing callers and tests.
+ */
 export const parseDocSections = fallbackParseH2;
 
+/**
+ * Collect all doc sections from Markdown files in the given docs directory.
+ *
+ * Globs `**\/*.md` under `{projectRoot}/{docsDir}` (default `'docs'`) and
+ * parses each file using the mechanical H2 parser ({@link fallbackParseH2}),
+ * **not** the Haiku semantic chunker.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param docsDir - Docs directory relative to projectRoot (default `'docs'`).
+ * @returns Flat array of doc sections across all discovered Markdown files.
+ */
 export function collectDocSections(projectRoot: string, docsDir: string = 'docs'): DocSection[] {
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) return [];
@@ -321,16 +393,25 @@ export function collectDocSections(projectRoot: string, docsDir: string = 'docs'
 // Indexing
 // ---------------------------------------------------------------------------
 
+/** Options for {@link indexDocSections}. */
 export interface DocIndexOptions {
+  /** Absolute path to the project root directory. */
   projectRoot: string;
+  /** Vector store used to upsert/delete doc section embeddings. */
   vectorStore: VectorStore;
+  /** Docs directory relative to projectRoot (default `'docs'`). */
   docsDir?: string;
+  /** Cache variant discriminator (default `'lite'`). */
   cacheSuffix?: string;
+  /** Called after each file is fully processed, with `(current, total)` counts. */
   onProgress?: (current: number, total: number) => void;
+  /** Called when processing of a file begins. */
   onFileStart?: (file: string) => void;
+  /** Called when processing of a file completes. */
   onFileDone?: (file: string) => void;
   /** Model for semantic chunking (e.g. 'haiku'). If omitted, falls back to H2 parsing. */
   chunkModel?: string;
+  /** Logging callback for progress and diagnostic messages. */
   onLog: (message: string) => void;
   /** Check if the caller has requested interruption (Ctrl+C). */
   isInterrupted?: () => boolean;
