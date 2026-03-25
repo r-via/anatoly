@@ -3,11 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { loadConfig } from '../utils/config-loader.js';
 import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
 
 /**
@@ -305,6 +306,19 @@ export function registerCleanCommand(program: Command): void {
       const progressPath = join(cleanDir, 'progress.txt');
       if (!existsSync(progressPath)) {
         writeFileSync(progressPath, `## Codebase Patterns\n\n---\n\n# Ralph Progress Log\nStarted: ${new Date().toISOString()}\n---\n`);
+      }
+
+      // Bootstrap project docs from internal docs when documentation axis is involved
+      const hasDocAxis = axis === 'all' || axis === 'documentation';
+      if (hasDocAxis) {
+        const config = loadConfig(projectRoot);
+        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const projectDocsDir = resolve(projectRoot, docsPath);
+        const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
+        if (!existsSync(projectDocsDir) && existsSync(internalDocsDir)) {
+          cpSync(internalDocsDir, projectDocsDir, { recursive: true });
+          console.log(chalk.green(`\u2713 Bootstrapped ${docsPath}/ from .anatoly/docs/`));
+        }
       }
 
       console.log(chalk.green(`\u2713 Clean artifacts generated in .anatoly/clean/${cleanName}/`));

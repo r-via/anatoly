@@ -5,10 +5,11 @@
 import type { Command } from 'commander';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { parseUncheckedActions, DISCOVERED_ACT_ID } from './clean.js';
+import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
 
 const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
 
@@ -116,10 +117,10 @@ function finalSync(projectRoot: string, reportFile: string): void {
 
 export function registerCleanRunCommand(program: Command): void {
   program
-    .command('clean-run <report-file>')
-    .description('Generate clean artifacts and run Ralph loop to remediate findings')
+    .command('clean-run <target>')
+    .description('Run Ralph loop to remediate findings (axis name, "all", or shard file path)')
     .option('-n, --iterations <n>', 'max Ralph iterations', '10')
-    .action((reportFile: string, opts: { iterations: string }) => {
+    .action(async (target: string, opts: { iterations: string }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -128,23 +129,37 @@ export function registerCleanRunCommand(program: Command): void {
         return;
       }
 
-      const absPath = resolve(projectRoot, reportFile);
       const maxIterations = parseInt(opts.iterations, 10) || 10;
 
-      if (!existsSync(absPath)) {
-        console.error(chalk.red(`File not found: ${reportFile}`));
-        process.exit(1);
+      // Resolve target: "all", axis name, or file path
+      const validNames = new Set<string>([...REPORT_AXIS_IDS, 'all']);
+      let cleanName: string;
+      let reportFile: string;
+
+      if (validNames.has(target)) {
+        // Named target — resolve clean dir directly
+        cleanName = target;
+        reportFile = target; // used for clean-sync calls
+      } else {
+        // File path target (legacy)
+        const absPath = resolve(projectRoot, target);
+        if (!existsSync(absPath)) {
+          console.error(chalk.red(`Unknown target: ${target}`));
+          console.error(`Valid targets: all, ${REPORT_AXIS_IDS.join(', ')}, or a shard file path`);
+          process.exit(1);
+        }
+        cleanName = basename(target, '.md');
+        reportFile = target;
       }
 
-      // Derive shard name and fix directory
-      const shardName = basename(reportFile, '.md');
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', shardName);
+      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', cleanName);
       const prdPath = join(cleanDir, 'prd.json');
       const claudeMdPath = join(cleanDir, 'CLAUDE.md');
+
       // Generate artifacts if not already present
       if (!existsSync(prdPath) || !existsSync(claudeMdPath)) {
         console.log(chalk.blue('Generating clean artifacts...'));
-        execSync(`npx anatoly clean ${reportFile}`, {
+        execSync(`npx anatoly clean ${target}`, {
           cwd: projectRoot,
           stdio: 'inherit',
         });
@@ -152,14 +167,8 @@ export function registerCleanRunCommand(program: Command): void {
 
       // Verify artifacts were created
       if (!existsSync(prdPath)) {
-        const content = readFileSync(absPath, 'utf-8');
-        const items = parseUncheckedActions(content);
-        if (items.length === 0) {
-          console.log(chalk.yellow('No unchecked actions found — nothing to clean.'));
-          return;
-        }
-        console.error(chalk.red('Clean artifacts not found after generation.'));
-        process.exit(1);
+        console.log(chalk.yellow('No unchecked actions found — nothing to clean.'));
+        return;
       }
 
       // --- Branch isolation: ensure we never run on main ---
@@ -225,22 +234,37 @@ export function registerCleanRunCommand(program: Command): void {
         // Read CLAUDE.md fresh each iteration (it doesn't change, but keep it clean)
         const claudeMd = readFileSync(claudeMdPath, 'utf-8');
 
-        // Spawn a fresh Claude Code instance — full tools, full context, no SDK constraints
-        const result = spawnSync('claude', ['--dangerously-skip-permissions', '--print'], {
-          input: claudeMd,
-          cwd: projectRoot,
-          stdio: ['pipe', 'pipe', 'inherit'],
-          timeout: 15 * 60 * 1000, // 15 min per iteration
+        // Spawn a fresh Claude Code instance — stream output in real-time
+        const { output, exitCode } = await new Promise<{ output: string; exitCode: number }>((res) => {
+          const chunks: Buffer[] = [];
+          const child = spawn('claude', ['--dangerously-skip-permissions', '--print'], {
+            cwd: projectRoot,
+            stdio: ['pipe', 'pipe', 'inherit'],
+          });
+
+          child.stdout!.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+            process.stdout.write(chunk);
+          });
+
+          child.on('close', (code) => {
+            res({ output: Buffer.concat(chunks).toString(), exitCode: code ?? 1 });
+          });
+
+          child.on('error', () => {
+            res({ output: Buffer.concat(chunks).toString(), exitCode: 1 });
+          });
+
+          // Feed prompt via stdin then close
+          child.stdin!.end(claudeMd);
+
+          // 15 min timeout
+          setTimeout(() => {
+            child.kill();
+          }, 15 * 60 * 1000);
         });
 
-        const output = result.stdout?.toString() ?? '';
-        const hasError = result.status !== 0;
-
-        // Print agent output
-        if (output) {
-          process.stdout.write(output);
-          process.stdout.write('\n');
-        }
+        const hasError = exitCode !== 0;
 
         // Sync completed fixes back to the report
         try {
@@ -325,7 +349,7 @@ export function registerCleanRunCommand(program: Command): void {
 
       console.log('');
       console.log(chalk.yellow(`Ralph reached max iterations (${maxIterations}).`));
-      console.log(chalk.yellow(`Check .anatoly/clean/${shardName}/progress.txt for status.`));
+      console.log(chalk.yellow(`Check .anatoly/clean/${cleanName}/progress.txt for status.`));
       finalSync(projectRoot, reportFile);
       process.exitCode = 1;
     });

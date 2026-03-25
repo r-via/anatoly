@@ -78,38 +78,46 @@ function printReportSummary(
   console.log(`Verdict: ${verdictColor(data.globalVerdict)}`);
   console.log('');
 
+  const cor = data.counts.correction;
   const dc = data.counts.dead;
   const dup = data.counts.duplicate;
   const ov = data.counts.overengineering;
-  const cor = data.counts.correction;
+  const tst = data.counts.tests;
+  const doc = data.counts.documentation;
+  const bp = data.counts.best_practices;
+
+  const totalCorr = cor.high + cor.medium + cor.low;
   const totalDead = dc.high + dc.medium + dc.low;
   const totalDup = dup.high + dup.medium + dup.low;
   const totalOver = ov.high + ov.medium + ov.low;
-  const totalCorr = cor.high + cor.medium + cor.low;
+  const totalTests = tst.high + tst.medium + tst.low;
+  const totalDocs = doc.high + doc.medium + doc.low;
+  const totalBp = bp.high + bp.medium + bp.low;
 
-  if (totalCorr > 0) console.log(`  Correction errors: ${totalCorr}  (high: ${cor.high}, medium: ${cor.medium}, low: ${cor.low})`);
-  if (totalDead > 0) console.log(`  Utility:           ${totalDead}  (high: ${dc.high}, medium: ${dc.medium}, low: ${dc.low})`);
-  if (totalDup > 0) console.log(`  Duplicates:        ${totalDup}  (high: ${dup.high}, medium: ${dup.medium}, low: ${dup.low})`);
-  if (totalOver > 0) console.log(`  Over-engineering:  ${totalOver}  (high: ${ov.high}, medium: ${ov.medium}, low: ${ov.low})`);
+  type Row = { label: string; total: number; detail: string };
+  const rows: Row[] = [];
+  const sev = (c: { high: number; medium: number; low: number }) =>
+    [c.high && `${c.high} high`, c.medium && `${c.medium} medium`, c.low && `${c.low} low`].filter(Boolean).join(', ');
 
-  // Tests summary (only count reliable symbols, consistent with other axes)
-  const allSymbols = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
-  const testsNone = allSymbols.filter((s) => s.tests === 'NONE').length;
-  const testsWeak = allSymbols.filter((s) => s.tests === 'WEAK').length;
-  if (testsNone + testsWeak > 0) console.log(`  Tests:             ${testsNone + testsWeak}  (${testsNone} untested, ${testsWeak} weak)`);
+  if (totalCorr > 0) rows.push({ label: 'Correction', total: totalCorr, detail: sev(cor) });
+  if (totalDead > 0) rows.push({ label: 'Dead code', total: totalDead, detail: sev(dc) });
+  if (totalDup > 0) rows.push({ label: 'Duplicates', total: totalDup, detail: sev(dup) });
+  if (totalOver > 0) rows.push({ label: 'Over-engineering', total: totalOver, detail: sev(ov) });
+  if (totalTests > 0) rows.push({ label: 'Tests', total: totalTests, detail: sev(tst) });
+  if (totalBp > 0) rows.push({ label: 'Best practices', total: totalBp, detail: sev(bp) });
+  if (totalDocs > 0) rows.push({ label: 'Documentation', total: totalDocs, detail: sev(doc) });
 
-  // Documentation summary
-  const docUndoc = allSymbols.filter((s) => s.exported && s.documentation === 'UNDOCUMENTED').length;
-  const docPartial = allSymbols.filter((s) => s.documentation === 'PARTIAL').length;
-  if (docUndoc + docPartial > 0) console.log(`  Documentation:     ${docUndoc + docPartial}  (${docUndoc} undocumented, ${docPartial} partial)`);
+  if (rows.length > 0) {
+    const maxLabel = Math.max(...rows.map((r) => r.label.length));
+    const maxTotal = Math.max(...rows.map((r) => String(r.total).length));
+    for (const r of rows) {
+      console.log(`  ${r.label.padEnd(maxLabel)}  ${String(r.total).padStart(maxTotal)}  (${r.detail})`);
+    }
+    console.log('');
+  }
 
-  // Best practices summary
-  const bpFails = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'FAIL').length ?? 0), 0);
-  const bpWarns = data.reviews.reduce((sum, r) => sum + (r.best_practices?.rules.filter((rule) => rule.status === 'WARN').length ?? 0), 0);
-  if (bpFails + bpWarns > 0) console.log(`  Best practices:    ${bpFails + bpWarns}  (${bpFails} fail, ${bpWarns} warn)`);
-
-  console.log(`  Findings:          ${data.findingFiles.length} files`);
-  console.log(`  Clean:             ${data.cleanFiles.length}`);
+  console.log(`  Findings:  ${data.findingFiles.length} files`);
+  console.log(`  Clean:     ${data.cleanFiles.length}`);
   if (data.errorFiles.length > 0) {
     console.log(`  Errors:            ${data.errorFiles.length}`);
   }
@@ -118,9 +126,11 @@ function printReportSummary(
   console.log(`Report: ${chalk.cyan(rel(reportPath))}`);
   if (axisReports.length > 0) {
     const reportDir = dirname(reportPath);
+    const maxAxis = Math.max(...axisReports.map((r) => r.axis.length));
     for (const report of axisReports) {
-      console.log(`  ${report.axis}  ${chalk.cyan(rel(join(reportDir, report.axis, 'index.md')))} (${report.files.length} files, ${report.shards.length} shards)`);
+      console.log(`  ${report.axis.padEnd(maxAxis)}  ${chalk.cyan(rel(join(reportDir, report.axis, 'index.md')))} (${report.files.length} files, ${report.shards.length} shards)`);
     }
   }
   console.log(`Details: ${chalk.cyan(rel(reviewsPath) + '/')}`);
+  console.log('');
 }

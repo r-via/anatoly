@@ -68,6 +68,8 @@ export interface AxisTiming {
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 export interface EvaluateFileResult {
@@ -307,6 +309,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     durationMs: r.durationMs,
     inputTokens: r.inputTokens,
     outputTokens: r.outputTokens,
+    cacheReadTokens: r.cacheReadTokens,
+    cacheCreationTokens: r.cacheCreationTokens,
   }));
 
   return {

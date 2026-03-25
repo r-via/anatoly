@@ -96,7 +96,7 @@ interface RunContext {
   /** Number of files where at least one axis evaluator crashed */
   degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */
-  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
+  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   /** Timeline of key events for run-metrics.json (phase + file level) */
   timeline: Array<{ t: number; event: string; [k: string]: unknown }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
@@ -1232,12 +1232,14 @@ async function runReviewPhase(
           ctx.degradedReviews++;
         }
         for (const at of result.axisTiming) {
-          const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+          const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0, totalCacheCreationTokens: 0 };
           s.calls++;
           s.totalDurationMs += at.durationMs;
           s.totalCostUsd += at.costUsd;
           s.totalInputTokens += at.inputTokens;
           s.totalOutputTokens += at.outputTokens;
+          s.totalCacheReadTokens += at.cacheReadTokens;
+          s.totalCacheCreationTokens += at.cacheCreationTokens;
         }
         const symbolCount = task.symbols?.length ?? 0;
         const reviewFields = {

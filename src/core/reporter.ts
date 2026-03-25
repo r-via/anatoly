@@ -22,7 +22,7 @@ export interface RunStats {
   runId: string;
   durationMs: number;
   costUsd: number;
-  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number }>;
+  axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   phaseDurations: Record<string, number>;
   degradedReviews: number;
 }
@@ -40,6 +40,9 @@ export interface ReportData {
     duplicate: { high: number; medium: number; low: number };
     overengineering: { high: number; medium: number; low: number };
     correction: { high: number; medium: number; low: number };
+    tests: { high: number; medium: number; low: number };
+    documentation: { high: number; medium: number; low: number };
+    best_practices: { high: number; medium: number; low: number };
   };
   actions: Array<Action & { file: string }>;
 }
@@ -159,7 +162,12 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
     duplicate: { high: 0, medium: 0, low: 0 },
     overengineering: { high: 0, medium: 0, low: 0 },
     correction: { high: 0, medium: 0, low: 0 },
+    tests: { high: 0, medium: 0, low: 0 },
+    documentation: { high: 0, medium: 0, low: 0 },
+    best_practices: { high: 0, medium: 0, low: 0 },
   };
+
+  const bpSevMap: Record<string, 'high' | 'medium' | 'low'> = { CRITICAL: 'high', HIGH: 'high', MEDIUM: 'medium' };
 
   const allActions: Array<Action & { file: string }> = [];
 
@@ -171,6 +179,13 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
       if (s.duplication === 'DUPLICATE') counts.duplicate[sev]++;
       if (s.overengineering === 'OVER') counts.overengineering[sev]++;
       if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') counts.correction[sev]++;
+      if (s.tests === 'WEAK' || s.tests === 'NONE') counts.tests[sev]++;
+      if (s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported)) counts.documentation[sev]++;
+    }
+    if (review.best_practices) {
+      for (const r of review.best_practices.rules) {
+        if (r.status === 'FAIL') counts.best_practices[bpSevMap[r.severity] ?? 'low']++;
+      }
     }
     for (const a of review.actions) {
       allActions.push({ ...a, file: review.file });
@@ -1081,18 +1096,27 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   const dup = data.counts.duplicate;
   const ov = data.counts.overengineering;
   const cor = data.counts.correction;
+  const tst = data.counts.tests;
+  const doc = data.counts.documentation;
+  const bp = data.counts.best_practices;
   const totalDead = dc.high + dc.medium + dc.low;
   const totalDup = dup.high + dup.medium + dup.low;
   const totalOver = ov.high + ov.medium + ov.low;
   const totalCorr = cor.high + cor.medium + cor.low;
+  const totalTests = tst.high + tst.medium + tst.low;
+  const totalDocs = doc.high + doc.medium + doc.low;
+  const totalBp = bp.high + bp.medium + bp.low;
 
-  if (totalDead + totalDup + totalOver + totalCorr > 0) {
+  if (totalDead + totalDup + totalOver + totalCorr + totalTests + totalDocs + totalBp > 0) {
     lines.push('| Category | High | Medium | Low | Total |');
     lines.push('|----------|------|--------|-----|-------|');
     if (totalCorr > 0) lines.push(`| Correction errors | ${cor.high} | ${cor.medium} | ${cor.low} | ${totalCorr} |`);
     if (totalDead > 0) lines.push(`| Utility | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
     if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
     if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
+    if (totalTests > 0) lines.push(`| Test coverage gaps | ${tst.high} | ${tst.medium} | ${tst.low} | ${totalTests} |`);
+    if (totalBp > 0) lines.push(`| Best practices | ${bp.high} | ${bp.medium} | ${bp.low} | ${totalBp} |`);
+    if (totalDocs > 0) lines.push(`| Documentation gaps | ${doc.high} | ${doc.medium} | ${doc.low} | ${totalDocs} |`);
     lines.push('');
   }
 
@@ -1193,8 +1217,9 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
       lines.push('| Axis | Calls | Duration | Cost | Tokens (in/out) |');
       lines.push('|------|-------|----------|------|-----------------|');
       for (const [axisKey, s] of axes) {
-        const dur = (s.totalDurationMs / 1000).toFixed(1);
-        lines.push(`| ${axisKey} | ${s.calls} | ${dur}s | $${s.totalCostUsd.toFixed(2)} | ${s.totalInputTokens} / ${s.totalOutputTokens} |`);
+        const dur = (s.totalDurationMs / 60000).toFixed(1);
+        const totalIn = s.totalInputTokens + (s.totalCacheReadTokens ?? 0) + (s.totalCacheCreationTokens ?? 0);
+        lines.push(`| ${axisKey} | ${s.calls} | ${dur}m | $${s.totalCostUsd.toFixed(2)} | ${totalIn} / ${s.totalOutputTokens} |`);
       }
       lines.push('');
     }
