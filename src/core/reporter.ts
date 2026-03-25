@@ -1400,7 +1400,7 @@ function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number;
  * Build an ASCII health bar: `████████░░` (10 chars wide).
  */
 function healthBar(pct: number): string {
-  const filled = Math.round(pct / 10);
+  const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
   return '█'.repeat(filled) + '░'.repeat(10 - filled);
 }
 
@@ -1411,8 +1411,9 @@ function healthBar(pct: number): string {
 function extractCorrectionDetail(detail: string, correction: string): string {
   // Try to find the tagged section: [ERROR] ... or [NEEDS_FIX] ...
   const tag = correction === 'ERROR' ? 'ERROR' : 'NEEDS_FIX';
+  const singleLineDetail = detail.replace(/\n/g, ' ');
   const regex = new RegExp(`\\[${tag}\\]\\s*(.+?)(?:\\s*\\||$)`);
-  const match = detail.match(regex);
+  const match = singleLineDetail.match(regex);
   if (match) return match[1].trim();
 
   // Fallback: take first sentence, stripping leading axis tags

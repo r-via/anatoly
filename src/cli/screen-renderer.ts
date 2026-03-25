@@ -221,8 +221,8 @@ export class ScreenRenderer {
 
   private getMaxPathWidth(files: FileState[]): number {
     const columns = process.stdout.columns || 100;
-    // Reserve space for: indent(2) + icon(2) + gap(4) + axes counter(~16) + padding(2)
-    const maxAllowed = Math.max(20, columns - 26);
+    // Reserve space for: indent(2) + icon(2) + gap(4) + axes counter(~18) + retry msg(~12) + padding(2)
+    const maxAllowed = Math.max(20, columns - 40);
     const maxNatural = files.length > 0
       ? Math.max(...files.map((f) => f.path.length))
       : 30;
