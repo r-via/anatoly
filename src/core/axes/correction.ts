@@ -112,6 +112,10 @@ const STOP_WORDS = new Set([
 
 /**
  * Extract search keywords from correction findings for README section targeting.
+ * Tokenizes detail text from NEEDS_FIX/ERROR symbols, filters stop words and short tokens,
+ * and returns a deduplicated keyword list.
+ * @param findings - The correction LLM response containing per-symbol results.
+ * @returns Unique lowercase keywords (>3 chars, stop words excluded) for README search.
  */
 export function extractVerificationKeywords(
   findings: CorrectionResponse,
