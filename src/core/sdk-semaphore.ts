@@ -15,6 +15,12 @@ export class Semaphore {
   private readonly _capacity: number;
   private readonly _queue: Array<() => void> = [];
 
+  /**
+   * @param capacity Maximum number of concurrent slots (1–32). The upper bound
+   *   of 32 prevents accidental API flooding; the lower bound ensures at least
+   *   one slot is always available.
+   * @throws {RangeError} If capacity is outside the 1–32 range.
+   */
   constructor(capacity: number) {
     if (capacity < 1 || capacity > 32) {
       throw new RangeError(`Semaphore capacity must be 1-32, got ${capacity}`);
@@ -38,6 +44,12 @@ export class Semaphore {
     return this._queue.length;
   }
 
+  /**
+   * Acquires a concurrency slot. Resolves immediately if a slot is available;
+   * otherwise the returned promise blocks until a slot is freed via {@link release},
+   * with waiters served in FIFO order.
+   * @returns A promise that resolves once the caller holds a slot.
+   */
   acquire(): Promise<void> {
     if (this._running < this._capacity) {
       this._running++;
@@ -48,6 +60,11 @@ export class Semaphore {
     });
   }
 
+  /**
+   * Releases a concurrency slot. If waiters are queued, the slot is handed
+   * directly to the next waiter (FIFO) without decrementing the running count.
+   * If no waiters exist, the running count is decremented to free the slot.
+   */
   release(): void {
     if (this._queue.length > 0) {
       // Hand slot directly to next waiter (FIFO)
