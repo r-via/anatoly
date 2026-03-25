@@ -444,6 +444,7 @@ function strategy3_conceptualPages(
 // Main entry point
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Runs the V2 documentation gap detection pipeline, producing a {@link GapReportV2} with domain, reference, and concept coverage. */
 export async function detectDocGapsV2(
   vectorStore: VectorStore,
   options?: GapDetectionV2Options,
@@ -523,6 +524,7 @@ export async function detectDocGapsV2(
 // Formatting for CLI display
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Formats a {@link GapReportV2} into a human-readable CLI summary with coverage stats and action items. */
 export function formatGapReportV2(report: GapReportV2): string {
   const lines: string[] = [
     `Documentation Health Report for ${report.target}`,
