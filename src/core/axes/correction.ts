@@ -188,7 +188,8 @@ function buildVerificationUserMessage(
 }
 
 /**
- * Detect which findings might be dependency-related and need verification.
+ * Returns true when pass-2 verification should run: requires both file-level
+ * dependency info and at least one NEEDS_FIX or ERROR symbol in the findings.
  */
 function findingsNeedVerification(
   findings: CorrectionResponse,
