@@ -314,7 +314,7 @@ function recomputeVerdict(
       s.duplication === 'DUPLICATE' ||
       s.overengineering === 'OVER' ||
       s.tests === 'WEAK' || s.tests === 'NONE' ||
-      s.documentation === 'UNDOCUMENTED'
+      s.documentation === 'UNDOCUMENTED' || s.documentation === 'PARTIAL'
     ) {
       hasFinding = true;
     }

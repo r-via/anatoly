@@ -120,7 +120,7 @@ function printReportSummary(
   console.log(`  Findings:  ${data.findingFiles.length} files`);
   console.log(`  Clean:     ${data.cleanFiles.length}`);
   if (data.errorFiles.length > 0) {
-    console.log(`  Errors:            ${data.errorFiles.length}`);
+    console.log(`  Errors:    ${data.errorFiles.length}`);
   }
   console.log('');
   const rel = (p: string) => relative(process.cwd(), p) || '.';

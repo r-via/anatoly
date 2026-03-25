@@ -3,17 +3,65 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
-import { parseUncheckedActions, DISCOVERED_ACT_ID } from './clean.js';
-import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
-
-const COMPLETION_SIGNAL = '<promise>COMPLETE</promise>';
+import { DISCOVERED_ACT_ID } from './clean.js';
+import { REPORT_AXIS_IDS } from '../core/reporter.js';
 
 const SHA_RE = /^[a-f0-9]{40}$/;
+
+const AXIS_RE = /Source axis: (.+)/;
+const FILE_RE = /in `([^`]+)`/;
+
+/** A story from prd.json with at minimum these fields. */
+export interface PrdStory {
+  id: string;
+  actId: string;
+  passes: boolean;
+  notes?: string;
+  description?: string;
+  [k: string]: unknown;
+}
+
+/** A batch of stories grouped by (axis, file). */
+export interface StoryBatch {
+  axis: string;
+  file: string;
+  stories: PrdStory[];
+}
+
+/**
+ * Groups stories by (source axis, target file) for batched processing.
+ * Returns batches sorted by the lowest priority within each batch.
+ */
+export function groupStoriesByAxisFile(stories: PrdStory[]): StoryBatch[] {
+  const map = new Map<string, { axis: string; file: string; stories: PrdStory[] }>();
+
+  for (const story of stories) {
+    const axisMatch = story.notes?.match(AXIS_RE);
+    const axis = axisMatch ? axisMatch[1] : '';
+    const fileMatch = story.description?.match(FILE_RE);
+    const file = fileMatch ? fileMatch[1] : '';
+    const key = `${axis}\0${file}`;
+
+    let batch = map.get(key);
+    if (!batch) {
+      batch = { axis, file, stories: [] };
+      map.set(key, batch);
+    }
+    batch.stories.push(story);
+  }
+
+  // Sort batches by lowest priority in each batch
+  return Array.from(map.values()).sort((a, b) => {
+    const minA = Math.min(...a.stories.map((s) => (s as { priority?: number }).priority ?? Infinity));
+    const minB = Math.min(...b.stories.map((s) => (s as { priority?: number }).priority ?? Infinity));
+    return minA - minB;
+  });
+}
 
 /** Circuit breaker state for the TypeScript clean-run loop. */
 export interface CircuitBreakerState {
@@ -137,7 +185,8 @@ export function registerCleanRunCommand(program: Command): void {
     .command('run <target>')
     .description('Run Ralph loop to remediate findings (axis name, "all", or shard file path)')
     .option('-n, --iterations <n>', 'max Ralph iterations', '50')
-    .action(async (target: string, opts: { iterations: string }) => {
+    .option('-m, --model <model>', 'Claude model to use (e.g. claude-opus-4-6, claude-sonnet-4-6)')
+    .action(async (target: string, opts: { iterations: string; model?: string }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -242,9 +291,48 @@ export function registerCleanRunCommand(program: Command): void {
           return;
         }
 
+        // --- Extract next batch from master PRD ---
+        let masterPrd: { userStories: PrdStory[] };
+        try {
+          masterPrd = JSON.parse(readFileSync(prdPath, 'utf-8'));
+        } catch {
+          console.error(chalk.red('Failed to parse prd.json — aborting.'));
+          process.exitCode = 1;
+          return;
+        }
+
+        const originalStories = masterPrd.userStories.filter(
+          (s) => s.actId !== DISCOVERED_ACT_ID,
+        );
+        const totalRemaining = originalStories.filter((s) => !s.passes).length;
+        if (totalRemaining === 0) {
+          console.log('');
+          console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
+          finalSync(projectRoot, reportFile);
+          return;
+        }
+
+        const batches = groupStoriesByAxisFile(originalStories);
+        const nextBatch = batches.find((b) => b.stories.some((s) => !s.passes));
+        if (!nextBatch) {
+          console.log('');
+          console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
+          finalSync(projectRoot, reportFile);
+          return;
+        }
+        const pendingStories = nextBatch.stories.filter((s) => !s.passes);
+        const firstId = pendingStories[0].id;
+        const lastId = pendingStories[pendingStories.length - 1].id;
+        const batchLabel = pendingStories.length === 1 ? firstId : `${firstId}..${lastId}`;
+
         console.log('===============================================================');
-        console.log(`  Ralph Iteration ${i} of ${maxIterations}`);
+        console.log(`  Ralph Iteration ${i} of ${maxIterations} — [${nextBatch.axis}, ${nextBatch.file}]`);
+        console.log(`  ${pendingStories.length} stories in batch (${batchLabel}) · ${totalRemaining} remaining total`);
         console.log('===============================================================');
+
+        // Write batch file for the agent
+        const batchPath = join(cleanDir, 'current-batch.json');
+        writeFileSync(batchPath, JSON.stringify(pendingStories, null, 2));
 
         const preSha = getGitSha(projectRoot);
 
@@ -252,36 +340,53 @@ export function registerCleanRunCommand(program: Command): void {
         const claudeMd = readFileSync(claudeMdPath, 'utf-8');
 
         // Spawn a fresh Claude Code instance — stream output in real-time
-        const { output, exitCode } = await new Promise<{ output: string; exitCode: number }>((res) => {
-          const chunks: Buffer[] = [];
-          const child = spawn('claude', ['--dangerously-skip-permissions', '--print'], {
+        const { exitCode } = await new Promise<{ exitCode: number }>((res) => {
+          const args = ['--dangerously-skip-permissions', '--print'];
+          if (opts.model) args.push('--model', opts.model);
+          const child = spawn('claude', args, {
             cwd: projectRoot,
             stdio: ['pipe', 'pipe', 'inherit'],
           });
 
           child.stdout!.on('data', (chunk: Buffer) => {
-            chunks.push(chunk);
             process.stdout.write(chunk);
           });
 
           child.on('close', (code) => {
-            res({ output: Buffer.concat(chunks).toString(), exitCode: code ?? 1 });
+            clearTimeout(timer);
+            res({ exitCode: code ?? 1 });
           });
 
           child.on('error', () => {
-            res({ output: Buffer.concat(chunks).toString(), exitCode: 1 });
+            clearTimeout(timer);
+            res({ exitCode: 1 });
           });
 
           // Feed prompt via stdin then close
           child.stdin!.end(claudeMd);
 
-          // 15 min timeout
-          setTimeout(() => {
+          // Timeout scales with batch size: 15 min base + 5 min per story
+          const timeoutMs = (15 + pendingStories.length * 5) * 60 * 1000;
+          const timer = setTimeout(() => {
             child.kill();
-          }, 15 * 60 * 1000);
+          }, timeoutMs);
         });
 
         const hasError = exitCode !== 0;
+
+        // Sync current-batch.json results back to master PRD
+        try {
+          const updatedBatch: PrdStory[] = JSON.parse(readFileSync(batchPath, 'utf-8'));
+          for (const updatedStory of updatedBatch) {
+            const idx = masterPrd.userStories.findIndex((s) => s.id === updatedStory.id);
+            if (idx !== -1) {
+              masterPrd.userStories[idx] = updatedStory;
+            }
+          }
+          writeFileSync(prdPath, JSON.stringify(masterPrd, null, 2));
+        } catch {
+          // Non-fatal — PRD sync failed, stories stay as-is
+        }
 
         // Sync completed fixes back to the report
         try {
@@ -291,31 +396,6 @@ export function registerCleanRunCommand(program: Command): void {
           });
         } catch {
           // Non-fatal
-        }
-
-        // Check for completion signal
-        if (output.includes(COMPLETION_SIGNAL)) {
-          console.log('');
-          console.log(chalk.green(`All clean tasks complete! Finished at iteration ${i}.`));
-          finalSync(projectRoot, reportFile);
-          return;
-        }
-
-        // Check if all original stories pass in prd.json (discovered stories don't block completion)
-        try {
-          const currentPrd = JSON.parse(readFileSync(prdPath, 'utf-8'));
-          const originalStories = currentPrd.userStories?.filter(
-            (s: { actId: string }) => s.actId !== DISCOVERED_ACT_ID,
-          );
-          const allDone = originalStories?.length > 0 && originalStories.every((s: { passes: boolean }) => s.passes);
-          if (allDone) {
-            console.log('');
-            console.log(chalk.green(`All stories marked as passing. Finished at iteration ${i}.`));
-            finalSync(projectRoot, reportFile);
-            return;
-          }
-        } catch {
-          // Continue if prd.json can't be parsed
         }
 
         // --- Circuit breaker evaluation ---

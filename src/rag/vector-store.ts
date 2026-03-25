@@ -540,10 +540,13 @@ export class VectorStore {
   /**
    * Delete all cards for a given file path.
    */
-  async deleteByFile(filePath: string): Promise<void> {
+  async deleteByFile(filePath: string, type?: 'function_card' | 'doc_section'): Promise<void> {
     if (!this.table) return;
     try {
-      await this.table.delete(`filePath = '${sanitizeFilePath(filePath)}'`);
+      const filter = type
+        ? `filePath = '${sanitizeFilePath(filePath)}' AND type = '${type}'`
+        : `filePath = '${sanitizeFilePath(filePath)}'`;
+      await this.table.delete(filter);
     } catch {
       // File might not have any cards — that's fine
     }

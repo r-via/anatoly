@@ -317,12 +317,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // NLP warmup is deferred to the batch NLP phase to avoid a container swap here.
   await embedCode('function warmup() {}');
 
-  // Garbage-collect stale entries: remove cards for files no longer in the project
+  // Garbage-collect stale function card entries (not doc_sections) for files no longer in the project
   const currentFiles = new Set(tasks.map((t) => t.file));
   const indexedFiles = await store.listIndexedFiles();
   for (const orphan of indexedFiles) {
     if (!currentFiles.has(orphan)) {
-      await store.deleteByFile(orphan);
+      await store.deleteByFile(orphan, 'function_card');
       onLog(`gc: removed stale cards for ${orphan}`);
     }
   }

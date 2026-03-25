@@ -8,8 +8,17 @@ import type { PipelineState, FileState } from './pipeline-state.js';
 
 const SPINNER = ['\u280b', '\u2819', '\u2839', '\u2838', '\u283c', '\u2834', '\u2826', '\u2827', '\u2807', '\u280f'];
 const FLASH_DURATION_MS = 2000;
-const TASK_WIDTH = 70;
-const SEPARATOR = '\u2500'.repeat(TASK_WIDTH);
+const MIN_TASK_WIDTH = 60;
+
+function taskWidth(): number {
+  const cols = process.stdout.columns || 80;
+  // Leave 4 chars margin (2 indent + 2 safety); clamp between min and columns
+  return Math.max(MIN_TASK_WIDTH, Math.min(cols - 4, cols));
+}
+
+function separator(): string {
+  return '\u2500'.repeat(taskWidth());
+}
 
 /**
  * Terminal UI renderer for the Anatoly pipeline.
@@ -30,6 +39,7 @@ export class ScreenRenderer {
   private bannerLines: string[] = [];
   private stopped = false;
   private lastLineCount = 0;
+  private sigHandler: (() => void) | null = null;
 
   constructor(
     private state: PipelineState,
@@ -44,6 +54,11 @@ export class ScreenRenderer {
     process.stdout.write('\x1b[2J\x1b[H\x1b[?25l');
     this.bannerLines = this.renderBanner();
     process.stdout.write(this.bannerLines.join('\n') + '\n');
+
+    // Restore cursor on unexpected exit (Ctrl+C, kill, crash)
+    this.sigHandler = () => { process.stdout.write('\x1b[?25h'); process.exit(130); };
+    process.on('SIGINT', this.sigHandler);
+    process.on('SIGTERM', this.sigHandler);
 
     this.interval = setInterval(() => this.render(), 100);
   }
@@ -60,6 +75,12 @@ export class ScreenRenderer {
     if (!this.opts.plain) {
       this.render();
       process.stdout.write('\x1b[?25h');
+    }
+    // Clean up signal handlers
+    if (this.sigHandler) {
+      process.removeListener('SIGINT', this.sigHandler);
+      process.removeListener('SIGTERM', this.sigHandler);
+      this.sigHandler = null;
     }
   }
 
@@ -96,7 +117,7 @@ export class ScreenRenderer {
 
     // Zone 2 — Task list
     lines.push(this.renderTasksHeader());
-    lines.push(`  ${SEPARATOR}`);
+    lines.push(`  ${separator()}`);
     for (const task of this.state.tasks) {
       if (!task.visible) continue;
       lines.push(this.renderTask(task));
@@ -106,7 +127,7 @@ export class ScreenRenderer {
     // Zone 3 — Current files or Summary
     if (this.state.phase === 'summary' && this.state.summary) {
       lines.push(`  ${this.state.summary.headline}`);
-      lines.push(`  ${SEPARATOR}`);
+      lines.push(`  ${separator()}`);
       for (const p of this.state.summary.paths) {
         lines.push(`  ${p.key.padEnd(13)}${p.value}`);
       }
@@ -114,7 +135,7 @@ export class ScreenRenderer {
       lines.push(`  ${this.state.summary.cost}`);
     } else {
       lines.push(this.renderCurrentFilesHeader());
-      lines.push(`  ${SEPARATOR}`);
+      lines.push(`  ${separator()}`);
       const files = [...this.state.activeFiles.values()];
       if (files.length === 0) {
         // No files in flight — don't show anything extra
@@ -142,7 +163,7 @@ export class ScreenRenderer {
   private renderTask(task: { status: string; label: string; detail: string }): string {
     const frame = SPINNER[this.spinFrame % SPINNER.length];
     // icon(1) + space(1) = 2 chars before content
-    const innerWidth = TASK_WIDTH - 2;
+    const innerWidth = taskWidth() - 2;
     const gap = Math.max(1, innerWidth - task.label.length - task.detail.length);
     const content = task.label + ' '.repeat(gap) + task.detail;
     switch (task.status) {

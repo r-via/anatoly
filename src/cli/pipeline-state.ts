@@ -117,7 +117,7 @@ export class PipelineState {
   }
 
   /** Remove files whose flash-vert has expired (called by renderer) */
-  reapDoneFiles(flashDurationMs = 200): void {
+  reapDoneFiles(flashDurationMs = 2000): void {
     const now = Date.now();
     for (const [key, file] of this.activeFiles) {
       if (file.doneAt && now - file.doneAt >= flashDurationMs) {

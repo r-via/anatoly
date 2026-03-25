@@ -1252,7 +1252,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
       lines.push('|------|-------|----------|------|-----------------|');
       for (const [axisKey, s] of axes) {
         const dur = (s.totalDurationMs / 60000).toFixed(1);
-        const totalIn = s.totalInputTokens + (s.totalCacheReadTokens ?? 0) + (s.totalCacheCreationTokens ?? 0);
+        const totalIn = s.totalInputTokens;
         lines.push(`| ${axisKey} | ${s.calls} | ${dur}m | $${s.totalCostUsd.toFixed(2)} | ${totalIn} / ${s.totalOutputTokens} |`);
       }
       lines.push('');
