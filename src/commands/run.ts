@@ -52,7 +52,7 @@ import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
-import { needsBootstrap, shouldSkipDoublePass } from '../core/doc-bootstrap.js';
+import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 interface RunContext {
@@ -115,10 +115,6 @@ interface RunContext {
   renderer?: ScreenRenderer;
   /** Whether this is a first run requiring bootstrap doc phase */
   isFirstRun: boolean;
-  /** Number of pages that failed during bootstrap LLM generation */
-  bootstrapPagesFailed: number;
-  /** Total pages attempted during bootstrap */
-  bootstrapTotalPages: number;
   /** Unified project profile — set during setup, used by doc pipeline */
   profile?: ProjectProfile;
   /** Doc pipeline result — set after doc scaffold + generation phases */
@@ -248,8 +244,6 @@ export function registerRunCommand(program: Command): void {
         },
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
         isFirstRun: false,
-        bootstrapPagesFailed: 0,
-        bootstrapTotalPages: 0,
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -326,10 +320,7 @@ export function registerRunCommand(program: Command): void {
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
         pipelineState.addTask('review', 'Reviewing files');
-        pipelineState.addTask('internal-docs', 'Internal docs');
-        if (ctx.isFirstRun) {
-          pipelineState.addTask('review-2', 'Reviewing files (pass 2)');
-        }
+        pipelineState.addTask('internal-docs', 'Updating internal docs');
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -368,37 +359,6 @@ export function registerRunCommand(program: Command): void {
           await runWithContext({ phase: 'internal-docs' }, async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
-        }
-
-        // --- Phase: review pass 2 (first run only) — Story 29.21 ---
-        if (ctx.isFirstRun && !ctx.interrupted && !shouldSkipDoublePass(ctx.bootstrapPagesFailed, ctx.bootstrapTotalPages)) {
-          await runWithContext({ phase: 'review-2' }, async () => {
-            // Reset progress for pass 2: mark all DONE files as PENDING
-            const resetPm = new ProgressManager(ctx.projectRoot);
-            for (const [, fp] of Object.entries(resetPm.getProgress().files)) {
-              if (fp.status === 'DONE') resetPm.updateFileStatus(fp.file, 'PENDING');
-            }
-            await resetPm.flush();
-
-            // Reset file-level counters (costs accumulate)
-            ctx.filesReviewed = 0;
-            ctx.totalFindings = 0;
-            ctx.reviewCounts = { skipped: 0, evaluated: 0 };
-            ctx.degradedReviews = 0;
-            ctx.errorCount = 0;
-            ctx.errorsByCode = {};
-            ctx.axisStats = {};
-
-            // Rebuild internal docs tree with updated content
-            const freshInternalDocsTree = buildDocsTree(ctx.projectRoot, join('.anatoly', 'docs'));
-
-            await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, freshInternalDocsTree, setup.internalDocsDir);
-          });
-        } else if (ctx.isFirstRun && !ctx.interrupted) {
-          // Skip pass 2 due to high bootstrap failure rate
-          const state = ctx.pipelineState!;
-          state.completeTask('review-2', 'skipped (bootstrap incomplete)');
-          getLogger().warn({ failed: ctx.bootstrapPagesFailed, total: ctx.bootstrapTotalPages }, 'doc bootstrap incomplete — skipping double pass');
         }
 
         if (ctx.interrupted) {
@@ -773,11 +733,6 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       : `${result.pagesWritten}/${total} pages updated`;
     ctx.pipelineState?.completeTask(taskId, detail);
 
-    // Track bootstrap stats for double-pass decision (Story 29.21)
-    if (taskId === 'bootstrap-doc') {
-      ctx.bootstrapPagesFailed = result.pagesFailed;
-      ctx.bootstrapTotalPages = genResult.prompts.length;
-    }
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
