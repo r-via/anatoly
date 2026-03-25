@@ -71,15 +71,15 @@ describe('buildDocumentationUserMessage', () => {
     expect(msg).not.toMatch(/export\s+function\s+helperFn/);
   });
 
-  it('should show "evaluate JSDoc only" when no docsTree', () => {
+  it('should show "evaluate inline documentation only" when no docsTree', () => {
     const msg = buildDocumentationUserMessage(createCtx({ docsTree: null }));
-    expect(msg).toContain('evaluate JSDoc only');
+    expect(msg).toContain('evaluate inline documentation only');
     expect(msg).not.toContain('Relevant Documentation Pages');
   });
 
-  it('should show "evaluate JSDoc only" when docsTree is undefined', () => {
+  it('should show "evaluate inline documentation only" when docsTree is undefined', () => {
     const msg = buildDocumentationUserMessage(createCtx({ docsTree: undefined }));
-    expect(msg).toContain('evaluate JSDoc only');
+    expect(msg).toContain('evaluate inline documentation only');
   });
 
   it('should include docsTree when provided', () => {

@@ -8,6 +8,19 @@ import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
 import { contextLogger } from '../utils/log-context.js';
 
 // ---------------------------------------------------------------------------
+// Language-aware doc comment terminology
+// ---------------------------------------------------------------------------
+
+function docActionTerm(language?: string): string {
+  switch (language) {
+    case 'rust': return 'doc comment';
+    case 'python': return 'docstring';
+    case 'go': return 'Go doc comment';
+    default: return 'JSDoc';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -70,7 +83,7 @@ export function mergeAxisResults(
 
   // Collect LLM-generated actions, then synthesize from findings
   const llmActions = mergeActions(results);
-  const synthesized = synthesizeActionsFromSymbols(symbols);
+  const synthesized = synthesizeActionsFromSymbols(symbols, task.language);
   // Dedup: LLM actions take priority over synthesized for same target symbol
   const existingTargets = new Set(llmActions.map((a) => a.target_symbol).filter(Boolean));
   const uniqueSynthesized = synthesized.filter((a) => !existingTargets.has(a.target_symbol));
@@ -255,7 +268,7 @@ function mergeActions(results: AxisResult[]): Action[] {
  * @returns An array of synthesized actions (with placeholder id=0, to be
  *   reassigned by the caller).
  */
-function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
+function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string): Action[] {
   const actions: Action[] = [];
 
   for (const sym of symbols) {
@@ -318,9 +331,10 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
     }
 
     if (sym.documentation === 'UNDOCUMENTED' && sym.exported) {
+      const term = docActionTerm(language);
       actions.push({
         id: 0,
-        description: `Add JSDoc documentation for exported symbol: \`${sym.name}\``,
+        description: `Add ${term} documentation for exported symbol: \`${sym.name}\``,
         severity: 'medium',
         effort: 'trivial',
         category: 'hygiene',
@@ -331,9 +345,10 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[]): Action[] {
     }
 
     if (sym.documentation === 'PARTIAL') {
+      const term = docActionTerm(language);
       actions.push({
         id: 0,
-        description: `Complete JSDoc documentation for: \`${sym.name}\``,
+        description: `Complete ${term} documentation for: \`${sym.name}\``,
         severity: 'low',
         effort: 'trivial',
         category: 'hygiene',

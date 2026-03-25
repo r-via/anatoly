@@ -622,9 +622,8 @@ describe('renderAxisIndex', () => {
     const bpReport = reports.find((r) => r.axis === 'best-practices')!;
     const md = renderAxisIndex(bpReport);
     expect(md).toContain('# Best Practices');
-    expect(md).toContain('17 TypeGuard v2 rules');
-    expect(md).toContain('Rule');
-    expect(md).toContain('Penalty');
+    expect(md).toContain('best-practice rules');
+    expect(md).toContain('10/10');
   });
 });
 

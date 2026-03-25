@@ -436,10 +436,57 @@ export function buildAxisReports(data: ReportData): AxisReport[] {
 }
 
 // ---------------------------------------------------------------------------
+// Language-aware terminology
+// ---------------------------------------------------------------------------
+
+/** Map language to its doc comment convention name. */
+function docCommentTerm(language?: string): string {
+  switch (language) {
+    case 'rust': return '`///` doc comment';
+    case 'python': return 'docstring';
+    case 'go': return 'Go doc comment';
+    case 'java': case 'csharp': return 'Javadoc/XML doc comment';
+    default: return 'JSDoc';
+  }
+}
+
+/** Map language to its best-practices label. */
+function bestPracticesLabel(language?: string): string {
+  switch (language) {
+    case 'rust': return 'Rust';
+    case 'python': return 'Python';
+    case 'go': return 'Go';
+    case 'java': return 'Java';
+    case 'csharp': return 'C#';
+    case 'bash': return 'Shell';
+    default: return 'TypeScript';
+  }
+}
+
+/** Derive the primary language from reviews (most common non-undefined language). */
+function derivePrimaryLanguage(reviews: ReviewFile[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const r of reviews) {
+    if (r.language) {
+      counts.set(r.language, (counts.get(r.language) ?? 0) + 1);
+    }
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [lang, count] of counts) {
+    if (count > bestCount) {
+      best = lang;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
 // Axis methodology — one per axis
 // ---------------------------------------------------------------------------
 
-function renderAxisMethodology(axis: ReportAxisId): string[] {
+function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] {
   const lines: string[] = [];
   lines.push('---');
   lines.push('');
@@ -498,39 +545,25 @@ function renderAxisMethodology(axis: ReportAxisId): string[] {
       lines.push('- **NONE**: No test file or test cases found for this symbol. Types/interfaces with no runtime behavior default to GOOD.');
       break;
 
-    case 'documentation':
-      lines.push('Evaluates JSDoc coverage on exported symbols and optional /docs/ concept coverage.');
+    case 'documentation': {
+      const docTerm = docCommentTerm(language);
+      lines.push(`Evaluates ${docTerm} coverage on exported symbols and optional /docs/ concept coverage.`);
       lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
-      lines.push('- **DOCUMENTED**: Symbol has a complete JSDoc comment covering description, params, and return type.');
-      lines.push('- **PARTIAL**: JSDoc exists but is incomplete (missing params, outdated description, or lacking return type).');
-      lines.push('- **UNDOCUMENTED**: No JSDoc documentation found for an exported symbol. Types and interfaces default to DOCUMENTED.');
+      lines.push(`- **DOCUMENTED**: Symbol has a complete ${docTerm} covering description, params, and return type.`);
+      lines.push(`- **PARTIAL**: ${docTerm} exists but is incomplete (missing params, outdated description, or lacking return type).`);
+      lines.push(`- **UNDOCUMENTED**: No ${docTerm} found for an exported symbol. Types and interfaces default to DOCUMENTED.`);
       break;
+    }
 
-    case 'best-practices':
-      lines.push('File-level evaluation against 17 TypeGuard v2 rules. Starts at 10/10, penalties subtracted per violation:');
+    case 'best-practices': {
+      const bpLabel = bestPracticesLabel(language);
+      lines.push(`File-level evaluation against language-specific ${bpLabel} best-practice rules. Starts at 10/10, penalties subtracted per violation.`);
       lines.push('');
-      lines.push('| # | Rule | Severity | Penalty |');
-      lines.push('|---|------|----------|---------|');
-      lines.push('| 1 | Strict mode (tsconfig strict: true) | HIGH | -1 pt |');
-      lines.push('| 2 | No `any` (explicit or implicit) | CRITICAL | -3 pts |');
-      lines.push('| 3 | Discriminated unions over type assertions | MEDIUM | -0.5 pt |');
-      lines.push('| 4 | Utility types (Pick, Omit, Partial, Record) | MEDIUM | -0.5 pt |');
-      lines.push('| 5 | Immutability (readonly, as const) | MEDIUM | -0.5 pt |');
-      lines.push('| 6 | Interface vs Type consistency | MEDIUM | -0.5 pt |');
-      lines.push('| 7 | File size < 300 lines | HIGH | -1 pt |');
-      lines.push('| 8 | ESLint compliance | HIGH | -1 pt |');
-      lines.push('| 9 | JSDoc on public exports | MEDIUM | -0.5 pt |');
-      lines.push('| 10 | Modern 2026 practices | MEDIUM | -0.5 pt |');
-      lines.push('| 11 | Import organization | MEDIUM | -0.5 pt |');
-      lines.push('| 12 | Async/Promises/Error handling | HIGH | -1 pt |');
-      lines.push('| 13 | Security (no secrets, eval, injection) | CRITICAL | -4 pts |');
-      lines.push('| 14 | Performance (no N+1, sync I/O) | MEDIUM | -0.5 pt |');
-      lines.push('| 15 | Testability (DI, low coupling) | MEDIUM | -0.5 pt |');
-      lines.push('| 16 | TypeScript 5.5+ features | MEDIUM | -0.5 pt |');
-      lines.push('| 17 | Context-adapted rules | MEDIUM | -0.5 pt |');
+      lines.push('See the language-specific best-practices prompt for the full rule set.');
       break;
+    }
   }
 
   lines.push('');
@@ -576,7 +609,7 @@ export function renderAxisIndex(report: AxisReport): string {
   lines.push(...renderAxisVerdictDistribution(report));
 
   // Methodology
-  lines.push(...renderAxisMethodology(report.axis));
+  lines.push(...renderAxisMethodology(report.axis, derivePrimaryLanguage(report.files)));
 
   lines.push(`*Generated: ${new Date().toISOString()}*`);
   lines.push('');
@@ -1278,8 +1311,11 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   lines.push('| Correction | sonnet | OK / NEEDS_FIX / ERROR | Does this symbol contain bugs or correctness issues? |');
   lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE | Is the implementation unnecessarily complex? |');
   lines.push('| Tests | haiku | GOOD / WEAK / NONE | Does this symbol have adequate test coverage? |');
-  lines.push('| Best Practices | sonnet | Score 0–10 (17 rules) | Does the file follow TypeScript best practices? |');
-  lines.push('| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with JSDoc? |');
+  const lang = derivePrimaryLanguage(data.reviews);
+  const bpLabel = bestPracticesLabel(lang);
+  const docTerm = docCommentTerm(lang);
+  lines.push(`| Best Practices | sonnet | Score 0–10 | Does the file follow ${bpLabel} best practices? |`);
+  lines.push(`| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with ${docTerm}s? |`);
   lines.push('');
   lines.push('See each axis folder for detailed rating criteria and methodology.');
   lines.push('');

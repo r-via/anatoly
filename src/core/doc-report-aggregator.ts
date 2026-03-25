@@ -256,7 +256,7 @@ function buildGapsFromReviews(
         gaps.push({
           type: 'missing_jsdoc',
           idealPath: `04-API-Reference/01-Public-API.md`,
-          rationale: `Exported ${sym.kind} ${sym.name} in ${review.file} has no JSDoc`,
+          rationale: `Exported ${sym.kind} ${sym.name} in ${review.file} has no documentation`,
           priority: 'medium',
         });
       }

@@ -102,7 +102,7 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
   } else {
     parts.push('## Documentation Directory');
     parts.push('');
-    parts.push('No /docs/ directory found — evaluate JSDoc only, skip concept coverage.');
+    parts.push('No /docs/ directory found — evaluate inline documentation only, skip concept coverage.');
     parts.push('');
   }
 

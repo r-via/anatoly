@@ -292,14 +292,121 @@ function buildIntraFileGraph(
 const NO_IMPORT_LANGUAGES = new Set(['sql', 'yaml', 'json']);
 
 /**
+ * Cargo workspace crate map: crate_name (underscored) → project-relative source directory.
+ * E.g. "rustguard_core" → "rustguard-core/src"
+ */
+type RustCrateMap = Map<string, string>;
+
+/**
+ * Build a mapping of Rust workspace crate names to their source directories.
+ * Reads the root Cargo.toml for [workspace] members, then each member's Cargo.toml
+ * for [package] name. Crate names have hyphens converted to underscores (Rust convention).
+ *
+ * Also detects the importer's own crate source directory for `crate::` resolution
+ * in workspace members (where `src/` is relative to the member, not the project root).
+ */
+function buildRustCrateMap(
+  projectRoot: string,
+  taskFileSet: Set<string>,
+): RustCrateMap {
+  const crateMap: RustCrateMap = new Map();
+
+  const rootCargoPath = join(projectRoot, 'Cargo.toml');
+  let rootCargo: string;
+  try {
+    rootCargo = readFileSync(rootCargoPath, 'utf-8');
+  } catch {
+    return crateMap;
+  }
+
+  // Extract workspace members from [workspace] section
+  // Handles: members = ["crate-a", "crate-b"] (single or multi-line)
+  const membersMatch = rootCargo.match(/\[workspace\][\s\S]*?members\s*=\s*\[([\s\S]*?)\]/);
+  if (!membersMatch) {
+    // Not a workspace — check if it's a single crate with [package]
+    const nameMatch = rootCargo.match(/\[package\][\s\S]*?name\s*=\s*"([^"]+)"/);
+    if (nameMatch) {
+      const crateName = nameMatch[1].replace(/-/g, '_');
+      crateMap.set(crateName, 'src');
+    }
+    return crateMap;
+  }
+
+  const memberStrings = membersMatch[1]
+    .split(',')
+    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
+    .filter((s) => s.length > 0);
+
+  for (const memberDir of memberStrings) {
+    const memberCargoPath = join(projectRoot, memberDir, 'Cargo.toml');
+    let memberCargo: string;
+    try {
+      memberCargo = readFileSync(memberCargoPath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    const nameMatch = memberCargo.match(/\[package\][\s\S]*?name\s*=\s*"([^"]+)"/);
+    if (!nameMatch) continue;
+
+    const crateName = nameMatch[1].replace(/-/g, '_');
+    const srcDir = join(memberDir, 'src');
+    // Verify this directory has files in our task set
+    const hasSources = [...taskFileSet].some((f) => f.startsWith(srcDir + '/') || f === srcDir);
+    if (hasSources || existsSync(join(projectRoot, srcDir))) {
+      crateMap.set(crateName, srcDir);
+    }
+  }
+
+  return crateMap;
+}
+
+/**
+ * Determine the workspace member source directory for a given Rust file.
+ * E.g. "rustguard-core/src/noise.rs" → "rustguard-core/src"
+ */
+function getRustCrateSrcDir(
+  importerRelPath: string,
+  crateMap: RustCrateMap,
+): string {
+  for (const srcDir of crateMap.values()) {
+    if (importerRelPath.startsWith(srcDir + '/')) {
+      return srcDir;
+    }
+  }
+  // Fallback: assume top-level src/
+  return 'src';
+}
+
+/**
+ * Try to resolve a Rust module path (array of segments) relative to a source directory.
+ * Handles both file modules (foo.rs) and directory modules (foo/mod.rs).
+ */
+function resolveRustModulePath(
+  parts: string[],
+  srcDir: string,
+  taskFileSet: Set<string>,
+): string | null {
+  for (let len = parts.length; len >= 1; len--) {
+    const candidate = srcDir + '/' + parts.slice(0, len).join('/') + '.rs';
+    if (taskFileSet.has(candidate)) return candidate;
+    const modCandidate = srcDir + '/' + parts.slice(0, len).join('/') + '/mod.rs';
+    if (taskFileSet.has(modCandidate)) return modCandidate;
+  }
+  return null;
+}
+
+/**
  * Resolve a non-TypeScript import path to a project-relative file path.
- * Handles Bash source paths, Python module names, and Rust crate paths.
+ * Handles Bash source paths, Python module names, and Rust crate paths
+ * (including cross-crate workspace imports).
  */
 function resolveNonTsImportPath(
   importSource: string,
   importType: string,
   importerRelPath: string,
   taskFileSet: Set<string>,
+  rustCrateMap?: RustCrateMap,
 ): string | null {
   const importerDir = dirname(importerRelPath);
   const importerExt = extname(importerRelPath);
@@ -325,17 +432,46 @@ function resolveNonTsImportPath(
     return null;
   }
 
-  // Rust: use crate::scanner::parse → src/scanner.rs
+  // Rust: handle crate::, super::, self::, and cross-crate workspace imports
   if (importerExt === '.rs') {
-    if (!importSource.startsWith('crate::')) return null;
-    const parts = importSource.slice('crate::'.length).split('::');
-    // Try longest path first, removing trailing segments (could be symbol names)
-    for (let len = parts.length; len >= 1; len--) {
-      const candidate = 'src/' + parts.slice(0, len).join('/') + '.rs';
-      if (taskFileSet.has(candidate)) return candidate;
-      const modCandidate = 'src/' + parts.slice(0, len).join('/') + '/mod.rs';
-      if (taskFileSet.has(modCandidate)) return modCandidate;
+    const crateSrcDir = rustCrateMap
+      ? getRustCrateSrcDir(importerRelPath, rustCrateMap)
+      : 'src';
+
+    // crate:: — resolve relative to the crate's own src directory
+    if (importSource.startsWith('crate::')) {
+      const parts = importSource.slice('crate::'.length).split('::');
+      return resolveRustModulePath(parts, crateSrcDir, taskFileSet);
     }
+
+    // super:: — resolve relative to parent module directory
+    if (importSource.startsWith('super::')) {
+      const parts = importSource.slice('super::'.length).split('::');
+      const parentDir = dirname(importerDir);
+      return resolveRustModulePath(parts, parentDir, taskFileSet);
+    }
+
+    // self:: — resolve relative to current module directory
+    if (importSource.startsWith('self::')) {
+      const parts = importSource.slice('self::'.length).split('::');
+      return resolveRustModulePath(parts, importerDir, taskFileSet);
+    }
+
+    // Cross-crate workspace import: use other_crate::module::symbol
+    if (rustCrateMap) {
+      const topSegment = importSource.split('::')[0];
+      const targetSrcDir = rustCrateMap.get(topSegment);
+      if (targetSrcDir) {
+        const parts = importSource.split('::').slice(1);
+        if (parts.length > 0) {
+          return resolveRustModulePath(parts, targetSrcDir, taskFileSet);
+        }
+        // Direct crate import — try lib.rs
+        const libRs = targetSrcDir + '/lib.rs';
+        if (taskFileSet.has(libRs)) return libRs;
+      }
+    }
+
     return null;
   }
 
@@ -362,6 +498,10 @@ export function buildUsageGraph(
 
   // Build set of all known task files for non-TS import resolution
   const taskFileSet = new Set<string>(tasks.map((t) => t.file));
+
+  // Build Rust workspace crate map for cross-crate import resolution
+  const hasRustFiles = tasks.some((t) => extname(t.file) === '.rs');
+  const rustCrateMap = hasRustFiles ? buildRustCrateMap(projectRoot, taskFileSet) : undefined;
 
   for (const task of tasks) {
     const ext = extname(task.file);
@@ -411,7 +551,7 @@ export function buildUsageGraph(
 
       const importRefs = adapter.extractImports(source);
       for (const ref of importRefs) {
-        const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet);
+        const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet, rustCrateMap);
         if (!resolvedFile || resolvedFile === task.file) continue;
 
         const exports = allExportsByFile.get(resolvedFile);
@@ -453,6 +593,7 @@ export function buildUsageGraph(
       intraFileRefs: intraFileRefs.size,
       totalExports,
       orphanCount,
+      rustWorkspaceCrates: rustCrateMap?.size ?? 0,
       durationMs: Date.now() - startTime,
     },
     'usage graph built',
