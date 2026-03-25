@@ -296,8 +296,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     concurrency,
     isInterrupted,
     handler: async (task) => {
-      const idx = ++fileCounter;
-      onLog(`[${idx}/${tasksToIndex.length}] ${task.file}`);
+      onLog(`[${fileCounter + 1}/${tasksToIndex.length}] ${task.file}`);
       onFileStart?.(task.file);
 
       try {
@@ -316,6 +315,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
           throw new Error(`GGUF container unreachable — aborting RAG indexing (${msg})`);
         }
       }
+      fileCounter++;
       onProgress?.(fileCounter, tasksToIndex.length);
     },
   });

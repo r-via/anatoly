@@ -26,8 +26,8 @@ export class ScreenRenderer {
   start(): void {
     if (this.opts.plain) return;
 
-    // Clear screen and print banner once (capture for re-render)
-    process.stdout.write('\x1b[2J\x1b[H');
+    // Clear screen, hide cursor, and print banner once (capture for re-render)
+    process.stdout.write('\x1b[2J\x1b[H\x1b[?25l');
     this.bannerLines = this.renderBanner();
     process.stdout.write(this.bannerLines.join('\n') + '\n');
 
@@ -41,9 +41,10 @@ export class ScreenRenderer {
       clearInterval(this.interval);
       this.interval = null;
     }
-    // Final render to show the completed state
+    // Final render to show the completed state, then restore cursor
     if (!this.opts.plain) {
       this.render();
+      process.stdout.write('\x1b[?25h');
     }
   }
 
@@ -109,6 +110,10 @@ export class ScreenRenderer {
         }
       }
     }
+
+    // Clamp to terminal height to avoid scrolling past the viewport
+    const maxRows = (process.stdout.rows || 40) - 1;
+    if (lines.length > maxRows) lines.length = maxRows;
 
     // Write the full frame
     const clearLine = '\x1b[K';

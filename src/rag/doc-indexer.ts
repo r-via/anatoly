@@ -429,10 +429,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
       ac.abort();
       return;
     }
-    docFileCounter++;
-    onProgress?.(docFileCounter, changedFiles.length);
     onFileStart?.(relPath);
-    onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
+    onLog(`rag: [${docFileCounter + 1}/${changedFiles.length}] chunking ${relPath}`);
 
     // Check chunk cache — reuse Haiku results if file SHA matches
     const cachedChunks = chunkCache[relPath];
@@ -449,6 +447,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
       newChunkCache[relPath] = { sha, sections: [] };
+      docFileCounter++;
+      onProgress?.(docFileCounter, changedFiles.length);
       onFileDone?.(relPath);
       return;
     }
@@ -473,6 +473,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
     newCache[relPath] = { sha, sectionIds };
     newChunkCache[relPath] = { sha, sections: sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })) };
     totalIndexed += sections.length;
+    docFileCounter++;
+    onProgress?.(docFileCounter, changedFiles.length);
     onLog(`rag: ${relPath} → ${sections.length} sections`);
     onFileDone?.(relPath);
   };
