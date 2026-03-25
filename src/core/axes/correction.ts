@@ -258,7 +258,8 @@ function applyVerification(
 }
 
 /**
- * Detect which dependency is implicated in a finding detail.
+ * Detect which dependency is implicated in a finding detail by name match.
+ * @returns The matched dependency name, or `undefined` if no dependency is mentioned or fileDeps is absent.
  */
 function detectImplicatedDep(
   detail: string,
