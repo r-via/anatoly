@@ -9,7 +9,7 @@
  * and frameworks by project configuration markers.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { extname, basename, join } from 'node:path';
 import { getGitTrackedFiles } from '../utils/git.js';
 
@@ -306,7 +306,7 @@ export function detectProjectProfile(projectRoot: string): ProjectProfile {
     : [];
   const languages = buildDistribution(filteredFiles);
   const frameworks = detectFrameworks(projectRoot, languages, gitFiles);
-  const types = deriveTypes(frameworks, projectRoot, gitFiles);
+  const types = deriveTypes(frameworks, projectRoot, gitFiles, languages);
   const capabilities = deriveCapabilities(frameworks, gitFiles);
   const primaryLanguage = languages.languages.length > 0 ? languages.languages[0].name : null;
   return { languages, frameworks, types, capabilities, primaryLanguage };
@@ -475,6 +475,7 @@ function deriveTypes(
   frameworks: FrameworkInfo[],
   projectRoot: string,
   gitFiles: Set<string> | null,
+  languages?: LanguageDistribution,
 ): ProjectType[] {
   const types = new Set<ProjectType>();
 
@@ -501,15 +502,18 @@ function deriveTypes(
     }
   }
 
-  // Rust workspace / CLI detection from Cargo.toml
-  const cargoToml = safeReadFile(join(projectRoot, 'Cargo.toml'));
+  // Rust workspace / CLI detection from Cargo.toml (only if Rust detected)
+  const detectedLangs = new Set(languages?.languages.map(l => l.name) ?? []);
+  const cargoToml = detectedLangs.has('Rust') ? safeReadFile(join(projectRoot, 'Cargo.toml')) : null;
   if (cargoToml) {
-    if (/^\[workspace\]/m.test(cargoToml)) {
+    if (/^\[workspace[.\]]/m.test(cargoToml)) {
       types.add('Monorepo');
     }
-    // Rust CLI from [[bin]] section (even without a CLI framework like clap)
-    if (!types.has('CLI') && /^\[\[bin\]\]/m.test(cargoToml)) {
-      types.add('CLI');
+    // Rust CLI from [[bin]] section or implicit binary (src/main.rs)
+    if (!types.has('CLI')) {
+      if (/^\[\[bin\]\]/m.test(cargoToml) || existsSync(join(projectRoot, 'src', 'main.rs'))) {
+        types.add('CLI');
+      }
     }
   }
 

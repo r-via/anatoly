@@ -99,19 +99,21 @@ export function extractModuleName(filePath: string): string | null {
   const srcIdx = parts.indexOf('src');
 
   if (srcIdx >= 0) {
-    // Try standard layout first: src/<module>/file.ext
+    // Standard layout: src/<module>/file.ext → return <module>
     const afterSrc = srcIdx + 1;
     if (afterSrc < parts.length - 1) {
       return parts[afterSrc];
     }
-    // Workspace layout: <crate>/src/file.ext
+    // Workspace layout: <crate>/src/file.ext → return <crate>
     if (srcIdx > 0) {
       return parts[srcIdx - 1];
     }
+    // File directly in src/ (e.g. src/main.rs) — no meaningful module
+    return null;
   }
 
-  // No src/ found — use first directory if available
-  if (parts.length >= 2) {
+  // No src/ found — use first directory if deep enough (e.g. lib/utils/file.ts → "lib")
+  if (parts.length >= 3) {
     return parts[0];
   }
 

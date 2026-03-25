@@ -13,6 +13,7 @@
 
 import type { VectorStore } from '../rag/vector-store.js';
 import type { FunctionCard, DocSectionEntry } from '../rag/types.js';
+import { extractModuleName } from './module-granularity.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types
@@ -107,12 +108,7 @@ interface Domain {
 const DOMAIN_SPLIT_THRESHOLD = 50;
 
 function extractDomain(filePath: string): string {
-  const parts = filePath.split('/');
-  const srcIdx = parts.indexOf('src');
-  if (srcIdx >= 0 && srcIdx + 1 < parts.length - 1) {
-    return parts[srcIdx + 1];
-  }
-  return parts[0] || 'root';
+  return extractModuleName(filePath) ?? 'root';
 }
 
 function extractSubDomain(filePath: string): string {

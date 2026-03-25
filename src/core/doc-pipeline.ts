@@ -252,16 +252,10 @@ function buildSourceDirs(tasks: Task[]): SourceDir[] {
   const dirMap = new Map<string, number>();
 
   for (const task of tasks) {
-    const parts = task.file.split('/');
-    if (parts.length < 2) continue;
+    const dirName = extractModuleName(task.file);
+    if (!dirName) continue;
 
-    const srcIdx = parts.indexOf('src');
-    const dirIdx = srcIdx >= 0 ? srcIdx + 1 : 0;
-    if (dirIdx >= parts.length - 1) continue;
-
-    const dirName = parts[dirIdx];
     const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
-
     dirMap.set(dirName, (dirMap.get(dirName) ?? 0) + maxLine);
   }
 
@@ -313,12 +307,7 @@ function buildPageMappings(
       if (moduleGranularityNames.has(baseName)) continue;
     }
     const sourceFiles = tasks
-      .filter(t => {
-        const parts = t.file.split('/');
-        const srcIdx = parts.indexOf('src');
-        const dirIdx = srcIdx >= 0 ? srcIdx + 1 : 0;
-        return dirIdx < parts.length - 1 && parts[dirIdx] === dm.sourceDir;
-      })
+      .filter(t => extractModuleName(t.file) === dm.sourceDir)
       .map(t => t.file);
 
     if (sourceFiles.length > 0) {
