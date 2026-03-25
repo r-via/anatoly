@@ -268,6 +268,7 @@ export function registerDocsCommand(program: Command): void {
           { id: 'rag-doc-internal', label: 'RAG — Chunking & embedding internal docs' },
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
           { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Opus)' },
+          { id: 'coherence-2-content', label: 'Internal doc — Content review (Opus)' },
         ],
         execute: async (ctx) => {
           // --- Step 1: SCAFFOLD (Sonnet, parallel, no RAG) ---

@@ -108,6 +108,10 @@ export class VectorStore {
               }
             }
           }
+
+          if (!('doc_vector' in sample[0])) {
+            this.onLog(`⚠️ doc_vector column not found — run 'anatoly docs index --rebuild' for gap detection`);
+          }
         }
       } catch {
         // Table may be empty or have unexpected schema — proceed normally

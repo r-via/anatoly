@@ -97,7 +97,7 @@ export interface GapDetectionV2Options {
 
 export function classifyPage(pagePath: string): PageType {
   const lower = pagePath.toLowerCase();
-  if (lower.includes('module') || lower.match(/05-/)) return 'module';
+  if (lower.includes('module')) return 'module';
   if (lower.includes('api-reference') || lower.includes('cli')
     || lower.includes('types') || lower.includes('schema')
     || lower.includes('endpoint')) return 'reference';
@@ -421,11 +421,18 @@ function strategy3_conceptualPages(
     ];
     const mentioned = searchTerms.some(t => allConceptualContent.includes(t));
 
-    // Suggest best page based on concept name
-    let suggestedPage = '02-Architecture/01-System-Overview.md';
-    if (concept.includes('install') || concept.includes('setup')) suggestedPage = '01-Getting-Started/02-Installation.md';
-    if (concept.includes('config')) suggestedPage = '01-Getting-Started/03-Configuration.md';
-    if (concept.includes('troubleshoot') || concept.includes('error')) suggestedPage = '03-Guides/03-Troubleshooting.md';
+    // Suggest best page by matching concept against existing page paths/content
+    let suggestedPage = conceptualPages[0]?.path ?? 'index.md';
+    let bestMatchScore = 0;
+    for (const page of conceptualPages) {
+      const pageLower = (page.path + ' ' + (page.content ?? '')).toLowerCase();
+      for (const term of searchTerms) {
+        if (pageLower.includes(term) && term.length > bestMatchScore) {
+          bestMatchScore = term.length;
+          suggestedPage = page.path;
+        }
+      }
+    }
 
     reports.push({ concept, frequency, mentioned, suggestedPage });
   }
@@ -476,10 +483,13 @@ export async function detectDocGapsV2(
   const listedRef = refReports.reduce((sum, r) => sum + r.entriesListed, 0);
   const mentionedConcepts = conceptReports.filter(c => c.mentioned).length;
 
-  // Actionable lists
+  // Actionable lists — derive modules directory from existing module pages
+  const modulesDir = modulePages.length > 0
+    ? modulePages[0].path.split('/').slice(0, -1).join('/')
+    : 'Modules';
   const pagesToCreate = domainReports
     .filter(d => d.classification === 'NOT_FOUND')
-    .map(d => `05-Modules/${d.domain}.md`);
+    .map(d => `${modulesDir}/${d.domain}.md`);
 
   const pagesToUpdate = [...new Set([
     ...domainReports
