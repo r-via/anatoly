@@ -162,8 +162,12 @@ export class ScreenRenderer {
 
     if (file.axesTotal > 0) {
       const remaining = file.axesTotal - file.axesDone;
-      const counter = `${remaining}/${file.axesTotal} checks left`;
-      line += `    ${isDone ? chalk.green(counter) : counter}`;
+      if (remaining === 0 && !isDone) {
+        line += `    ${chalk.dim('deliberating…')}`;
+      } else {
+        const counter = `${remaining}/${file.axesTotal} checks left`;
+        line += `    ${isDone ? chalk.green(counter) : counter}`;
+      }
     }
 
     if (file.retryMsg && !isDone) {

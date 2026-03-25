@@ -16,8 +16,8 @@ export class Semaphore {
   private readonly _queue: Array<() => void> = [];
 
   constructor(capacity: number) {
-    if (capacity < 1 || capacity > 20) {
-      throw new RangeError(`Semaphore capacity must be 1-20, got ${capacity}`);
+    if (capacity < 1 || capacity > 32) {
+      throw new RangeError(`Semaphore capacity must be 1-32, got ${capacity}`);
     }
     this._capacity = capacity;
   }

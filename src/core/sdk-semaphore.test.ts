@@ -127,11 +127,11 @@ describe('Semaphore', () => {
     expect(sem.available).toBe(2);
   });
 
-  it('validates capacity (min 1, max 20)', () => {
+  it('validates capacity (min 1, max 32)', () => {
     expect(() => new Semaphore(0)).toThrow();
     expect(() => new Semaphore(-1)).toThrow();
-    expect(() => new Semaphore(21)).toThrow();
+    expect(() => new Semaphore(33)).toThrow();
     expect(() => new Semaphore(1)).not.toThrow();
-    expect(() => new Semaphore(20)).not.toThrow();
+    expect(() => new Semaphore(32)).not.toThrow();
   });
 });

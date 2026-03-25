@@ -76,9 +76,9 @@ describe('ConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('should default sdk_concurrency to 8', () => {
+  it('should default sdk_concurrency to 24', () => {
     const config = ConfigSchema.parse({});
-    expect(config.llm.sdk_concurrency).toBe(8);
+    expect(config.llm.sdk_concurrency).toBe(24);
   });
 
   it('should accept custom sdk_concurrency', () => {
@@ -90,8 +90,8 @@ describe('ConfigSchema', () => {
     expect(ConfigSchema.safeParse({ llm: { sdk_concurrency: 0 } }).success).toBe(false);
   });
 
-  it('should reject sdk_concurrency above 20', () => {
-    expect(ConfigSchema.safeParse({ llm: { sdk_concurrency: 21 } }).success).toBe(false);
+  it('should reject sdk_concurrency above 32', () => {
+    expect(ConfigSchema.safeParse({ llm: { sdk_concurrency: 33 } }).success).toBe(false);
   });
 });
 
