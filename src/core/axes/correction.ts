@@ -25,6 +25,7 @@ const CorrectionActionSchema = z.object({
   line: z.int().min(1).optional(),
 });
 
+/** Zod schema for the structured LLM response from the correction axis evaluation. */
 export const CorrectionResponseSchema = z.object({
   symbols: z.array(CorrectionSymbolSchema),
   actions: z.array(CorrectionActionSchema).default([]),
@@ -36,10 +37,12 @@ type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/** Builds the system prompt for the correction axis LLM call. */
 export function buildCorrectionSystemPrompt(): string {
   return resolveSystemPrompt('correction');
 }
 
+/** Assembles the user message for the correction axis, including source code and symbol list. */
 export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -87,6 +90,7 @@ const VerificationSymbolSchema = z.object({
   reason: z.string().min(10),
 });
 
+/** Zod schema for the second-pass verification response that confirms or rejects initial correction findings. */
 export const VerificationResponseSchema = z.object({
   symbols: z.array(VerificationSymbolSchema),
 });
@@ -277,6 +281,7 @@ function summarizePattern(detail: string): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/** Evaluator that detects bugs and logic errors using a two-pass LLM strategy (initial scan + verification). */
 export class CorrectionEvaluator implements AxisEvaluator {
   readonly id = 'correction' as const;
   readonly defaultModel = 'sonnet' as const;
