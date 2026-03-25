@@ -1543,14 +1543,15 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   // Value one-liner
   const durationMin = runStats ? (runStats.durationMs / 60_000).toFixed(0) : '?';
   const costUsd = runStats ? `$${runStats.costUsd.toFixed(2)}` : '?';
-  const findingCount = data.findingFiles.length;
+  const fileCount = data.findingFiles.length;
   const errorSymbols = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30 && s.correction === 'ERROR'));
+  const totalFindings = Object.values(data.counts).reduce((sum, c) => sum + c.high + c.medium + c.low, 0);
 
   lines.push(`> **${data.totalFiles} files** reviewed in **${durationMin} min** — **${costUsd}** in AI analysis so you don't have to.`);
 
   const verdictParts = [`Verdict: **${data.globalVerdict}**`];
   if (errorSymbols.length > 0) verdictParts.push(`${errorSymbols.length} critical bug${errorSymbols.length > 1 ? 's' : ''} found`);
-  verdictParts.push(`${findingCount} file${findingCount !== 1 ? 's' : ''} with findings`);
+  verdictParts.push(`${totalFindings} finding${totalFindings !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`);
   lines.push(`> ${verdictParts.join(' · ')}`);
   lines.push('');
 
