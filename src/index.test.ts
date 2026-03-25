@@ -27,19 +27,16 @@ describe('CLI program', () => {
         'run',
         'watch',
         'status',
-        'clean-runs',
+        'clean',
         'reset',
         'rag-status',
         'hook',
-        'clean',
-        'clean-sync',
-        'clean-run',
         'setup-embeddings',
         'init',
         'docs',
       ]),
     );
-    expect(commandNames).toHaveLength(17);
+    expect(commandNames).toHaveLength(14);
   });
 
   it('should register all global options', () => {

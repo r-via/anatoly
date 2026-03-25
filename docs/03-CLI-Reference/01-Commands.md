@@ -359,12 +359,12 @@ anatoly rag-status --all --json
 
 ---
 
-## clean-runs
+## clean runs
 
 Delete run directories from `.anatoly/runs/`.
 
 ```
-anatoly clean-runs [--keep <n>] [-y|--yes]
+anatoly clean runs [--keep <n>] [-y|--yes]
 ```
 
 ### Options
@@ -384,13 +384,13 @@ anatoly clean-runs [--keep <n>] [-y|--yes]
 
 ```bash
 # Delete all runs (with confirmation)
-anatoly clean-runs
+anatoly clean runs
 
 # Keep the 3 most recent, delete the rest
-anatoly clean-runs --keep 3
+anatoly clean runs --keep 3
 
 # CI: delete all runs without prompting
-anatoly clean-runs --yes
+anatoly clean runs --yes
 ```
 
 ---

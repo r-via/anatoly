@@ -213,12 +213,12 @@ anatoly reset [options]
 
 ---
 
-### `clean-runs`
+### `clean runs`
 
 Deletes run directories from `.anatoly/runs/`. Also removes the legacy `.anatoly/logs/` directory if present. Without `--keep`, all runs are removed.
 
 ```bash
-anatoly clean-runs [options]
+anatoly clean runs [options]
 ```
 
 | Option | Description |
@@ -244,7 +244,7 @@ See [setup-embeddings module](../05-Modules/07-setup-embeddings.md) for model de
 
 ---
 
-### `clean <target>`
+### `clean generate <target>`
 
 Generates [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/) remediation artifacts from unchecked audit findings. Parses `ACT-ID` checkboxes in the axis shard reports and produces three files under `.anatoly/clean/<target>/`:
 
@@ -253,19 +253,19 @@ Generates [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)
 - `progress.txt` — iteration learnings log
 
 ```bash
-anatoly clean <target>
+anatoly clean generate <target>
 ```
 
 Valid targets: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation`, or `all`.
 
 ---
 
-### `clean-run <target>`
+### `clean run <target>`
 
-Orchestrates an iterative autonomous remediation loop. Spawns `claude --dangerously-skip-permissions --print` in a loop (up to `--iterations` times), feeds each iteration the `CLAUDE.md` prompt, then syncs completed fixes back to the axis report via `clean-sync`.
+Orchestrates an iterative autonomous remediation loop. Spawns `claude --dangerously-skip-permissions --print` in a loop (up to `--iterations` times), feeds each iteration the `CLAUDE.md` prompt, then syncs completed fixes back to the axis report via `clean sync`.
 
 ```bash
-anatoly clean-run <target> [options]
+anatoly clean run <target> [options]
 ```
 
 | Argument / Option | Description |
@@ -279,15 +279,15 @@ anatoly clean-run <target> [options]
 
 ---
 
-### `clean-sync <target>`
+### `clean sync <target>`
 
 Reads `prd.json` for the given target and checks off the corresponding `ACT-ID` checkboxes in the axis shard Markdown files for all user stories where `passes: true`. Updates the axis index file when all shards in an axis are complete. Ignores `DISCOVERED` stories added by the agent during iteration.
 
 ```bash
-anatoly clean-sync <target>
+anatoly clean sync <target>
 ```
 
-Valid targets: same as `clean`. Called automatically by `clean-run` after each iteration and at circuit breaker exit.
+Valid targets: same as `clean generate`. Called automatically by `clean run` after each iteration and at circuit breaker exit.
 
 ---
 
@@ -429,20 +429,20 @@ npx anatoly reset --keep-rag --yes
 ### Keep only the three most recent runs
 
 ```bash
-npx anatoly clean-runs --keep 3 --yes
+npx anatoly clean runs --keep 3 --yes
 ```
 
 ### Autonomous remediation loop (Ralph Pattern)
 
 ```bash
 # Generate PRD + CLAUDE.md from unchecked correction findings
-npx anatoly clean correction
+npx anatoly clean generate correction
 
 # Run up to 5 autonomous fix iterations
-npx anatoly clean-run correction --iterations 5
+npx anatoly clean run correction --iterations 5
 
 # Sync completed story checkboxes back to the report
-npx anatoly clean-sync correction
+npx anatoly clean sync correction
 ```
 
 ### Scaffold then lint internal documentation

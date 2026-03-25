@@ -52,7 +52,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
 - **RAG-powered documentation review** — function summaries (Haiku) and doc sections are embedded as NLP vectors. The documentation axis evaluates quality by semantic similarity. Separate from `anatoly docs` which manages internal documentation
 - **Internal doc pipeline** — `anatoly docs scaffold` generates `.anatoly/docs/` via Sonnet (parallel scaffold → Opus coherence review → RAG index → gap-driven update). Incremental updates at each run via RAG gap detection (cosine similarity, $0). `anatoly docs scaffold project` copies internal docs to `docs/` for publishing
-- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean-run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
+- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
 - **Pre-computed usage graph** — one-pass import resolution across all files with transitive intra-file references, eliminating ~90% of redundant tool calls
@@ -161,14 +161,14 @@ npx anatoly docs coherence             # Lint + Opus coherence review on .anatol
 npx anatoly docs status                # Show internal docs coverage
 
 # Auto-clean (Ralph pattern)
-npx anatoly clean report.1.md      # Generate Ralph artifacts from a shard's findings
-npx anatoly clean-run report.1.md  # Generate + run Ralph loop to auto-clean findings
-npx anatoly clean-sync report.1.md # Sync completed clean tasks back to the report
+npx anatoly clean generate documentation  # Generate Ralph artifacts from axis findings
+npx anatoly clean run documentation       # Generate + run Ralph loop to auto-clean findings
+npx anatoly clean sync documentation      # Sync completed clean tasks back to the report
 
 # Maintenance
 npx anatoly status               # Show current audit progress
 npx anatoly rag-status           # Show RAG index stats
-npx anatoly clean-runs           # Delete old runs (--keep <n>, --yes)
+npx anatoly clean runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state (runs, cache, RAG, internal docs)
 npx anatoly reset --keep-docs    # Wipe state but keep internal docs
 npx anatoly hook init            # Generate Claude Code hooks configuration

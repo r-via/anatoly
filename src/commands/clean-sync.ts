@@ -116,7 +116,7 @@ function syncAxis(
 
 export function registerCleanSyncCommand(program: Command): void {
   program
-    .command('clean-sync <axis>')
+    .command('sync <axis>')
     .description('Sync completed clean tasks from prd.json back to axis reports (axis name or "all")')
     .action((axis: string) => {
       const projectRoot = process.cwd();
@@ -149,7 +149,7 @@ export function registerCleanSyncCommand(program: Command): void {
       const prdPath = join(cleanDir, 'prd.json');
 
       if (!existsSync(prdPath)) {
-        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly clean ${axis}\` first.`));
+        console.error(chalk.red(`No prd.json found at ${prdPath}. Run \`anatoly clean generate ${axis}\` first.`));
         process.exit(1);
       }
 

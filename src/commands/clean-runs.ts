@@ -12,7 +12,7 @@ import { confirm, isInteractive } from '../utils/confirm.js';
 
 export function registerCleanRunsCommand(program: Command): void {
   program
-    .command('clean-runs')
+    .command('runs')
     .description('Delete all runs from .anatoly/runs/')
     .option('--keep <n>', 'keep the N most recent runs', parseInt)
     .option('-y, --yes', 'skip confirmation prompt (for CI/scripts)')
