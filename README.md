@@ -118,9 +118,6 @@ npx anatoly setup-embeddings
 
 # Check status anytime
 npx anatoly setup-embeddings --check
-
-# Run A/B quality validation against HuggingFace TEI fp16 reference
-npx anatoly setup-embeddings --ab-test
 ```
 
 Containers start automatically with `anatoly run` when setup is detected. No Python dependency -- Docker is the only runtime requirement for GPU mode.
