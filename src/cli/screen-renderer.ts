@@ -40,6 +40,8 @@ export class ScreenRenderer {
   private stopped = false;
   private lastLineCount = 0;
   private sigHandler: (() => void) | null = null;
+  private resizeHandler: (() => void) | null = null;
+  private needsFullClear = false;
 
   constructor(
     private state: PipelineState,
@@ -60,6 +62,10 @@ export class ScreenRenderer {
     process.on('SIGINT', this.sigHandler);
     process.on('SIGTERM', this.sigHandler);
 
+    // Re-clear on terminal resize to flush stale content from previous dimensions
+    this.resizeHandler = () => { this.needsFullClear = true; };
+    process.stdout.on('resize', this.resizeHandler);
+
     this.interval = setInterval(() => this.render(), 100);
   }
 
@@ -76,11 +82,15 @@ export class ScreenRenderer {
       this.render();
       process.stdout.write('\x1b[?25h');
     }
-    // Clean up signal handlers
+    // Clean up signal and resize handlers
     if (this.sigHandler) {
       process.removeListener('SIGINT', this.sigHandler);
       process.removeListener('SIGTERM', this.sigHandler);
       this.sigHandler = null;
+    }
+    if (this.resizeHandler) {
+      process.stdout.removeListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
     }
   }
 
@@ -150,6 +160,12 @@ export class ScreenRenderer {
     // Clamp to terminal height to avoid scrolling past the viewport
     const maxRows = (process.stdout.rows || 40) - 1;
     if (lines.length > maxRows) lines.length = maxRows;
+
+    // On terminal resize, clear the entire screen to flush stale content
+    if (this.needsFullClear) {
+      this.needsFullClear = false;
+      process.stdout.write('\x1b[2J');
+    }
 
     // Write the full frame
     const clearLine = '\x1b[K';
