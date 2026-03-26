@@ -76,12 +76,20 @@ export function buildDeliberationSystemPrompt(): string {
  * @param fileContent - The raw source code of the file being reviewed.
  * @returns The fully assembled user message string for the deliberation LLM call.
  */
+const EXT_TO_LANG: Record<string, string> = {
+  '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript',
+  '.py': 'python', '.rs': 'rust', '.go': 'go', '.java': 'java', '.cs': 'csharp',
+  '.sh': 'bash', '.bash': 'bash',
+};
+
 export function buildDeliberationUserMessage(
   review: ReviewFile,
   fileContent: string,
   testFile?: { name: string; content: string },
 ): string {
   const reviewJson = JSON.stringify(review, null, 2);
+  const ext = review.file.slice(review.file.lastIndexOf('.'));
+  const codeLang = EXT_TO_LANG[ext] ?? 'typescript';
   const parts: string[] = [];
 
   parts.push(`## Merged ReviewFile (from ${ALL_AXIS_IDS.length} axis evaluators)
@@ -92,7 +100,7 @@ ${reviewJson}
 
   parts.push(`## Source code of \`${review.file}\`
 
-\`\`\`typescript
+\`\`\`${codeLang}
 ${fileContent}
 \`\`\``);
 
@@ -101,9 +109,11 @@ ${fileContent}
     const MAX_TEST_LINES = 500;
     const lines = testFile.content.split('\n');
     const truncated = lines.length > MAX_TEST_LINES;
+    const testExt = testFile.name.slice(testFile.name.lastIndexOf('.'));
+    const testLang = EXT_TO_LANG[testExt] ?? codeLang;
     parts.push(`## Test File: \`${testFile.name}\`
 
-\`\`\`typescript
+\`\`\`${testLang}
 ${truncated ? lines.slice(0, MAX_TEST_LINES).join('\n') : testFile.content}
 \`\`\`${truncated ? `\n*(truncated — ${lines.length} lines total, showing first ${MAX_TEST_LINES})*` : ''}`);
   }

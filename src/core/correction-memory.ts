@@ -197,7 +197,7 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
     }
   } catch (err) {
     if (existsSync(memPath)) {
-      const bakPath = memPath + '.corrupted';
+      const bakPath = memPath + `.corrupted.${Date.now()}`;
       contextLogger().warn({ memPath, bakPath, err }, 'deliberation memory file corrupted — rebuilding');
       try {
         renameSync(memPath, bakPath);

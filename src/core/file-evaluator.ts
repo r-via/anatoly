@@ -463,6 +463,18 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
  *
  * Returns concatenated content of discovered test files (capped at 1000 lines).
  */
+// Cache directory listings to avoid repeated readdirSync on the hot path
+const dirListingCache = new Map<string, string[]>();
+function cachedReaddirSync(absDir: string): string[] {
+  const cached = dirListingCache.get(absDir);
+  if (cached) return cached;
+  const entries = readdirSync(absDir, { withFileTypes: true })
+    .filter(d => d.isFile())
+    .map(d => d.name);
+  dirListingCache.set(absDir, entries);
+  return entries;
+}
+
 function resolveTestsDirectory(
   dir: string,
   base: string,
@@ -476,10 +488,11 @@ function resolveTestsDirectory(
   // For "crate/src/lib.rs", dir="crate/src" → parent="crate" → tests="crate/tests"
   // For "src/lib.rs", dir="src" → parent="" → tests="tests"
   const parentDir = dirname(dir);
-  const testsDirCandidates = [
-    `${parentDir}/tests`,  // crate/src/foo.rs → crate/tests/
-    `${dir}/tests`,        // pkg/foo.py → pkg/tests/
+  const rawCandidates = [
+    parentDir !== '.' ? `${parentDir}/tests` : 'tests',  // crate/src/foo.rs → crate/tests/
+    dir !== '.' ? `${dir}/tests` : 'tests',              // pkg/foo.py → pkg/tests/
   ];
+  const testsDirCandidates = [...new Set(rawCandidates)];
 
   for (const testsRelDir of testsDirCandidates) {
     const testsAbsDir = resolve(projectRoot, testsRelDir);
@@ -487,7 +500,7 @@ function resolveTestsDirectory(
 
     let entries: string[];
     try {
-      entries = readdirSync(testsAbsDir).filter((f) => f.endsWith(ext));
+      entries = cachedReaddirSync(testsAbsDir).filter((f) => f.endsWith(ext));
     } catch {
       continue;
     }
@@ -515,7 +528,7 @@ function resolveTestsDirectory(
     // For lib.rs / __init__.py (crate/package root), collect all test files
     const isPackageRoot = base === 'lib' || base === 'mod' || base === '__init__' || base === 'index';
     if (isPackageRoot) {
-      const MAX_LINES = 1000;
+      const MAX_LINES = 500; // matches deliberation's MAX_TEST_LINES cap
       const parts: string[] = [];
       const names: string[] = [];
       let totalLines = 0;
