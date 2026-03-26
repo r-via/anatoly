@@ -47,6 +47,7 @@ import { injectBadge } from '../core/badge.js';
 import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../core/doc-pipeline.js';
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
+import { saveDeliberationMemory } from '../core/correction-memory.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
@@ -187,6 +188,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--open', 'open report in default app after generation')
+    .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
@@ -242,6 +244,12 @@ export function registerRunCommand(program: Command): void {
       const axesResult = parseAxesOption(cmdOpts.axes);
       if (axesResult === null) return;
       const axesFilter: AxisId[] | undefined = axesResult;
+
+      // Flush deliberation memory if requested
+      if (parentOpts.flushMemory) {
+        saveDeliberationMemory(projectRoot, { version: 2, false_positives: [] });
+        console.log(chalk.dim('deliberation memory flushed'));
+      }
 
       const ctx: RunContext = {
         projectRoot,
