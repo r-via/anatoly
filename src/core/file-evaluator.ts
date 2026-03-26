@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, basename, dirname, extname } from 'node:path';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
@@ -135,15 +135,42 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
 
-  // Resolve associated test file (foo.ts → foo.test.ts or foo.spec.ts)
+  // Resolve associated test file(s)
+  // Strategies (first match wins):
+  //   1. Sibling: foo.test.ts / foo.spec.ts (JS/TS convention)
+  //   2. Sibling: foo_test.go (Go convention)
+  //   3. Sibling: test_foo.py / foo_test.py (Python convention)
+  //   4. __tests__/foo.test.ts or __tests__/foo.spec.ts (Jest/Vitest)
+  //   5. tests/ directory at crate/package root (Rust: crate/tests/*.rs)
   let testFileContent: string | undefined;
   let testFileName: string | undefined;
   const ext = extname(task.file);
   const base = basename(task.file, ext);
   const dir = dirname(task.file);
-  if (!base.endsWith('.test') && !base.endsWith('.spec')) {
-    for (const suffix of ['.test', '.spec']) {
-      const relTestPath = `${dir}/${base}${suffix}${ext}`;
+  const lang = task.language;
+  if (!base.endsWith('.test') && !base.endsWith('.spec') && !base.startsWith('test_') && !base.endsWith('_test')) {
+    const candidates: string[] = [];
+
+    // Strategy 1: sibling .test / .spec (JS/TS/Rust/Python etc.)
+    candidates.push(`${dir}/${base}.test${ext}`, `${dir}/${base}.spec${ext}`);
+
+    // Strategy 2: Go sibling _test
+    if (lang === 'go') {
+      candidates.push(`${dir}/${base}_test${ext}`);
+    }
+
+    // Strategy 3: Python sibling test_foo / foo_test
+    if (lang === 'python') {
+      candidates.push(`${dir}/test_${base}${ext}`, `${dir}/${base}_test${ext}`);
+    }
+
+    // Strategy 4: __tests__/ subdirectory
+    candidates.push(
+      `${dir}/__tests__/${base}.test${ext}`,
+      `${dir}/__tests__/${base}.spec${ext}`,
+    );
+
+    for (const relTestPath of candidates) {
       const testPath = resolve(projectRoot, relTestPath);
       if (existsSync(testPath)) {
         try {
@@ -153,6 +180,16 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
           contextLogger().debug({ testPath, err }, 'failed to read test file');
         }
         break;
+      }
+    }
+
+    // Strategy 5: tests/ directory at crate/package root (Rust, Python, etc.)
+    // For src/lib.rs → look at ../tests/, for src/foo.rs → ../tests/foo.rs
+    if (!testFileContent) {
+      const testsDir = resolveTestsDirectory(dir, base, ext, lang, projectRoot);
+      if (testsDir) {
+        testFileContent = testsDir.content;
+        testFileName = testsDir.name;
       }
     }
   }
@@ -299,7 +336,11 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         const deliberationResult = await runSingleTurnQuery(
           {
             systemPrompt: buildDeliberationSystemPrompt(),
-            userMessage: buildDeliberationUserMessage(review, fileContent),
+            userMessage: buildDeliberationUserMessage(
+              review,
+              fileContent,
+              testFileContent && testFileName ? { name: testFileName, content: testFileContent } : undefined,
+            ),
             model: deliberationModel,
             projectRoot,
             abortController,
@@ -401,4 +442,106 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
   }
 
   return preResolved.length > 0 ? preResolved : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Test directory resolution (Strategy 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Look for a tests/ directory at the crate/package root.
+ *
+ * For Rust:
+ *   - `crate/src/lib.rs` → collect all files from `crate/tests/*.rs`
+ *   - `crate/src/foo.rs` → try `crate/tests/foo.rs`, then fall back to all
+ *
+ * For Python:
+ *   - `pkg/module.py` → try `tests/test_module.py`, `tests/module_test.py`, then all
+ *
+ * General:
+ *   - Walk up from `dir` looking for a sibling `tests/` directory
+ *
+ * Returns concatenated content of discovered test files (capped at 1000 lines).
+ */
+function resolveTestsDirectory(
+  dir: string,
+  base: string,
+  ext: string,
+  lang: string | undefined,
+  projectRoot: string,
+): { content: string; name: string } | undefined {
+  const log = contextLogger();
+
+  // Walk up from dir to find a sibling tests/ directory.
+  // For "crate/src/lib.rs", dir="crate/src" → parent="crate" → tests="crate/tests"
+  // For "src/lib.rs", dir="src" → parent="" → tests="tests"
+  const parentDir = dirname(dir);
+  const testsDirCandidates = [
+    `${parentDir}/tests`,  // crate/src/foo.rs → crate/tests/
+    `${dir}/tests`,        // pkg/foo.py → pkg/tests/
+  ];
+
+  for (const testsRelDir of testsDirCandidates) {
+    const testsAbsDir = resolve(projectRoot, testsRelDir);
+    if (!existsSync(testsAbsDir)) continue;
+
+    let entries: string[];
+    try {
+      entries = readdirSync(testsAbsDir).filter((f) => f.endsWith(ext));
+    } catch {
+      continue;
+    }
+    if (entries.length === 0) continue;
+
+    // Try specific match first (e.g. crate/tests/foo.rs for crate/src/foo.rs)
+    const specificCandidates: string[] = [];
+    if (lang === 'python') {
+      specificCandidates.push(`test_${base}${ext}`, `${base}_test${ext}`);
+    } else {
+      specificCandidates.push(`${base}${ext}`);
+    }
+
+    for (const specific of specificCandidates) {
+      if (entries.includes(specific)) {
+        const fullPath = resolve(testsAbsDir, specific);
+        try {
+          return { content: readFileSync(fullPath, 'utf-8'), name: `${testsRelDir}/${specific}` };
+        } catch (err) {
+          log.debug({ testPath: fullPath, err }, 'failed to read specific test file from tests/');
+        }
+      }
+    }
+
+    // For lib.rs / __init__.py (crate/package root), collect all test files
+    const isPackageRoot = base === 'lib' || base === 'mod' || base === '__init__' || base === 'index';
+    if (isPackageRoot) {
+      const MAX_LINES = 1000;
+      const parts: string[] = [];
+      const names: string[] = [];
+      let totalLines = 0;
+
+      for (const entry of entries.sort()) {
+        const fullPath = resolve(testsAbsDir, entry);
+        try {
+          const content = readFileSync(fullPath, 'utf-8');
+          const lines = content.split('\n').length;
+          if (totalLines + lines > MAX_LINES && parts.length > 0) {
+            parts.push(`\n// ... ${entries.length - names.length} more test files truncated\n`);
+            break;
+          }
+          parts.push(`// === ${testsRelDir}/${entry} ===\n${content}`);
+          names.push(`${testsRelDir}/${entry}`);
+          totalLines += lines;
+        } catch (err) {
+          log.debug({ testPath: fullPath, err }, 'failed to read test file from tests/');
+        }
+      }
+
+      if (parts.length > 0) {
+        return { content: parts.join('\n\n'), name: names.join(', ') };
+      }
+    }
+  }
+
+  return undefined;
 }

@@ -76,21 +76,39 @@ export function buildDeliberationSystemPrompt(): string {
  * @param fileContent - The raw source code of the file being reviewed.
  * @returns The fully assembled user message string for the deliberation LLM call.
  */
-export function buildDeliberationUserMessage(review: ReviewFile, fileContent: string): string {
+export function buildDeliberationUserMessage(
+  review: ReviewFile,
+  fileContent: string,
+  testFile?: { name: string; content: string },
+): string {
   const reviewJson = JSON.stringify(review, null, 2);
-  return `## Merged ReviewFile (from ${ALL_AXIS_IDS.length} axis evaluators)
+  const parts: string[] = [];
+
+  parts.push(`## Merged ReviewFile (from ${ALL_AXIS_IDS.length} axis evaluators)
 
 \`\`\`json
 ${reviewJson}
-\`\`\`
+\`\`\``);
 
-## Source code of \`${review.file}\`
+  parts.push(`## Source code of \`${review.file}\`
 
 \`\`\`typescript
 ${fileContent}
-\`\`\`
+\`\`\``);
 
-## Instructions
+  // Inject test file content so deliberation can independently verify tests axis findings
+  if (testFile) {
+    const MAX_TEST_LINES = 500;
+    const lines = testFile.content.split('\n');
+    const truncated = lines.length > MAX_TEST_LINES;
+    parts.push(`## Test File: \`${testFile.name}\`
+
+\`\`\`typescript
+${truncated ? lines.slice(0, MAX_TEST_LINES).join('\n') : testFile.content}
+\`\`\`${truncated ? `\n*(truncated — ${lines.length} lines total, showing first ${MAX_TEST_LINES})*` : ''}`);
+  }
+
+  parts.push(`## Instructions
 
 Deliberate ONLY symbols with findings — skip clean symbols. For each symbol, address ALL its axis findings together in one entry (e.g., if a symbol is DEAD + NEEDS_FIX, deliberate both in the same entry). Recompute the verdict.
 
@@ -99,7 +117,10 @@ Rules:
 - Do NOT add new findings, symbols, or actions
 - Protect ERROR (require ≥ 95 confidence to downgrade)
 - Reclassification requires confidence ≥ 85
-- Copy original values when you agree with the finding`;
+- Copy original values when you agree with the finding
+- When a test file is provided, use it to independently verify tests axis findings — reclassify WEAK→GOOD or NONE→WEAK/GOOD if the test file covers the symbol adequately`);
+
+  return parts.join('\n\n');
 }
 
 // ---------------------------------------------------------------------------
