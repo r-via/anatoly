@@ -40,6 +40,16 @@ Start from 10.0 and subtract penalties per rule violation:
 8. Do NOT evaluate other axes — only best practices.
 9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
 
+## Severity Calibration
+
+When rating severity, consider whether the violation is reachable from external input:
+- **CRITICAL**: Reachable from untrusted/external input with no guard (e.g. user input → crash)
+- **HIGH**: Reachable but requires specific internal misuse or unusual conditions
+- **MEDIUM**: Only reachable if internal invariants are violated (e.g. type system guarantees prevent it)
+- **LOW**: Logically unreachable given language type constraints
+
+A pattern that appears unsafe in isolation but is guarded by the type system should be rated at most MEDIUM, not CRITICAL. Prioritize real-world exploitability over theoretical risk.
+
 ## Score Calibration
 
 - **9–10**: All 17 rules PASS. Strict mode, zero `any`, proper error handling, security-clean, well-documented exports.

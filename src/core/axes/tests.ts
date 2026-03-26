@@ -124,6 +124,45 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
     parts.push('');
   }
 
+  // Inject transitive coverage hints for private symbols
+  // When a private symbol's only callers are well-tested exported symbols,
+  // it is likely tested transitively — hint this to the LLM.
+  if (ctx.usageGraph) {
+    const transitiveHints: string[] = [];
+    for (const s of ctx.task.symbols) {
+      if (s.exported) continue;
+      const callers = getSymbolUsage(ctx.usageGraph, s.name, ctx.task.file);
+      // intra-file callers: exported symbols in the same file that reference this private symbol
+      const intraKey = `${s.name}::${ctx.task.file}`;
+      const intraRefs = ctx.usageGraph.intraFileRefs?.get(intraKey);
+      if (intraRefs && intraRefs.size > 0) {
+        const exportedCallers = [...intraRefs].filter((ref) =>
+          ctx.task.symbols.some((sym) => sym.name === ref && sym.exported),
+        );
+        if (exportedCallers.length > 0) {
+          transitiveHints.push(
+            `- \`${s.name}\` (private) is called by exported symbols: ${exportedCallers.map((c) => `\`${c}\``).join(', ')}. If those callers are well-tested, rate this symbol GOOD (transitive coverage).`,
+          );
+        }
+      } else if (callers.length > 0) {
+        transitiveHints.push(
+          `- \`${s.name}\` (private) is imported by: ${callers.map((f) => `\`${f}\``).join(', ')}. Consider transitive coverage through its callers.`,
+        );
+      }
+    }
+    if (transitiveHints.length > 0) {
+      parts.push('## Transitive Coverage Hints');
+      parts.push('');
+      parts.push('Private symbols tested through their callers should be rated based on caller test quality:');
+      parts.push('- If ALL exported callers are GOOD → rate the private symbol GOOD');
+      parts.push('- If callers are WEAK → rate WEAK');
+      parts.push('- Only rate NONE if no caller exercises the symbol at all');
+      parts.push('');
+      for (const h of transitiveHints) parts.push(h);
+      parts.push('');
+    }
+  }
+
   parts.push('Evaluate the test quality for each symbol and output the JSON.');
 
   return parts.join('\n');

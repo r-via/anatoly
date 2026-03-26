@@ -271,7 +271,25 @@ export function applyDeliberation(
     return updated;
   });
 
-  const actions = review.actions.filter((a) => !removedActionIds.has(a.id));
+  // Auto-prune low-value actions that deliberation didn't explicitly remove:
+  // - Doc actions on non-exported small symbols (private helpers don't need doc actions)
+  // - Test actions on non-exported small symbols
+  const symMap = new Map(review.symbols.map((s) => [s.name, s]));
+  const autoPruned = new Set<number>();
+  for (const action of review.actions) {
+    if (removedActionIds.has(action.id)) continue;
+    if (!action.target_symbol) continue;
+    const sym = symMap.get(action.target_symbol);
+    if (!sym) continue;
+    const symbolSize = sym.line_end - sym.line_start + 1;
+    const isPrivateSmall = !sym.exported && symbolSize < 15;
+    if (isPrivateSmall && (action.source === 'documentation' || action.source === 'tests')) {
+      autoPruned.add(action.id);
+    }
+  }
+
+  const allRemovedIds = new Set([...removedActionIds, ...autoPruned]);
+  const actions = review.actions.filter((a) => !allRemovedIds.has(a.id));
 
   // Recompute verdict from final symbols to ensure coherence
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)

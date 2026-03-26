@@ -34,6 +34,19 @@ Start from 10.0 and subtract penalties per rule violation:
 6. Include concrete suggestions with before/after code snippets when relevant.
 7. Do NOT evaluate other axes — only best practices.
 
+## Severity Calibration
+
+When rating severity, consider reachability:
+- `.unwrap()` / `.expect()` on a `try_into()` from a fixed-size array (e.g. `&[u8; 148]`) is **logically infallible** — the type system guarantees the slice length. Rate as MEDIUM at most, not CRITICAL.
+- `.unwrap()` on external/untrusted input (network, user, file) with no size guard = CRITICAL.
+- `.expect()` on crypto invariants that are guaranteed by the algorithm (e.g. AEAD encrypt with valid key+nonce) = MEDIUM.
+
+## Cryptographic Types
+
+For types holding key material, nonces, or secrets (identifiable by fields like `[u8; 32]`, `Secret`, `Key`, or use of `Zeroize`/`ZeroizeOnDrop`):
+- **Rule 4 (Derive traits)**: Omitting `Debug` is CORRECT (prevents key leakage in logs). Omitting `Clone` is CORRECT (prevents key duplication). Rate as PASS, not WARN.
+- Only flag missing derives on types that do NOT hold sensitive material.
+
 ## Score Calibration
 
 - **9–10**: All rules PASS. No `unwrap()` in production paths, no unnecessary `unsafe`, proper `Result`/`Option` handling.

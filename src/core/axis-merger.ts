@@ -81,7 +81,10 @@ export function mergeAxisResults(
   // Dedup: LLM actions take priority over synthesized for same target symbol
   const existingTargets = new Set(llmActions.map((a) => a.target_symbol).filter(Boolean));
   const uniqueSynthesized = synthesized.filter((a) => !existingTargets.has(a.target_symbol));
-  const actions = [...llmActions, ...uniqueSynthesized].map((a, i) => ({ ...a, id: i + 1 }));
+  const merged = [...llmActions, ...uniqueSynthesized];
+  // Group identical actions (e.g. 12 "add doc comment" → 1 with combined targets)
+  const grouped = groupIdenticalActions(merged);
+  const actions = grouped.map((a, i) => ({ ...a, id: i + 1 }));
 
   const fileLevel = mergeFileLevels(results);
   const verdict = computeVerdict(symbols);
@@ -218,6 +221,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
  * - If utility=DEAD, force tests=NONE (no point testing dead code)
  * - If correction=ERROR, force overengineering=ACCEPTABLE (complexity is secondary to correctness)
  * - If utility=DEAD, force documentation=UNDOCUMENTED (dead code does not need docs)
+ * - Private small symbols: downgrade UNDOCUMENTED→DOCUMENTED and WEAK/NONE→GOOD (noise reduction)
  *
  * @param sym - The merged symbol review to apply coherence rules to.
  * @returns A new SymbolReview with any coherence corrections applied.
@@ -238,6 +242,19 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
   // DEAD code doesn't need documentation
   if (result.utility === 'DEAD' && result.documentation !== 'UNDOCUMENTED') {
     result = { ...result, documentation: 'UNDOCUMENTED' };
+  }
+
+  // Private small symbols don't need doc findings or strict test findings.
+  // A non-exported symbol under 15 lines is typically a helper tested through
+  // its callers — flagging it UNDOCUMENTED or WEAK is noise.
+  const symbolSize = result.line_end - result.line_start + 1;
+  if (!result.exported && symbolSize < 15) {
+    if (result.documentation === 'UNDOCUMENTED') {
+      result = { ...result, documentation: 'DOCUMENTED', confidence: Math.min(result.confidence, 60) };
+    }
+    if (result.tests === 'WEAK' || result.tests === 'NONE') {
+      result = { ...result, tests: 'GOOD', confidence: Math.min(result.confidence, 60) };
+    }
   }
 
   return result;
@@ -354,6 +371,51 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
   }
 
   return actions;
+}
+
+/**
+ * Group actions with identical description patterns into a single action.
+ *
+ * When 3+ actions share the same source axis, category, and description
+ * template (differing only in the target symbol name), they are merged
+ * into one action listing all affected symbols.
+ */
+function groupIdenticalActions(actions: Action[]): Action[] {
+  // Build a fingerprint for each action: source + category + description with symbol name replaced
+  const groups = new Map<string, Action[]>();
+  for (const action of actions) {
+    const normalized = action.description.replace(/`[^`]+`/g, '``');
+    const key = `${action.source ?? ''}::${action.category}::${normalized}`;
+    const group = groups.get(key);
+    if (group) {
+      group.push(action);
+    } else {
+      groups.set(key, [action]);
+    }
+  }
+
+  const result: Action[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 3) {
+      result.push(...group);
+      continue;
+    }
+    // Merge into a single action with combined symbols
+    const symbols = group
+      .map((a) => a.target_symbol)
+      .filter(Boolean)
+      .join('`, `');
+    const first = group[0];
+    // Build combined line range
+    const allLines = group.map((a) => a.target_lines).filter(Boolean).join(', ');
+    result.push({
+      ...first,
+      description: `${first.description.replace(/`[^`]+`$/, '')} \`${symbols}\``,
+      target_symbol: group.map((a) => a.target_symbol).filter(Boolean).join(', '),
+      target_lines: allLines || null,
+    });
+  }
+  return result;
 }
 
 function mergeFileLevels(results: AxisResult[]) {
