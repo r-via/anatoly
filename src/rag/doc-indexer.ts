@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
@@ -140,18 +140,52 @@ const ChunkSchema = z.object({
   content: z.string(),
 });
 
-const ChunkResponseSchema = z.object({
+const BatchChunkResultSchema = z.object({
+  sourceSection: z.number(),
   sections: z.array(ChunkSchema),
+});
+
+const BatchChunkResponseSchema = z.object({
+  results: z.array(BatchChunkResultSchema),
 });
 
 function getRefineSectionPrompt(): string {
   return resolveSystemPrompt('rag.section-refiner');
 }
 
+/** Maximum combined prose characters per batch to avoid quality degradation. */
+export const MAX_BATCH_CHARS = 30_000;
+
+/**
+ * Split eligible sections into sub-batches where each batch's total prose
+ * stays under {@link MAX_BATCH_CHARS}. Returns at least one batch even if the
+ * first section alone exceeds the limit.
+ */
+export function splitIntoBatches(
+  sections: Array<{ section: DocSection; prose: string; originalIndex: number }>,
+): Array<Array<{ section: DocSection; prose: string; originalIndex: number }>> {
+  const batches: Array<Array<{ section: DocSection; prose: string; originalIndex: number }>> = [];
+  let current: Array<{ section: DocSection; prose: string; originalIndex: number }> = [];
+  let currentChars = 0;
+
+  for (const entry of sections) {
+    if (current.length > 0 && currentChars + entry.prose.length > MAX_BATCH_CHARS) {
+      batches.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(entry);
+    currentChars += entry.prose.length;
+  }
+  if (current.length > 0) batches.push(current);
+
+  return batches;
+}
+
 /**
  * Chunk a doc file by first splitting on H2 headings mechanically, then
- * refining each section with Haiku. This keeps LLM context small (one
- * section at a time) and avoids hallucinations on large documents.
+ * refining eligible sections with Haiku in a single batched call per file
+ * (or per sub-batch for very large documents).
  */
 async function chunkDocWithHaiku(
   filePath: string,
@@ -164,20 +198,21 @@ async function chunkDocWithHaiku(
 ): Promise<DocSection[]> {
   const log = contextLogger();
   const ac = abortController ?? new AbortController();
+  const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
 
   // Step 1: mechanical H2 split (free, instant)
   const h2Sections = fallbackParseH2(filePath, source);
 
   if (h2Sections.length === 0) {
-    // No H2 structure — send the whole doc (prose only) to Haiku
+    // No H2 structure — send the whole doc as a single batch section
     const prose = stripNonProse(source);
     if (prose.length < 50) return [];
     try {
-      const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
+      const userMessage = `### Section 1: "${filePath}" from \`${filePath}\`\n\n${prose}`;
       const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
           systemPrompt: getRefineSectionPrompt(),
-          userMessage: `Section from \`${filePath}\`:\n\n${prose}`,
+          userMessage,
           model,
           projectRoot,
           abortController: ac,
@@ -185,9 +220,10 @@ async function chunkDocWithHaiku(
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
           semaphore,
         },
-        ChunkResponseSchema,
+        BatchChunkResponseSchema,
       ));
-      return result.data.sections
+      const sections = result.data.results.find(r => r.sourceSection === 1)?.sections ?? [];
+      return sections
         .filter((s) => s.content.trim().length >= 50)
         .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
     } catch (err) {
@@ -197,47 +233,79 @@ async function chunkDocWithHaiku(
     }
   }
 
-  // Step 2: refine each H2 section with Haiku (small context per call)
-  const allSections: DocSection[] = [];
+  // Step 2: identify eligible sections (>= 500 chars prose) for LLM refinement
+  const eligible: Array<{ section: DocSection; prose: string; originalIndex: number }> = [];
 
-  for (const section of h2Sections) {
-    if (ac.signal.aborted) break;
-
-    // Strip non-prose before checking size and sending to Haiku
-    const prose = stripNonProse(section.content);
-
-    // Small sections don't need Haiku refinement
-    if (prose.length < 500) {
-      allSections.push(section);
-      continue;
+  for (let i = 0; i < h2Sections.length; i++) {
+    const prose = stripNonProse(h2Sections[i].content);
+    if (prose.length >= 500) {
+      eligible.push({ section: h2Sections[i], prose, originalIndex: i });
     }
+  }
 
-    try {
-      const sectionSlug = section.heading.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-      const docSlugForSection = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
+  // If nothing needs refinement, return all sections as-is
+  if (eligible.length === 0) {
+    return h2Sections;
+  }
+
+  // Step 3: batch LLM calls (split into sub-batches if needed)
+  const batches = splitIntoBatches(eligible);
+  // Map from originalIndex → refined DocSection[]
+  const refinedMap = new Map<number, DocSection[]>();
+
+  try {
+    for (const batch of batches) {
+      if (ac.signal.aborted) break;
+
+      const userMessage = batch.map((entry, i) =>
+        `### Section ${i + 1}: "${entry.section.heading}" from \`${filePath}\`\n\n${entry.prose}`,
+      ).join('\n\n---\n\n');
+
       const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
         {
           systemPrompt: getRefineSectionPrompt(),
-          userMessage: `Section "${section.heading}" from \`${filePath}\`:\n\n${prose}`,
+          userMessage,
           model,
           projectRoot,
           abortController: ac,
           conversationDir,
-          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlugForSection}__${sectionSlug}` : undefined,
+          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
           semaphore,
         },
-        ChunkResponseSchema,
+        BatchChunkResponseSchema,
       ));
 
-      const refined = result.data.sections
-        .filter((s) => s.content.trim().length >= 50)
-        .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
+      // Map results back to original indices
+      for (const batchResult of result.data.results) {
+        const batchIndex = batchResult.sourceSection - 1; // 1-based → 0-based
+        if (batchIndex < 0 || batchIndex >= batch.length) {
+          log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', sourceSection: batchResult.sourceSection, batchSize: batch.length }, 'doc chunking: LLM returned out-of-range sourceSection, skipping');
+          continue;
+        }
+        const originalIndex = batch[batchIndex].originalIndex;
+        const refined = batchResult.sections
+          .filter((s) => s.content.trim().length >= 50)
+          .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
+        if (refined.length > 0) {
+          refinedMap.set(originalIndex, refined);
+        }
+      }
+    }
+  } catch (err) {
+    if (ac.signal.aborted) throw err;
+    log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku batch refinement failed, keeping H2 sections');
+    // Fallback: return all H2 sections as-is
+    return h2Sections;
+  }
 
-      allSections.push(...(refined.length > 0 ? refined : [section]));
-    } catch (err) {
-      if (ac.signal.aborted) throw err;
-      log?.warn({ event: 'llm_call', file: filePath, section: section.heading, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku refinement failed, keeping H2 section');
-      allSections.push(section);
+  // Step 4: merge passthrough + refined in original document order
+  const allSections: DocSection[] = [];
+  for (let i = 0; i < h2Sections.length; i++) {
+    const refined = refinedMap.get(i);
+    if (refined) {
+      allSections.push(...refined);
+    } else {
+      allSections.push(h2Sections[i]);
     }
   }
 
@@ -599,4 +667,89 @@ function isScaffoldingOnly(source: string): boolean {
     .replace(/^\s*$/gm, '')
     .trim();
   return stripped.length < 200;
+}
+
+// ---------------------------------------------------------------------------
+// Doc tree identity detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether two documentation directories have byte-identical `.md` files.
+ *
+ * Returns `true` when:
+ * - Both directories don't exist (no docs at all)
+ * - Both exist and contain the exact same set of `.md` files with identical content
+ *
+ * Returns `false` when:
+ * - Only one directory exists
+ * - The sets of `.md` relative paths differ
+ * - Any file differs in size or SHA-256 content hash
+ *
+ * Used by the orchestrator to skip double-chunking when `docs/` is a copy of `.anatoly/docs/`.
+ */
+export function areDocTreesIdentical(
+  projectRoot: string,
+  projectDocsDir: string,
+  internalDocsDir: string,
+): boolean {
+  const absProject = resolve(projectRoot, projectDocsDir);
+  const absInternal = resolve(projectRoot, internalDocsDir);
+
+  const projectExists = existsSync(absProject);
+  const internalExists = existsSync(absInternal);
+
+  // Both missing → identical (no docs at all)
+  if (!projectExists && !internalExists) return true;
+
+  // Only one exists → not identical
+  if (!projectExists || !internalExists) return false;
+
+  const projectFiles = globSync(['**/*.md'], { cwd: absProject }).sort();
+  const internalFiles = globSync(['**/*.md'], { cwd: absInternal }).sort();
+
+  // Different file sets → not identical
+  if (projectFiles.length !== internalFiles.length) return false;
+  for (let i = 0; i < projectFiles.length; i++) {
+    if (projectFiles[i] !== internalFiles[i]) return false;
+  }
+
+  // Both empty → identical
+  if (projectFiles.length === 0) return true;
+
+  // Compare file-by-file: size first (cheap), then SHA-256
+  for (const relPath of projectFiles) {
+    const projectPath = resolve(absProject, relPath);
+    const internalPath = resolve(absInternal, relPath);
+
+    // Size short-circuit
+    const projectSize = statSync(projectPath).size;
+    const internalSize = statSync(internalPath).size;
+    if (projectSize !== internalSize) return false;
+
+    // SHA-256 content comparison
+    const projectSha = computeDocSha(readFileSync(projectPath, 'utf-8'));
+    const internalSha = computeDocSha(readFileSync(internalPath, 'utf-8'));
+    if (projectSha !== internalSha) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Remap a doc file path from one directory prefix to another.
+ *
+ * Example: `remapDocPath('.anatoly/docs/02-Arch/foo.md', '.anatoly/docs', 'docs')` → `'docs/02-Arch/foo.md'`
+ */
+export function remapDocPath(filePath: string, fromPrefix: string, toPrefix: string): string {
+  // Normalize: strip trailing slashes for consistent comparison
+  const from = fromPrefix.replace(/\/+$/, '');
+  const to = toPrefix.replace(/\/+$/, '');
+
+  if (filePath.startsWith(from + '/')) {
+    return to + filePath.slice(from.length);
+  }
+  if (filePath === from) {
+    return to;
+  }
+  return filePath;
 }

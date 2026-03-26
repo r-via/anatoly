@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
+import { buildDocSectionId, remapDocPath } from './doc-indexer.js';
 const DEFAULT_TABLE_NAME = 'function_cards';
 
 /**
@@ -428,6 +429,77 @@ export class VectorStore {
         // May not exist
       }
     }
+  }
+
+  /**
+   * Alias doc sections from one source to another by copying rows with remapped paths.
+   *
+   * Used when `docs/` and `.anatoly/docs/` are byte-identical: index only internal,
+   * then alias the results as project entries to avoid double-chunking.
+   *
+   * @param fromSource - Source to copy from (e.g. 'internal')
+   * @param toSource - Source to create aliases for (e.g. 'project')
+   * @param toDocsDir - Target docs directory for path remapping (e.g. 'docs')
+   * @returns Number of aliased sections created
+   */
+  async aliasDocSource(
+    fromSource: 'internal' | 'project',
+    toSource: 'internal' | 'project',
+    toDocsDir: string,
+  ): Promise<number> {
+    if (!this.table) return 0;
+
+    // 1. Delete existing entries with toSource
+    try {
+      await this.table.delete(`type = 'doc_section' AND source = '${toSource}'`);
+    } catch {
+      // May not exist yet
+    }
+
+    // 2. Query all doc_section entries with fromSource — need ALL columns for faithful copy
+    const rows = await this.table
+      .query()
+      .where(`type = 'doc_section' AND source = '${fromSource}'`)
+      .toArray();
+
+    if (rows.length === 0) return 0;
+
+    // Determine the fromPrefix from the first row's filePath
+    // e.g. if fromSource='internal' and filePath='.anatoly/docs/02-Arch/foo.md' → fromPrefix='.anatoly/docs'
+    const samplePath = String(rows[0].filePath);
+    const fromDocsDir = fromSource === 'internal' ? '.anatoly/docs' : toDocsDir;
+
+    // 3. Create aliased rows with remapped paths and recomputed IDs
+    const aliasedRows: VectorRow[] = rows.map((row) => {
+      const originalPath = String(row.filePath);
+      const remappedPath = remapDocPath(originalPath, fromDocsDir, toDocsDir.replace(/\/+$/, ''));
+      const heading = String(row.name);
+      const newId = buildDocSectionId(remappedPath, heading);
+
+      return {
+        id: newId,
+        filePath: remappedPath,
+        name: heading,
+        summary: String(row.summary ?? ''),
+        docSummary: String(row.docSummary ?? ''),
+        keyConcepts: String(row.keyConcepts ?? '[]'),
+        signature: String(row.signature ?? ''),
+        behavioralProfile: String(row.behavioralProfile ?? ''),
+        complexityScore: typeof row.complexityScore === 'number' ? row.complexityScore : 0,
+        calledInternals: String(row.calledInternals ?? '[]'),
+        lastIndexed: String(row.lastIndexed ?? new Date().toISOString()),
+        vector: toNumberArray(row.vector),
+        nlp_vector: toNumberArray(row.nlp_vector),
+        doc_vector: toNumberArray(row.doc_vector),
+        type: 'doc_section',
+        source: toSource,
+      };
+    });
+
+    // 4. Upsert aliased entries
+    await this.table.add(aliasedRows);
+
+    return aliasedRows.length;
   }
 
   /**

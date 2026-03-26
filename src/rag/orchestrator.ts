@@ -15,7 +15,7 @@ import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
-import { indexDocSections } from './doc-indexer.js';
+import { indexDocSections, areDocTreesIdentical } from './doc-indexer.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
 
 /**
@@ -287,6 +287,9 @@ export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffi
  */
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, onPhase, isInterrupted } = options;
+  // Doc chunking is now 1 LLM call per file (batched), so we can process more
+  // files in parallel — let the semaphore be the sole concurrency limiter.
+  const docConcurrency = options.semaphore?.capacity ?? concurrency;
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
@@ -455,56 +458,103 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   let internalDocSections = 0;
   let internalDocsCached = false;
 
-  // Project docs (docs/)
-  onPhase?.('doc-project');
+  // Check if docs/ and .anatoly/docs/ are byte-identical to avoid double-chunking
+  const internalDocsDir = join('.anatoly', 'docs');
+  let docsIdentical = false;
   try {
-    const projResult = await indexDocSections({
-      projectRoot,
-      vectorStore: store,
-      docsDir: options.docsDir,
-      cacheSuffix,
-      chunkModel: options.indexModel,
-      onLog,
-      onProgress,
-      onFileStart,
-      onFileDone,
-      isInterrupted,
-      conversationDir: options.conversationDir,
-      semaphore: options.semaphore,
-      concurrency,
-      docSource: 'project',
-    });
-    projectDocSections = projResult.sections;
-    projectDocsCached = projResult.cached;
-    docSectionsIndexed += projectDocSections;
+    docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);
   } catch (err) {
-    onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+    onLog(`rag: doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
   }
 
-  // Internal docs (.anatoly/docs/)
-  onPhase?.('doc-internal');
-  try {
-    const intResult = await indexDocSections({
-      projectRoot,
-      vectorStore: store,
-      docsDir: join('.anatoly', 'docs'),
-      cacheSuffix: `${cacheSuffix}-internal`,
-      chunkModel: options.indexModel,
-      onLog,
-      onProgress,
-      onFileStart,
-      onFileDone,
-      isInterrupted,
-      conversationDir: options.conversationDir,
-      semaphore: options.semaphore,
-      concurrency,
-      docSource: 'internal',
-    });
-    internalDocSections = intResult.sections;
-    internalDocsCached = intResult.cached;
-    docSectionsIndexed += internalDocSections;
-  } catch (err) {
-    onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
+  if (docsIdentical) {
+    // Trees are identical — index only internal, then alias as project
+    onLog('rag: docs/ identical to .anatoly/docs/ — indexing internal only, aliasing project');
+
+    onPhase?.('doc-internal');
+    try {
+      const intResult = await indexDocSections({
+        projectRoot,
+        vectorStore: store,
+        docsDir: internalDocsDir,
+        cacheSuffix: `${cacheSuffix}-internal`,
+        chunkModel: options.indexModel,
+        onLog,
+        onProgress,
+        onFileStart,
+        onFileDone,
+        isInterrupted,
+        conversationDir: options.conversationDir,
+        semaphore: options.semaphore,
+        concurrency: docConcurrency,
+        docSource: 'internal',
+      });
+      internalDocSections = intResult.sections;
+      internalDocsCached = intResult.cached;
+      docSectionsIndexed += internalDocSections;
+
+      // Alias internal → project in vector store
+      const aliased = await store.aliasDocSource('internal', 'project', options.docsDir ?? 'docs');
+      projectDocSections = aliased;
+      projectDocsCached = intResult.cached;
+      docSectionsIndexed += aliased;
+    } catch (err) {
+      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
+    }
+  } else {
+    // Trees differ — index both independently (original behavior)
+
+    // Project docs (docs/)
+    onPhase?.('doc-project');
+    try {
+      const projResult = await indexDocSections({
+        projectRoot,
+        vectorStore: store,
+        docsDir: options.docsDir,
+        cacheSuffix,
+        chunkModel: options.indexModel,
+        onLog,
+        onProgress,
+        onFileStart,
+        onFileDone,
+        isInterrupted,
+        conversationDir: options.conversationDir,
+        semaphore: options.semaphore,
+        concurrency: docConcurrency,
+        docSource: 'project',
+      });
+      projectDocSections = projResult.sections;
+      projectDocsCached = projResult.cached;
+      docSectionsIndexed += projectDocSections;
+    } catch (err) {
+      onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+    }
+
+    // Internal docs (.anatoly/docs/)
+    onPhase?.('doc-internal');
+    try {
+      const intResult = await indexDocSections({
+        projectRoot,
+        vectorStore: store,
+        docsDir: internalDocsDir,
+        cacheSuffix: `${cacheSuffix}-internal`,
+        chunkModel: options.indexModel,
+        onLog,
+        onProgress,
+        onFileStart,
+        onFileDone,
+        isInterrupted,
+        conversationDir: options.conversationDir,
+        semaphore: options.semaphore,
+        concurrency: docConcurrency,
+        docSource: 'internal',
+      });
+      internalDocSections = intResult.sections;
+      internalDocsCached = intResult.cached;
+      docSectionsIndexed += internalDocSections;
+    } catch (err) {
+      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
+    }
   }
 
   const stats = await store.stats();
