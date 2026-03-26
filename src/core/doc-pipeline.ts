@@ -41,6 +41,8 @@ export interface DocScaffoldResult {
 export interface DocGenerationResult {
   cacheResult: CacheResult;
   pagesGenerated: number;
+  /** Pages stale but deferred because their module was not touched this run */
+  pagesDeferred: number;
   pagesRemoved: number;
   totalPages: number;
   prompts: PagePrompt[];
@@ -127,6 +129,7 @@ export function runDocGeneration(
   scaffoldResult: DocScaffoldResult,
   tasks: Task[],
   packageJson: Record<string, unknown>,
+  changedFiles?: Set<string>,
 ): DocGenerationResult {
   const outputDir = scaffoldResult.outputDir;
   const cachePath = join(outputDir, '.cache.json');
@@ -154,9 +157,21 @@ export function runDocGeneration(
   // Collect type-specific context once (e.g. CLI --help output)
   const typeContext = collectTypeContext(projectRoot, scaffoldResult.projectTypes, packageJson);
 
-  // Build prompts for stale + added pages
+  // Build prompts for stale + added pages.
+  // When changedFiles is provided, scope to only pages whose source files
+  // intersect with the changed set — avoids regenerating unrelated modules.
   const prompts: PagePrompt[] = [];
-  const pagesToGenerate = [...cacheResult.stale, ...cacheResult.added];
+  const allStaleOrAdded = [...cacheResult.stale, ...cacheResult.added];
+  const pagesToGenerate = changedFiles
+    ? allStaleOrAdded.filter(pagePath => {
+        const mapping = pageMappings.find(m => m.pagePath === pagePath);
+        if (!mapping) return false;
+        return mapping.sourceFiles.some(f => changedFiles.has(f));
+      })
+    : allStaleOrAdded;
+  const pagesDeferred = changedFiles
+    ? allStaleOrAdded.length - pagesToGenerate.length
+    : 0;
 
   for (const pagePath of pagesToGenerate) {
     const mapping = pageMappings.find(m => m.pagePath === pagePath);
@@ -206,11 +221,12 @@ export function runDocGeneration(
   // Save cache
   saveDocCache(cachePath, updatedCache);
 
-  const totalPages = cacheResult.fresh.length + pagesToGenerate.length;
+  const totalPages = cacheResult.fresh.length + allStaleOrAdded.length;
 
   return {
     cacheResult,
     pagesGenerated: pagesToGenerate.length,
+    pagesDeferred,
     pagesRemoved: cacheResult.removed.length,
     totalPages,
     prompts,
@@ -317,12 +333,12 @@ function buildPageMappings(
 
   // Add all scaffolded pages (both newly created and existing) that have no source mapping.
   // These are base pages (Overview, Installation, Architecture, etc.) that describe the
-  // project globally — use package.json as their source so they are cached and never
-  // incorrectly removed by the cache's "removed" detection.
+  // project globally. They use an empty source list so they are only regenerated on
+  // bootstrap or explicit `anatoly docs update` — never during incremental runs.
   for (const page of scaffoldResult.scaffoldResult.allPages) {
     if (page === 'index.md') continue;
     if (!mappings.some(m => m.pagePath === page)) {
-      mappings.push({ pagePath: page, sourceFiles: ['package.json'] });
+      mappings.push({ pagePath: page, sourceFiles: [] });
     }
   }
 

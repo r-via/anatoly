@@ -60,6 +60,17 @@ export function checkDocCache(
   for (const page of currentPages) {
     currentPagePaths.add(page.pagePath);
 
+    // Pages with no source files (base pages) are always fresh once cached.
+    // They are only regenerated on bootstrap or explicit `docs update`.
+    if (page.sourceFiles.length === 0) {
+      if (cache.pages[page.pagePath]) {
+        fresh.push(page.pagePath);
+      } else {
+        added.push(page.pagePath);
+      }
+      continue;
+    }
+
     const cachedHashes = cache.pages[page.pagePath];
     if (!cachedHashes) {
       added.push(page.pagePath);
