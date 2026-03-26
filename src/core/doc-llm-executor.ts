@@ -641,7 +641,8 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
 
   // Collect files and measure token budget
   const files = collectMarkdownFiles(outputDir);
-  // Coherence review is a single-purpose agent — allow 50% of context for doc injection
+  // Coherence review is a single-purpose agent — allow 50% of context for doc injection.
+  // getDocTokenBudget returns 20% (DOC_BUDGET_RATIO). Multiply by 2.5 to get 50%.
   const tokenBudget = Math.round(getDocTokenBudget('claude-sonnet-4-6') * 2.5);
   const allContent = files.map(f => {
     const relPath = relative(outputDir, f.fullPath);

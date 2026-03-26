@@ -73,8 +73,8 @@ Controls the language model selection and agent behavior.
 | `agentic_tools` | `boolean` | `true` | Permit agent tool use during review |
 | `timeout_per_file` | `integer ≥ 1` | `600` | Seconds before a single file review times out |
 | `max_retries` | `integer 1–10` | `3` | Retry count per file on transient errors |
-| `concurrency` | `integer 1–10` | `4` | Number of parallel file reviews |
-| `sdk_concurrency` | `integer 1–20` | `8` | Maximum concurrent SDK calls |
+| `concurrency` | `integer 1–10` | `8` | Number of parallel file reviews |
+| `sdk_concurrency` | `integer 1–32` | `24` | Maximum concurrent SDK calls |
 | `min_confidence` | `integer 0–100` | `70` | Minimum confidence score for a finding to be reported |
 | `max_stop_iterations` | `integer 1–10` | `3` | Maximum agent loop iterations before a forced stop |
 | `deliberation` | `boolean` | `true` | Run an Opus deliberation pass after axis merge |
