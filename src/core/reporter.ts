@@ -1765,6 +1765,17 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     lines.push('');
   }
 
+  // ── 6b. DOCUMENTATION (always present — link updated by publish.sh) ──
+  const docsLink = reportsBaseUrl
+    ? `${reportsBaseUrl}/docs/index.md`
+    : './docs/index.md';
+  lines.push('## 📚 Documentation');
+  lines.push('');
+  lines.push('Anatoly generated a complete documentation for this project during the audit.');
+  lines.push('');
+  lines.push(`**[Browse the documentation →](${docsLink})**`);
+  lines.push('');
+
   // ── 7. RUN DETAILS (cold zone) ────────────────────────────────────────
   if (runStats) {
     lines.push('---');
