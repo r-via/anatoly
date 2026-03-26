@@ -51,7 +51,7 @@ export const LlmConfigSchema = z.object({
   timeout_per_file: z.int().min(1).default(600),
   max_retries: z.int().min(1).max(10).default(3),
   /** Maximum number of files reviewed in parallel. */
-  concurrency: z.int().min(1).max(10).default(4),
+  concurrency: z.int().min(1).max(10).default(8),
   /** Maximum concurrent Anthropic SDK requests across all files. */
   sdk_concurrency: z.int().min(1).max(32).default(24),
   min_confidence: z.int().min(0).max(100).default(70),
