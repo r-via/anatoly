@@ -85,8 +85,18 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
     onLog('starting GGUF Docker containers…');
     const started = await startGgufContainers(projectRoot, onLog);
     if (!started) {
-      onLog('GGUF containers failed — falling back to ONNX lite');
-      effectiveBackend = 'lite';
+      if (rebuild) {
+        onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
+        effectiveBackend = 'lite';
+      } else {
+        throw new Error(
+          'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
+          + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
+          + 'Please either:\n'
+          + '  1. Start Docker and retry, or\n'
+          + '  2. Run with --rebuild to re-index everything in lite mode',
+        );
+      }
     }
   }
 
