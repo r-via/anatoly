@@ -279,11 +279,15 @@ export function applyDeliberation(
   for (const action of review.actions) {
     if (removedActionIds.has(action.id)) continue;
     if (!action.target_symbol) continue;
-    const sym = symMap.get(action.target_symbol);
-    if (!sym) continue;
-    const symbolSize = sym.line_end - sym.line_start + 1;
-    const isPrivateSmall = !sym.exported && symbolSize < 15;
-    if (isPrivateSmall && (action.source === 'documentation' || action.source === 'tests')) {
+    // Handle grouped actions with comma-separated target_symbol (e.g. "foo, bar, baz")
+    const targetNames = action.target_symbol.split(/,\s*/);
+    const allPrivateSmall = targetNames.every(name => {
+      const sym = symMap.get(name);
+      if (!sym) return false;
+      const symbolSize = sym.line_end - sym.line_start + 1;
+      return !sym.exported && symbolSize < 15;
+    });
+    if (allPrivateSmall && targetNames.length > 0 && (action.source === 'documentation' || action.source === 'tests')) {
       autoPruned.add(action.id);
     }
   }

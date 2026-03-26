@@ -252,8 +252,9 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
     if (result.documentation === 'UNDOCUMENTED') {
       result = { ...result, documentation: 'DOCUMENTED', confidence: Math.min(result.confidence, 60) };
     }
-    if (result.tests === 'WEAK' || result.tests === 'NONE') {
-      result = { ...result, tests: 'GOOD', confidence: Math.min(result.confidence, 60) };
+    if (result.tests === 'NONE') {
+      // Downgrade to WEAK (not GOOD) — transitive coverage assumed but not verified
+      result = { ...result, tests: 'WEAK', confidence: Math.min(result.confidence, 60) };
     }
   }
 
@@ -381,10 +382,14 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
  * into one action listing all affected symbols.
  */
 function groupIdenticalActions(actions: Action[]): Action[] {
-  // Build a fingerprint for each action: source + category + description with symbol name replaced
+  // Build a fingerprint for each action: source + category + description with ONLY target symbol replaced.
+  // Preserve other backtick content (dup targets, file paths) to avoid merging distinct findings.
   const groups = new Map<string, Action[]>();
   for (const action of actions) {
-    const normalized = action.description.replace(/`[^`]+`/g, '``');
+    const targetSym = action.target_symbol ? action.target_symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+    const normalized = targetSym
+      ? action.description.replace(new RegExp(`\`${targetSym}\``), '``')
+      : action.description;
     const key = `${action.source ?? ''}::${action.category}::${normalized}`;
     const group = groups.get(key);
     if (group) {

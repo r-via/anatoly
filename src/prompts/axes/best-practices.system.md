@@ -45,8 +45,7 @@ Start from 10.0 and subtract penalties per rule violation:
 When rating severity, consider whether the violation is reachable from external input:
 - **CRITICAL**: Reachable from untrusted/external input with no guard (e.g. user input → crash)
 - **HIGH**: Reachable but requires specific internal misuse or unusual conditions
-- **MEDIUM**: Only reachable if internal invariants are violated (e.g. type system guarantees prevent it)
-- **LOW**: Logically unreachable given language type constraints
+- **MEDIUM**: Only reachable if internal invariants are violated, or logically unreachable given language type constraints
 
 A pattern that appears unsafe in isolation but is guarded by the type system should be rated at most MEDIUM, not CRITICAL. Prioritize real-world exploitability over theoretical risk.
 
