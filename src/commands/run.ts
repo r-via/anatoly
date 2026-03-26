@@ -192,7 +192,7 @@ export function registerRunCommand(program: Command): void {
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
-    .action(async (cmdOpts: { runId?: string; axes?: string }) => {
+    .action(async (cmdOpts: { runId?: string; axes?: string; flushMemory?: boolean }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
@@ -246,7 +246,7 @@ export function registerRunCommand(program: Command): void {
       const axesFilter: AxisId[] | undefined = axesResult;
 
       // Flush deliberation memory if requested
-      if (parentOpts.flushMemory) {
+      if (cmdOpts.flushMemory) {
         saveDeliberationMemory(projectRoot, { version: 2, false_positives: [] });
         console.log(chalk.dim('deliberation memory flushed'));
       }
