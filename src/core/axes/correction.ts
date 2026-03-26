@@ -225,8 +225,8 @@ function applyVerification(
       // Record as false positive for future runs
       const depName = detectImplicatedDep(sym.detail, ctx.fileDeps);
       recordReclassification(ctx.projectRoot, {
-        pattern: summarizePattern(sym.detail),
-        axis: 'correction',
+        symbol: sym.name,
+        reclassifications: [{ axis: 'correction', from: v.original_correction, to: v.verified_correction }],
         dependency: depName,
         original_detail: sym.detail,
         reason: v.reason,

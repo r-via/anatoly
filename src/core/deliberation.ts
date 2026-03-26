@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
-import { recordReclassification } from './correction-memory.js';
+import { recordReclassification, type AxisReclassification } from './correction-memory.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
 
@@ -203,6 +203,7 @@ export function applyDeliberation(
     const updated = { ...sym, confidence: newConfidence };
 
     // Apply each axis reclassification using typed setter
+    const axisReclassifications: AxisReclassification[] = [];
     for (const axis of DELIBERATION_AXES) {
       const orig = delib.original[axis];
       const deliberated = delib.deliberated[axis];
@@ -216,18 +217,19 @@ export function applyDeliberation(
 
       if (orig !== deliberated) {
         changes.push(`${axis}: ${orig} → ${deliberated}`);
-
-        // Record any reclassification as a false positive for future runs
-        if (projectRoot) {
-          recordReclassification(projectRoot, {
-            pattern: `[deliberation] ${sym.name}: ${axis} ${orig} → ${deliberated}`,
-            axis,
-            original_detail: sym.detail,
-            reason: `Deliberation reclassified: ${delib.reasoning}`,
-          });
-        }
+        axisReclassifications.push({ axis, from: String(orig), to: String(deliberated) });
       }
       setAxisValue(updated, axis, deliberated);
+    }
+
+    // Record all axis reclassifications as a single symbol entry
+    if (projectRoot && axisReclassifications.length > 0) {
+      recordReclassification(projectRoot, {
+        symbol: sym.name,
+        reclassifications: axisReclassifications,
+        original_detail: sym.detail,
+        reason: `Deliberation reclassified: ${delib.reasoning}`,
+      });
     }
 
     const changesSummary = changes.length > 0
