@@ -852,6 +852,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           docsPath,
           abortController: ac,
           logDir: coherenceLogDir,
+          semaphore: ctx.sdkSemaphore,
           callbacks: {
             onToolUse: (_tool, filePath) => {
               const name = filePath.split('/').pop() ?? filePath;
