@@ -1,6 +1,6 @@
 {
   "name": "@r-via/anatoly",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Deep Audit Agent for TypeScript codebases",
   "type": "module",
   "bin": {
