@@ -364,9 +364,6 @@ export function registerRunCommand(program: Command): void {
         }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('internal-docs', 'Updating internal docs');
-        if (ctx.enableRag) {
-          pipelineState.addTask('sync-project-docs', 'Synchronising project docs');
-        }
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -412,9 +409,8 @@ export function registerRunCommand(program: Command): void {
 
         // --- Phase: sync project docs (dedup mode only) ---
         if (!ctx.interrupted && ctx.docsIdentical) {
+          ctx.pipelineState?.insertTaskBefore('report', 'sync-project-docs', 'Synchronising project docs');
           syncProjectDocsFromInternal(ctx);
-        } else if (!ctx.interrupted) {
-          ctx.pipelineState?.completeTask('sync-project-docs', 'standalone — no sync needed');
         }
 
         if (ctx.interrupted) {

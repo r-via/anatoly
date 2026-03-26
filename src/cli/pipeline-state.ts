@@ -78,6 +78,17 @@ export class PipelineState {
     if (task) task.label = label;
   }
 
+  /** Insert a new task before an existing task (for dynamically added phases). */
+  insertTaskBefore(beforeId: string, id: string, label: string): void {
+    const idx = this.tasks.findIndex((t) => t.id === beforeId);
+    const task = { id, label, status: 'pending' as const, detail: '\u2014', visible: true };
+    if (idx >= 0) {
+      this.tasks.splice(idx, 0, task);
+    } else {
+      this.tasks.push(task);
+    }
+  }
+
   completeTask(id: string, detail: string): void {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return;
