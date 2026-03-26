@@ -161,7 +161,9 @@ export class TypeScriptAdapter implements LanguageAdapter {
 
   extractImportsFromAst(rootNode: TSNode): ImportRef[] {
     const imports: ImportRef[] = [];
-    for (const node of rootNode.namedChildren) {
+
+    // Recursive traversal to catch require() at any depth
+    const visit = (node: TSNode): void => {
       if (node.type === 'import_statement') {
         const sourceNode = node.childForFieldName('source');
         if (sourceNode) {
@@ -173,7 +175,27 @@ export class TypeScriptAdapter implements LanguageAdapter {
         if (sourceNode) {
           imports.push({ source: sourceNode.text.replace(/^['"]|['"]$/g, ''), type: 'import' });
         }
+      } else if (node.type === 'call_expression') {
+        // require('module') calls
+        const fn = node.childForFieldName('function');
+        if (fn && fn.text === 'require') {
+          const args = node.childForFieldName('arguments');
+          if (args) {
+            const firstArg = args.namedChildren[0];
+            if (firstArg && (firstArg.type === 'string' || firstArg.type === 'template_string')) {
+              imports.push({ source: firstArg.text.replace(/^['"`]|['"`]$/g, ''), type: 'require' });
+            }
+          }
+        }
       }
+      for (const child of node.namedChildren) {
+        visit(child);
+      }
+    };
+
+    // Only visit top-level for imports/exports, but search deeper for require()
+    for (const node of rootNode.namedChildren) {
+      visit(node);
     }
     return imports;
   }
@@ -243,18 +265,24 @@ export class BashAdapter implements LanguageAdapter {
 
   extractImportsFromAst(rootNode: TSNode): ImportRef[] {
     const imports: ImportRef[] = [];
-    for (const node of rootNode.namedChildren) {
-      if (node.type !== 'command') continue;
-      const nameNode = node.childForFieldName('name');
-      if (!nameNode || (nameNode.text !== 'source' && nameNode.text !== '.')) continue;
-      // The argument follows the command name
-      const arg = node.namedChildren.find(
-        (c) => c !== nameNode && (c.type === 'word' || c.type === 'string' || c.type === 'raw_string' || c.type === 'concatenation'),
-      );
-      if (arg) {
-        imports.push({ source: arg.text.replace(/^["']|["']$/g, ''), type: 'source' });
+    // Recursive traversal — Bash source/. commands can appear inside functions, if/else, loops
+    const visit = (node: TSNode): void => {
+      if (node.type === 'command') {
+        const nameNode = node.childForFieldName('name');
+        if (nameNode && (nameNode.text === 'source' || nameNode.text === '.')) {
+          const arg = node.namedChildren.find(
+            (c) => c !== nameNode && (c.type === 'word' || c.type === 'string' || c.type === 'raw_string' || c.type === 'concatenation'),
+          );
+          if (arg) {
+            imports.push({ source: arg.text.replace(/^["']|["']$/g, ''), type: 'source' });
+          }
+        }
       }
-    }
+      for (const child of node.namedChildren) {
+        visit(child);
+      }
+    };
+    visit(rootNode);
     return imports;
   }
 }
@@ -310,7 +338,9 @@ export class PythonAdapter implements LanguageAdapter {
         }
       } else if (node.type === 'import_from_statement') {
         // `from os.path import join`
-        const moduleNode = node.childForFieldName('module_name');
+        // tree-sitter-python uses field 'module_name' in some versions, positional 'dotted_name' in others
+        const moduleNode = node.childForFieldName('module_name')
+          ?? node.namedChildren.find((c) => c.type === 'dotted_name' || c.type === 'relative_import');
         if (moduleNode) {
           imports.push({ source: moduleNode.text, type: 'import' });
         }

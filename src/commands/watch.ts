@@ -9,6 +9,7 @@ import { watch } from 'chokidar';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject, parseFile } from '../core/scanner.js';
+import { resolveAdapter } from '../core/language-adapters.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
 import { writeReviewOutput } from '../core/review-writer.js';
 import { generateReport } from '../core/reporter.js';
@@ -124,12 +125,15 @@ export function registerWatchCommand(program: Command): void {
           const source = readFileSync(absPath, 'utf-8');
           const { symbols, imports } = await parseFile(relPath, source);
 
+          const adapter = resolveAdapter(relPath);
           const task: Task = {
             version: 1,
             file: relPath,
             hash,
             symbols,
             ...(imports.length > 0 ? { imports } : {}),
+            language: adapter?.languageId ?? 'unknown',
+            parse_method: symbols.length > 0 ? 'ast' : 'heuristic',
             scanned_at: new Date().toISOString(),
           };
 
