@@ -593,14 +593,22 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   // Create a shared AbortController for all Haiku calls — aborted when isInterrupted() returns true
   const ac = new AbortController();
 
-  // Process files concurrently (semaphore bounds LLM calls inside chunkDocWithHaiku)
-  const processFile = async ({ relPath, source, sha }: { relPath: string; source: string; sha: string }) => {
+  // Phase 1: Chunk all files concurrently (Haiku batched calls)
+  interface ChunkedFile {
+    relPath: string;
+    sha: string;
+    sections: DocSection[];
+  }
+  const chunkedFiles: ChunkedFile[] = [];
+
+  const chunkFile = async ({ relPath, source, sha }: { relPath: string; source: string; sha: string }) => {
     if (isInterrupted?.()) {
       ac.abort();
       return;
     }
     onFileStart?.(relPath);
-    onLog(`rag: [${docFileCounter + 1}/${changedFiles.length}] chunking ${relPath}`);
+    docFileCounter++;
+    onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
     // Check chunk cache — reuse Haiku results if file SHA matches
     const cachedChunks = chunkCache[relPath];
@@ -616,46 +624,72 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
       sections = fallbackParseH2(relPath, source);
     }
 
+    chunkedFiles.push({ relPath, sha, sections });
+  };
+
+  for (let i = 0; i < changedFiles.length; i += concurrency) {
+    const batch = changedFiles.slice(i, i + concurrency);
+    await Promise.allSettled(batch.map(chunkFile));
+  }
+
+  // Phase 2: Collect all sections across files, embed in one mega-batch
+  interface FileCards {
+    relPath: string;
+    sha: string;
+    sections: DocSection[];
+    cards: Array<{ id: string; filePath: string; name: string; summary: string }>;
+    sectionIds: string[];
+    startIdx: number;
+    count: number;
+  }
+  const allTextsToEmbed: string[] = [];
+  const fileCardsList: FileCards[] = [];
+
+  for (const { relPath, sha, sections } of chunkedFiles) {
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
       newChunkCache[relPath] = { sha, sections: [] };
-      docFileCounter++;
-      onProgress?.(docFileCounter, changedFiles.length);
-      onFileDone?.(relPath);
-      return;
+      continue;
     }
 
     const cards: Array<{ id: string; filePath: string; name: string; summary: string }> = [];
     const sectionIds: string[] = [];
-    const textsToEmbed: string[] = [];
+    const startIdx = allTextsToEmbed.length;
 
     for (const section of sections) {
       const id = buildDocSectionId(section.filePath, section.heading);
-      const chars = section.embedText.length;
-      onLog(`rag:   section "${section.heading}" (${chars} chars)`);
+      onLog(`rag:   section "${section.heading}" (${section.embedText.length} chars)`);
       cards.push({ id, filePath: section.filePath, name: section.heading, summary: section.embedText.slice(0, 400) });
       sectionIds.push(id);
-      textsToEmbed.push(section.embedText);
+      allTextsToEmbed.push(section.embedText);
     }
 
-    onLog(`rag: embedding ${textsToEmbed.length} sections for ${relPath}...`);
-    const nlpEmbeddings = await embedNlpBatch(textsToEmbed);
-
-    await vectorStore.upsertDocSections(cards, nlpEmbeddings, docSource);
-    newCache[relPath] = { sha, sectionIds };
-    newChunkCache[relPath] = { sha, sections: sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })) };
-    totalIndexed += sections.length;
-    docFileCounter++;
-    onProgress?.(docFileCounter, changedFiles.length);
-    onLog(`rag: ${relPath} → ${sections.length} sections`);
-    onFileDone?.(relPath);
-  };
-
-  // Process files with bounded concurrency to avoid overwhelming the UI
-  for (let i = 0; i < changedFiles.length; i += concurrency) {
-    const batch = changedFiles.slice(i, i + concurrency);
-    await Promise.allSettled(batch.map(processFile));
+    fileCardsList.push({ relPath, sha, sections, cards, sectionIds, startIdx, count: sections.length });
   }
+
+  if (allTextsToEmbed.length > 0) {
+    onLog(`rag: embedding ${allTextsToEmbed.length} sections across ${fileCardsList.length} files in one batch...`);
+    const allEmbeddings = await embedNlpBatch(allTextsToEmbed);
+
+    // Phase 3: Upsert per file using sliced embeddings
+    for (const fc of fileCardsList) {
+      const fileEmbeddings = allEmbeddings.slice(fc.startIdx, fc.startIdx + fc.count);
+      await vectorStore.upsertDocSections(fc.cards, fileEmbeddings, docSource);
+      newCache[fc.relPath] = { sha: fc.sha, sectionIds: fc.sectionIds };
+      newChunkCache[fc.relPath] = { sha: fc.sha, sections: fc.sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })) };
+      totalIndexed += fc.sections.length;
+      onLog(`rag: ${fc.relPath} → ${fc.sections.length} sections`);
+      onFileDone?.(fc.relPath);
+    }
+  }
+
+  // Emit progress for files with no sections
+  for (const { relPath } of chunkedFiles) {
+    if (!fileCardsList.some(fc => fc.relPath === relPath)) {
+      onFileDone?.(relPath);
+    }
+  }
+  onProgress?.(changedFiles.length, changedFiles.length);
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
   // Merge chunk cache: keep entries for unchanged files, add new entries
