@@ -10,8 +10,10 @@
  * for resilience (one page failure doesn't block others).
  */
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { countTokens } from './estimator.js';
+import { getDocTokenBudget } from './docs-resolver.js';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
@@ -405,6 +407,158 @@ export function reviewDocStructure(
   return reviewResult;
 }
 
+// --- Auto-fix structural issues (deterministic) ---
+
+export interface AutoFixResult {
+  renames: Array<{ from: string; to: string }>;
+  indexEntriesAdded: string[];
+  indexOrphansRemoved: string[];
+  linksUpdated: number;
+}
+
+/**
+ * Deterministic auto-fix for structural issues that the linter detects but
+ * cannot fix today: numbering-gap (unnumbered files), index-missing, and
+ * index-orphan. Runs AFTER {@link reviewDocStructure} and mutates files on disk.
+ *
+ * Returns a summary of what was changed so the caller can decide whether
+ * to skip the expensive coherence review.
+ */
+export function autoFixStructuralIssues(
+  outputDir: string,
+  issues: StructureIssue[],
+): AutoFixResult {
+  const result: AutoFixResult = { renames: [], indexEntriesAdded: [], indexOrphansRemoved: [], linksUpdated: 0 };
+
+  // --- 1. Fix unnumbered files (numbering-gap with "unnumbered" detail) ---
+  const unnumberedIssues = issues.filter(i => i.rule === 'numbering-gap' && i.detail.includes('unnumbered'));
+  if (unnumberedIssues.length > 0) {
+    // Group by directory
+    const byDir = new Map<string, string[]>();
+    for (const issue of unnumberedIssues) {
+      const parts = issue.path.split('/');
+      if (parts.length !== 2) continue;
+      const dir = parts[0];
+      const existing = byDir.get(dir) ?? [];
+      existing.push(parts[1]);
+      byDir.set(dir, existing);
+    }
+
+    for (const [dir, unnumberedFiles] of byDir) {
+      // Find max existing number in this directory
+      const dirPath = join(outputDir, dir);
+      let entries: string[];
+      try { entries = readdirSync(dirPath); } catch { continue; }
+      const maxNum = entries
+        .map(f => parseInt(f.match(/^(\d+)-/)?.[1] ?? '', 10))
+        .filter(n => !isNaN(n))
+        .reduce((max, n) => Math.max(max, n), 0);
+
+      let nextNum = maxNum + 1;
+      for (const file of unnumberedFiles.sort()) {
+        const prefix = String(nextNum).padStart(2, '0');
+        const newName = `${prefix}-${file}`;
+        const oldRel = `${dir}/${file}`;
+        const newRel = `${dir}/${newName}`;
+
+        try {
+          renameSync(join(outputDir, oldRel), join(outputDir, newRel));
+          result.renames.push({ from: oldRel, to: newRel });
+          nextNum++;
+        } catch { /* skip if rename fails */ }
+      }
+    }
+
+    // Update all links across all files to reflect renames
+    if (result.renames.length > 0) {
+      const allFiles = collectMarkdownFiles(outputDir);
+      for (const file of allFiles) {
+        let content = file.content;
+        let changed = false;
+        for (const { from, to } of result.renames) {
+          const oldName = from.split('/').pop()!;
+          const newName = to.split('/').pop()!;
+          // Match markdown links containing the old filename
+          const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(`(\\]\\([^)]*?)${escaped}(\\))`, 'g');
+          const replaced = content.replace(re, (_match, before, after) => {
+            changed = true;
+            result.linksUpdated++;
+            return `${before}${newName}${after}`;
+          });
+          content = replaced;
+        }
+        if (changed) {
+          writeFileSync(file.fullPath, content, 'utf-8');
+        }
+      }
+    }
+  }
+
+  // --- 2. Fix index-missing (add entries to index.md) ---
+  const missingIssues = issues.filter(i => i.rule === 'index-missing');
+  const indexPath = join(outputDir, 'index.md');
+  if (missingIssues.length > 0) {
+    let indexContent: string;
+    try { indexContent = readFileSync(indexPath, 'utf-8'); } catch { indexContent = ''; }
+
+    for (const issue of missingIssues) {
+      // Extract the file path from the detail: "05-Modules/cli.md not linked in index"
+      const filePath = issue.detail.split(' ')[0];
+      // Apply renames if the file was just renamed
+      const renamed = result.renames.find(r => r.from === filePath);
+      const actualPath = renamed ? renamed.to : filePath;
+
+      // Build a display name from the filename
+      const fileName = actualPath.split('/').pop()!.replace(/\.md$/, '').replace(/^\d+-/, '');
+      const entry = `- [${fileName}](${actualPath})`;
+
+      // Find the section for this directory and append
+      const dir = actualPath.split('/')[0];
+      const sectionRe = new RegExp(`^(## .*${dir.replace(/^\d+-/, '')}.*\n)`, 'im');
+      const sectionMatch = indexContent.match(sectionRe);
+      if (sectionMatch && sectionMatch.index !== undefined) {
+        // Find the end of the link list under this section
+        const afterSection = indexContent.slice(sectionMatch.index + sectionMatch[0].length);
+        const nextSectionIdx = afterSection.search(/^## /m);
+        const insertPos = nextSectionIdx === -1
+          ? indexContent.length
+          : sectionMatch.index + sectionMatch[0].length + nextSectionIdx;
+        // Insert before the next section (with trailing newline)
+        indexContent = indexContent.slice(0, insertPos).trimEnd() + '\n' + entry + '\n\n' + indexContent.slice(insertPos).trimStart();
+      } else {
+        // Fallback: append at end
+        indexContent = indexContent.trimEnd() + '\n' + entry + '\n';
+      }
+      result.indexEntriesAdded.push(actualPath);
+    }
+
+    writeFileSync(indexPath, indexContent, 'utf-8');
+  }
+
+  // --- 3. Fix index-orphan (remove dead links from index.md) ---
+  const orphanIssues = issues.filter(i => i.rule === 'index-orphan');
+  if (orphanIssues.length > 0) {
+    let indexContent: string;
+    try { indexContent = readFileSync(indexPath, 'utf-8'); } catch { return result; }
+
+    for (const issue of orphanIssues) {
+      // Extract target path: "links to 05-Modules/old.md which does not exist"
+      const match = issue.detail.match(/links to (\S+)/);
+      if (!match) continue;
+      const deadPath = match[1];
+      // Remove the markdown link line containing this path
+      const lineRe = new RegExp(`^.*\\]\\(${deadPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\).*\n?`, 'gm');
+      indexContent = indexContent.replace(lineRe, '');
+      result.indexOrphansRemoved.push(deadPath);
+    }
+
+    writeFileSync(indexPath, indexContent, 'utf-8');
+  }
+
+  return result;
+}
+
 function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: string }> {
   const results: Array<{ fullPath: string; content: string }> = [];
 
@@ -423,12 +577,12 @@ function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: s
   return results.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
 }
 
-// --- Coherence review agent (Opus multi-turn) ---
+// --- Coherence review agent (single-pass, content-injected) ---
 
 export interface DocCoherenceReviewResult {
-  loopsCompleted: number;
   linterIssuesBefore: number;
   linterIssuesAfter: number;
+  contentInjected: boolean;
   costUsd: number;
   durationMs: number;
 }
@@ -437,29 +591,31 @@ export interface DocCoherenceReviewParams {
   outputDir: string;
   projectRoot: string;
   docsPath: string;
-  maxLoops?: number;
   abortController?: AbortController;
   logDir?: string;
   semaphore?: Semaphore;
   callbacks?: {
-    onLoopStart?: (loop: number) => void;
-    onLoopEnd?: (loop: number, linterIssues: number) => void;
     onToolUse?: (tool: string, filePath: string) => void;
   };
 }
 
 /**
- * Multi-turn Opus agent that reads all doc pages, identifies cross-page
- * coherence issues, and fixes them using Read/Write tools.
- * Runs up to maxLoops audit-fix-verify cycles with the deterministic
- * linter as verification after each loop.
+ * Single-pass Sonnet agent that reviews all doc pages for cross-page
+ * coherence issues and fixes them using Write tools.
+ *
+ * File contents are injected directly into the prompt when they fit within
+ * the 20% context budget (see {@link DOC_BUDGET_RATIO}), eliminating the
+ * need for Read tool calls. When the budget is exceeded, the agent falls
+ * back to Read + Write with a file listing only.
+ *
+ * The system prompt instructs the agent to self-verify before finishing,
+ * removing the need for external retry loops.
  */
 export async function runDocCoherenceReview(params: DocCoherenceReviewParams): Promise<DocCoherenceReviewResult> {
   const {
     outputDir,
     projectRoot,
     docsPath,
-    maxLoops = 3,
     abortController,
     logDir,
     semaphore,
@@ -467,166 +623,161 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   } = params;
 
   const start = Date.now();
-  let totalCostUsd = 0;
-  const conversationLog: string[] = [];
 
   // Build system prompt
   const systemPrompt = resolveSystemPrompt('doc-generation.coherence-review');
 
-  // Build file listing for the user message
+  // Collect files and measure token budget
   const files = collectMarkdownFiles(outputDir);
-  const fileListing = files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
+  const tokenBudget = getDocTokenBudget('claude-sonnet-4-6');
+  const allContent = files.map(f => {
+    const relPath = relative(outputDir, f.fullPath);
+    return `## ${relPath}\n<content>\n${f.content}\n</content>`;
+  }).join('\n\n');
+  const contentTokens = countTokens(allContent);
+  const contentInjected = contentTokens <= tokenBudget;
 
   // Initial linter run to know the baseline
   const baselineLint = reviewDocStructure(outputDir, projectRoot, docsPath);
   const linterIssuesBefore = baselineLint.issues.filter(i => !i.fixed).length;
 
-  let linterIssuesAfter = linterIssuesBefore;
-  let loopsCompleted = 0;
+  // Build user message
+  const parts: string[] = [];
 
-  for (let loop = 1; loop <= maxLoops; loop++) {
-    callbacks?.onLoopStart?.(loop);
+  if (contentInjected) {
+    parts.push(
+      `Below are all ${files.length} documentation files with their full content.`,
+      `Fix any structural coherence issues using the Write tool.`,
+      ``,
+      allContent,
+    );
+  } else {
+    const fileListing = files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
+    parts.push(
+      `The documentation directory is your current working directory.`,
+      ``,
+      `## Files in this documentation site (${files.length} total)`,
+      fileListing,
+      ``,
+      `Please read all pages, identify coherence issues, and fix them.`,
+    );
+  }
 
-    // Build user message — first loop gets full instructions, subsequent loops get linter feedback
-    let userMessage: string;
-    if (loop === 1) {
-      const parts = [
-        `The documentation directory is your current working directory.`,
-        ``,
-        `## Files in this documentation site (${files.length} total)`,
-        fileListing,
-        ``,
-      ];
-      // Include linter issues as starting context
-      const unfixed = baselineLint.issues.filter(i => !i.fixed);
-      if (unfixed.length > 0) {
-        parts.push(`## Known structural issues (from linter)`);
-        parts.push(``);
-        for (const i of unfixed) {
-          parts.push(`- **${i.path}**: [${i.rule}] ${i.detail}`);
-        }
-        parts.push(``);
-      }
-      parts.push(`Please read all pages, identify coherence issues, and fix them.`);
-      userMessage = parts.join('\n');
-    } else {
-      const currentLint = reviewDocStructure(outputDir, projectRoot, docsPath);
-      const unfixed = currentLint.issues.filter(i => !i.fixed);
-      userMessage = [
-        `The linter still found ${unfixed.length} issues after your last pass:`,
-        '',
-        ...unfixed.map(i => `- **${i.path}**: [${i.rule}] ${i.detail}`),
-        '',
-        'Please fix these remaining issues.',
-      ].join('\n');
+  // Include linter issues as starting context
+  const unfixed = baselineLint.issues.filter(i => !i.fixed);
+  if (unfixed.length > 0) {
+    parts.push(``, `## Known structural issues (from linter)`, ``);
+    for (const i of unfixed) {
+      parts.push(`- **${i.path}**: [${i.rule}] ${i.detail}`);
     }
+  }
 
-    conversationLog.push(`\n# Loop ${loop}\n\n## User\n\n${userMessage}\n`);
+  const userMessage = parts.join('\n');
 
-    // Run the Opus agent (acquire semaphore slot so UI shows 1/N active)
-    if (semaphore) await semaphore.acquire();
-    const ac = abortController ?? new AbortController();
-    let resultText = '';
-    try {
-      const { text, costUsd } = await retryWithBackoff(
-        async () => {
-          const q = query({
-            prompt: userMessage,
-            options: {
-              systemPrompt,
-              model: 'opus',
-              cwd: outputDir,
-              allowedTools: ['Read', 'Write'],
-              permissionMode: 'bypassPermissions' as const,
-              allowDangerouslySkipPermissions: true,
-              maxTurns: 200,
-              abortController: ac,
-            },
-          });
+  // Determine allowed tools based on whether content was injected
+  const allowedTools = contentInjected ? ['Write'] : ['Read', 'Write'];
 
-          let text = '';
-          let costUsd = 0;
-          for await (const message of q) {
-            if (message.type === 'result') {
-              if (message.subtype === 'success') {
-                text = (message as { result: string }).result;
-                costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-              } else {
-                const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-                throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
-              }
+  // Run the Sonnet agent — single pass (acquire semaphore slot so UI shows 1/N active)
+  if (semaphore) await semaphore.acquire();
+  const ac = abortController ?? new AbortController();
+  let resultText = '';
+  let costUsd = 0;
+  try {
+    const result = await retryWithBackoff(
+      async () => {
+        const q = query({
+          prompt: userMessage,
+          options: {
+            systemPrompt,
+            model: 'sonnet',
+            cwd: outputDir,
+            allowedTools,
+            permissionMode: 'bypassPermissions' as const,
+            allowDangerouslySkipPermissions: true,
+            maxTurns: 60,
+            abortController: ac,
+          },
+        });
+
+        let text = '';
+        let cost = 0;
+        for await (const message of q) {
+          if (message.type === 'result') {
+            if (message.subtype === 'success') {
+              text = (message as { result: string }).result;
+              cost = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+            } else {
+              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
             }
-            // Track tool use for UI display
-            if (message.type === 'assistant' && callbacks?.onToolUse) {
-              const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
-              for (const block of msg.content ?? []) {
-                if (block.type === 'tool_use' && block.name && block.input?.file_path) {
-                  callbacks.onToolUse(block.name, block.input.file_path);
-                }
+          }
+          // Track tool use for UI display
+          if (message.type === 'assistant' && callbacks?.onToolUse) {
+            const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
+            for (const block of msg.content ?? []) {
+              if (block.type === 'tool_use' && block.name && block.input?.file_path) {
+                callbacks.onToolUse(block.name, block.input.file_path);
               }
             }
           }
-          return { text, costUsd };
+        }
+        return { text, cost };
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 5_000,
+        maxDelayMs: 60_000,
+        jitterFactor: 0.2,
+        filePath: 'coherence-review',
+        onRetry: (attempt, delayMs) => {
+          contextLogger().warn({ attempt, delayMs }, 'coherence review retrying');
         },
-        {
-          maxRetries: 3,
-          baseDelayMs: 5_000,
-          maxDelayMs: 60_000,
-          jitterFactor: 0.2,
-          filePath: 'coherence-review',
-          onRetry: (attempt, delayMs) => {
-            contextLogger().warn({ attempt, delayMs }, 'coherence review retrying');
-          },
-        },
-      );
-      resultText = text;
-      totalCostUsd += costUsd;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      conversationLog.push(`\n## Error\n\n${errMsg}\n`);
-    } finally {
-      if (semaphore) semaphore.release();
-    }
-
-    conversationLog.push(`\n## Assistant\n\n${resultText}\n`);
-
-    // Verify with deterministic linter
-    const verifyLint = reviewDocStructure(outputDir, projectRoot, docsPath);
-    linterIssuesAfter = verifyLint.issues.filter(i => !i.fixed).length;
-    loopsCompleted = loop;
-
-    callbacks?.onLoopEnd?.(loop, linterIssuesAfter);
-
-    // Early exit if clean
-    if (linterIssuesAfter === 0) break;
+      },
+    );
+    resultText = result.text;
+    costUsd = result.cost;
+  } finally {
+    if (semaphore) semaphore.release();
   }
+
+  // Post-review linter verification
+  const verifyLint = reviewDocStructure(outputDir, projectRoot, docsPath);
+  const linterIssuesAfter = verifyLint.issues.filter(i => !i.fixed).length;
 
   // Write conversation log
   if (logDir) {
     mkdirSync(logDir, { recursive: true });
-
     const timestamp = new Date().toISOString();
     const durationMs = Date.now() - start;
 
     const header = [
       `# Coherence Review — ${timestamp}`,
       '',
-      `- **Loops:** ${loopsCompleted}/${maxLoops}`,
+      `- **Model:** sonnet (single pass)`,
+      `- **Content injected:** ${contentInjected} (${contentTokens} tokens, budget ${tokenBudget})`,
+      `- **Tools:** ${allowedTools.join(', ')}`,
       `- **Duration:** ${(durationMs / 1000).toFixed(1)}s`,
-      `- **Cost:** $${totalCostUsd.toFixed(4)}`,
+      `- **Cost:** $${costUsd.toFixed(4)}`,
       `- **Linter issues before:** ${linterIssuesBefore}`,
       `- **Linter issues after:** ${linterIssuesAfter}`,
       '',
+      '## User',
+      '',
+      contentInjected ? `[${files.length} files injected — ${contentTokens} tokens]` : userMessage,
+      '',
+      '## Assistant',
+      '',
+      resultText,
     ].join('\n');
 
-    writeFileSync(join(logDir, 'coherence-review.md'), header + conversationLog.join('\n'), 'utf-8');
+    writeFileSync(join(logDir, 'coherence-review.md'), header, 'utf-8');
   }
 
   return {
-    loopsCompleted,
     linterIssuesBefore,
     linterIssuesAfter,
-    costUsd: totalCostUsd,
+    contentInjected,
+    costUsd,
     durationMs: Date.now() - start,
   };
 }

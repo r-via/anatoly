@@ -25,6 +25,7 @@ import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mappi
 import { assertSafeOutputPath } from './docs-guard.js';
 import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
 import { buildPageContext, type SourceFile } from './source-context.js';
+import { getDocTokenBudget } from './docs-resolver.js';
 import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
 import { collectTypeContext } from './doc-type-context.js';
 import type { Task } from '../schemas/task.js';
@@ -178,7 +179,7 @@ export function runDocGeneration(
     if (!mapping) continue;
 
     const sourceFiles = loadSourceFiles(projectRoot, mapping.sourceFiles);
-    const pageContext = buildPageContext(pagePath, sourceFiles);
+    const pageContext = buildPageContext(pagePath, sourceFiles, { maxTokens: getDocTokenBudget('claude-sonnet-4-6') });
     const pageInfo: PageInfo = {
       path: pagePath,
       title: pagePath.split('/').pop()?.replace('.md', '') ?? pagePath,

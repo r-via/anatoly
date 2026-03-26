@@ -51,7 +51,7 @@ import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
-import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
+import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -740,9 +740,10 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             systemPrompt: system,
             model,
             cwd: ctx.projectRoot,
-            allowedTools: [],
+            allowedTools: ['Read'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
+            maxTurns: 5,
             abortController: ac,
           },
         });
@@ -809,38 +810,41 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       },
     });
 
-    const detail = result.pagesFailed > 0
-      ? `${result.pagesWritten}/${total} written · ${result.pagesFailed} failed`
-      : `${result.pagesWritten}/${total} pages updated`;
-    ctx.pipelineState?.completeTask(taskId, detail);
-
-
     // Aggregate doc generation LLM costs
     ctx.totalCostUsd += result.totalCostUsd;
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
     // Structure lint — deterministic preamble/fence cleanup
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
     if (result.pagesWritten > 0 && !ctx.interrupted) {
-      ctx.pipelineState?.updateTask(taskId, 'structure lint…');
+      ctx.pipelineState?.updateTask(taskId, 'linting docs…');
       try {
-        const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
         const lintLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
         const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: lintLogDir });
         log.info({ filesFixed: lintResult.filesFixed, issues: lintResult.issues.length }, 'doc structure lint complete');
-        if (lintResult.filesFixed > 0) {
-          ctx.renderer?.logPlain(`[${taskId}] structure lint fixed ${lintResult.filesFixed} files`);
+
+        // Auto-fix structural issues (numbering, index) before coherence review
+        const unfixed = lintResult.issues.filter(i => !i.fixed);
+        if (unfixed.length > 0) {
+          ctx.pipelineState?.updateTask(taskId, 'fixing doc structure…');
+          const fixResult = autoFixStructuralIssues(outputDir, unfixed);
+          log.info({
+            renames: fixResult.renames.length,
+            indexAdded: fixResult.indexEntriesAdded.length,
+            orphansRemoved: fixResult.indexOrphansRemoved.length,
+            linksUpdated: fixResult.linksUpdated,
+          }, 'doc auto-fix complete');
         }
       } catch (lintErr) {
-        log.warn({ err: lintErr }, 'doc structure lint failed — continuing');
+        log.warn({ err: lintErr }, 'doc structure lint/auto-fix failed — continuing');
       }
     }
 
     // Coherence review — only on first run (bootstrap). Use `anatoly docs coherence` for on-demand.
     if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
-      ctx.pipelineState?.updateTask(taskId, 'coherence review…');
+      ctx.pipelineState?.updateTask(taskId, 'reviewing docs…');
       try {
-        const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
         const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
         const coherenceResult = await runDocCoherenceReview({
           outputDir,
@@ -849,17 +853,14 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           abortController: ac,
           logDir: coherenceLogDir,
           callbacks: {
-            onLoopStart: (loop) => {
-              ctx.pipelineState?.updateTask(taskId, `coherence loop ${loop}…`);
-              ctx.renderer?.logPlain(`[${taskId}] coherence review loop ${loop}`);
-            },
-            onLoopEnd: (loop, issues) => {
-              ctx.renderer?.logPlain(`[${taskId}] loop ${loop} done — ${issues} linter issues remaining`);
+            onToolUse: (_tool, filePath) => {
+              const name = filePath.split('/').pop() ?? filePath;
+              ctx.pipelineState?.updateTask(taskId, `reviewing ${name}…`);
             },
           },
         });
+        ctx.totalCostUsd += coherenceResult.costUsd;
         log.info({
-          loops: coherenceResult.loopsCompleted,
           issuesBefore: coherenceResult.linterIssuesBefore,
           issuesAfter: coherenceResult.linterIssuesAfter,
           costUsd: coherenceResult.costUsd,
@@ -869,7 +870,9 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       }
     }
 
-    // Re-complete with final detail after post-processing (structure lint / coherence may have overwritten it)
+    const detail = result.pagesFailed > 0
+      ? `${result.pagesWritten}/${total} written · ${result.pagesFailed} failed`
+      : `${result.pagesWritten}/${total} pages`;
     ctx.pipelineState?.completeTask(taskId, detail);
   } finally {
     ctx.activeAborts.delete(ac);

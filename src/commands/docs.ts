@@ -115,17 +115,15 @@ async function runDocUpdate(
       semaphore: ctx.semaphore,
       logDir: structLogDir,
       callbacks: {
-        onLoopStart: (loop) => ctx.state.updateTask(coherenceTaskId, `structural loop ${loop}…`),
-        onLoopEnd: (loop, issues) => ctx.renderer.logPlain(`[structural] loop ${loop} done — ${issues} remaining`),
         onToolUse: (_tool, filePath) => {
-          ctx.state.trackFile(filePath);
-          ctx.state.untrackFile(filePath);
+          const name = filePath.split('/').pop() ?? filePath;
+          ctx.state.updateTask(coherenceTaskId, `reviewing ${name}…`);
         },
       },
     });
     ctx.addCost(structResult.costUsd);
     ctx.state.completeTask(coherenceTaskId, structResult.linterIssuesAfter === 0
-      ? `structural clean (${structResult.loopsCompleted} loops)`
+      ? `structural clean`
       : `${structResult.linterIssuesAfter} structural issues remaining`);
   } catch {
     ctx.state.completeTask(coherenceTaskId, 'structural review failed');
@@ -338,22 +336,16 @@ export function registerDocsCommand(program: Command): void {
               semaphore: ctx.semaphore,
               logDir: coherenceLogDir,
               callbacks: {
-                onLoopStart: (loop) => {
-                  ctx.state.updateTask('coherence-1', `loop ${loop}…`);
-                },
-                onLoopEnd: (loop, issues) => {
-                  ctx.renderer.logPlain(`[coherence] loop ${loop} done — ${issues} issues remaining`);
-                },
-                onToolUse: (tool, filePath) => {
-                  ctx.state.trackFile(filePath);
-                  ctx.state.untrackFile(filePath);
+                onToolUse: (_tool, filePath) => {
+                  const name = filePath.split('/').pop() ?? filePath;
+                  ctx.state.updateTask('coherence-1', `reviewing ${name}…`);
                 },
               },
             });
             ctx.addCost(coherenceResult.costUsd);
             ctx.state.completeTask('coherence-1',
               coherenceResult.linterIssuesAfter === 0
-                ? `clean (${coherenceResult.loopsCompleted} loops)`
+                ? `clean`
                 : `${coherenceResult.linterIssuesBefore} → ${coherenceResult.linterIssuesAfter} issues`,
             );
           } catch {
@@ -513,10 +505,9 @@ export function registerDocsCommand(program: Command): void {
 
   docs
     .command('coherence')
-    .description('Run structure lint + Opus coherence review on .anatoly/docs/')
-    .option('--max-loops <n>', 'max audit-fix-verify loops', '3')
-    .option('--lint-only', 'skip Opus coherence review, only run deterministic lint')
-    .action(async (opts: { maxLoops?: string; lintOnly?: boolean }) => {
+    .description('Run structure lint + coherence review on .anatoly/docs/')
+    .option('--lint-only', 'skip coherence review, only run deterministic lint + auto-fix')
+    .action(async (opts: { lintOnly?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -584,7 +575,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       console.log('');
-      console.log(`  ${chalk.yellow('●')} Coherence review ${chalk.dim('(opus)')}`);
+      console.log(`  ${chalk.yellow('●')} Coherence review ${chalk.dim('(sonnet)')}`);
 
       const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
 
@@ -593,27 +584,20 @@ export function registerDocsCommand(program: Command): void {
           outputDir: docsDir,
           projectRoot,
           docsPath,
-          maxLoops: parseInt(opts.maxLoops ?? '3', 10),
           logDir: coherenceLogDir,
           callbacks: {
-            onLoopStart: (loop) => {
-              console.log(`    ${chalk.dim(`loop ${loop}…`)}`);
-            },
-            onLoopEnd: (loop, issues) => {
-              if (issues === 0) {
-                console.log(`    ${chalk.green(`loop ${loop} done — clean`)}`);
-              } else {
-                console.log(`    ${chalk.yellow(`loop ${loop} done — ${issues} linter issues remaining`)}`);
-              }
+            onToolUse: (_tool, filePath) => {
+              const name = filePath.split('/').pop() ?? filePath;
+              console.log(`    ${chalk.dim(`reviewing ${name}…`)}`);
             },
           },
         });
 
         console.log('');
         if (result.linterIssuesAfter === 0) {
-          console.log(`  ${chalk.green('✓')} Coherence review — all issues resolved in ${result.loopsCompleted} loop${result.loopsCompleted > 1 ? 's' : ''}`);
+          console.log(`  ${chalk.green('✓')} Coherence review — all issues resolved`);
         } else {
-          console.log(`  ${chalk.yellow('!')} Coherence review — ${result.linterIssuesBefore} → ${result.linterIssuesAfter} issues (${result.loopsCompleted} loops)`);
+          console.log(`  ${chalk.yellow('!')} Coherence review — ${result.linterIssuesBefore} → ${result.linterIssuesAfter} issues`);
         }
         console.log(`    ${chalk.dim(`cost: $${result.costUsd.toFixed(4)} · ${(result.durationMs / 1000).toFixed(1)}s`)}`);
         console.log(`    ${chalk.dim(`log: ${relative(projectRoot, coherenceLogDir)}/`)}`);
