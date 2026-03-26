@@ -92,12 +92,13 @@ export async function generateNlpSummaries(
   projectRoot: string,
   conversationDir?: string,
   semaphore?: Semaphore,
-): Promise<Map<string, NlpSummary>> {
-  const result = new Map<string, NlpSummary>();
-  if (cards.length === 0) return result;
+): Promise<{ summaries: Map<string, NlpSummary>; costUsd: number }> {
+  const summaries = new Map<string, NlpSummary>();
+  if (cards.length === 0) return { summaries, costUsd: 0 };
 
   const log = contextLogger();
   const userMessage = buildUserMessage(filePath, cards, functionBodies);
+  let costUsd = 0;
 
   try {
     const fileSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
@@ -115,11 +116,13 @@ export async function generateNlpSummaries(
       NlpResponseSchema,
     ));
 
+    costUsd = response.costUsd;
+
     // Match response functions to cards by name
     for (const fn of response.data.functions) {
       const card = cards.find((c) => c.name === fn.name);
       if (card) {
-        result.set(card.id, {
+        summaries.set(card.id, {
           summary: fn.summary,
           docSummary: fn.docSummary ?? '',
           keyConcepts: fn.keyConcepts,
@@ -131,5 +134,5 @@ export async function generateNlpSummaries(
     log.warn({ filePath, err: String(err) }, 'NLP summarization call failed');
   }
 
-  return result;
+  return { summaries, costUsd };
 }

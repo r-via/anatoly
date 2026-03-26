@@ -803,6 +803,9 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     ctx.pipelineState?.completeTask(taskId, detail);
 
 
+    // Aggregate doc generation LLM costs
+    ctx.totalCostUsd += result.totalCostUsd;
+
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
     // Structure lint — deterministic preamble/fence cleanup
@@ -1130,9 +1133,15 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     return { ragEnabled: false };
   }
 
+  // Aggregate RAG LLM costs (NLP summaries + doc chunking)
+  if (ragResult?.costUsd) {
+    ctx.totalCostUsd += ragResult.costUsd;
+  }
+
   const ragCompleted = {
     phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
     cardsGenerated: ragResult?.cardsIndexed ?? 0, cached: (ragResult?.totalCards ?? 0) - (ragResult?.cardsIndexed ?? 0),
+    costUsd: ragResult?.costUsd ?? 0,
   };
   log.info(ragCompleted, 'phase completed');
   rl?.info(ragCompleted, 'phase completed');
@@ -1580,11 +1589,8 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
   }, 'run completed');
 
-  // Derive conversationStats from axisStats + RAG metrics
-  // Note: RAG LLM calls (NLP summaries, doc chunking) emit llm_call events to the ndjson
-  // but their token/cost metrics are not yet aggregated here. Only review-phase axis
-  // evaluations are tracked in axisStats. RAG metrics aggregation requires plumbing
-  // cost data through generateNlpSummaries → processFileForDualIndex → RagIndexResult.
+  // Derive conversationStats from axisStats (review-phase axis evaluations).
+  // RAG + doc-gen LLM costs are aggregated into ctx.totalCostUsd directly.
   const conversationStats = {
     total: 0,
     byPhase: {} as Record<string, number>,

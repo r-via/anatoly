@@ -75,13 +75,13 @@ vi.mock('./indexer.js', () => ({
 }));
 
 vi.mock('./doc-indexer.js', () => ({
-  indexDocSections: vi.fn().mockResolvedValue({ sections: 0, cached: false }),
+  indexDocSections: vi.fn().mockResolvedValue({ sections: 0, cached: false, costUsd: 0 }),
   areDocTreesIdentical: vi.fn().mockReturnValue(false),
 }));
 
 
 vi.mock('./nlp-summarizer.js', () => ({
-  generateNlpSummaries: vi.fn().mockResolvedValue(new Map()),
+  generateNlpSummaries: vi.fn().mockResolvedValue({ summaries: new Map(), costUsd: 0 }),
 }));
 
 vi.mock('./hardware-detect.js', () => ({
@@ -385,7 +385,7 @@ describe('indexProject doc identity detection', () => {
   it('indexes only internal docs and aliases when trees are identical', async () => {
     const { indexDocSections: indexDocSectionsMock, areDocTreesIdentical: identicalMock } = await import('./doc-indexer.js');
     vi.mocked(identicalMock).mockReturnValue(true);
-    vi.mocked(indexDocSectionsMock).mockResolvedValue({ sections: 5, cached: false });
+    vi.mocked(indexDocSectionsMock).mockResolvedValue({ sections: 5, cached: false, costUsd: 0 });
 
     const logs: string[] = [];
     await indexProject({
@@ -445,7 +445,7 @@ describe('indexProject doc identity detection', () => {
   it('calls aliasDocSource on vector store when trees are identical', async () => {
     const { areDocTreesIdentical: identicalMock, indexDocSections: indexDocSectionsMock } = await import('./doc-indexer.js');
     vi.mocked(identicalMock).mockReturnValue(true);
-    vi.mocked(indexDocSectionsMock).mockResolvedValue({ sections: 3, cached: false });
+    vi.mocked(indexDocSectionsMock).mockResolvedValue({ sections: 3, cached: false, costUsd: 0 });
 
     await indexProject({
       projectRoot: '/tmp/test',

@@ -17,6 +17,7 @@ import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.j
 import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
+import { areDocTreesIdentical } from '../rag/doc-indexer.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -925,5 +926,110 @@ export function registerDocsCommand(program: Command): void {
 
       const generated = total - scaffoldOnly;
       console.log(`  .anatoly/docs/: ${total} pages (${generated} generated, ${scaffoldOnly} scaffolded-only)`);
+    });
+
+  docs
+    .command('identity')
+    .description('Check if docs/ and .anatoly/docs/ are identical (deduplicated) or standalone')
+    .action(() => {
+      const projectRoot = process.cwd();
+      const config = loadConfig(projectRoot);
+      const projectDocsDir = config.documentation?.docs_path ?? 'docs';
+      const internalDocsDir = join('.anatoly', 'docs');
+
+      const absProject = resolve(projectRoot, projectDocsDir);
+      const absInternal = resolve(projectRoot, internalDocsDir);
+
+      const projectExists = existsSync(absProject);
+      const internalExists = existsSync(absInternal);
+
+      if (!projectExists && !internalExists) {
+        console.log(chalk.yellow('  No documentation found.'));
+        console.log(`  Neither ${projectDocsDir}/ nor .anatoly/docs/ exist.`);
+        console.log('  Run `anatoly docs scaffold` or `anatoly run` to generate.');
+        return;
+      }
+
+      if (!internalExists) {
+        console.log(chalk.cyan('  Standalone') + ` — only ${projectDocsDir}/ exists (no internal docs)`);
+        return;
+      }
+
+      if (!projectExists) {
+        console.log(chalk.cyan('  Internal only') + ' — .anatoly/docs/ exists, no project docs');
+        console.log(`  Run \`anatoly docs scaffold project\` to copy to ${projectDocsDir}/`);
+        return;
+      }
+
+      // Both exist — compare
+      const identical = areDocTreesIdentical(projectRoot, projectDocsDir, internalDocsDir);
+
+      if (identical) {
+        console.log(chalk.green('  Deduplicated') + ` — ${projectDocsDir}/ is identical to .anatoly/docs/`);
+        console.log('  RAG indexing will chunk only .anatoly/docs/ and alias the results.');
+      } else {
+        console.log(chalk.blue('  Standalone') + ` — ${projectDocsDir}/ differs from .anatoly/docs/`);
+        console.log('  RAG indexing will chunk both trees independently.');
+      }
+    });
+
+  docs
+    .command('reset-project')
+    .description('Replace docs/ with a fresh copy of .anatoly/docs/ (overwrites all project docs)')
+    .option('-y, --yes', 'skip confirmation prompt')
+    .action(async (opts: { yes?: boolean }) => {
+      const projectRoot = process.cwd();
+      const config = loadConfig(projectRoot);
+      const projectDocsPath = config.documentation?.docs_path ?? 'docs';
+      const absProject = resolve(projectRoot, projectDocsPath);
+      const absInternal = resolve(projectRoot, '.anatoly', 'docs');
+
+      if (!existsSync(absInternal)) {
+        console.error(chalk.red('  .anatoly/docs/ does not exist. Run `anatoly docs scaffold` first.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const projectExists = existsSync(absProject);
+      const identical = projectExists && areDocTreesIdentical(projectRoot, projectDocsPath, join('.anatoly', 'docs'));
+
+      if (identical) {
+        console.log(chalk.green('  Already identical') + ` — ${projectDocsPath}/ is already a copy of .anatoly/docs/`);
+        return;
+      }
+
+      // Confirmation
+      if (!opts.yes) {
+        if (projectExists) {
+          console.log(chalk.yellow(`  ⚠ This will delete ${projectDocsPath}/ and replace it with .anatoly/docs/`));
+          console.log('  All manual edits in project docs will be lost.');
+        } else {
+          console.log(`  This will copy .anatoly/docs/ → ${projectDocsPath}/`);
+        }
+        const readline = await import('node:readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await new Promise<string>(r => rl.question('  Proceed? (y/N) ', r));
+        rl.close();
+        if (answer.toLowerCase() !== 'y') {
+          console.log('  Cancelled.');
+          return;
+        }
+      }
+
+      // Delete existing project docs
+      if (projectExists) {
+        rmSync(absProject, { recursive: true, force: true });
+      }
+
+      // Copy .anatoly/docs/ → docs/
+      const { cpSync } = await import('node:fs');
+      cpSync(absInternal, absProject, { recursive: true });
+
+      // Remove internal artifacts from the copy
+      const cachePath = join(absProject, '.cache.json');
+      if (existsSync(cachePath)) rmSync(cachePath);
+
+      console.log(`  ${chalk.green('✓')} Replaced ${projectDocsPath}/ with .anatoly/docs/`);
+      console.log('  Doc trees are now identical — RAG indexing will deduplicate automatically.');
     });
 }
