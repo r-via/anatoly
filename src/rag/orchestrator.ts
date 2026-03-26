@@ -93,6 +93,8 @@ export interface RagIndexResult {
   internalDocSections: number;
   /** True when internal docs exist but were all cache-hits. */
   internalDocsCached: boolean;
+  /** True when docs/ and .anatoly/docs/ were byte-identical (project docs aliased, not chunked). */
+  docsIdentical: boolean;
   /** Total LLM cost (USD) incurred during RAG indexing (NLP summaries + doc chunking). */
   costUsd: number;
 }
@@ -598,6 +600,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     projectDocsCached,
     internalDocSections,
     internalDocsCached,
+    docsIdentical,
     costUsd: ragCostUsd,
   };
 }
