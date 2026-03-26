@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -364,7 +364,9 @@ export function registerRunCommand(program: Command): void {
         }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('internal-docs', 'Updating internal docs');
-        pipelineState.addTask('sync-project-docs', 'Synchronising project docs');
+        if (ctx.enableRag) {
+          pipelineState.addTask('sync-project-docs', 'Synchronising project docs');
+        }
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -956,17 +958,26 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile);
     const newPages = scaffoldResult.scaffoldResult.pagesCreated.length;
 
-    // Generate only stale/new pages (cache-aware)
-    const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
+    // Scope doc updates to modules whose source files were actually reviewed.
+    // Files with tier 'evaluate' in the triageMap are the ones that changed.
+    const changedFiles = new Set<string>();
+    for (const [file, triage] of ctx.triageMap) {
+      if (triage.tier === 'evaluate') changedFiles.add(file);
+    }
+
+    // Generate only stale/new pages whose modules were touched (cache-aware)
+    const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg, changedFiles);
     ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
-    ctx.renderer?.logPlain(`[${taskId}] ${newPages > 0 ? `${newPages} new pages, ` : ''}${genResult.prompts.length} to update, ${genResult.cacheResult.fresh.length} cached`);
+    const deferredNote = genResult.pagesDeferred > 0 ? `, ${genResult.pagesDeferred} deferred` : '';
+    ctx.renderer?.logPlain(`[${taskId}] ${newPages > 0 ? `${newPages} new pages, ` : ''}${genResult.prompts.length} to update, ${genResult.cacheResult.fresh.length} cached${deferredNote}`);
 
     log.info({
       phase: taskId,
       newPages,
       prompts: genResult.prompts.length,
       fresh: genResult.cacheResult.fresh.length,
+      deferred: genResult.pagesDeferred,
     }, `${taskId} ready`);
 
     if (genResult.prompts.length > 0 && !ctx.interrupted) {
@@ -1003,8 +1014,15 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
       return;
     }
 
-    // Delete existing project docs and replace with internal
+    // Guard against symlinks (rmSync on a symlink target would destroy the source)
     if (existsSync(absProject)) {
+      try {
+        if (lstatSync(absProject).isSymbolicLink()) {
+          log.info('sync skipped — docs/ is a symlink');
+          ctx.pipelineState?.completeTask(taskId, 'skipped (symlink)');
+          return;
+        }
+      } catch { /* lstat failed — proceed normally */ }
       rmSync(absProject, { recursive: true, force: true });
     }
     cpSync(absInternal, absProject, { recursive: true });

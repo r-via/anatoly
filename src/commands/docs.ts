@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync, cpSync, lstatSync } from 'node:fs';
 import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
@@ -1020,13 +1020,19 @@ export function registerDocsCommand(program: Command): void {
         }
       }
 
-      // Delete existing project docs
+      // Guard against symlinks (rmSync would destroy the symlink target)
       if (projectExists) {
+        try {
+          if (lstatSync(absProject).isSymbolicLink()) {
+            console.error(chalk.red(`${projectDocsPath}/ is a symlink — refusing to delete. Remove the symlink manually first.`));
+            process.exitCode = 1;
+            return;
+          }
+        } catch { /* proceed */ }
         rmSync(absProject, { recursive: true, force: true });
       }
 
       // Copy .anatoly/docs/ → docs/
-      const { cpSync } = await import('node:fs');
       cpSync(absInternal, absProject, { recursive: true });
 
       // Remove internal artifacts from the copy
