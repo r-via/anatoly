@@ -25,8 +25,8 @@ Rules:
 - Use the real function names, types, and file paths provided in the source context.
 - Include at least 1 code example per page with realistic arguments.
 - EVERY code block MUST have a language tag (```typescript, ```bash, ```yaml, ```json, etc.). A code block without a language tag is a build error — shell comments like `# ...` inside untagged blocks are parsed as markdown headings and break the documentation structure. NEVER use bare ``` without a language.
-- Your response is written directly to a .md file. Output ONLY the raw Markdown content — begin immediately with `# {Page Title}` as the very first line.
-- NEVER add preamble, thinking, or commentary before the heading (e.g. "Now I have everything…", "Here is the documentation…", "Let me write…").
+- Your FINAL response is written directly to a .md file. Output ONLY the raw Markdown content — begin immediately with `# {Page Title}` as the very first line. If you used Read tools before responding, your final message must contain ONLY the markdown — no commentary, no transition phrases, no explanation of what you read.
+- NEVER add preamble, thinking, or commentary before or around the markdown (e.g. "Now I have everything…", "Here is the documentation…", "Let me write…", "I've verified…"). The entire response must be valid markdown starting with `# `.
 - NEVER wrap the output in markdown code fences (``` or ```markdown). The output IS the markdown file.
 - NEVER invent prerequisites, environment variables, API keys, or setup steps that are not explicitly present in the provided source context. Only document what exists in the code.
 - When you see external system dependencies in the source code (e.g. Docker calls, exec/spawn of binaries, database connections, external services), document them as prerequisites. Cross-check: if the code imports or calls something (docker, redis, postgres, etc.), it MUST appear in the prerequisites section of relevant pages.
