@@ -743,7 +743,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             allowedTools: ['Read'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
-            maxTurns: 5,
+            maxTurns: 15,
             abortController: ac,
           },
         });
