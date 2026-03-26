@@ -122,13 +122,14 @@ export function registerWatchCommand(program: Command): void {
           // Re-scan: hash + parse AST
           const hash = computeFileHash(absPath);
           const source = readFileSync(absPath, 'utf-8');
-          const symbols = await parseFile(relPath, source);
+          const { symbols, imports } = await parseFile(relPath, source);
 
           const task: Task = {
             version: 1,
             file: relPath,
             hash,
             symbols,
+            ...(imports.length > 0 ? { imports } : {}),
             scanned_at: new Date().toISOString(),
           };
 

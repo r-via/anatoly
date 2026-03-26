@@ -538,17 +538,17 @@ export function buildUsageGraph(
       continue;
     }
 
-    const absPath = resolve(projectRoot, task.file);
-    let source: string;
-    try {
-      source = readFileSync(absPath, 'utf-8');
-    } catch {
-      continue;
-    }
-
     const isTs = ext === '.ts' || ext === '.tsx';
 
+    // Only read file from disk when needed (TS fine-grained path or fallback)
     if (isTs) {
+      const absPath = resolve(projectRoot, task.file);
+      let source: string;
+      try {
+        source = readFileSync(absPath, 'utf-8');
+      } catch {
+        continue;
+      }
       // TypeScript: fine-grained per-symbol import tracking
       const imports = extractImports(
         source,
@@ -570,11 +570,18 @@ export function buildUsageGraph(
         set.add(imp.importerFile);
       }
     } else {
-      // Non-TS: adapter-based import extraction, marks all exports of resolved file as used
-      const adapter = resolveAdapter(ext);
-      if (!adapter) continue;
+      // Non-TS: use persisted imports from scan phase, fall back to regex extraction
+      let importRefs = task.imports;
+      if (!importRefs) {
+        const adapter = resolveAdapter(ext);
+        if (!adapter) continue;
+        let source: string;
+        try {
+          source = readFileSync(resolve(projectRoot, task.file), 'utf-8');
+        } catch { continue; }
+        importRefs = adapter.extractImports(source);
+      }
 
-      const importRefs = adapter.extractImports(source);
       for (const ref of importRefs) {
         const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet, rustCrateMap);
         if (!resolvedFile || resolvedFile === task.file) continue;

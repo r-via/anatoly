@@ -15,7 +15,7 @@ describe('parseFile', () => {
     const source = `export function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols).toHaveLength(1);
     expect(symbols[0]).toMatchObject({
       name: 'greet',
@@ -27,7 +27,7 @@ describe('parseFile', () => {
 
   it('should extract non-exported functions', async () => {
     const source = `function helper() { return 42; }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols).toHaveLength(1);
     expect(symbols[0]).toMatchObject({
       name: 'helper',
@@ -40,7 +40,7 @@ describe('parseFile', () => {
     const source = `export class UserService {
   getName() { return 'test'; }
 }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols.some((s) => s.name === 'UserService' && s.kind === 'class' && s.exported)).toBe(true);
   });
 
@@ -50,7 +50,7 @@ export interface User {
   id: UserId;
   name: string;
 }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     const types = symbols.filter((s) => s.kind === 'type');
     expect(types).toHaveLength(2);
     expect(types.map((t) => t.name).sort()).toEqual(['User', 'UserId']);
@@ -58,26 +58,26 @@ export interface User {
 
   it('should extract enums', async () => {
     const source = `export enum Status { Active, Inactive }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols).toHaveLength(1);
     expect(symbols[0]).toMatchObject({ name: 'Status', kind: 'enum', exported: true });
   });
 
   it('should detect hooks (useXxx pattern)', async () => {
     const source = `export function useAuth() { return null; }`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols[0]).toMatchObject({ name: 'useAuth', kind: 'hook' });
   });
 
   it('should detect constants (UPPER_SNAKE_CASE)', async () => {
     const source = `export const MAX_RETRIES = 3;`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols[0]).toMatchObject({ name: 'MAX_RETRIES', kind: 'constant' });
   });
 
   it('should detect arrow function variables', async () => {
     const source = `export const formatName = (name: string) => name.trim();`;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols[0]).toMatchObject({ name: 'formatName', kind: 'function' });
   });
 
@@ -89,7 +89,7 @@ export type Config = { key: string };
 export const VERSION = '1.0';
 let counter = 0;
 `;
-    const symbols = await parseFile('test.ts', source);
+    const { symbols } = await parseFile('test.ts', source);
     expect(symbols.length).toBeGreaterThanOrEqual(4);
     expect(symbols.find((s) => s.name === 'doWork')?.exported).toBe(true);
     expect(symbols.find((s) => s.name === 'helper')?.exported).toBe(false);

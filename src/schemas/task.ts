@@ -34,6 +34,11 @@ const CoverageDataSchema = z.object({
   lines_covered: z.int().min(0),
 });
 
+const ImportRefSchema = z.object({
+  source: z.string(),
+  type: z.enum(['import', 'source', 'require']),
+});
+
 /**
  * Zod schema for a scanner task — the unit of work produced by `scanProject`.
  *
@@ -46,6 +51,7 @@ export const TaskSchema = z.object({
   file: z.string(),
   hash: z.string(),
   symbols: z.array(SymbolInfoSchema),
+  imports: z.array(ImportRefSchema).optional(),
   coverage: CoverageDataSchema.optional(),
   language: z.string().optional(),
   parse_method: z.enum(['ast', 'heuristic']).optional(),

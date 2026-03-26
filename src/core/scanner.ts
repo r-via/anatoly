@@ -16,7 +16,7 @@ import { getGitTrackedFiles } from '../utils/git.js';
 import { detectLanguages, detectProjectProfile, classifyFile } from './language-detect.js';
 import type { FrameworkInfo } from './language-detect.js';
 import { autoDetectGlobs } from './auto-detect.js';
-import { resolveAdapter, heuristicParse } from './language-adapters.js';
+import { resolveAdapter, heuristicParse, type ImportRef } from './language-adapters.js';
 import { contextLogger } from '../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
@@ -86,30 +86,35 @@ async function loadLanguage(wasmModule: string): Promise<Language> {
   return lang;
 }
 
+export interface ParseResult {
+  symbols: SymbolInfo[];
+  imports: ImportRef[];
+}
+
 /**
- * Parse a source file and extract symbols using the appropriate language adapter.
+ * Parse a source file and extract symbols + imports using the appropriate language adapter.
  * Falls back to heuristic parsing for files with no registered adapter or
  * when grammar loading fails (e.g. network offline).
  *
  * @param filePath - Relative file path used to determine the language adapter
  *                   via its extension.
  * @param source - Raw source code content of the file.
- * @returns Array of extracted symbols; empty array if parsing fails entirely.
+ * @returns Extracted symbols and imports; empty arrays if parsing fails entirely.
  */
 export async function parseFile(
   filePath: string,
   source: string,
-): Promise<SymbolInfo[]> {
+): Promise<ParseResult> {
   const ext = extname(filePath);
   const adapter = resolveAdapter(ext);
 
   if (!adapter) {
-    return heuristicParse(source, filePath);
+    return { symbols: heuristicParse(source, filePath), imports: [] };
   }
 
   // Adapters without a WASM module (e.g. JSON, YAML) use heuristic extraction only
   if (!adapter.wasmModule) {
-    return heuristicParse(source, filePath);
+    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source) };
   }
 
   const parser = await getParser();
@@ -118,12 +123,18 @@ export async function parseFile(
     lang = await loadLanguage(adapter.wasmModule);
   } catch {
     // Grammar unavailable (download failed, network offline) — fall back to heuristic
-    return heuristicParse(source, filePath);
+    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source) };
   }
   parser.setLanguage(lang);
   const tree = parser.parse(source);
-  if (!tree) return [];
-  return adapter.extractSymbols(tree.rootNode);
+  if (!tree) return { symbols: [], imports: [] };
+
+  const symbols = adapter.extractSymbols(tree.rootNode);
+  const imports = adapter.extractImportsFromAst
+    ? adapter.extractImportsFromAst(tree.rootNode)
+    : adapter.extractImports(source);
+
+  return { symbols, imports };
 }
 
 /**
@@ -369,8 +380,11 @@ export async function scanProject(
     const detectedLang = classifyFile(relPath);
 
     let symbols: SymbolInfo[];
+    let imports: ImportRef[] = [];
     try {
-      symbols = await parseFile(relPath, source);
+      const result = await parseFile(relPath, source);
+      symbols = result.symbols;
+      imports = result.imports;
     } catch (err) {
       contextLogger().warn({ file: relPath, err }, 'AST parse error, skipping symbols');
       symbols = [];
@@ -382,6 +396,7 @@ export async function scanProject(
       file: relPath,
       hash,
       symbols,
+      ...(imports.length > 0 ? { imports } : {}),
       language: detectedLang?.toLowerCase() ?? 'unknown',
       parse_method: parseMethod as 'ast' | 'heuristic',
       scanned_at: now,

@@ -30,6 +30,8 @@ export interface LanguageAdapter {
   readonly wasmModule: string | null;
   extractSymbols(rootNode: TSNode): SymbolInfo[];
   extractImports(source: string): ImportRef[];
+  /** AST-based import extraction. When implemented, preferred over regex-based extractImports. */
+  extractImportsFromAst?(rootNode: TSNode): ImportRef[];
 }
 
 // --- TypeScript-specific constants (moved from scanner.ts) ---
@@ -156,6 +158,25 @@ export class TypeScriptAdapter implements LanguageAdapter {
   extractImports(source: string): ImportRef[] {
     return extractTsImports(source);
   }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type === 'import_statement') {
+        const sourceNode = node.childForFieldName('source');
+        if (sourceNode) {
+          imports.push({ source: sourceNode.text.replace(/^['"]|['"]$/g, ''), type: 'import' });
+        }
+      } else if (node.type === 'export_statement') {
+        // re-exports: export { ... } from '...'
+        const sourceNode = node.childForFieldName('source');
+        if (sourceNode) {
+          imports.push({ source: sourceNode.text.replace(/^['"]|['"]$/g, ''), type: 'import' });
+        }
+      }
+    }
+    return imports;
+  }
 }
 
 export class TsxAdapter extends TypeScriptAdapter {
@@ -219,6 +240,23 @@ export class BashAdapter implements LanguageAdapter {
   extractImports(source: string): ImportRef[] {
     return extractBashImports(source);
   }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type !== 'command') continue;
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode || (nameNode.text !== 'source' && nameNode.text !== '.')) continue;
+      // The argument follows the command name
+      const arg = node.namedChildren.find(
+        (c) => c !== nameNode && (c.type === 'word' || c.type === 'string' || c.type === 'raw_string' || c.type === 'concatenation'),
+      );
+      if (arg) {
+        imports.push({ source: arg.text.replace(/^["']|["']$/g, ''), type: 'source' });
+      }
+    }
+    return imports;
+  }
 }
 
 // --- Python import extraction helpers ---
@@ -255,6 +293,30 @@ export class PythonAdapter implements LanguageAdapter {
 
   extractImports(source: string): ImportRef[] {
     return extractPythonImports(source);
+  }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type === 'import_statement') {
+        // `import os` / `import os, sys`
+        for (const child of node.namedChildren) {
+          if (child.type === 'dotted_name' || child.type === 'aliased_import') {
+            const name = child.type === 'aliased_import'
+              ? child.namedChildren.find((c) => c.type === 'dotted_name')?.text
+              : child.text;
+            if (name) imports.push({ source: name, type: 'import' });
+          }
+        }
+      } else if (node.type === 'import_from_statement') {
+        // `from os.path import join`
+        const moduleNode = node.childForFieldName('module_name');
+        if (moduleNode) {
+          imports.push({ source: moduleNode.text, type: 'import' });
+        }
+      }
+    }
+    return imports;
   }
 
   /** Extract names from __all__ = ['name1', 'name2'] if present. */
@@ -337,12 +399,77 @@ export class PythonAdapter implements LanguageAdapter {
 
 // --- Rust import extraction helpers ---
 
-const RUST_USE_RE = /^use\s+(\S+)\s*;/gm;
+const RUST_USE_RE = /^(?:pub\s+)?use\s+(\S+)\s*;/gm;
 
 function extractRustImports(source: string): ImportRef[] {
   const imports: ImportRef[] = [];
   for (const m of source.matchAll(RUST_USE_RE)) {
     imports.push({ source: m[1]!, type: 'import' });
+  }
+  return imports;
+}
+
+/**
+ * Recursively collect fully-qualified use paths from a tree-sitter Rust `use_declaration` subtree.
+ * Handles simple paths, grouped imports `{A, B}`, nested groups, wildcards, and `as` aliases.
+ */
+function collectRustUsePaths(node: TSNode, prefix: string = ''): string[] {
+  switch (node.type) {
+    case 'scoped_identifier':
+    case 'identifier':
+      return [prefix ? `${prefix}::${node.text}` : node.text];
+
+    case 'scoped_use_list': {
+      // Has a path child (prefix) and a use_list child (items)
+      const pathNode = node.childForFieldName('path');
+      const listNode = node.childForFieldName('list');
+      const newPrefix = pathNode
+        ? (prefix ? `${prefix}::${pathNode.text}` : pathNode.text)
+        : prefix;
+      if (!listNode) return newPrefix ? [newPrefix] : [];
+      const paths: string[] = [];
+      for (const child of listNode.namedChildren) {
+        paths.push(...collectRustUsePaths(child, newPrefix));
+      }
+      return paths;
+    }
+
+    case 'use_list': {
+      const paths: string[] = [];
+      for (const child of node.namedChildren) {
+        paths.push(...collectRustUsePaths(child, prefix));
+      }
+      return paths;
+    }
+
+    case 'use_as_clause': {
+      // `Foo as Bar` — use the original path (first named child)
+      const original = node.namedChildren[0];
+      if (!original) return [];
+      return collectRustUsePaths(original, prefix);
+    }
+
+    case 'use_wildcard': {
+      // `path::*` — return the prefix (we don't resolve individual names)
+      return prefix ? [prefix] : [];
+    }
+
+    default:
+      // Fallback: use node text
+      return node.text ? [prefix ? `${prefix}::${node.text}` : node.text] : [];
+  }
+}
+
+function extractRustImportsFromAst(rootNode: TSNode): ImportRef[] {
+  const imports: ImportRef[] = [];
+  for (const node of rootNode.namedChildren) {
+    if (node.type !== 'use_declaration') continue;
+    // The argument is the first named child that is not a visibility_modifier
+    const arg = node.namedChildren.find((c) => c.type !== 'visibility_modifier');
+    if (!arg) continue;
+    for (const path of collectRustUsePaths(arg)) {
+      imports.push({ source: path, type: 'import' });
+    }
   }
   return imports;
 }
@@ -387,6 +514,10 @@ export class RustAdapter implements LanguageAdapter {
 
   extractImports(source: string): ImportRef[] {
     return extractRustImports(source);
+  }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    return extractRustImportsFromAst(rootNode);
   }
 }
 
@@ -479,6 +610,26 @@ export class GoAdapter implements LanguageAdapter {
   extractImports(source: string): ImportRef[] {
     return extractGoImports(source);
   }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type !== 'import_declaration') continue;
+      for (const child of node.namedChildren) {
+        if (child.type === 'import_spec') {
+          const pathNode = child.childForFieldName('path');
+          if (pathNode) imports.push({ source: pathNode.text.replace(/"/g, ''), type: 'import' });
+        } else if (child.type === 'import_spec_list') {
+          for (const spec of child.namedChildren) {
+            if (spec.type !== 'import_spec') continue;
+            const pathNode = spec.childForFieldName('path');
+            if (pathNode) imports.push({ source: pathNode.text.replace(/"/g, ''), type: 'import' });
+          }
+        }
+      }
+    }
+    return imports;
+  }
 }
 
 // --- Java import extraction helpers ---
@@ -516,6 +667,18 @@ export class JavaAdapter implements LanguageAdapter {
 
   extractImports(source: string): ImportRef[] {
     return extractJavaImports(source);
+  }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type !== 'import_declaration') continue;
+      const scopedId = node.namedChildren.find(
+        (c) => c.type === 'scoped_identifier' || c.type === 'identifier',
+      );
+      if (scopedId) imports.push({ source: scopedId.text, type: 'import' });
+    }
+    return imports;
   }
 
   private extractNode(node: TSNode, symbols: SymbolInfo[]): void {
@@ -607,6 +770,18 @@ export class CSharpAdapter implements LanguageAdapter {
 
   extractImports(source: string): ImportRef[] {
     return extractCSharpImports(source);
+  }
+
+  extractImportsFromAst(rootNode: TSNode): ImportRef[] {
+    const imports: ImportRef[] = [];
+    for (const node of rootNode.namedChildren) {
+      if (node.type !== 'using_directive') continue;
+      const nameNode = node.namedChildren.find(
+        (c) => c.type === 'qualified_name' || c.type === 'identifier_name' || c.type === 'identifier',
+      );
+      if (nameNode) imports.push({ source: nameNode.text, type: 'import' });
+    }
+    return imports;
   }
 
   private extractNode(node: TSNode, symbols: SymbolInfo[]): void {
