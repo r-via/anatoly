@@ -1123,9 +1123,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
         const prevTaskId = ragPhaseToTaskId[ragPhase];
         const nextTaskId = ragPhaseToTaskId[phase];
         ragPhase = phase;
-        // Complete previous phase task
+        // Complete previous phase task with interim detail —
+        // doc tasks get their final detail from ragResult after indexing completes
         if (prevTaskId && prevTaskId !== nextTaskId) {
-          state.completeTask(prevTaskId, 'done');
+          const interimDetail = prevTaskId.startsWith('rag-doc-') ? '…' : 'done';
+          state.completeTask(prevTaskId, interimDetail);
           // Remove upsert synthetic file when leaving upsert phase
           if (prevTaskId === 'rag-upsert') {
             state.activeFiles.delete('Saving index\u2026');
