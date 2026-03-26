@@ -85,10 +85,14 @@ export interface RagIndexResult {
   totalFiles: number;
   /** Total doc sections indexed (project + internal). */
   docSectionsIndexed: number;
-  /** Doc sections from project docs/ */
+  /** Doc sections from project docs/ (newly indexed count). */
   projectDocSections: number;
-  /** Doc sections from .anatoly/docs/ */
+  /** True when project docs exist but were all cache-hits. */
+  projectDocsCached: boolean;
+  /** Doc sections from .anatoly/docs/ (newly indexed count). */
   internalDocSections: number;
+  /** True when internal docs exist but were all cache-hits. */
+  internalDocsCached: boolean;
 }
 
 /**
@@ -447,12 +451,14 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Index doc sections from /docs/ (project) and .anatoly/docs/ (internal)
   let docSectionsIndexed = 0;
   let projectDocSections = 0;
+  let projectDocsCached = false;
   let internalDocSections = 0;
+  let internalDocsCached = false;
 
   // Project docs (docs/)
   onPhase?.('doc-project');
   try {
-    projectDocSections = await indexDocSections({
+    const projResult = await indexDocSections({
       projectRoot,
       vectorStore: store,
       docsDir: options.docsDir,
@@ -468,6 +474,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       concurrency,
       docSource: 'project',
     });
+    projectDocSections = projResult.sections;
+    projectDocsCached = projResult.cached;
     docSectionsIndexed += projectDocSections;
   } catch (err) {
     onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
@@ -476,7 +484,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Internal docs (.anatoly/docs/)
   onPhase?.('doc-internal');
   try {
-    internalDocSections = await indexDocSections({
+    const intResult = await indexDocSections({
       projectRoot,
       vectorStore: store,
       docsDir: join('.anatoly', 'docs'),
@@ -492,6 +500,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       concurrency,
       docSource: 'internal',
     });
+    internalDocSections = intResult.sections;
+    internalDocsCached = intResult.cached;
     docSectionsIndexed += internalDocSections;
   } catch (err) {
     onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
@@ -519,6 +529,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     totalFiles: stats.totalFiles,
     docSectionsIndexed,
     projectDocSections,
+    projectDocsCached,
     internalDocSections,
+    internalDocsCached,
   };
 }

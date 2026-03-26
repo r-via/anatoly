@@ -74,7 +74,7 @@ vi.mock('./indexer.js', () => ({
 }));
 
 vi.mock('./doc-indexer.js', () => ({
-  indexDocSections: vi.fn().mockResolvedValue(0),
+  indexDocSections: vi.fn().mockResolvedValue({ sections: 0, cached: false }),
 }));
 
 

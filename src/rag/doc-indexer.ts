@@ -425,25 +425,33 @@ export interface DocIndexOptions {
   docSource?: 'internal' | 'project';
 }
 
+/** Result of doc section indexing. */
+export interface DocIndexResult {
+  /** Number of sections newly indexed in this run. */
+  sections: number;
+  /** True when doc files exist but were all cache-hits (unchanged). */
+  cached: boolean;
+}
+
 /**
  * Parse /docs/ into semantic sections (via Haiku or H2 fallback),
  * embed prose via NLP model, and upsert as type='doc_section' cards.
  *
  * Uses SHA-256 per doc file to skip unchanged files.
  */
-export async function indexDocSections(options: DocIndexOptions): Promise<number> {
+export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
   const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
     onLog('rag: no docs/ directory found');
-    return 0;
+    return { sections: 0, cached: false };
   }
 
   const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
   if (files.length === 0) {
     onLog('rag: no doc files found');
-    return 0;
+    return { sections: 0, cached: false };
   }
 
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
@@ -492,7 +500,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   if (changedFiles.length === 0) {
     onLog(`rag: doc sections up to date (${cachedCount} files cached)`);
     saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
-    return 0;
+    return { sections: 0, cached: true };
   }
 
   const method = chunkModel ? `Haiku (${chunkModel})` : 'H2 fallback';
@@ -576,7 +584,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<number
   saveDocChunkCache(projectRoot, cacheSuffix, mergedChunkCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
 
-  return totalIndexed;
+  return { sections: totalIndexed, cached: false };
 }
 
 /**

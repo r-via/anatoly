@@ -412,10 +412,10 @@ export function registerDocsCommand(program: Command): void {
               ctx.state.completeTask('rag-nlp', nlpTask.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
             if (ctx.state.tasks.find(t => t.id === 'rag-doc-project' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc-project', ragResult.projectDocSections > 0
-                ? `${ragResult.projectDocSections} sections` : 'no project docs');
+                ? `${ragResult.projectDocSections} sections` : ragResult.projectDocsCached ? 'cached' : 'no project docs');
             if (ctx.state.tasks.find(t => t.id === 'rag-doc-internal' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc-internal', ragResult.internalDocSections > 0
-                ? `${ragResult.internalDocSections} sections` : 'no internal docs');
+                ? `${ragResult.internalDocSections} sections` : ragResult.internalDocsCached ? 'cached' : 'no internal docs');
           } catch (err) {
             ctx.state.completeTask('rag-code', 'failed');
             ctx.state.completeTask('rag-nlp', 'failed');
@@ -748,10 +748,10 @@ export function registerDocsCommand(program: Command): void {
               ctx.state.completeTask('rag-nlp', idxNlp.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
             if (ctx.state.tasks.find(t => t.id === 'rag-doc-project' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc-project', ragResult.projectDocSections > 0
-                ? `${ragResult.projectDocSections} sections` : 'no project docs');
+                ? `${ragResult.projectDocSections} sections` : ragResult.projectDocsCached ? 'cached' : 'no project docs');
             if (ctx.state.tasks.find(t => t.id === 'rag-doc-internal' && t.status !== 'done'))
               ctx.state.completeTask('rag-doc-internal', ragResult.internalDocSections > 0
-                ? `${ragResult.internalDocSections} sections` : 'no internal docs');
+                ? `${ragResult.internalDocSections} sections` : ragResult.internalDocsCached ? 'cached' : 'no internal docs');
           } catch (err) {
             ctx.state.completeTask('rag-code', 'failed');
             ctx.state.completeTask('rag-nlp', 'failed');

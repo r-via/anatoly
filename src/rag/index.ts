@@ -17,5 +17,5 @@ export { startTeiContainers, stopTeiContainers, areTeiContainersRunning, TEI_DOC
 export { indexProject, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
 export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks } from './doc-indexer.js';
-export type { DocSection, DocIndexOptions } from './doc-indexer.js';
+export type { DocSection, DocIndexOptions, DocIndexResult } from './doc-indexer.js';
 export { startGgufContainers, stopGgufContainers, areGgufContainersRunning } from './docker-gguf.js';
