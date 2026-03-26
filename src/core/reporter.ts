@@ -1530,7 +1530,7 @@ function renderPublicDocSection(raw: string): string[] {
   // Sync status
   const syncMatch = raw.match(/Sync status:\s*(.+)/);
   if (syncMatch) {
-    lines.push(`**Next steps:** ${syncMatch[1]} — run \`anatoly docs sync\` to update your project documentation.`);
+    lines.push(`**Gaps:** ${syncMatch[1]}.`);
     lines.push('');
   }
 
