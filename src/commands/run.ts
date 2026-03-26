@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -151,6 +151,8 @@ interface RunContext {
   docPipelineResult?: DocPipelineResult;
   /** Doc report result — set during report phase */
   docReportResult?: DocReportResult;
+  /** True when docs/ and .anatoly/docs/ were identical at RAG indexing time */
+  docsIdentical: boolean;
 }
 
 /**
@@ -284,6 +286,7 @@ export function registerRunCommand(program: Command): void {
         },
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
         isFirstRun: false,
+        docsIdentical: false,
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -361,6 +364,7 @@ export function registerRunCommand(program: Command): void {
         }
         pipelineState.addTask('review', 'Reviewing files');
         pipelineState.addTask('internal-docs', 'Updating internal docs');
+        pipelineState.addTask('sync-project-docs', 'Synchronising project docs');
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -394,11 +398,21 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
-        // --- Phase: update internal docs (always) — Story 29.21 ---
-        if (!ctx.interrupted) {
+        // --- Phase: update internal docs — Story 29.21 ---
+        // Skip when no files were reviewed (nothing changed → docs are still current)
+        if (!ctx.interrupted && ctx.filesReviewed > 0) {
           await runWithContext({ phase: 'internal-docs' }, async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
+        } else if (!ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
+        }
+
+        // --- Phase: sync project docs (dedup mode only) ---
+        if (!ctx.interrupted && ctx.docsIdentical) {
+          syncProjectDocsFromInternal(ctx);
+        } else if (!ctx.interrupted) {
+          ctx.pipelineState?.completeTask('sync-project-docs', 'standalone — no sync needed');
         }
 
         if (ctx.interrupted) {
@@ -971,6 +985,42 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs: duration });
 }
 
+/**
+ * Copy .anatoly/docs/ → docs/ when in dedup mode, keeping project docs in sync.
+ */
+function syncProjectDocsFromInternal(ctx: RunContext): void {
+  const taskId = 'sync-project-docs';
+  const log = getLogger();
+  ctx.pipelineState?.startTask(taskId, 'copying…');
+
+  try {
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const absInternal = resolve(ctx.projectRoot, '.anatoly', 'docs');
+    const absProject = resolve(ctx.projectRoot, docsPath);
+
+    if (!existsSync(absInternal)) {
+      ctx.pipelineState?.completeTask(taskId, 'no internal docs');
+      return;
+    }
+
+    // Delete existing project docs and replace with internal
+    if (existsSync(absProject)) {
+      rmSync(absProject, { recursive: true, force: true });
+    }
+    cpSync(absInternal, absProject, { recursive: true });
+
+    // Remove internal-only artifacts from the copy
+    const cachePath = join(absProject, '.cache.json');
+    if (existsSync(cachePath)) rmSync(cachePath);
+
+    log.info({ phase: taskId }, `synced .anatoly/docs/ → ${docsPath}/`);
+    ctx.pipelineState?.completeTask(taskId, 'synced');
+  } catch (err) {
+    log.warn({ err }, `${taskId} failed — continuing`);
+    ctx.pipelineState?.completeTask(taskId, 'failed');
+  }
+}
+
 async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {
   if (!ctx.enableRag) return { ragEnabled: false };
 
@@ -1138,6 +1188,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   // Aggregate RAG LLM costs (NLP summaries + doc chunking)
   if (ragResult?.costUsd) {
     ctx.totalCostUsd += ragResult.costUsd;
+  }
+
+  // Store dedup status for project docs sync after internal docs update
+  if (ragResult?.docsIdentical) {
+    ctx.docsIdentical = true;
   }
 
   const ragCompleted = {
