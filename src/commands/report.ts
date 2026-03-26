@@ -60,9 +60,16 @@ export function registerReportCommand(program: Command): void {
       // Build reportsBaseUrl for absolute links in public_report.md
       const reportsBaseUrl = buildReportsBaseUrl(projectRoot, runDir ?? undefined);
 
+      // Try to load persisted doc reference section from the run
+      let docReferenceSection: string | undefined;
+      const docSectionPath = runDir ? join(runDir, 'doc-reference-section.md') : undefined;
+      if (docSectionPath && existsSync(docSectionPath)) {
+        docReferenceSection = readFileSync(docSectionPath, 'utf-8');
+      }
+
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
-        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, undefined, reportsBaseUrl);
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl);
         printReportSummary(data, axisReports, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {

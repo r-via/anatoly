@@ -1471,6 +1471,11 @@ function runReportPhase(ctx: RunContext): void {
     }
   }
 
+  // Persist doc reference section so `anatoly report` can reload it
+  if (docReferenceSection && ctx.runDir) {
+    writeFileSync(join(ctx.runDir, 'doc-reference-section.md'), docReferenceSection);
+  }
+
   const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
 
   if (ctx.config.output?.max_runs) {
