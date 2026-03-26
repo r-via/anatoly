@@ -22,10 +22,11 @@ vi.mock('../utils/git.js', () => ({
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
+  existsSync: vi.fn(() => false),
 }));
 
 import { getGitTrackedFiles } from '../utils/git.js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const mockedGit = vi.mocked(getGitTrackedFiles);
 const mockedReadFile = vi.mocked(readFileSync);

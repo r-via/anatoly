@@ -16,9 +16,9 @@
 /**
  * Symbol-level documentation coverage metrics for the audit report.
  *
- * Distinguishes between project docs (`docs/`) and internal reference
- * docs (`.anatoly/docs/`) to show how much of the public API surface
- * is documented in each location.
+ * Tracks two tiers of inline doc-comment coverage on exported symbols:
+ * - `projectDocumented`: strict — only symbols with complete doc comments (DOCUMENTED)
+ * - `internalDocumented`: lenient — symbols with any doc comment (DOCUMENTED + PARTIAL)
  */
 export interface SymbolCoverage {
   projectDocumented: number;
@@ -26,6 +26,7 @@ export interface SymbolCoverage {
   totalExports: number;
   modulesDocumented?: number;
   totalModules?: number;
+  internalModulesDocumented?: number;
 }
 
 export interface SyncByType {
@@ -81,12 +82,22 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
     const internalPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.internalDocumented / sc.totalExports) * 100));
 
     lines.push('Documentation coverage:');
-    lines.push(`  Project docs (docs/): ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
-    lines.push(`  Internal ref (.anatoly/docs/): ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
 
     if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
       const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
       lines.push(`  Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
+    }
+
+    // Internal docs (.anatoly/docs/) coverage
+    lines.push('');
+    lines.push('Internal docs (.anatoly/docs/) coverage:');
+    const internalPagePct = stats.totalPages > 0 ? 100 : 0;
+    lines.push(`  Reference pages: ${internalPagePct}% (${stats.totalPages}/${stats.totalPages} pages)`);
+    if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+      const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+      lines.push(`  Modules: ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC in internal docs)`);
     }
   } else {
     // Fallback: page count only (no symbol data available)

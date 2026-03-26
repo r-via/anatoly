@@ -130,8 +130,8 @@ describe('renderDocReferenceSection', () => {
         },
       });
 
-      expect(result).toContain('Project docs (docs/): 45% (94/209 symbols)');
-      expect(result).toContain('Internal ref (.anatoly/docs/): 92% (192/209 symbols)');
+      expect(result).toContain('Fully documented: 45% (94/209 symbols)');
+      expect(result).toContain('At least partial: 92% (192/209 symbols)');
     });
 
     it('displays module coverage when provided', () => {
@@ -181,8 +181,8 @@ describe('renderDocReferenceSection', () => {
         },
       });
 
-      expect(result).toContain('Project docs (docs/): 100%');
-      expect(result).toContain('Internal ref (.anatoly/docs/): 100%');
+      expect(result).toContain('Fully documented: 100%');
+      expect(result).toContain('At least partial: 100%');
     });
 
     it('caps coverage at 100% (AC5)', () => {
@@ -199,7 +199,7 @@ describe('renderDocReferenceSection', () => {
         },
       });
 
-      expect(result).toContain('Project docs (docs/): 100%');
+      expect(result).toContain('Fully documented: 100%');
       // 120% should not appear — documented count capped to total
       expect(result).not.toContain('120%');
       expect(result).toContain('25/25 symbols');

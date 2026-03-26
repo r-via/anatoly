@@ -314,6 +314,28 @@ function buildReportStats(
     userDocsPageCount = countMdFiles(docsDir);
   }
 
+  // Internal docs module coverage: check .anatoly/docs/ pages against module names
+  const anatolyDocsDir = resolve(input.projectRoot, '.anatoly', 'docs');
+  const internalDocPages = scanUserDocs(anatolyDocsDir);
+  let internalModulesDocumented = 0;
+  if (scoringInput.totalModules > 0) {
+    // Re-derive moduleDirs from tasks to check against internal pages
+    const moduleDirs = new Map<string, number>();
+    for (const task of input.tasks) {
+      const dirName = extractModuleName(task.file);
+      if (!dirName) continue;
+      const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
+      moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
+    }
+    for (const [dirName, loc] of moduleDirs) {
+      if (loc < 200) continue;
+      const hasPage = internalDocPages.some(p =>
+        p.path.toLowerCase().includes(dirName.toLowerCase()),
+      );
+      if (hasPage) internalModulesDocumented++;
+    }
+  }
+
   // Symbol-based coverage (Story 29.20)
   const symbolCoverage = {
     projectDocumented: scoringInput.projectExportsDocumented,
@@ -321,6 +343,7 @@ function buildReportStats(
     totalExports: scoringInput.totalExports,
     modulesDocumented: scoringInput.modulesDocumented,
     totalModules: scoringInput.totalModules,
+    internalModulesDocumented,
   };
 
   // Sync status by recommendation type (Story 29.20)
