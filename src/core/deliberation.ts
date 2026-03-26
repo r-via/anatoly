@@ -253,12 +253,32 @@ export function applyDeliberation(
       setAxisValue(updated, axis, deliberated);
     }
 
-    // Record all axis reclassifications as a single symbol entry
+    // Record all axis reclassifications as a single symbol entry.
+    // Truncate original_detail to only the axes that were reclassified —
+    // the full multi-axis detail string is too verbose for memory storage.
     if (projectRoot && axisReclassifications.length > 0) {
+      const reclassifiedAxes = new Set(axisReclassifications.map((r) => r.axis));
+      const detailSegments = sym.detail.split(' | ');
+      const relevantDetail = detailSegments
+        .filter((seg) => {
+          const tag = seg.match(/^\[([A-Z_]+)\]/)?.[1];
+          if (!tag) return false;
+          // Match axis tags: USED/DEAD→utility, UNIQUE/DUPLICATE→duplication, etc.
+          const axisForTag: Record<string, string> = {
+            USED: 'utility', DEAD: 'utility', LOW_VALUE: 'utility',
+            UNIQUE: 'duplication', DUPLICATE: 'duplication',
+            OK: 'correction', NEEDS_FIX: 'correction', ERROR: 'correction',
+            LEAN: 'overengineering', OVER: 'overengineering', ACCEPTABLE: 'overengineering',
+            GOOD: 'tests', WEAK: 'tests', NONE: 'tests',
+            DOCUMENTED: 'documentation', PARTIAL: 'documentation', UNDOCUMENTED: 'documentation',
+          };
+          return reclassifiedAxes.has(axisForTag[tag] ?? '');
+        })
+        .join(' | ');
       recordReclassification(projectRoot, {
         symbol: sym.name,
         reclassifications: axisReclassifications,
-        original_detail: sym.detail,
+        original_detail: relevantDetail || sym.detail.slice(0, 200),
         reason: `Deliberation reclassified: ${delib.reasoning}`,
       });
     }
