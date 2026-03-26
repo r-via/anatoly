@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, runDocContentReview } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, runDocContentReview, autoFixStructuralIssues } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
@@ -93,12 +93,15 @@ async function runDocUpdate(
 
   ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${totalGaps} gaps)`);
 
-  // Pass 1: Structural coherence (lint + Opus fixes structure/numbering/links)
+  // Pass 1: Structural coherence (lint + auto-fix + Sonnet review)
   ctx.state.startTask(coherenceTaskId, 'linting…');
   const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
-  const autoFixed = lintResult.filesFixed;
-  const unfixedIssues = lintResult.issues.filter(i => !i.fixed);
-  ctx.renderer.logPlain(`[lint] ${lintResult.issues.length} issues found, ${autoFixed} auto-fixed, ${unfixedIssues.length} for Opus`);
+  const structuralFixes = autoFixStructuralIssues(outputDir, lintResult.issues.filter(i => !i.fixed));
+  const autoFixed = lintResult.filesFixed + structuralFixes.renames.length + structuralFixes.indexEntriesAdded.length;
+  // Re-lint after auto-fix to get accurate unfixed count
+  const postFixLint = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
+  const unfixedIssues = postFixLint.issues.filter(i => !i.fixed);
+  ctx.renderer.logPlain(`[lint] ${lintResult.issues.length} issues found, ${autoFixed} auto-fixed, ${unfixedIssues.length} for Sonnet`);
   for (const issue of unfixedIssues.slice(0, 10)) {
     ctx.renderer.logPlain(`[lint]   ${issue.path}: [${issue.rule}] ${issue.detail}`);
   }
@@ -260,13 +263,13 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Scaffold',
         tasks: [
           { id: 'scaffold', label: 'Internal doc — Scaffold (Sonnet)' },
-          { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Opus)' },
+          { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Sonnet)' },
           { id: 'rag-code', label: 'RAG — Indexing & embedding code' },
           { id: 'rag-nlp', label: 'RAG — Summaries & embedding code' },
           { id: 'rag-doc-project', label: 'RAG — Chunking & embedding project docs' },
           { id: 'rag-doc-internal', label: 'RAG — Chunking & embedding internal docs' },
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
-          { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Opus)' },
+          { id: 'coherence-2', label: 'Internal doc — Lint + coherence (Sonnet)' },
           { id: 'coherence-2-content', label: 'Internal doc — Content review (Opus)' },
         ],
         execute: async (ctx) => {
@@ -319,7 +322,7 @@ export function registerDocsCommand(program: Command): void {
           ctx.state.startTask('coherence-1', 'linting…');
           const scaffoldLint = reviewDocStructure(outputDir, ctx.projectRoot, ctx.docsPath);
           const scaffoldUnfixed = scaffoldLint.issues.filter(i => !i.fixed);
-          ctx.renderer.logPlain(`[lint] ${scaffoldLint.issues.length} issues, ${scaffoldLint.filesFixed} auto-fixed, ${scaffoldUnfixed.length} for Opus`);
+          ctx.renderer.logPlain(`[lint] ${scaffoldLint.issues.length} issues, ${scaffoldLint.filesFixed} auto-fixed, ${scaffoldUnfixed.length} for Sonnet`);
           for (const issue of scaffoldUnfixed.slice(0, 10)) {
             ctx.renderer.logPlain(`[lint]   ${issue.path}: [${issue.rule}] ${issue.detail}`);
           }
@@ -557,7 +560,7 @@ export function registerDocsCommand(program: Command): void {
         console.log(`  ${chalk.green('✓')} Structure lint — ${lintResult.filesFixed} auto-fixed, ${unfixed.length} remaining`);
       }
 
-      // Step 2: Opus coherence review (unless --lint-only)
+      // Step 2: Sonnet coherence review (unless --lint-only)
       if (opts.lintOnly) {
         if (unfixed.length > 0) {
           console.log('');
@@ -793,7 +796,7 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Update',
         tasks: [
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
-          { id: 'coherence', label: 'Internal doc — Structural coherence (Opus)' },
+          { id: 'coherence', label: 'Internal doc — Structural coherence (Sonnet)' },
           { id: 'coherence-content', label: 'Internal doc — Content review (Opus)' },
         ],
         execute: async (ctx) => {

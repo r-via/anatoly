@@ -124,11 +124,18 @@ async function executeOnePage(
       model: prompt.model,
     });
 
+    // Strip any preamble before the first markdown heading
+    let content = result.text;
+    const headingIdx = content.search(/^# /m);
+    if (headingIdx > 0) {
+      content = content.slice(headingIdx);
+    }
+
     // Ensure subdirectory exists and guard against docs/ writes
     const fullPath = join(outputDir, prompt.pagePath);
     assertSafeOutputPath(fullPath, projectRoot, docsPath);
     mkdirSync(dirname(fullPath), { recursive: true });
-    writeFileSync(fullPath, result.text, 'utf-8');
+    writeFileSync(fullPath, content, 'utf-8');
 
     onPageComplete?.(prompt.pagePath);
     return { costUsd: result.costUsd };
@@ -632,7 +639,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   const tokenBudget = getDocTokenBudget('claude-sonnet-4-6');
   const allContent = files.map(f => {
     const relPath = relative(outputDir, f.fullPath);
-    return `## ${relPath}\n<content>\n${f.content}\n</content>`;
+    return `<file path="${relPath}">\n${f.content}\n</file>`;
   }).join('\n\n');
   const contentTokens = countTokens(allContent);
   const contentInjected = contentTokens <= tokenBudget;
