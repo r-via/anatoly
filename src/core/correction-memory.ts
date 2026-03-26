@@ -86,7 +86,8 @@ function extractSymbolFromPattern(pattern: string): string {
 
 /** Extract (from, to) from a v1 pattern like "[deliberation] COOKIE_LEN: utility DEAD → USED". */
 function extractTransitionFromPattern(pattern: string, axis: string): { from: string; to: string } | undefined {
-  const re = new RegExp(`${axis}\\s+(\\S+)\\s+→\\s+(\\S+)`);
+  const escaped = axis.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`${escaped}\\s+(\\S+)\\s+→\\s+(\\S+)`);
   const match = pattern.match(re);
   if (match) return { from: match[1], to: match[2] };
   return undefined;
@@ -234,15 +235,32 @@ export function recordReclassification(
   );
 
   if (existing) {
-    // Merge new axis reclassifications, skip duplicates
+    // Merge new axis reclassifications — update existing axes, add new ones
     let changed = false;
     for (const r of entry.reclassifications) {
-      const hasAxis = existing.reclassifications.some((er) => er.axis === r.axis);
-      if (!hasAxis) {
+      const existingAxis = existing.reclassifications.find((er) => er.axis === r.axis);
+      if (existingAxis) {
+        // Update stale from/to values if they changed
+        if (existingAxis.from !== r.from || existingAxis.to !== r.to) {
+          existingAxis.from = r.from;
+          existingAxis.to = r.to;
+          changed = true;
+        }
+      } else {
         existing.reclassifications.push(r);
         changed = true;
       }
     }
+    // Update reason/detail if provided (later entries may have better context)
+    if (entry.reason && entry.reason !== existing.reason) {
+      existing.reason = entry.reason;
+      changed = true;
+    }
+    if (entry.original_detail && entry.original_detail !== existing.original_detail) {
+      existing.original_detail = entry.original_detail;
+      changed = true;
+    }
+    existing.recorded_at = new Date().toISOString();
     if (!changed) return;
   } else {
     memory.false_positives.push({

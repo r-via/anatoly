@@ -273,16 +273,6 @@ function detectImplicatedDep(
   return undefined;
 }
 
-/**
- * Summarize a finding detail into a short pattern string for memory deduplication.
- */
-function summarizePattern(detail: string): string {
-  // Take the first sentence or first 100 chars
-  const firstSentence = detail.split(/\.\s/)[0];
-  return firstSentence.length > 120
-    ? firstSentence.slice(0, 120) + '...'
-    : firstSentence;
-}
 
 // ---------------------------------------------------------------------------
 // Evaluator class
