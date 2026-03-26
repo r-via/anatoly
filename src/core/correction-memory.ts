@@ -197,7 +197,15 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
     }
   } catch (err) {
     if (existsSync(memPath)) {
-      contextLogger().warn({ memPath, err }, 'deliberation memory file corrupted');
+      const bakPath = memPath + '.corrupted';
+      contextLogger().warn({ memPath, bakPath, err }, 'deliberation memory file corrupted — rebuilding');
+      try {
+        renameSync(memPath, bakPath);
+      } catch { /* best-effort backup */ }
+      const fresh: DeliberationMemory = { version: 2, false_positives: [] };
+      mkdirSync(dir, { recursive: true });
+      atomicWriteJson(memPath, fresh);
+      return fresh;
     }
   }
   return { version: 2, false_positives: [] };
