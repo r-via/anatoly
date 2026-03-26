@@ -170,21 +170,21 @@ function buildReportsBaseUrl(projectRoot: string, runDir?: string): string | und
   let upstream: string | undefined;
   try {
     // Try "upstream" remote first
-    upstream = execFileSync('git', ['remote', 'get-url', 'upstream'], { cwd: projectRoot, encoding: 'utf-8' }).trim();
+    upstream = execFileSync('git', ['remote', 'get-url', 'upstream'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
   } catch {
     try {
       // Try GitHub fork parent
-      const parentJson = execFileSync('gh', ['repo', 'view', '--json', 'parent'], { cwd: projectRoot, encoding: 'utf-8' }).trim();
+      const parentJson = execFileSync('gh', ['repo', 'view', '--json', 'parent'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
       const parent = JSON.parse(parentJson)?.parent;
       if (parent?.owner?.login && parent?.name) {
-        upstream = `${parent.owner.login}/${parent.name}`;
+        upstream = `https://github.com/${parent.owner.login}/${parent.name}`;
       }
     } catch { /* ignore */ }
   }
   if (!upstream) {
     try {
       // Fall back to origin
-      upstream = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: projectRoot, encoding: 'utf-8' }).trim();
+      upstream = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
     } catch {
       return undefined;
     }
