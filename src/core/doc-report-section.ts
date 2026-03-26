@@ -93,8 +93,7 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
     // Internal docs (.anatoly/docs/) coverage
     lines.push('');
     lines.push('Internal docs (.anatoly/docs/) coverage:');
-    const internalPagePct = stats.totalPages > 0 ? 100 : 0;
-    lines.push(`  Reference pages: ${internalPagePct}% (${stats.totalPages}/${stats.totalPages} pages)`);
+    lines.push(`  Pages generated: ${stats.totalPages}`);
     if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
       const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
       lines.push(`  Modules: ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC in internal docs)`);

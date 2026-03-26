@@ -93,6 +93,8 @@ export interface RagIndexResult {
   internalDocSections: number;
   /** True when internal docs exist but were all cache-hits. */
   internalDocsCached: boolean;
+  /** Total LLM cost (USD) incurred during RAG indexing (NLP summaries + doc chunking). */
+  costUsd: number;
 }
 
 /**
@@ -111,6 +113,8 @@ export interface IndexedFileResult {
   nlpFailedIds?: Set<string>;
   /** NLP summary cache entries produced during this file's processing. */
   nlpCacheUpdates?: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }>;
+  /** Total LLM cost (USD) incurred for NLP summarization of this file. */
+  costUsd?: number;
 }
 
 /**
@@ -223,8 +227,9 @@ export async function processFileForDualIndex(
   }
 
   // Generate NLP summaries via LLM only for uncached functions
+  let nlpCostUsd = 0;
   if (uncachedCards.length > 0) {
-    const newSummaries = await generateNlpSummaries(
+    const nlpResult = await generateNlpSummaries(
       uncachedCards,
       uncachedBodies,
       task.file,
@@ -233,11 +238,12 @@ export async function processFileForDualIndex(
       conversationDir,
       semaphore,
     );
+    nlpCostUsd = nlpResult.costUsd;
 
     // Merge new summaries and build cache entries
     for (let i = 0; i < uncachedCards.length; i++) {
       const card = uncachedCards[i];
-      const summary = newSummaries.get(card.id);
+      const summary = nlpResult.summaries.get(card.id);
       if (summary) {
         mergedSummaries.set(card.id, summary);
         const bodyHash = computeBodyHash(uncachedBodies[i]);
@@ -249,7 +255,7 @@ export async function processFileForDualIndex(
   if (deferNlpEmbeddings) {
     // Enrich cards but skip NLP embedding (deferred to batch phase)
     const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(built.toIndex, mergedSummaries);
-    return { task, cards: enrichedCards, embeddings: codeEmbeddings, nlpFailedIds, nlpCacheUpdates };
+    return { task, cards: enrichedCards, embeddings: codeEmbeddings, nlpFailedIds, nlpCacheUpdates, costUsd: nlpCostUsd };
   }
 
   // Apply all NLP summaries (cached + new) and generate NLP embeddings
@@ -263,6 +269,7 @@ export async function processFileForDualIndex(
     docEmbeddings,
     nlpFailedIds,
     nlpCacheUpdates,
+    costUsd: nlpCostUsd,
   };
 }
 
@@ -417,6 +424,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);
   let cardsIndexed = 0;
   let filesIndexed = 0;
+  let ragCostUsd = 0;
+
+  // Accumulate NLP summarization costs from file processing
+  for (const r of results) {
+    ragCostUsd += r.costUsd ?? 0;
+  }
 
   for (const result of results) {
     // Delete all existing cards for this file first to remove stale entries
@@ -471,6 +484,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     // Trees are identical — index only internal, then alias as project
     onLog('rag: docs/ identical to .anatoly/docs/ — indexing internal only, aliasing project');
 
+    onPhase?.('doc-project'); // emit both phases so UI task transitions work
     onPhase?.('doc-internal');
     try {
       const intResult = await indexDocSections({
@@ -491,13 +505,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       });
       internalDocSections = intResult.sections;
       internalDocsCached = intResult.cached;
+      ragCostUsd += intResult.costUsd;
       docSectionsIndexed += internalDocSections;
 
-      // Alias internal → project in vector store
+      // Alias internal → project in vector store (don't add to docSectionsIndexed — same content)
       const aliased = await store.aliasDocSource('internal', 'project', options.docsDir ?? 'docs');
       projectDocSections = aliased;
       projectDocsCached = intResult.cached;
-      docSectionsIndexed += aliased;
     } catch (err) {
       onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
     }
@@ -525,6 +539,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       });
       projectDocSections = projResult.sections;
       projectDocsCached = projResult.cached;
+      ragCostUsd += projResult.costUsd;
       docSectionsIndexed += projectDocSections;
     } catch (err) {
       onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
@@ -551,6 +566,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       });
       internalDocSections = intResult.sections;
       internalDocsCached = intResult.cached;
+      ragCostUsd += intResult.costUsd;
       docSectionsIndexed += internalDocSections;
     } catch (err) {
       onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
@@ -582,5 +598,6 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     projectDocsCached,
     internalDocSections,
     internalDocsCached,
+    costUsd: ragCostUsd,
   };
 }

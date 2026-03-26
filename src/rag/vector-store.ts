@@ -464,9 +464,6 @@ export class VectorStore {
 
     if (rows.length === 0) return 0;
 
-    // Determine the fromPrefix from the first row's filePath
-    // e.g. if fromSource='internal' and filePath='.anatoly/docs/02-Arch/foo.md' → fromPrefix='.anatoly/docs'
-    const samplePath = String(rows[0].filePath);
     const fromDocsDir = fromSource === 'internal' ? '.anatoly/docs' : toDocsDir;
 
     // 3. Create aliased rows with remapped paths and recomputed IDs

@@ -195,18 +195,23 @@ async function chunkDocWithHaiku(
   abortController?: AbortController,
   conversationDir?: string,
   semaphore?: Semaphore,
-): Promise<DocSection[]> {
+): Promise<{ sections: DocSection[]; costUsd: number }> {
   const log = contextLogger();
   const ac = abortController ?? new AbortController();
   const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
+  let totalCostUsd = 0;
 
   // Step 1: mechanical H2 split (free, instant)
   const h2Sections = fallbackParseH2(filePath, source);
 
   if (h2Sections.length === 0) {
-    // No H2 structure — send the whole doc as a single batch section
-    const prose = stripNonProse(source);
-    if (prose.length < 50) return [];
+    // No H2 structure — send the whole doc as a single batch section (capped at MAX_BATCH_CHARS)
+    let prose = stripNonProse(source);
+    if (prose.length < 50) return { sections: [], costUsd: 0 };
+    if (prose.length > MAX_BATCH_CHARS) {
+      prose = prose.slice(0, MAX_BATCH_CHARS);
+      log?.warn({ file: filePath, originalLength: stripNonProse(source).length, truncatedTo: MAX_BATCH_CHARS }, 'doc chunking: unstructured doc truncated to MAX_BATCH_CHARS');
+    }
     try {
       const userMessage = `### Section 1: "${filePath}" from \`${filePath}\`\n\n${prose}`;
       const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
@@ -222,14 +227,18 @@ async function chunkDocWithHaiku(
         },
         BatchChunkResponseSchema,
       ));
+      totalCostUsd += result.costUsd;
       const sections = result.data.results.find(r => r.sourceSection === 1)?.sections ?? [];
-      return sections
-        .filter((s) => s.content.trim().length >= 50)
-        .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
+      return {
+        sections: sections
+          .filter((s) => s.content.trim().length >= 50)
+          .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() })),
+        costUsd: totalCostUsd,
+      };
     } catch (err) {
       if (ac.signal.aborted) throw err;
       log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku failed on unstructured doc, falling back to mechanical parse');
-      return [{ filePath, heading: filePath, embedText: prose, content: prose }];
+      return { sections: [{ filePath, heading: filePath, embedText: prose, content: prose }], costUsd: totalCostUsd };
     }
   }
 
@@ -245,7 +254,7 @@ async function chunkDocWithHaiku(
 
   // If nothing needs refinement, return all sections as-is
   if (eligible.length === 0) {
-    return h2Sections;
+    return { sections: h2Sections, costUsd: 0 };
   }
 
   // Step 3: batch LLM calls (split into sub-batches if needed)
@@ -274,6 +283,7 @@ async function chunkDocWithHaiku(
         },
         BatchChunkResponseSchema,
       ));
+      totalCostUsd += result.costUsd;
 
       // Map results back to original indices
       for (const batchResult of result.data.results) {
@@ -295,7 +305,7 @@ async function chunkDocWithHaiku(
     if (ac.signal.aborted) throw err;
     log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku batch refinement failed, keeping H2 sections');
     // Fallback: return all H2 sections as-is
-    return h2Sections;
+    return { sections: h2Sections, costUsd: totalCostUsd };
   }
 
   // Step 4: merge passthrough + refined in original document order
@@ -309,7 +319,7 @@ async function chunkDocWithHaiku(
     }
   }
 
-  return allSections;
+  return { sections: allSections, costUsd: totalCostUsd };
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +509,8 @@ export interface DocIndexResult {
   sections: number;
   /** True when doc files exist but were all cache-hits (unchanged). */
   cached: boolean;
+  /** Total LLM cost (USD) incurred for doc chunking in this run. */
+  costUsd: number;
 }
 
 /**
@@ -513,13 +525,13 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) {
     onLog('rag: no docs/ directory found');
-    return { sections: 0, cached: false };
+    return { sections: 0, cached: false, costUsd: 0 };
   }
 
   const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
   if (files.length === 0) {
     onLog('rag: no doc files found');
-    return { sections: 0, cached: false };
+    return { sections: 0, cached: false, costUsd: 0 };
   }
 
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
@@ -568,13 +580,14 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   if (changedFiles.length === 0) {
     onLog(`rag: doc sections up to date (${cachedCount} files cached)`);
     saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
-    return { sections: 0, cached: true };
+    return { sections: 0, cached: true, costUsd: 0 };
   }
 
   const method = chunkModel ? `Haiku (${chunkModel})` : 'H2 fallback';
   onLog(`rag: chunking ${changedFiles.length} doc files via ${method} (${cachedCount} cached)`);
 
   let totalIndexed = 0;
+  let totalCostUsd = 0;
   let docFileCounter = 0;
 
   // Create a shared AbortController for all Haiku calls — aborted when isInterrupted() returns true
@@ -595,10 +608,12 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
     if (cachedChunks && cachedChunks.sha === sha) {
       sections = cachedChunks.sections.map(s => ({ filePath: relPath, ...s }));
       onLog(`rag: ${relPath} → ${sections.length} sections (from chunk cache)`);
+    } else if (chunkModel) {
+      const chunkResult = await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore);
+      sections = chunkResult.sections;
+      totalCostUsd += chunkResult.costUsd;
     } else {
-      sections = chunkModel
-        ? await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore)
-        : fallbackParseH2(relPath, source);
+      sections = fallbackParseH2(relPath, source);
     }
 
     if (sections.length === 0) {
@@ -652,7 +667,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   saveDocChunkCache(projectRoot, cacheSuffix, mergedChunkCache);
   onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
 
-  return { sections: totalIndexed, cached: false };
+  return { sections: totalIndexed, cached: false, costUsd: totalCostUsd };
 }
 
 /**
