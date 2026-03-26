@@ -220,11 +220,13 @@ export class ScreenRenderer {
 
     if (file.axesTotal > 0) {
       const remaining = file.axesTotal - file.axesDone;
-      if (remaining === 0 && !isDone) {
+      if (isDone) {
+        line += `    ${chalk.green('Done !')}`;
+      } else if (remaining === 0) {
         line += `    ${chalk.dim('deliberating…')}`;
       } else {
         const counter = `${remaining}/${file.axesTotal} checks left`;
-        line += `    ${isDone ? chalk.green(counter) : counter}`;
+        line += `    ${counter}`;
       }
     }
 
