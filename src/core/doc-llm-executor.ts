@@ -266,7 +266,12 @@ export function reviewDocStructure(
     const headings = [...stripped.matchAll(/^(#{1,6}) /gm)].map(m => m[1].length);
     const h1Count = headings.filter(h => h === 1).length;
     if (h1Count === 0) {
-      issues.push({ path: relPath, rule: 'heading-hierarchy', detail: 'missing h1 heading', fixed: false });
+      // Auto-fix: derive title from filename and prepend
+      const fileName = relPath.split('/').pop()!.replace(/\.md$/, '').replace(/^\d+-/, '');
+      const title = fileName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const current = modified.get(relPath) ?? file.content;
+      modified.set(relPath, `# ${title}\n\n${current}`);
+      issues.push({ path: relPath, rule: 'heading-hierarchy', detail: `missing h1 heading — added "# ${title}"`, fixed: true });
     } else if (h1Count > 1) {
       issues.push({ path: relPath, rule: 'heading-hierarchy', detail: `${h1Count} h1 headings (expected 1)`, fixed: false });
     }
