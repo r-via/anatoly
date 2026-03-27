@@ -339,7 +339,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     const cache = loadRagCache(projectRoot, cacheSuffix);
     for (const file of indexedFiles) {
       if (isMatch(file)) {
-        await store.deleteByFile(file, 'function_card');
+        await store.deleteByFile(file, 'function');
         purgedCount++;
       }
     }
@@ -384,7 +384,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   const indexedFiles = await store.listIndexedFiles();
   for (const orphan of indexedFiles) {
     if (!currentFiles.has(orphan)) {
-      await store.deleteByFile(orphan, 'function_card');
+      await store.deleteByFile(orphan, 'function');
       onLog(`gc: removed stale cards for ${orphan}`);
     }
   }

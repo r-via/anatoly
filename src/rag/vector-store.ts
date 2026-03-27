@@ -422,9 +422,12 @@ export class VectorStore {
   async deleteDocSections(ids: string[]): Promise<void> {
     if (!this.table || ids.length === 0) return;
     for (const id of ids) {
+      // Doc section IDs are internally generated 16-char hex (from buildDocSectionId),
+      // so sanitizeId would work, but wrapping it in the try/catch risks silently
+      // swallowing validation errors. Validate with a permissive hex check instead.
+      if (!/^[a-f0-9]+$/.test(id)) continue;
       try {
-        const safeId = sanitizeId(id);
-        await this.table.delete(`id = '${safeId}' AND type = 'doc_section'`);
+        await this.table.delete(`id = '${id}' AND type = 'doc_section'`);
       } catch {
         // May not exist
       }
@@ -464,7 +467,7 @@ export class VectorStore {
 
     if (rows.length === 0) return 0;
 
-    const fromDocsDir = fromSource === 'internal' ? '.anatoly/docs' : toDocsDir;
+    const fromDocsDir = fromSource === 'internal' ? '.anatoly/docs' : 'docs';
 
     // 3. Create aliased rows with remapped paths and recomputed IDs
     const aliasedRows: VectorRow[] = rows.map((row) => {
@@ -609,7 +612,7 @@ export class VectorStore {
   /**
    * Delete all cards for a given file path.
    */
-  async deleteByFile(filePath: string, type?: 'function_card' | 'doc_section'): Promise<void> {
+  async deleteByFile(filePath: string, type?: 'function' | 'doc_section'): Promise<void> {
     if (!this.table) return;
     try {
       const filter = type
@@ -637,13 +640,13 @@ export class VectorStore {
   }
 
   /**
-   * Return the set of distinct file paths that have function_card entries.
+   * Return the set of distinct file paths that have function entries.
    */
   async listIndexedFiles(): Promise<Set<string>> {
     if (!this.table) return new Set();
     const rows = await this.table
       .query()
-      .where("type = 'function_card'")
+      .where("type = 'function'")
       .select(['filePath'])
       .toArray();
     return new Set(rows.map((r) => r.filePath as string));
