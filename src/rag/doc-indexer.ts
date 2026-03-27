@@ -517,8 +517,22 @@ export function smartChunkDoc(filePath: string, source: string): DocSection[] {
   const blocks: Block[] = [];
   let current: Block | null = null;
   const preambleLines: string[] = [];
+  let inFence = false;
 
   for (const line of lines) {
+    // Track fenced code blocks to avoid parsing headings inside them
+    if (line.startsWith('```')) {
+      inFence = !inFence;
+      if (current) current.lines.push(line);
+      else preambleLines.push(line);
+      continue;
+    }
+    if (inFence) {
+      if (current) current.lines.push(line);
+      else preambleLines.push(line);
+      continue;
+    }
+
     const h2 = line.match(/^##\s+(.+)/);
     const h3 = line.match(/^###\s+(.+)/);
 
@@ -529,9 +543,11 @@ export function smartChunkDoc(filePath: string, source: string): DocSection[] {
       }
       current = { level: 2, heading: h2[1].trim(), lines: [] };
     } else if (h3 && current) {
-      // Flush accumulated H2 content before this H3
+      // Flush accumulated content before this H3
       if (current.lines.length > 0) blocks.push(current);
-      current = { level: 3, heading: h3[1].trim(), lines: [], parentH2: current.heading };
+      // When transitioning H3→H3, use the existing parentH2; when H2→H3, use the H2's heading
+      const h2Parent: string | undefined = current.level === 3 ? current.parentH2 : current.heading;
+      current = { level: 3, heading: h3[1].trim(), lines: [], parentH2: h2Parent };
     } else if (current) {
       current.lines.push(line);
     } else {
