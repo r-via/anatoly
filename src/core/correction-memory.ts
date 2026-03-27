@@ -172,6 +172,11 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
         atomicWriteJson(memPath, migrated);
         renameSync(legacyPath, legacyPath + '.bak');
         return migrated;
+      } else {
+        contextLogger().warn(
+          { legacyPath, version: parsed.version },
+          'legacy correction-memory.json has unrecognized version — skipping migration',
+        );
       }
     } catch (err) {
       contextLogger().warn({ legacyPath, err }, 'deliberation memory migration failed');
@@ -268,8 +273,8 @@ export function recordReclassification(
       existing.original_detail = entry.original_detail;
       changed = true;
     }
-    existing.recorded_at = new Date().toISOString();
     if (!changed) return;
+    existing.recorded_at = new Date().toISOString();
   } else {
     memory.false_positives.push({
       ...entry,
