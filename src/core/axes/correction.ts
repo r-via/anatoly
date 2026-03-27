@@ -244,9 +244,14 @@ function applyVerification(
     return { ...sym, confidence: v.confidence };
   });
 
-  // Remove actions whose line falls within a now-OK symbol's range
+  // Remove actions whose line falls within a symbol reclassified to OK by verification
+  const pass1NonOk = new Set(
+    pass1.symbols
+      .filter((s) => s.correction !== 'OK')
+      .map((s) => s.name),
+  );
   const okRanges = updatedSymbols
-    .filter((s) => s.correction === 'OK')
+    .filter((s) => s.correction === 'OK' && pass1NonOk.has(s.name))
     .map((s) => ({ start: s.line_start, end: s.line_end }));
 
   const filteredActions = pass1.actions.filter((a) => {
