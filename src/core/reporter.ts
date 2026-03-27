@@ -1530,7 +1530,7 @@ function renderPublicDocSection(raw: string): string[] {
       if (syncedModMatch) {
         const pct = parseInt(syncedModMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated documentation page |`);
+        lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated page in docs/ |`);
       }
       if (intPagesMatch) {
         lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Anatoly-generated module and API reference pages |`);
