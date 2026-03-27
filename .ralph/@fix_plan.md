@@ -33,7 +33,7 @@
   > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
   > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-4
-- [ ] Story 37.5: Gemini auth check and graceful fallback
+- [x] Story 37.5: Gemini auth check and graceful fallback
   > As a user
   > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
   > So that my run is never blocked by a missing Google login.

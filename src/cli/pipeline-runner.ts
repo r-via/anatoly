@@ -35,6 +35,7 @@ import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { checkGeminiAuth } from '../utils/gemini-auth.js';
 
 // --- Public interfaces ---
 
@@ -142,6 +143,16 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   }
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
+
+  // Gemini auth check — graceful fallback to Claude if auth fails
+  if (config.llm.gemini.enabled) {
+    const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
+    if (!authOk) {
+      console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
+      config.llm.gemini.enabled = false;
+    }
+  }
+
   const semaphore = new Semaphore(config.llm.sdk_concurrency);
   const geminiSemaphore = config.llm.gemini.enabled
     ? new Semaphore(config.llm.gemini.sdk_concurrency)

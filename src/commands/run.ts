@@ -48,6 +48,7 @@ import { injectBadge } from '../core/badge.js';
 import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../core/doc-pipeline.js';
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
+import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory } from '../core/correction-memory.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
@@ -254,6 +255,15 @@ export function registerRunCommand(program: Command): void {
       if (cmdOpts.flushMemory) {
         saveDeliberationMemory(projectRoot, { version: 2, false_positives: [] });
         console.log(chalk.dim('deliberation memory flushed'));
+      }
+
+      // Gemini auth check — graceful fallback to Claude if auth fails
+      if (config.llm.gemini.enabled) {
+        const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
+        if (!authOk) {
+          console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
+          config.llm.gemini.enabled = false;
+        }
       }
 
       const ctx: RunContext = {
