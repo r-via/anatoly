@@ -6,6 +6,13 @@ import { mkdirSync, symlinkSync, unlinkSync, lstatSync, readlinkSync, readdirSyn
 import { join, resolve } from 'node:path';
 
 const RUN_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
+const TIMESTAMP_SUFFIX_RE = /\d{4}-\d{2}-\d{2}_\d{6}$/;
+
+/** Extract the `YYYY-MM-DD_HHmmss` timestamp suffix from a run ID for chronological sorting. */
+function extractTimestamp(runId: string): string {
+  const m = runId.match(TIMESTAMP_SUFFIX_RE);
+  return m ? m[0] : runId;
+}
 
 /**
  * Generate a timestamp-based run ID.
@@ -120,14 +127,20 @@ export function resolveRunDir(projectRoot: string, runId?: string): string | nul
 }
 
 /**
- * List all run IDs sorted by name (chronological for timestamp-based IDs).
+ * List all run IDs sorted chronologically by their timestamp suffix.
+ * For IDs without a recognised timestamp, falls back to lexicographic order.
  */
 export function listRuns(projectRoot: string): string[] {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
   try {
     return readdirSync(runsDir)
       .filter((entry) => entry !== 'latest')
-      .sort();
+      .sort((a, b) => {
+        const tsA = extractTimestamp(a);
+        const tsB = extractTimestamp(b);
+        if (tsA !== tsB) return tsA < tsB ? -1 : 1;
+        return a.localeCompare(b);
+      });
   } catch {
     return [];
   }
