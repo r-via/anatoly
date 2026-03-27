@@ -7,12 +7,16 @@ import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve, relative, dirname, basename, join } from 'node:path';
-import { generateReport, type AxisReport, type RunStats } from '../core/reporter.js';
+import { generateReport, loadReviews, type AxisReport, type RunStats } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { verdictColor } from '../utils/format.js';
 import { isLockActive } from '../utils/lock.js';
+import { detectProjectProfile } from '../core/language-detect.js';
+import { loadTasks } from '../core/estimator.js';
+import { aggregateDocReport } from '../core/doc-report-aggregator.js';
+import { loadConfig } from '../utils/config-loader.js';
 
 /** Registers the `report` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerReportCommand(program: Command): void {
@@ -60,11 +64,30 @@ export function registerReportCommand(program: Command): void {
       // Build reportsBaseUrl for absolute links in public_report.md
       const reportsBaseUrl = buildReportsBaseUrl(projectRoot, runDir ?? undefined);
 
-      // Try to load persisted doc reference section from the run
+      // Re-aggregate doc coverage from current reviews + profile
       let docReferenceSection: string | undefined;
-      const docSectionPath = runDir ? join(runDir, 'doc-reference-section.md') : undefined;
-      if (docSectionPath && existsSync(docSectionPath)) {
-        docReferenceSection = readFileSync(docSectionPath, 'utf-8');
+      if (runDir && existsSync(resolve(runDir, 'reviews'))) {
+        try {
+          const config = loadConfig(projectRoot);
+          const reviews = loadReviews(projectRoot, runDir);
+          const tasks = loadTasks(projectRoot);
+          const profile = detectProjectProfile(projectRoot);
+          const result = aggregateDocReport({
+            projectRoot,
+            projectTypes: profile.types,
+            reviews,
+            tasks,
+            idealPageCount: 0,
+            docsPath: config.documentation?.docs_path ?? 'docs',
+          });
+          docReferenceSection = result.renderedSection;
+        } catch {
+          // Fallback: load persisted section from previous run
+          const docSectionPath = join(runDir, 'doc-reference-section.md');
+          if (existsSync(docSectionPath)) {
+            docReferenceSection = readFileSync(docSectionPath, 'utf-8');
+          }
+        }
       }
 
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
