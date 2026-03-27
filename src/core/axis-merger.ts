@@ -248,7 +248,7 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
   // A non-exported symbol under 15 lines is typically a helper tested through
   // its callers — flagging it UNDOCUMENTED or WEAK is noise.
   const symbolSize = result.line_end - result.line_start + 1;
-  if (!result.exported && symbolSize < 15) {
+  if (!result.exported && symbolSize < 15 && result.utility !== 'DEAD') {
     if (result.documentation === 'UNDOCUMENTED') {
       result = { ...result, documentation: 'DOCUMENTED', confidence: Math.min(result.confidence, 60) };
     }
@@ -289,7 +289,7 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
     if (sym.utility === 'DEAD') {
       actions.push({
         id: 0,
-        description: `Remove dead code: \`${sym.name}\` is exported but unused`,
+        description: `Remove dead code: \`${sym.name}\` is ${sym.exported ? 'exported but unused' : 'unreferenced'}`,
         severity: sym.confidence >= 80 ? 'high' : 'medium',
         effort: 'trivial',
         category: sym.confidence >= 80 ? 'quickwin' : 'refactor',
@@ -415,7 +415,12 @@ function groupIdenticalActions(actions: Action[]): Action[] {
     const allLines = group.map((a) => a.target_lines).filter(Boolean).join(', ');
     result.push({
       ...first,
-      description: `${first.description.replace(/`[^`]+`$/, '')} \`${symbols}\``,
+      description: first.target_symbol
+        ? first.description.replace(
+            new RegExp(`\`${first.target_symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\``),
+            `\`${symbols}\``,
+          )
+        : `${first.description} \`${symbols}\``,
       target_symbol: group.map((a) => a.target_symbol).filter(Boolean).join(', '),
       target_lines: allLines || null,
     });
