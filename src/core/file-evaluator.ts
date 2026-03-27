@@ -287,6 +287,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       contextLogger().info({ event: 'axis_complete', axis: evaluator.id, file: task.file, durationMs: settled.value.durationMs, costUsd: settled.value.costUsd, success: true }, 'axis complete');
     } else {
       failedAxes.push(evaluator.id);
+      onAxisComplete?.(evaluator.id);
       const axisMsg = settled.reason instanceof AnatolyError ? settled.reason.message : String(settled.reason);
       chunk = `# Axis: ${evaluator.id} — FAILED\n\n${axisMsg}\n`;
       // Suppress noisy warnings when the user interrupted via Ctrl+C
