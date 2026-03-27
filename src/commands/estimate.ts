@@ -95,9 +95,12 @@ export function registerEstimateCommand(program: Command): void {
       const progress = readProgress(progressPath);
       let scanDetail = `${allTasks.length} files`;
       if (progress) {
-        const entries = Object.values(progress.files);
-        const cached = entries.filter(f => f.status === 'CACHED' || f.status === 'DONE').length;
-        const pending = entries.length - cached;
+        // Count how many current tasks have a cached/done progress entry
+        const cached = allTasks.filter(t => {
+          const entry = progress.files[t.file];
+          return entry && (entry.status === 'CACHED' || entry.status === 'DONE');
+        }).length;
+        const pending = allTasks.length - cached;
         scanDetail = `${allTasks.length} files (${pending} new, ${cached} cached)`;
       }
       pipelineRows.push({ phase: 'scan', detail: scanDetail });
@@ -142,8 +145,10 @@ export function registerEstimateCommand(program: Command): void {
       const calLabel = hasCal ? 'calibrated' : 'default';
       let estimateFileLabel = `${evalFileCount} files`;
       if (progress) {
-        const entries = Object.values(progress.files);
-        const cached = entries.filter(f => f.status === 'CACHED' || f.status === 'DONE').length;
+        const cached = allTasks.filter(t => {
+          const entry = progress.files[t.file];
+          return entry && (entry.status === 'CACHED' || entry.status === 'DONE');
+        }).length;
         const pending = allTasks.length - cached;
         estimateFileLabel = `${evalFileCount} files (${pending} new, ${cached} cached)`;
       }

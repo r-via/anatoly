@@ -99,6 +99,10 @@ export class AnatolyError extends Error {
       const safeLabel = label.replace(/[/\\]/g, '__').slice(0, 180);
       const fileName = `${safeLabel}__${ts}.txt`;
       const filePath = join(errorsDir, fileName);
+      const MAX_DUMP_BYTES = 64 * 1024; // 64 KB cap per dump file
+      const detail = this.detail && this.detail.length > MAX_DUMP_BYTES
+        ? this.detail.slice(0, MAX_DUMP_BYTES) + '\n…(truncated)'
+        : this.detail;
       const sections = [
         `Code:    ${this.code}`,
         `Message: ${this.message}`,
@@ -106,7 +110,7 @@ export class AnatolyError extends Error {
         '',
         '--- stack trace ---',
         this.stack ?? '(no stack)',
-        ...(this.detail ? ['', '--- detail ---', this.detail] : []),
+        ...(detail ? ['', '--- detail ---', detail] : []),
       ];
       writeFileSync(filePath, sections.join('\n'));
       return filePath;
