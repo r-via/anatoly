@@ -245,10 +245,12 @@ async function strategy1_moduleDomains(
       }
 
       for (const [pagePath, scores] of pageScores) {
+        const page = modulePages.find(p => p.path === pagePath);
+        if (!page) continue;
         const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
         if (avgScore > bestSim) {
           bestSim = avgScore;
-          bestPage = modulePages.find(p => p.path === pagePath) ?? null;
+          bestPage = page;
         }
       }
     }
