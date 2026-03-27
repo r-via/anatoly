@@ -11,7 +11,7 @@
   > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
   > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-1
-- [ ] Story 37.2: Create AnthropicTransport wrapping existing execQuery()
+- [x] Story 37.2: Create AnthropicTransport wrapping existing execQuery()
   > As a developer
   > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
   > So that it conforms to the `LlmTransport` interface without any behavior change.

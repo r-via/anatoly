@@ -13,6 +13,12 @@ export interface LlmRequest {
   abortController: AbortController;
   conversationDir?: string;
   conversationPrefix?: string;
+  /** Session ID to resume (for retry/continuation) */
+  resumeSessionId?: string;
+  /** Attempt number (1-based, for logging and conversation dump naming) */
+  attempt?: number;
+  /** Reason for retry (for structured logging) */
+  retryReason?: string;
 }
 
 /**
