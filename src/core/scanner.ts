@@ -277,7 +277,7 @@ export function loadCoverage(
       const locObj = loc as { start: { line: number }; end: { line: number } };
       for (let l = locObj.start.line; l <= locObj.end.line; l++) {
         lineSet.add(l);
-        if ((entry.s[stmtKey] ?? 0) > 0) {
+        if (((entry.s ?? {})[stmtKey] ?? 0) > 0) {
           coveredLineSet.add(l);
         }
       }
@@ -376,7 +376,7 @@ export async function scanProject(
     const source = readFileSync(absPath, 'utf-8');
     const ext = extname(relPath);
     const adapter = resolveAdapter(ext);
-    const parseMethod = adapter ? 'ast' : 'heuristic';
+    const parseMethod = adapter?.wasmModule ? 'ast' : 'heuristic';
     const detectedLang = classifyFile(relPath);
 
     let symbols: SymbolInfo[];
