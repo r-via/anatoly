@@ -358,7 +358,7 @@ export function reviewDocStructure(
   const indexFile = fileMap.get('index.md');
   if (indexFile) {
     const indexContent = modified.get('index.md') ?? indexFile.content;
-    const linkedPaths = new Set([...indexContent.matchAll(/\[.*?\]\((.*?\.md)\)/g)].map(m => m[1]));
+    const linkedPaths = new Set([...indexContent.matchAll(/\[.*?\]\((.*?\.md(?:#[^)]*)?)\)/g)].map(m => m[1].replace(/#.*$/, '')));
     // Missing from index
     for (const relPath of allPaths) {
       if (relPath === 'index.md' || relPath === '.cache.json') continue;
