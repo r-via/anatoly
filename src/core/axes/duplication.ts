@@ -188,6 +188,8 @@ export class DuplicationEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__duplication` : undefined,
         semaphore: ctx.semaphore,
         geminiSemaphore: ctx.geminiSemaphore,
+        circuitBreaker: ctx.circuitBreaker,
+        fallbackModel: ctx.fallbackModel,
       },
       DuplicationResponseSchema,
     );

@@ -173,6 +173,8 @@ export class DocumentationEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__documentation` : undefined,
         semaphore: ctx.semaphore,
         geminiSemaphore: ctx.geminiSemaphore,
+        circuitBreaker: ctx.circuitBreaker,
+        fallbackModel: ctx.fallbackModel,
       },
       DocumentationResponseSchema,
     );

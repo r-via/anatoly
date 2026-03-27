@@ -41,6 +41,7 @@ import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { countReviewFindings } from '../utils/format.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { injectBadge } from '../core/badge.js';
@@ -142,6 +143,8 @@ interface RunContext {
   sdkSemaphore: Semaphore;
   /** Gemini-specific semaphore — created only when Gemini is enabled */
   geminiSemaphore?: Semaphore;
+  /** Circuit breaker for Gemini fallback — created only when Gemini is enabled */
+  circuitBreaker?: GeminiCircuitBreaker;
   /** Pipeline display state — created after setup, shared across rag/review/report */
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
@@ -297,6 +300,9 @@ export function registerRunCommand(program: Command): void {
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
         geminiSemaphore: config.llm.gemini.enabled
           ? new Semaphore(config.llm.gemini.sdk_concurrency)
+          : undefined,
+        circuitBreaker: config.llm.gemini.enabled
+          ? new GeminiCircuitBreaker()
           : undefined,
         isFirstRun: false,
         docsIdentical: false,
@@ -1506,6 +1512,8 @@ async function runReviewPhase(
               conversationDir: join(ctx.runDir, 'conversations'),
               semaphore: ctx.sdkSemaphore,
               geminiSemaphore: ctx.geminiSemaphore,
+              circuitBreaker: ctx.circuitBreaker,
+              fallbackModel: ctx.config.llm.model,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

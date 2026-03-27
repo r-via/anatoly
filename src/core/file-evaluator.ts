@@ -13,6 +13,7 @@ import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
 import type { Semaphore } from './sdk-semaphore.js';
+import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
@@ -81,6 +82,10 @@ export interface EvaluateFileOptions {
   semaphore?: Semaphore;
   /** Gemini-specific concurrency semaphore — bounds total in-flight Gemini SDK calls */
   geminiSemaphore?: Semaphore;
+  /** Circuit breaker for Gemini fallback — when tripped, Gemini models redirect to Claude */
+  circuitBreaker?: GeminiCircuitBreaker;
+  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
+  fallbackModel?: string;
 }
 
 export interface AxisTiming {
@@ -249,6 +254,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     conversationFileSlug: fileSlug,
     semaphore: opts.semaphore,
     geminiSemaphore: opts.geminiSemaphore,
+    circuitBreaker: opts.circuitBreaker,
+    fallbackModel: opts.fallbackModel,
   };
 
   const startTime = Date.now();
@@ -356,6 +363,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
               conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
               semaphore: opts.semaphore,
               geminiSemaphore: opts.geminiSemaphore,
+              circuitBreaker: opts.circuitBreaker,
+              fallbackModel: opts.fallbackModel,
             },
             DeliberationResponseSchema,
           ),

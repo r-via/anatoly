@@ -31,6 +31,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -72,6 +73,8 @@ export interface PipelineContext {
   semaphore: Semaphore;
   /** Gemini-specific concurrency semaphore — created only when Gemini is enabled. */
   geminiSemaphore?: Semaphore;
+  /** Circuit breaker for Gemini fallback — created only when Gemini is enabled. */
+  circuitBreaker?: GeminiCircuitBreaker;
   executor: DocExecutor;
   state: PipelineState;
   renderer: ScreenRenderer;
@@ -143,6 +146,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const geminiSemaphore = config.llm.gemini.enabled
     ? new Semaphore(config.llm.gemini.sdk_concurrency)
     : undefined;
+  const circuitBreaker = config.llm.gemini.enabled
+    ? new GeminiCircuitBreaker()
+    : undefined;
   const executor = createExecutor(projectRoot, semaphore);
 
   let totalCostUsd = 0;
@@ -177,6 +183,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     profile,
     semaphore,
     geminiSemaphore,
+    circuitBreaker,
     executor,
     state,
     renderer,

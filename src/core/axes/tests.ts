@@ -202,6 +202,8 @@ export class TestsEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__tests` : undefined,
         semaphore: ctx.semaphore,
         geminiSemaphore: ctx.geminiSemaphore,
+        circuitBreaker: ctx.circuitBreaker,
+        fallbackModel: ctx.fallbackModel,
       },
       TestsResponseSchema,
     );

@@ -68,7 +68,7 @@
   > AC: Given an axis resolved to Gemini, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Gemini semaphore
   > AC: Given an axis resolved to Claude, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Claude semaphore
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-2-2
-- [ ] Story 2.3: Implement circuit breaker for Gemini fallback
+- [x] Story 2.3: Implement circuit breaker for Gemini fallback
   > As a system
   > I want to stop sending requests to Gemini after 3 consecutive failures and fall back to Claude
   > So that a Gemini outage doesn't stall the entire run.

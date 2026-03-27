@@ -20,6 +20,7 @@ import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { contextLogger } from '../utils/log-context.js';
 import type { Semaphore } from './sdk-semaphore.js';
+import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -95,6 +96,10 @@ export interface AxisContext {
   semaphore?: Semaphore;
   /** Gemini-specific SDK concurrency semaphore — used when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
+  /** Circuit breaker for Gemini fallback — when tripped, Gemini models redirect to Claude */
+  circuitBreaker?: GeminiCircuitBreaker;
+  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
+  fallbackModel?: string;
 }
 
 export interface RelevantDoc {
@@ -231,6 +236,10 @@ export interface SingleTurnQueryParams {
   semaphore?: Semaphore;
   /** Gemini-specific semaphore — used instead of `semaphore` when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
+  /** Circuit breaker for Gemini fallback */
+  circuitBreaker?: GeminiCircuitBreaker;
+  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
+  fallbackModel?: string;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -254,14 +263,39 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel } = params;
 
-  const activeSemaphore = resolveSemaphore(model, semaphore, geminiSemaphore);
+  // Circuit breaker: redirect Gemini → Claude when tripped
+  const isGeminiModel = model.startsWith('gemini-');
+  const effectiveModel = (isGeminiModel && circuitBreaker && fallbackModel)
+    ? circuitBreaker.resolveModel(model, fallbackModel)
+    : model;
+
+  const activeSemaphore = resolveSemaphore(effectiveModel, semaphore, geminiSemaphore);
   if (activeSemaphore) {
     await activeSemaphore.acquire();
   }
   try {
-    return await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema);
+    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, effectiveModel, projectRoot, abortController, conversationDir, conversationPrefix, schema);
+
+    // Record success for Gemini calls (only if we actually called Gemini)
+    if (effectiveModel.startsWith('gemini-') && circuitBreaker) {
+      circuitBreaker.recordSuccess();
+    }
+
+    return result;
+  } catch (err) {
+    // Record failure for Gemini calls (based on original model, not fallback)
+    if (isGeminiModel && effectiveModel.startsWith('gemini-') && circuitBreaker) {
+      circuitBreaker.recordFailure();
+      if (circuitBreaker.consumeWarning()) {
+        contextLogger().warn(
+          { event: 'gemini_circuit_breaker_tripped' },
+          '\u26A0 Gemini quota exhausted \u2014 falling back to Claude',
+        );
+      }
+    }
+    throw err;
   } finally {
     if (activeSemaphore) {
       activeSemaphore.release();

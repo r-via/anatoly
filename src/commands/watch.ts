@@ -17,6 +17,7 @@ import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
@@ -71,6 +72,9 @@ export function registerWatchCommand(program: Command): void {
       const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
       const geminiSemaphore = config.llm.gemini.enabled
         ? new Semaphore(config.llm.gemini.sdk_concurrency)
+        : undefined;
+      const circuitBreaker = config.llm.gemini.enabled
+        ? new GeminiCircuitBreaker()
         : undefined;
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
@@ -179,6 +183,8 @@ export function registerWatchCommand(program: Command): void {
             conversationDir,
             semaphore: sdkSemaphore,
             geminiSemaphore,
+            circuitBreaker,
+            fallbackModel: config.llm.model,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict, durationMs: result.durationMs }, 'file review completed');

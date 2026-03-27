@@ -18,6 +18,7 @@ import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { countReviewFindings } from '../utils/format.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
+import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
@@ -114,6 +115,9 @@ export function registerReviewCommand(program: Command): void {
         const geminiSemaphore = config.llm.gemini.enabled
           ? new Semaphore(config.llm.gemini.sdk_concurrency)
           : undefined;
+        const circuitBreaker = config.llm.gemini.enabled
+          ? new GeminiCircuitBreaker()
+          : undefined;
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
         process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
         const axesTotal = evaluators.length;
@@ -165,6 +169,8 @@ export function registerReviewCommand(program: Command): void {
                 deliberation: config.llm.deliberation ?? true,
                 semaphore: sdkSemaphore,
                 geminiSemaphore,
+                circuitBreaker,
+                fallbackModel: config.llm.model,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);
                 },
