@@ -331,6 +331,10 @@ export function paginate<T>(
     throw new TypeError('paginate: first argument must be an array');
   }
 
+  if (!Number.isFinite(page)) {
+    throw new RangeError('paginate: page must be a finite number');
+  }
+
   if (!Number.isFinite(size) || size < 1) {
     throw new RangeError('paginate: size must be a finite number >= 1');
   }
@@ -580,12 +584,15 @@ export function snakeToCamel(str: string): string {
   let result = '';
   let leadingUnderscores = '';
 
-  // Preserve leading underscores (e.g. "__private" -> "__private")
-  let startIndex = 0;
-  while (startIndex < parts.length && parts[startIndex] === '') {
-    leadingUnderscores += '_';
-    startIndex++;
+  // Count leading underscores directly from the original string
+  let leadingCount = 0;
+  while (leadingCount < str.length && str[leadingCount] === '_') {
+    leadingCount++;
   }
+  leadingUnderscores = '_'.repeat(leadingCount);
+
+  // Skip the corresponding empty segments from split
+  let startIndex = leadingCount;
 
   for (let i = startIndex; i < parts.length; i++) {
     const part = parts[i];
