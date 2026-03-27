@@ -16,7 +16,6 @@ const keepAlive = setInterval(() => {}, 60_000);
 program.parseAsync()
   .catch((err: unknown) => {
     console.error(chalk.red(err instanceof Error ? err.message : String(err)));
-    if (err instanceof Error && err.stack) console.error(err.stack);
     process.exitCode = 1;
   })
   .finally(() => clearInterval(keepAlive));

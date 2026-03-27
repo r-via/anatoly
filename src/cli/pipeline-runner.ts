@@ -206,7 +206,6 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   } catch (err) {
     if (plain) {
       console.error(`  ${chalk.red('×')} Pipeline error: ${err instanceof Error ? err.message : String(err)}`);
-      if (err instanceof Error && err.stack) console.error(err.stack);
     }
     throw err;
   } finally {

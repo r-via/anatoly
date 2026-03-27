@@ -94,9 +94,7 @@ describe('AnatolyError', () => {
       expect(obj.code).toBe('SDK_TIMEOUT');
       expect(obj.recoverable).toBe(true);
       expect(obj.hint).toBe('try again — the file may be too large; consider splitting it');
-      expect(obj.stack).toBeDefined();
-      expect(typeof obj.stack).toBe('string');
-      expect((obj.stack as string)).toContain('AnatolyError');
+      expect(obj).not.toHaveProperty('stack');
     });
 
     it('should omit hint when it is empty', () => {
@@ -116,11 +114,10 @@ describe('AnatolyError', () => {
       expect(obj).not.toHaveProperty('msg');
     });
 
-    it('should include stack trace from Error', () => {
+    it('should exclude stack trace from log object (kept in dump files)', () => {
       const err = new AnatolyError('boom', ERROR_CODES.SDK_ERROR, true);
       const obj = err.toLogObject();
-      expect(typeof obj.stack).toBe('string');
-      expect((obj.stack as string).length).toBeGreaterThan(0);
+      expect(obj).not.toHaveProperty('stack');
     });
   });
 });

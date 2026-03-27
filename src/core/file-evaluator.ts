@@ -275,7 +275,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       contextLogger().info({ event: 'axis_complete', axis: evaluator.id, file: task.file, durationMs: settled.value.durationMs, costUsd: settled.value.costUsd, success: true }, 'axis complete');
     } else {
       failedAxes.push(evaluator.id);
-      chunk = `# Axis: ${evaluator.id} — FAILED\n\n${String(settled.reason)}\n`;
+      const axisMsg = settled.reason instanceof AnatolyError ? settled.reason.message : String(settled.reason);
+      chunk = `# Axis: ${evaluator.id} — FAILED\n\n${axisMsg}\n`;
       // Suppress noisy warnings when the user interrupted via Ctrl+C
       if (!abortController.signal.aborted) {
         const errFields = settled.reason instanceof AnatolyError
