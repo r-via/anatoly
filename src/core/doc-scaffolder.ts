@@ -12,7 +12,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { ProjectType } from './language-detect.js';
 
 export interface ScaffoldResult {
@@ -139,7 +139,8 @@ export function scaffoldDocs(
   sourceHints?: Map<string, string[]>,
   dynamicModulePages?: PageDef[],
 ): ScaffoldResult {
-  const projectName = (packageJson['name'] as string) || 'Project';
+  // Derive project name: package.json name → directory name fallback
+  const projectName = (packageJson['name'] as string) || basename(resolve(outputDir, '..', '..'));
 
   // Build the full page list (includes dynamic modules + renumbering)
   const allPages = buildPageList(projectTypes, dynamicModulePages);
@@ -229,7 +230,7 @@ function buildPageContent(page: PageDef, extraHints?: string[]): string {
 function buildIndexContent(projectName: string, pages: PageDef[]): string {
   const lines: string[] = [];
   lines.push(`# ${projectName} — Documentation\n`);
-  lines.push('> Project documentation reference\n');
+  lines.push(`> ${projectName} documentation reference\n`);
   lines.push('---\n');
 
   // Group pages by section, preserving order
