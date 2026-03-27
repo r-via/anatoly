@@ -5,53 +5,53 @@
 ### Gemini Provider Foundation
 > Goal: Users can enable Gemini in `.anatoly.yml`, verify connectivity via `anatoly providers`, and confirm their Google auth works. The transport abstraction is in place, both providers are wired, but no axes are routed yet.
 
-- [ ] Story 33.1: Create LlmTransport interface and TransportRouter
+- [x] Story 37.1: Create LlmTransport interface and TransportRouter
   > As a developer
   > I want a common `LlmTransport` interface that abstracts LLM I/O
   > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
   > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-1
-- [ ] Story 33.2: Create AnthropicTransport wrapping existing execQuery()
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-1
+- [ ] Story 37.2: Create AnthropicTransport wrapping existing execQuery()
   > As a developer
   > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
   > So that it conforms to the `LlmTransport` interface without any behavior change.
   > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
   > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-2
-- [ ] Story 33.3: Create GeminiTransport
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-2
+- [ ] Story 37.3: Create GeminiTransport
   > As a developer
   > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
   > So that Gemini Flash calls conform to the `LlmTransport` interface.
   > AC: Given `src/core/transports/gemini-transport.ts` exists, When `GeminiTransport` is constructed with `projectRoot` and `model`, Then it lazy-initializes a `Config` + `geminiClient` on first `query()` call, And auth uses `getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE`
   > AC: Given `GeminiTransport.query()` is called, When the system prompt and user message are provided, Then it calls `client.resetChat()` before each call (history isolation), Then it sets the system instruction via `client.getChat().setSystemInstruction()`, Then it consumes `sendMessageStream()` and assembles text from `content` events, Then it extracts `usageMetadata` from the `finished` event, Then it returns `LlmResponse` with `costUsd: 0`, correct token counts, and a transcript
   > AC: Given `supports(model)` is called, When model starts with `gemini-`, Then returns `true`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-3
-- [x] Story 33.4: Add GeminiConfigSchema to .anatoly.yml
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-3
+- [x] Story 37.4: Add GeminiConfigSchema to .anatoly.yml
   > As a user
   > I want to configure Gemini provider settings in `.anatoly.yml`
   > So that I can opt-in to Gemini routing and customize model names.
   > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
   > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-4
-- [ ] Story 33.5: Gemini auth check and graceful fallback
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-4
+- [ ] Story 37.5: Gemini auth check and graceful fallback
   > As a user
   > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
   > So that my run is never blocked by a missing Google login.
   > AC: Given Gemini is enabled but auth fails, When the run starts, Then a warning is displayed: `⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.`, And Gemini is disabled for this run (non-blocking), And all axes route to Claude as if `gemini.enabled: false`
   > AC: Given Gemini is enabled and auth succeeds, When the run starts, Then Gemini transport is initialized and ready for routing
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-5
-- [x] Story 33.6: Create `anatoly providers` command
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-5
+- [x] Story 37.6: Create `anatoly providers` command
   > As a user
   > I want to run `anatoly providers` to verify that each configured provider is reachable
   > So that I can diagnose auth and connectivity issues before starting a run.
   > AC: Given I run `anatoly providers`, When Claude API key is valid and Gemini auth is valid, Then a table is displayed with: Provider, Model, Status (✓/✗), Latency, Auth method, And each provider/model is tested with a minimal prompt ("Respond OK")
   > AC: Given I run `anatoly providers --json`, When the tests complete, Then JSON output is produced with `{ providers: [{ provider, model, status, latencyMs, auth }] }`
   > AC: Given Gemini is not enabled in config, When I run `anatoly providers`, Then only Claude models are tested (no Gemini rows)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-33-6
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-6
 ### Review Axes on Gemini Flash
 > Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
 
-- [ ] Story 34.1: Route review axes to Gemini via defaultGeminiMode
+- [ ] Story 38.1: Route review axes to Gemini via defaultGeminiMode
   > As a user
   > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
   > So that my Claude quota is preserved for the quality-critical axes.
@@ -59,50 +59,50 @@
   > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator without `defaultGeminiMode` (correction, best_practices), Then it returns the Claude model (existing behavior unchanged)
   > AC: Given an explicit per-axis override exists (`config.llm.axes[axis].model`), When `resolveAxisModel()` is called, Then the override takes precedence over Gemini routing
   > AC: Given `file-evaluator.ts` runs the axes, When the resolved model starts with `gemini-`, Then the `GeminiTransport` is used for that axis call, And the Gemini semaphore is used (not the Claude semaphore)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-34-1
-- [x] Story 34.2: Separate concurrency semaphores for Claude and Gemini
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-1
+- [x] Story 38.2: Separate concurrency semaphores for Claude and Gemini
   > As a system
   > I want Claude and Gemini to have independent concurrency semaphores
   > So that rate limits on one provider don't throttle the other.
   > AC: Given a run with Gemini enabled, When the pipeline starts, Then two semaphores are created: Claude (`sdk_concurrency`, default 24) and Gemini (`gemini.sdk_concurrency`, default 12)
   > AC: Given an axis resolved to Gemini, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Gemini semaphore
   > AC: Given an axis resolved to Claude, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Claude semaphore
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-34-2
-- [x] Story 34.3: Implement circuit breaker for Gemini fallback
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-2
+- [x] Story 38.3: Implement circuit breaker for Gemini fallback
   > As a system
   > I want to stop sending requests to Gemini after 3 consecutive failures and fall back to Claude
   > So that a Gemini outage doesn't stall the entire run.
   > AC: Given Gemini transport encounters 3 consecutive errors (429, timeout, or connection error), When the circuit breaker trips, Then all subsequent Gemini-routed calls for this run are redirected to Claude, And a single CLI warning is displayed: `⚠ Gemini quota exhausted — falling back to Claude`, And the circuit breaker state is logged in structured logs
   > AC: Given the circuit breaker is tripped, When 5 minutes have elapsed, Then the circuit breaker enters half-open state and allows one test call, Then the circuit breaker resets and Gemini routing resumes
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-34-3
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-3
 ### RAG NLP on Gemini + Observability
 > Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
 
-- [ ] Story 35.1: Route NLP summarization to Gemini Flash
+- [ ] Story 39.1: Route NLP summarization to Gemini Flash
   > As a user
   > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
   > So that I save $2+ per run on Haiku costs.
   > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
   > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-35-1
-- [ ] Story 35.2: Add provider field to logs and run metrics
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-1
+- [ ] Story 39.2: Add provider field to logs and run metrics
   > As a developer
   > I want structured logs and run metrics to include the provider for each LLM call
   > So that I can analyze quota usage and performance by provider.
   > AC: Given a run with Gemini enabled completes, When I inspect `run-metrics.json`, Then it includes a `providers` object: `{ anthropic: { calls, axes }, gemini: { calls, axes } }`, And it includes `claude_quota_saved_pct`
   > AC: Given a run with Gemini enabled, When I inspect `anatoly.ndjson` structured logs, Then each `llm_call` event includes `provider: 'anthropic' | 'gemini'`
   > AC: Given a run completes, When the CLI summary is displayed, Then cost line shows: `Cost: $X (Claude) · $0.00 (Gemini)`, And quota line shows: `Quota: N Claude · M Gemini (−X%)`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-35-2
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-2
 ### Quality Validation
 > Goal: Developers validate that Gemini routing produces equivalent quality via gold-set comparison against Claude reference results.
 
-- [x] Story 36.1: Gold-set validation — Gemini vs Claude comparison
+- [x] Story 40.1: Gold-set validation — Gemini vs Claude comparison
   > As a developer
   > I want to compare Gemini results against Claude reference results on a gold-set
   > So that I can validate quality before enabling Gemini in production.
   > AC: Given a gold-set of files from the rustguard project (aead.rs, timers.rs), When I run the comparison script, Then utility accuracy is ≥95% vs Claude reference, And overengineering accuracy is ≥85% vs Claude reference, And NLP summary produces valid schema output for ≥90% of files
   > AC: Given the spike scripts exist in `spike/`, When validation is complete, Then the spike directory can be cleaned up (scripts are throwaway)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-36-1
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-40-1
 ### 
 
 - [x] Story 29.1: Project Type Detection
@@ -346,77 +346,77 @@
   > **AC 31.20.1:** Given a project with 50 `.ts`, 5 `.sh`, and 3 `.py` files, When `anatoly run` executes, Then ALL 58 files are scanned, triaged, and evaluated, And the report includes findings from all three languages.
   > **AC 31.20.2:** Given the pipeline runs, Then the phases execute in order: config → language-detect → framework-detect → auto-detect → grammars → render setup table → scan → triage → usage-graph → estimate → review → report.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-20
-- [ ] Story 32.1: Adversarial Review — Epic 28 Stories 28.1–28.3
+- [x] Story 32.1: Adversarial Review — Epic 28 Stories 28.1–28.3
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 28.1–28.3 > So that the logging infrastructure is **bulletproof**.
   > **AC 32.1.1:** Given Story 28.1 (Conversation Dump Infrastructure), When each AC is audited, Then every AC is marked IMPLEMENTED with `file:line` proof, And any PARTIAL or MISSING AC is auto-fixed in the same iteration.
   > **AC 32.1.2:** Given Story 28.2 (RAG LLM Call Logging), When each of the 3 RAG LLM call sites is inspected (`nlp-summarizer.ts:131`, `doc-indexer.ts:126`, `doc-indexer.ts:162`), Then each produces both an ndjson event AND a conversation dump, And any missing coverage is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-1
-- [ ] Story 32.2: Adversarial Review — Epic 28 Stories 28.4–28.6
+- [x] Story 32.2: Adversarial Review — Epic 28 Stories 28.4–28.6
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 28.4–28.6 > So that per-file events, watch logging, and run metrics are **complete and correct**.
   > **AC 32.2.1:** Given Story 28.4 (Per-file & Per-axis Events), When each of the 14 event types is audited (`file_triage`, `file_review_start`, `file_review_end`, `axis_complete`, `axis_failed`, `file_skip`, `rag_search`, `doc_resolve`, `retry`, etc.), Then each event is emitted at the correct code location, And any missing event is auto-fixed with the correct payload schema.
   > **AC 32.2.2:** Given Story 28.5 (Watch Mode Logging), When watch mode is audited, Then `watch_start`, `watch_stop`, `file_change`, `file_delete` events are emitted, And session continuity is maintained across file changes, And any gap is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-2
-- [ ] Story 32.3: Adversarial Review — Epic 29 Stories 29.1–29.6
+- [x] Story 32.3: Adversarial Review — Epic 29 Stories 29.1–29.6
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.1–29.6 > So that project type detection, scaffolding, and the docs guard are **solid**.
   > **AC 32.3.1:** Given Story 29.1 (Project Type Detection), When `detectProjectTypes()` is audited, Then it correctly handles: React+Prisma→['Frontend','ORM'], bin+commander→['CLI'], workspaces→['Monorepo',...], no deps→['Library'], And any detection gap is auto-fixed.
   > **AC 32.3.2:** Given Story 29.2 (Documentation Structure Scaffolder), When scaffolding is audited for Backend API+ORM project, Then all expected sections exist (REST-Endpoints, Middleware, Auth, Error-Handling, Data-Model, etc.), And `index.md` is complete, And idempotency (no overwrite) is verified, And any defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-3
-- [ ] Story 32.4: Adversarial Review — Epic 29 Stories 29.7–29.11
+- [x] Story 32.4: Adversarial Review — Epic 29 Stories 29.7–29.11
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.7–29.11 > So that source analysis, LLM generation, caching, scoring, and reporting are **accurate**.
   > **AC 32.4.1:** Given Story 29.7 (Source Code Analysis), When the extraction is audited for each page type (modules, API, architecture), Then exported symbols, signatures, JSDoc, file tree are correctly extracted, And token truncation at 8000 tokens works correctly, And any defect is auto-fixed.
   > **AC 32.4.2:** Given Story 29.8 (LLM Page Content Generation), When generated pages are inspected, Then they follow the template (H1, blockquote summary, H2s, examples), use real function names/paths, include code examples, And architecture pages have Mermaid diagrams, And any quality issue is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-4
-- [ ] Story 32.5: Adversarial Review — Epic 29 Stories 29.12–29.17
+- [x] Story 32.5: Adversarial Review — Epic 29 Stories 29.12–29.17
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.12–29.17 > So that user doc plan resolution, dual-output, Ralph sync, module injection, and LLM execution are **correct**.
   > **AC 32.5.1:** Given Story 29.12 (User Doc Plan Resolver), When resolution is audited for: structured docs/, flat docs/, no docs/, non-standard numbering, Then all cases produce correct mappings, And any misresolution is auto-fixed.
   > **AC 32.5.2:** Given Story 29.13 (Dual-Output Recommendations), When recommendations are audited, Then each includes `path_ideal`, `path_user`, `content_ref`, `type`, `rationale`, `priority`, And all 8 recommendation types are covered, And any missing field is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-5
-- [ ] Story 32.6: Adversarial Review — Epic 29 Stories 29.18–29.21
+- [x] Story 32.6: Adversarial Review — Epic 29 Stories 29.18–29.21
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.18–29.21 > So that dual doc context, docs_path, coverage distinction, and internal doc pipeline are **solid**.
   > **AC 32.6.1:** Given Story 29.18 (Dual Doc Context), When the doc resolver is audited, Then both `docs/` (project) and `.anatoly/docs/` (internal) are provided as context with `source` tags, And RAG indexes both with separate sources, And budget is split 50/50, And any tagging defect is auto-fixed.
   > **AC 32.6.2:** Given Story 29.19 (docs_path Propagation), When `docs_path: 'documentation'` is configured, Then `assertSafeOutputPath`, `buildDocRecommendations`, `resolveUserDocPlan`, `syncDocs` all use `documentation/` instead of `docs/`, And the default (no config) still works, And any hardcoded `'docs'` reference is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-6
-- [ ] Story 32.7: Adversarial Review — Story 30.1 SDK Semaphore
+- [x] Story 32.7: Adversarial Review — Story 30.1 SDK Semaphore
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Story 30.1 > So that the global SDK concurrency semaphore is **correct and deadlock-free**.
   > **AC 32.7.1:** Given Story 30.1 (SDK Semaphore), When the semaphore implementation is audited, Then: `acquire()` blocks when all slots taken, `release()` frees a slot in FIFO order, crash in evaluator releases the slot (finally block), And the semaphore never deadlocks, And any concurrency defect is auto-fixed.
   > **AC 32.7.2:** Given `--concurrency 4` and 7 axes (28 potential parallel calls), When the semaphore is audited with `sdkConcurrency: 8`, Then at most 8 SDK calls are in-flight, And the CLI displays `Agents: 6/8 running · 2 available`, And any violation is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-7
-- [ ] Story 32.8: Adversarial Review — Epic 31 Stories 31.1–31.5
+- [x] Story 32.8: Adversarial Review — Epic 31 Stories 31.1–31.5
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.1–31.5 > So that language detection, framework detection, auto-detect, and grammar manager are **correct**.
   > **AC 32.8.1:** Given Story 31.1 (Language Detection), When `detectLanguages()` is audited, Then: extension grouping works (`.ts`+`.tsx`→TypeScript), <1% languages are filtered, `FILENAME_MAP` catches Dockerfile/Makefile, excluded dirs are ignored, git-tracked filter works, And any detection bug is auto-fixed.
   > **AC 32.8.2:** Given Story 31.2 (Framework Detection), When `detectProjectProfile()` is audited, Then: React from package.json, Next.js from deps OR `next.config.*`, Django from requirements.txt, Actix from Cargo.toml, Gin from go.mod, ASP.NET from .csproj, Spring from pom.xml, multiple frameworks simultaneously, empty result when none found, And config files only read for detected languages, And any false positive/negative is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-8
-- [ ] Story 32.9: Adversarial Review — Epic 31 Stories 31.6–31.11
+- [x] Story 32.9: Adversarial Review — Epic 31 Stories 31.6–31.11
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.6–31.11 > So that all language adapters **correctly extract symbols and imports**.
   > **AC 32.9.1:** Given Story 31.6 (LanguageAdapter Interface + TS Refactor), When the refactor is audited, Then: `scanner.ts` contains zero TS-specific AST references, TypeScriptAdapter produces identical output to pre-refactor (zero regression), unknown extensions fallback to heuristic, TaskSchema includes `language`/`parse_method`/`framework`, backward compat with old `.task.json` works, And any regression is auto-fixed.
   > **AC 32.9.2:** Given Story 31.7 (BashAdapter), When each AC is audited against the actual implementation, Then: `function` and `()` syntax both extract functions, UPPER_SNAKE → constant, non-UPPER_SNAKE → variable, `_` prefix → not exported, `source`/`.` → imports, local vars NOT extracted, And any extraction bug is auto-fixed with a regression test.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-9
-- [ ] Story 32.10: Adversarial Review — Epic 31 Stories 31.12–31.14
+- [x] Story 32.10: Adversarial Review — Epic 31 Stories 31.12–31.14
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.12–31.14 > So that heuristic parsing, usage-graph extension, and prompt cascade are **correct**.
   > **AC 32.10.1:** Given Story 31.12 (Heuristic Parser), When `heuristicParse()` is audited, Then: Makefile targets extracted, Dockerfile stages extracted, UPPER_SNAKE assignments extracted, trivial files (< 5 lines) return empty, heuristic is never called when a grammar is available, And any extraction bug is auto-fixed.
   > **AC 32.10.2:** Given Story 31.13 (Usage-Graph Multi-Language), When the extended usage-graph is audited, Then: `source`/`.` bash creates edges, Python `import` creates edges, Rust `use` creates edges, YAML/JSON/SQL have no edges, TypeScript graph is unchanged (zero regression), cross-language edges are NOT created, And any graph defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-10
-- [ ] Story 32.11: Adversarial Review — Epic 31 Stories 31.15–31.18
+- [x] Story 32.11: Adversarial Review — Epic 31 Stories 31.15–31.18
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.15–31.18 > So that all language and framework prompts are **complete, correct, and produce valid Zod output**.
   > **AC 32.11.1:** Given Story 31.15 (Best Practices Shell/Python/Rust/Go), When each prompt is audited, Then: ShellGuard has ≥12 rules with correct severities, PyGuard has ≥13 rules, RustGuard has ≥10 rules, GoGuard has ≥10 rules, And each prompt's output format matches `BestPracticesResponseSchema` exactly (same JSON structure), And any missing rule or format defect is auto-fixed.
   > **AC 32.11.2:** Given Story 31.16 (Best Practices Java/C#/SQL/YAML/JSON), When each prompt is audited, Then: JavaGuard ≥10 rules, CSharpGuard ≥10 rules, SqlGuard ≥8 rules, YamlGuard ≥8 rules, JsonGuard ≥5 rules, And output format matches `BestPracticesResponseSchema`, And any defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-11
-- [ ] Story 32.12: Adversarial Review — Epic 31 Stories 31.19–31.20
+- [x] Story 32.12: Adversarial Review — Epic 31 Stories 31.19–31.20
   > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.19–31.20 > So that axis injection and end-to-end integration are **bulletproof**.
   > **AC 32.12.1:** Given Story 31.19 (Axis Language & Framework Injection), When all 7 axes are audited, Then: every axis injects `## Language:` and `## Framework:` (when applicable) in the user message, every axis uses dynamic code fence (` ```bash `, ` ```python `, etc.), TypeScript files produce identical output to pre-v0.6.0 (zero regression), And any missing injection is auto-fixed.
   > **AC 32.12.2:** Given Story 31.20 (Pipeline E2E), When a multi-language project (50 .ts + 5 .sh + 3 .py) is processed, Then: all 58 files scanned/triaged/evaluated/reported, pipeline phases execute in correct order, `.rev.json` contains `language` field, `.rev.md` uses correct language rules, heuristic-parsed files have lower confidence, And report groups findings by language.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
-- [ ] Story 1: Prerequisites (schema + resolver + prompt)
+- [x] Story 1: Prerequisites (schema + resolver + prompt)
   > All foundation work with no runtime behavior.
   > Can be parallelized internally.
   > Tests embedded.
   > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-1
-- [ ] Story 2: Core Integration (evaluator + merger + orchestrator + registry)
+- [x] Story 2: Core Integration (evaluator + merger + orchestrator + registry)
   > The axis becomes functional end-to-end.
   > Tests embedded per task.
   > | Task | File(s) | Tests | |------|---------|-------| | Evaluator implementation | `axes/documentation.ts` (NEW) | Mock LLM, validate Zod parsing | | Merger integration | `axis-merger.ts` | Coherence rules (DEAD→UNDOCUMENTED), action synthesis | | Orchestrator wiring | `file-evaluator.ts`, `run.ts`/`reviewer.ts` | docsTree passed via options, relevantDocs injection | | Registry registration | `axes/index.ts` | Enabled/disabled filtering | | Report updates | `reporter.ts` | `doc` column, "Documentation Coverage" section, coverage score |
   > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-2
-- [ ] Story 3: Documentation Meta (update project docs)
+- [x] Story 3: Documentation Meta (update project docs)
   > Self-referential: the documentation axis documents itself.
   > | Task | File(s) | |------|---------| | Rename Six-Axis → Seven-Axis | `docs/02-Architecture/02-Six-Axis-System.md` | | Add documentation evaluator section | `docs/04-Core-Modules/04-Axis-Evaluators.md` | | Update PRD Principle 1 + Non-goals | `_bmad-output/planning-artifacts/PRD.md` | Stories 1 and 3 can be worked in parallel.
   > Story 2 depends on Story 1.

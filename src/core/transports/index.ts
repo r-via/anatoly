@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
+/**
+ * Request payload for an LLM transport call.
+ */
+export interface LlmRequest {
+  systemPrompt: string;
+  userMessage: string;
+  model: string;
+  projectRoot: string;
+  abortController: AbortController;
+  conversationDir?: string;
+  conversationPrefix?: string;
+}
+
+/**
+ * Response from an LLM transport call.
+ */
+export interface LlmResponse {
+  text: string;
+  costUsd: number;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  transcript: string;
+  sessionId: string;
+}
+
+/**
+ * Common interface for LLM providers (Anthropic, Gemini, etc.).
+ */
+export interface LlmTransport {
+  readonly provider: string;
+  supports(model: string): boolean;
+  query(params: LlmRequest): Promise<LlmResponse>;
+}
+
+/**
+ * Routes a model name to the first matching transport.
+ */
+export class TransportRouter {
+  private readonly transports: readonly LlmTransport[];
+
+  constructor(transports: LlmTransport[]) {
+    this.transports = transports;
+  }
+
+  /** Returns the first transport where `supports(model)` is true. Throws if none matches. */
+  resolve(model: string): LlmTransport {
+    for (const transport of this.transports) {
+      if (transport.supports(model)) return transport;
+    }
+    throw new Error(`No transport supports model "${model}"`);
+  }
+}
