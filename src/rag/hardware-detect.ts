@@ -312,7 +312,7 @@ export async function resolveEmbeddingModels(
 
   const nlpModel = resolveNlpModel(config.nlp_model, codeRuntime, onLog);
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
-  const nlpRuntime: 'onnx' | 'gguf' = backend === 'advanced-gguf' && config.nlp_model === 'auto' ? 'gguf' : (MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx');
+  const nlpRuntime: 'onnx' | 'gguf' = MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx';
 
   return { codeModel, codeDim, codeRuntime, nlpModel, nlpDim, nlpRuntime, backend };
 }
