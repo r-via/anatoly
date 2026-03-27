@@ -385,6 +385,9 @@ export function registerRunCommand(program: Command): void {
         // Initialize pipeline display
         const pipelineState = new PipelineState();
         pipelineState.setSemaphore(ctx.sdkSemaphore);
+        if (ctx.geminiSemaphore) {
+          pipelineState.setGeminiSemaphore(ctx.geminiSemaphore);
+        }
         if (ctx.isFirstRun) {
           pipelineState.addTask('bootstrap-doc', 'First run');
         }
@@ -614,8 +617,11 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
       modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
     }
-    modelsRight.push({ key: 'chunking', value: shortModelName(ctx.config.llm.index_model) });
-    modelsRight.push({ key: 'summarization', value: shortModelName(ctx.config.llm.index_model) });
+    modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
+    const nlpSumModel = ctx.config.llm.gemini.enabled
+      ? shortModelName(ctx.config.llm.gemini.nlp_model)
+      : shortModelName(ctx.config.llm.index_model);
+    modelsRight.push({ key: 'summarization', value: nlpSumModel });
   }
 
   // --- Phase: scan ---
@@ -808,7 +814,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             allowedTools: ['Read'],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
-            maxTurns: 15,
+            maxTurns: 200,
             abortController: ac,
           },
         });
@@ -1319,6 +1325,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       isInterrupted: () => ctx.interrupted,
       conversationDir: join(ctx.runDir, 'conversations'),
       semaphore: ctx.sdkSemaphore,
+      geminiSemaphore: ctx.geminiSemaphore,
+      fileFilter: ctx.fileFilter ?? undefined,
     });
   } finally {
     ragLogStream.end();

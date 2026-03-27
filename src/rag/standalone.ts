@@ -31,6 +31,7 @@ export interface StandaloneRagOptions {
   isInterrupted?: () => boolean;
   conversationDir?: string;
   semaphore?: Semaphore;
+  geminiSemaphore?: Semaphore;
 }
 
 /**
@@ -126,6 +127,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       isInterrupted,
       conversationDir,
       semaphore,
+      geminiSemaphore: opts.geminiSemaphore,
     });
   } finally {
     await stopGgufContainers(onLog);

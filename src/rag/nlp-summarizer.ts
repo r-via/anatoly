@@ -92,6 +92,7 @@ export async function generateNlpSummaries(
   projectRoot: string,
   conversationDir?: string,
   semaphore?: Semaphore,
+  geminiSemaphore?: Semaphore,
 ): Promise<{ summaries: Map<string, NlpSummary>; costUsd: number }> {
   const summaries = new Map<string, NlpSummary>();
   if (cards.length === 0) return { summaries, costUsd: 0 };
@@ -112,6 +113,7 @@ export async function generateNlpSummaries(
         conversationDir,
         conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
         semaphore,
+        geminiSemaphore,
       },
       NlpResponseSchema,
     ));

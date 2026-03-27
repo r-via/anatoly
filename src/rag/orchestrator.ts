@@ -5,6 +5,7 @@
 import { resolve, join } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 import { globSync } from 'tinyglobby';
+import picomatch from 'picomatch';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
@@ -63,8 +64,12 @@ export interface RagIndexOptions {
   isInterrupted: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
-  /** Global SDK concurrency semaphore. */
+  /** Global SDK concurrency semaphore (Claude). */
   semaphore?: Semaphore;
+  /** Gemini-specific concurrency semaphore (used when indexModel is a Gemini model). */
+  geminiSemaphore?: Semaphore;
+  /** When set, scopes --rebuild-rag to only purge entries matching this glob (instead of dropping the entire table). */
+  fileFilter?: string;
 }
 
 /**
@@ -192,6 +197,7 @@ export async function processFileForDualIndex(
   deferNlpEmbeddings?: boolean,
   conversationDir?: string,
   semaphore?: Semaphore,
+  geminiSemaphore?: Semaphore,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -239,6 +245,7 @@ export async function processFileForDualIndex(
       projectRoot,
       conversationDir,
       semaphore,
+      geminiSemaphore,
     );
     nlpCostUsd = nlpResult.costUsd;
 
@@ -315,7 +322,37 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   const store = new VectorStore(projectRoot, tableName, onLog);
   await store.init();
 
-  if (rebuild) {
+  if (rebuild && options.fileFilter) {
+    // Scoped rebuild: only purge entries matching the file glob
+    const isMatch = picomatch(options.fileFilter);
+    const indexedFiles = await store.listIndexedFiles();
+    let purgedCount = 0;
+    const cache = loadRagCache(projectRoot, cacheSuffix);
+    for (const file of indexedFiles) {
+      if (isMatch(file)) {
+        await store.deleteByFile(file, 'function_card');
+        purgedCount++;
+      }
+    }
+    // Purge matching entries from index cache and NLP summary cache
+    for (const key of Object.keys(cache.entries)) {
+      // Cache keys are function IDs like "file::startLine::endLine"
+      if (isMatch(key.split('::')[0])) {
+        delete cache.entries[key];
+      }
+    }
+    saveRagCache(projectRoot, cache, cacheSuffix);
+    const nlpCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+    if (nlpCache) {
+      for (const key of Object.keys(nlpCache.entries)) {
+        if (isMatch(key.split('::')[0])) {
+          delete nlpCache.entries[key];
+        }
+      }
+      saveNlpSummaryCache(projectRoot, nlpCache, cacheSuffix);
+    }
+    onLog?.(`rebuild (scoped): purged ${purgedCount} files matching ${options.fileFilter}`);
+  } else if (rebuild) {
     await store.rebuild();
     // Purge index caches (file→sectionIDs mappings are invalid after table drop)
     // NLP summary cache and chunk cache are preserved (content-based, not tied to LanceDB rows)
@@ -381,7 +418,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onFileStart?.(task.file);
 
       try {
-        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.semaphore);
+        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.semaphore, options.geminiSemaphore);
 
         if (result.cards.length > 0) {
           results.push(result);
