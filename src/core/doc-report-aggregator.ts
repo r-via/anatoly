@@ -108,7 +108,12 @@ function scanUserDocs(docsDir: string): DocPageEntry[] {
 }
 
 function scanDir(baseDir: string, currentDir: string, pages: DocPageEntry[]): void {
-  const dirEntries = readdirSync(currentDir, { withFileTypes: true });
+  let dirEntries;
+  try {
+    dirEntries = readdirSync(currentDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
 
   for (const entry of dirEntries) {
     const fullPath = join(currentDir, entry.name);
