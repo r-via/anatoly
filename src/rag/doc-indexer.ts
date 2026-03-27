@@ -6,13 +6,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'no
 import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
-import { z } from 'zod';
 import { embedNlpBatch } from './embeddings.js';
-import { extractJson } from '../utils/extract-json.js';
-import { contextLogger, runWithContext } from '../utils/log-context.js';
-import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
-import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------
@@ -217,26 +212,8 @@ export interface DocSection {
 }
 
 // ---------------------------------------------------------------------------
-// Haiku semantic chunking
+// Batch splitting utilities
 // ---------------------------------------------------------------------------
-
-const ChunkSchema = z.object({
-  title: z.string(),
-  content: z.string(),
-});
-
-const BatchChunkResultSchema = z.object({
-  sourceSection: z.number(),
-  sections: z.array(ChunkSchema),
-});
-
-const BatchChunkResponseSchema = z.object({
-  results: z.array(BatchChunkResultSchema),
-});
-
-function getRefineSectionPrompt(): string {
-  return resolveSystemPrompt('rag.section-refiner');
-}
 
 /** Maximum combined prose characters per batch to avoid quality degradation. */
 export const MAX_BATCH_CHARS = 30_000;
@@ -267,148 +244,8 @@ export function splitIntoBatches(
   return batches;
 }
 
-/**
- * Chunk a doc file by first splitting on H2 headings mechanically, then
- * refining eligible sections with Haiku in a single batched call per file
- * (or per sub-batch for very large documents).
- */
-async function chunkDocWithHaiku(
-  filePath: string,
-  source: string,
-  model: string,
-  projectRoot: string,
-  abortController?: AbortController,
-  conversationDir?: string,
-  semaphore?: Semaphore,
-): Promise<{ sections: DocSection[]; costUsd: number }> {
-  const log = contextLogger();
-  const ac = abortController ?? new AbortController();
-  const docSlug = filePath.replace(/\.[^.]+$/, '').replace(/[/\\]/g, '-');
-  let totalCostUsd = 0;
-
-  // Step 1: mechanical H2 split (free, instant)
-  const h2Sections = fallbackParseH2(filePath, source);
-
-  if (h2Sections.length === 0) {
-    // No H2 structure — send the whole doc as a single batch section (capped at MAX_BATCH_CHARS)
-    let prose = stripNonProse(source);
-    if (prose.length < 50) return { sections: [], costUsd: 0 };
-    if (prose.length > MAX_BATCH_CHARS) {
-      prose = prose.slice(0, MAX_BATCH_CHARS);
-      log?.warn({ file: filePath, originalLength: stripNonProse(source).length, truncatedTo: MAX_BATCH_CHARS }, 'doc chunking: unstructured doc truncated to MAX_BATCH_CHARS');
-    }
-    try {
-      const userMessage = `### Section 1: "${filePath}" from \`${filePath}\`\n\n${prose}`;
-      const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
-        {
-          systemPrompt: getRefineSectionPrompt(),
-          userMessage,
-          model,
-          projectRoot,
-          abortController: ac,
-          conversationDir,
-          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
-          semaphore,
-        },
-        BatchChunkResponseSchema,
-      ));
-      totalCostUsd += result.costUsd;
-      const sections = result.data.results.find(r => r.sourceSection === 1)?.sections ?? [];
-      return {
-        sections: sections
-          .filter((s) => s.content.trim().length >= 50)
-          .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() })),
-        costUsd: totalCostUsd,
-      };
-    } catch (err) {
-      if (ac.signal.aborted) throw err;
-      log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku failed on unstructured doc, falling back to mechanical parse');
-      return { sections: [{ filePath, heading: filePath, embedText: prose, content: prose }], costUsd: totalCostUsd };
-    }
-  }
-
-  // Step 2: identify eligible sections (>= 500 chars prose) for LLM refinement
-  const eligible: Array<{ section: DocSection; prose: string; originalIndex: number }> = [];
-
-  for (let i = 0; i < h2Sections.length; i++) {
-    const prose = stripNonProse(h2Sections[i].content);
-    if (prose.length >= 500) {
-      eligible.push({ section: h2Sections[i], prose, originalIndex: i });
-    }
-  }
-
-  // If nothing needs refinement, return all sections as-is
-  if (eligible.length === 0) {
-    return { sections: h2Sections, costUsd: 0 };
-  }
-
-  // Step 3: batch LLM calls (split into sub-batches if needed)
-  const batches = splitIntoBatches(eligible);
-  // Map from originalIndex → refined DocSection[]
-  const refinedMap = new Map<number, DocSection[]>();
-
-  try {
-    for (const batch of batches) {
-      if (ac.signal.aborted) break;
-
-      const userMessage = batch.map((entry, i) =>
-        `### Section ${i + 1}: "${entry.section.heading}" from \`${filePath}\`\n\n${entry.prose}`,
-      ).join('\n\n---\n\n');
-
-      const result = await runWithContext({ axis: 'doc-chunk' }, () => runSingleTurnQuery(
-        {
-          systemPrompt: getRefineSectionPrompt(),
-          userMessage,
-          model,
-          projectRoot,
-          abortController: ac,
-          conversationDir,
-          conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
-          semaphore,
-        },
-        BatchChunkResponseSchema,
-      ));
-      totalCostUsd += result.costUsd;
-
-      // Map results back to original indices
-      for (const batchResult of result.data.results) {
-        const batchIndex = batchResult.sourceSection - 1; // 1-based → 0-based
-        if (batchIndex < 0 || batchIndex >= batch.length) {
-          log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', sourceSection: batchResult.sourceSection, batchSize: batch.length }, 'doc chunking: LLM returned out-of-range sourceSection, skipping');
-          continue;
-        }
-        const originalIndex = batch[batchIndex].originalIndex;
-        const refined = batchResult.sections
-          .filter((s) => s.content.trim().length >= 50)
-          .map((s) => ({ filePath, heading: s.title, embedText: s.content.trim(), content: s.content.trim() }));
-        if (refined.length > 0) {
-          refinedMap.set(originalIndex, refined);
-        }
-      }
-    }
-  } catch (err) {
-    if (ac.signal.aborted) throw err;
-    log?.warn({ event: 'llm_call', file: filePath, axis: 'doc-chunk', success: false, err: String(err), fallback: 'mechanical-h2' }, 'doc chunking: Haiku batch refinement failed, keeping H2 sections');
-    // Fallback: return all H2 sections as-is
-    return { sections: h2Sections, costUsd: totalCostUsd };
-  }
-
-  // Step 4: merge passthrough + refined in original document order
-  const allSections: DocSection[] = [];
-  for (let i = 0; i < h2Sections.length; i++) {
-    const refined = refinedMap.get(i);
-    if (refined) {
-      allSections.push(...refined);
-    } else {
-      allSections.push(h2Sections[i]);
-    }
-  }
-
-  return { sections: allSections, costUsd: totalCostUsd };
-}
-
 // ---------------------------------------------------------------------------
-// Fallback: mechanical H2 parsing (no LLM)
+// Mechanical H2 parsing
 // ---------------------------------------------------------------------------
 
 function stripNonProse(text: string): string {
@@ -705,8 +542,6 @@ export interface DocIndexOptions {
   onFileStart?: (file: string) => void;
   /** Called when processing of a file completes. */
   onFileDone?: (file: string) => void;
-  /** Model for semantic chunking (e.g. 'haiku'). If omitted, falls back to H2 parsing. */
-  chunkModel?: string;
   /** Logging callback for progress and diagnostic messages. */
   onLog: (message: string) => void;
   /** Check if the caller has requested interruption (Ctrl+C). */
@@ -732,13 +567,13 @@ export interface DocIndexResult {
 }
 
 /**
- * Parse /docs/ into semantic sections (via Haiku or H2 fallback),
+ * Parse /docs/ into semantic sections via programmatic smart-chunking,
  * embed prose via NLP model, and upsert as type='doc_section' cards.
  *
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
@@ -854,10 +689,14 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   const allTextsToEmbed: string[] = [];
   const fileCardsList: FileCards[] = [];
 
+  let zeroSectionCount = 0;
   for (const { relPath, sha, sections } of chunkedFiles) {
     if (sections.length === 0) {
       newCache[relPath] = { sha, sectionIds: [] };
       newChunkCache[relPath] = { sha, sections: [] };
+      onFileDone?.(relPath);
+      zeroSectionCount++;
+      onProgress?.(zeroSectionCount, changedFiles.length);
       continue;
     }
 
@@ -881,6 +720,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
     const allEmbeddings = await embedNlpBatch(allTextsToEmbed);
 
     // Phase 3: Upsert per file using sliced embeddings
+    let progressCount = zeroSectionCount;
     for (const fc of fileCardsList) {
       const fileEmbeddings = allEmbeddings.slice(fc.startIdx, fc.startIdx + fc.count);
       await vectorStore.upsertDocSections(fc.cards, fileEmbeddings, docSource);
@@ -889,16 +729,10 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
       totalIndexed += fc.sections.length;
       onLog(`rag: ${fc.relPath} → ${fc.sections.length} sections`);
       onFileDone?.(fc.relPath);
+      progressCount++;
+      onProgress?.(progressCount, changedFiles.length);
     }
   }
-
-  // Emit progress for files with no sections
-  for (const { relPath } of chunkedFiles) {
-    if (!fileCardsList.some(fc => fc.relPath === relPath)) {
-      onFileDone?.(relPath);
-    }
-  }
-  onProgress?.(changedFiles.length, changedFiles.length);
 
   saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
   // Merge chunk cache: keep entries for unchanged files, add new entries
