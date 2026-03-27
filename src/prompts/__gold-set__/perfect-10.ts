@@ -100,8 +100,9 @@ export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
 
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
+  let minutes = Math.floor(ms / 60_000);
+  let seconds = Math.round((ms % 60_000) / 1000);
+  if (seconds === 60) { minutes += 1; seconds = 0; }
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
