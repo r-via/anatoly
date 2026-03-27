@@ -25,10 +25,11 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
   return ConfigSchema.parse(overrides);
 }
 
-function makeEvaluator(defaultModel: 'sonnet' | 'haiku'): AxisEvaluator {
+function makeEvaluator(defaultModel: 'sonnet' | 'haiku', opts?: { defaultGeminiMode?: 'flash'; id?: string }): AxisEvaluator {
   return {
-    id: 'utility',
+    id: (opts?.id ?? 'utility') as AxisEvaluator['id'],
     defaultModel,
+    defaultGeminiMode: opts?.defaultGeminiMode,
     evaluate: async (_ctx: AxisContext, _abort: AbortController): Promise<AxisResult> => {
       throw new Error('not implemented');
     },
@@ -81,6 +82,44 @@ describe('resolveAxisModel', () => {
     });
     const evaluator = makeEvaluator('haiku');
     expect(resolveAxisModel(evaluator, config)).toBe('override-model');
+  });
+
+  // --- Story 38.1: Gemini routing via defaultGeminiMode ---
+
+  it('AC 38.1.1: returns gemini flash_model when defaultGeminiMode is flash and gemini enabled', () => {
+    const config = makeConfig({
+      llm: { gemini: { enabled: true, flash_model: 'gemini-3-flash-preview' } },
+    });
+    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
+    expect(resolveAxisModel(evaluator, config)).toBe('gemini-3-flash-preview');
+  });
+
+  it('AC 38.1.2: returns Claude model when defaultGeminiMode is undefined (correction)', () => {
+    const config = makeConfig({
+      llm: { model: 'claude-sonnet-4-6', gemini: { enabled: true } },
+    });
+    const evaluator = makeEvaluator('sonnet', { id: 'correction' });
+    expect(resolveAxisModel(evaluator, config)).toBe('claude-sonnet-4-6');
+  });
+
+  it('AC 38.1.3: explicit per-axis override takes precedence over Gemini routing', () => {
+    const config = makeConfig({
+      llm: {
+        gemini: { enabled: true, flash_model: 'gemini-3-flash-preview' },
+        axes: { utility: { model: 'my-custom-model' } },
+      },
+    });
+    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
+    expect(resolveAxisModel(evaluator, config)).toBe('my-custom-model');
+  });
+
+  it('returns Claude model when defaultGeminiMode is flash but gemini disabled', () => {
+    const config = makeConfig({
+      llm: { gemini: { enabled: false } },
+    });
+    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
+    // Should fall back to Claude behavior
+    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
   });
 });
 

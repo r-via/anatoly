@@ -166,6 +166,7 @@ function readCandidateSource(projectRoot: string, filePath: string, functionName
 export class DuplicationEvaluator implements AxisEvaluator {
   readonly id = 'duplication' as const;
   readonly defaultModel = 'haiku' as const;
+  readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);

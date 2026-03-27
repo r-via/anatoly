@@ -51,7 +51,7 @@
 ### Review Axes on Gemini Flash
 > Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
 
-- [ ] Story 38.1: Route review axes to Gemini via defaultGeminiMode
+- [x] Story 38.1: Route review axes to Gemini via defaultGeminiMode
   > As a user
   > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
   > So that my Claude quota is preserved for the quality-critical axes.

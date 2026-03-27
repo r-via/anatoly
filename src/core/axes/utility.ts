@@ -99,6 +99,7 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
 export class UtilityEvaluator implements AxisEvaluator {
   readonly id = 'utility' as const;
   readonly defaultModel = 'haiku' as const;
+  readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);

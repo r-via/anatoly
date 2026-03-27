@@ -18,6 +18,7 @@ import type { Semaphore } from './sdk-semaphore.js';
 import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import { AnthropicTransport } from './transports/anthropic-transport.js';
+import { GeminiTransport } from './transports/gemini-transport.js';
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -139,6 +140,8 @@ export interface AxisResult {
 export interface AxisEvaluator {
   readonly id: AxisId;
   readonly defaultModel: 'sonnet' | 'haiku';
+  /** When set to 'flash' and Gemini is enabled, this axis routes to gemini.flash_model. */
+  readonly defaultGeminiMode?: 'flash';
   evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult>;
 }
 
@@ -178,11 +181,15 @@ export function getLanguageLines(task: Task): string[] {
 
 /**
  * Resolve the effective model for an axis evaluator based on config overrides.
- * Priority: axes.[axis].model → (haiku ? fast_model : model) → evaluator.defaultModel fallback
+ * Priority: axes.[axis].model → Gemini flash (when enabled + defaultGeminiMode) → (haiku ? fast_model : model)
  */
 export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): string {
   const axisConfig = config.llm.axes?.[evaluator.id];
   if (axisConfig?.model) return axisConfig.model;
+
+  if (evaluator.defaultGeminiMode === 'flash' && config.llm.gemini.enabled) {
+    return config.llm.gemini.flash_model;
+  }
 
   return evaluator.defaultModel === 'haiku'
     ? (config.llm.fast_model ?? config.llm.index_model)
@@ -264,14 +271,18 @@ export async function runSingleTurnQuery<T>(
 ): Promise<SingleTurnQueryResult<T>> {
   const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel, transport } = params;
 
-  // Default to AnthropicTransport when no transport is provided (backward compatible)
-  const effectiveTransport = transport ?? new AnthropicTransport();
-
   // Circuit breaker: redirect Gemini → Claude when tripped
   const isGeminiModel = model.startsWith('gemini-');
   const effectiveModel = (isGeminiModel && circuitBreaker && fallbackModel)
     ? circuitBreaker.resolveModel(model, fallbackModel)
     : model;
+
+  // Resolve transport based on effective model (after circuit breaker may redirect)
+  const effectiveTransport = transport ?? (
+    effectiveModel.startsWith('gemini-')
+      ? new GeminiTransport(projectRoot, effectiveModel)
+      : new AnthropicTransport()
+  );
 
   const activeSemaphore = resolveSemaphore(effectiveModel, semaphore, geminiSemaphore);
   if (activeSemaphore) {
