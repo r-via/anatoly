@@ -8,7 +8,7 @@ interface User {
   id: number;
   name: string;
   email: string;
-  active: boolean;
+  active: 0 | 1;
 }
 
 interface PaginatedResult<T> {
@@ -59,6 +59,9 @@ export function searchUsers(
   page: number,
   pageSize: number,
 ): PaginatedResult<User> {
+  if (page < 1) {
+    throw new RangeError(`page must be >= 1, got ${page}`);
+  }
   const countStmt: Statement = db.prepare(`
     SELECT COUNT(*) as total
     FROM users
@@ -123,6 +126,9 @@ export function deactivateUser(db: Database, id: number): boolean {
  * @returns The number of rows deleted.
  */
 export function deleteInactiveUsers(db: Database, olderThanDays: number): number {
+  if (olderThanDays < 0) {
+    throw new RangeError(`olderThanDays must be >= 0, got ${olderThanDays}`);
+  }
   const stmt: Statement = db.prepare(`
     DELETE FROM users
     WHERE active = 0
