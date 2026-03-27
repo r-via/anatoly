@@ -16,6 +16,6 @@ export type { HardwareProfile, ModelInfo, ResolvedModels, EmbeddingBackend, Embe
 export { startTeiContainers, stopTeiContainers, areTeiContainersRunning, TEI_DOCKER_IMAGE, TEI_CODE_PORT, TEI_NLP_PORT } from './docker-tei.js';
 export { indexProject, processFileForDualIndex, ragModeArtifacts } from './orchestrator.js';
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
-export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks, refreshDocCacheShas, countChangedDocs } from './doc-indexer.js';
+export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks, smartChunkAndCache, smartChunkDoc, countChangedDocs } from './doc-indexer.js';
 export type { DocSection, DocIndexOptions, DocIndexResult } from './doc-indexer.js';
 export { startGgufContainers, stopGgufContainers, areGgufContainersRunning } from './docker-gguf.js';

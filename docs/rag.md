@@ -157,6 +157,14 @@ Anatoly caches the file hash for each indexed function card. On subsequent runs,
 
 A garbage collector removes cards for files that no longer exist in the project.
 
+### 6. Doc section indexing
+
+`src/rag/doc-indexer.ts · indexDocSections()` indexes `.anatoly/docs/` and project `docs/` markdown files as `type: 'doc_section'` rows in LanceDB, enabling the `documentation` axis to retrieve relevant pages via vector search.
+
+Doc sections are produced by `smartChunkDoc()` — a programmatic chunker that splits on H2/H3 heading hierarchy with paragraph-level splitting for large sections. No LLM is required. The chunker was benchmarked against the former Haiku semantic chunker and produces comparable distributions (~300 chars avg embedText, <1% oversized sections) at zero API cost.
+
+After each doc-update phase (when internal docs are regenerated), `smartChunkAndCache()` pre-populates the chunk cache with fresh sections, then `indexDocSections()` re-embeds and upserts only the changed files. In advanced mode, GGUF containers are briefly restarted for NLP embedding. This ensures the RAG index stays current without deferring re-indexing to the next run.
+
 ## Search
 
 ### Code-only search (default)
@@ -201,6 +209,7 @@ src/rag/
 ├── embeddings.ts        # Dual model loading, embedCode/embedNlp, text builders
 ├── vector-store.ts      # LanceDB wrapper, search (code/NLP/hybrid), upsert, stats
 ├── indexer.ts           # Card building, embedding, NLP summary application, cache
+├── doc-indexer.ts       # Doc section chunking (smartChunkDoc), cache, indexing
 ├── nlp-summarizer.ts    # LLM-based NLP summary generation (batched per file)
 ├── orchestrator.ts      # Index pipeline orchestration, worker pool
 ├── types.ts             # FunctionCard, SimilarityResult, RagStats schemas
@@ -242,9 +251,10 @@ anatoly rag-status --json       # Machine-readable output
 
 | Component | Cost | When |
 |-----------|------|------|
-| Code embedding | Free (local ONNX) | Always |
-| NLP embedding | Free (local ONNX) | Dual mode only |
+| Code embedding | Free (local ONNX/GGUF) | Always |
+| NLP embedding | Free (local ONNX/GGUF) | Dual mode only |
 | NLP summarization | ~$0.001/file (Haiku) | Dual mode, first index + changed files |
+| Doc chunking | Free (programmatic) | Every doc update |
 | Vector search | Free (local LanceDB) | Every review |
 
 Dual embedding adds LLM cost during indexing only. Search is always free. For a 200-file project, expect ~$0.20 for the initial NLP summarization pass (incremental re-indexing costs are minimal).

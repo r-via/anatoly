@@ -62,14 +62,16 @@ Requires `setup-embeddings`, Docker, NVIDIA Container Toolkit, and 12 GB+ VRAM.
 
 | Etape | Modele | Mode |
 |-------|--------|------|
-| Semantic Chunking (docs) | `claude-haiku-4-5` | Single-turn |
+| Doc Chunking | _none_ (programmatic) | Smart H2+H3+paragraph splitter |
 | NLP Summarization (docs) | `claude-haiku-4-5` | Single-turn |
+
+Doc chunking no longer uses an LLM. The `smartChunkDoc()` programmatic chunker splits on H2/H3 heading hierarchy with paragraph-level splitting for large sections, producing chunk distributions comparable to the former Haiku semantic chunker (benchmarked at ~300 chars avg embedText, <1% oversized sections).
 
 ## Summary by Model
 
 | Modele | Role |
 |--------|------|
-| **Claude Haiku 4.5** | Fast/lightweight tasks: utility, duplication, chunking, summarization |
+| **Claude Haiku 4.5** | Fast/lightweight tasks: utility, duplication, summarization |
 | **Claude Sonnet 4.6** | Deep evaluations: correction, tests, best practices, docs, overengineering, doc generation |
 | **Claude Opus 4.6** | Highest quality: deliberation (reconciliation), doc content review |
 | **Jina v2 / MiniLM** | Local ONNX embeddings (lite backend, CPU) |

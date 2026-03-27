@@ -19,7 +19,7 @@ import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../cor
 import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
-import { indexProject, type RagIndexResult, type RagMode, refreshDocCacheShas, countChangedDocs } from '../rag/index.js';
+import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
@@ -412,17 +412,11 @@ export function registerRunCommand(program: Command): void {
             await runDocUpdate(ctx, setup.tasks);
           });
 
-          // Refresh RAG doc cache SHAs so the next run doesn't re-chunk
-          // files that were just updated by the doc pipeline.
-          if (ctx.enableRag && ctx.resolvedRagMode) {
-            const cacheSuffix = ctx.resolvedRagMode; // 'lite' or 'advanced'
-            const internalDocsDir = join('.anatoly', 'docs');
-            const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
-            const intUpdated = refreshDocCacheShas(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
-            const projUpdated = refreshDocCacheShas(ctx.projectRoot, docsDir, cacheSuffix);
-            if (intUpdated + projUpdated > 0) {
-              ctx.renderer?.logPlain(`[rag] refreshed doc cache SHAs: ${intUpdated} internal, ${projUpdated} project`);
-            }
+          // Re-index doc sections that changed after the doc-update pipeline.
+          // Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate
+          // chunk cache → restart embedding containers → re-embed + upsert → stop.
+          if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
+            await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
@@ -609,16 +603,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
-  pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)` });
+  pipelineRows.push({ phase: 'source files', detail: `${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)` });
+  let docScanProject: ReturnType<typeof countChangedDocs> = null;
+  let docScanInternal: ReturnType<typeof countChangedDocs> = null;
   if (ctx.enableRag) {
     const ragSuffix = ctx.resolvedRagMode ?? 'lite';
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-    const projectDocs = countChangedDocs(ctx.projectRoot, docsPath, ragSuffix);
-    const internalDocs = countChangedDocs(ctx.projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
-    const parts: string[] = [];
-    if (projectDocs) parts.push(`docs/ ${projectDocs.changed} changed, ${projectDocs.cached} cached`);
-    if (internalDocs) parts.push(`.anatoly/docs/ ${internalDocs.changed} changed, ${internalDocs.cached} cached`);
-    if (parts.length > 0) pipelineRows.push({ phase: 'scan (docs)', detail: parts.join(' · ') });
+    docScanProject = countChangedDocs(ctx.projectRoot, docsPath, ragSuffix);
+    docScanInternal = countChangedDocs(ctx.projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
   }
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
@@ -700,10 +692,18 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // --- Phase: internal docs status (Story 29.21 — scaffold moved to post-review) ---
   const bootstrapNeeded = needsBootstrap(ctx.projectRoot);
-  pipelineRows.push({
-    phase: 'internal docs',
-    detail: bootstrapNeeded ? 'first run (bootstrap)' : '.anatoly/docs/ ready',
-  });
+  if (bootstrapNeeded) {
+    pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
+  } else if (docScanInternal) {
+    pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
+    if (docScanProject) {
+      pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
+    } else {
+      pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
+    }
+  } else {
+    pipelineRows.push({ phase: 'internal docs', detail: '.anatoly/docs/ ready' });
+  }
 
   // --- Calibrated ETA (merged into the estimate pipeline row) ---
   const calibration = loadCalibration(ctx.projectRoot);
@@ -1077,6 +1077,87 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
   } catch (err) {
     log.warn({ err }, `${taskId} failed — continuing`);
     ctx.pipelineState?.completeTask(taskId, 'failed');
+  }
+}
+
+/**
+ * Re-index doc sections after the doc-update pipeline has modified `.anatoly/docs/`.
+ *
+ * 1. Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate chunk cache.
+ * 2. For advanced mode, briefly restart GGUF containers for NLP embedding.
+ * 3. Call `indexDocSections` which finds chunk-cache hits → skips Haiku → only embeds + upserts.
+ * 4. Stop containers.
+ */
+async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore): Promise<void> {
+  const log = getLogger();
+  const cacheSuffix = ctx.resolvedRagMode!; // 'lite' or 'advanced'
+  const internalDocsDir = join('.anatoly', 'docs');
+  const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
+
+  // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
+  const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
+  const projChunked = smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
+
+  if (intChunked + projChunked === 0) return; // nothing changed
+
+  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal + ${projChunked} project doc files`);
+
+  // Phase 2: restart embedding containers if advanced mode
+  const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
+  let containersStarted = false;
+  if (ctx.resolvedRagMode === 'advanced') {
+    containersStarted = await startGgufContainers(ctx.projectRoot, logFn);
+    if (!containersStarted) {
+      log.warn('GGUF containers failed to restart for doc re-indexing — docs will be re-indexed on next run');
+      return;
+    }
+    ctx.renderer?.logPlain('[rag] GGUF containers restarted for doc re-indexing');
+  }
+
+  // Phase 3: re-index changed docs (chunk cache hit → no Haiku, just embed + upsert)
+  try {
+    const onLog = (msg: string) => {
+      ctx.runLog?.debug({ phase: 'rag-doc-reindex' }, msg);
+      ctx.renderer?.logPlain(`[rag] ${msg}`);
+    };
+
+    if (intChunked > 0) {
+      const intResult = await indexDocSections({
+        projectRoot: ctx.projectRoot,
+        vectorStore,
+        docsDir: internalDocsDir,
+        cacheSuffix: `${cacheSuffix}-internal`,
+        chunkModel: ctx.config.llm.index_model,
+        onLog,
+        isInterrupted: () => ctx.interrupted,
+        conversationDir: join(ctx.runDir, 'conversations'),
+        semaphore: ctx.sdkSemaphore,
+        docSource: 'internal',
+      });
+      onLog(`doc re-index (internal): ${intResult.sections} sections, $${intResult.costUsd.toFixed(4)}`);
+    }
+
+    if (projChunked > 0) {
+      const projResult = await indexDocSections({
+        projectRoot: ctx.projectRoot,
+        vectorStore,
+        docsDir,
+        cacheSuffix,
+        chunkModel: ctx.config.llm.index_model,
+        onLog,
+        isInterrupted: () => ctx.interrupted,
+        conversationDir: join(ctx.runDir, 'conversations'),
+        semaphore: ctx.sdkSemaphore,
+        docSource: 'project',
+      });
+      onLog(`doc re-index (project): ${projResult.sections} sections, $${projResult.costUsd.toFixed(4)}`);
+    }
+  } finally {
+    // Phase 4: stop containers
+    if (containersStarted) {
+      await stopGgufContainers(logFn);
+      ctx.renderer?.logPlain('[rag] GGUF containers stopped after doc re-indexing');
+    }
   }
 }
 

@@ -117,46 +117,50 @@ export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docE
 }
 
 /**
- * Refresh doc-section cache SHAs to match current file content on disk.
+ * Smart-chunk changed doc files and pre-populate the chunk cache.
  *
- * Call this after the doc-update pipeline has modified `.anatoly/docs/` files
- * so that the next RAG run sees matching SHAs and skips re-chunking.
- * Preserves existing sectionIds (vector store references remain valid).
- * Also re-keys chunk cache entries so Haiku results are reusable.
+ * Call this after the doc-update pipeline has modified `.anatoly/docs/` files.
+ * For each file whose SHA differs from the cached value, runs the programmatic
+ * smart chunker ({@link smartChunkDoc}) and writes the result to the chunk cache.
+ * The doc SHA cache is intentionally **not** updated so that the next RAG run
+ * detects the change, finds a chunk-cache hit (skipping Haiku), and only needs
+ * to re-embed + upsert to the vector store.
  *
- * @returns Number of cache entries whose SHA was updated.
+ * @returns Number of files that were re-chunked.
  */
-export function refreshDocCacheShas(projectRoot: string, docsDir: string, cacheSuffix: string): number {
-  const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
-  if (Object.keys(cache).length === 0) return 0;
-
+export function smartChunkAndCache(projectRoot: string, docsDir: string, cacheSuffix: string): number {
   const absDocsDir = resolve(projectRoot, docsDir);
   if (!existsSync(absDocsDir)) return 0;
 
+  const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
+  if (files.length === 0) return 0;
+
+  const docCache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
   const chunkCache = loadDocChunkCache(projectRoot, cacheSuffix);
   let updated = 0;
 
-  for (const [relPath, entry] of Object.entries(cache)) {
-    const absPath = resolve(projectRoot, relPath);
-    if (!existsSync(absPath)) continue;
-
+  for (const absPath of files) {
+    const relPath = relative(projectRoot, absPath);
     const content = readFileSync(absPath, 'utf-8');
-    const currentSha = computeDocSha(content);
+    const sha = computeDocSha(content);
 
-    if (currentSha !== entry.sha) {
-      // Re-key chunk cache entry so Haiku results map to the new SHA
-      const oldChunk = chunkCache[relPath];
-      if (oldChunk && oldChunk.sha === entry.sha) {
-        chunkCache[relPath] = { ...oldChunk, sha: currentSha };
-      }
+    // Skip files whose SHA already matches the doc cache (unchanged since last RAG index)
+    const cached = docCache[relPath];
+    if (cached && cached.sha === sha) continue;
 
-      entry.sha = currentSha;
-      updated++;
-    }
+    // Also skip if chunk cache already has this SHA (already smart-chunked)
+    const existingChunk = chunkCache[relPath];
+    if (existingChunk && existingChunk.sha === sha) continue;
+
+    const sections = smartChunkDoc(relPath, content);
+    chunkCache[relPath] = {
+      sha,
+      sections: sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })),
+    };
+    updated++;
   }
 
   if (updated > 0) {
-    saveDocCacheToRagCache(projectRoot, cacheSuffix, cache);
     saveDocChunkCache(projectRoot, cacheSuffix, chunkCache);
   }
 
@@ -474,6 +478,123 @@ function fallbackParseH2(filePath: string, source: string): DocSection[] {
     const prose = stripNonProse(raw);
     if (prose.length >= 50) {
       sections.push({ filePath, heading: currentHeading, embedText: prose, content: raw });
+    }
+  }
+
+  return sections;
+}
+
+// ---------------------------------------------------------------------------
+// Smart programmatic chunker (H2 + H3 + paragraph splitting)
+// ---------------------------------------------------------------------------
+
+/** Prose length above which a section is split on paragraph boundaries. */
+const SMART_SPLIT_THRESHOLD = 600;
+
+/**
+ * Smart programmatic chunker that splits Markdown on H2 + H3 heading hierarchy
+ * and applies paragraph-level splitting for large sections.
+ *
+ * Designed for internally-generated docs with clean heading structure. Produces
+ * chunk sizes comparable to Haiku semantic chunking (~300 chars avg embedText)
+ * without any LLM call.
+ *
+ * Strategy:
+ * 1. Parse H2 and H3 headings into a flat block list.
+ * 2. For each block, compute prose via {@link stripNonProse}.
+ * 3. Blocks under {@link SMART_SPLIT_THRESHOLD} are kept as-is.
+ * 4. Larger blocks are split on double-newline paragraph boundaries.
+ * 5. Blocks under 50 chars prose are discarded.
+ *
+ * @param filePath - Relative path to the doc file.
+ * @param source - Raw Markdown source text.
+ * @returns Array of doc sections suitable for NLP embedding.
+ */
+export function smartChunkDoc(filePath: string, source: string): DocSection[] {
+  const lines = source.split('\n');
+
+  interface Block { level: number; heading: string; lines: string[]; parentH2?: string }
+  const blocks: Block[] = [];
+  let current: Block | null = null;
+  const preambleLines: string[] = [];
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+)/);
+    const h3 = line.match(/^###\s+(.+)/);
+
+    if (h2) {
+      if (current) blocks.push(current);
+      else if (preambleLines.length > 0) {
+        blocks.push({ level: 0, heading: 'Introduction', lines: [...preambleLines] });
+      }
+      current = { level: 2, heading: h2[1].trim(), lines: [] };
+    } else if (h3 && current) {
+      // Flush accumulated H2 content before this H3
+      if (current.lines.length > 0) blocks.push(current);
+      current = { level: 3, heading: h3[1].trim(), lines: [], parentH2: current.heading };
+    } else if (current) {
+      current.lines.push(line);
+    } else {
+      if (!line.match(/^#\s+/)) preambleLines.push(line);
+    }
+  }
+  if (current) blocks.push(current);
+
+  // Convert blocks to sections, splitting large ones on paragraph boundaries
+  const sections: DocSection[] = [];
+
+  for (const block of blocks) {
+    const raw = block.lines.join('\n').trim();
+    const prose = stripNonProse(raw);
+    if (prose.length < 50) continue;
+
+    const heading = block.level === 3 && block.parentH2
+      ? `${block.parentH2} — ${block.heading}`
+      : block.heading;
+
+    if (prose.length <= SMART_SPLIT_THRESHOLD) {
+      sections.push({ filePath, heading, embedText: prose, content: raw });
+      continue;
+    }
+
+    // Split on double-newline paragraph boundaries
+    const paragraphs = raw.split(/\n\n+/);
+    let accumContent: string[] = [];
+    let accumProse = '';
+    let partNum = 0;
+
+    for (const para of paragraphs) {
+      const paraProse = stripNonProse(para);
+      if (paraProse.length < 20) {
+        accumContent.push(para);
+        continue;
+      }
+
+      const combined = accumProse ? accumProse + '\n' + paraProse : paraProse;
+
+      if (combined.length > SMART_SPLIT_THRESHOLD && accumProse.length >= 50) {
+        sections.push({
+          filePath,
+          heading: partNum > 0 ? `${heading} (cont.)` : heading,
+          embedText: accumProse,
+          content: accumContent.join('\n\n'),
+        });
+        partNum++;
+        accumContent = [para];
+        accumProse = paraProse;
+      } else {
+        accumContent.push(para);
+        accumProse = combined;
+      }
+    }
+
+    if (accumProse.length >= 50) {
+      sections.push({
+        filePath,
+        heading: partNum > 0 ? `${heading} (cont.)` : heading,
+        embedText: accumProse,
+        content: accumContent.join('\n\n'),
+      });
     }
   }
 

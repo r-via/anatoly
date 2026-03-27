@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseDocSections, stripCodeBlocks, buildDocSectionId, splitIntoBatches, MAX_BATCH_CHARS, areDocTreesIdentical, remapDocPath } from './doc-indexer.js';
+import { parseDocSections, stripCodeBlocks, buildDocSectionId, splitIntoBatches, MAX_BATCH_CHARS, areDocTreesIdentical, remapDocPath, smartChunkDoc } from './doc-indexer.js';
 import type { DocSection } from './doc-indexer.js';
 
 describe('stripCodeBlocks', () => {
@@ -335,5 +335,122 @@ describe('remapDocPath', () => {
 
   it('remaps from project to internal path', () => {
     expect(remapDocPath('docs/modules/rag.md', 'docs', '.anatoly/docs')).toBe('.anatoly/docs/modules/rag.md');
+  });
+});
+
+describe('smartChunkDoc', () => {
+  it('splits on H2 boundaries like parseDocSections', () => {
+    const source = `# Title
+
+## Overview
+
+This overview section has enough prose to pass the minimum character threshold for inclusion.
+
+## Details
+
+Detail section content with sufficient length to be included in the output sections array.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections).toHaveLength(2);
+    expect(sections[0].heading).toBe('Overview');
+    expect(sections[1].heading).toBe('Details');
+  });
+
+  it('splits large H2 sections on H3 sub-headings', () => {
+    const source = `# Title
+
+## Architecture
+
+### Component A
+
+Component A is a critical piece of the system that handles all incoming requests and routes them to the correct handlers. It provides extensive configurability.
+
+### Component B
+
+Component B manages the persistence layer and ensures data integrity across all transactions. It supports multiple backend storage engines.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections.length).toBeGreaterThanOrEqual(2);
+    expect(sections.some(s => s.heading.includes('Component A'))).toBe(true);
+    expect(sections.some(s => s.heading.includes('Component B'))).toBe(true);
+  });
+
+  it('uses parent H2 as prefix for H3 headings', () => {
+    const source = `# Title
+
+## Architecture
+
+### Component A
+
+This component handles all the incoming requests and provides routing capabilities with enough text to pass threshold.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections[0].heading).toBe('Architecture — Component A');
+  });
+
+  it('splits very large sections on paragraph boundaries', () => {
+    const longPara1 = 'First paragraph with plenty of text. '.repeat(12);
+    const longPara2 = 'Second paragraph that is also quite lengthy. '.repeat(12);
+    const source = `# Title
+
+## Big Section
+
+${longPara1}
+
+${longPara2}
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections.length).toBeGreaterThanOrEqual(2);
+    expect(sections[0].heading).toBe('Big Section');
+    expect(sections[1].heading).toBe('Big Section (cont.)');
+  });
+
+  it('discards sections with less than 50 chars prose', () => {
+    const source = `# Title
+
+## Tiny
+
+Too short.
+
+## Enough
+
+This section has enough content to pass the fifty character minimum prose threshold for inclusion.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].heading).toBe('Enough');
+  });
+
+  it('strips code blocks from embedText but keeps them in content', () => {
+    const source = `# Title
+
+## Usage
+
+Install the package and run the following command to get started with the project configuration.
+
+\`\`\`bash
+npm install
+npm run build
+\`\`\`
+
+After building, verify that everything works correctly by running the test suite against all targets.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].embedText).not.toContain('npm install');
+    expect(sections[0].content).toContain('npm install');
+  });
+
+  it('captures preamble content before first H2 as Introduction', () => {
+    const source = `# Title
+
+This is preamble text before any H2 headings. It contains enough content to pass the minimum character threshold.
+
+## First Section
+
+Content of the first real section with enough text to be included in results.
+`;
+    const sections = smartChunkDoc('docs/test.md', source);
+    expect(sections[0].heading).toBe('Introduction');
   });
 });

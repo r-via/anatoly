@@ -156,7 +156,7 @@ GPU availability is auto-detected via `src/rag/hardware-detect.ts`.
 
 **Upsert phase** — `src/rag/vector-store.ts · VectorStore.upsert()` writes rows into a LanceDB table at `.anatoly/rag/lancedb/`. IDs are 16-char hex strings from `buildFunctionId()`; paths are sanitised before SQL-like where clauses.
 
-**Doc phase** — `src/rag/doc-indexer.ts · indexDocSections()` embeds `.anatoly/docs/` markdown sections as `type: 'doc_section'` rows, enabling the `documentation` axis to retrieve relevant pages via vector search.
+**Doc phase** — `src/rag/doc-indexer.ts · indexDocSections()` embeds `.anatoly/docs/` markdown sections as `type: 'doc_section'` rows, enabling the `documentation` axis to retrieve relevant pages via vector search. Sections are produced by `smartChunkDoc()` — a programmatic H2+H3+paragraph splitter that replaced the former Haiku LLM chunker at zero API cost.
 
 ---
 
@@ -237,7 +237,7 @@ interface ReviewFile {
 
 ## Stage 5 & 6 — Doc Update and Report
 
-`src/core/doc-pipeline.ts · runDocGeneration()` regenerates only `.anatoly/docs/` pages whose source files changed (checked via task hash vs. doc-cache entries).
+`src/core/doc-pipeline.ts · runDocGeneration()` regenerates only `.anatoly/docs/` pages whose source files changed (checked via task hash vs. doc-cache entries). After the doc update, `smartChunkAndCache()` pre-populates the chunk cache with programmatic sections, then `indexDocSections()` re-embeds and upserts only the changed files to the vector store (GGUF containers are briefly restarted in advanced mode). This ensures the RAG index stays current without deferring re-indexing to the next run.
 
 <!-- Note: docs may be outdated — verified against source. The report output is report.html, not report.md as referenced in some earlier documentation versions. -->
 
