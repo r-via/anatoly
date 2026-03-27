@@ -107,8 +107,8 @@ cosine_similarity() {
   local vec_b="$2"
 
   jq -n --argjson a "$vec_a" --argjson b "$vec_b" '
-    def dot(x;y): [range(x|length)] | map(x[.] * y[.]) | add;
-    def norm(x): [range(x|length)] | map(x[.] * x[.]) | add | sqrt;
+    def dot(x;y): [range(x|length)] | map(x[.] * y[.]) | add // 0;
+    def norm(x): [range(x|length)] | map(x[.] * x[.]) | add // 0 | sqrt;
     if ($a | length) != ($b | length) then -1
     elif (norm($a) == 0) or (norm($b) == 0) then 0
     else dot($a;$b) / (norm($a) * norm($b))
