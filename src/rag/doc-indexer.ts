@@ -802,8 +802,8 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
     return { sections: 0, cached: true, costUsd: 0 };
   }
 
-  const method = chunkModel ? `Haiku (${chunkModel})` : 'H2 fallback';
-  onLog(`rag: chunking ${changedFiles.length} ${sourceLabel} doc files via ${method} (${cachedCount} cached)`);
+  const method = chunkModel ? `Haiku (${chunkModel}) / chunk-cache` : 'H2 fallback';
+  onLog(`rag: processing ${changedFiles.length} ${sourceLabel} doc files via ${method} (${cachedCount} cached)`);
 
   let totalIndexed = 0;
   let totalCostUsd = 0;

@@ -1096,11 +1096,13 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
-  const projChunked = smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
+  // Skip project docs when dedup mode — syncProjectDocsFromInternal will overwrite them
+  // and the alias in the vector store already maps internal → project.
+  const projChunked = ctx.docsIdentical ? 0 : smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
 
   if (intChunked + projChunked === 0) return; // nothing changed
 
-  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal + ${projChunked} project doc files`);
+  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''} doc files`);
 
   // Phase 2: restart embedding containers if advanced mode
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
