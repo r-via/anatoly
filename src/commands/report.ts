@@ -5,8 +5,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { resolve, relative, dirname, basename, join } from 'node:path';
+import { resolve, relative, dirname, join } from 'node:path';
 import { generateReport, loadReviews, type AxisReport, type RunStats } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -61,8 +60,8 @@ export function registerReportCommand(program: Command): void {
         } catch { /* ignore malformed metrics */ }
       }
 
-      // Build reportsBaseUrl for absolute links in public_report.md
-      const reportsBaseUrl = buildReportsBaseUrl(projectRoot, runDir ?? undefined);
+      // reportsBaseUrl is only set by `anatoly run` when publishing to anatoly-reports
+      const reportsBaseUrl = undefined;
 
       // Re-aggregate doc coverage from current reviews + profile
       let docReferenceSection: string | undefined;
@@ -179,48 +178,3 @@ function printReportSummary(
   console.log('');
 }
 
-const REPORTS_REPO = 'r-via/anatoly-reports';
-
-/**
- * Build the absolute base URL for report links in the public report.
- * Pattern: https://github.com/r-via/anatoly-reports/blob/main/{owner}--{repo}/{runId}
- * Returns undefined if upstream cannot be detected.
- */
-function buildReportsBaseUrl(projectRoot: string, runDir?: string): string | undefined {
-  if (!runDir) return undefined;
-
-  // Detect upstream owner/repo from git remote
-  let upstream: string | undefined;
-  try {
-    // Try "upstream" remote first
-    upstream = execFileSync('git', ['remote', 'get-url', 'upstream'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
-  } catch {
-    try {
-      // Try GitHub fork parent
-      const parentJson = execFileSync('gh', ['repo', 'view', '--json', 'parent'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
-      const parent = JSON.parse(parentJson)?.parent;
-      if (parent?.owner?.login && parent?.name) {
-        upstream = `https://github.com/${parent.owner.login}/${parent.name}`;
-      }
-    } catch { /* ignore */ }
-  }
-  if (!upstream) {
-    try {
-      // Fall back to origin
-      upstream = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: projectRoot, encoding: 'utf-8', timeout: 5000 }).trim();
-    } catch {
-      return undefined;
-    }
-  }
-
-  // Parse owner/repo from URL (https or ssh)
-  const match = upstream.match(/(?:github\.com[:/])([^/]+)\/([^/.]+)/);
-  if (!match) return undefined;
-
-  const owner = match[1];
-  const repo = match[2];
-  const runId = basename(runDir);
-  const slug = `${owner}--${repo}`;
-
-  return `https://github.com/${REPORTS_REPO}/blob/main/${slug}/${runId}`;
-}
