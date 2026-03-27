@@ -111,6 +111,10 @@ function applyMissingPage(
   io: SyncIO,
   docsPath: string,
 ): SyncResult | null {
+  // Guard: never overwrite an existing user file (stale recommendation)
+  const existing = io.readFile(rec.path_user);
+  if (existing !== null) return null;
+
   const content = io.readFile(rec.content_ref);
   if (content === null) return null;
 
@@ -186,7 +190,8 @@ function applyOutdatedContent(
  * Replaces .anatoly/docs/ references with docs/ in markdown links.
  */
 function adaptLinks(content: string, docsPath = 'docs'): string {
-  return content.replace(/\.anatoly\/docs\//g, `${docsPath}/`);
+  const normalized = docsPath.replace(/\/+$/, '');
+  return content.replace(/\.anatoly\/docs\//g, `${normalized}/`);
 }
 
 /**
