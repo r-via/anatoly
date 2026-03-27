@@ -120,6 +120,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__utility` : undefined,
         semaphore: ctx.semaphore,
+        geminiSemaphore: ctx.geminiSemaphore,
       },
       UtilityResponseSchema,
     );

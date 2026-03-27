@@ -60,7 +60,7 @@
   > AC: Given an explicit per-axis override exists (`config.llm.axes[axis].model`), When `resolveAxisModel()` is called, Then the override takes precedence over Gemini routing
   > AC: Given `file-evaluator.ts` runs the axes, When the resolved model starts with `gemini-`, Then the `GeminiTransport` is used for that axis call, And the Gemini semaphore is used (not the Claude semaphore)
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-2-1
-- [ ] Story 2.2: Separate concurrency semaphores for Claude and Gemini
+- [x] Story 2.2: Separate concurrency semaphores for Claude and Gemini
   > As a system
   > I want Claude and Gemini to have independent concurrency semaphores
   > So that rate limits on one provider don't throttle the other.

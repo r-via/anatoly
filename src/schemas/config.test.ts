@@ -95,6 +95,50 @@ describe('ConfigSchema', () => {
   });
 });
 
+describe('GeminiConfigSchema', () => {
+  it('should default gemini.enabled to false', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.gemini.enabled).toBe(false);
+  });
+
+  it('should default flash_model to gemini-3-flash-preview', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.gemini.flash_model).toBe('gemini-3-flash-preview');
+  });
+
+  it('should default nlp_model to gemini-2.5-flash', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.gemini.nlp_model).toBe('gemini-2.5-flash');
+  });
+
+  it('should default sdk_concurrency to 12', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.llm.gemini.sdk_concurrency).toBe(12);
+  });
+
+  it('should accept gemini.enabled = true', () => {
+    const config = ConfigSchema.parse({ llm: { gemini: { enabled: true } } });
+    expect(config.llm.gemini.enabled).toBe(true);
+    expect(config.llm.gemini.flash_model).toBe('gemini-3-flash-preview');
+  });
+
+  it('should accept custom gemini models', () => {
+    const config = ConfigSchema.parse({
+      llm: { gemini: { enabled: true, flash_model: 'gemini-2.0-flash', nlp_model: 'gemini-2.0-flash' } },
+    });
+    expect(config.llm.gemini.flash_model).toBe('gemini-2.0-flash');
+    expect(config.llm.gemini.nlp_model).toBe('gemini-2.0-flash');
+  });
+
+  it('should reject gemini sdk_concurrency below 1', () => {
+    expect(ConfigSchema.safeParse({ llm: { gemini: { sdk_concurrency: 0 } } }).success).toBe(false);
+  });
+
+  it('should reject gemini sdk_concurrency above 32', () => {
+    expect(ConfigSchema.safeParse({ llm: { gemini: { sdk_concurrency: 33 } } }).success).toBe(false);
+  });
+});
+
 describe('AxisConfigSchema', () => {
   it('should default all axes to enabled', () => {
     const config = ConfigSchema.parse({});

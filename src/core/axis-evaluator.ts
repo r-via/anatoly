@@ -93,6 +93,8 @@ export interface AxisContext {
   conversationFileSlug?: string;
   /** Global SDK concurrency semaphore — when set, passed to runSingleTurnQuery */
   semaphore?: Semaphore;
+  /** Gemini-specific SDK concurrency semaphore — used when model starts with `gemini-` */
+  geminiSemaphore?: Semaphore;
 }
 
 export interface RelevantDoc {
@@ -193,6 +195,24 @@ export function resolveDeliberationModel(config: Config): string {
 }
 
 // ---------------------------------------------------------------------------
+// Dual semaphore routing (Story 2.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Select the correct concurrency semaphore based on model prefix.
+ * Gemini models (prefixed `gemini-`) use the Gemini semaphore when available;
+ * all other models use the Claude semaphore.
+ */
+export function resolveSemaphore(
+  model: string,
+  claudeSemaphore: Semaphore | undefined,
+  geminiSemaphore: Semaphore | undefined,
+): Semaphore | undefined {
+  if (model.startsWith('gemini-') && geminiSemaphore) return geminiSemaphore;
+  return claudeSemaphore;
+}
+
+// ---------------------------------------------------------------------------
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------
 
@@ -209,6 +229,8 @@ export interface SingleTurnQueryParams {
   conversationPrefix?: string;
   /** Global SDK concurrency semaphore — when set, acquire/release around SDK calls */
   semaphore?: Semaphore;
+  /** Gemini-specific semaphore — used instead of `semaphore` when model starts with `gemini-` */
+  geminiSemaphore?: Semaphore;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -232,16 +254,17 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore } = params;
 
-  if (semaphore) {
-    await semaphore.acquire();
+  const activeSemaphore = resolveSemaphore(model, semaphore, geminiSemaphore);
+  if (activeSemaphore) {
+    await activeSemaphore.acquire();
   }
   try {
     return await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema);
   } finally {
-    if (semaphore) {
-      semaphore.release();
+    if (activeSemaphore) {
+      activeSemaphore.release();
     }
   }
 }

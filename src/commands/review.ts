@@ -111,6 +111,9 @@ export function registerReviewCommand(program: Command): void {
         }
         const depMeta = loadDependencyMeta(projectRoot);
         const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
+        const geminiSemaphore = config.llm.gemini.enabled
+          ? new Semaphore(config.llm.gemini.sdk_concurrency)
+          : undefined;
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
         process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
         const axesTotal = evaluators.length;
@@ -161,6 +164,7 @@ export function registerReviewCommand(program: Command): void {
                 depMeta,
                 deliberation: config.llm.deliberation ?? true,
                 semaphore: sdkSemaphore,
+                geminiSemaphore,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);
                 },

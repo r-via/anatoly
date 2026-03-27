@@ -169,6 +169,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__best-practices` : undefined,
         semaphore: ctx.semaphore,
+        geminiSemaphore: ctx.geminiSemaphore,
       },
       BestPracticesResponseSchema,
     );

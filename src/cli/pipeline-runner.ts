@@ -70,6 +70,8 @@ export interface PipelineContext {
   docsPath: string;
   profile: ProjectProfile;
   semaphore: Semaphore;
+  /** Gemini-specific concurrency semaphore — created only when Gemini is enabled. */
+  geminiSemaphore?: Semaphore;
   executor: DocExecutor;
   state: PipelineState;
   renderer: ScreenRenderer;
@@ -138,6 +140,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
   const semaphore = new Semaphore(config.llm.sdk_concurrency);
+  const geminiSemaphore = config.llm.gemini.enabled
+    ? new Semaphore(config.llm.gemini.sdk_concurrency)
+    : undefined;
   const executor = createExecutor(projectRoot, semaphore);
 
   let totalCostUsd = 0;
@@ -171,6 +176,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     docsPath,
     profile,
     semaphore,
+    geminiSemaphore,
     executor,
     state,
     renderer,

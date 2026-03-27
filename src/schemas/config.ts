@@ -41,6 +41,14 @@ export const AxesConfigSchema = z.object({
   documentation: AxisConfigSchema.default({ enabled: true }),
 });
 
+/** Gemini provider configuration for optional Google AI routing. */
+export const GeminiConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  flash_model: z.string().default('gemini-3-flash-preview'),
+  nlp_model: z.string().default('gemini-2.5-flash'),
+  sdk_concurrency: z.int().min(1).max(32).default(12),
+});
+
 /** LLM configuration controlling model selection, parallelism, and review behaviour. */
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
@@ -70,6 +78,8 @@ export const LlmConfigSchema = z.object({
     best_practices: { enabled: true },
     documentation: { enabled: true },
   }),
+  /** Optional Gemini provider configuration. When enabled, eligible axes route to Gemini Flash. */
+  gemini: GeminiConfigSchema.default({ enabled: false, flash_model: 'gemini-3-flash-preview', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 }),
 });
 
 export const RagConfigSchema = z.object({
@@ -138,6 +148,7 @@ export const ConfigSchema = z.object({
       best_practices: { enabled: true },
       documentation: { enabled: true },
     },
+    gemini: { enabled: false, flash_model: 'gemini-3-flash-preview', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 },
   }),
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),

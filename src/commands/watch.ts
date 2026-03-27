@@ -69,6 +69,9 @@ export function registerWatchCommand(program: Command): void {
       // Warn once at startup if any requested axes are config-disabled
       const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
       const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
+      const geminiSemaphore = config.llm.gemini.enabled
+        ? new Semaphore(config.llm.gemini.sdk_concurrency)
+        : undefined;
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
       if (axesFilter) {
@@ -175,6 +178,7 @@ export function registerWatchCommand(program: Command): void {
             runDir,
             conversationDir,
             semaphore: sdkSemaphore,
+            geminiSemaphore,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict, durationMs: result.durationMs }, 'file review completed');

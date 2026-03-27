@@ -140,6 +140,8 @@ interface RunContext {
   badge: { enabled: boolean; verdict: boolean; link?: string };
   /** Global SDK concurrency semaphore — shared across RAG indexing and review phases */
   sdkSemaphore: Semaphore;
+  /** Gemini-specific semaphore — created only when Gemini is enabled */
+  geminiSemaphore?: Semaphore;
   /** Pipeline display state — created after setup, shared across rag/review/report */
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
@@ -293,6 +295,9 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
+        geminiSemaphore: config.llm.gemini.enabled
+          ? new Semaphore(config.llm.gemini.sdk_concurrency)
+          : undefined,
         isFirstRun: false,
         docsIdentical: false,
       };
@@ -1500,6 +1505,7 @@ async function runReviewPhase(
               codeWeight: ctx.config.rag.code_weight,
               conversationDir: join(ctx.runDir, 'conversations'),
               semaphore: ctx.sdkSemaphore,
+              geminiSemaphore: ctx.geminiSemaphore,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

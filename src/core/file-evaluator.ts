@@ -79,6 +79,8 @@ export interface EvaluateFileOptions {
   onTranscriptChunk?: (chunk: string) => void;
   /** Global SDK concurrency semaphore — bounds total in-flight SDK calls */
   semaphore?: Semaphore;
+  /** Gemini-specific concurrency semaphore — bounds total in-flight Gemini SDK calls */
+  geminiSemaphore?: Semaphore;
 }
 
 export interface AxisTiming {
@@ -246,6 +248,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     conversationDir: opts.conversationDir,
     conversationFileSlug: fileSlug,
     semaphore: opts.semaphore,
+    geminiSemaphore: opts.geminiSemaphore,
   };
 
   const startTime = Date.now();
@@ -352,6 +355,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
               conversationDir: opts.conversationDir,
               conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
               semaphore: opts.semaphore,
+              geminiSemaphore: opts.geminiSemaphore,
             },
             DeliberationResponseSchema,
           ),

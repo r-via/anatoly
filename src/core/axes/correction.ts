@@ -305,6 +305,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
         conversationDir: ctx.conversationDir,
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction` : undefined,
         semaphore: ctx.semaphore,
+        geminiSemaphore: ctx.geminiSemaphore,
       },
       CorrectionResponseSchema,
     );
@@ -334,6 +335,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
             conversationDir: ctx.conversationDir,
             conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction-verify` : undefined,
             semaphore: ctx.semaphore,
+            geminiSemaphore: ctx.geminiSemaphore,
           },
           VerificationResponseSchema,
         );
