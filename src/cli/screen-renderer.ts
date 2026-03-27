@@ -69,7 +69,7 @@ export class ScreenRenderer {
     this.interval = setInterval(() => this.render(), 100);
   }
 
-  /** Stop the refresh loop, perform a final render, and restore the cursor (no-op in plain mode). */
+  /** Stop the refresh loop, render a final static frame, and restore the cursor (no-op in plain mode). */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
@@ -77,10 +77,31 @@ export class ScreenRenderer {
       clearInterval(this.interval);
       this.interval = null;
     }
-    // Final render to show the completed state, then restore cursor
     if (!this.opts.plain) {
-      this.render();
-      process.stdout.write('\x1b[?25h');
+      // Clear the TUI screen entirely and restore cursor
+      process.stdout.write('\x1b[2J\x1b[H\x1b[?25h');
+
+      // Print banner + completed tasks as static output (no longer refreshed)
+      console.log('');
+      for (const line of this.bannerLines) console.log(line);
+      console.log(this.renderTasksHeader());
+      console.log(`  ${separator()}`);
+      for (const task of this.state.tasks) {
+        if (!task.visible) continue;
+        console.log(this.renderTask(task));
+      }
+      console.log('');
+
+      // Print summary if available
+      if (this.state.summary) {
+        console.log(`  ${this.state.summary.headline}`);
+        console.log(`  ${separator()}`);
+        for (const p of this.state.summary.paths) {
+          console.log(`  ${p.key.padEnd(13)}${p.value}`);
+        }
+        console.log('');
+        console.log(`  ${this.state.summary.cost}`);
+      }
     }
     // Clean up signal and resize handlers
     if (this.sigHandler) {
@@ -195,10 +216,16 @@ export class ScreenRenderer {
   private renderTasksHeader(): string {
     const title = '  Pipeline';
     const sem = this.state.semaphore;
+    const gemSem = this.state.geminiSemaphore;
     const isUpsert = this.state.activeTaskId === 'rag-upsert';
     if (sem && !isUpsert && this.state.phase !== 'summary') {
       const running = sem.running;
       const capacity = running + sem.available;
+      if (gemSem) {
+        const gRunning = gemSem.running;
+        const gCapacity = gRunning + gemSem.available;
+        return `${title} ${chalk.dim(`\u2014 Claude ${running}/${capacity} \u00b7 Gemini ${gRunning}/${gCapacity}`)}`;
+      }
       return `${title} ${chalk.dim(`\u2014 ${running}/${capacity} agents active`)}`;
     }
     return title;

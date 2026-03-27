@@ -60,6 +60,7 @@ export class TransportRouter {
     for (const transport of this.transports) {
       if (transport.supports(model)) return transport;
     }
-    throw new Error(`No transport supports model "${model}"`);
+    const available = this.transports.map(t => t.provider).join(', ');
+    throw new Error(`No transport supports model "${model}" (available: ${available})`);
   }
 }

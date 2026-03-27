@@ -11,12 +11,12 @@ import type {
   SDKUserMessage,
   SDKSystemMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync } from 'node:fs';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
+import { initConvDump, appendAssistant, appendResult, appendError, type ConvDump } from './conversation-dump.js';
 
 // ---------------------------------------------------------------------------
 // Transcript formatting (extracted from axis-evaluator.ts)
@@ -101,33 +101,11 @@ export class AnthropicTransport implements LlmTransport {
     const transcriptLines: string[] = [];
 
     // --- Conversation dump setup ---
+    let convDump: ConvDump | undefined;
     let convPath: string | undefined;
-    let convFileName: string | undefined;
     if (conversationDir && conversationPrefix != null && attempt != null) {
-      try {
-        mkdirSync(conversationDir, { recursive: true });
-        const suffix = `__${attempt}.md`;
-        const rawName = `${conversationPrefix}${suffix}`;
-        const safeName =
-          rawName.length > 250
-            ? conversationPrefix.slice(0, 250 - suffix.length) + suffix
-            : rawName;
-        convFileName = safeName;
-        convPath = join(conversationDir, safeName);
-
-        const title = conversationPrefix.replace(/__/g, ' — ');
-        let header = `# Conversation: ${title} (attempt ${attempt})\n\n`;
-        header += `| Field | Value |\n|-------|-------|\n`;
-        header += `| Model | ${model} |\n`;
-        header += `| Timestamp | ${new Date().toISOString()} |\n\n---\n\n`;
-        if (systemPrompt) {
-          header += `## System\n\n${systemPrompt}\n\n---\n\n`;
-        }
-        header += `## User\n\n${userMessage}\n\n---\n\n`;
-        writeFileSync(convPath, header);
-      } catch {
-        convPath = undefined;
-      }
+      convDump = initConvDump({ conversationDir, conversationPrefix, attempt, model, provider: 'anthropic', systemPrompt, userMessage });
+      convPath = convDump?.path;
     }
 
     // --- SDK call ---
@@ -216,18 +194,8 @@ export class AnthropicTransport implements LlmTransport {
       }
     } catch (err) {
       // Append error to conversation dump
-      if (convPath) {
-        try {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          const errorCode =
-            err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN';
-          appendFileSync(
-            convPath,
-            `## Error\n\n**Type:** ${errorCode}\n**Message:** ${errorMsg}\n`,
-          );
-        } catch {
-          /* best-effort */
-        }
+      if (convDump) {
+        appendError(convDump, err);
       }
 
       // Emit llm_call event for failed call
@@ -251,8 +219,8 @@ export class AnthropicTransport implements LlmTransport {
               err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN',
             message: err instanceof Error ? err.message : String(err),
           },
-          ...(convFileName
-            ? { conversationFile: `conversations/${convFileName}` }
+          ...(convDump?.fileName
+            ? { conversationFile: `conversations/${convDump?.fileName}` }
             : {}),
         },
         'LLM call failed',
@@ -288,25 +256,8 @@ export class AnthropicTransport implements LlmTransport {
     // --- Append final metrics to conversation dump ---
     const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
     const cacheHitRate = totalTokens > 0 ? cacheReadTokens / totalTokens : 0;
-    if (convPath) {
-      try {
-        let result = `## Result\n\n`;
-        result += `| Field | Value |\n|-------|-------|\n`;
-        result += `| Duration | ${(durationMs / 1000).toFixed(1)}s |\n`;
-        result += `| Cost | $${costUsd.toFixed(4)} |\n`;
-        result += `| Input tokens | ${inputTokens} |\n`;
-        result += `| Output tokens | ${outputTokens} |\n`;
-        result += `| Cache read | ${cacheReadTokens} |\n`;
-        result += `| Cache creation | ${cacheCreationTokens} |\n`;
-        result += `| Cache hit rate | ${Math.round(cacheHitRate * 100)}% |\n`;
-        result += `| Success | true |\n`;
-        appendFileSync(convPath, result);
-      } catch (e) {
-        contextLogger().warn(
-          { err: e instanceof Error ? e.message : String(e), path: convPath },
-          'conversation dump result write failed',
-        );
-      }
+    if (convDump) {
+      appendResult(convDump, { durationMs, costUsd, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheHitRate, success: true });
     }
 
     // Emit structured llm_call event
@@ -325,8 +276,8 @@ export class AnthropicTransport implements LlmTransport {
         durationMs,
         success: true,
         ...(retryReason ? { retryReason } : {}),
-        ...(convFileName
-          ? { conversationFile: `conversations/${convFileName}` }
+        ...(convDump?.fileName
+          ? { conversationFile: `conversations/${convDump?.fileName}` }
           : {}),
       },
       'LLM call complete',

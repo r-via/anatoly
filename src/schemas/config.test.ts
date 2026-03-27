@@ -101,9 +101,9 @@ describe('GeminiConfigSchema', () => {
     expect(config.llm.gemini.enabled).toBe(false);
   });
 
-  it('should default flash_model to gemini-3-flash-preview', () => {
+  it('should default flash_model to gemini-2.5-flash', () => {
     const config = ConfigSchema.parse({});
-    expect(config.llm.gemini.flash_model).toBe('gemini-3-flash-preview');
+    expect(config.llm.gemini.flash_model).toBe('gemini-2.5-flash');
   });
 
   it('should default nlp_model to gemini-2.5-flash', () => {
@@ -119,7 +119,7 @@ describe('GeminiConfigSchema', () => {
   it('should accept gemini.enabled = true', () => {
     const config = ConfigSchema.parse({ llm: { gemini: { enabled: true } } });
     expect(config.llm.gemini.enabled).toBe(true);
-    expect(config.llm.gemini.flash_model).toBe('gemini-3-flash-preview');
+    expect(config.llm.gemini.flash_model).toBe('gemini-2.5-flash');
   });
 
   it('should accept custom gemini models', () => {

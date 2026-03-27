@@ -114,7 +114,7 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
       const right = data.modelsRight?.[i];
       let line = '    ';
       if (left) {
-        line += `${left.key.padEnd(lKeyW)}${' '.repeat(gap)}${left.value}`;
+        line += `${left.key.padEnd(lKeyW)}${' '.repeat(gap)}${left.value.padEnd(lValW)}`;
       } else {
         line += ' '.repeat(lKeyW + gap + lValW);
       }
@@ -149,8 +149,10 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
 
   const checkMark = chalk.green('✔');
   const pipelineRow = (phase: string, detail: string) => {
+    const visibleContent = `   ✔ ${phase.padEnd(singleKeyWidth - checkPrefix)}${' '.repeat(gap)}${detail}`;
     const content = `   ${checkMark} ${phase.padEnd(singleKeyWidth - checkPrefix)}${' '.repeat(gap)}${detail}`;
-    return `  ${d('│')}${content.padEnd(innerWidth)}${d('│')}`;
+    const padding = Math.max(0, innerWidth - visibleContent.length);
+    return `  ${d('│')}${content}${' '.repeat(padding)}${d('│')}`;
   };
 
   const emptyRow = `  ${d('│')}${' '.repeat(innerWidth)}${d('│')}`;

@@ -50,6 +50,7 @@ export class PipelineState {
   readonly activeFiles = new Map<string, FileState>();
   phase: PipelinePhase = 'rag';
   semaphore?: Semaphore;
+  geminiSemaphore?: Semaphore;
   summary?: SummaryState;
   /** Optional override for the "In progress" section header. */
   inProgressLabel?: string;
@@ -141,6 +142,10 @@ export class PipelineState {
 
   setSemaphore(sem: Semaphore): void {
     this.semaphore = sem;
+  }
+
+  setGeminiSemaphore(sem: Semaphore): void {
+    this.geminiSemaphore = sem;
   }
 
   setPhase(phase: PipelinePhase): void {

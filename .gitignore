@@ -14,3 +14,5 @@ coverage/
 .vhs/
 cli-tester
 publish.sh
+spike/
+.env

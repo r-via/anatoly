@@ -186,7 +186,8 @@ export class TestsEvaluator implements AxisEvaluator {
     const systemPrompt = buildTestsSystemPrompt();
     let userMessage = buildTestsUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'tests');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'tests', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

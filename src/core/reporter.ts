@@ -232,12 +232,39 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
  * Generate a deterministic action ID for checkbox matching.
  * Format: ACT-{6-char file hash}-{action id}
  */
+/**
+ * Convert a file path to a GitHub-compatible heading anchor.
+ * Matches GitHub's algorithm: lowercase, strip non-alphanumeric (except hyphens), replace spaces with hyphens.
+ * Used for axis shard "details" links that anchor to ### `file/path.rs` headings.
+ */
+function fileToAnchor(filePath: string): string {
+  return filePath
+    .toLowerCase()
+    .replace(/[^a-z0-9 -]/g, '')
+    .replace(/ /g, '-');
+}
+
 export function makeActId(file: string, actionId: number): string {
   const hash = createHash('sha256').update(file).digest('hex').slice(0, 6);
   return `ACT-${hash}-${actionId}`;
 }
 
-function renderAction(lines: string[], a: Action & { file: string }): void {
+/**
+ * Normalize category and effort for correction actions based on severity.
+ * Correction axis historically hardcoded everything as quickwin/small;
+ * this remaps at render time so cached .rev.json files are also handled.
+ */
+function normalizeAction(a: Action & { file: string }): Action & { file: string } {
+  if (a.source !== 'correction') return a;
+  switch (a.severity) {
+    case 'high':   return { ...a, effort: 'large',   category: 'refactor' };
+    case 'low':    return { ...a, effort: 'trivial',  category: 'hygiene' };
+    default:       return { ...a, effort: 'small',    category: 'quickwin' };
+  }
+}
+
+function renderAction(lines: string[], raw: Action & { file: string }): void {
+  const a = normalizeAction(raw);
   const effort = a.effort ?? 'small';
   const src = a.source ? `${a.source} · ` : '';
   const target = a.target_symbol ? ` (\`${a.target_symbol}\`)` : '';
@@ -347,6 +374,44 @@ function axisDisplayName(axis: ReportAxisId): string {
     'best-practices': 'Best Practices',
   };
   return names[axis];
+}
+
+function axisEmoji(axis: ReportAxisId): string {
+  const emojis: Record<ReportAxisId, string> = {
+    correction: '🐛',
+    utility: '♻️',
+    duplication: '📋',
+    overengineering: '🏗️',
+    tests: '🧪',
+    documentation: '📝',
+    'best-practices': '✅',
+  };
+  return emojis[axis];
+}
+
+function axisIntro(axis: ReportAxisId): string {
+  const intros: Record<ReportAxisId, string> = {
+    correction: 'Bugs, logic errors, incorrect types, and unsafe operations. Only real correctness issues — not style.',
+    utility: 'Dead or low-value code detected via a pre-computed import/usage graph across the codebase.',
+    duplication: 'Code clones identified via RAG semantic vector search against the full codebase index.',
+    overengineering: 'Unnecessary abstractions, premature generalization, and complexity that exceeds current requirements.',
+    tests: 'Test coverage gaps — untested or weakly tested exported symbols that need better coverage.',
+    documentation: 'Inline doc comment coverage on exported symbols — description, params, and return values.',
+    'best-practices': 'File-level evaluation against language-specific best-practice rules. Starts at 10/10, penalties per violation.',
+  };
+  return intros[axis];
+}
+
+function verdictEmoji(verdict: string): string {
+  switch (verdict) {
+    // Critical / bad
+    case 'CRITICAL': case 'ERROR': case 'DEAD': case 'DUPLICATE': case 'OVER': case 'NONE': case 'UNDOCUMENTED': return '🔴';
+    // Warning / partial
+    case 'NEEDS_REFACTOR': case 'NEEDS_FIX': case 'LOW_VALUE': case 'WEAK': case 'PARTIAL': case 'ACCEPTABLE': return '🟡';
+    // Good
+    case 'CLEAN': case 'OK': case 'USED': case 'UNIQUE': case 'LEAN': case 'GOOD': case 'DOCUMENTED': return '🟢';
+    default: return '';
+  }
 }
 
 /** Model used by each axis. */
@@ -490,7 +555,7 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
   const lines: string[] = [];
   lines.push('---');
   lines.push('');
-  lines.push('## Methodology');
+  lines.push('## 📖 Methodology');
   lines.push('');
   lines.push(`**Model:** ${axisModel(axis)}`);
   lines.push('');
@@ -583,19 +648,25 @@ export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): 
   const lines: string[] = [];
   const name = axisDisplayName(report.axis);
 
+  const emoji = axisEmoji(report.axis);
+
   lines.push(`[← Back to report](../../public_report.md)`);
   lines.push('');
-  lines.push(`# ${name}`);
+  lines.push(`# ${emoji} ${name}`);
+  lines.push('');
+  lines.push(`> ${axisIntro(report.axis)}`);
   lines.push('');
 
   // Stats
-  lines.push(`- **Files with findings:** ${report.files.length}`);
-  lines.push(`- **Actions:** ${report.actions.length}`);
+  lines.push(`- 📁 **Files with findings:** ${report.files.length}`);
+  lines.push(`- 🎯 **Actions:** ${report.actions.length}`);
   lines.push('');
 
   // Shard links
   if (report.shards.length > 0) {
-    lines.push('## Shards');
+    lines.push('## 📦 Shards');
+    lines.push('');
+    lines.push('Findings are split into shards of up to 10 files each to keep pages readable and avoid GitHub rendering limits.');
     lines.push('');
     for (const shard of report.shards) {
       const composition: string[] = [];
@@ -627,7 +698,7 @@ function renderAxisVerdictDistribution(report: AxisReport): string[] {
   const reliable = report.files.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
   if (reliable.length === 0) return lines;
 
-  lines.push('## Verdict Distribution');
+  lines.push('## 📈 Verdict Distribution');
   lines.push('');
 
   switch (report.axis) {
@@ -753,13 +824,40 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   const lines: string[] = [];
   const name = axisDisplayName(axis);
 
+  const emoji = axisEmoji(axis);
+
   lines.push(`[← Back to ${name}](./index.md) · [← Back to report](../../public_report.md)`);
   lines.push('');
-  lines.push(`# ${name} — Shard ${shard.index}`);
+  lines.push(`# ${emoji} ${name} — Shard ${shard.index}`);
+  lines.push('');
+
+  // Build TOC based on which sections will be present
+  const tocEntries: string[] = ['- [📊 Findings](#-findings)'];
+
+  const hasSymbolDetails = axis !== 'best-practices' && shard.files.some((r) => hasAxisFinding(r, axis));
+  const hasBpDetails = axis === 'best-practices' && shard.files.some((r) => r.best_practices && r.best_practices.suggestions.length > 0);
+  if (hasSymbolDetails) tocEntries.push('- [🔍 Symbol Details](#-symbol-details)');
+  if (hasBpDetails) tocEntries.push('- [🔍 Details](#-details)');
+
+  const normalizedActions = shard.actions.map(normalizeAction);
+  const byCategory: Record<Category, Array<Action & { file: string }>> = { quickwin: [], refactor: [], hygiene: [] };
+  for (const a of normalizedActions) {
+    const cat = a.category ?? 'refactor';
+    byCategory[cat].push(a);
+  }
+  if (byCategory.quickwin.length > 0) tocEntries.push('- [⚡ Quick Wins](#-quick-wins)');
+  if (byCategory.refactor.length > 0) tocEntries.push('- [🔧 Refactors](#-refactors)');
+  if (byCategory.hygiene.length > 0) tocEntries.push('- [🧹 Hygiene](#-hygiene)');
+
+  if (axis === 'tests' && shard.files.some((r) => r.symbols.some((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE')))) {
+    tocEntries.push('- [🧪 Test Improvements](#-test-improvements)');
+  }
+
+  for (const entry of tocEntries) lines.push(entry);
   lines.push('');
 
   // Findings table — axis-specific columns
-  lines.push('## Findings');
+  lines.push('## 📊 Findings');
   lines.push('');
 
   if (axis === 'best-practices') {
@@ -767,10 +865,10 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
     lines.push('|------|---------|----------|---------|');
     for (const review of shard.files) {
       const bpScore = review.best_practices ? `${review.best_practices.score}/10` : '-';
-      const outputName = toOutputName(review.file);
-      const link = `[details](../reviews/${outputName}.rev.md)`;
+      const anchor = fileToAnchor(review.file);
+      const link = `[details](#${anchor})`;
       const fileVerdict = computeFileVerdict(review);
-      lines.push(`| \`${review.file}\` | ${fileVerdict} | ${bpScore} | ${link} |`);
+      lines.push(`| \`${review.file}\` | ${verdictEmoji(fileVerdict)} ${fileVerdict} | ${bpScore} | ${link} |`);
     }
   } else {
     const header = axisShardHeader(axis);
@@ -780,10 +878,10 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
       const reliable = review.symbols.filter((s) => s.confidence >= 30);
       const count = axisShardCount(axis, reliable);
       const maxConf = Math.max(...review.symbols.map((s) => s.confidence), 0);
-      const outputName = toOutputName(review.file);
-      const link = `[details](../reviews/${outputName}.rev.md)`;
+      const anchor = fileToAnchor(review.file);
+      const link = `[details](#${anchor})`;
       const fileVerdict = computeFileVerdict(review);
-      lines.push(`| \`${review.file}\` | ${fileVerdict} | ${count} | ${maxConf}% | ${link} |`);
+      lines.push(`| \`${review.file}\` | ${verdictEmoji(fileVerdict)} ${fileVerdict} | ${count} | ${maxConf}% | ${link} |`);
     }
   }
   lines.push('');
@@ -791,7 +889,7 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   // Symbol-level details
   const filesWithAxisFindings = shard.files.filter((r) => hasAxisFinding(r, axis));
   if (filesWithAxisFindings.length > 0 && axis !== 'best-practices') {
-    lines.push('## Symbol Details');
+    lines.push('## 🔍 Symbol Details');
     lines.push('');
     for (const review of filesWithAxisFindings) {
       const actionable = review.symbols.filter((s) => s.confidence >= 30 && hasAxisSymbolFinding(s, axis));
@@ -802,8 +900,8 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
       lines.push(`|--------|-------|${'-'.repeat(axisDisplayName(axis).length + 2)}|-------|--------|`);
       for (const s of actionable) {
         const value = axisSymbolValue(s, axis);
-        const detail = s.detail.length > 80 ? s.detail.slice(0, 77) + '...' : s.detail;
-        lines.push(`| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${value} | ${s.confidence}% | ${detail} |`);
+        const detail = axisDetail(s, axis);
+        lines.push(`| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${verdictEmoji(value)} ${value} | ${s.confidence}% | ${detail} |`);
       }
       lines.push('');
     }
@@ -813,7 +911,7 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   if (axis === 'best-practices') {
     const bpReviews = shard.files.filter((r) => r.best_practices && r.best_practices.suggestions.length > 0);
     if (bpReviews.length > 0) {
-      lines.push('## Details');
+      lines.push('## 🔍 Details');
       lines.push('');
       for (const review of bpReviews) {
         const bp = review.best_practices!;
@@ -842,34 +940,24 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
     }
   }
 
-  // Actions by category (scoped to this axis)
+  // Actions by category (scoped to this axis, byCategory computed above for TOC)
   if (shard.actions.length > 0) {
-    const byCategory: Record<Category, Array<Action & { file: string }>> = {
-      quickwin: [],
-      refactor: [],
-      hygiene: [],
-    };
-    for (const a of shard.actions) {
-      const cat = a.category ?? 'refactor';
-      byCategory[cat].push(a);
-    }
-
     if (byCategory.quickwin.length > 0) {
-      lines.push('## Quick Wins');
+      lines.push('## ⚡ Quick Wins');
       lines.push('');
       for (const a of byCategory.quickwin) renderAction(lines, a);
       lines.push('');
     }
 
     if (byCategory.refactor.length > 0) {
-      lines.push('## Refactors');
+      lines.push('## 🔧 Refactors');
       lines.push('');
       for (const a of byCategory.refactor) renderAction(lines, a);
       lines.push('');
     }
 
     if (byCategory.hygiene.length > 0) {
-      lines.push('## Hygiene');
+      lines.push('## 🧹 Hygiene');
       lines.push('');
       for (const a of byCategory.hygiene) renderAction(lines, a);
       lines.push('');
@@ -882,7 +970,7 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
       r.symbols.some((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE')),
     );
     if (testReviews.length > 0) {
-      lines.push('## Test Improvements');
+      lines.push('## 🧪 Test Improvements');
       lines.push('');
       for (const review of testReviews) {
         const testSymbols = review.symbols.filter((s) => s.confidence >= 30 && (s.tests === 'WEAK' || s.tests === 'NONE'));
@@ -980,6 +1068,39 @@ function axisSymbolValue(s: SymbolReview, axis: ReportAxisId): string {
     case 'tests': return s.tests;
     case 'documentation': return s.documentation;
     case 'best-practices': return '-';
+  }
+}
+
+/**
+ * Extract the detail segment for a specific axis from the pipe-delimited merged detail string.
+ * The format is `[VALUE] text | [VALUE] text | ...`. We find the segment whose [VALUE] tag
+ * matches the axis verdict for this symbol and strip the tag prefix.
+ */
+function axisDetail(s: SymbolReview, axis: ReportAxisId): string {
+  const value = axisSymbolValue(s, axis);
+  const segments = s.detail.split(' | ');
+  const tag = `[${value}] `;
+  const match = segments.find((seg) => seg.startsWith(tag));
+  if (match) return match.slice(tag.length);
+  // Fallback: try matching any segment that starts with a known verdict for this axis
+  const allValues = axisAllValues(axis);
+  for (const seg of segments) {
+    for (const v of allValues) {
+      if (seg.startsWith(`[${v}] `)) return seg.slice(v.length + 3);
+    }
+  }
+  return s.detail;
+}
+
+function axisAllValues(axis: ReportAxisId): string[] {
+  switch (axis) {
+    case 'correction': return ['OK', 'NEEDS_FIX', 'ERROR'];
+    case 'utility': return ['USED', 'DEAD', 'LOW_VALUE'];
+    case 'duplication': return ['UNIQUE', 'DUPLICATE'];
+    case 'overengineering': return ['LEAN', 'OVER', 'ACCEPTABLE'];
+    case 'tests': return ['GOOD', 'WEAK', 'NONE'];
+    case 'documentation': return ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'];
+    case 'best-practices': return [];
   }
 }
 
@@ -1620,53 +1741,6 @@ function renderPublicDocSection(raw: string): string[] {
 }
 
 /**
- * Extract the correction-relevant snippet from a combined multi-axis detail string.
- * Looks for `[ERROR] ...` or `[NEEDS_FIX] ...` segments.
- */
-function extractCorrectionDetail(detail: string, correction: string): string {
-  // Try to find the tagged section: [ERROR] ... or [NEEDS_FIX] ...
-  const tag = correction === 'ERROR' ? 'ERROR' : 'NEEDS_FIX';
-  const singleLineDetail = detail.replace(/\n/g, ' ');
-  const regex = new RegExp(`\\[${tag}\\]\\s*(.+?)(?:\\s*\\||$)`);
-  const match = singleLineDetail.match(regex);
-  if (match) return match[1].trim();
-
-  // Fallback: take first sentence, stripping leading axis tags
-  return detail.replace(/^\[.*?\]\s*/g, '').split(/\.\s/)[0].trim();
-}
-
-/**
- * Extract the top critical/high findings for the "Critical Findings" section.
- * Returns a sorted list of { file, symbol, detail } tuples.
- */
-function extractTopFindings(data: ReportData, limit: number): Array<{ file: string; symbol: string; severity: 'high' | 'medium'; detail: string; correction: string }> {
-  const findings: Array<{ file: string; symbol: string; severity: 'high' | 'medium'; detail: string; correction: string }> = [];
-
-  for (const review of data.reviews) {
-    for (const s of review.symbols.filter((sym) => sym.confidence >= 30)) {
-      if (s.correction === 'ERROR') {
-        const snippet = extractCorrectionDetail(s.detail, 'ERROR');
-        findings.push({ file: review.file, symbol: s.name, severity: 'high', detail: snippet, correction: 'ERROR' });
-      } else if (s.correction === 'NEEDS_FIX' && s.confidence >= 60) {
-        const snippet = extractCorrectionDetail(s.detail, 'NEEDS_FIX');
-        findings.push({ file: review.file, symbol: s.name, severity: s.confidence >= 80 ? 'high' : 'medium', detail: snippet, correction: 'NEEDS_FIX' });
-      }
-    }
-  }
-
-  // Sort: ERROR first, then high-confidence NEEDS_FIX
-  findings.sort((a, b) => {
-    if (a.correction === 'ERROR' && b.correction !== 'ERROR') return -1;
-    if (b.correction === 'ERROR' && a.correction !== 'ERROR') return 1;
-    if (a.severity === 'high' && b.severity !== 'high') return -1;
-    if (b.severity === 'high' && a.severity !== 'high') return 1;
-    return 0;
-  });
-
-  return findings.slice(0, limit);
-}
-
-/**
  * Render the public-facing report (public_report.md).
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
@@ -1744,22 +1818,71 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   }
   lines.push('');
 
-  // ── 3. CRITICAL FINDINGS ───────────────────────────────────────────────
-  const totalCorr = data.counts.correction.high + data.counts.correction.medium + data.counts.correction.low;
-  const topFindings = extractTopFindings(data, 10);
-  if (topFindings.length > 0) {
-    lines.push('## Critical Findings');
+  // ── 3. TOP FINDINGS PER AXIS ────────────────────────────────────────────
+  lines.push('## Top Findings');
+  lines.push('');
+
+  for (const axis of REPORT_AXIS_IDS) {
+    const emoji = axisEmoji(axis);
+    const name = axisDisplayName(axis);
+    const report = axisReports.find((r) => r.axis === axis);
+
+    if (!report || report.files.length === 0) {
+      lines.push(`### ${emoji} ${name}`);
+      lines.push('');
+      lines.push(`✨ **CLEAN** — No issues found!`);
+      lines.push('');
+      continue;
+    }
+
+    // Collect findings with severity for this axis
+    const axisFindings: Array<{ file: string; symbol: string; value: string; detail: string; confidence: number; severity: 'high' | 'medium' | 'low' }> = [];
+    for (const review of report.files) {
+      for (const s of review.symbols.filter((sym) => sym.confidence >= 30 && hasAxisSymbolFinding(sym, axis))) {
+        const value = axisSymbolValue(s, axis);
+        const detail = axisDetail(s, axis);
+        const sev = s.confidence >= 80 ? 'high' as const : s.confidence >= 50 ? 'medium' as const : 'low' as const;
+        axisFindings.push({ file: review.file, symbol: s.name, value, detail, confidence: s.confidence, severity: sev });
+      }
+    }
+
+    // Determine which tier to show: high > medium > skip low
+    const high = axisFindings.filter((f) => f.severity === 'high');
+    const medium = axisFindings.filter((f) => f.severity === 'medium');
+    const shown = high.length > 0 ? high : medium.length > 0 ? medium : [];
+
+    const total = axisFindings.length;
+
+    lines.push(`### ${emoji} ${name}`);
     lines.push('');
-    for (const f of topFindings) {
-      const icon = f.correction === 'ERROR' ? '🔴' : '🟡';
-      const oneLiner = f.detail.length > 120 ? f.detail.slice(0, 117) + '...' : f.detail;
-      lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
+
+    if (shown.length === 0) {
+      lines.push(`✨ **CLEAN** — Only low-confidence findings. [View details →](${axisLink(axis)})`);
+      lines.push('');
+      continue;
+    }
+
+    // Sort: critical verdicts first (🔴 before 🟡), then by confidence descending
+    const verdictWeight = (value: string): number => {
+      const e = verdictEmoji(value);
+      if (e === '🔴') return 0;
+      if (e === '🟡') return 1;
+      return 2;
+    };
+    shown.sort((a, b) => verdictWeight(a.value) - verdictWeight(b.value) || b.confidence - a.confidence);
+    const top = shown.slice(0, 5);
+
+    if (total > top.length) {
+      lines.push(`> Showing top ${top.length} of ${total} findings. [View all →](${axisLink(axis)})`);
+    } else {
+      lines.push(`> ${total} findings. [View all →](${axisLink(axis)})`);
     }
     lines.push('');
-    if (totalCorr > topFindings.length) {
-      lines.push(`> Showing top ${topFindings.length} of ${totalCorr} correction findings. See [axes/correction/](${axisLink('correction')}) for the full list.`);
-    } else {
-      lines.push(`> Browse all findings by axis in the [Axes](#axes) section above.`);
+
+    for (const f of top) {
+      const icon = verdictEmoji(f.value);
+      const oneLiner = f.detail.length > 120 ? f.detail.slice(0, 117) + '...' : f.detail;
+      lines.push(`- ${icon} **${f.file}** \`${f.symbol}\` — ${oneLiner}`);
     }
     lines.push('');
   }
@@ -1957,7 +2080,7 @@ export function renderShard(shard: ShardInfo): string {
       refactor: [],
       hygiene: [],
     };
-    for (const a of shard.actions) {
+    for (const a of shard.actions.map(normalizeAction)) {
       const cat = a.category ?? 'refactor';
       byCategory[cat].push(a);
     }

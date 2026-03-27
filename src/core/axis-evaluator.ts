@@ -19,6 +19,30 @@ import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import { AnthropicTransport } from './transports/anthropic-transport.js';
 import { GeminiTransport } from './transports/gemini-transport.js';
+import { GeminiGenaiTransport } from './transports/gemini-genai-transport.js';
+
+/** Module-level cache for Gemini transport instances, keyed by projectRoot.
+ *  Avoids creating a new Config (and its `model-changed` listener) per call. */
+const geminiTransportCache = new Map<string, LlmTransport>();
+
+/** Gemini transport type, set once at startup via {@link setGeminiTransportType}. */
+let _geminiTransportType: 'cli-core' | 'genai' = 'cli-core';
+
+/** Configure which Gemini transport backend to use. Call once at startup. */
+export function setGeminiTransportType(type: 'cli-core' | 'genai'): void {
+  _geminiTransportType = type;
+  geminiTransportCache.clear();
+}
+
+function getOrCreateGeminiTransport(projectRoot: string, model: string): LlmTransport {
+  const existing = geminiTransportCache.get(projectRoot);
+  if (existing) return existing;
+  const transport = _geminiTransportType === 'genai'
+    ? new GeminiGenaiTransport()
+    : new GeminiTransport(projectRoot, model);
+  geminiTransportCache.set(projectRoot, transport);
+  return transport;
+}
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -262,7 +286,13 @@ export function resolveSemaphore(
   claudeSemaphore: Semaphore | undefined,
   geminiSemaphore: Semaphore | undefined,
 ): Semaphore | undefined {
-  if (model.startsWith('gemini-') && geminiSemaphore) return geminiSemaphore;
+  if (model.startsWith('gemini-')) {
+    if (geminiSemaphore) return geminiSemaphore;
+    contextLogger().warn(
+      { event: 'gemini_semaphore_missing', model },
+      'Gemini model requested but no geminiSemaphore configured — falling back to Claude semaphore',
+    );
+  }
   return claudeSemaphore;
 }
 
@@ -325,7 +355,7 @@ export async function runSingleTurnQuery<T>(
   // Resolve transport based on effective model (after circuit breaker may redirect)
   const effectiveTransport = transport ?? (
     effectiveModel.startsWith('gemini-')
-      ? new GeminiTransport(projectRoot, effectiveModel)
+      ? getOrCreateGeminiTransport(projectRoot, effectiveModel)
       : new AnthropicTransport()
   );
 
@@ -343,8 +373,8 @@ export async function runSingleTurnQuery<T>(
 
     return result;
   } catch (err) {
-    // Record failure for Gemini calls (based on original model, not fallback)
-    if (isGeminiModel && effectiveModel.startsWith('gemini-') && circuitBreaker) {
+    // Record failure for Gemini calls (based on original model, not effective model after redirect)
+    if (isGeminiModel && circuitBreaker) {
       circuitBreaker.recordFailure();
       if (circuitBreaker.consumeWarning()) {
         contextLogger().warn(
@@ -434,7 +464,7 @@ async function _runSingleTurnQueryInner<T>(
 
   const feedback = `Your JSON output failed validation:\n  ${v1.error}\n\nFix these issues and output ONLY the corrected JSON object. No markdown fences, no explanation.`;
   const retry = await transport.query({
-    systemPrompt: '',
+    systemPrompt,
     userMessage: feedback,
     model,
     projectRoot,

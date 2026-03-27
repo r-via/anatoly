@@ -173,7 +173,8 @@ export class DuplicationEvaluator implements AxisEvaluator {
     const systemPrompt = buildDuplicationSystemPrompt();
     let userMessage = buildDuplicationUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'duplication');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'duplication', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

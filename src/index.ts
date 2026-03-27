@@ -2,6 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+import 'dotenv/config';
 import chalk from 'chalk';
 import { createProgram } from './cli.js';
 

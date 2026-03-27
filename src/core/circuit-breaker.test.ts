@@ -186,7 +186,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('resolveModel returns model as-is when closed', () => {
     const cb = new GeminiCircuitBreaker();
-    expect(cb.resolveModel('gemini-3-flash-preview', 'claude-sonnet-4-20250514')).toBe('gemini-3-flash-preview');
+    expect(cb.resolveModel('gemini-2.5-flash', 'claude-sonnet-4-20250514')).toBe('gemini-2.5-flash');
   });
 
   it('resolveModel returns fallback when open and model is gemini', () => {
@@ -194,7 +194,7 @@ describe('GeminiCircuitBreaker', () => {
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
-    expect(cb.resolveModel('gemini-3-flash-preview', 'claude-sonnet-4-20250514')).toBe('claude-sonnet-4-20250514');
+    expect(cb.resolveModel('gemini-2.5-flash', 'claude-sonnet-4-20250514')).toBe('claude-sonnet-4-20250514');
   });
 
   it('resolveModel returns model as-is for non-gemini models even when open', () => {

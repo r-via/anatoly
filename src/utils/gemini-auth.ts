@@ -20,6 +20,14 @@ export async function checkGeminiAuth(
   projectRoot: string,
   model: string,
 ): Promise<boolean> {
+  // Suppress gemini-cli-core's noisy console output (experiments, debug, routing)
+  const origLog = console.log;
+  const origDebug = console.debug;
+  const origWarn = console.warn;
+  console.log = () => {};
+  console.debug = () => {};
+  console.warn = () => {};
+
   try {
     const config = new Config({
       sessionId: createSessionId(),
@@ -39,5 +47,9 @@ export async function checkGeminiAuth(
     return true;
   } catch {
     return false;
+  } finally {
+    console.log = origLog;
+    console.debug = origDebug;
+    console.warn = origWarn;
   }
 }

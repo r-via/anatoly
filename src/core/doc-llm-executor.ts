@@ -708,7 +708,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
             allowedTools,
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
-            maxTurns: 60,
+            maxTurns: 200,
             abortController: ac,
           },
         });

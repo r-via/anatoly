@@ -1,0 +1,88 @@
+# Anatoly configuration
+# All values shown are defaults unless noted.
+
+# project:
+#   monorepo: false
+# scan:
+#   include:
+#     - src/**/*.ts
+#     - src/**/*.tsx
+#   exclude:
+#     - node_modules/**
+#     - dist/**
+#     - '**/*.test.ts'
+#     - '**/*.spec.ts'
+#   auto_detect: true
+# coverage:
+#   enabled: true
+#   command: npx vitest run --coverage.reporter=json
+#   report_path: coverage/coverage-final.json
+
+llm:
+  # Primary model — used for quality-critical axes (correction, tests, best_practices, documentation)
+  model: claude-sonnet-4-6
+  # Fast model — used for lightweight axes (utility scanning, duplication) when no per-axis override
+  index_model: claude-haiku-4-5-20251001
+  agentic_tools: true
+  timeout_per_file: 600
+  max_retries: 3
+  concurrency: 8
+  sdk_concurrency: 24                   # Max concurrent Claude SDK calls
+  min_confidence: 70
+  max_stop_iterations: 3
+  deliberation: true
+  deliberation_model: claude-opus-4-6   # Always Claude — non-negotiable
+
+  # Per-axis configuration
+  # Each axis can override the model. Use a gemini-* model name to route via Gemini.
+  # Provider is auto-detected from the model prefix:
+  #   gemini-*  → Gemini transport (Google OAuth, $0/token)
+  #   *         → Anthropic transport (Claude SDK)
+  axes:
+    utility:
+      enabled: true
+      model: gemini-2.5-flash-lite     # Mechanical axis — 100% accuracy on spike
+    duplication:
+      enabled: true
+      model: gemini-2.5-flash-lite     # RAG pre-resolved, mechanical comparison
+    correction:
+      enabled: true
+      # model: claude-sonnet-4-6        # Default — ERRORs at 95%, no Gemini
+    overengineering:
+      enabled: true
+      model: gemini-2.5-flash-lite     # Deliberation Opus catches edge cases
+    tests:
+      enabled: true
+      # model: claude-sonnet-4-6        # Default — qualitative, Pro too slow
+    best_practices:
+      enabled: true
+      # model: claude-sonnet-4-6        # Default — 17 framework-aware rules
+    documentation:
+      enabled: true
+      # model: claude-sonnet-4-6        # Default — structural judgment
+
+  # Gemini provider
+  # type: genai  → @google/genai SDK, auth via GEMINI_API_KEY in .env
+  # type: cli-core → Google OAuth via gemini-cli-core (Gemini Code Assist)
+  gemini:
+    enabled: true
+    type: genai
+    flash_model: gemini-2.5-flash-lite
+    nlp_model: gemini-2.5-flash-lite
+    sdk_concurrency: 24
+
+# rag:
+#   enabled: true
+#   code_model: auto
+#   nlp_model: auto
+#   code_weight: 0.6
+# logging:
+#   level: warn
+#   pretty: true
+# output: {}
+# badge:
+#   enabled: true
+#   verdict: false
+#   link: https://github.com/r-via/anatoly
+# documentation:
+#   docs_path: docs

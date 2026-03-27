@@ -48,7 +48,7 @@ describe('LlmTransport interface', () => {
   it('supports() returns boolean', () => {
     const transport = createStubTransport('anthropic', (m) => !m.startsWith('gemini-'));
     expect(transport.supports('claude-sonnet-4-20250514')).toBe(true);
-    expect(transport.supports('gemini-3-flash-preview')).toBe(false);
+    expect(transport.supports('gemini-2.5-flash')).toBe(false);
   });
 
   it('query() returns LlmResponse with all required fields', async () => {
@@ -131,7 +131,7 @@ describe('TransportRouter', () => {
     const router = new TransportRouter([anthropic, gemini]);
 
     expect(router.resolve('claude-sonnet-4-20250514')).toBe(anthropic);
-    expect(router.resolve('gemini-3-flash-preview')).toBe(gemini);
+    expect(router.resolve('gemini-2.5-flash')).toBe(gemini);
   });
 
   it('resolve() returns first match when multiple transports support the model', () => {
@@ -146,8 +146,8 @@ describe('TransportRouter', () => {
     const anthropic = createStubTransport('anthropic', (m) => m.startsWith('claude-'));
     const router = new TransportRouter([anthropic]);
 
-    expect(() => router.resolve('gemini-3-flash-preview')).toThrow(
-      /no transport supports model.*gemini-3-flash-preview/i,
+    expect(() => router.resolve('gemini-2.5-flash')).toThrow(
+      /no transport supports model.*gemini-2.5-flash/i,
     );
   });
 

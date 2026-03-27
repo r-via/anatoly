@@ -13,6 +13,37 @@ import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { contextLogger } from '../../utils/log-context.js';
 
 /**
+ * Reference-counted console suppression for gemini-cli-core noise.
+ * Safe for concurrent use — only actually suppresses/restores when
+ * the count transitions 0→1 or 1→0.
+ */
+let _suppressCount = 0;
+let _origLog: typeof console.log;
+let _origDebug: typeof console.debug;
+let _origWarn: typeof console.warn;
+
+function suppressConsole(): void {
+  if (_suppressCount === 0) {
+    _origLog = console.log;
+    _origDebug = console.debug;
+    _origWarn = console.warn;
+    console.log = () => {};
+    console.debug = () => {};
+    console.warn = () => {};
+  }
+  _suppressCount++;
+}
+
+function restoreConsole(): void {
+  _suppressCount--;
+  if (_suppressCount === 0) {
+    console.log = _origLog;
+    console.debug = _origDebug;
+    console.warn = _origWarn;
+  }
+}
+
+/**
  * LlmTransport implementation for Google Gemini models.
  * Wraps `@google/gemini-cli-core` to provide streaming Gemini calls
  * through the common LlmTransport interface.
@@ -39,22 +70,27 @@ export class GeminiTransport implements LlmTransport {
   private async ensureInitialized(): Promise<void> {
     if (this.client) return;
 
-    this.config = new Config({
-      sessionId: createSessionId(),
-      targetDir: this.projectRoot,
-      cwd: this.projectRoot,
-      debugMode: false,
-      model: this.model,
-      userMemory: '',
-      enableHooks: false,
-      mcpEnabled: false,
-      extensionsEnabled: false,
-    });
+    suppressConsole();
+    try {
+      this.config = new Config({
+        sessionId: createSessionId(),
+        targetDir: this.projectRoot,
+        cwd: this.projectRoot,
+        debugMode: false,
+        model: this.model,
+        userMemory: '',
+        enableHooks: false,
+        mcpEnabled: false,
+        extensionsEnabled: false,
+      });
 
-    const authType = getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE;
-    await this.config.refreshAuth(authType);
-    await this.config.initialize();
-    this.client = this.config.geminiClient;
+      const authType = getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE;
+      await this.config.refreshAuth(authType);
+      await this.config.initialize();
+      this.client = this.config.geminiClient;
+    } finally {
+      restoreConsole();
+    }
   }
 
   async query(params: LlmRequest): Promise<LlmResponse> {
@@ -63,6 +99,45 @@ export class GeminiTransport implements LlmTransport {
     const start = Date.now();
     const transcriptLines: string[] = [];
 
+    suppressConsole();
+    try {
+      return await this._doQuery(client, params, start, transcriptLines);
+    } catch (err) {
+      // Emit structured llm_call event for failure
+      contextLogger().info(
+        {
+          event: 'llm_call',
+          provider: 'gemini',
+          model: params.model,
+          attempt: params.attempt,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          cacheHitRate: 0,
+          costUsd: 0,
+          durationMs: Date.now() - start,
+          success: false,
+          ...(params.retryReason ? { retryReason: params.retryReason } : {}),
+          error: {
+            code: 'GEMINI_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        'LLM call failed',
+      );
+      throw err;
+    } finally {
+      restoreConsole();
+    }
+  }
+
+  private async _doQuery(
+    client: GeminiClient,
+    params: LlmRequest,
+    start: number,
+    transcriptLines: string[],
+  ): Promise<LlmResponse> {
     // History isolation — reset before each call
     await client.resetChat();
 
@@ -83,58 +158,31 @@ export class GeminiTransport implements LlmTransport {
     let inputTokens = 0;
     let outputTokens = 0;
 
-    try {
-      const stream = client.sendMessageStream(
-        [{ text: params.userMessage }],
-        params.abortController.signal,
-        createSessionId(),
-      );
+    const stream = client.sendMessageStream(
+      [{ text: params.userMessage }],
+      params.abortController.signal,
+      createSessionId(),
+    );
 
-      for await (const event of stream) {
-        switch (event.type) {
-          case 'content':
-            text += event.value;
-            break;
-          case 'finished': {
-            const finished = event.value as {
-              usageMetadata?: {
-                promptTokenCount?: number;
-                candidatesTokenCount?: number;
-              };
+    for await (const event of stream) {
+      switch (event.type) {
+        case 'content':
+          text += event.value;
+          break;
+        case 'finished': {
+          const finished = event.value as {
+            usageMetadata?: {
+              promptTokenCount?: number;
+              candidatesTokenCount?: number;
             };
-            if (finished.usageMetadata) {
-              inputTokens = finished.usageMetadata.promptTokenCount ?? 0;
-              outputTokens = finished.usageMetadata.candidatesTokenCount ?? 0;
-            }
-            break;
+          };
+          if (finished.usageMetadata) {
+            inputTokens = finished.usageMetadata.promptTokenCount ?? 0;
+            outputTokens = finished.usageMetadata.candidatesTokenCount ?? 0;
           }
+          break;
         }
       }
-    } catch (err) {
-      // Emit structured llm_call event for failure
-      contextLogger().info(
-        {
-          event: 'llm_call',
-          provider: 'gemini',
-          model: params.model,
-          attempt: params.attempt,
-          inputTokens,
-          outputTokens,
-          cacheReadTokens: 0,
-          cacheCreationTokens: 0,
-          cacheHitRate: 0,
-          costUsd: 0,
-          durationMs: Date.now() - start,
-          success: false,
-          ...(params.retryReason ? { retryReason: params.retryReason } : {}),
-          error: {
-            code: 'GEMINI_ERROR',
-            message: err instanceof Error ? err.message : String(err),
-          },
-        },
-        'LLM call failed',
-      );
-      throw err;
     }
 
     const durationMs = Date.now() - start;

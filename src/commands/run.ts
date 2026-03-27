@@ -50,7 +50,7 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveNlpModel, buildProviderStats, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveNlpModel, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -261,9 +261,15 @@ export function registerRunCommand(program: Command): void {
 
       // Gemini auth check — graceful fallback to Claude if auth fails
       if (config.llm.gemini.enabled) {
-        const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
-        if (!authOk) {
-          console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
+        setGeminiTransportType(config.llm.gemini.type);
+        if (config.llm.gemini.type === 'cli-core') {
+          const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
+          if (!authOk) {
+            console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
+            config.llm.gemini.enabled = false;
+          }
+        } else if (!process.env.GEMINI_API_KEY) {
+          console.log(chalk.yellow('⚠ Gemini type: genai mais GEMINI_API_KEY absent. Fallback Claude.'));
           config.llm.gemini.enabled = false;
         }
       }
@@ -392,8 +398,8 @@ export function registerRunCommand(program: Command): void {
           pipelineState.addTask('bootstrap-doc', 'First run');
         }
         if (ctx.enableRag) {
-          pipelineState.addTask('rag-code', 'Indexing & embedding code');
-          pipelineState.addTask('rag-nlp', 'Summaries & embedding code');
+          pipelineState.addTask('rag-code', 'Embedding code');
+          pipelineState.addTask('rag-nlp', 'LLM summaries & embedding');
           pipelineState.addTask('rag-doc-project', 'Chunking & embedding project docs');
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
@@ -1255,14 +1261,14 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const state = ctx.pipelineState!;
   const codeModel = shortModelName(ctx.resolvedModels.codeModel);
   const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
-  state.relabelTask('rag-code', `Indexing & embedding code (${codeModel})`);
-  state.relabelTask('rag-nlp', `Summaries & embedding code (${nlpModel})`);
+  const indexModel = resolveNlpModel(ctx.config);
+  const llmModel = shortModelName(indexModel);
+  state.relabelTask('rag-code', `Embedding code (${codeModel})`);
+  state.relabelTask('rag-nlp', `LLM summaries (${llmModel}) & embedding (${nlpModel})`);
   state.relabelTask('rag-doc-project', `Chunking & embedding project docs (${nlpModel})`);
   state.relabelTask('rag-doc-internal', `Chunking & embedding internal docs (${nlpModel})`);
 
   let ragResult: RagIndexResult | undefined;
-
-  const indexModel = resolveNlpModel(ctx.config);
   const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
   mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
   const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });

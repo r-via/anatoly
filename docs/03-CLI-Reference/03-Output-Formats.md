@@ -207,6 +207,10 @@ The `.rev.md` file is a human-readable Markdown rendering of the same data as `.
 
 ## Sharded Report Structure
 
+### Why shards?
+
+Anatoly reviews every file in your codebase individually. On a project with hundreds of files, dumping all findings into a single Markdown file would produce a document too large to read comfortably — and too large for GitHub to render without truncation. Sharding solves this by splitting the detailed findings into smaller, self-contained chunks (called **shards**), each covering at most 10 files. A central index (`report.md`) links them together so you can navigate directly to the files you care about.
+
 The `report` command (and the report phase of `run`) produces a sharded Markdown report designed to stay compact even for large codebases.
 
 ### Index (report.md)

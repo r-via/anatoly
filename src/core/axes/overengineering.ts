@@ -114,7 +114,8 @@ export class OverengineeringEvaluator implements AxisEvaluator {
     const systemPrompt = buildOverengineeringSystemPrompt();
     let userMessage = buildOverengineeringUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'overengineering');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'overengineering', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

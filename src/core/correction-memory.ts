@@ -282,18 +282,25 @@ export function recordReclassification(
 
 /**
  * Format reclassifications for a specific axis as a prompt section.
+ * When `symbolNames` is provided, only reclassifications for those symbols
+ * are included — this avoids injecting irrelevant false positives from other
+ * files into the prompt (which wastes tokens).
  * Returns empty string if no relevant reclassifications exist.
  */
 export function formatReclassificationsForAxis(
   projectRoot: string,
   axisId: string,
+  symbolNames?: Set<string>,
 ): string {
   const memory = loadDeliberationMemory(projectRoot);
   if (memory.false_positives.length === 0) return '';
 
   // Find entries that have at least one reclassification matching this axis
+  // AND (if scoped) whose symbol is in the current file
   const relevant = memory.false_positives.filter(
-    (fp) => fp.reclassifications.some((r) => r.axis === axisId),
+    (fp) =>
+      fp.reclassifications.some((r) => r.axis === axisId) &&
+      (!symbolNames || symbolNames.has(fp.symbol)),
   );
   if (relevant.length === 0) return '';
 

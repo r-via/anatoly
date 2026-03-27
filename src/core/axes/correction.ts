@@ -289,7 +289,8 @@ export class CorrectionEvaluator implements AxisEvaluator {
     let userMessage = buildCorrectionUserMessage(ctx);
 
     // Inject known false positives from memory into the prompt
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'correction');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'correction', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }
@@ -369,21 +370,26 @@ export class CorrectionEvaluator implements AxisEvaluator {
       detail: s.detail,
     }));
 
-    const severityMap: Record<string, 'high' | 'medium' | 'low'> = {
-      CRITICAL: 'high',
-      MAJOR: 'medium',
-      MINOR: 'low',
+    const severityMapping: Record<string, { severity: 'high' | 'medium' | 'low'; effort: 'large' | 'small' | 'trivial'; category: 'refactor' | 'quickwin' | 'hygiene' }> = {
+      CRITICAL: { severity: 'high', effort: 'large', category: 'refactor' },
+      MAJOR: { severity: 'medium', effort: 'small', category: 'quickwin' },
+      MINOR: { severity: 'low', effort: 'trivial', category: 'hygiene' },
     };
 
-    const actions: Action[] = finalData.actions.map((a, i) => ({
-      id: i + 1,
-      description: a.description,
-      severity: severityMap[a.severity] ?? 'medium',
-      effort: 'small' as const,
-      category: 'quickwin' as const,
-      target_symbol: null,
-      target_lines: a.line ? `L${a.line}` : null,
-    }));
+    const defaultMapping = severityMapping.MAJOR;
+
+    const actions: Action[] = finalData.actions.map((a, i) => {
+      const mapping = severityMapping[a.severity] ?? defaultMapping;
+      return {
+        id: i + 1,
+        description: a.description,
+        severity: mapping.severity,
+        effort: mapping.effort,
+        category: mapping.category,
+        target_symbol: null,
+        target_lines: a.line ? `L${a.line}` : null,
+      };
+    });
 
     return {
       axisId: 'correction',

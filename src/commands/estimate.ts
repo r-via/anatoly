@@ -94,8 +94,11 @@ export function registerEstimateCommand(program: Command): void {
           modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
           modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
         }
-        modelsRight.push({ key: 'chunking', value: shortModelName(config.llm.index_model) });
-        modelsRight.push({ key: 'summarization', value: shortModelName(config.llm.index_model) });
+        modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
+        const nlpSumModel = config.llm.gemini.enabled
+          ? shortModelName(config.llm.gemini.nlp_model)
+          : shortModelName(config.llm.index_model);
+        modelsRight.push({ key: 'summarization', value: nlpSumModel });
       }
 
       // --- Pipeline rows ---

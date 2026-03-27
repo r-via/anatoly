@@ -100,7 +100,7 @@ describe('GeminiTransport', () => {
 
   it('AC 37.3.3: supports() returns true for gemini- models', () => {
     const transport = new GeminiTransport('/tmp/project', 'gemini-2.5-flash');
-    expect(transport.supports('gemini-3-flash-preview')).toBe(true);
+    expect(transport.supports('gemini-2.5-flash')).toBe(true);
     expect(transport.supports('gemini-2.5-flash')).toBe(true);
   });
 

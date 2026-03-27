@@ -89,10 +89,10 @@ describe('resolveAxisModel', () => {
 
   it('AC 38.1.1: returns gemini flash_model when defaultGeminiMode is flash and gemini enabled', () => {
     const config = makeConfig({
-      llm: { gemini: { enabled: true, flash_model: 'gemini-3-flash-preview' } },
+      llm: { gemini: { enabled: true, flash_model: 'gemini-2.5-flash' } },
     });
     const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
-    expect(resolveAxisModel(evaluator, config)).toBe('gemini-3-flash-preview');
+    expect(resolveAxisModel(evaluator, config)).toBe('gemini-2.5-flash');
   });
 
   it('AC 38.1.2: returns Claude model when defaultGeminiMode is undefined (correction)', () => {
@@ -106,7 +106,7 @@ describe('resolveAxisModel', () => {
   it('AC 38.1.3: explicit per-axis override takes precedence over Gemini routing', () => {
     const config = makeConfig({
       llm: {
-        gemini: { enabled: true, flash_model: 'gemini-3-flash-preview' },
+        gemini: { enabled: true, flash_model: 'gemini-2.5-flash' },
         axes: { utility: { model: 'my-custom-model' } },
       },
     });
@@ -308,12 +308,12 @@ describe('resolveSemaphore', () => {
   it('returns Gemini semaphore for gemini- prefixed models', () => {
     const claude = new Semaphore(24);
     const gemini = new Semaphore(12);
-    expect(resolveSemaphore('gemini-3-flash-preview', claude, gemini)).toBe(gemini);
+    expect(resolveSemaphore('gemini-2.5-flash', claude, gemini)).toBe(gemini);
   });
 
   it('returns Claude semaphore when Gemini semaphore is undefined', () => {
     const claude = new Semaphore(24);
-    expect(resolveSemaphore('gemini-3-flash-preview', claude, undefined)).toBe(claude);
+    expect(resolveSemaphore('gemini-2.5-flash', claude, undefined)).toBe(claude);
   });
 
   it('returns undefined when both are undefined', () => {

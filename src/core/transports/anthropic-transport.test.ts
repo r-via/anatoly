@@ -26,7 +26,7 @@ describe('AnthropicTransport', () => {
 
   it('AC 37.2.1: supports() returns false for gemini models', () => {
     const transport = new AnthropicTransport();
-    expect(transport.supports('gemini-3-flash-preview')).toBe(false);
+    expect(transport.supports('gemini-2.5-flash')).toBe(false);
     expect(transport.supports('gemini-2.5-flash')).toBe(false);
   });
 

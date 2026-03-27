@@ -93,6 +93,62 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-resolution (skip LLM for trivially resolvable symbols)
+// ---------------------------------------------------------------------------
+
+type AutoVerdict = { value: 'USED' | 'DEAD'; confidence: number; detail: string } | null;
+
+/**
+ * Attempt to resolve a symbol's utility verdict purely from the usage graph,
+ * without calling the LLM.
+ *
+ * Returns a verdict for symbols that are unambiguously USED (runtime/type/transitive
+ * importers) or DEAD (exported with 0 importers of any kind). Returns null for
+ * non-exported symbols that require local code analysis.
+ */
+function autoResolveSymbol(
+  sym: { name: string; exported: boolean },
+  ctx: AxisContext,
+): AutoVerdict {
+  if (!ctx.usageGraph || !sym.exported) return null;
+
+  const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+  const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+
+  if (importers.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`,
+    };
+  }
+
+  if (typeImporters.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')}`,
+    };
+  }
+
+  const transitiveRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
+  if (transitiveRefs.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Transitively used by ${transitiveRefs.join(', ')}`,
+    };
+  }
+
+  // Exported with 0 importers of any kind → DEAD
+  return {
+    value: 'DEAD',
+    confidence: 95,
+    detail: 'Exported but imported by 0 files',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Evaluator class
 // ---------------------------------------------------------------------------
 
@@ -102,11 +158,49 @@ export class UtilityEvaluator implements AxisEvaluator {
   readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
+    // --- Phase 1: auto-resolve trivially deterministic symbols ---
+    const autoResults: AxisSymbolResult[] = [];
+    let needsLlm = false;
+
+    for (const sym of ctx.task.symbols) {
+      const auto = autoResolveSymbol(sym, ctx);
+      if (auto) {
+        autoResults.push({
+          name: sym.name,
+          line_start: sym.line_start,
+          line_end: sym.line_end,
+          value: auto.value,
+          confidence: auto.confidence,
+          detail: auto.detail,
+        });
+      } else {
+        needsLlm = true;
+      }
+    }
+
+    // All symbols auto-resolved → skip LLM entirely
+    if (!needsLlm) {
+      return {
+        axisId: 'utility',
+        symbols: autoResults,
+        actions: [],
+        costUsd: 0,
+        durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        transcript: '',
+      };
+    }
+
+    // --- Phase 2: at least one symbol needs LLM — send the full file ---
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildUtilitySystemPrompt();
     let userMessage = buildUtilityUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'utility');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'utility', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }
@@ -128,7 +222,7 @@ export class UtilityEvaluator implements AxisEvaluator {
       UtilityResponseSchema,
     );
 
-    const symbols: AxisSymbolResult[] = data.symbols.map((s) => ({
+    const llmSymbols: AxisSymbolResult[] = data.symbols.map((s) => ({
       name: s.name,
       line_start: s.line_start,
       line_end: s.line_end,
@@ -137,9 +231,15 @@ export class UtilityEvaluator implements AxisEvaluator {
       detail: s.detail,
     }));
 
+    // Merge: LLM results take precedence, auto-results fill in the rest
+    const llmByName = new Map(llmSymbols.map(s => [s.name, s]));
+    const merged: AxisSymbolResult[] = ctx.task.symbols.map(sym => {
+      return llmByName.get(sym.name) ?? autoResults.find(a => a.name === sym.name)!;
+    });
+
     return {
       axisId: 'utility',
-      symbols,
+      symbols: merged,
       actions: [],
       costUsd,
       durationMs,

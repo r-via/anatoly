@@ -264,8 +264,8 @@ export function registerDocsCommand(program: Command): void {
         tasks: [
           { id: 'scaffold', label: 'Internal doc — Scaffold (Sonnet)' },
           { id: 'coherence-1', label: 'Internal doc — Lint + coherence (Sonnet)' },
-          { id: 'rag-code', label: 'RAG — Indexing & embedding code' },
-          { id: 'rag-nlp', label: 'RAG — Summaries & embedding code' },
+          { id: 'rag-code', label: 'RAG — Embedding code' },
+          { id: 'rag-nlp', label: 'RAG — LLM summaries & embedding' },
           { id: 'rag-doc-project', label: 'RAG — Chunking & embedding project docs' },
           { id: 'rag-doc-internal', label: 'RAG — Chunking & embedding internal docs' },
           { id: 'update', label: 'Internal doc — Update (Sonnet + RAG)' },
@@ -679,8 +679,8 @@ export function registerDocsCommand(program: Command): void {
         bannerMotd: 'Doc Index',
         tasks: [
           { id: 'scan', label: 'Scanning project' },
-          { id: 'rag-code', label: 'Indexing & embedding code' },
-          { id: 'rag-nlp', label: 'Summaries & embedding code' },
+          { id: 'rag-code', label: 'Embedding code' },
+          { id: 'rag-nlp', label: 'LLM summaries & embedding' },
           { id: 'rag-doc-project', label: 'Chunking & embedding project docs' },
           { id: 'rag-doc-internal', label: 'Chunking & embedding internal docs' },
         ],

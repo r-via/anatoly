@@ -154,7 +154,8 @@ export class BestPracticesEvaluator implements AxisEvaluator {
     const systemPrompt = resolveSystemPrompt('best_practices', ctx.task.language, ctx.task.framework);
     let userMessage = buildBestPracticesUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'best_practices');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'best_practices', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

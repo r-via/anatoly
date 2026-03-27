@@ -157,7 +157,8 @@ export class DocumentationEvaluator implements AxisEvaluator {
     const systemPrompt = resolveSystemPrompt('documentation', ctx.task.language, ctx.task.framework);
     let userMessage = buildDocumentationUserMessage(ctx);
 
-    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'documentation');
+    const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
+    const memorySection = formatReclassificationsForAxis(ctx.projectRoot, 'documentation', fileSymbols);
     if (memorySection) {
       userMessage += '\n' + memorySection;
     }

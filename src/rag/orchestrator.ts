@@ -122,6 +122,8 @@ export interface IndexedFileResult {
   nlpCacheUpdates?: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }>;
   /** Total LLM cost (USD) incurred for NLP summarization of this file. */
   costUsd?: number;
+  /** Raw function bodies, carried over so the NLP phase can summarize without re-reading files. */
+  functionBodies?: string[];
 }
 
 /**
@@ -169,24 +171,15 @@ function readAndBuildCards(
 }
 
 /**
- * Process a single file for RAG indexing: build cards from AST, embed code
- * locally, generate NLP summaries via LLM, and embed the NLP text.
+ * Process a single file for RAG indexing: build cards from AST and embed code.
  *
- * @param projectRoot - Absolute path to the project root for resolving file paths.
- * @param task - AST-parsed task descriptor for the file to process.
- * @param cache - RAG index cache mapping card IDs to file hashes; used to skip
- *   cards that are already up-to-date.
- * @param indexModel - LLM model identifier used for NLP summary generation.
- * @param nlpSummaryCache - Pre-loaded NLP summary cache; entries whose body hash
- *   matches are reused without an LLM call.
- * @param deferNlpEmbeddings - When true, skips NLP embedding generation and only
- *   enriches cards with summaries. Used during the code phase so NLP embeddings
- *   can be batched later to avoid GGUF container swaps.
- * @param conversationDir - Full path to the conversations directory for LLM
- *   conversation dumps (optional).
- * @param semaphore - Global SDK concurrency semaphore to limit parallel LLM calls.
- * @returns An {@link IndexedFileResult} containing the processed cards and their
- *   embeddings. Returns an empty-cards result if no functions need indexing.
+ * When {@link deferNlpEmbeddings} is true (code phase), only code embeddings are
+ * generated and raw function bodies are returned for later LLM summarization.
+ * When false (standalone mode), LLM summarization and NLP embeddings are done
+ * in the same call.
+ *
+ * @param deferNlpEmbeddings - When true, skips LLM summarization and NLP
+ *   embeddings entirely; returns raw cards + functionBodies for the NLP phase.
  */
 export async function processFileForDualIndex(
   projectRoot: string,
@@ -212,62 +205,17 @@ export async function processFileForDualIndex(
     return symbol ? extractFunctionBody(built.source, symbol) : card.signature;
   });
 
-  // Partition functions into cached (reuse summary) and uncached (need LLM)
-  const mergedSummaries = new Map<string, import('./nlp-summarizer.js').NlpSummary>();
-  const uncachedCards: FunctionCard[] = [];
-  const uncachedBodies: string[] = [];
-  const nlpCacheUpdates: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }> = {};
-
-  for (let i = 0; i < built.toIndex.length; i++) {
-    const card = built.toIndex[i];
-    const body = functionBodies[i];
-    const bodyHash = computeBodyHash(body);
-    const cached = nlpSummaryCache?.entries[card.id];
-
-    if (cached && cached.bodyHash === bodyHash) {
-      // Reuse cached summary — no LLM call needed
-      mergedSummaries.set(card.id, cached.summary);
-      nlpCacheUpdates[card.id] = cached;
-    } else {
-      uncachedCards.push(card);
-      uncachedBodies.push(body);
-    }
-  }
-
-  // Generate NLP summaries via LLM only for uncached functions
-  let nlpCostUsd = 0;
-  if (uncachedCards.length > 0) {
-    const nlpResult = await generateNlpSummaries(
-      uncachedCards,
-      uncachedBodies,
-      task.file,
-      indexModel,
-      projectRoot,
-      conversationDir,
-      semaphore,
-      geminiSemaphore,
-    );
-    nlpCostUsd = nlpResult.costUsd;
-
-    // Merge new summaries and build cache entries
-    for (let i = 0; i < uncachedCards.length; i++) {
-      const card = uncachedCards[i];
-      const summary = nlpResult.summaries.get(card.id);
-      if (summary) {
-        mergedSummaries.set(card.id, summary);
-        const bodyHash = computeBodyHash(uncachedBodies[i]);
-        nlpCacheUpdates[card.id] = { bodyHash, summary };
-      }
-    }
-  }
-
   if (deferNlpEmbeddings) {
-    // Enrich cards but skip NLP embedding (deferred to batch phase)
-    const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(built.toIndex, mergedSummaries);
-    return { task, cards: enrichedCards, embeddings: codeEmbeddings, nlpFailedIds, nlpCacheUpdates, costUsd: nlpCostUsd };
+    // Code-only phase: return raw cards + bodies for the NLP phase to summarize later
+    return { task, cards: built.toIndex, embeddings: codeEmbeddings, functionBodies };
   }
 
-  // Apply all NLP summaries (cached + new) and generate NLP embeddings
+  // Non-deferred path: summarize + embed in one shot
+  const { mergedSummaries, nlpCacheUpdates, costUsd: nlpCostUsd } = await summarizeFile(
+    built.toIndex, functionBodies, task.file, indexModel, projectRoot,
+    nlpSummaryCache, conversationDir, semaphore, geminiSemaphore,
+  );
+
   const { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
 
   return {
@@ -280,6 +228,67 @@ export async function processFileForDualIndex(
     nlpCacheUpdates,
     costUsd: nlpCostUsd,
   };
+}
+
+/**
+ * Run NLP summarization for a single file: partition functions into cached vs
+ * uncached, call the LLM for uncached ones, and return merged summaries.
+ */
+async function summarizeFile(
+  cards: FunctionCard[],
+  functionBodies: string[],
+  filePath: string,
+  indexModel: string,
+  projectRoot: string,
+  nlpSummaryCache?: NlpSummaryCache,
+  conversationDir?: string,
+  semaphore?: Semaphore,
+  geminiSemaphore?: Semaphore,
+): Promise<{
+  mergedSummaries: Map<string, import('./nlp-summarizer.js').NlpSummary>;
+  nlpCacheUpdates: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }>;
+  costUsd: number;
+}> {
+  const mergedSummaries = new Map<string, import('./nlp-summarizer.js').NlpSummary>();
+  const uncachedCards: FunctionCard[] = [];
+  const uncachedBodies: string[] = [];
+  const nlpCacheUpdates: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }> = {};
+
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    const body = functionBodies[i];
+    const bodyHash = computeBodyHash(body);
+    const cached = nlpSummaryCache?.entries[card.id];
+
+    if (cached && cached.bodyHash === bodyHash) {
+      mergedSummaries.set(card.id, cached.summary);
+      nlpCacheUpdates[card.id] = cached;
+    } else {
+      uncachedCards.push(card);
+      uncachedBodies.push(body);
+    }
+  }
+
+  let costUsd = 0;
+  if (uncachedCards.length > 0) {
+    const nlpResult = await generateNlpSummaries(
+      uncachedCards, uncachedBodies, filePath, indexModel, projectRoot,
+      conversationDir, semaphore, geminiSemaphore,
+    );
+    costUsd = nlpResult.costUsd;
+
+    for (let i = 0; i < uncachedCards.length; i++) {
+      const card = uncachedCards[i];
+      const summary = nlpResult.summaries.get(card.id);
+      if (summary) {
+        mergedSummaries.set(card.id, summary);
+        const bodyHash = computeBodyHash(uncachedBodies[i]);
+        nlpCacheUpdates[card.id] = { bodyHash, summary };
+      }
+    }
+  }
+
+  return { mergedSummaries, nlpCacheUpdates, costUsd };
 }
 
 /** Derive LanceDB table name and cache suffix from RAG mode. */
@@ -390,19 +399,24 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     'RAG index: filtering files',
   );
 
+  // Load NLP summary cache for per-function body-hash caching
+  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+
   // Filter out files where all function cards are already cached for the current hash
+  // AND have a valid NLP summary cache entry (cross-validation prevents stale cache
+  // from a crashed run leaving functions without NLP summaries)
   const tasksToIndex = tasksWithFunctions.filter((task) => {
     const fnSymbols = task.symbols.filter(
       (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
     );
     return !fnSymbols.every((symbol) => {
       const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
-      return cache.entries[id] === task.hash;
+      if (cache.entries[id] !== task.hash) return false;
+      // Cross-check: ensure NLP summary exists for this function
+      if (!nlpSummaryCache.entries[id]) return false;
+      return true;
     });
   });
-
-  // Load NLP summary cache for per-function body-hash caching
-  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
 
   // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
@@ -438,24 +452,48 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     },
   });
 
-  // Batch NLP embeddings: all code embeddings are done, now generate NLP embeddings
-  // in a single pass. This avoids swapping GGUF containers back and forth per file.
+  // NLP phase: summarize via LLM (concurrent) then embed (sequential to avoid GGUF container swaps)
   onLog?.(`rag: code phase done — ${results.length} files with cards (of ${tasksToIndex.length} indexed)`);
   if (results.length > 0) {
     onPhase?.('nlp');
-    onLog?.(`rag: generating NLP embeddings for ${results.length} files (batch)...`);
+
+    // Step 1 — LLM summarization (concurrent via worker pool)
+    onLog?.(`rag: summarizing ${results.length} files via LLM...`);
     let nlpCounter = 0;
+    await runWorkerPool({
+      items: results,
+      concurrency,
+      isInterrupted,
+      handler: async (result) => {
+        if (result.cards.length === 0 || !result.functionBodies) return;
+        onFileStart?.(result.task.file);
+
+        const { mergedSummaries, nlpCacheUpdates, costUsd } = await summarizeFile(
+          result.cards, result.functionBodies, result.task.file, options.indexModel,
+          projectRoot, nlpSummaryCache, options.conversationDir, options.semaphore, options.geminiSemaphore,
+        );
+        const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(result.cards, mergedSummaries);
+        result.cards = enrichedCards;
+        result.nlpFailedIds = nlpFailedIds;
+        result.nlpCacheUpdates = nlpCacheUpdates;
+        result.costUsd = costUsd;
+        result.functionBodies = undefined; // free memory
+
+        onFileDone?.(result.task.file);
+        nlpCounter++;
+        onProgress?.(nlpCounter, results.length);
+      },
+    });
+
+    // Step 2 — NLP + doc embeddings (sequential to avoid swapping GGUF containers)
+    onLog?.(`rag: embedding summaries for ${results.length} files...`);
     for (const result of results) {
       if (result.cards.length > 0 && !result.nlpEmbeddings) {
-        onFileStart?.(result.task.file);
         result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
         result.docEmbeddings = await generateDocEmbeddings(result.cards);
-        onFileDone?.(result.task.file);
       }
-      nlpCounter++;
-      onProgress?.(nlpCounter, results.length);
     }
-    onLog?.('rag: NLP embeddings batch complete');
+    onLog?.('rag: NLP phase complete');
   }
 
   // Batch upsert all accumulated results sequentially
