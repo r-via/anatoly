@@ -28,7 +28,7 @@ detect_vram_gb() {
   fi
   local mib
   mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
-  if [[ -z "$mib" || "$mib" == "0" ]]; then
+  if [[ -z "$mib" || ! "$mib" =~ ^[0-9]+$ || "$mib" == "0" ]]; then
     echo "0"
     return
   fi
@@ -37,6 +37,7 @@ detect_vram_gb() {
 
 # Current VRAM usage in MiB (NVIDIA only)
 detect_vram_used_mib() {
+  command -v nvidia-smi &>/dev/null || { echo "0"; return; }
   nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0"
 }
 
@@ -68,6 +69,11 @@ select_tier() {
   local toolkit_ok="$4"
 
   if [[ "$gpu" == "none" ]]; then
+    echo "lite"
+    return
+  fi
+
+  if ! [[ "$vram_gb" =~ ^[0-9]+$ ]]; then
     echo "lite"
     return
   fi
