@@ -48,6 +48,8 @@ export function loadDependencyMeta(projectRoot: string): DependencyMeta | undefi
     return undefined;
   }
 
+  if (pkg === null || typeof pkg !== 'object' || Array.isArray(pkg)) return undefined;
+
   const deps = new Map<string, string>();
 
   const prodDeps = pkg.dependencies as Record<string, string> | undefined;
@@ -81,7 +83,7 @@ export function extractFileDeps(fileContent: string, meta: DependencyMeta): File
   const deps: Array<{ name: string; version: string }> = [];
 
   // Match bare import/export specifiers (not relative paths, not node: builtins)
-  const importRe = /(?:import|export)\s+(?:type\s+)?(?:\{[^}]*\}|[\w*]+(?:\s+as\s+\w+)?|\*\s+as\s+\w+)\s+from\s+['"]([^'"./][^'"]*)['"]/g;
+  const importRe = /(?:import|export)\s+(?:type\s+)?(?:[\w]+\s*,\s*(?:\{[^}]*\}|\*\s+as\s+\w+)|\{[^}]*\}|[\w*]+(?:\s+as\s+\w+)?|\*\s+as\s+\w+)\s+from\s+['"]([^'"./][^'"]*)['"]/g;
 
   let match: RegExpExecArray | null;
   while ((match = importRe.exec(fileContent)) !== null) {
@@ -273,6 +275,7 @@ export function scoreSection(section: ReadmeSection, lowerKeywords: string[]): n
   const bodyLower = section.content.toLowerCase();
 
   for (const kw of lowerKeywords) {
+    if (!kw) continue;
     if (headingLower.includes(kw)) {
       score += 3;
     }
