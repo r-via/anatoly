@@ -79,7 +79,7 @@ export function computeComplexity(source: string, symbol: SymbolInfo): number {
     /\bcase\s+/g,
     /&&/g,
     /\|\|/g,
-    /\?[^?:]/g,   // ternary (avoid ?. and ??)
+    /\?(?![?.:])/g,   // ternary (avoid ?., ?.[], ?.(), ??, ?:)
     /\bcatch\s*\(/g,
   ];
 
