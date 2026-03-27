@@ -290,12 +290,14 @@ export function registerDocsCommand(program: Command): void {
             const total = genResult.prompts.length;
             ctx.state.updateTask('scaffold', `0/${total} pages`);
 
+            const scaffoldLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `scaffold_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
             const llmResult = await executeDocPrompts({
               prompts: genResult.prompts,
               outputDir,
               projectRoot: ctx.projectRoot,
               semaphore: ctx.semaphore,
               executor: ctx.executor,
+              logDir: scaffoldLogDir,
               onPageComplete: (pagePath) => {
                 completed++;
                 ctx.state.untrackFile(pagePath);

@@ -41,6 +41,8 @@ export interface ExecuteDocPromptsParams {
   docsPath?: string;
   semaphore: Semaphore;
   executor: DocExecutor;
+  /** Directory for conversation dumps (scaffolding transcripts). */
+  logDir?: string;
   onPageStart?: (pagePath: string) => void;
   onPageComplete?: (pagePath: string) => void;
   onPageError?: (pagePath: string, error: Error) => void;
@@ -62,14 +64,14 @@ export interface DocLlmResult {
  * Uses Promise.allSettled so a single page failure doesn't block others.
  */
 export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
-  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, onPageStart, onPageComplete, onPageError } = params;
+  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, logDir, onPageStart, onPageComplete, onPageError } = params;
 
   if (prompts.length === 0) {
     return { pagesWritten: 0, pagesFailed: 0, totalCostUsd: 0, errors: [] };
   }
 
   const results = await Promise.allSettled(
-    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, onPageStart, onPageComplete, onPageError)),
+    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, logDir, onPageStart, onPageComplete, onPageError)),
   );
 
   let pagesWritten = 0;
@@ -111,11 +113,13 @@ async function executeOnePage(
   docsPath: string,
   semaphore: Semaphore,
   executor: DocExecutor,
+  logDir?: string,
   onPageStart?: (pagePath: string) => void,
   onPageComplete?: (pagePath: string) => void,
   onPageError?: (pagePath: string, error: Error) => void,
 ): Promise<{ costUsd: number }> {
   await semaphore.acquire();
+  const start = Date.now();
   try {
     onPageStart?.(prompt.pagePath);
     const result = await executor({
@@ -136,6 +140,40 @@ async function executeOnePage(
     assertSafeOutputPath(fullPath, projectRoot, docsPath);
     mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, content, 'utf-8');
+
+    // Dump conversation transcript
+    if (logDir) {
+      try {
+        mkdirSync(logDir, { recursive: true });
+        const slug = prompt.pagePath.replace(/[/\\]/g, '-').replace(/\.md$/, '');
+        const durationMs = Date.now() - start;
+        const log = [
+          `# Doc Scaffold: ${prompt.pagePath}`,
+          '',
+          `| Field | Value |`,
+          `|-------|-------|`,
+          `| Model | ${prompt.model} |`,
+          `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
+          `| Cost | $${result.costUsd.toFixed(4)} |`,
+          `| Timestamp | ${new Date().toISOString()} |`,
+          '',
+          '## System',
+          '',
+          prompt.system,
+          '',
+          '## User',
+          '',
+          prompt.user,
+          '',
+          '## Assistant',
+          '',
+          content,
+        ].join('\n');
+        writeFileSync(join(logDir, `doc-scaffold__${slug}.md`), log, 'utf-8');
+      } catch {
+        // non-critical
+      }
+    }
 
     onPageComplete?.(prompt.pagePath);
     return { costUsd: result.costUsd };

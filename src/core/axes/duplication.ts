@@ -151,6 +151,53 @@ function readCandidateSource(projectRoot: string, filePath: string, functionName
 }
 
 // ---------------------------------------------------------------------------
+// Auto-resolution (skip LLM when no RAG candidates exist)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether any symbol in the file has RAG similarity candidates that
+ * require LLM comparison. Returns false when all symbols can be trivially
+ * marked UNIQUE (no RAG data, no candidates, or trivial functions).
+ */
+function fileHasSimilarityCandidates(ctx: AxisContext): boolean {
+  if (!ctx.preResolvedRag || ctx.preResolvedRag.length === 0) return false;
+  return ctx.preResolvedRag.some(
+    (entry) =>
+      entry.lineEnd - entry.lineStart > 2 &&
+      entry.results !== null &&
+      entry.results.length > 0,
+  );
+}
+
+/**
+ * Build auto-resolved UNIQUE verdicts for all symbols in a file.
+ * Used when no symbol has RAG similarity candidates.
+ */
+function buildAutoUniqueResults(ctx: AxisContext): AxisSymbolResult[] {
+  return ctx.task.symbols.map((sym) => {
+    let detail = 'No similar functions found in codebase';
+    if (!ctx.preResolvedRag || ctx.preResolvedRag.length === 0) {
+      detail = 'No RAG data available';
+    } else {
+      const entry = ctx.preResolvedRag.find(
+        (e) => e.symbolName === sym.name,
+      );
+      if (entry && entry.lineEnd - entry.lineStart <= 2) {
+        detail = 'Trivial function (≤ 2 lines)';
+      }
+    }
+    return {
+      name: sym.name,
+      line_start: sym.line_start,
+      line_end: sym.line_end,
+      value: 'UNIQUE',
+      confidence: 90,
+      detail,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Evaluator class
 // ---------------------------------------------------------------------------
 
@@ -169,6 +216,23 @@ export class DuplicationEvaluator implements AxisEvaluator {
   readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
+    // --- Skip LLM when no symbol has similarity candidates ---
+    if (!fileHasSimilarityCandidates(ctx)) {
+      return {
+        axisId: 'duplication',
+        symbols: buildAutoUniqueResults(ctx),
+        actions: [],
+        costUsd: 0,
+        durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        transcript: '',
+      };
+    }
+
+    // --- At least one symbol has candidates — full LLM evaluation ---
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildDuplicationSystemPrompt();
     let userMessage = buildDuplicationUserMessage(ctx);

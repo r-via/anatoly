@@ -5,9 +5,25 @@
 import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, basename, join } from 'node:path';
-import { execSync, spawn } from 'node:child_process';
+import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
+
+/** Currently running Claude child process — killed on SIGINT/SIGTERM. */
+let activeChild: ChildProcess | null = null;
+
+function killActiveChild(): void {
+  if (activeChild && !activeChild.killed) {
+    activeChild.kill('SIGTERM');
+    // If SIGTERM doesn't work, force-kill after 3s
+    setTimeout(() => {
+      if (activeChild && !activeChild.killed) activeChild.kill('SIGKILL');
+    }, 3000).unref();
+  }
+}
+
+process.on('SIGINT', () => { killActiveChild(); process.exit(130); });
+process.on('SIGTERM', () => { killActiveChild(); process.exit(143); });
 import { DISCOVERED_ACT_ID } from './clean.js';
 import { REPORT_AXIS_IDS } from '../core/reporter.js';
 import { PipelineState } from '../cli/pipeline-state.js';
@@ -387,17 +403,20 @@ export function registerCleanRunCommand(program: Command): void {
               cwd: projectRoot,
               stdio: ['pipe', 'pipe', 'pipe'],
             });
+            activeChild = child;
 
             // Suppress agent output — pipeline display owns the terminal
             child.stdout!.resume();
             child.stderr!.resume();
 
             child.on('close', (code) => {
+              activeChild = null;
               clearTimeout(timer);
               res(code ?? 1);
             });
 
             child.on('error', () => {
+              activeChild = null;
               clearTimeout(timer);
               res(1);
             });

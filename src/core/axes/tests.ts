@@ -114,16 +114,6 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
     }
   }
 
-  // Inject project tree for architectural context
-  if (ctx.projectTree) {
-    parts.push('## Project Structure');
-    parts.push('');
-    parts.push('```');
-    parts.push(ctx.projectTree);
-    parts.push('```');
-    parts.push('');
-  }
-
   // Inject transitive coverage hints for private symbols
   // When a private symbol's only callers are well-tested exported symbols,
   // it is likely tested transitively — hint this to the LLM.

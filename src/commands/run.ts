@@ -877,6 +877,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       projectRoot: ctx.projectRoot,
       semaphore: ctx.sdkSemaphore,
       executor,
+      logDir: join(ctx.runDir, 'conversations'),
       onPageComplete: (pagePath) => {
         completed++;
         ctx.pipelineState?.updateTask(taskId, `${completed}/${total} pages updated`);
