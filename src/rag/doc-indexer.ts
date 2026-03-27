@@ -802,17 +802,13 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
     return { sections: 0, cached: true, costUsd: 0 };
   }
 
-  const method = chunkModel ? `Haiku (${chunkModel}) / chunk-cache` : 'H2 fallback';
-  onLog(`rag: processing ${changedFiles.length} ${sourceLabel} doc files via ${method} (${cachedCount} cached)`);
+  onLog(`rag: processing ${changedFiles.length} ${sourceLabel} doc files via smart-chunk (${cachedCount} cached)`);
 
   let totalIndexed = 0;
   let totalCostUsd = 0;
   let docFileCounter = 0;
 
-  // Create a shared AbortController for all Haiku calls — aborted when isInterrupted() returns true
-  const ac = new AbortController();
-
-  // Phase 1: Chunk all files concurrently (Haiku batched calls)
+  // Phase 1: Chunk all files (smart programmatic chunker or chunk cache)
   interface ChunkedFile {
     relPath: string;
     sha: string;
@@ -821,26 +817,20 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   const chunkedFiles: ChunkedFile[] = [];
 
   const chunkFile = async ({ relPath, source, sha }: { relPath: string; source: string; sha: string }) => {
-    if (isInterrupted?.()) {
-      ac.abort();
-      return;
-    }
+    if (isInterrupted?.()) return;
     onFileStart?.(relPath);
     docFileCounter++;
     onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
-    // Check chunk cache — reuse Haiku results if file SHA matches
+    // Check chunk cache first, then smart-chunk programmatically (no LLM)
     const cachedChunks = chunkCache[relPath];
     let sections: DocSection[];
     if (cachedChunks && cachedChunks.sha === sha) {
       sections = cachedChunks.sections.map(s => ({ filePath: relPath, ...s }));
       onLog(`rag: ${relPath} → ${sections.length} sections (from chunk cache)`);
-    } else if (chunkModel) {
-      const chunkResult = await chunkDocWithHaiku(relPath, source, chunkModel, projectRoot, ac, conversationDir, semaphore);
-      sections = chunkResult.sections;
-      totalCostUsd += chunkResult.costUsd;
     } else {
-      sections = fallbackParseH2(relPath, source);
+      sections = smartChunkDoc(relPath, source);
+      onLog(`rag: ${relPath} → ${sections.length} sections (smart-chunked)`);
     }
 
     chunkedFiles.push({ relPath, sha, sections });
