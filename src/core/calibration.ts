@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 /**
@@ -71,6 +71,7 @@ export function loadCalibration(projectRoot: string): CalibrationData {
  */
 export function saveCalibration(projectRoot: string, data: CalibrationData): void {
   const path = calibrationPath(projectRoot);
+  mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
 }
 
