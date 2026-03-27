@@ -47,6 +47,10 @@ export interface DocGenerationResult {
   pagesRemoved: number;
   totalPages: number;
   prompts: PagePrompt[];
+  /** Save updated cache entries for generated pages. Call after LLM writes complete. */
+  commitCache: () => void;
+  /** Remove a failed page from the pending cache so it regenerates next run. */
+  rollbackPage: (pagePath: string) => void;
 }
 
 export interface DocPipelineResult {
@@ -191,22 +195,27 @@ export function runDocGeneration(
     prompts.push(prompt);
   }
 
-  // Remove deleted pages (with traversal guard)
+  // Remove deleted pages (with traversal guard — append separator to prevent
+  // sibling-directory prefix matches like .anatoly/docs vs .anatoly/docs-backup)
+  const resolvedOutputDir = resolve(outputDir) + '/';
   for (const removed of cacheResult.removed) {
     const fullPath = resolve(outputDir, removed);
-    if (!fullPath.startsWith(resolve(outputDir))) continue;
+    if (!fullPath.startsWith(resolvedOutputDir)) continue;
     if (existsSync(fullPath)) {
       unlinkSync(fullPath);
     }
   }
 
-  // Update cache: remove deleted entries
+  // Update cache: remove deleted entries and persist immediately (files already unlinked)
   let updatedCache: DocCache = cache;
   for (const removed of cacheResult.removed) {
     updatedCache = removeDocCacheEntry(updatedCache, removed);
   }
+  saveDocCache(cachePath, updatedCache);
 
-  // Update cache: add/refresh entries for pages that will be generated
+  // Build pending generation cache entries — NOT saved until caller commits.
+  // This prevents LLM failures from permanently suppressing page regeneration.
+  let pendingCache = updatedCache;
   for (const pagePath of pagesToGenerate) {
     const mapping = pageMappings.find(m => m.pagePath === pagePath);
     if (!mapping) continue;
@@ -216,11 +225,8 @@ export function runDocGeneration(
       const hash = currentHashes.get(sf);
       if (hash) hashes[sf] = hash;
     }
-    updatedCache = updateDocCacheEntry(updatedCache, pagePath, hashes);
+    pendingCache = updateDocCacheEntry(pendingCache, pagePath, hashes);
   }
-
-  // Save cache
-  saveDocCache(cachePath, updatedCache);
 
   const totalPages = cacheResult.fresh.length + allStaleOrAdded.length;
 
@@ -231,6 +237,12 @@ export function runDocGeneration(
     pagesRemoved: cacheResult.removed.length,
     totalPages,
     prompts,
+    commitCache: () => {
+      saveDocCache(cachePath, pendingCache);
+    },
+    rollbackPage: (pagePath: string) => {
+      pendingCache = removeDocCacheEntry(pendingCache, pagePath);
+    },
   };
 }
 

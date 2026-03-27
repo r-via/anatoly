@@ -212,9 +212,10 @@ describe('runDocGeneration', () => {
 
     const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
-    // First run — generates cache
+    // First run — generates cache; commit to persist generation entries
     const result1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
     expect(result1.pagesGenerated).toBeGreaterThan(0);
+    result1.commitCache();
 
     // Second run — everything should be fresh (cache hit)
     const result2 = runDocGeneration(tempDir, scaffold, tasks, pkg);
@@ -233,8 +234,9 @@ describe('runDocGeneration', () => {
 
     const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
-    // First run
-    runDocGeneration(tempDir, scaffold, tasks, pkg);
+    // First run — commit cache to persist generation entries
+    const result1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    result1.commitCache();
 
     // Modify source
     writeFileSync(

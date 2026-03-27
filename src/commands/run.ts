@@ -895,9 +895,13 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
         ctx.renderer?.logPlain(`[${taskId}] ${completed}/${total} ${pagePath}`);
       },
       onPageError: (pagePath, err) => {
+        genResult.rollbackPage(pagePath);
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
       },
     });
+
+    // Commit cache entries for successfully generated pages
+    genResult.commitCache();
 
     // Aggregate doc generation LLM costs
     ctx.totalCostUsd += result.totalCostUsd;

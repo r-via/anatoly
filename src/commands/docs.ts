@@ -305,6 +305,7 @@ export function registerDocsCommand(program: Command): void {
                 ctx.renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);
               },
               onPageError: (pagePath, err) => {
+                genResult.rollbackPage(pagePath);
                 ctx.state.untrackFile(pagePath);
                 ctx.renderer.logPlain(`[scaffold] ${chalk.red('×')} ${pagePath} — ${err.message}`);
               },
@@ -312,6 +313,9 @@ export function registerDocsCommand(program: Command): void {
                 ctx.state.trackFile(pagePath);
               },
             });
+
+            // Commit cache entries for successfully generated pages
+            genResult.commitCache();
 
             ctx.addCost(llmResult.totalCostUsd);
             const detail = llmResult.pagesFailed > 0
