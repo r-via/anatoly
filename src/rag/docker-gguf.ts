@@ -131,6 +131,10 @@ function modelConfig(model: 'code' | 'nlp') {
  * model is already running.
  */
 export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
+  if (!modelsDirectory) {
+    throw new Error('modelsDirectory not initialised — call startGgufContainers() first');
+  }
+
   if (activeModel === model) {
     // Verify the container is still alive
     try {
@@ -160,7 +164,7 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   runContainer(cfg.container, cfg.file, cfg.port);
 
   logFn?.(`waiting for GGUF ${cfg.label} model to load into VRAM...`);
-  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS);
+  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS, progressFn);
 
   if (!ready) {
     removeContainer(cfg.container);
@@ -225,13 +229,14 @@ export async function startGgufContainers(
 
   // Kill zombie containers from previous runs (crash, Ctrl+C, etc.)
   try {
-    const zombies = execSync(
-      `docker ps -aq --filter "name=anatoly-gguf"`,
+    const zombies = execFileSync(
+      'docker', ['ps', '-aq', '--filter', 'name=anatoly-gguf'],
       { encoding: 'utf-8', timeout: 10_000 },
     ).trim();
-    if (zombies) {
+    const ids = zombies.split('\n').filter(Boolean);
+    if (ids.length > 0) {
       onLog?.('cleaning up leftover GGUF containers...');
-      execSync(`docker rm -f ${zombies}`, { stdio: 'ignore', timeout: 10_000 });
+      execFileSync('docker', ['rm', '-f', ...ids], { stdio: 'ignore', timeout: 10_000 });
     }
   } catch {
     // ignore cleanup errors
