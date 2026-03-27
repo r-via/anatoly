@@ -12,6 +12,7 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process';
+import { homedir } from 'node:os';
 
 export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
@@ -58,7 +59,7 @@ function runContainer(
 ): void {
   removeContainer(name);
 
-  const dataDir = cacheDir ?? `${process.env.HOME}/.cache/huggingface`;
+  const dataDir = cacheDir ?? `${process.env.HOME ?? homedir()}/.cache/huggingface`;
   const args = [
     'run',
     '--gpus', 'all',
