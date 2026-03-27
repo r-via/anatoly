@@ -59,7 +59,7 @@ export function parseUncheckedActions(content: string): CleanItem[] {
     let severity = 'medium';
     for (const part of parts) {
       if (SEVERITY_SET.has(part)) severity = part;
-      else if (!EFFORT_SET.has(part)) source = part;
+      else if (!source && !EFFORT_SET.has(part)) source = part;
     }
 
     const fileMatch = line.match(FILE_RE);
@@ -67,7 +67,7 @@ export function parseUncheckedActions(content: string): CleanItem[] {
     const file = fileMatch[1];
 
     // Description: after `file`: ... up to optional (`symbol`) or [lines]
-    const descStart = line.indexOf(fileMatch[0]) + fileMatch[0].length;
+    const descStart = fileMatch.index! + fileMatch[0].length;
     let rest = line.slice(descStart).trim();
 
     const symMatch = rest.match(SYMBOL_RE);
