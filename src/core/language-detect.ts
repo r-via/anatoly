@@ -9,7 +9,7 @@
  * and frameworks by project configuration markers.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { extname, basename, join } from 'node:path';
 import { getGitTrackedFiles } from '../utils/git.js';
 
@@ -458,7 +458,11 @@ function collectDependencyNames(pkgJson: Record<string, unknown>): Set<string> {
 
 function containsDep(content: string | null, dep: string): boolean {
   if (!content) return false;
-  return content.includes(dep);
+  // Use word-boundary matching to prevent short dep names like "click" from
+  // matching unrelated packages such as "clickhouse-driver".
+  const escaped = dep.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?<![a-zA-Z0-9_-])${escaped}(?![a-zA-Z0-9_-])`);
+  return re.test(content);
 }
 
 function toFrameworkInfo(def: FrameworkDef): FrameworkInfo {
@@ -511,7 +515,7 @@ function deriveTypes(
     }
     // Rust CLI from [[bin]] section or implicit binary (src/main.rs)
     if (!types.has('CLI')) {
-      if (/^\[\[bin\]\]/m.test(cargoToml) || existsSync(join(projectRoot, 'src', 'main.rs'))) {
+      if (/^\[\[bin\]\]/m.test(cargoToml) || gitFiles?.has('src/main.rs')) {
         types.add('CLI');
       }
     }
