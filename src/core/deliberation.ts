@@ -88,7 +88,8 @@ export function buildDeliberationUserMessage(
   testFile?: { name: string; content: string },
 ): string {
   const reviewJson = JSON.stringify(review, null, 2);
-  const ext = review.file.slice(review.file.lastIndexOf('.'));
+  const dotIdx = review.file.lastIndexOf('.');
+  const ext = dotIdx !== -1 ? review.file.slice(dotIdx) : '';
   const codeLang = EXT_TO_LANG[ext] ?? 'typescript';
   const parts: string[] = [];
 
@@ -109,7 +110,8 @@ ${fileContent}
     const MAX_TEST_LINES = 500;
     const lines = testFile.content.split('\n');
     const truncated = lines.length > MAX_TEST_LINES;
-    const testExt = testFile.name.slice(testFile.name.lastIndexOf('.'));
+    const testDotIdx = testFile.name.lastIndexOf('.');
+    const testExt = testDotIdx !== -1 ? testFile.name.slice(testDotIdx) : '';
     const testLang = EXT_TO_LANG[testExt] ?? codeLang;
     parts.push(`## Test File: \`${testFile.name}\`
 
@@ -319,20 +321,21 @@ export function applyDeliberation(
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
   const verdict = recomputeVerdict(symbols, deliberation.verdict);
 
-  const reclassified = deliberation.symbols.filter((s) =>
-    DELIBERATION_AXES.some((axis) => {
-      const orig = s.original[axis];
-      const delib = s.deliberated[axis];
-      return orig && delib && orig !== delib;
-    }),
-  ).length;
+  // Count reclassifications from actual applied changes (not proposed),
+  // so ERROR-protected reclassifications that were blocked are excluded.
+  const origSymMap = new Map(review.symbols.map((s) => [s.name, s]));
+  const reclassified = symbols.filter((s) => {
+    const orig = origSymMap.get(s.name);
+    if (!orig) return false;
+    return DELIBERATION_AXES.some((axis) => orig[axis] !== s[axis]);
+  }).length;
 
   contextLogger().debug(
     {
       file: review.file,
       symbolsDeliberated: deliberation.symbols.length,
       reclassified,
-      actionsRemoved: deliberation.removed_actions.length,
+      actionsRemoved: allRemovedIds.size,
       verdictBefore: review.verdict,
       verdictAfter: verdict,
     },
@@ -348,7 +351,7 @@ export function applyDeliberation(
       verdict_before: review.verdict,
       verdict_after: verdict,
       reclassified,
-      actions_removed: deliberation.removed_actions.length,
+      actions_removed: allRemovedIds.size,
       reasoning: deliberation.reasoning,
     },
   };
