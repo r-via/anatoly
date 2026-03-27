@@ -130,9 +130,15 @@ function extractImports(
     for (const part of namesStr.split(',')) {
       const trimmed = part.trim();
       if (!trimmed) continue;
-      const originalName = trimmed.split(/\s+as\s+/)[0].trim();
+      let originalName = trimmed.split(/\s+as\s+/)[0].trim();
+      let isTypeOnly = typeOnly;
+      // Handle TS 4.5+ inline type modifier: import { type A, B }
+      if (originalName.startsWith('type ')) {
+        originalName = originalName.slice(5).trim();
+        isTypeOnly = true;
+      }
       if (originalName) {
-        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly });
+        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly: isTypeOnly });
       }
     }
   }
@@ -216,22 +222,60 @@ function escapeRegExp(s: string): string {
 }
 
 /**
+ * Strip template literals while preserving interpolation expressions.
+ * Static text between backticks is removed; `${...}` expression content is kept
+ * so that symbol references inside interpolations remain visible.
+ *
+ * Known limitation: nested template literals (e.g. `outer ${`inner`}`) are not
+ * handled — residual content from inner literals may cause false positives.
+ */
+function stripTemplateLiterals(source: string): string {
+  const result: string[] = [];
+  let i = 0;
+  while (i < source.length) {
+    if (source[i] === '`') {
+      i++; // skip opening backtick
+      while (i < source.length && source[i] !== '`') {
+        if (source[i] === '\\') {
+          i += 2; // skip escaped character
+        } else if (source[i] === '$' && i + 1 < source.length && source[i + 1] === '{') {
+          i += 2; // skip ${
+          let depth = 1;
+          while (i < source.length && depth > 0) {
+            if (source[i] === '{') depth++;
+            else if (source[i] === '}') depth--;
+            if (depth > 0) {
+              result.push(source[i]);
+            }
+            i++;
+          }
+        } else {
+          i++; // skip static character
+        }
+      }
+      if (i < source.length) i++; // skip closing backtick
+    } else {
+      result.push(source[i]);
+      i++;
+    }
+  }
+  return result.join('');
+}
+
+/**
  * Strip comments and string literals from source code to avoid false-positive
  * symbol matches inside documentation or string content.
  * Template literal expressions (`${...}`) are preserved since they contain real code.
- *
- * Known limitation: nested template literals (e.g. `outer ${`inner`}`) are not
- * handled correctly by regex alone — residual content may cause false positives.
  */
 function stripCommentsAndStrings(source: string): string {
-  return source
+  let result = source
     // Remove single-line comments
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    // Remove template literal static parts but keep ${...} expressions:
-    // Replace `text ${expr} text` → ` ${expr} ` (strip static text, keep interpolations)
-    .replace(/`(?:[^`\\$]|\\.|\$(?!\{))*`/g, '""')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  // Strip template literal static parts, preserving ${...} expression content
+  result = stripTemplateLiterals(result);
+  return result
     // Remove double-quoted strings
     .replace(/"(?:[^"\\]|\\.)*"/g, '""')
     // Remove single-quoted strings
