@@ -21,7 +21,7 @@ import { AnthropicTransport } from './transports/anthropic-transport.js';
 import { GeminiTransport } from './transports/gemini-transport.js';
 import { GeminiGenaiTransport } from './transports/gemini-genai-transport.js';
 
-/** Module-level cache for Gemini transport instances, keyed by projectRoot.
+/** Module-level cache for Gemini transport instances, keyed by `${projectRoot}::${model}`.
  *  Avoids creating a new Config (and its `model-changed` listener) per call. */
 const geminiTransportCache = new Map<string, LlmTransport>();
 
@@ -35,12 +35,13 @@ export function setGeminiTransportType(type: 'cli-core' | 'genai'): void {
 }
 
 function getOrCreateGeminiTransport(projectRoot: string, model: string): LlmTransport {
-  const existing = geminiTransportCache.get(projectRoot);
+  const cacheKey = `${projectRoot}::${model}`;
+  const existing = geminiTransportCache.get(cacheKey);
   if (existing) return existing;
   const transport = _geminiTransportType === 'genai'
     ? new GeminiGenaiTransport()
     : new GeminiTransport(projectRoot, model);
-  geminiTransportCache.set(projectRoot, transport);
+  geminiTransportCache.set(cacheKey, transport);
   return transport;
 }
 
