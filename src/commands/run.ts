@@ -586,7 +586,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
-  pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files` });
+  pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)` });
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
   rl?.info(scanCompleted, 'phase completed');
@@ -606,7 +606,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
   estimateFiles = estimateTasks.length;
   // Estimate row is pushed after triage so we can include the calibrated ETA
-  const estimateTokenLabel = `${estimateTasks.length} files \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
+  const estimateTokenLabel = `${estimateTasks.length} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached) \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   ctx.phaseDurations.estimate = Date.now() - estStart;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'estimate', durationMs: ctx.phaseDurations.estimate });
   const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
@@ -1461,7 +1461,7 @@ async function runReviewPhase(
           const verdict = result.review.verdict;
           const dur = (result.durationMs / 1000).toFixed(1);
           const note = findings > 0 ? ` | ${findings} findings` : '';
-          ctx.renderer?.logPlain(`${filePath} \u2192 ${verdict}${note} (${dur}s)`);
+          ctx.renderer?.logPlain(`[review] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
         }
       } catch (error) {
         if (ctx.interrupted) return;
@@ -1572,6 +1572,24 @@ function runReportPhase(ctx: RunContext): void {
     } catch (err) {
       log.warn({ err }, 'doc report aggregation failed');
       rl?.warn({ err }, 'doc report aggregation failed');
+    }
+  } else if (ctx.profile && ctx.allTasks.length > 0) {
+    // Fallback: no doc pipeline ran (e.g. cached run), but we can still
+    // aggregate coverage metrics from reviews + profile.
+    try {
+      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
+      ctx.docReportResult = aggregateDocReport({
+        projectRoot: ctx.projectRoot,
+        projectTypes: ctx.profile.types,
+        reviews,
+        tasks: ctx.allTasks,
+        idealPageCount: 0,
+        docsPath: ctx.config.documentation?.docs_path ?? 'docs',
+      });
+      docReferenceSection = ctx.docReportResult.renderedSection;
+      log.info({ docScore: ctx.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');
+    } catch (err) {
+      log.warn({ err }, 'doc report aggregation fallback failed');
     }
   }
 
