@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * Ralph Documentation Sync Mode — Story 29.14
+ * Clean Loop Documentation Sync Mode — Story 29.14
  *
  * Synchronizes the user's docs/ from .anatoly/docs/ using dual-output
  * recommendations. Handles three actionable types:
@@ -227,7 +227,7 @@ function appendSection(existing: string, _heading: string, sectionContent: strin
 
 /**
  * Replaces an existing section in markdown content with new content.
- * Adds a Ralph comment before the replaced section.
+ * Adds a tracking comment before the replaced section.
  */
 function replaceSection(
   existing: string,
@@ -252,7 +252,7 @@ function replaceSection(
   const rest = existing.slice(start + match[0].length);
   const nextHeading = rest.match(new RegExp(`^#{1,${level}}\\s`, 'm'));
 
-  const comment = '<!-- Updated by Ralph: section refreshed to match current code -->';
+  const comment = '<!-- Updated by clean loop: section refreshed to match current code -->';
   let result: string;
 
   if (nextHeading && nextHeading.index !== undefined) {

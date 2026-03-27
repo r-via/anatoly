@@ -148,7 +148,7 @@ When the documentation axis emits findings, each recommendation has a type:
 }
 ```
 
-Ralph reads `content_ref` from `.anatoly/docs/` and applies the content to `path_user`, adapting to the user's existing structure.
+The clean loop reads `content_ref` from `.anatoly/docs/` and applies the content to `path_user`, adapting to the user's existing structure.
 
 ---
 

@@ -167,7 +167,7 @@ describe('syncDocs', () => {
 
   // --- outdated_content ---
 
-  it('updates outdated section and adds Ralph comment', () => {
+  it('updates outdated section and adds clean loop comment', () => {
     const existingContent = '# Pipeline\n\n## Overview\n\nOld overview.\n\n## Data Flow\n\nOld flow diagram.\n';
     const idealContent = '# Data Flow\n\n## Overview\n\nNew overview.\n\n## Data Flow\n\nNew flow with mermaid.\n';
     const fs = memFs({
@@ -197,8 +197,8 @@ describe('syncDocs', () => {
     // Outdated section replaced
     expect(updated).toContain('New flow with mermaid.');
     expect(updated).not.toContain('Old flow diagram.');
-    // Ralph comment added
-    expect(updated).toContain('<!-- Updated by Ralph: section refreshed to match current code -->');
+    // Clean loop comment added
+    expect(updated).toContain('<!-- Updated by clean loop: section refreshed to match current code -->');
   });
 
   // --- non-actionable types ---

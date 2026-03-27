@@ -18,7 +18,7 @@ This standard is consumed by two distinct actors with strict separation of respo
 - **Produces** an audit report with documentation findings and structured recommendations
 - **NEVER writes to the project's `docs/` directory**
 
-### Ralph (fix loop — writes to project docs)
+### Clean loop (writes to project docs)
 
 - **Reads** the audit report (findings + recommendations)
 - **Reads** `.anatoly/docs/` as the source of truth for ideal documentation
@@ -31,8 +31,8 @@ This standard is consumed by two distinct actors with strict separation of respo
 `.anatoly/docs/` is **not ephemeral**. It is a long-lived artifact that serves as:
 
 1. **Documentation of reference** — always complete, always current with the code
-2. **Agent context** — any agent working on the project (Claude Code, Ralph, etc.) can read `.anatoly/docs/` for rich, structured project understanding
-3. **Sync source** — Ralph uses it to synchronize the user's `docs/`
+2. **Agent context** — any agent working on the project (Claude Code, the clean loop, etc.) can read `.anatoly/docs/` for rich, structured project understanding
+3. **Sync source** — the clean loop uses it to synchronize the user's `docs/`
 4. **Human comparison** — the user can compare their `docs/` against `.anatoly/docs/` and adopt what they want
 
 Updates are **incremental**: Anatoly only regenerates pages whose source code has changed (SHA-256 cache per page).
@@ -763,7 +763,7 @@ When the project already has a `docs/` directory, the scaffolder must also build
 3. Build a mapping: `concept → user's file path`
 4. For recommendations, provide both `path_ideal` (our structure) and `path_user` (their structure)
 
-This enables Ralph to apply fixes in the user's own organizational style.
+This enables the clean loop to apply fixes in the user's own organizational style.
 
 ---
 

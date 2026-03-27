@@ -246,7 +246,7 @@ See [setup-embeddings module](../05-Modules/07-setup-embeddings.md) for model de
 
 ### `clean generate <target>`
 
-Generates [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/) remediation artifacts from unchecked audit findings. Parses `ACT-ID` checkboxes in the axis shard reports and produces three files under `.anatoly/clean/<target>/`:
+Generates remediation artifacts from unchecked audit findings. Parses `ACT-ID` checkboxes in the axis shard reports and produces three files under `.anatoly/clean/<target>/`:
 
 - `prd.json` — user stories with acceptance criteria per finding
 - `CLAUDE.md` — agent instructions for the autonomous loop
@@ -271,7 +271,7 @@ anatoly clean run <target> [options]
 | Argument / Option | Description |
 |-------------------|-------------|
 | `<target>` | Axis name (e.g. `correction`), `all`, or path to a shard `.md` file |
-| `-n, --iterations <n>` | Maximum Ralph iterations (default: `10`) |
+| `-n, --iterations <n>` | Maximum clean loop iterations (default: `10`) |
 
 **Branch isolation:** automatically checks out the branch from `prd.json`. Refuses to execute on `main` or `master`. A circuit breaker trips after three consecutive no-progress iterations (no git diff) or five consecutive errored iterations, rolling back to the last good commit.
 
@@ -432,7 +432,7 @@ npx anatoly reset --keep-rag --yes
 npx anatoly clean runs --keep 3 --yes
 ```
 
-### Autonomous remediation loop (Ralph Pattern)
+### Autonomous remediation loop
 
 ```bash
 # Generate PRD + CLAUDE.md from unchecked correction findings

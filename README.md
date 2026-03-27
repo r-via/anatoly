@@ -52,14 +52,14 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
 - **RAG-powered documentation review** — function summaries (Haiku) and doc sections are embedded as NLP vectors. The documentation axis evaluates quality by semantic similarity. Separate from `anatoly docs` which manages internal documentation
 - **Internal doc pipeline** — `anatoly docs scaffold` generates `.anatoly/docs/` via Sonnet (parallel scaffold → Opus coherence review → RAG index → gap-driven update). Incremental updates at each run via RAG gap detection (cosine similarity, $0). Doc sections are smart-chunked programmatically (H2+H3+paragraph splitting, no LLM cost) and re-indexed inline after each doc update. `anatoly docs scaffold project` copies internal docs to `docs/` for publishing
-- **Auto-Clean via [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)** — `anatoly clean run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
+- **Auto-Clean** (inspired by [Ralph Pattern](https://paddo.dev/blog/ralph-wiggum-autonomous-loops/)) — `anatoly clean run` launches an autonomous correction loop that commits each remediation individually and syncs progress back to the report
 - **Claude Code hook** — real-time audit loop: write → audit → fix (PostToolUse + Stop hooks with anti-loop protection)
 - **Smart triage** — auto-classifies files into skip/evaluate tiers (barrel exports, type-only, trivial files skip at zero API cost)
 - **Pre-computed usage graph** — one-pass import resolution across all files with transitive intra-file references, eliminating ~90% of redundant tool calls
 - **Local code embeddings** — Jina v2 (768d) on CPU or nomic-embed-code (3584d) + Qwen3-Embedding-8B (4096d) on GPU — zero API cost for RAG indexing
 - **Multi-language support** — TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON with auto-detection. Language-specific best-practices prompts, framework-aware evaluation (React, Next.js)
 - **AST-driven scanning** — web-tree-sitter extracts every symbol (functions, classes, types, enums, hooks, constants) with line ranges and export status for each supported language
-- **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions, and checkboxes for Ralph consumption
+- **Sharded reports** — compact index + per-shard detail files with symbol-level tables, severity-sorted actions, and checkboxes for clean loop consumption
 - **Smart caching** — SHA-256 per file; unchanged files skip review at zero API cost. Second run on unchanged codebase costs $0
 - **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
@@ -160,9 +160,9 @@ npx anatoly docs lint                  # Deterministic structure lint on .anatol
 npx anatoly docs coherence             # Lint + Opus coherence review on .anatoly/docs/
 npx anatoly docs status                # Show internal docs coverage
 
-# Auto-clean (Ralph pattern)
-npx anatoly clean generate documentation  # Generate Ralph artifacts from axis findings
-npx anatoly clean run documentation       # Generate + run Ralph loop to auto-clean findings
+# Auto-clean
+npx anatoly clean generate documentation  # Generate clean loop artifacts from axis findings
+npx anatoly clean run documentation       # Generate + run clean loop to auto-clean findings
 npx anatoly clean sync documentation      # Sync completed clean tasks back to the report
 
 # Maintenance

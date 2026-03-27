@@ -13,7 +13,7 @@ import { scaffoldDocs } from './doc-scaffolder.js';
  * Story 29.6: Guard Test — Anatoly Never Writes to docs/
  *
  * Tests enforce the invariant that Anatoly NEVER writes to the
- * project's docs/ directory. Only Ralph can do that.
+ * project's docs/ directory. Only the clean loop can do that.
  */
 
 let tmpDir: string;
@@ -55,7 +55,7 @@ describe('assertSafeOutputPath', () => {
       const msg = (error as Error).message;
       expect(msg).toContain('INVARIANT VIOLATION');
       expect(msg).toContain('Anatoly must NEVER write to docs/');
-      expect(msg).toContain('Only Ralph can modify docs/');
+      expect(msg).toContain('Only the clean loop can modify docs/');
     }
   });
 

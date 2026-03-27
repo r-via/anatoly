@@ -130,7 +130,7 @@ function generateClaudeMd(cleanName: string, cleanDir: string, projectRoot: stri
 
 ## Role
 
-You are an autonomous correction agent working in a Ralph loop.
+You are an autonomous correction agent working in a clean loop.
 Your job is to fix ALL findings in a batch — they all target the same file and axis.
 
 ## Key Files
@@ -208,7 +208,7 @@ npm run build && npm test
 /**
  * Registers the `clean` CLI sub-command on the given Commander program.
  *
- * The sub-command generates Ralph remediation artifacts (prd.json, CLAUDE.md,
+ * The sub-command generates clean loop remediation artifacts (prd.json, CLAUDE.md,
  * progress.txt) from unchecked axis findings. Accepts a single axis name or
  * `"all"` to aggregate findings across every axis.
  *
@@ -217,7 +217,7 @@ npm run build && npm test
 export function registerCleanCommand(program: Command): void {
   program
     .command('generate <axis>')
-    .description('Generate Ralph artifacts from axis findings (axis name or "all")')
+    .description('Generate clean loop artifacts from axis findings (axis name or "all")')
     .action((axis: string) => {
       const projectRoot = process.cwd();
 
@@ -279,7 +279,7 @@ export function registerCleanCommand(program: Command): void {
       // Initialize progress.txt with Codebase Patterns section
       const progressPath = join(cleanDir, 'progress.txt');
       if (!existsSync(progressPath)) {
-        writeFileSync(progressPath, `## Codebase Patterns\n\n---\n\n# Ralph Progress Log\nStarted: ${new Date().toISOString()}\n---\n`);
+        writeFileSync(progressPath, `## Codebase Patterns\n\n---\n\n# Clean Loop Progress Log\nStarted: ${new Date().toISOString()}\n---\n`);
       }
 
       // Bootstrap project docs from internal docs when documentation axis is involved

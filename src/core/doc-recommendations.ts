@@ -7,7 +7,7 @@
  *
  * Transforms raw documentation gaps into enriched recommendations
  * that include both the ideal path (.anatoly/docs/) and the user's
- * path (docs/) so Ralph can apply fixes in the user's organizational style.
+ * path (docs/) so the clean loop can apply fixes in the user's organizational style.
  *
  * When a UserDocPlan exists, concept-based section mappings determine
  * the user path. When no plan exists, ideal paths are mirrored under docs/.
@@ -96,7 +96,7 @@ function stripFilePrefix(filename: string): string {
  * Transforms documentation gaps into dual-output recommendations.
  *
  * Each recommendation includes both path_ideal (.anatoly/docs/) and
- * path_user (docs/) so Ralph can apply fixes in the user's structure.
+ * path_user (docs/) so the clean loop can apply fixes in the user's structure.
  *
  * Path resolution:
  * 1. If gap has existingUserPath → use it directly

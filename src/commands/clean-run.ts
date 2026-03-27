@@ -184,8 +184,8 @@ function syncToReport(projectRoot: string, reportFile: string): void {
 export function registerCleanRunCommand(program: Command): void {
   program
     .command('run <target>')
-    .description('Run Ralph loop to remediate findings (axis name, "all", or shard file path)')
-    .option('-n, --iterations <n>', 'max Ralph iterations', '50')
+    .description('Run clean loop to remediate findings (axis name, "all", or shard file path)')
+    .option('-n, --iterations <n>', 'max clean loop iterations', '50')
     .option('-m, --model <model>', 'Claude model to use (e.g. claude-opus-4-6, claude-sonnet-4-6)')
     .action(async (target: string, opts: { iterations: string; model?: string }) => {
       const projectRoot = process.cwd();
@@ -486,7 +486,7 @@ export function registerCleanRunCommand(program: Command): void {
 
       state.completeTask('clean', `${fixedCount}/${totalStories} findings fixed (max iterations)`);
       renderer.stop();
-      console.log(chalk.yellow(`Ralph reached max iterations (${maxIterations}).`));
+      console.log(chalk.yellow(`Clean loop reached max iterations (${maxIterations}).`));
       syncToReport(projectRoot, reportFile);
       process.exitCode = 1;
     });

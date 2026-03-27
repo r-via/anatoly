@@ -6,7 +6,7 @@
  * Documentation Guard — Story 29.6
  *
  * Runtime guard that enforces the invariant: Anatoly NEVER writes to
- * the project's docs/ directory. Only Ralph can modify docs/.
+ * the project's docs/ directory. Only the clean loop can modify docs/.
  *
  * This function should be called before any file write operation in
  * the pipeline to prevent accidental writes to docs/.
@@ -29,7 +29,7 @@ export function assertSafeOutputPath(outputPath: string, projectRoot: string, do
     throw new Error(
       `INVARIANT VIOLATION: Anatoly must NEVER write to docs/. ` +
       `Attempted path: ${outputPath}. ` +
-      `Only Ralph can modify docs/. ` +
+      `Only the clean loop can modify docs/. ` +
       `Use .anatoly/docs/ for generated documentation.`,
     );
   }
