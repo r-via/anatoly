@@ -115,16 +115,14 @@ export function registerEstimateCommand(program: Command): void {
         const pending = allTasks.length - cached;
         scanDetail = `${allTasks.length} files (${pending} new, ${cached} cached)`;
       }
-      pipelineRows.push({ phase: 'scan', detail: scanDetail });
+      pipelineRows.push({ phase: 'source files', detail: scanDetail });
+      let docScanProject: ReturnType<typeof countChangedDocs> = null;
+      let docScanInternal: ReturnType<typeof countChangedDocs> = null;
       if (enableRag) {
         const ragSuffix = resolvedRagSuffix;
         const docsPath = config.documentation?.docs_path ?? 'docs';
-        const projectDocs = countChangedDocs(projectRoot, docsPath, ragSuffix);
-        const internalDocs = countChangedDocs(projectRoot, join('.anatoly', 'docs'), ragSuffix);
-        const parts: string[] = [];
-        if (projectDocs) parts.push(`docs/ ${projectDocs.changed} changed, ${projectDocs.cached} cached`);
-        if (internalDocs) parts.push(`.anatoly/docs/ ${internalDocs.changed} changed, ${internalDocs.cached} cached`);
-        if (parts.length > 0) pipelineRows.push({ phase: 'scan (docs)', detail: parts.join(' · ') });
+        docScanProject = countChangedDocs(projectRoot, docsPath, ragSuffix);
+        docScanInternal = countChangedDocs(projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
       }
 
       // triage
@@ -152,10 +150,18 @@ export function registerEstimateCommand(program: Command): void {
 
       // internal docs
       const bootstrapNeeded = needsBootstrap(projectRoot);
-      pipelineRows.push({
-        phase: 'internal docs',
-        detail: bootstrapNeeded ? 'first run (bootstrap)' : '.anatoly/docs/ ready',
-      });
+      if (bootstrapNeeded) {
+        pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
+      } else if (docScanInternal) {
+        pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
+        if (docScanProject) {
+          pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
+        } else {
+          pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
+        }
+      } else {
+        pipelineRows.push({ phase: 'internal docs', detail: '.anatoly/docs/ ready' });
+      }
 
       // estimate (with calibrated ETA)
       const { inputTokens, outputTokens } = estimateTasksTokens(projectRoot, allTasks);
