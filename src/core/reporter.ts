@@ -1489,8 +1489,8 @@ function renderPublicDocSection(raw: string): string[] {
   const lines: string[] = [];
   lines.push('## Documentation Coverage');
   lines.push('');
-  lines.push('Anatoly generates internal reference docs (`.anatoly/docs/`) for every exported symbol in your codebase.');
-  lines.push('This section compares your existing project documentation against the ideal coverage.');
+  lines.push('Measures inline doc comments (`///` in Rust, `/** */` in JS/TS, docstrings in Python) on exported symbols.');
+  lines.push('Anatoly also generates reference pages in `.anatoly/docs/` for every reviewed module.');
   lines.push('');
 
   // Parse the raw section to extract metrics
@@ -1520,20 +1520,20 @@ function renderPublicDocSection(raw: string): string[] {
       if (fullyMatch) {
         const pct = parseInt(fullyMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| Fully documented | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with complete doc comments (description, params, return) |`);
+        lines.push(`| Complete doc comments | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with a complete inline doc comment covering description, params, and return |`);
       }
       if (partialMatch) {
         const pct = parseInt(partialMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| At least partial | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with any doc comment coverage |`);
+        lines.push(`| Any doc comment | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with at least a partial inline doc comment |`);
       }
       if (syncedModMatch) {
         const pct = parseInt(syncedModMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
+        lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated documentation page |`);
       }
       if (intPagesMatch) {
-        lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Auto-generated reference pages in .anatoly/docs/ |`);
+        lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Anatoly-generated module and API reference pages |`);
       }
       lines.push('');
 
@@ -1555,17 +1555,17 @@ function renderPublicDocSection(raw: string): string[] {
       if (fullyMatch) {
         const pct = parseInt(fullyMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| Fully documented | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with complete doc comments (description, params, return) |`);
+        lines.push(`| Complete doc comments | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with a complete inline doc comment covering description, params, and return |`);
       }
       if (partialMatch) {
         const pct = parseInt(partialMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| At least partial | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with any doc comment coverage |`);
+        lines.push(`| Any doc comment | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with at least a partial inline doc comment |`);
       }
       if (modulesMatch) {
         const pct = parseInt(modulesMatch[1]);
         const bar = healthBar(pct);
-        lines.push(`| Module guides | ${bar} ${pct}% (${modulesMatch[2]}/${modulesMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
+        lines.push(`| Module guides | ${bar} ${pct}% (${modulesMatch[2]}/${modulesMatch[3]}) | Modules > 200 LOC with a dedicated page in docs/ |`);
       }
       lines.push('');
 
@@ -1580,12 +1580,12 @@ function renderPublicDocSection(raw: string): string[] {
         lines.push('|--------|----------|-------------|');
 
         if (intPagesMatch) {
-          lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Auto-generated reference pages for your codebase |`);
+          lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Anatoly-generated module and API reference pages |`);
         }
         if (intModulesMatch) {
           const pct = parseInt(intModulesMatch[1]);
           const bar = healthBar(pct);
-          lines.push(`| Module guides | ${bar} ${pct}% (${intModulesMatch[2]}/${intModulesMatch[3]}) | Modules > 200 LOC with an internal docs page |`);
+          lines.push(`| Module guides | ${bar} ${pct}% (${intModulesMatch[2]}/${intModulesMatch[3]}) | Modules > 200 LOC with a page in .anatoly/docs/ |`);
         }
         lines.push('');
         lines.push('> Check the internal Anatoly docs in `.anatoly/docs/` or simply replace your current `docs/` with the internal docs to speed up future Anatoly runs.');
