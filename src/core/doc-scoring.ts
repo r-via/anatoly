@@ -209,8 +209,16 @@ function computeWeights(types: ProjectType[]): Weights {
 
   // Reduce smaller dimensions proportionally to fund bonuses
   const pool = 20 + 15 + 15; // moduleCoverage + contentQuality + navigation
-  const capped = Math.min(totalBonus, pool);
-  const factor = (pool - capped) / pool;
+
+  // Scale down bonuses proportionally when they exceed available pool
+  if (totalBonus > pool) {
+    const ratio = pool / totalBonus;
+    structBonus = Math.round(structBonus * ratio);
+    apiBonus = pool - structBonus;
+  }
+
+  const effectiveBonus = structBonus + apiBonus;
+  const factor = (pool - effectiveBonus) / pool;
 
   const m = Math.round(20 * factor);
   const c = Math.round(15 * factor);
