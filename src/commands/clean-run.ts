@@ -276,8 +276,14 @@ export function registerCleanRunCommand(program: Command): void {
       }
 
       // --- Branch isolation: ensure we never run on main ---
-      const prd = JSON.parse(readFileSync(prdPath, 'utf-8'));
-      const branchName: string = prd.branchName;
+      let prd: { branchName?: string };
+      try {
+        prd = JSON.parse(readFileSync(prdPath, 'utf-8'));
+      } catch {
+        console.error(chalk.red(`Failed to read or parse ${prdPath} — aborting.`));
+        process.exit(1);
+      }
+      const branchName: string = prd.branchName!;
       if (!branchName) {
         console.error(chalk.red('No branchName found in prd.json — aborting.'));
         process.exit(1);
@@ -407,7 +413,15 @@ export function registerCleanRunCommand(program: Command): void {
         const preSha = getGitSha(projectRoot);
 
         // Read CLAUDE.md fresh each iteration
-        const claudeMd = readFileSync(claudeMdPath, 'utf-8');
+        let claudeMd: string;
+        try {
+          claudeMd = readFileSync(claudeMdPath, 'utf-8');
+        } catch {
+          renderer.stop();
+          console.error(chalk.red(`Failed to read ${claudeMdPath} at iteration ${i} — aborting.`));
+          process.exitCode = 1;
+          return;
+        }
 
         // Spawn a fresh Claude Code instance with retry on transient failures
         const MAX_SPAWN_RETRIES = 2;
