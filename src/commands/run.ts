@@ -860,15 +860,18 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
     if (result.pagesWritten > 0 && !ctx.interrupted) {
       ctx.pipelineState?.updateTask(taskId, 'linting docs…');
+      ctx.renderer?.logPlain(`[${taskId}] linting doc structure…`);
       try {
         const lintLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
         const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: lintLogDir });
         log.info({ filesFixed: lintResult.filesFixed, issues: lintResult.issues.length }, 'doc structure lint complete');
+        ctx.renderer?.logPlain(`[${taskId}] structure lint: ${lintResult.issues.length} issues, ${lintResult.filesFixed} auto-fixed`);
 
         // Auto-fix structural issues (numbering, index) before coherence review
         const unfixed = lintResult.issues.filter(i => !i.fixed);
         if (unfixed.length > 0) {
           ctx.pipelineState?.updateTask(taskId, 'fixing doc structure…');
+          ctx.renderer?.logPlain(`[${taskId}] fixing ${unfixed.length} structural issues…`);
           const fixResult = autoFixStructuralIssues(outputDir, unfixed);
           log.info({
             renames: fixResult.renames.length,
@@ -884,7 +887,8 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
 
     // Coherence review — only on first run (bootstrap). Use `anatoly docs coherence` for on-demand.
     if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
-      ctx.pipelineState?.updateTask(taskId, 'reviewing docs…');
+      ctx.pipelineState?.updateTask(taskId, 'coherence review (Sonnet)…');
+      ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
       try {
         const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
         const coherenceResult = await runDocCoherenceReview({
@@ -907,8 +911,10 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           issuesAfter: coherenceResult.linterIssuesAfter,
           costUsd: coherenceResult.costUsd,
         }, 'doc coherence review complete');
+        ctx.renderer?.logPlain(`[${taskId}] coherence review done — ${coherenceResult.linterIssuesBefore} issues before, ${coherenceResult.linterIssuesAfter} after ($${coherenceResult.costUsd.toFixed(4)})`);
       } catch (coherenceErr) {
         log.warn({ err: coherenceErr }, 'doc coherence review failed — continuing');
+        ctx.renderer?.logPlain(`[${taskId}] coherence review failed — continuing`);
       }
     }
 
