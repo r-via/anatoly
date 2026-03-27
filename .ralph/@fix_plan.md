@@ -5,20 +5,20 @@
 ### Gemini Provider Foundation
 > Goal: Users can enable Gemini in `.anatoly.yml`, verify connectivity via `anatoly providers`, and confirm their Google auth works. The transport abstraction is in place, both providers are wired, but no axes are routed yet.
 
-- [x] Story 1.1: Create LlmTransport interface and TransportRouter
+- [ ] Story 1.1: Create LlmTransport interface and TransportRouter
   > As a developer
   > I want a common `LlmTransport` interface that abstracts LLM I/O
   > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
   > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-1
-- [x] Story 1.2: Create AnthropicTransport wrapping existing execQuery()
+- [ ] Story 1.2: Create AnthropicTransport wrapping existing execQuery()
   > As a developer
   > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
   > So that it conforms to the `LlmTransport` interface without any behavior change.
   > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
   > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-2
-- [x] Story 1.3: Create GeminiTransport
+- [ ] Story 1.3: Create GeminiTransport
   > As a developer
   > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
   > So that Gemini Flash calls conform to the `LlmTransport` interface.
@@ -33,7 +33,7 @@
   > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
   > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-4
-- [x] Story 1.5: Gemini auth check and graceful fallback
+- [ ] Story 1.5: Gemini auth check and graceful fallback
   > As a user
   > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
   > So that my run is never blocked by a missing Google login.
@@ -51,7 +51,7 @@
 ### Review Axes on Gemini Flash
 > Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
 
-- [x] Story 2.1: Route review axes to Gemini via defaultGeminiMode
+- [ ] Story 2.1: Route review axes to Gemini via defaultGeminiMode
   > As a user
   > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
   > So that my Claude quota is preserved for the quality-critical axes.
@@ -78,14 +78,14 @@
 ### RAG NLP on Gemini + Observability
 > Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
 
-- [x] Story 3.1: Route NLP summarization to Gemini Flash
+- [ ] Story 3.1: Route NLP summarization to Gemini Flash
   > As a user
   > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
   > So that I save $2+ per run on Haiku costs.
   > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
   > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-3-1
-- [x] Story 3.2: Add provider field to logs and run metrics
+- [ ] Story 3.2: Add provider field to logs and run metrics
   > As a developer
   > I want structured logs and run metrics to include the provider for each LLM call
   > So that I can analyze quota usage and performance by provider.
@@ -105,7 +105,7 @@
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-4-1
 ### 
 
-- [ ] Story 29.1: Project Type Detection
+- [x] Story 29.1: Project Type Detection
   > As a **developer running Anatoly**
   > I want Anatoly to **automatically detect my project type(s)** from package.json
   > So that the documentation structure is **tailored to my stack**.

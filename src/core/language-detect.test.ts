@@ -514,6 +514,62 @@ describe('language-detect', () => {
       expect(result.languages.totalFiles).toBe(0);
       expect(result.frameworks).toEqual([]);
     });
+
+    // --- Story 29.1: Project Type Detection ACs ---
+
+    it('AC 29.1.1: detects Frontend + ORM from react and prisma', () => {
+      mockedGit.mockReturnValue(new Set(['src/App.tsx', 'src/db.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { react: '^19.0.0', prisma: '^5.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.types).toContain('Frontend');
+      expect(result.types).toContain('ORM');
+    });
+
+    it('AC 29.1.2: detects CLI from bin field and commander', () => {
+      mockedGit.mockReturnValue(new Set(['src/cli.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          bin: { mycli: './dist/cli.js' },
+          dependencies: { commander: '^12.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.types).toContain('CLI');
+    });
+
+    it('AC 29.1.3: detects Monorepo from workspaces field', () => {
+      mockedGit.mockReturnValue(new Set(['packages/a/index.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          workspaces: ['packages/*'],
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.types).toContain('Monorepo');
+    });
+
+    it('AC 29.1.4: defaults to Library when no recognized dependencies', () => {
+      mockedGit.mockReturnValue(new Set(['src/index.ts', 'package.json']));
+      mockFiles({
+        '/project/package.json': JSON.stringify({
+          dependencies: { lodash: '^4.0.0' },
+        }),
+      });
+
+      const result = detectProjectProfile('/project');
+
+      expect(result.types).toEqual(['Library']);
+    });
   });
 
   // ------- Constants -------
