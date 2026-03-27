@@ -136,7 +136,7 @@ export const ConfigSchema = z.object({
     agentic_tools: true,
     timeout_per_file: 600,
     max_retries: 3,
-    concurrency: 4,
+    concurrency: 8,
     sdk_concurrency: 24,
     min_confidence: 70,
     max_stop_iterations: 3,
