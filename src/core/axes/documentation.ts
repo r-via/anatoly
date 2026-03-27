@@ -43,8 +43,8 @@ export type DocsCoverage = z.infer<typeof DocsCoverageSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
-export function buildDocumentationSystemPrompt(): string {
-  return resolveSystemPrompt('documentation');
+export function buildDocumentationSystemPrompt(language?: string, framework?: string): string {
+  return resolveSystemPrompt('documentation', language, framework);
 }
 
 /**
