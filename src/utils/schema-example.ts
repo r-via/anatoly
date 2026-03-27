@@ -88,17 +88,22 @@ export function generateSchemaExample(schema: z.ZodType, hint?: string): unknown
       const isInt = def.format === 'safeint';
       let min: number | undefined;
       let max: number | undefined;
+      let minInclusive = true;
+      let maxInclusive = true;
       for (const check of def.checks ?? []) {
         const c = check._zod.def;
-        if (c.check === 'greater_than') min = c.value;
-        if (c.check === 'less_than') max = c.value;
+        if (c.check === 'greater_than') { min = c.value; minInclusive = c.inclusive; }
+        if (c.check === 'less_than') { max = c.value; maxInclusive = c.inclusive; }
       }
+      const eps = isInt ? 1 : Number.EPSILON * 2;
       if (min !== undefined && max !== undefined) {
-        const value = min + (max - min) * 0.85;
+        const lo = minInclusive ? min : min + eps;
+        const hi = maxInclusive ? max : max - eps;
+        const value = lo + (hi - lo) * 0.85;
         return isInt ? Math.round(value) : Math.round(value * 10) / 10;
       }
-      if (min !== undefined) return min;
-      if (max !== undefined) return max;
+      if (min !== undefined) return minInclusive ? min : min + eps;
+      if (max !== undefined) return maxInclusive ? max : max - eps;
       return isInt ? 1 : 1.0;
     }
 
