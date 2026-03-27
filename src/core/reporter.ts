@@ -1500,58 +1500,88 @@ function renderPublicDocSection(raw: string): string[] {
     lines.push('');
   }
 
-  // Parse symbol coverage lines (project docs)
+  // Detect synced mode (single unified table)
+  const isSynced = raw.includes('synced with .anatoly/docs/');
+
+  // Parse symbol coverage lines
   const fullyMatch = raw.match(/Fully documented:\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
   const partialMatch = raw.match(/At least partial:\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
-  const modulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC in project docs\)/);
 
   if (fullyMatch || partialMatch) {
-    lines.push('**Project docs (docs/):**');
-    lines.push('');
-    lines.push('| Metric | Coverage | Description |');
-    lines.push('|--------|----------|-------------|');
+    if (isSynced) {
+      // Synced: single unified table
+      const syncedModMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC with a docs page\)/);
 
-    if (fullyMatch) {
-      const pct = parseInt(fullyMatch[1]);
-      const bar = healthBar(pct);
-      lines.push(`| Fully documented | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with complete doc comments (description, params, return) |`);
-    }
-    if (partialMatch) {
-      const pct = parseInt(partialMatch[1]);
-      const bar = healthBar(pct);
-      lines.push(`| At least partial | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with any doc comment coverage |`);
-    }
-    if (modulesMatch) {
-      const pct = parseInt(modulesMatch[1]);
-      const bar = healthBar(pct);
-      lines.push(`| Module guides | ${bar} ${pct}% (${modulesMatch[2]}/${modulesMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
-    }
-    lines.push('');
-  }
+      lines.push('| Metric | Coverage | Description |');
+      lines.push('|--------|----------|-------------|');
 
-  // Parse internal docs (.anatoly/docs/) coverage
-  const intPagesMatch = raw.match(/Reference pages:\s*(\d+)%\s*\((\d+)\/(\d+)\s*pages\)/);
-  const intModulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC in internal docs\)/);
+      if (fullyMatch) {
+        const pct = parseInt(fullyMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| Fully documented | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with complete doc comments (description, params, return) |`);
+      }
+      if (partialMatch) {
+        const pct = parseInt(partialMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| At least partial | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with any doc comment coverage |`);
+      }
+      if (syncedModMatch) {
+        const pct = parseInt(syncedModMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
+      }
+      lines.push('');
+      lines.push('> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.');
+      lines.push('');
+    } else {
+      // Not synced: two separate tables
+      const modulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC in project docs\)/);
 
-  if (intPagesMatch || intModulesMatch) {
-    lines.push('**Internal docs (.anatoly/docs/):**');
-    lines.push('');
-    lines.push('| Metric | Coverage | Description |');
-    lines.push('|--------|----------|-------------|');
+      lines.push('**Project docs (docs/):**');
+      lines.push('');
+      lines.push('| Metric | Coverage | Description |');
+      lines.push('|--------|----------|-------------|');
 
-    if (intPagesMatch) {
-      const pct = parseInt(intPagesMatch[1]);
-      const bar = healthBar(pct);
-      lines.push(`| Reference pages | ${bar} ${pct}% (${intPagesMatch[2]}/${intPagesMatch[3]}) | Auto-generated reference pages for your codebase |`);
+      if (fullyMatch) {
+        const pct = parseInt(fullyMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| Fully documented | ${bar} ${pct}% (${fullyMatch[2]}/${fullyMatch[3]}) | Exported symbols with complete doc comments (description, params, return) |`);
+      }
+      if (partialMatch) {
+        const pct = parseInt(partialMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| At least partial | ${bar} ${pct}% (${partialMatch[2]}/${partialMatch[3]}) | Exported symbols with any doc comment coverage |`);
+      }
+      if (modulesMatch) {
+        const pct = parseInt(modulesMatch[1]);
+        const bar = healthBar(pct);
+        lines.push(`| Module guides | ${bar} ${pct}% (${modulesMatch[2]}/${modulesMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
+      }
+      lines.push('');
+
+      // Internal docs table
+      const intPagesMatch = raw.match(/Pages generated:\s*(\d+)/);
+      const intModulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC in internal docs\)/);
+
+      if (intPagesMatch || intModulesMatch) {
+        lines.push('**Internal docs (.anatoly/docs/):**');
+        lines.push('');
+        lines.push('| Metric | Coverage | Description |');
+        lines.push('|--------|----------|-------------|');
+
+        if (intPagesMatch) {
+          lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Auto-generated reference pages for your codebase |`);
+        }
+        if (intModulesMatch) {
+          const pct = parseInt(intModulesMatch[1]);
+          const bar = healthBar(pct);
+          lines.push(`| Module guides | ${bar} ${pct}% (${intModulesMatch[2]}/${intModulesMatch[3]}) | Modules > 200 LOC with an internal docs page |`);
+        }
+        lines.push('');
+        lines.push('> Check the internal Anatoly docs in `.anatoly/docs/` or simply replace your current `docs/` with the internal docs to speed up future Anatoly runs.');
+        lines.push('');
+      }
     }
-    if (intModulesMatch) {
-      const pct = parseInt(intModulesMatch[1]);
-      const bar = healthBar(pct);
-      lines.push(`| Module guides | ${bar} ${pct}% (${intModulesMatch[2]}/${intModulesMatch[3]}) | Modules > 200 LOC with an internal docs page |`);
-    }
-    lines.push('');
-    lines.push('> Check the internal Anatoly docs in `.anatoly/docs/` or simply replace your current `docs/` with the internal docs to speed up future Anatoly runs.');
-    lines.push('');
   }
 
   // Sync status

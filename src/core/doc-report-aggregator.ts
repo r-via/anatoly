@@ -336,6 +336,15 @@ function buildReportStats(
     }
   }
 
+  // Detect if docs/ is a mirror of .anatoly/docs/ (deduplicated)
+  const userDocPaths = new Set(
+    scanUserDocs(resolve(input.projectRoot, input.docsPath ?? 'docs')).map(p => p.path.toLowerCase()),
+  );
+  const internalPaths = internalDocPages.map(p => p.path.toLowerCase());
+  const docsSynced = internalPaths.length > 0
+    && userDocPaths.size > 0
+    && internalPaths.filter(p => userDocPaths.has(p)).length >= internalPaths.length * 0.8;
+
   // Symbol-based coverage (Story 29.20)
   const symbolCoverage = {
     projectDocumented: scoringInput.projectExportsDocumented,
@@ -359,6 +368,7 @@ function buildReportStats(
     userDocsPageCount,
     symbolCoverage,
     syncByType,
+    docsSynced,
   };
 }
 

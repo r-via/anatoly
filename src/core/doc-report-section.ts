@@ -49,6 +49,8 @@ export interface DocReportStats {
   symbolCoverage?: SymbolCoverage;
   /** Sync status by recommendation type (Story 29.20) */
   syncByType?: SyncByType;
+  /** True when docs/ is a mirror of .anatoly/docs/ (deduplicated) */
+  docsSynced?: boolean;
 }
 
 // --- Renderer ---
@@ -81,22 +83,34 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
     const projectPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.projectDocumented / sc.totalExports) * 100));
     const internalPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.internalDocumented / sc.totalExports) * 100));
 
-    lines.push('Documentation coverage:');
-    lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
-    lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+    if (stats.docsSynced) {
+      // docs/ mirrors .anatoly/docs/ — single unified table
+      lines.push('Documentation coverage (docs/ synced with .anatoly/docs/):');
+      lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+      lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+        const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+        lines.push(`  Modules: ${modPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC with a docs page)`);
+      }
+    } else {
+      // Separate tables for project docs and internal docs
+      lines.push('Documentation coverage:');
+      lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+      lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
 
-    if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
-      const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
-      lines.push(`  Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
-    }
+      if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
+        const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
+        lines.push(`  Modules: ${modPct}% (${sc.modulesDocumented}/${sc.totalModules} modules > 200 LOC in project docs)`);
+      }
 
-    // Internal docs (.anatoly/docs/) coverage
-    lines.push('');
-    lines.push('Internal docs (.anatoly/docs/) coverage:');
-    lines.push(`  Pages generated: ${stats.totalPages}`);
-    if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
-      const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
-      lines.push(`  Modules: ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC in internal docs)`);
+      // Internal docs (.anatoly/docs/) coverage
+      lines.push('');
+      lines.push('Internal docs (.anatoly/docs/) coverage:');
+      lines.push(`  Pages generated: ${stats.totalPages}`);
+      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+        const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+        lines.push(`  Modules: ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC in internal docs)`);
+      }
     }
   } else {
     // Fallback: page count only (no symbol data available)
