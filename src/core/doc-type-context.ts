@@ -99,8 +99,6 @@ function collectCliContext(projectRoot: string, pkg: Record<string, unknown>): T
     }
   }
 
-  if (lines.length === 0) return null;
-
   // Truncate to avoid prompt bloat (max ~3000 chars)
   let content = lines.join('\n');
   if (content.length > 3000) {
@@ -121,7 +119,7 @@ function resolveCliBinName(projectRoot: string, pkg: Record<string, unknown>): s
   // JS/TS: read from package.json bin field
   if (pkg.bin) {
     if (typeof pkg.bin === 'string') {
-      return pkg.name ? String(pkg.name) : basename(String(pkg.bin));
+      return pkg.name ? String(pkg.name).replace(/^@[^/]+\//, '') : basename(String(pkg.bin));
     }
     if (typeof pkg.bin === 'object') {
       const entries = Object.keys(pkg.bin as Record<string, string>);
