@@ -285,7 +285,7 @@ export function registerProvidersCommand(program: Command): void {
       const checks = buildProviderChecks(config);
 
       // Raise limit early — each SDK query() adds an exit listener to process
-      const maxConcurrency = Math.max(config.llm.sdk_concurrency, config.llm.gemini.sdk_concurrency, checks.length);
+      const maxConcurrency = Math.max(config.llm.sdk_concurrency, config.llm.gemini?.sdk_concurrency ?? 0, checks.length);
       const prevMaxListeners = process.getMaxListeners();
       process.setMaxListeners(Math.max(prevMaxListeners, maxConcurrency + 10));
 
@@ -301,7 +301,7 @@ export function registerProvidersCommand(program: Command): void {
           const result = await checkAnthropic(check.model, projectRoot);
           results.push(result);
         } else if (check.provider === 'gemini') {
-          const result = await checkGemini(check.model, projectRoot, config.llm.gemini.type);
+          const result = await checkGemini(check.model, projectRoot, config.llm.gemini!.type);
           results.push(result);
         }
       }
@@ -316,7 +316,7 @@ export function registerProvidersCommand(program: Command): void {
         testedProviders.add(r.provider);
 
         const slots = r.provider === 'gemini'
-          ? config.llm.gemini.sdk_concurrency
+          ? config.llm.gemini!.sdk_concurrency
           : config.llm.sdk_concurrency;
 
         if (!opts.json) {
@@ -325,7 +325,7 @@ export function registerProvidersCommand(program: Command): void {
 
         try {
           const cr = r.provider === 'gemini'
-            ? await stressGemini(r.model, projectRoot, slots, config.llm.gemini.type)
+            ? await stressGemini(r.model, projectRoot, slots, config.llm.gemini!.type)
             : await stressAnthropic(r.model, projectRoot, slots);
           concurrencyResults.push({ provider: r.provider, model: r.model, concurrency: cr });
         } catch (err) {
