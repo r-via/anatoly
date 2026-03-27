@@ -16,6 +16,7 @@ import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { detectHardware, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
+import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 
@@ -90,7 +91,16 @@ export function registerEstimateCommand(program: Command): void {
       const allTasks = loadTasks(projectRoot);
 
       // scan
-      pipelineRows.push({ phase: 'scan', detail: `${allTasks.length} files` });
+      const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
+      const progress = readProgress(progressPath);
+      let scanDetail = `${allTasks.length} files`;
+      if (progress) {
+        const entries = Object.values(progress.files);
+        const cached = entries.filter(f => f.status === 'CACHED' || f.status === 'DONE').length;
+        const pending = entries.length - cached;
+        scanDetail = `${allTasks.length} files (${pending} new, ${cached} cached)`;
+      }
+      pipelineRows.push({ phase: 'scan', detail: scanDetail });
 
       // triage
       const tiers = { skip: 0, evaluate: 0 };
@@ -130,7 +140,14 @@ export function registerEstimateCommand(program: Command): void {
       const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, concurrency);
       const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
       const calLabel = hasCal ? 'calibrated' : 'default';
-      const tokenLabel = `${allTasks.length} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
+      let estimateFileLabel = `${evalFileCount} files`;
+      if (progress) {
+        const entries = Object.values(progress.files);
+        const cached = entries.filter(f => f.status === 'CACHED' || f.status === 'DONE').length;
+        const pending = allTasks.length - cached;
+        estimateFileLabel = `${evalFileCount} files (${pending} new, ${cached} cached)`;
+      }
+      const tokenLabel = `${estimateFileLabel} · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
       pipelineRows.push({ phase: 'estimate', detail: `${tokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
       renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, false);

@@ -637,12 +637,13 @@ export class VectorStore {
   }
 
   /**
-   * Return the set of distinct file paths currently in the index.
+   * Return the set of distinct file paths that have function_card entries.
    */
   async listIndexedFiles(): Promise<Set<string>> {
     if (!this.table) return new Set();
     const rows = await this.table
       .query()
+      .where("type = 'function_card'")
       .select(['filePath'])
       .toArray();
     return new Set(rows.map((r) => r.filePath as string));

@@ -523,14 +523,15 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
+  const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
   if (!existsSync(absDocsDir)) {
-    onLog('rag: no docs/ directory found');
+    onLog(`rag: no ${sourceLabel} docs/ directory found`);
     return { sections: 0, cached: false, costUsd: 0 };
   }
 
   const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
   if (files.length === 0) {
-    onLog('rag: no doc files found');
+    onLog(`rag: no ${sourceLabel} doc files found`);
     return { sections: 0, cached: false, costUsd: 0 };
   }
 
@@ -565,7 +566,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
 
   if (scaffoldSkipped > 0) {
-    onLog(`rag: skipped ${scaffoldSkipped} scaffolded-only doc files`);
+    onLog(`rag: skipped ${scaffoldSkipped} scaffolded-only ${sourceLabel} doc files`);
   }
 
   // Remove stale sections for deleted/changed files
@@ -578,13 +579,13 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
 
   if (changedFiles.length === 0) {
-    onLog(`rag: doc sections up to date (${cachedCount} files cached)`);
+    onLog(`rag: ${sourceLabel} doc sections up to date (${cachedCount} files cached)`);
     saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
     return { sections: 0, cached: true, costUsd: 0 };
   }
 
   const method = chunkModel ? `Haiku (${chunkModel})` : 'H2 fallback';
-  onLog(`rag: chunking ${changedFiles.length} doc files via ${method} (${cachedCount} cached)`);
+  onLog(`rag: chunking ${changedFiles.length} ${sourceLabel} doc files via ${method} (${cachedCount} cached)`);
 
   let totalIndexed = 0;
   let totalCostUsd = 0;
@@ -699,7 +700,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
   Object.assign(mergedChunkCache, newChunkCache); // add/overwrite with new entries
   saveDocChunkCache(projectRoot, cacheSuffix, mergedChunkCache);
-  onLog(`rag: indexed ${totalIndexed} doc sections from ${changedFiles.length} files`);
+  onLog(`rag: indexed ${totalIndexed} ${sourceLabel} doc sections from ${changedFiles.length} files`);
 
   return { sections: totalIndexed, cached: false, costUsd: totalCostUsd };
 }

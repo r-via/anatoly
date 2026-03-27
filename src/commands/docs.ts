@@ -687,9 +687,9 @@ export function registerDocsCommand(program: Command): void {
         execute: async (ctx) => {
           // Step 1: Scan
           ctx.state.startTask('scan', 'scanning…');
-          await scanProject(ctx.projectRoot, ctx.config);
+          const docsScanResult = await scanProject(ctx.projectRoot, ctx.config);
           const tasks = loadTasks(ctx.projectRoot);
-          ctx.state.completeTask('scan', `${tasks.length} files`);
+          ctx.state.completeTask('scan', `${tasks.length} files (${docsScanResult.filesNew} new, ${docsScanResult.filesCached} cached)`);
 
           // Step 2: RAG index (3 sub-phases)
           let ragPhase = 'code';

@@ -523,15 +523,17 @@ async function execQuery(params: ExecQueryParams): Promise<ExecQueryResult> {
 
     // Re-throw AnatolyErrors as-is (from the result handler above)
     if (err instanceof AnatolyError) throw err;
-    // SDK-level error (e.g. subprocess crash, exit code 1) — attach partial transcript
+    // SDK-level error (e.g. subprocess crash, exit code 1) — keep partial transcript in detail
     const rawMessage = err instanceof Error ? err.message : String(err);
     const partial = transcriptLines.length > 0
-      ? `\n--- partial transcript ---\n${transcriptLines.join('\n')}`
-      : '';
+      ? transcriptLines.join('\n')
+      : undefined;
     throw new AnatolyError(
-      `Claude Code SDK query failed: ${rawMessage}${partial}`,
+      `Claude Code SDK query failed: ${rawMessage}`,
       ERROR_CODES.SDK_ERROR,
       true,
+      undefined,
+      partial,
     );
   }
 

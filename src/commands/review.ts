@@ -79,7 +79,7 @@ export function registerReviewCommand(program: Command): void {
         if (tasks.length === 0) {
           console.log('anatoly — scan (auto)');
           const scanResult = await scanProject(projectRoot, config);
-          console.log(`  files     ${scanResult.filesScanned}`);
+          console.log(`  files     ${scanResult.filesScanned} (${scanResult.filesNew} new, ${scanResult.filesCached} cached)`);
         }
 
         const pm = new ProgressManager(projectRoot);

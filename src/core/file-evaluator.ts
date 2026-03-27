@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, basename, dirname, extname } from 'node:path';
+import { resolve, join, basename, dirname, extname } from 'node:path';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
-import { isRateLimitStandbyError } from '../utils/rate-limiter.js';
+import { isRateLimitStandbyError, retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
@@ -281,7 +281,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         const errFields = settled.reason instanceof AnatolyError
           ? settled.reason.toLogObject()
           : { errorMessage: String(settled.reason) };
-        contextLogger().warn({ event: 'axis_failed', axis: evaluator.id, file: task.file, ...errFields }, 'axis evaluation failed');
+        const dumpFile = settled.reason instanceof AnatolyError
+          ? settled.reason.writeDump(join(opts.runDir, 'errors'), `${toOutputName(task.file)}__${evaluator.id}`)
+          : undefined;
+        contextLogger().warn({ event: 'axis_failed', axis: evaluator.id, file: task.file, ...errFields, ...(dumpFile ? { dumpFile } : {}) }, 'axis evaluation failed');
       }
     }
     transcriptParts.push(chunk);
@@ -333,22 +336,31 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     if (needsDeliberation(review)) {
       try {
         const deliberationModel = resolveDeliberationModel(config);
-        const deliberationResult = await runSingleTurnQuery(
+        const deliberationResult = await retryWithBackoff(
+          () => runSingleTurnQuery(
+            {
+              systemPrompt: buildDeliberationSystemPrompt(),
+              userMessage: buildDeliberationUserMessage(
+                review,
+                fileContent,
+                testFileContent && testFileName ? { name: testFileName, content: testFileContent } : undefined,
+              ),
+              model: deliberationModel,
+              projectRoot,
+              abortController,
+              conversationDir: opts.conversationDir,
+              conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
+              semaphore: opts.semaphore,
+            },
+            DeliberationResponseSchema,
+          ),
           {
-            systemPrompt: buildDeliberationSystemPrompt(),
-            userMessage: buildDeliberationUserMessage(
-              review,
-              fileContent,
-              testFileContent && testFileName ? { name: testFileName, content: testFileContent } : undefined,
-            ),
-            model: deliberationModel,
-            projectRoot,
-            abortController,
-            conversationDir: opts.conversationDir,
-            conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
-            semaphore: opts.semaphore,
+            maxRetries: 3,
+            baseDelayMs: 5_000,
+            maxDelayMs: 60_000,
+            jitterFactor: 0.2,
+            filePath: task.file,
           },
-          DeliberationResponseSchema,
         );
 
         review = applyDeliberation(review, deliberationResult.data, projectRoot);
@@ -361,7 +373,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         transcriptParts.push(delibChunk);
         opts.onTranscriptChunk?.(delibChunk);
       } catch (err) {
-        const failChunk = `# Deliberation Pass — FAILED\n\n${String(err)}\n`;
+        const shortMsg = err instanceof AnatolyError ? err.message : String(err);
+        const failChunk = `# Deliberation Pass — FAILED\n\n${shortMsg}\n`;
         transcriptParts.push(failChunk);
         opts.onTranscriptChunk?.(failChunk);
         // Suppress noisy warnings when the user interrupted via Ctrl+C
@@ -369,7 +382,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
           const errFields = err instanceof AnatolyError
             ? err.toLogObject()
             : { errorMessage: String(err) };
-          contextLogger().warn({ file: task.file, ...errFields }, 'deliberation failed');
+          const dumpFile = err instanceof AnatolyError
+            ? err.writeDump(join(opts.runDir, 'errors'), `${toOutputName(task.file)}__deliberation`)
+            : undefined;
+          contextLogger().warn({ file: task.file, ...errFields, ...(dumpFile ? { dumpFile } : {}) }, 'deliberation failed');
         }
       }
     } else {

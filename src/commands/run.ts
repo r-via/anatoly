@@ -605,8 +605,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     : allTasks;
   const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
   estimateFiles = estimateTasks.length;
-  // Estimate row is pushed after triage so we can include the calibrated ETA
-  const estimateTokenLabel = `${estimateTasks.length} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached) \u00b7 ${formatTokenCount(inputTokens + outputTokens)} tokens`;
+  // estimateTokenLabel is built after triage so it reflects evalFileCount
   ctx.phaseDurations.estimate = Date.now() - estStart;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'estimate', durationMs: ctx.phaseDurations.estimate });
   const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
@@ -682,6 +681,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
   const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
   const calLabel = hasCal ? 'calibrated' : 'default';
+  const estimateTokenLabel = `${evalFileCount} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached) · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
   // Render setup summary table

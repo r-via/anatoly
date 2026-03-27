@@ -2,6 +2,9 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+
 export const ERROR_CODES = {
   CONFIG_INVALID: 'CONFIG_INVALID',
   CONFIG_NOT_FOUND: 'CONFIG_NOT_FOUND',
@@ -42,16 +45,20 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
  */
 export class AnatolyError extends Error {
   public readonly hint: string;
+  /** Verbose payload (partial transcript, full stack, etc.) kept out of console output. */
+  public readonly detail: string | undefined;
 
   constructor(
     message: string,
     public readonly code: ErrorCode,
     public readonly recoverable: boolean,
     hint?: string,
+    detail?: string,
   ) {
     super(message);
     this.name = 'AnatolyError';
     this.hint = hint ?? DEFAULT_HINTS[code] ?? '';
+    this.detail = detail;
   }
 
   /**
@@ -69,7 +76,8 @@ export class AnatolyError extends Error {
 
   /**
    * Serialize to a structured object suitable for pino log fields.
-   * Uses `errorMessage` (not `msg`) to avoid collision with pino's own `msg` field.
+   * Excludes stack and detail to keep console output concise —
+   * use {@link writeDump} to persist verbose diagnostics to disk.
    */
   toLogObject(): Record<string, unknown> {
     return {
@@ -77,7 +85,33 @@ export class AnatolyError extends Error {
       code: this.code,
       recoverable: this.recoverable,
       ...(this.hint ? { hint: this.hint } : {}),
-      stack: this.stack,
     };
+  }
+
+  /**
+   * Write a dump file with the full error details (message, stack, detail).
+   * Returns the absolute path to the written file, or `undefined` on failure.
+   */
+  writeDump(errorsDir: string, label: string): string | undefined {
+    try {
+      mkdirSync(errorsDir, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeLabel = label.replace(/[/\\]/g, '__').slice(0, 180);
+      const fileName = `${safeLabel}__${ts}.txt`;
+      const filePath = join(errorsDir, fileName);
+      const sections = [
+        `Code:    ${this.code}`,
+        `Message: ${this.message}`,
+        ...(this.hint ? [`Hint:    ${this.hint}`] : []),
+        '',
+        '--- stack trace ---',
+        this.stack ?? '(no stack)',
+        ...(this.detail ? ['', '--- detail ---', this.detail] : []),
+      ];
+      writeFileSync(filePath, sections.join('\n'));
+      return filePath;
+    } catch {
+      return undefined;
+    }
   }
 }
