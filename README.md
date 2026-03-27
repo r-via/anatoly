@@ -64,6 +64,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines, colored cost display
+- **Multi-provider LLM** (experimental) — Gemini 2.5 Flash routes utility, duplication, overengineering axes and NLP summarization at $0/token via Google OAuth. Circuit breaker auto-falls back to Claude on failure. Reduces Claude API calls by ~69%
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for the evaluation axes.
 
@@ -73,10 +74,10 @@ Every file is evaluated through seven independent axes, running in parallel. Eac
 
 | Axis | Default Model | Verdicts | What it detects |
 |------|---------------|----------|-----------------|
-| **Utility** | Haiku | `USED` `DEAD` `LOW_VALUE` | Dead or unused exports, low-value code |
-| **Duplication** | Haiku | `UNIQUE` `DUPLICATE` | Semantically similar functions across the codebase |
+| **Utility** | Gemini Flash | `USED` `DEAD` `LOW_VALUE` | Dead or unused exports, low-value code |
+| **Duplication** | Gemini Flash | `UNIQUE` `DUPLICATE` | Semantically similar functions across the codebase |
 | **Correction** | Sonnet | `OK` `NEEDS_FIX` `ERROR` | Bugs, logic errors, async issues (two-pass with dependency verification) |
-| **Overengineering** | Haiku | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
+| **Overengineering** | Gemini Flash | `LEAN` `OVER` `ACCEPTABLE` | Excessive complexity relative to purpose |
 | **Tests** | Sonnet | `GOOD` `WEAK` `NONE` | Test coverage quality per symbol |
 | **Best Practices** | Sonnet | Score 0-10, 17 rules | Language-specific best-practice violations (context-aware) |
 | **Documentation** | Sonnet | `DOCUMENTED` `PARTIAL` `UNDOCUMENTED` | JSDoc gaps on exports, /docs/ desynchronization |
@@ -101,6 +102,7 @@ Senior developers, Tech Leads, and teams working in TypeScript, Python, Rust, Go
 
 - Node.js >= 20.19
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- (Optional) Google OAuth for Gemini Code Assist — enables Gemini 2.5 Flash routing at $0/token
 
 ### Optional but recommended: GPU-accelerated embeddings
 
@@ -174,6 +176,7 @@ npx anatoly reset --keep-docs    # Wipe state but keep internal docs
 npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
 npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (Docker GGUF)
+npx anatoly providers            # Verify LLM connectivity (Claude + Gemini)
 
 # Useful flags
 npx anatoly run --dry-run        # Simulate: scan, estimate, triage — no API calls

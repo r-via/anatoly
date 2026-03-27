@@ -1,6 +1,6 @@
 {
   "name": "@r-via/anatoly",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "Deep Audit Agent for TypeScript codebases",
   "type": "module",
   "bin": {
@@ -58,6 +58,7 @@
   },
   "devDependencies": {
     "@commander-js/extra-typings": "^14.0.0",
+    "@google/gemini-cli-core": "^0.35.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.3.0",
     "@types/picomatch": "^4.0.2",
