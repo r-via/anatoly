@@ -10,17 +10,16 @@ import chalk from 'chalk';
  *
  * @property project - Optional project metadata (name, version, detected
  *   languages/frameworks). Omit for non-Node or anonymous projects.
- * @property config - Key-value rows for the "Configuration" section (e.g.
- *   model name, concurrency, docs path).
- * @property axes - Key-value rows for the "Evaluation Axes" section, listing
- *   the review axes enabled for this run and their configured weights/labels.
- * @property pipeline - Rows for the "Pipeline Summary" section, each showing
- *   a completed phase and a brief detail string.
+ * @property config - Key-value rows for the "Configuration" section.
+ * @property models - Left column of the "Used Models" section (axes + deliberation).
+ * @property modelsRight - Right column of the "Used Models" section (embeddings, chunking, etc.).
+ * @property pipeline - Rows for the "Pipeline Summary" section.
  */
 export interface SetupTableData {
   project?: { name: string; version: string; languages?: string; frameworks?: string };
   config: { key: string; value: string }[];
-  axes: { key: string; value: string }[];
+  models: { key: string; value: string }[];
+  modelsRight?: { key: string; value: string }[];
   pipeline: { phase: string; detail: string }[];
 }
 
@@ -42,18 +41,21 @@ export function shortModelName(model: string): string {
  * Renders a multi-section setup summary to stdout.
  *
  * When `plain` is `false`, outputs a Unicode box-drawing table with coloured
- * section headers (Project Info, Configuration, Evaluation Axes, Pipeline
+ * section headers (Project Info, Configuration, Used Models, Pipeline
  * Summary). When `plain` is `true`, outputs indented key-value lines without
  * box characters or ANSI colours, suitable for CI logs and piped output.
  *
- * Column widths are computed dynamically from the longest key and value across
- * all sections so the table aligns consistently.
+ * The "Used Models" section renders as two columns when `modelsRight` is
+ * provided, with widths computed dynamically from content.
  *
  * @param data - The {@link SetupTableData} to render.
  * @param plain - When `true`, emit plain-text output instead of a styled table.
  */
 export function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const checkPrefix = 2; // "✔ " visible chars prepended to pipeline phase
+  const gap = 4; // spacing between key and value columns
+  const hasRight = data.modelsRight && data.modelsRight.length > 0;
+
   // Build project rows for width calculation
   const projectRows: { key: string; value: string }[] = [];
   if (data.project) {
@@ -62,40 +64,70 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
     if (data.project.languages) projectRows.push({ key: 'languages', value: data.project.languages });
     if (data.project.frameworks) projectRows.push({ key: 'frameworks', value: data.project.frameworks });
   }
-  const allKeys = [
-    ...projectRows.map(r => r.key),
-    ...data.config.map(r => r.key),
-    ...data.axes.map(r => r.key),
-    ...data.pipeline.map(r => r.phase),
-  ];
-  const keyWidth = Math.max(...allKeys.map(k => k.length), checkPrefix);
 
-  const allValues = [
-    ...projectRows.map(r => r.value),
-    ...data.config.map(r => r.value),
-    ...data.axes.map(r => r.value),
-    ...data.pipeline.map(r => r.detail),
+  // --- Compute left-column widths (used by all single-column sections) ---
+  const singleColRows = [
+    ...projectRows,
+    ...data.config,
+    ...data.pipeline.map(r => ({ key: r.phase, value: r.detail })),
   ];
-  const valWidth = Math.max(...allValues.map(v => v.length));
+  const singleKeyWidth = Math.max(...singleColRows.map(r => r.key.length), checkPrefix, 0);
+  const singleValWidth = Math.max(...singleColRows.map(r => r.value.length), 0);
 
-  const gap = 4; // spacing between key and value columns
-  // inner width = 3 (left pad) + keyWidth + gap + valWidth + 2 (right pad)
-  const innerWidth = 3 + keyWidth + gap + valWidth + 2;
+  // --- Compute two-column models widths ---
+  const lKeyW = Math.max(...data.models.map(r => r.key.length), 0);
+  const lValW = Math.max(...data.models.map(r => r.value.length), 0);
+  const leftColWidth = 3 + lKeyW + gap + lValW; // pad + key + gap + value
+
+  let rKeyW = 0;
+  let rValW = 0;
+  if (hasRight) {
+    rKeyW = Math.max(...data.modelsRight!.map(r => r.key.length), 0);
+    rValW = Math.max(...data.modelsRight!.map(r => r.value.length), 0);
+  }
+  const rightColWidth = hasRight ? 2 + rKeyW + gap + rValW + 2 : 0; // pad + key + gap + value + pad
+  const separatorWidth = hasRight ? 3 : 0; // " │ "
+
+  // Models section inner width
+  const modelsInnerWidth = leftColWidth + separatorWidth + rightColWidth + 2; // +2 right pad
+
+  // Single-column inner width
+  const singleInnerWidth = 3 + singleKeyWidth + gap + singleValWidth + 2;
+
+  // Overall inner width = max of all sections
+  const innerWidth = Math.max(singleInnerWidth, modelsInnerWidth);
 
   if (plain) {
     if (data.project) {
       console.log(chalk.dim('  Project Info'));
-      console.log(`    ${'name'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.name}`);
-      console.log(`    ${'version'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.version}`);
-      if (data.project.languages) console.log(`    ${'languages'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.languages}`);
-      if (data.project.frameworks) console.log(`    ${'frameworks'.padEnd(keyWidth)}${' '.repeat(gap)}${data.project.frameworks}`);
+      console.log(`    ${'name'.padEnd(singleKeyWidth)}${' '.repeat(gap)}${data.project.name}`);
+      console.log(`    ${'version'.padEnd(singleKeyWidth)}${' '.repeat(gap)}${data.project.version}`);
+      if (data.project.languages) console.log(`    ${'languages'.padEnd(singleKeyWidth)}${' '.repeat(gap)}${data.project.languages}`);
+      if (data.project.frameworks) console.log(`    ${'frameworks'.padEnd(singleKeyWidth)}${' '.repeat(gap)}${data.project.frameworks}`);
     }
     console.log(chalk.dim('  Configuration'));
-    for (const r of data.config) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
-    console.log(chalk.dim('  Evaluation Axes'));
-    for (const r of data.axes) console.log(`    ${r.key.padEnd(keyWidth)}${' '.repeat(gap)}${r.value}`);
+    for (const r of data.config) console.log(`    ${r.key.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.value}`);
+    console.log(chalk.dim('  Used Models'));
+    const maxRows = Math.max(data.models.length, data.modelsRight?.length ?? 0);
+    for (let i = 0; i < maxRows; i++) {
+      const left = data.models[i];
+      const right = data.modelsRight?.[i];
+      let line = '    ';
+      if (left) {
+        line += `${left.key.padEnd(lKeyW)}${' '.repeat(gap)}${left.value}`;
+      } else {
+        line += ' '.repeat(lKeyW + gap + lValW);
+      }
+      if (hasRight) {
+        line += '    ';
+        if (right) {
+          line += `${right.key.padEnd(rKeyW)}${' '.repeat(gap)}${right.value}`;
+        }
+      }
+      console.log(line);
+    }
     console.log(chalk.dim('  Pipeline Summary'));
-    for (const r of data.pipeline) console.log(`    ✔ ${r.phase.padEnd(keyWidth)}${' '.repeat(gap)}${r.detail}`);
+    for (const r of data.pipeline) console.log(`    ✔ ${r.phase.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.detail}`);
     console.log('');
     return;
   }
@@ -109,15 +141,45 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
     return d(`  ${left}`) + color(labelPart) + d(`${line('─', dashes)}${right}`);
   };
 
-  const kvRow = (key: string, value: string) =>
-    `  ${d('│')}   ${key.padEnd(keyWidth)}${' '.repeat(gap)}${value.padEnd(valWidth)}  ${d('│')}`;
+  // Standard single-column row (padded to full innerWidth)
+  const kvRow = (key: string, value: string) => {
+    const content = `   ${key.padEnd(singleKeyWidth)}${' '.repeat(gap)}${value}`;
+    return `  ${d('│')}${content.padEnd(innerWidth)}${d('│')}`;
+  };
 
   const checkMark = chalk.green('✔');
-  // ✔ + space = checkPrefix visible chars; shrink phase pad to compensate
-  const pipelineRow = (phase: string, detail: string) =>
-    `  ${d('│')}   ${checkMark} ${phase.padEnd(keyWidth - checkPrefix)}${' '.repeat(gap)}${detail.padEnd(valWidth)}  ${d('│')}`;
+  const pipelineRow = (phase: string, detail: string) => {
+    const content = `   ${checkMark} ${phase.padEnd(singleKeyWidth - checkPrefix)}${' '.repeat(gap)}${detail}`;
+    return `  ${d('│')}${content.padEnd(innerWidth)}${d('│')}`;
+  };
 
   const emptyRow = `  ${d('│')}${' '.repeat(innerWidth)}${d('│')}`;
+
+  // Two-column row for the models section
+  const modelsRow = (leftItem: { key: string; value: string } | undefined, rightItem: { key: string; value: string } | undefined) => {
+    let leftPart = '';
+    if (leftItem) {
+      leftPart = `   ${leftItem.key.padEnd(lKeyW)}${' '.repeat(gap)}${leftItem.value.padEnd(lValW)}`;
+    } else {
+      leftPart = ' '.repeat(leftColWidth);
+    }
+
+    if (hasRight) {
+      const sep = ` ${d('│')} `;
+      let rightPart = '';
+      if (rightItem) {
+        rightPart = `${rightItem.key.padEnd(rKeyW)}${' '.repeat(gap)}${rightItem.value}`;
+      }
+      // Pad the full row to innerWidth
+      const rawContent = leftPart + sep + rightPart;
+      // We need to account for the chalk dim chars in sep for padding
+      const visibleLength = leftPart.length + 3 + rightPart.length;
+      const padding = Math.max(0, innerWidth - visibleLength);
+      return `  ${d('│')}${leftPart}${sep}${rightPart}${' '.repeat(padding)}${d('│')}`;
+    }
+
+    return `  ${d('│')}${leftPart.padEnd(innerWidth)}${d('│')}`;
+  };
 
   // project info section
   if (data.project) {
@@ -139,10 +201,13 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
   for (const r of data.config) console.log(kvRow(r.key, r.value));
   console.log(emptyRow);
 
-  // axes section
-  console.log(sectionBorder('Evaluation Axes', chalk.magenta, '├', '┤'));
+  // models section (two-column)
+  console.log(sectionBorder('Used Models', chalk.magenta, '├', '┤'));
   console.log(emptyRow);
-  for (const r of data.axes) console.log(kvRow(r.key, r.value));
+  const maxRows = Math.max(data.models.length, data.modelsRight?.length ?? 0);
+  for (let i = 0; i < maxRows; i++) {
+    console.log(modelsRow(data.models[i], data.modelsRight?.[i]));
+  }
   console.log(emptyRow);
 
   // pipeline section

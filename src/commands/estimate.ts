@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { resolve, join, basename } from 'node:path';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { estimateTasksTokens, formatTokenCount, loadTasks } from '../core/estimator.js';
@@ -16,6 +16,7 @@ import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { detectHardware, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
+import { countChangedDocs } from '../rag/doc-indexer.js';
 import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
@@ -62,15 +63,14 @@ export function registerEstimateCommand(program: Command): void {
       // --- Config rows ---
       const enableRag = config.rag.enabled;
       let ragLabel = 'off';
+      let resolvedRagSuffix: 'lite' | 'advanced' = 'lite';
       if (enableRag) {
         const hardware = detectHardware();
         const embeddingsReady = readEmbeddingsReadyFlag(projectRoot);
         const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
         const needsSidecar = canAdvanced && config.rag.code_model === 'auto';
-        const resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
-        ragLabel = resolvedRagMode === 'advanced'
-          ? 'advanced — code: nomic-7B / nlp: Qwen3-8B'
-          : 'lite — code: jina-v2 / nlp: MiniLM';
+        resolvedRagSuffix = needsSidecar ? 'advanced' : 'lite';
+        ragLabel = resolvedRagSuffix;
       }
 
       const configRows = [
@@ -79,12 +79,24 @@ export function registerEstimateCommand(program: Command): void {
         { key: 'cache', value: 'on' },
       ];
 
-      // --- Axes rows ---
+      // --- Models rows (left: axes, right: embeddings/chunking/summarization) ---
       const evaluators = getEnabledEvaluators(config);
-      const axesRows = evaluators.map(e => ({
+      const modelsLeft = evaluators.map(e => ({
         key: e.id as string,
         value: shortModelName(resolveAxisModel(e, config)),
       }));
+      const modelsRight: { key: string; value: string }[] = [];
+      if (enableRag) {
+        if (resolvedRagSuffix === 'advanced') {
+          modelsRight.push({ key: 'embeddings/code', value: 'nomic-embed-code Q5_K_M' });
+          modelsRight.push({ key: 'embeddings/nlp', value: 'Qwen3-8B Q5_K_M' });
+        } else {
+          modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
+          modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
+        }
+        modelsRight.push({ key: 'chunking', value: shortModelName(config.llm.index_model) });
+        modelsRight.push({ key: 'summarization', value: shortModelName(config.llm.index_model) });
+      }
 
       // --- Pipeline rows ---
       const pipelineRows: { phase: string; detail: string }[] = [];
@@ -104,6 +116,16 @@ export function registerEstimateCommand(program: Command): void {
         scanDetail = `${allTasks.length} files (${pending} new, ${cached} cached)`;
       }
       pipelineRows.push({ phase: 'scan', detail: scanDetail });
+      if (enableRag) {
+        const ragSuffix = resolvedRagSuffix;
+        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const projectDocs = countChangedDocs(projectRoot, docsPath, ragSuffix);
+        const internalDocs = countChangedDocs(projectRoot, join('.anatoly', 'docs'), ragSuffix);
+        const parts: string[] = [];
+        if (projectDocs) parts.push(`docs/ ${projectDocs.changed} changed, ${projectDocs.cached} cached`);
+        if (internalDocs) parts.push(`.anatoly/docs/ ${internalDocs.changed} changed, ${internalDocs.cached} cached`);
+        if (parts.length > 0) pipelineRows.push({ phase: 'scan (docs)', detail: parts.join(' · ') });
+      }
 
       // triage
       const tiers = { skip: 0, evaluate: 0 };
@@ -143,18 +165,9 @@ export function registerEstimateCommand(program: Command): void {
       const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, concurrency);
       const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
       const calLabel = hasCal ? 'calibrated' : 'default';
-      let estimateFileLabel = `${evalFileCount} files`;
-      if (progress) {
-        const cached = allTasks.filter(t => {
-          const entry = progress.files[t.file];
-          return entry && (entry.status === 'CACHED' || entry.status === 'DONE');
-        }).length;
-        const pending = allTasks.length - cached;
-        estimateFileLabel = `${evalFileCount} files (${pending} new, ${cached} cached)`;
-      }
-      const tokenLabel = `${estimateFileLabel} · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
+      const tokenLabel = `${evalFileCount} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
       pipelineRows.push({ phase: 'estimate', detail: `${tokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
-      renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, false);
+      renderSetupTable({ project: projectInfo, config: configRows, models: modelsLeft, modelsRight, pipeline: pipelineRows }, false);
     });
 }

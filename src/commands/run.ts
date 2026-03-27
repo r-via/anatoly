@@ -19,7 +19,7 @@ import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../cor
 import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
-import { indexProject, type RagIndexResult, type RagMode } from '../rag/index.js';
+import { indexProject, type RagIndexResult, type RagMode, refreshDocCacheShas, countChangedDocs } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
@@ -411,6 +411,19 @@ export function registerRunCommand(program: Command): void {
           await runWithContext({ phase: 'internal-docs' }, async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
+
+          // Refresh RAG doc cache SHAs so the next run doesn't re-chunk
+          // files that were just updated by the doc pipeline.
+          if (ctx.enableRag && ctx.resolvedRagMode) {
+            const cacheSuffix = ctx.resolvedRagMode; // 'lite' or 'advanced'
+            const internalDocsDir = join('.anatoly', 'docs');
+            const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
+            const intUpdated = refreshDocCacheShas(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
+            const projUpdated = refreshDocCacheShas(ctx.projectRoot, docsDir, cacheSuffix);
+            if (intUpdated + projUpdated > 0) {
+              ctx.renderer?.logPlain(`[rag] refreshed doc cache SHAs: ${intUpdated} internal, ${projUpdated} project`);
+            }
+          }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
         }
@@ -554,9 +567,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   const ragLabel = ctx.enableRag
-    ? ctx.resolvedRagMode === 'advanced'
-      ? `advanced — code: nomic-7B / nlp: Qwen3-8B`
-      : `lite — code: jina-v2 / nlp: MiniLM`
+    ? ctx.resolvedRagMode === 'advanced' ? 'advanced' : 'lite'
     : 'off';
   configRows.push(
     { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.llm.sdk_concurrency} SDK slots` },
@@ -567,14 +578,26 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   configRows.push({ key: 'run', value: ctx.runId });
   const depMeta = loadDependencyMeta(ctx.projectRoot);
 
-  // --- Build axes rows (resolve model per axis) ---
+  // --- Build models rows (left: axes, right: embeddings/chunking/summarization) ---
   const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
-  const axesRows: { key: string; value: string }[] = evaluators.map(e => ({
+  const modelsLeft: { key: string; value: string }[] = evaluators.map(e => ({
     key: e.id as string,
     value: shortModelName(resolveAxisModel(e, ctx.config)),
   }));
   if (ctx.deliberation) {
-    axesRows.push({ key: 'deliberation', value: shortModelName(ctx.config.llm.deliberation_model) });
+    modelsLeft.push({ key: 'deliberation', value: shortModelName(ctx.config.llm.deliberation_model) });
+  }
+  const modelsRight: { key: string; value: string }[] = [];
+  if (ctx.enableRag) {
+    if (ctx.resolvedRagMode === 'advanced') {
+      modelsRight.push({ key: 'embeddings/code', value: 'nomic-embed-code Q5_K_M' });
+      modelsRight.push({ key: 'embeddings/nlp', value: 'Qwen3-8B Q5_K_M' });
+    } else {
+      modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
+      modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
+    }
+    modelsRight.push({ key: 'chunking', value: shortModelName(ctx.config.llm.index_model) });
+    modelsRight.push({ key: 'summarization', value: shortModelName(ctx.config.llm.index_model) });
   }
 
   // --- Phase: scan ---
@@ -587,6 +610,16 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.phaseDurations.scan = scanDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
   pipelineRows.push({ phase: 'scan', detail: `${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)` });
+  if (ctx.enableRag) {
+    const ragSuffix = ctx.resolvedRagMode ?? 'lite';
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const projectDocs = countChangedDocs(ctx.projectRoot, docsPath, ragSuffix);
+    const internalDocs = countChangedDocs(ctx.projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
+    const parts: string[] = [];
+    if (projectDocs) parts.push(`docs/ ${projectDocs.changed} changed, ${projectDocs.cached} cached`);
+    if (internalDocs) parts.push(`.anatoly/docs/ ${internalDocs.changed} changed, ${internalDocs.cached} cached`);
+    if (parts.length > 0) pipelineRows.push({ phase: 'scan (docs)', detail: parts.join(' · ') });
+  }
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
   rl?.info(scanCompleted, 'phase completed');
@@ -681,11 +714,11 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
   const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
   const calLabel = hasCal ? 'calibrated' : 'default';
-  const estimateTokenLabel = `${evalFileCount} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached) · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
+  const estimateTokenLabel = `${evalFileCount} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
 
   // Render setup summary table
-  renderSetupTable({ project: projectInfo, config: configRows, axes: axesRows, pipeline: pipelineRows }, ctx.plain);
+  renderSetupTable({ project: projectInfo, config: configRows, models: modelsLeft, modelsRight, pipeline: pipelineRows }, ctx.plain);
 
   // Dry-run: show summary and exit before review
   if (ctx.dryRun) {

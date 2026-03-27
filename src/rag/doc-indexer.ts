@@ -116,6 +116,87 @@ export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docE
   writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
+/**
+ * Refresh doc-section cache SHAs to match current file content on disk.
+ *
+ * Call this after the doc-update pipeline has modified `.anatoly/docs/` files
+ * so that the next RAG run sees matching SHAs and skips re-chunking.
+ * Preserves existing sectionIds (vector store references remain valid).
+ * Also re-keys chunk cache entries so Haiku results are reusable.
+ *
+ * @returns Number of cache entries whose SHA was updated.
+ */
+export function refreshDocCacheShas(projectRoot: string, docsDir: string, cacheSuffix: string): number {
+  const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
+  if (Object.keys(cache).length === 0) return 0;
+
+  const absDocsDir = resolve(projectRoot, docsDir);
+  if (!existsSync(absDocsDir)) return 0;
+
+  const chunkCache = loadDocChunkCache(projectRoot, cacheSuffix);
+  let updated = 0;
+
+  for (const [relPath, entry] of Object.entries(cache)) {
+    const absPath = resolve(projectRoot, relPath);
+    if (!existsSync(absPath)) continue;
+
+    const content = readFileSync(absPath, 'utf-8');
+    const currentSha = computeDocSha(content);
+
+    if (currentSha !== entry.sha) {
+      // Re-key chunk cache entry so Haiku results map to the new SHA
+      const oldChunk = chunkCache[relPath];
+      if (oldChunk && oldChunk.sha === entry.sha) {
+        chunkCache[relPath] = { ...oldChunk, sha: currentSha };
+      }
+
+      entry.sha = currentSha;
+      updated++;
+    }
+  }
+
+  if (updated > 0) {
+    saveDocCacheToRagCache(projectRoot, cacheSuffix, cache);
+    saveDocChunkCache(projectRoot, cacheSuffix, chunkCache);
+  }
+
+  return updated;
+}
+
+/**
+ * Cheaply count how many doc files have changed vs cached (SHA comparison only, no chunking).
+ * Returns `null` when the docs directory does not exist.
+ */
+export function countChangedDocs(
+  projectRoot: string,
+  docsDir: string,
+  cacheSuffix: string,
+): { total: number; changed: number; cached: number } | null {
+  const absDocsDir = resolve(projectRoot, docsDir);
+  if (!existsSync(absDocsDir)) return null;
+
+  const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
+  if (files.length === 0) return { total: 0, changed: 0, cached: 0 };
+
+  const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);
+  let cached = 0;
+  let changed = 0;
+
+  for (const absPath of files) {
+    const relPath = relative(projectRoot, absPath);
+    const source = readFileSync(absPath, 'utf-8');
+    if (isScaffoldingOnly(source)) continue;
+    const sha = computeDocSha(source);
+    if (cache[relPath]?.sha === sha) {
+      cached++;
+    } else {
+      changed++;
+    }
+  }
+
+  return { total: changed + cached, changed, cached };
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
