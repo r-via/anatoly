@@ -92,8 +92,18 @@ export function renderDocReferenceSection(stats: DocReportStats): string {
         const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
         lines.push(`  Modules: ${modPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC with a docs page)`);
       }
+    } else if (stats.userDocsPageCount === 0) {
+      // No docs/ directory — show internal docs only
+      lines.push('Documentation coverage (.anatoly/docs/):');
+      lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+      lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
+      lines.push(`  Pages generated: ${stats.totalPages}`);
+      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+        const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+        lines.push(`  Modules: ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules} modules > 200 LOC in internal docs)`);
+      }
     } else {
-      // Separate tables for project docs and internal docs
+      // docs/ exists but diverges from .anatoly/docs/ — separate tables
       lines.push('Documentation coverage:');
       lines.push(`  Fully documented: ${projectPct}% (${Math.min(sc.projectDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);
       lines.push(`  At least partial: ${internalPct}% (${Math.min(sc.internalDocumented, sc.totalExports)}/${sc.totalExports} symbols)`);

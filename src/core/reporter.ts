@@ -1500,17 +1500,19 @@ function renderPublicDocSection(raw: string): string[] {
     lines.push('');
   }
 
-  // Detect synced mode (single unified table)
+  // Detect rendering mode from raw markers
   const isSynced = raw.includes('synced with .anatoly/docs/');
+  const isInternalOnly = raw.includes('Documentation coverage (.anatoly/docs/):');
 
   // Parse symbol coverage lines
   const fullyMatch = raw.match(/Fully documented:\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
   const partialMatch = raw.match(/At least partial:\s*(\d+)%\s*\((\d+)\/(\d+)\s*symbols\)/);
 
   if (fullyMatch || partialMatch) {
-    if (isSynced) {
-      // Synced: single unified table
-      const syncedModMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC with a docs page\)/);
+    if (isSynced || isInternalOnly) {
+      // Single table: synced or no docs/ directory
+      const syncedModMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC (?:with a docs page|in internal docs)\)/);
+      const intPagesMatch = raw.match(/Pages generated:\s*(\d+)/);
 
       lines.push('| Metric | Coverage | Description |');
       lines.push('|--------|----------|-------------|');
@@ -1530,11 +1532,19 @@ function renderPublicDocSection(raw: string): string[] {
         const bar = healthBar(pct);
         lines.push(`| Module guides | ${bar} ${pct}% (${syncedModMatch[2]}/${syncedModMatch[3]}) | Modules > 200 LOC with a dedicated docs page |`);
       }
+      if (intPagesMatch) {
+        lines.push(`| Reference pages | ${intPagesMatch[1]} pages | Auto-generated reference pages in .anatoly/docs/ |`);
+      }
       lines.push('');
-      lines.push('> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.');
+
+      if (isSynced) {
+        lines.push('> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.');
+      } else {
+        lines.push('> No `docs/` directory found. Copy `.anatoly/docs/` to `docs/` to adopt the generated documentation and speed up future Anatoly runs.');
+      }
       lines.push('');
     } else {
-      // Not synced: two separate tables
+      // Two separate tables: docs/ exists but diverges from .anatoly/docs/
       const modulesMatch = raw.match(/Modules:\s*(\d+)%\s*\((\d+)\/(\d+)\s*modules > 200 LOC in project docs\)/);
 
       lines.push('**Project docs (docs/):**');

@@ -360,8 +360,14 @@ function buildReportStats(
   const outdated = recommendations.filter(r => r.type === 'outdated_content').length;
   const syncByType = (toCreate > 0 || outdated > 0) ? { toCreate, outdated } : undefined;
 
+  // Use actual .anatoly/docs/ page count if idealPageCount is missing (e.g. cached run)
+  let totalPages = input.idealPageCount;
+  if (totalPages === 0 && existsSync(anatolyDocsDir)) {
+    totalPages = countMdFiles(anatolyDocsDir);
+  }
+
   return {
-    totalPages: input.idealPageCount,
+    totalPages,
     newPages,
     refreshedPages,
     cachedPages,
