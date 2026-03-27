@@ -200,10 +200,21 @@ export function registerRunCommand(program: Command): void {
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--verbose', 'show detailed operation logs')
-    .action(async (cmdOpts: { runId?: string; axes?: string; flushMemory?: boolean }) => {
+    .action(async (cmdOpts: {
+      runId?: string; axes?: string; flushMemory?: boolean;
+      concurrency?: number; sdkConcurrency?: number;
+      cache?: boolean; file?: string;
+      rag?: boolean; ragLite?: boolean; ragAdvanced?: boolean; rebuildRag?: boolean;
+      codeModel?: string; nlpModel?: string;
+      triage?: boolean; deliberation?: boolean;
+      badge?: boolean; badgeVerdict?: boolean;
+      open?: boolean; dryRun?: boolean; plain?: boolean; verbose?: boolean;
+    }) => {
       const projectRoot = resolve('.');
-      const parentOpts = program.opts();
-      const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+      // Sub-command options live in cmdOpts (Commander v14 scopes them to the
+      // active command).  Root-only options like --config are on program.opts().
+      const parentOpts = cmdOpts;
+      const config = loadConfig(projectRoot, program.opts().config as string | undefined);
 
       const cliConcurrency = parentOpts.concurrency as number | undefined;
       const concurrency = cliConcurrency ?? config.llm.concurrency;
@@ -1043,10 +1054,14 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     const newPages = scaffoldResult.scaffoldResult.pagesCreated.length;
 
     // Scope doc updates to modules whose source files were actually reviewed.
-    // Files with tier 'evaluate' in the triageMap are the ones that changed.
-    const changedFiles = new Set<string>();
-    for (const [file, triage] of ctx.triageMap) {
-      if (triage.tier === 'evaluate') changedFiles.add(file);
+    // When triage is disabled (--no-triage), triageMap is empty — pass undefined
+    // so runDocGeneration treats all pages as stale and regenerates everything.
+    let changedFiles: Set<string> | undefined;
+    if (ctx.triageEnabled) {
+      changedFiles = new Set<string>();
+      for (const [file, triage] of ctx.triageMap) {
+        if (triage.tier === 'evaluate') changedFiles.add(file);
+      }
     }
 
     // Generate only stale/new pages whose modules were touched (cache-aware)
