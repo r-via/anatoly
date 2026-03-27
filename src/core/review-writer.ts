@@ -238,6 +238,7 @@ export function renderReviewMarkdown(review: ReviewFile): string {
     };
     for (const a of review.actions) {
       const cat = a.category ?? 'refactor';
+      if (!byCategory[cat]) byCategory[cat] = [];
       byCategory[cat].push(a);
     }
 
