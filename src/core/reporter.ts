@@ -583,7 +583,7 @@ export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): 
   const lines: string[] = [];
   const name = axisDisplayName(report.axis);
 
-  lines.push(`[← Back to report](../public_report.md)`);
+  lines.push(`[← Back to report](../../public_report.md)`);
   lines.push('');
   lines.push(`# ${name}`);
   lines.push('');
@@ -753,7 +753,7 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
   const lines: string[] = [];
   const name = axisDisplayName(axis);
 
-  lines.push(`[← Back to ${name}](./index.md) · [← Back to report](../public_report.md)`);
+  lines.push(`[← Back to ${name}](./index.md) · [← Back to report](../../public_report.md)`);
   lines.push('');
   lines.push(`# ${name} — Shard ${shard.index}`);
   lines.push('');
