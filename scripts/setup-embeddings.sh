@@ -432,7 +432,6 @@ if wait_for_health "http://127.0.0.1:${GGUF_CODE_PORT}/health" 120; then
     log ok "GGUF code embedding OK (${CODE_DIM}d)"
   else
     log error "GGUF code embedding failed"
-    docker_rm "$CODE_CONTAINER"
     log warn "Falling back to lite mode"
     TIER="lite"
   fi
@@ -455,7 +454,7 @@ fi
 
 BACKEND="advanced-gguf"
 NLP_DIM=4096
-CODE_DIM="${CODE_DIM:-3584}"
+CODE_DIM="${CODE_DIM:-768}"
 
 # Step 7: Write final config
 write_embeddings_ready "$READY_FILE" \
