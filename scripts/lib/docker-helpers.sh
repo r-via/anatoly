@@ -142,6 +142,8 @@ wait_for_health() {
 # Wait for GGUF containers (both code + NLP)
 wait_for_gguf() {
   local timeout="${1:-180}"
+  local start remaining
+  start=$(date +%s)
   log info "Waiting for GGUF containers to load models..."
 
   if ! wait_for_health "http://127.0.0.1:${GGUF_CODE_PORT}/health" "$timeout"; then
@@ -150,7 +152,13 @@ wait_for_gguf() {
   fi
   log ok "GGUF code container ready"
 
-  if ! wait_for_health "http://127.0.0.1:${GGUF_NLP_PORT}/health" "$timeout"; then
+  remaining=$(( timeout - ($(date +%s) - start) ))
+  if [[ "$remaining" -le 0 ]]; then
+    log error "GGUF NLP container failed to start within ${timeout}s (no time remaining)"
+    return 1
+  fi
+
+  if ! wait_for_health "http://127.0.0.1:${GGUF_NLP_PORT}/health" "$remaining"; then
     log error "GGUF NLP container failed to start within ${timeout}s"
     return 1
   fi
@@ -251,7 +259,7 @@ embed_tei() {
 free_port() {
   local port="$1"
   local pid
-  pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1 {match($0, /pid=([0-9]+)/, m); if(m[1]) print m[1]}' | head -1)
+  pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
   if [[ -n "$pid" ]]; then
     log warn "Port ${port} in use by PID ${pid} — killing"
     kill "$pid" 2>/dev/null || true
