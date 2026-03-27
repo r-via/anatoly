@@ -330,6 +330,9 @@ export async function resolveRelevantDocsViaRag(
     }
   }
 
+  // Guard: reject null/undefined or zero-length embeddings before searching
+  if (!queryEmbedding || (Array.isArray(queryEmbedding) && queryEmbedding.length === 0)) return [];
+
   // 2. Search doc sections by similarity
   const results = await vectorStore.searchDocSections(queryEmbedding, RAG_MAX_SECTIONS);
 
