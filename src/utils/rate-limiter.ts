@@ -76,8 +76,8 @@ export function isRateLimitError(error: unknown): boolean {
     || msg.includes('500') || msg.includes('503')
     || msg.includes('exited with code');
 
-  if (error instanceof AnatolyError && (error.code === 'SDK_ERROR')) {
-    return check(error.message.toLowerCase());
+  if (error instanceof AnatolyError) {
+    return error.code === 'SDK_ERROR' && check(error.message.toLowerCase());
   }
   if (error instanceof Error) {
     return check(error.message.toLowerCase());
