@@ -92,7 +92,7 @@ export function getNlpDim(): number {
 let onnxFallbackPromise: Promise<any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
 async function embedViaOnnx(text: string): Promise<number[]> {
   if (!onnxFallbackPromise) {
-    onnxFallbackPromise = loadOnnxModel(DEFAULT_CODE_MODEL);
+    onnxFallbackPromise = loadOnnxModel(DEFAULT_CODE_MODEL).catch((err) => { onnxFallbackPromise = null; throw err; });
   }
   const model = await onnxFallbackPromise;
   const output = await model(text, { pooling: 'mean', normalize: true });
@@ -119,7 +119,7 @@ async function loadOnnxModel(modelId: string): Promise<any> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getCodeEmbedder(): Promise<any> {
   if (!codeEmbedderPromise) {
-    codeEmbedderPromise = loadOnnxModel(codeModelId);
+    codeEmbedderPromise = loadOnnxModel(codeModelId).catch((err) => { codeEmbedderPromise = null; throw err; });
   }
   return codeEmbedderPromise;
 }
@@ -134,7 +134,7 @@ function getNlpEmbedder(): Promise<any> {
     return getCodeEmbedder();
   }
   if (!nlpEmbedderPromise) {
-    nlpEmbedderPromise = loadOnnxModel(nlpModelId);
+    nlpEmbedderPromise = loadOnnxModel(nlpModelId).catch((err) => { nlpEmbedderPromise = null; throw err; });
   }
   return nlpEmbedderPromise;
 }
