@@ -1523,10 +1523,26 @@ function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number;
 
 /**
  * Build an emoji health bar: 🟩🟩🟩🟩🟩🟩🟩🟩⬜⬜ (10 squares, color by pct).
+ *
+ * When `highFindings` is provided, the color is degraded to reflect that
+ * a high percentage of "OK" symbols doesn't mean the codebase is healthy
+ * if there are many high-severity findings:
+ * - >= 20 high → red regardless of pct
+ * - >= 5 high → cap at yellow
+ * - >= 1 high → green only if pct >= 95%
  */
-function healthBar(pct: number): string {
+function healthBar(pct: number, highFindings = 0): string {
   const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
-  const square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  let square: string;
+  if (highFindings >= 20) {
+    square = '🟥';
+  } else if (highFindings >= 5) {
+    square = pct >= 50 ? '🟨' : '🟥';
+  } else if (highFindings >= 1) {
+    square = pct >= 95 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  } else {
+    square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  }
   return square.repeat(filled) + '⬜'.repeat(10 - filled);
 }
 
@@ -1795,9 +1811,8 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   for (const axis of REPORT_AXIS_IDS) {
     const name = axisDisplayName(axis);
     const { pct, label } = axisHealthPercent(data, axis);
-    const bar = healthBar(pct);
-
     const c = data.counts[countsKeyMap[axis]];
+    const bar = healthBar(pct, c.high);
     const parts: string[] = [];
     if (c.high > 0) parts.push(`${c.high} high`);
     if (c.medium > 0) parts.push(`${c.medium} med`);

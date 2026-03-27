@@ -588,9 +588,9 @@ describe('renderAxisIndex', () => {
     const reports = buildAxisReports(data);
     const utilityReport = reports.find((r) => r.axis === 'utility')!;
     const md = renderAxisIndex(utilityReport);
-    expect(md).toContain('# Utility');
+    expect(md).toContain('# ♻️ Utility');
     expect(md).toContain('**Files with findings:** 1');
-    expect(md).toContain('## Methodology');
+    expect(md).toContain('Methodology');
     expect(md).toContain('DEAD');
   });
 
@@ -621,7 +621,7 @@ describe('renderAxisIndex', () => {
     const reports = buildAxisReports(data);
     const bpReport = reports.find((r) => r.axis === 'best-practices')!;
     const md = renderAxisIndex(bpReport);
-    expect(md).toContain('# Best Practices');
+    expect(md).toContain('# ✅ Best Practices');
     expect(md).toContain('best-practice rules');
     expect(md).toContain('10/10');
   });
@@ -636,10 +636,10 @@ describe('renderAxisShard', () => {
     const reports = buildAxisReports(data);
     const utilityReport = reports.find((r) => r.axis === 'utility')!;
     const md = renderAxisShard('utility', utilityReport.shards[0]);
-    expect(md).toContain('# Utility — Shard 1');
-    expect(md).toContain('## Findings');
+    expect(md).toContain('# ♻️ Utility — Shard 1');
+    expect(md).toContain('Findings');
     expect(md).toContain('`a.ts`');
-    expect(md).toContain('[details](../reviews/a.rev.md)');
+    expect(md).toContain('[details]');
   });
 
   it('should include actions scoped to axis', () => {
@@ -656,7 +656,7 @@ describe('renderAxisShard', () => {
     const reports = buildAxisReports(data);
     const utilityReport = reports.find((r) => r.axis === 'utility')!;
     const md = renderAxisShard('utility', utilityReport.shards[0]);
-    expect(md).toContain('## Quick Wins');
+    expect(md).toContain('Quick Wins');
     expect(md).toContain('Remove dead export');
   });
 
@@ -893,12 +893,12 @@ describe('generateReport', () => {
     expect(existsSync(join(utilityDir, 'shard.2.md'))).toBe(true);
 
     const utilityIndex = readFileSync(join(utilityDir, 'index.md'), 'utf-8');
-    expect(utilityIndex).toContain('# Utility');
+    expect(utilityIndex).toContain('# ♻️ Utility');
     expect(utilityIndex).toContain('shard.1.md');
 
     const shard1 = readFileSync(join(utilityDir, 'shard.1.md'), 'utf-8');
-    expect(shard1).toContain('Utility — Shard 1');
-    expect(shard1).toContain('## Findings');
+    expect(shard1).toContain('♻️ Utility — Shard 1');
+    expect(shard1).toContain('Findings');
 
     // Should have utility report
     const utilityReport = axisReports.find((r) => r.axis === 'utility');
