@@ -55,6 +55,7 @@ log() {
     info)  [[ "$level" == "debug" ]] && return 0 ;;
     warn)  [[ "$level" == "debug" || "$level" == "info" || "$level" == "ok" ]] && return 0 ;;
     error) [[ "$level" != "error" ]] && return 0 ;;
+    *)     return 0 ;;  # unrecognised LOG_LEVEL — suppress all output
   esac
 
   # Color mapping
@@ -82,13 +83,21 @@ log() {
 # Section separator (visual only)
 # ---------------------------------------------------------------------------
 log_section() {
-  printf "\n" >&2
+  # Only emit blank lines when info-level output is visible
+  if [[ "$LOG_LEVEL" == "debug" || "$LOG_LEVEL" == "info" ]]; then
+    printf "\n" >&2
+  fi
   log info "═══════════════════════════════════════════════"
   log info "  $*"
   log info "═══════════════════════════════════════════════"
-  printf "\n" >&2
+  if [[ "$LOG_LEVEL" == "debug" || "$LOG_LEVEL" == "info" ]]; then
+    printf "\n" >&2
+  fi
 }
 
 log_separator() {
-  printf "  ─────────────────────────────────────────────\n" >&2
+  # Treat separator as info-level visual output
+  if [[ "$LOG_LEVEL" == "debug" || "$LOG_LEVEL" == "info" ]]; then
+    printf "  ─────────────────────────────────────────────\n" >&2
+  fi
 }
