@@ -18,7 +18,7 @@
   > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
   > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-2
-- [ ] Story 37.3: Create GeminiTransport
+- [x] Story 37.3: Create GeminiTransport
   > As a developer
   > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
   > So that Gemini Flash calls conform to the `LlmTransport` interface.
