@@ -853,6 +853,10 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
     tocEntries.push('- [🧪 Test Improvements](#-test-improvements)');
   }
 
+  if (axis === 'documentation' && shard.files.some((r) => r.docs_coverage?.concepts.some((c) => c.status !== 'COVERED'))) {
+    tocEntries.push('- [Documentation Coverage](#documentation-coverage)');
+  }
+
   for (const entry of tocEntries) lines.push(entry);
   lines.push('');
 
