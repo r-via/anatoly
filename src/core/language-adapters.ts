@@ -289,7 +289,7 @@ export class BashAdapter implements LanguageAdapter {
 
 // --- Python import extraction helpers ---
 
-const PY_IMPORT_ALL_RE = /^(?:from\s+(\S+)\s+import|import\s+(\S+))/gm;
+const PY_IMPORT_ALL_RE = /^(?:from\s+(\S+)\s+import|import\s+([^\s,]+))/gm;
 
 function extractPythonImports(source: string): ImportRef[] {
   const imports: ImportRef[] = [];
@@ -624,13 +624,26 @@ export class GoAdapter implements LanguageAdapter {
           if (spec.type !== 'const_spec') continue;
           const nameNode = spec.childForFieldName('name');
           if (!nameNode) continue;
-          symbols.push({
-            name: nameNode.text,
-            kind: 'constant',
-            exported: isGoExported(nameNode.text),
-            line_start: spec.startPosition.row + 1,
-            line_end: spec.endPosition.row + 1,
-          });
+          // Handle identifier_list for multi-name const declarations (e.g. `const A, B = 1, 2`)
+          if (nameNode.type === 'identifier_list') {
+            for (const id of nameNode.namedChildren) {
+              symbols.push({
+                name: id.text,
+                kind: 'constant',
+                exported: isGoExported(id.text),
+                line_start: spec.startPosition.row + 1,
+                line_end: spec.endPosition.row + 1,
+              });
+            }
+          } else {
+            symbols.push({
+              name: nameNode.text,
+              kind: 'constant',
+              exported: isGoExported(nameNode.text),
+              line_start: spec.startPosition.row + 1,
+              line_end: spec.endPosition.row + 1,
+            });
+          }
         }
       }
     }
@@ -751,17 +764,24 @@ export class JavaAdapter implements LanguageAdapter {
     } else if (node.type === 'field_declaration') {
       const isFinal = hasJavaModifier(node, 'final');
       const exported = hasJavaModifier(node, 'public');
-      const declarator = node.childForFieldName('declarator');
-      if (!declarator) return;
-      const nameNode = declarator.childForFieldName('name');
-      if (!nameNode) return;
-      symbols.push({
-        name: nameNode.text,
-        kind: isFinal ? 'constant' : 'variable',
-        exported,
-        line_start: node.startPosition.row + 1,
-        line_end: node.endPosition.row + 1,
-      });
+      // Iterate all variable_declarator children to handle multi-variable declarations (e.g. `int a, b;`)
+      const declarators = node.namedChildren.filter((c) => c.type === 'variable_declarator');
+      // Fall back to childForFieldName('declarator') for single-declarator case
+      if (declarators.length === 0) {
+        const single = node.childForFieldName('declarator');
+        if (single) declarators.push(single);
+      }
+      for (const declarator of declarators) {
+        const nameNode = declarator.childForFieldName('name');
+        if (!nameNode) continue;
+        symbols.push({
+          name: nameNode.text,
+          kind: isFinal ? 'constant' : 'variable',
+          exported,
+          line_start: node.startPosition.row + 1,
+          line_end: node.endPosition.row + 1,
+        });
+      }
     }
   }
 }
