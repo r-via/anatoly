@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { resolveAxisModel, resolveNlpModel, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
+import { resolveAxisModel, resolveNlpModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
+import type { AxisTiming } from './file-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigSchema } from '../schemas/config.js';
@@ -329,5 +330,65 @@ describe('resolveSemaphore', () => {
     const claude = new Semaphore(24);
     const gemini = new Semaphore(12);
     expect(resolveSemaphore('gemini-2.5-flash', claude, gemini)).toBe(gemini);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 39.2: buildProviderStats — provider breakdown for run-metrics
+// ---------------------------------------------------------------------------
+
+function makeTiming(axisId: string, provider: 'anthropic' | 'gemini', costUsd = 0.05): AxisTiming {
+  return {
+    axisId: axisId as AxisTiming['axisId'],
+    provider,
+    costUsd,
+    durationMs: 100,
+    inputTokens: 500,
+    outputTokens: 200,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  };
+}
+
+describe('buildProviderStats', () => {
+  it('AC 39.2.1: returns providers object with anthropic and gemini breakdowns', () => {
+    const timings: AxisTiming[] = [
+      makeTiming('utility', 'gemini', 0),
+      makeTiming('duplication', 'gemini', 0),
+      makeTiming('correction', 'anthropic', 0.10),
+      makeTiming('best_practices', 'anthropic', 0.12),
+    ];
+    const stats = buildProviderStats(timings);
+    expect(stats.providers.anthropic).toEqual({ calls: 2, costUsd: 0.22 });
+    expect(stats.providers.gemini).toEqual({ calls: 2, costUsd: 0 });
+  });
+
+  it('AC 39.2.1: computes claude_quota_saved_pct', () => {
+    const timings: AxisTiming[] = [
+      makeTiming('utility', 'gemini', 0),
+      makeTiming('duplication', 'gemini', 0),
+      makeTiming('overengineering', 'gemini', 0),
+      makeTiming('correction', 'anthropic', 0.10),
+    ];
+    const stats = buildProviderStats(timings);
+    // 3 out of 4 calls routed to Gemini = 75%
+    expect(stats.claude_quota_saved_pct).toBe(75);
+  });
+
+  it('returns 0% quota saved when no Gemini calls', () => {
+    const timings: AxisTiming[] = [
+      makeTiming('correction', 'anthropic', 0.10),
+      makeTiming('best_practices', 'anthropic', 0.12),
+    ];
+    const stats = buildProviderStats(timings);
+    expect(stats.claude_quota_saved_pct).toBe(0);
+    expect(stats.providers.gemini).toEqual({ calls: 0, costUsd: 0 });
+  });
+
+  it('handles empty timings', () => {
+    const stats = buildProviderStats([]);
+    expect(stats.claude_quota_saved_pct).toBe(0);
+    expect(stats.providers.anthropic).toEqual({ calls: 0, costUsd: 0 });
+    expect(stats.providers.gemini).toEqual({ calls: 0, costUsd: 0 });
   });
 });

@@ -208,6 +208,40 @@ export function resolveNlpModel(config: Config): string {
 }
 
 /**
+ * Build per-provider stats from axis timing data.
+ * Returns a `providers` object with call counts and cost per provider,
+ * plus `claude_quota_saved_pct` indicating what percentage of calls were offloaded to Gemini.
+ */
+export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic' | 'gemini'; costUsd: number }>): {
+  providers: { anthropic: { calls: number; costUsd: number }; gemini: { calls: number; costUsd: number } };
+  claude_quota_saved_pct: number;
+} {
+  const anthropic = { calls: 0, costUsd: 0 };
+  const gemini = { calls: 0, costUsd: 0 };
+
+  for (const t of timings) {
+    if (t.provider === 'gemini') {
+      gemini.calls++;
+      gemini.costUsd += t.costUsd;
+    } else {
+      anthropic.calls++;
+      anthropic.costUsd += t.costUsd;
+    }
+  }
+
+  // Round cost to avoid floating point noise
+  anthropic.costUsd = Math.round(anthropic.costUsd * 100) / 100;
+  gemini.costUsd = Math.round(gemini.costUsd * 100) / 100;
+
+  const total = anthropic.calls + gemini.calls;
+  const claude_quota_saved_pct = total > 0
+    ? Math.round((gemini.calls / total) * 100)
+    : 0;
+
+  return { providers: { anthropic, gemini }, claude_quota_saved_pct };
+}
+
+/**
  * Resolve the model for the deliberation pass.
  */
 export function resolveDeliberationModel(config: Config): string {

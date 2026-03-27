@@ -21,7 +21,7 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
 import { resolveRelevantDocs, resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
-import { resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
+import { resolveAxisModel, resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
 import {
   DeliberationResponseSchema,
   buildDeliberationSystemPrompt,
@@ -90,6 +90,8 @@ export interface EvaluateFileOptions {
 
 export interface AxisTiming {
   axisId: AxisId;
+  /** LLM provider used for this axis call ('anthropic' or 'gemini'). */
+  provider: 'anthropic' | 'gemini';
   costUsd: number;
   durationMs: number;
   inputTokens: number;
@@ -411,15 +413,20 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
-  const axisTiming: AxisTiming[] = successResults.map((r) => ({
-    axisId: r.axisId,
-    costUsd: r.costUsd,
-    durationMs: r.durationMs,
-    inputTokens: r.inputTokens,
-    outputTokens: r.outputTokens,
-    cacheReadTokens: r.cacheReadTokens,
-    cacheCreationTokens: r.cacheCreationTokens,
-  }));
+  const axisTiming: AxisTiming[] = successResults.map((r) => {
+    const ev = evaluators.find(e => e.id === r.axisId);
+    const model = ev ? resolveAxisModel(ev, opts.config) : '';
+    return {
+      axisId: r.axisId,
+      provider: (model.startsWith('gemini-') ? 'gemini' : 'anthropic') as 'anthropic' | 'gemini',
+      costUsd: r.costUsd,
+      durationMs: r.durationMs,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      cacheReadTokens: r.cacheReadTokens,
+      cacheCreationTokens: r.cacheCreationTokens,
+    };
+  });
 
   return {
     review,

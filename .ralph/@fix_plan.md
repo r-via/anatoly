@@ -85,7 +85,7 @@
   > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
   > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
   > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-1
-- [ ] Story 39.2: Add provider field to logs and run metrics
+- [x] Story 39.2: Add provider field to logs and run metrics
   > As a developer
   > I want structured logs and run metrics to include the provider for each LLM call
   > So that I can analyze quota usage and performance by provider.
