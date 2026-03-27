@@ -78,7 +78,7 @@
 ### RAG NLP on Gemini + Observability
 > Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
 
-- [ ] Story 39.1: Route NLP summarization to Gemini Flash
+- [x] Story 39.1: Route NLP summarization to Gemini Flash
   > As a user
   > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
   > So that I save $2+ per run on Haiku costs.

@@ -50,7 +50,7 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory } from '../core/correction-memory.js';
-import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveNlpModel, type AxisId } from '../core/axis-evaluator.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -1253,7 +1253,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
   let ragResult: RagIndexResult | undefined;
 
-  const indexModel = ctx.config.llm.index_model;
+  const indexModel = resolveNlpModel(ctx.config);
   const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
   mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
   const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });

@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { resolveAxisModel, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
+import { resolveAxisModel, resolveNlpModel, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigSchema } from '../schemas/config.js';
@@ -120,6 +120,38 @@ describe('resolveAxisModel', () => {
     const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
     // Should fall back to Claude behavior
     expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 39.1: resolveNlpModel — Gemini NLP routing
+// ---------------------------------------------------------------------------
+
+describe('resolveNlpModel', () => {
+  it('AC 39.1.1: returns gemini nlp_model when Gemini is enabled', () => {
+    const config = makeConfig({
+      llm: { gemini: { enabled: true, nlp_model: 'gemini-2.5-flash' } },
+    });
+    expect(resolveNlpModel(config)).toBe('gemini-2.5-flash');
+  });
+
+  it('AC 39.1.2: returns index_model when Gemini is disabled', () => {
+    const config = makeConfig({
+      llm: { index_model: 'claude-haiku-4-5-20251001', gemini: { enabled: false } },
+    });
+    expect(resolveNlpModel(config)).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('returns index_model by default (gemini not configured)', () => {
+    const config = makeConfig();
+    expect(resolveNlpModel(config)).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('uses custom nlp_model when Gemini is enabled with override', () => {
+    const config = makeConfig({
+      llm: { gemini: { enabled: true, nlp_model: 'gemini-custom-nlp' } },
+    });
+    expect(resolveNlpModel(config)).toBe('gemini-custom-nlp');
   });
 });
 

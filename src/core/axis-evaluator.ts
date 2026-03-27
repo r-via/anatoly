@@ -197,6 +197,17 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
 }
 
 /**
+ * Resolve the model for NLP summarization during RAG indexing.
+ * When Gemini is enabled, uses gemini.nlp_model; otherwise falls back to index_model (Haiku).
+ */
+export function resolveNlpModel(config: Config): string {
+  if (config.llm.gemini.enabled) {
+    return config.llm.gemini.nlp_model;
+  }
+  return config.llm.index_model;
+}
+
+/**
  * Resolve the model for the deliberation pass.
  */
 export function resolveDeliberationModel(config: Config): string {
