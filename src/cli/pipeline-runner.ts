@@ -274,6 +274,7 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
 
         let resultText = '';
         let costUsd = 0;
+        let gotRealResult = false;
         let rateLimitResetsAt: number | undefined;
 
         for await (const message of q) {
@@ -290,6 +291,7 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
             if (message.subtype === 'success') {
               resultText = (message as { result: string }).result;
               costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+              gotRealResult = true;
             } else {
               const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
@@ -297,8 +299,8 @@ function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor
           }
         }
 
-        // Tier-level rate limit: SDK returned "success" with rate limit text
-        if (rateLimitResetsAt != null && costUsd === 0) {
+        // Tier-level rate limit: SDK emitted a rejected rate_limit_event but no real result
+        if (rateLimitResetsAt != null && !gotRealResult) {
           throw new RateLimitStandbyError(rateLimitResetsAt);
         }
 
