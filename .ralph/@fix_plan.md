@@ -2,7 +2,110 @@
 
 ## Stories to Implement
 
-- [x] Story 29.1: Project Type Detection
+### Gemini Provider Foundation
+> Goal: Users can enable Gemini in `.anatoly.yml`, verify connectivity via `anatoly providers`, and confirm their Google auth works. The transport abstraction is in place, both providers are wired, but no axes are routed yet.
+
+- [x] Story 1.1: Create LlmTransport interface and TransportRouter
+  > As a developer
+  > I want a common `LlmTransport` interface that abstracts LLM I/O
+  > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
+  > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-1
+- [x] Story 1.2: Create AnthropicTransport wrapping existing execQuery()
+  > As a developer
+  > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
+  > So that it conforms to the `LlmTransport` interface without any behavior change.
+  > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
+  > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-2
+- [x] Story 1.3: Create GeminiTransport
+  > As a developer
+  > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
+  > So that Gemini Flash calls conform to the `LlmTransport` interface.
+  > AC: Given `src/core/transports/gemini-transport.ts` exists, When `GeminiTransport` is constructed with `projectRoot` and `model`, Then it lazy-initializes a `Config` + `geminiClient` on first `query()` call, And auth uses `getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE`
+  > AC: Given `GeminiTransport.query()` is called, When the system prompt and user message are provided, Then it calls `client.resetChat()` before each call (history isolation), Then it sets the system instruction via `client.getChat().setSystemInstruction()`, Then it consumes `sendMessageStream()` and assembles text from `content` events, Then it extracts `usageMetadata` from the `finished` event, Then it returns `LlmResponse` with `costUsd: 0`, correct token counts, and a transcript
+  > AC: Given `supports(model)` is called, When model starts with `gemini-`, Then returns `true`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-3
+- [x] Story 1.4: Add GeminiConfigSchema to .anatoly.yml
+  > As a user
+  > I want to configure Gemini provider settings in `.anatoly.yml`
+  > So that I can opt-in to Gemini routing and customize model names.
+  > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
+  > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-4
+- [x] Story 1.5: Gemini auth check and graceful fallback
+  > As a user
+  > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
+  > So that my run is never blocked by a missing Google login.
+  > AC: Given Gemini is enabled but auth fails, When the run starts, Then a warning is displayed: `⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.`, And Gemini is disabled for this run (non-blocking), And all axes route to Claude as if `gemini.enabled: false`
+  > AC: Given Gemini is enabled and auth succeeds, When the run starts, Then Gemini transport is initialized and ready for routing
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-5
+- [x] Story 1.6: Create `anatoly providers` command
+  > As a user
+  > I want to run `anatoly providers` to verify that each configured provider is reachable
+  > So that I can diagnose auth and connectivity issues before starting a run.
+  > AC: Given I run `anatoly providers`, When Claude API key is valid and Gemini auth is valid, Then a table is displayed with: Provider, Model, Status (✓/✗), Latency, Auth method, And each provider/model is tested with a minimal prompt ("Respond OK")
+  > AC: Given I run `anatoly providers --json`, When the tests complete, Then JSON output is produced with `{ providers: [{ provider, model, status, latencyMs, auth }] }`
+  > AC: Given Gemini is not enabled in config, When I run `anatoly providers`, Then only Claude models are tested (no Gemini rows)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-1-6
+### Review Axes on Gemini Flash
+> Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
+
+- [x] Story 2.1: Route review axes to Gemini via defaultGeminiMode
+  > As a user
+  > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
+  > So that my Claude quota is preserved for the quality-critical axes.
+  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator with `defaultGeminiMode: 'flash'`, Then it returns `config.llm.gemini.flash_model` (e.g. `gemini-3-flash-preview`)
+  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator without `defaultGeminiMode` (correction, best_practices), Then it returns the Claude model (existing behavior unchanged)
+  > AC: Given an explicit per-axis override exists (`config.llm.axes[axis].model`), When `resolveAxisModel()` is called, Then the override takes precedence over Gemini routing
+  > AC: Given `file-evaluator.ts` runs the axes, When the resolved model starts with `gemini-`, Then the `GeminiTransport` is used for that axis call, And the Gemini semaphore is used (not the Claude semaphore)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-2-1
+- [ ] Story 2.2: Separate concurrency semaphores for Claude and Gemini
+  > As a system
+  > I want Claude and Gemini to have independent concurrency semaphores
+  > So that rate limits on one provider don't throttle the other.
+  > AC: Given a run with Gemini enabled, When the pipeline starts, Then two semaphores are created: Claude (`sdk_concurrency`, default 24) and Gemini (`gemini.sdk_concurrency`, default 12)
+  > AC: Given an axis resolved to Gemini, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Gemini semaphore
+  > AC: Given an axis resolved to Claude, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Claude semaphore
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-2-2
+- [ ] Story 2.3: Implement circuit breaker for Gemini fallback
+  > As a system
+  > I want to stop sending requests to Gemini after 3 consecutive failures and fall back to Claude
+  > So that a Gemini outage doesn't stall the entire run.
+  > AC: Given Gemini transport encounters 3 consecutive errors (429, timeout, or connection error), When the circuit breaker trips, Then all subsequent Gemini-routed calls for this run are redirected to Claude, And a single CLI warning is displayed: `⚠ Gemini quota exhausted — falling back to Claude`, And the circuit breaker state is logged in structured logs
+  > AC: Given the circuit breaker is tripped, When 5 minutes have elapsed, Then the circuit breaker enters half-open state and allows one test call, Then the circuit breaker resets and Gemini routing resumes
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-2-3
+### RAG NLP on Gemini + Observability
+> Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
+
+- [x] Story 3.1: Route NLP summarization to Gemini Flash
+  > As a user
+  > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
+  > So that I save $2+ per run on Haiku costs.
+  > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
+  > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-3-1
+- [x] Story 3.2: Add provider field to logs and run metrics
+  > As a developer
+  > I want structured logs and run metrics to include the provider for each LLM call
+  > So that I can analyze quota usage and performance by provider.
+  > AC: Given a run with Gemini enabled completes, When I inspect `run-metrics.json`, Then it includes a `providers` object: `{ anthropic: { calls, axes }, gemini: { calls, axes } }`, And it includes `claude_quota_saved_pct`
+  > AC: Given a run with Gemini enabled, When I inspect `anatoly.ndjson` structured logs, Then each `llm_call` event includes `provider: 'anthropic' | 'gemini'`
+  > AC: Given a run completes, When the CLI summary is displayed, Then cost line shows: `Cost: $X (Claude) · $0.00 (Gemini)`, And quota line shows: `Quota: N Claude · M Gemini (−X%)`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-3-2
+### Quality Validation
+> Goal: Developers validate that Gemini routing produces equivalent quality via gold-set comparison against Claude reference results.
+
+- [x] Story 4.1: Gold-set validation — Gemini vs Claude comparison
+  > As a developer
+  > I want to compare Gemini results against Claude reference results on a gold-set
+  > So that I can validate quality before enabling Gemini in production.
+  > AC: Given a gold-set of files from the rustguard project (aead.rs, timers.rs), When I run the comparison script, Then utility accuracy is ≥95% vs Claude reference, And overengineering accuracy is ≥85% vs Claude reference, And NLP summary produces valid schema output for ≥90% of files
+  > AC: Given the spike scripts exist in `spike/`, When validation is complete, Then the spike directory can be cleaned up (scripts are throwaway)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-4-1
+### 
+
+- [ ] Story 29.1: Project Type Detection
   > As a **developer running Anatoly**
   > I want Anatoly to **automatically detect my project type(s)** from package.json
   > So that the documentation structure is **tailored to my stack**.
@@ -11,7 +114,7 @@
   > AC: Given a project with `workspaces` in package.json, When Anatoly runs the project type detector, Then it returns `['Monorepo', ...other detected types]`
   > AC: Given a project with no recognized framework dependencies, When Anatoly runs the project type detector, Then it returns `['Library']` as default
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-1
-- [x] Story 29.2: Documentation Structure Scaffolder
+- [ ] Story 29.2: Documentation Structure Scaffolder
   > As a **developer running Anatoly**
   > I want Anatoly to **generate the ideal documentation file structure** in `.anatoly/docs/`
   > So that I can **see at a glance what documentation my project should have**.
@@ -20,7 +123,7 @@
   > AC: Given `.anatoly/docs/` already exists from a previous run, When Anatoly runs the doc scaffolder, Then new pages are added but existing pages are NOT overwritten, And `index.md` is regenerated to reflect the current structure
   > AC: Given Anatoly runs on any project, When the scaffolder finishes, Then it NEVER writes any file inside the project's `docs/` directory
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-2
-- [x] Story 29.3: Scaffolding Hints in Generated Pages
+- [ ] Story 29.3: Scaffolding Hints in Generated Pages
   > As a **developer reading scaffolded documentation**
   > I want each empty page to contain **contextual writing hints** in HTML comments
   > So that I know **exactly what to write** in each section without reading the standard.
@@ -28,7 +131,7 @@
   > AC: Given a scaffolded page for a Backend API project's `04-API-Reference/04-REST-Endpoints.md`, When a developer opens it, Then the hints reference the actual detected routes/controllers from the source code, And the hints are project-context-aware (not generic)
   > AC: Given a previously scaffolded page that was filled with content, When the scaffolder runs again, Then it does NOT overwrite the filled content or re-add hints
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-3
-- [x] Story 29.4: Module Granularity Resolution
+- [ ] Story 29.4: Module Granularity Resolution
   > As a **developer running Anatoly**
   > I want the `05-Modules/` section to be **correctly granular** — not one giant page, not 50 tiny pages
   > So that each module page is **useful and appropriately scoped**.
@@ -37,7 +140,7 @@
   > AC: Given `src/helpers/format.ts` has 80 LOC, When the scaffolder resolves module granularity, Then it does NOT create a page for it (< 200 LOC, skipped)
   > AC: Given `src/rag/doc-indexer.ts` has 500+ LOC, When the scaffolder resolves module granularity, Then it creates `05-Modules/doc-indexer.md` (file-level, single large file)
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-4
-- [x] Story 29.5: Code → Documentation Mapping with Fallback
+- [ ] Story 29.5: Code → Documentation Mapping with Fallback
   > As a **developer running Anatoly on a non-standard project layout**
   > I want the scaffolder to **correctly map source directories to doc pages** even when directory names don't match conventions
   > So that **every significant module gets a documentation page**.
@@ -46,7 +149,7 @@
   > AC: Given a project with `src/data-layer/` (non-standard name, > 200 LOC), When no convention or synonym matches, Then it creates `05-Modules/data-layer.md` as catch-all
   > AC: Given any project, When the scaffolder finishes, Then every source directory with > 200 LOC total has at least one corresponding doc page
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-5
-- [x] Story 29.6: Guard Test — Anatoly Never Writes to docs/
+- [ ] Story 29.6: Guard Test — Anatoly Never Writes to docs/
   > As a **project maintainer**
   > I want a **guaranteed invariant** that Anatoly never writes to `docs/`
   > So that my existing documentation is **never modified without my consent** (only Ralph can do that).
@@ -54,7 +157,7 @@
   > AC: Given the scaffolder creates `.anatoly/docs/`, When a bug or regression attempts to write to `docs/`, Then the guard test catches it and the test suite fails
   > AC: Given a new contributor adds a `writeFile` call in the pipeline, When the target path resolves to `docs/`, Then CI fails with a clear error message explaining the invariant
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-6
-- [x] Story 29.7: Source Code Analysis for Documentation
+- [ ] Story 29.7: Source Code Analysis for Documentation
   > As a **developer running Anatoly**
   > I want Anatoly to **extract the relevant source code context** for each scaffolded doc page
   > So that the LLM can generate **accurate, concrete documentation** based on real code.
@@ -63,7 +166,7 @@
   > AC: Given a scaffolded page `02-Architecture/01-System-Overview.md`, When Anatoly prepares the generation context, Then it extracts the top-level source tree, module responsibilities (from directory names + export analysis), and the data flow between modules (from import graph)
   > AC: Given any page, When the extracted context exceeds 8000 tokens, Then it is truncated by priority: exported signatures first, then body snippets, then internal helpers
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-7
-- [x] Story 29.8: LLM Page Content Generation
+- [ ] Story 29.8: LLM Page Content Generation
   > As a **developer running Anatoly**
   > I want Anatoly to **generate complete documentation content** for each page in `.anatoly/docs/`
   > So that `.anatoly/docs/` is a **usable, readable documentation reference** — not just a skeleton.
@@ -74,7 +177,7 @@
   > AC: Given any page in `04-API-Reference/`, When Anatoly generates the content, Then each documented function/endpoint/component includes at least 1 complete usage example with realistic arguments AND expected output/response, And examples are copy-pasteable and use real function names from the project
   > AC: Given generation for a full project (20+ pages), When the LLM generates all pages, Then the default model is Haiku, And total generation cost is < $0.05 for a 50-file project
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-8
-- [x] Story 29.9: Incremental Cache (SHA-256 per Page)
+- [ ] Story 29.9: Incremental Cache (SHA-256 per Page)
   > As a **developer running Anatoly repeatedly**
   > I want `.anatoly/docs/` to update **only the pages whose source code has changed**
   > So that second runs are **fast (> 90% cache hit) and cheap (near-zero LLM cost)**.
@@ -83,7 +186,7 @@
   > AC: Given a new file `src/core/new-module.ts` (> 200 LOC) is added, When Anatoly runs again, Then a new page `05-Modules/new-module.md` is scaffolded and generated, And `index.md` is regenerated to include the new page
   > AC: Given a file `src/utils/old-helper.ts` is deleted, When Anatoly runs again, Then the corresponding page in `.anatoly/docs/` is removed, And `index.md` is updated to remove the entry
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-9
-- [x] Story 29.10: Documentation Scoring Integration
+- [ ] Story 29.10: Documentation Scoring Integration
   > As a **developer reading an Anatoly audit report**
   > I want the report to include a **project-level documentation score** based on 5 weighted dimensions
   > So that I can understand my **overall documentation health at a glance**.
@@ -91,7 +194,7 @@
   > AC: Given a Backend API + ORM project, When the scoring runs, Then the weights are adjusted: +10% on REST Endpoints + Auth documented, +10% on Data Model + Migrations documented
   > AC: Given a project with no `docs/` directory at all, When the scoring runs, Then the structural score is 0% and the verdict is UNDOCUMENTED, And the report shows `.anatoly/docs/` coverage as 100% (ideal reference exists), And the sync gap shows the full count of pages needed
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-10
-- [x] Story 29.11: Documentation Reference Section in Report
+- [ ] Story 29.11: Documentation Reference Section in Report
   > As a **developer reading an Anatoly audit report**
   > I want to see a **clear summary of `.anatoly/docs/` status and the delta with my `docs/`**
   > So that I know **exactly what's generated, what's cached, and what Ralph can sync**.
@@ -99,7 +202,7 @@
   > AC: Given the user has `docs/` with 18 pages and `.anatoly/docs/` has 28 pages, When the report is generated, Then it shows:, docs/ coverage: 64% (18/28 pages), Sync gap: 10 pages
   > AC: Given new pages were generated in this run, When the report is generated, Then it lists each new page with its source:, + .anatoly/docs/05-Modules/doc-scaffolder.md  (from src/core/doc-scaffolder.ts)
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-11
-- [x] Story 29.12: User Documentation Plan Resolver
+- [ ] Story 29.12: User Documentation Plan Resolver
   > As a **developer with an existing `docs/` directory**
   > I want Anatoly to **understand my documentation's organizational logic** — how I name, group, and structure my pages
   > So that recommendations **respect my existing conventions** instead of forcing Anatoly's structure on me.
@@ -108,7 +211,7 @@
   > AC: Given a project with no `docs/` directory, When Anatoly resolves the user plan, Then `resolveUserDocPlan()` returns `null`, And recommendations use only `path_ideal` (no `path_user`)
   > AC: Given a project whose `docs/` uses different numbering (e.g., `a-`, `b-` prefixes or no prefixes), When Anatoly resolves the user plan, Then it normalizes prefixes and matches by semantic content, not by numbering scheme
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-12
-- [x] Story 29.13: Dual-Output Recommendations
+- [ ] Story 29.13: Dual-Output Recommendations
   > As a **developer reading Anatoly's audit report**
   > I want each documentation recommendation to include **both the ideal path and the path in my own structure**
   > So that Ralph can **apply fixes in my organizational style**.
@@ -117,7 +220,7 @@
   > AC: Given an existing user page `docs/guides/getting-started.md` that is incomplete, When the documentation axis detects a missing section, Then the finding includes:, "type": "missing_section",, "path_ideal": ".anatoly/docs/01-Getting-Started/04-Quick-Start.md",, "path_user": "docs/guides/getting-started.md",, "section": "## First Run",, "content_ref": ".anatoly/docs/01-Getting-Started/04-Quick-Start.md"
   > AC: Given all 8 recommendation types defined in the scoring rubric, When any recommendation is emitted, Then it always includes `path_ideal`, `path_user`, `content_ref`, `type`, `rationale`, and `priority`
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-13
-- [x] Story 29.14: Ralph Documentation Sync Mode
+- [ ] Story 29.14: Ralph Documentation Sync Mode
   > As a **developer running Ralph's fix loop**
   > I want Ralph to **synchronize my `docs/` from `.anatoly/docs/`** using the dual-output recommendations
   > So that my documentation is **completed without destroying what I've already written**.
@@ -127,642 +230,197 @@
   > AC: Given any page in `docs/` that the user wrote manually, When Ralph processes recommendations, Then Ralph NEVER deletes content that was written by the user, And Ralph NEVER reorganizes or renames existing files
   > AC: Given Ralph processes 10 documentation recommendations, When the fix loop completes, Then the fix report shows each applied fix with before/after diff, And all fixes are individually revertible via git
   > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-14
-
-- [x] Story 29.16: Injection des modules dynamiques dans le scaffolder
-  > En tant que **developpeur executant Anatoly**
-  > Je veux que les modules detectes par `resolveModuleGranularity` **generent des pages reelles dans `05-Modules/`**
-  > Afin que la structure de documentation soit **complete et sans trou de numerotation** (04 → 05 → 06).
-  > AC: Etant donne un projet CLI avec `src/core/` (8 fichiers, > 200 LOC), quand Anatoly execute le scaffolding, alors `.anatoly/docs/05-Modules/core.md` est cree avec les hints contextuels du module
-  > AC: Etant donne un projet CLI sans aucun module > 200 LOC, quand Anatoly execute le scaffolding, alors le repertoire `05-Modules/` n'est pas cree, et `06-Development` est renumerote en `05-Development` dans les BASE_PAGES et l'index
-  > AC: Etant donne un second run apres ajout d'un nouveau module `src/rag/` (> 200 LOC), quand le scaffolder s'execute, alors `05-Modules/rag.md` est cree sans ecraser les pages existantes, et `index.md` est regenere avec la nouvelle entree
-  > AC: Etant donne un projet Frontend+ORM (pages modules statiques ET dynamiques), quand le scaffolder s'execute, alors les pages type-specifiques (`05-Modules/Components.md`) ET les pages dynamiques (`05-Modules/custom-engine.md`) coexistent sans conflit
-  > Notes d'implementation:
-  > - Modifier `runDocScaffold` dans `src/core/doc-pipeline.ts` pour convertir les `ModulePage[]` de `resolveModuleGranularity` en `PageDef[]` dynamiques
-  > - Passer ces pages supplementaires a `scaffoldDocs` (nouveau parametre ou fusion dans la liste)
-  > - Renumerotation dynamique dans `buildPageList` si aucun module n'est present (06 → 05)
-
-- [x] Story 29.17: Execution LLM et ecriture du contenu documentaire
-  > En tant que **developpeur executant Anatoly**
-  > Je veux que `.anatoly/docs/` contienne du **contenu reel genere par LLM** des le premier run
-  > Afin que la documentation de reference soit **utilisable immediatement**, pas un squelette vide.
-  > AC: Etant donne un premier run avec 20 pages scaffoldees, quand la phase de generation s'execute, alors chaque `PagePrompt` retourne par `runDocGeneration` est envoye au SDK via le semaphore global, et le contenu retourne est ecrit dans le fichier `.anatoly/docs/` correspondant
-  > AC: Etant donne un run avec `--concurrency 4` et `sdkConcurrency: 8`, quand les prompts de generation doc sont executes, alors ils respectent le budget du semaphore global (Story 30.1), sans depasser les slots disponibles
-  > AC: Etant donne un deuxieme run sans modification du code source, quand la generation s'execute, alors 0 appels LLM sont effectues (cache hit 100%), et les fichiers existants ne sont pas modifies
-  > AC: Etant donne un echec LLM sur une page specifique, quand l'erreur est attrapee, alors les autres pages continuent a etre generees, le slot du semaphore est libere, et un warning est emis dans les logs
-  > AC: Etant donne un run complet sur un projet de 50 fichiers, quand la generation termine, alors le cout total est < $0.05 (modele Haiku par defaut)
-  > Notes d'implementation:
-  > - Dans `src/commands/run.ts` apres la ligne 671, ajouter une boucle qui: acquiert un slot du semaphore, envoie le `PagePrompt.prompt` au SDK (Haiku), ecrit le resultat dans `join(outputDir, prompt.pagePath)`, libere le slot dans un `finally`
-  > - Utiliser `Promise.allSettled` pour la resilience
-  > - Mettre a jour le progress-manager pour afficher la progression de la generation doc
-
-- [x] Story 29.18: Contexte documentaire complementaire pour les axes
-  > En tant que **developpeur executant Anatoly**
-  > Je veux que les axes recoivent du contexte documentaire depuis **`.anatoly/docs/` ET `docs/`** en complement, avec une **distinction claire entre doc projet et doc interne**
-  > Afin que l'analyse soit **plus pertinente** et que la couverture reflète **distinctement** ce qui est documente pour l'utilisateur vs ce qui est genere en interne.
-  > AC: Etant donne un projet avec `docs/architecture/pipeline.md` (ecrit par l'utilisateur) ET `.anatoly/docs/02-Architecture/03-Data-Flow.md` (genere), quand un axe evalue `src/core/pipeline.ts`, alors le contexte inclut les deux pages comme `relevantDocs`, chacune taggee avec sa source (`project` ou `internal`)
-  > AC: Etant donne un projet sans `docs/` mais avec `.anatoly/docs/` rempli, quand un axe evalue un fichier, alors le contexte inclut les pages pertinentes de `.anatoly/docs/` taggees `source: 'internal'`
-  > AC: Etant donne un projet avec `docs/` et `.anatoly/docs/` contenant des pages pour le meme module, quand le resolver construit le contexte, alors les deux sources sont incluses sans deduplication, et le budget de tokens est partage equitablement
-  > AC: Etant donne le budget de tokens = 20% de la fenetre de contexte du modele (ex: Haiku 200k → 40k tokens), quand les deux sources sont presentes, alors `.anatoly/docs/` et `docs/` recoivent chacun la moitie du budget
-  > AC: Etant donne le mode RAG dual actif et `.anatoly/docs/` avec 30 pages, quand l'indexation s'execute, alors les sections de `.anatoly/docs/` sont chunkees, embedees et indexees dans LanceDB avec `source: 'internal'`, et celles de `docs/` avec `source: 'project'`
-  > AC: Etant donne une recherche RAG pour `src/core/scanner.ts`, quand le vector store retourne les resultats, alors chaque section porte son tag `source` et les deux origines sont candidates au ranking semantique
-  > AC: Les index LanceDB pour `docs/` et `.anatoly/docs/` sont dissocies — chacun a son propre cache SHA-256 et peut etre requete independamment ou ensemble
-  > Notes d'implementation:
-  > - Ajouter un champ `source: 'project' | 'internal'` au type `DocSection` et au schema LanceDB `doc_section`
-  > - Modifier `docs-resolver.ts` pour accepter un second chemin (`anatolyDocsPath`) en plus de `docsPath`
-  > - `resolveRelevantDocs` cherche dans les deux repertoires, merge les resultats, et tag chaque `RelevantDoc` avec `source`
-  > - `resolveRelevantDocsViaRag` filtre ou combine par `source` selon le besoin
-  > - `buildDocsTree` retourne deux arbres separes (`docsTree` + `internalDocsTree`) dans le contexte
-  > - Modifier `orchestrator.ts` pour appeler `indexDocSections` deux fois : une avec `docsDir` + `source: 'project'`, une avec `.anatoly/docs/` + `source: 'internal'`
-  > - Le cache SHA-256 par fichier dans `doc-indexer.ts` fonctionne deja — utiliser un `cacheSuffix` distinct par source (`lite-docs` vs `lite-internal`)
-
-- [x] Story 29.19: Propagation de `docs_path` configurable
-  > En tant que **developpeur avec une documentation dans un repertoire non-standard**
-  > Je veux que le champ `docs_path` de la config soit **respecte partout** dans le pipeline
-  > Afin que les projets utilisant `documentation/`, `wiki/`, ou tout autre chemin soient **correctement supportes**.
-  > AC: Etant donne `docs_path: 'documentation'` dans `.anatoly.yml`, quand `assertSafeOutputPath` est appele dans `docs-guard.ts`, alors il protege `documentation/` (pas `docs/`)
-  > AC: Etant donne `docs_path: 'documentation'`, quand `buildDocRecommendations` genere des `path_user`, alors les chemins pointent vers `documentation/` (pas `docs/`)
-  > AC: Etant donne `docs_path: 'documentation'`, quand `resolveUserDocPlan` analyse la structure utilisateur, alors il lit `documentation/` (pas `docs/`)
-  > AC: Etant donne `docs_path: 'documentation'`, quand `syncDocs` applique les recommandations, alors les fichiers sont ecrits dans `documentation/`
-  > AC: Etant donne la config par defaut (pas de `docs_path`), quand le pipeline s'execute, alors le comportement est identique a aujourd'hui (`docs/`)
-  > Notes d'implementation:
-  > - `docs-guard.ts:26` — remplacer `'docs'` hardcode par le `docs_path` de la config
-  > - `doc-recommendations.ts:143` — remplacer `'docs/'` par le `docs_path` injecte
-  > - `user-doc-plan.ts` — s'assurer que les appelants passent `docs_path` de la config
-  > - `doc-sync.ts` — adapter la reecriture de liens pour utiliser `docs_path`
-  > - Ajouter un test d'integration avec `docs_path` non-standard
-
-- [x] Story 29.20: Coverage distinct projet/interne et sync actionnable
-  > En tant que **developpeur lisant le rapport Anatoly**
-  > Je veux que le coverage documentaire distingue **doc projet (`docs/`) et doc interne (`.anatoly/docs/`)**
-  > Afin de savoir **ce qui est documente pour mes utilisateurs** vs **ce qu'Anatoly a genere en reference**.
-  > AC: Etant donne un projet avec 209 exports dont 94 couverts dans `docs/` et 192 couverts dans `.anatoly/docs/`, quand le rapport est genere, alors la section Documentation Reference affiche:
-  > `Project docs (docs/): 45% (94/209 symbols)`, `Internal ref (.anatoly/docs/): 92% (192/209 symbols)`, `Modules: 75% (6/8 modules > 200 LOC in project docs)`
-  > AC: Un symbole couvert uniquement dans `.anatoly/docs/` ne doit PAS etre compte dans le coverage projet — et inversement
-  > AC: Etant donne 5 recommendations `missing_page` et 3 `outdated_content`, quand le rapport est genere, alors la section Sync status affiche: `5 pages to create, 3 pages outdated` (pas un ratio de pages)
-  > AC: Etant donne un projet avec 0 exports (projet de config ou assets), quand le scoring s'execute, alors le coverage symboles est 100% (pas de division par zero) et le module coverage est la seule metrique
-  > AC: Le rapport ne peut jamais afficher un coverage > 100%
-  > AC: Le scoring `DocScoringInput` doit porter deux champs separes : `projectExportsDocumented` et `internalExportsDocumented` (au lieu d'un seul `publicExportsDocumented`)
-  > Notes d'implementation:
-  > - Refactorer `DocScoringInput` dans `doc-scoring.ts` pour separer `projectExportsDocumented` / `internalExportsDocumented`
-  > - Refactorer `renderDocReferenceSection` dans `doc-report-section.ts` pour afficher les deux lignes de coverage
-  > - Dans `doc-report-aggregator.ts`, utiliser le tag `source` des `doc_section` pour attribuer la couverture a la bonne categorie
-  > - Remplacer le sync gap numerique par un decompte par type de recommendation
-  > - Supprimer le ratio `userDocsPageCount/totalPages` qui produit des valeurs > 100%
-  > - Le score global (`overall`) utilise le coverage projet comme metrique principale, le coverage interne est informatif
-
-- [x] Story 29.21: Decouplage doc interne, RAG systematique, et pipeline post-review
-  > En tant que **developpeur executant Anatoly**
-  > Je veux que la mise a jour de `.anatoly/docs/` soit une **phase post-review** independante, que l'indexation RAG soit **systematique**, et que l'axe documentation n'evalue que `docs/`
-  > Afin que la doc interne serve de **memoire contextuelle permanente** sans polluer le scoring.
-  >
-  > **Changement de pipeline:**
-  > ```
-  > Premier run:  setup → bootstrap doc → RAG (docs/ + .anatoly/docs/) → review (pass 1) → update internal docs → review (pass 2) → report → fix
-  > Runs suivants: setup → RAG (docs/ + .anatoly/docs/) → review → update internal docs → report → fix
-  > ```
-  >
-  > AC: Etant donne un tout premier run sur un projet sans `.anatoly/docs/`, quand le pipeline demarre, alors une phase "bootstrap doc" s'execute avant le RAG : scaffold + generation LLM rapide (Haiku) de `.anatoly/docs/`, puis le RAG indexe les deux sources, et le review (pass 1) beneficie du contexte doc interne
-  > AC: Etant donne le premier run apres le pass 1, quand la phase "update internal docs" s'execute, alors `.anatoly/docs/` est raffine avec les donnees du review (symboles, imports, dependances), puis un pass 2 du review s'execute avec la doc interne enrichie — le RAG n'est PAS re-indexe (il est deja a jour)
-  > AC: Etant donne un run suivant (`.anatoly/docs/` existe deja), quand le pipeline demarre, alors il n'y a pas de bootstrap, le RAG indexe les deux sources normalement, et un seul pass de review suffit
-  > AC: Le flag `--no-docs` est supprime — la doc interne est une memoire contextuelle qui enrichit tous les axes, la desactiver degraderait la qualite de tout le run pour un gain negligeable
-  > AC: Etant donne un run normal, quand l'axe documentation est desactive dans la config, alors l'indexation RAG doc et la mise a jour de `.anatoly/docs/` s'executent quand meme (elles ne dependent pas de l'axe)
-  > AC: Etant donne l'axe documentation qui evalue `src/core/scanner.ts`, quand le LLM retourne `documentation: 'DOCUMENTED'` pour un symbole, alors cette evaluation est basee **uniquement sur la presence de doc dans `docs/`** (les pages `.anatoly/docs/` injectees comme contexte ne comptent pas dans le scoring)
-  > AC: Etant donne les axes non-documentation (utility, overengineering, etc.), quand ils evaluent un fichier, alors ils recoivent le contexte de `.anatoly/docs/` via RAG pour enrichir leur analyse, independamment de l'activation de l'axe doc
-  > AC: Etant donne la phase "update internal docs" qui s'execute apres le review, quand la CLI affiche la progression, alors une task dediee apparait:
-  > `⠋ Internal docs     12/24 pages updated`
-  > AC: Etant donne la phase "update internal docs", quand elle genere le contenu via LLM, alors elle beneficie des donnees du review (symboles extraits, imports, dependances) pour produire une doc **plus riche** que le scaffold pre-review
-  >
-  > **CLI — premier run:**
-  > AC: Etant donne un premier run, quand la phase bootstrap demarre, alors la CLI affiche une task dediee:
-  > `⠋ First run          Creating internal documentation...`
-  > suivie de la progression:
-  > `⠋ First run          12/24 pages generated`
-  > AC: Etant donne un run suivant, quand le pipeline demarre, alors la task "First run" n'apparait pas
-  >
-  > **Edge cases:**
-  > AC: Etant donne un premier run interrompu (Ctrl+C) pendant le bootstrap avec `.anatoly/docs/` partiellement cree (ex: 5/24 pages), quand le run suivant demarre, alors le pipeline detecte le bootstrap incomplet via le cache SHA-256 (pages attendues > pages en cache) et relance le bootstrap pour completer les pages manquantes
-  > AC: Etant donne un bootstrap ou l'API LLM echoue sur > 50% des pages, quand la phase bootstrap termine, alors un warning est emis (`doc bootstrap incomplete: 18/24 pages failed — skipping double pass`), le double pass est skippe, et un seul review s'execute (la doc interne partielle est mieux que pas de doc)
-  > AC: Etant donne l'ancien flag `--no-docs`, quand un utilisateur le passe, alors la CLI affiche un warning de deprecation et l'ignore
-  > Notes d'implementation:
-  > - `run.ts`: detecter premier run via `!existsSync(join(projectRoot, '.anatoly', 'docs'))` → declencher bootstrap doc avant RAG
-  > - `run.ts`: apres pass 1 review, executer "update internal docs" puis relancer le review (pass 2) — reutiliser les memes evaluators/triageMap, pas de re-scan
-  > - `run.ts`: les runs suivants (`.anatoly/docs/` existe) sautent le bootstrap et font un seul pass
-  > - `run.ts`: supprimer le flag `--no-docs` et toutes les references a `ctx.noDocs` (deprecation warning si passe)
-  > - `orchestrator.ts:405`: l'indexation doc doit tourner meme si l'axe doc est disabled — elle depend uniquement de `dualMode` et de l'existence des fichiers
-  > - `documentation.system.md`: preciser dans le prompt que seule la doc taggee `source: 'project'` determine le statut DOCUMENTED
-  > - `progress-manager`: ajouter la task `internal-docs` entre review et report, et `bootstrap-doc` en debut de premier run
-  > - Le contexte review (symboles, imports, dependances) doit etre passe a `buildPageContext` pour enrichir la generation post-review
-  > - Le pass 2 ne re-indexe pas le RAG — les embeddings du pass 1 sont reutilises, seul le contenu des fichiers `.anatoly/docs/` a change sur disque
-
-- [x] Story 30.1: Global SDK Concurrency Semaphore
-  > As a **developer running Anatoly on a large codebase**
-  > I want the total number of **concurrent Claude SDK calls to be globally bounded**
-  > So that the system **doesn't flood the API** when file concurrency × axis count grows.
-  > AC: Given `--concurrency 4` and 7 enabled axes (= 28 potential parallel SDK calls), When Anatoly evaluates files, Then at most `sdkConcurrency` SDK calls are in-flight at any time (default: 8), And axes/files interleave naturally within the global budget
-  > AC: Given `sdkConcurrency: 6` in `.anatoly.yml`, When Anatoly runs, Then the semaphore is initialized with 6 slots, And the value is validated (min 1, max 20)
-  > AC: Given 8 slots and 12 axis evaluations queued, When 8 are running and 4 are waiting, Then waiting evaluations start FIFO as slots free up, And no evaluator starves (bounded wait time proportional to queue depth)
-  > AC: Given the semaphore is active, When the CLI renders progress, Then it displays `Agents: 6/8 running · 2 available` updated in real-time, And the display is integrated into the existing progress-manager output
-  > AC: Given an evaluator crashes while holding a slot, When the error is caught, Then the slot is released (finally block), And the semaphore never deadlocks
-  > AC: Given `--concurrency 1` and `sdkConcurrency: 8`, When Anatoly runs 7 axes on 1 file, Then all 7 axes run in parallel (within the 8-slot budget), And the semaphore correctly handles the case where file concurrency < sdk concurrency
-  > Implementation notes:
-  > - Create `src/core/sdk-semaphore.ts` — ~20-line Semaphore class (acquire/release/running/waiting getters)
-  > - Wrap the `query()` call in `axis-evaluator.ts` with `acquire()`/`release()` in a try/finally
-  > - Expose `running` and `available` counts to progress-manager for CLI display
-  > - Add `sdkConcurrency` field to Config schema (default 8, range 1-20)
-  > - No changes to worker-pool.ts or file-evaluator.ts — the semaphore is transparent
-
-- [x] Story 31.1: Language Detection by Extension Distribution
-  > As a **developer running Anatoly on any project**
-  > I want Anatoly to **automatically detect the programming languages present** by scanning file extensions
-  > So that the pipeline knows **which grammars to load and which prompts to use**.
-  > AC: Given a project with 100 `.ts`, 10 `.sh`, 3 `.py`, 2 `.yml` files, When `detectLanguages()` runs, Then it returns languages sorted by percentage descending with correct ratios
-  > AC: Given `.ts` and `.tsx` files, Then they are grouped under `TypeScript` — each language appears once with the combined count
-  > AC: Given a language at < 1% of total files, Then it is filtered out of the result
-  > AC: Given `Dockerfile` and `Makefile` (no extension), Then they are detected via `FILENAME_MAP` lookup
-  > AC: Given `node_modules/`, `dist/`, `venv/`, `target/`, `bin/`, `obj/` directories, Then all files in these directories are excluded
-  > AC: Given a git repository, Then only git-tracked files are counted (respecting `.gitignore`)
+- [ ] Story 29.15: Pipeline Integration — Wire Doc Scaffolding into Anatoly Run
+  > As a **developer running `anatoly run`**
+  > I want the documentation scaffolding, generation, scoring, and recommendation modules to **actually execute during a run**
+  > So that `.anatoly/docs/` is generated, the report includes doc scores, and Ralph receives actionable dual-output recommendations.
+  > AC: Given a project with `react` and `prisma` in package.json dependencies, When `anatoly run` reaches the end of `runSetupPhase()`, Then `detectProjectTypes()` has been called with the parsed package.json, And `scaffoldDocs()` has been called with the detected types, producing `.anatoly/docs/`, And `resolveModuleGranularity()` has been called with scanner LOC data to add dynamic `05-Modules/` pages, And `resolveDocMappings()` has been called to map source directories to doc pages, And `assertSafeOutputPath()` has been called for every file written by the scaffolder, confirming no write targets `docs/`, And `.anatoly/docs/index.md` exists and contains a complete table of contents
+  > AC: Given a second run with no source code changes, When the setup phase runs scaffolding, Then `scaffoldDocs()` skips all existing pages (pagesCreated is empty except index.md)
+  > AC: Given the scaffolder has produced page definitions and source-to-page mappings, When the doc generation sub-phase runs, Then for each page needing generation (stale + added per `checkDocCache()`):, `buildPageContext()` extracts the source context from scanner output, `buildPagePrompt()` produces the system + user prompt, An LLM call (Haiku by default) generates the page content, The content is written to `.anatoly/docs/{page}.md`, `assertSafeOutputPath()` validates the output path, `updateDocCacheEntry()` updates the cache with new SHA-256 hashes, And for pages in `fresh` (cache hit), no LLM call is made, And for pages in `removed`, the file is deleted from `.anatoly/docs/` and removed from cache, And `saveDocCache()` persists the updated cache to `.anatoly/docs/.cache.json`
+  > AC: Given a second run with no source code changes, When the doc generation sub-phase runs, Then `checkDocCache()` returns all pages as `fresh`, 0 LLM calls are made, and the phase completes in < 1 second
+  > AC: Given the documentation axis evaluator runs for a file, When results are being merged in `mergeAxisResults()`, Then `resolveUserDocPlan()` has been called (once per run, not per file) to build the user doc plan, And after all file reviews complete, `scoreDocumentation()` is called with aggregated data from the review phase, And `buildDocRecommendations()` is called with the gaps derived from the documentation axis results and the user doc plan, And each recommendation includes `path_ideal`, `path_user`, `content_ref`, `type`, `rationale`, and `priority`
+  > AC: Given a project with no `docs/` directory, When the user plan resolver runs, Then `resolveUserDocPlan()` returns `null`, And recommendations mirror ideal paths under `docs/`
+  > AC: Given the report phase runs after review, When `runReportPhase()` generates the master report, Then the report contains a "Documentation Reference" section rendered by `renderDocReferenceSection()`, And the section shows `.anatoly/docs/` page counts (new, refreshed, cached), And the section shows `docs/` coverage percentage and sync gap, And the section lists newly generated pages with their source files
+  > AC: Given a Backend API + ORM project, When the documentation scoring runs, Then the scoring weights are adjusted per `computeWeights()` (+10% structural for Backend API, +10% for ORM), And the overall score and verdict (DOCUMENTED / PARTIAL / UNDOCUMENTED) appear in the report
+  > AC: Given the review schema `src/schemas/review.ts`, When this story is complete, Then the `ReviewFile` schema includes an optional `doc_recommendations` field:, And the `ReportData` in `reporter.ts` includes:
+  > AC: Given any `writeFileSync` call in the doc scaffolder or doc generator code paths, When the output path is constructed, Then `assertSafeOutputPath(outputPath, projectRoot)` is called immediately before the write, And if the path resolves to `docs/`, the pipeline throws and aborts
+  > AC: Given a fixture project with `package.json`, `src/` with 5+ modules, and an existing `docs/` directory, When `anatoly run` completes end-to-end, 1. `.anatoly/docs/` exists with scaffolded + generated pages, 2. `.anatoly/docs/.cache.json` exists with SHA-256 entries, 3. `docs/` is byte-for-byte identical to before the run (guard invariant), 4. The report contains the "Documentation Reference" section, 5. The report contains a documentation score with 5 dimensions, 6. The `.rev.json` output includes `doc_recommendations` with dual paths, 7. A second run produces 0 LLM generation calls (100% cache hit)
+  > Spec: specs/planning-artifacts/epic-29-doc-scaffolding.md#story-29-15
+- [ ] Story 31.1: Language Detection by Extension Distribution
+  > > As a **developer running Anatoly on any project** > I want Anatoly to **automatically detect the programming languages present** by scanning file extensions > So that the pipeline knows **which grammars to load and which prompts to use**.
+  > **AC 31.1.1:** Given a project with 100 `.ts` files, 10 `.sh` files, 3 `.py` files, and 2 `.yml` files, When `detectLanguages()` runs, Then it returns `[{ name: 'TypeScript', percentage: 87, fileCount: 100 }, { name: 'Shell', percentage: 9, fileCount: 10 }, { name: 'Python', percentage: 3, fileCount: 3 }, { name: 'YAML', percentage: 2, fileCount: 2 }]` sorted by percentage descending.
+  > **AC 31.1.2:** Given a project with `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` files, When `detectLanguages()` runs, Then `.ts` and `.tsx` are grouped under `TypeScript`, and `.js`, `.jsx`, `.mjs`, `.cjs` are grouped under `JavaScript` — each language appears once with the combined count.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-1
-
-- [x] Story 31.2: Framework Detection by Project Markers
-  > As a **developer running Anatoly on a framework-based project**
-  > I want Anatoly to **detect the frameworks I use** from project configuration files
-  > So that the prompts are **tailored to my framework's conventions**.
-  > AC: Given `"react"` in package.json dependencies, Then frameworks includes `{ id: 'react', name: 'React', language: 'typescript' }`
-  > AC: Given `"next"` in dependencies OR `next.config.*` at root, Then Next.js is detected (React is NOT separately listed)
-  > AC: Given `requirements.txt` with `django==5.1`, Then Django is detected for Python
-  > AC: Given `Cargo.toml` with `actix-web`, Then Actix Web is detected for Rust
-  > AC: Given `go.mod` with `github.com/gin-gonic/gin`, Then Gin is detected for Go
-  > AC: Given `*.csproj` with `Microsoft.AspNetCore`, Then ASP.NET is detected for C#
-  > AC: Given multiple frameworks (e.g., NestJS + Prisma), Then both are detected simultaneously
-  > AC: Given no recognizable markers, Then frameworks is an empty array
-  > AC: Given config files are only read for detected languages (no `go.mod` read if no `.go` files)
+- [ ] Story 31.2: Framework Detection by Project Markers
+  > > As a **developer running Anatoly on a framework-based project** > I want Anatoly to **detect the frameworks I use** from project configuration files > So that the prompts are **tailored to my framework's conventions and best practices**.
+  > **AC 31.2.1:** Given a project with `package.json` containing `"react": "^19.0.0"` in dependencies, When `detectProjectProfile()` runs, Then `frameworks` includes `{ id: 'react', name: 'React', language: 'typescript' }`.
+  > **AC 31.2.2:** Given a project with `package.json` containing `"next": "^15.0.0"` in dependencies, When `detectProjectProfile()` runs, Then `frameworks` includes `{ id: 'nextjs', name: 'Next.js', language: 'typescript' }`, And React is NOT separately listed (Next.js implies React).
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-2
-
-- [x] Story 31.3: Project Info Display — Languages & Frameworks
-  > As a **developer running Anatoly**
-  > I want to see the **language distribution and detected frameworks** in the setup table
-  > So that I can verify Anatoly **correctly understands my project ecosystem**.
-  > AC: Given `TypeScript 85%`, `Shell 10%`, Then Project Info shows `languages         TypeScript 85% · Shell 10%`
-  > AC: Given detected frameworks `Next.js` and `Prisma`, Then Project Info shows `frameworks        Next.js · Prisma`
-  > AC: Given no detected frameworks, Then the `frameworks` line does NOT appear
-  > AC: Given `--plain` mode, Then languages/frameworks display without box-drawing characters
-  > AC: Given the pipeline, Then the setup table renders AFTER language and framework detection
+- [ ] Story 31.3: Project Info Display — Languages & Frameworks
+  > > As a **developer running Anatoly** > I want to see the **language distribution and detected frameworks** in the setup table > So that I can verify Anatoly **correctly understands my project ecosystem**.
+  > **AC 31.3.1:** Given a project with `TypeScript 85%`, `Shell 10%`, `Python 3%`, `YAML 2%`, When the setup table renders, Then the `Project Info` section shows `languages         TypeScript 85% · Shell 10% · Python 3% · YAML 2%`.
+  > **AC 31.3.2:** Given a project with detected frameworks `Next.js` and `Prisma`, When the setup table renders, Then the `Project Info` section shows `frameworks        Next.js · Prisma` on a separate line below `languages`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-3
-
-- [x] Story 31.4: Auto-Detect File Discovery
-  > As a **developer running Anatoly on a multi-language project**
-  > I want Anatoly to **automatically discover non-TypeScript files** without manual configuration
-  > So that shell scripts, Python files, YAML configs, etc. are **included in the analysis**.
-  > AC: Given `scan.auto_detect: true` (default) and `scripts/setup.sh` exists, Then it is included in the file list
-  > AC: Given `.py` files exist, Then they are included AND `venv/`, `.venv/`, `__pycache__/` are auto-excluded
-  > AC: Given `.github/workflows/ci.yml` exists, Then it is included
-  > AC: Given `.rs` files exist, Then they are included AND `target/**` is auto-excluded
-  > AC: Given `scan.auto_detect: false` in config, Then ONLY `scan.include` patterns are used
-  > AC: Given explicit `scan.include` + auto-detect, Then auto-detected globs are MERGED (union)
-  > AC: Given a project with no non-TypeScript files, Then behavior is identical to current (zero regression)
-  > AC: Given `scan.exclude` from config, Then user excludes take priority over auto-detected includes
+- [ ] Story 31.4: Auto-Detect File Discovery
+  > > As a **developer running Anatoly on a multi-language project** > I want Anatoly to **automatically discover non-TypeScript files** without manual configuration > So that shell scripts, Python files, YAML configs, etc.
+  > are **included in the analysis**.
+  > **AC 31.4.1:** Given `scan.auto_detect: true` (default) and a project containing `scripts/setup.sh`, When `collectFiles()` runs, Then `scripts/setup.sh` is included in the file list, And the glob `scripts/**/*.sh` was auto-added to `scan.include`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-4
-
-- [x] Story 31.5: Dynamic Grammar Manager
-  > As a **developer running Anatoly on a multi-language project**
-  > I want tree-sitter grammars to be **downloaded automatically on first use**
-  > So that the npm package stays **lightweight**.
-  > AC: Given `.py` files and no cached grammar, Then `tree-sitter-python.wasm` is downloaded to `.anatoly/grammars/` and parsing succeeds
-  > AC: Given `.anatoly/grammars/tree-sitter-python.wasm` already cached, Then NO download occurs
-  > AC: Given network unavailable and no cached grammar, Then `resolve()` returns null, fallback to heuristic, warning logged
-  > AC: Given a download completes, Then `manifest.json` tracks `{ version, sha256, downloadedAt }`
-  > AC: Given TypeScript/TSX files, Then bundled grammar is used — grammar-manager is NOT called
-  > AC: Given Pipeline Summary renders after grammars, Then it shows `✔ grammars  2 cached · 1 downloaded (tree-sitter-rust)`
-  > AC: Given a corrupted partial download, Then the file is deleted and fallback used; next run re-attempts
-  > AC: Given `GRAMMAR_REGISTRY`, Then it contains entries for all 9 Tier 1 languages
+- [ ] Story 31.5: Dynamic Grammar Manager
+  > > As a **developer running Anatoly on a multi-language project** > I want tree-sitter grammars to be **downloaded automatically on first use** > So that the npm package stays **lightweight** and I don't need to install grammars manually.
+  > **AC 31.5.1:** Given a project with `.py` files and no grammar cached, When the scanner processes a `.py` file for the first time, Then `grammar-manager` downloads `tree-sitter-python.wasm` from the npm registry, And saves it to `.anatoly/grammars/tree-sitter-python.wasm`, And the file is parsed successfully with the downloaded grammar.
+  > **AC 31.5.2:** Given `.anatoly/grammars/tree-sitter-python.wasm` already exists from a previous run, When the scanner processes a `.py` file, Then NO download occurs, And the cached WASM is loaded directly, And parse time is not affected by network latency.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-5
-
-- [x] Story 31.6: Language Adapter Interface & TypeScript Refactor
-  > As a **developer maintaining Anatoly**
-  > I want a **clean abstraction** for parsing different languages
-  > So that adding a new language is **a matter of adding files, not modifying the pipeline**.
-  > AC: Given `LanguageAdapter` interface, Then it defines: `extensions`, `languageId`, `wasmModule`, `extractSymbols()`, `extractImports()`
-  > AC: Given the existing TS parsing logic in `scanner.ts`, Then ALL TS-specific code is encapsulated in `TypeScriptAdapter`/`TsxAdapter`
-  > AC: Given `TypeScriptAdapter.extractSymbols()`, Then output is EXACTLY the same as current — zero regression
-  > AC: Given a file with unknown extension, Then it falls back to `heuristicParse()` with `task.parse_method: 'heuristic'`
-  > AC: Given `TaskSchema`, Then it includes `language`, `parse_method`, `framework` as optional fields
-  > AC: Given existing `.task.json` without new fields, Then they parse successfully (backward compat)
-  > AC: Given detected frameworks, Then each task's `framework` field is set based on project profile
+- [ ] Story 31.6: Language Adapter Interface & TypeScript Refactor
+  > > As a **developer maintaining Anatoly** > I want a **clean abstraction** for parsing different languages > So that adding a new language is **a matter of adding files, not modifying the pipeline**.
+  > **AC 31.6.1:** Given a new `LanguageAdapter` interface in `language-adapters.ts`, Then it defines: `extensions: readonly string[]`, `languageId: string`, `wasmModule: string`, `extractSymbols(rootNode: TSNode): SymbolInfo[]`, `extractImports(source: string): ImportRef[]`.
+  > **AC 31.6.2:** Given the existing TypeScript parsing logic in `scanner.ts` (lines 20-166), When the refactor is complete, Then ALL TypeScript-specific code is encapsulated in `TypeScriptAdapter` and `TsxAdapter` implementing `LanguageAdapter`, And `scanner.ts` no longer contains any TypeScript-specific AST node references.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-6
-
-- [x] Story 31.7: Bash/Shell Language Adapter
-  > As a **developer with shell scripts in my project**
-  > I want Anatoly to **parse and extract symbols from .sh and .bash files**
-  > So that my infrastructure scripts are **analyzed with the same rigor as TypeScript**.
-  > AC: Given `function setup_gpu() { ... }`, Then extracted as `{ name: 'setup_gpu', kind: 'function', exported: true }`
-  > AC: Given `setup_gpu() { ... }` (no function keyword), Then still extracted as function
-  > AC: Given `DOCKER_IMAGE="ghcr.io/..."` (UPPER_SNAKE top-level), Then extracted as `{ kind: 'constant' }`
-  > AC: Given `result_dir="./output"` (non-UPPER_SNAKE), Then extracted as `{ kind: 'variable' }`
-  > AC: Given `_internal_helper()` (underscore prefix), Then `exported: false`
-  > AC: Given `source ./lib/helpers.sh` and `. ./lib/logging.sh`, Then extractImports returns both
-  > AC: Given `local my_var="value"` inside function body, Then NOT extracted (top-level only)
+- [ ] Story 31.7: Bash/Shell Language Adapter
+  > > As a **developer with shell scripts in my project** > I want Anatoly to **parse and extract symbols from .sh and .bash files** > So that my infrastructure scripts are **analyzed with the same rigor as TypeScript**.
+  > **AC 31.7.1:** Given a file `scripts/setup.sh` containing `function setup_gpu() { ...
+  > }`, When `BashAdapter.extractSymbols()` runs, Then it returns `{ name: 'setup_gpu', kind: 'function', exported: true, line_start: N, line_end: M }`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-7
-
-- [x] Story 31.8: Python Language Adapter
-  > As a **developer with Python scripts in my project**
-  > I want Anatoly to **parse and extract symbols from .py files**
-  > So that my Python code is **analyzed alongside my TypeScript code**.
-  > AC: Given `def process_data(input: str) -> dict:`, Then extracted as `{ name: 'process_data', kind: 'function', exported: true }`
-  > AC: Given `class DataPipeline:`, Then extracted as `{ kind: 'class' }`
-  > AC: Given `MAX_RETRIES = 3` (UPPER_SNAKE module-level), Then `{ kind: 'constant' }`
-  > AC: Given `_internal_helper()` (underscore prefix), Then `exported: false`
-  > AC: Given `__all__ = ['public_func']`, Then `__all__` overrides underscore convention
-  > AC: Given `@click.command()\ndef cli():`, Then decorated function is extracted
-  > AC: Given `from utils import helper`, Then extractImports returns the import
-  > AC: Given nested `def inner():` inside `def outer():`, Then only `outer` extracted
+- [ ] Story 31.8: Python Language Adapter
+  > > As a **developer with Python scripts in my project** > I want Anatoly to **parse and extract symbols from .py files** > So that my Python code is **analyzed alongside my TypeScript code**.
+  > **AC 31.8.1:** Given a file containing `def process_data(input: str) -> dict:`, When `PythonAdapter.extractSymbols()` runs, Then it returns `{ name: 'process_data', kind: 'function', exported: true, ...
+  > }`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-8
-
-- [x] Story 31.9: Rust Language Adapter
-  > As a **developer with Rust code in my project**
-  > I want Anatoly to **parse and extract symbols from .rs files**
-  > So that my Rust modules are **included in the analysis pipeline**.
-  > AC: Given `pub fn parse(input: &str) -> Result<AST, Error>`, Then `{ kind: 'function', exported: true }`
-  > AC: Given `fn internal_helper()` (no pub), Then `{ exported: false }`
-  > AC: Given `pub struct Config { ... }`, Then `{ kind: 'class', exported: true }`
-  > AC: Given `pub trait Parser { ... }`, Then `{ kind: 'type', exported: true }`
-  > AC: Given `pub enum Color { Red, Green, Blue }`, Then `{ kind: 'enum', exported: true }`
-  > AC: Given `pub const MAX_SIZE: usize = 1024;`, Then `{ kind: 'constant' }`
-  > AC: Given `use crate::utils::helper;`, Then extractImports returns the import
+- [ ] Story 31.9: Rust Language Adapter
+  > > As a **developer with Rust code in my project** > I want Anatoly to **parse and extract symbols from .rs files** > So that my Rust modules are **included in the analysis pipeline**.
+  > **AC 31.9.1:** Given a file containing `pub fn parse(input: &str) -> Result<AST, Error>`, When `RustAdapter.extractSymbols()` runs, Then it returns `{ name: 'parse', kind: 'function', exported: true, ...
+  > }`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-9
-
-- [x] Story 31.10: Go Language Adapter
-  > As a **developer with Go code in my project**
-  > I want Anatoly to **parse and extract symbols from .go files**
-  > So that my Go packages are **analyzed with language-appropriate rules**.
-  > AC: Given `func ParseFile(path string) error` (uppercase), Then `{ exported: true }`
-  > AC: Given `func parseInternal(s string) int` (lowercase), Then `{ exported: false }`
-  > AC: Given `type Scanner struct { ... }`, Then `{ kind: 'class', exported: true }`
-  > AC: Given `type Reader interface { ... }`, Then `{ kind: 'type' }`
-  > AC: Given `func (s *Scanner) Scan() bool`, Then `{ kind: 'method' }`
-  > AC: Given `const MaxRetries = 3`, Then `{ kind: 'constant' }`
-  > AC: Given `import "fmt"`, Then extractImports returns the import
+- [ ] Story 31.10: Go Language Adapter
+  > > As a **developer with Go code in my project** > I want Anatoly to **parse and extract symbols from .go files** > So that my Go packages are **analyzed with language-appropriate rules**.
+  > **AC 31.10.1:** Given a file containing `func ParseFile(path string) error`, When `GoAdapter.extractSymbols()` runs, Then it returns `{ name: 'ParseFile', kind: 'function', exported: true, ...
+  > }` (uppercase = exported).
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-10
-
-- [x] Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters
-  > As a **developer running Anatoly on diverse projects**
-  > I want Anatoly to **support Java, C#, SQL, YAML, and JSON parsing**
-  > So that the full Tier 1 language set is covered.
-  > AC: Given Java `public class UserService { public void process() { ... } }`, Then class + method extracted
-  > AC: Given Java `private static final int MAX = 100;`, Then `{ kind: 'constant', exported: false }`
-  > AC: Given C# `public class OrderProcessor { public async Task<Result> Execute() { ... } }`, Then class + method extracted
-  > AC: Given SQL `CREATE TABLE users (...)`, Then `{ name: 'users', kind: 'class' }`
-  > AC: Given SQL `CREATE FUNCTION get_user(...)`, Then `{ kind: 'function' }`
-  > AC: Given YAML top-level keys `services:`, `volumes:`, Then extracted as `{ kind: 'variable' }`
-  > AC: Given Docker Compose `services:\n  api:`, Then `api` extracted as `{ kind: 'constant' }`
-  > AC: Given JSON top-level keys, Then extracted as `{ kind: 'variable' }`
-  > AC: Given SQL/YAML/JSON `extractImports()`, Then returns empty array (self-contained files)
+- [ ] Story 31.11: Java, C#, SQL, YAML, JSON Language Adapters
+  > > As a **developer running Anatoly on diverse projects** > I want Anatoly to **support Java, C#, SQL, YAML, and JSON parsing** > So that the full Tier 1 language set is covered.
+  > **AC 31.11.1 (Java):** Given a file containing `public class UserService { public void process() { ...
+  > } }`, When `JavaAdapter.extractSymbols()` runs, Then it returns `[{ name: 'UserService', kind: 'class', exported: true }, { name: 'process', kind: 'method', exported: true }]`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-11
-
-- [x] Story 31.12: Heuristic Fallback Parser
-  > As a **developer with files that have no tree-sitter grammar available**
-  > I want Anatoly to **extract approximate symbols via regex**
-  > So that these files are **still included in the analysis**.
-  > AC: Given a `Makefile` with targets `build:`, `test:`, Then extracted as `{ kind: 'function' }` with `parseMethod: 'heuristic'`
-  > AC: Given a `Dockerfile` with `FROM node:20 AS builder`, Then `builder` extracted as function
-  > AC: Given `API_KEY=sk-abc123` (UPPER_SNAKE assignment), Then `{ kind: 'constant' }`
-  > AC: Given a file with < 5 non-empty non-comment lines, Then returns empty symbols (too trivial)
-  > AC: Given a file with a grammar available, Then heuristicParse is NEVER called
+- [ ] Story 31.12: Heuristic Fallback Parser
+  > > As a **developer with files that have no tree-sitter grammar available** > I want Anatoly to **extract approximate symbols via regex** > So that these files are **still included in the analysis** rather than silently ignored.
+  > **AC 31.12.1:** Given a `Makefile` with targets `build:`, `test:`, `deploy:`, When `heuristicParse()` runs, Then it returns `[{ name: 'build', kind: 'function' }, { name: 'test', kind: 'function' }, { name: 'deploy', kind: 'function' }]` with `parseMethod: 'heuristic'`.
+  > **AC 31.12.2:** Given a `Dockerfile` with `FROM node:20 AS builder` and `FROM node:20-slim AS runner`, When `heuristicParse()` runs, Then it returns `[{ name: 'builder', kind: 'function' }, { name: 'runner', kind: 'function' }]`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-12
-
-- [x] Story 31.13: Usage-Graph Multi-Language Extension
-  > As a **developer running Anatoly on a multi-language project**
-  > I want the usage-graph to **track imports across all supported languages**
-  > So that the utility axis can detect **dead code in any language**.
-  > AC: Given `source ./lib/helpers.sh`, Then usage-graph contains edge from setup.sh → helpers.sh
-  > AC: Given a `.sh` file not sourced by any file, Then it is candidate for DEAD
-  > AC: Given `from helpers import format_output`, Then usage-graph contains the edge
-  > AC: Given `use crate::scanner::parse;`, Then usage-graph contains the edge
-  > AC: Given YAML files (no imports), Then no edges created, file NOT marked DEAD
-  > AC: Given TypeScript imports unchanged, Then graph is EXACTLY the same (zero regression)
+- [ ] Story 31.13: Usage-Graph Multi-Language Extension
+  > > As a **developer running Anatoly on a multi-language project** > I want the usage-graph to **track imports across all supported languages** > So that the utility axis can detect **dead code in shell scripts, Python files, etc.** **AC 31.13.1:** Given `scripts/setup.sh` containing `source ./lib/helpers.sh`, When `buildUsageGraph()` runs, Then the usage-graph contains an edge from `scripts/setup.sh` → `scripts/lib/helpers.sh`.
+  > **AC 31.13.2:** Given `scripts/lib/helpers.sh` is NOT sourced by any file, When the utility axis evaluates it, Then it is a candidate for `DEAD` (no importers).
+  > **AC 31.13.3:** Given `utils.py` containing `from helpers import format_output`, When `buildUsageGraph()` runs, Then the usage-graph contains an edge referencing `helpers` → `utils.py`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-13
-
-- [x] Story 31.14: Prompt Resolution Cascade
-  > As a **developer maintaining Anatoly**
-  > I want prompts to be **resolved automatically** based on language and framework
-  > So that each file gets the **most specific applicable prompt**.
-  > AC: Given `.tsx` in Next.js project, Then `resolveSystemPrompt('best_practices', 'typescript', 'nextjs')` returns `best-practices.nextjs.system.md`
-  > AC: Given `.tsx` in React project (no Next.js), Then returns `best-practices.react.system.md`
-  > AC: Given `.py` in Django project with no `best-practices.django.system.md`, Then falls back to `best-practices.python.system.md`
-  > AC: Given unknown language with no specific prompt, Then falls back to default `best-practices.system.md`
-  > AC: Given cascade order framework → language → default, Then checks in that order, returns FIRST match
-  > AC: Given TypeScript prompt loading unchanged, Then zero regression
+- [ ] Story 31.14: Prompt Resolution Cascade
+  > > As a **developer maintaining Anatoly** > I want prompts to be **resolved automatically** based on language and framework > So that each file gets the **most specific applicable prompt** without hardcoded logic.
+  > **AC 31.14.1:** Given a `.tsx` file in a Next.js project, When `resolveSystemPrompt('best_practices', 'typescript', 'nextjs')` is called, Then it returns the content of `best-practices.nextjs.system.md`.
+  > **AC 31.14.2:** Given a `.tsx` file in a React project (no Next.js), When `resolveSystemPrompt('best_practices', 'typescript', 'react')` is called, Then it returns the content of `best-practices.react.system.md`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-14
-
-- [x] Story 31.15: Best Practices Prompts — Shell, Python, Rust, Go
-  > As a **developer with non-TypeScript code**
-  > I want the best_practices axis to **evaluate with language-appropriate rules**
-  > So that I get **actionable findings**.
-  > AC: Given `best-practices.bash.system.md`, Then contains ShellGuard: `set -euo pipefail` (CRITICAL), quoted vars (CRITICAL), no eval (HIGH), etc. — min 12 rules
-  > AC: Given `best-practices.python.system.md`, Then contains PyGuard: type hints (HIGH), no bare except (CRITICAL), f-strings (MEDIUM), etc. — min 13 rules
-  > AC: Given `best-practices.rust.system.md`, Then contains RustGuard: no unwrap in prod (CRITICAL), no unsafe without justification (CRITICAL), etc. — min 10 rules
-  > AC: Given `best-practices.go.system.md`, Then contains GoGuard: error handling (CRITICAL), no panic in prod (CRITICAL), context propagation (HIGH), etc. — min 10 rules
-  > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema` — same Zod schema, no changes needed
+- [ ] Story 31.15: Best Practices Prompts — Shell, Python, Rust, Go
+  > > As a **developer with non-TypeScript code** > I want the best_practices axis to **evaluate my code with language-appropriate rules** > So that I get **actionable findings** instead of irrelevant TypeScript-specific violations.
+  > **AC 31.15.1:** Given `best-practices.bash.system.md` exists, Then it contains ShellGuard rules: `set -euo pipefail` (CRITICAL), quoted variables (CRITICAL), no `eval` (HIGH), no `cd` without check (HIGH), `[[ ]]` over `[ ]` (MEDIUM), trap for cleanup (MEDIUM), no `ls` parsing (MEDIUM), no hardcoded paths (HIGH), security (CRITICAL), file size (HIGH) — minimum 12 rules with scoring penalties.
+  > **AC 31.15.2:** Given `best-practices.python.system.md` exists, Then it contains PyGuard rules: type hints (HIGH), docstrings (MEDIUM), no `import *` (HIGH), no bare except (CRITICAL), f-strings (MEDIUM), no mutable globals (MEDIUM), context managers (HIGH), no eval/exec (CRITICAL), import organization (MEDIUM), security (CRITICAL), pathlib (MEDIUM) — minimum 13 rules.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-15
-
-- [x] Story 31.16: Best Practices Prompts — Java, C#, SQL, YAML, JSON
-  > As a **developer with Java, C#, SQL, YAML, or JSON files**
-  > I want the best_practices axis to **evaluate with appropriate rules**.
-  > AC: Given `best-practices.java.system.md`, Then contains JavaGuard — min 10 rules
-  > AC: Given `best-practices.csharp.system.md`, Then contains CSharpGuard — min 10 rules
-  > AC: Given `best-practices.sql.system.md`, Then contains SqlGuard — min 8 rules
-  > AC: Given `best-practices.yaml.system.md`, Then contains YamlGuard — min 8 rules
-  > AC: Given `best-practices.json.system.md`, Then contains JsonGuard — min 5 rules
-  > AC: Given any prompt, Then output format matches `BestPracticesResponseSchema`
+- [ ] Story 31.16: Best Practices Prompts — Java, C#, SQL, YAML, JSON
+  > > As a **developer with Java, C#, SQL, YAML, or JSON files** > I want the best_practices axis to **evaluate these files with appropriate rules** > So that all Tier 1 languages have **dedicated quality standards**.
+  > **AC 31.16.1:** Given `best-practices.java.system.md` exists, Then it contains JavaGuard rules: no null return / use Optional (HIGH), Javadoc (MEDIUM), proper exception handling (HIGH), immutability (MEDIUM), naming conventions (HIGH), generics (CRITICAL), try-with-resources (HIGH), security (CRITICAL), Stream API (MEDIUM) — minimum 10 rules.
+  > **AC 31.16.2:** Given `best-practices.csharp.system.md` exists, Then it contains CSharpGuard rules: nullable reference types (HIGH), XML doc comments (MEDIUM), async/await correctness (CRITICAL), IDisposable/using (HIGH), naming conventions (HIGH), immutability (MEDIUM), LINQ (MEDIUM), security (CRITICAL), pattern matching (MEDIUM) — minimum 10 rules.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-16
-
-- [x] Story 31.17: Documentation Prompts per Language
-  > As a **developer with non-TypeScript code**
-  > I want the documentation axis to **use language-appropriate criteria**
-  > So that Python is checked for **docstrings**, not JSDoc.
-  > AC: Given `documentation.bash.system.md`, Then evaluates function header comments, `# @description`
-  > AC: Given `documentation.python.system.md`, Then evaluates docstrings (Google/NumPy/Sphinx)
-  > AC: Given `documentation.rust.system.md`, Then evaluates `///` doc comments, `# Examples`
-  > AC: Given `documentation.go.system.md`, Then evaluates Godoc format
-  > AC: Given `documentation.java.system.md`, Then evaluates Javadoc `@param`, `@return`, `@throws`
-  > AC: Given `documentation.csharp.system.md`, Then evaluates XML doc `<summary>`, `<param>`
-  > AC: Given `documentation.sql.system.md`, Then evaluates `--` comments on tables/columns
-  > AC: Given `documentation.yaml.system.md`, Then evaluates `#` comments on keys
-  > AC: Given a `.json` file, Then documentation axis skips it (all symbols DOCUMENTED)
-  > AC: Given any prompt, Then output matches `DocumentationResponseSchema`
+- [ ] Story 31.17: Documentation Prompts per Language
+  > > As a **developer with non-TypeScript code** > I want the documentation axis to **evaluate my code's documentation using language-appropriate criteria** > So that a Python file is checked for **docstrings**, not JSDoc.
+  > **AC 31.17.1:** Given `documentation.bash.system.md` exists, Then it evaluates: function header comments (`# @description`, `## Usage:`), variable comments inline, file header explaining purpose.
+  > DOCUMENTED = header comment with description + params.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-17
-
-- [x] Story 31.18: Framework-Specific Prompts — React & Next.js
-  > As a **developer working on a React or Next.js project**
-  > I want **framework-specific rules** for best_practices and documentation.
-  > AC: Given `best-practices.react.system.md`, Then contains hooks rules, memo, a11y, key prop, etc. — min 12 rules
-  > AC: Given `best-practices.nextjs.system.md`, Then contains `'use client'`/`'use server'`, App Router, `generateMetadata`, server component data fetching, etc. — min 12 rules
-  > AC: Given `documentation.react.system.md`, Then evaluates props interface as doc, component JSDoc, Storybook
-  > AC: Given `documentation.nextjs.system.md`, Then evaluates route doc, API Route doc, middleware doc
-  > AC: Given `.tsx` in Next.js project, Then best_practices uses Next.js prompt, NOT generic TypeGuard
-  > AC: Given `.ts` (non-JSX) in Next.js project, Then still uses Next.js prompt (all files use framework prompt)
+- [ ] Story 31.18: Framework-Specific Prompts — React & Next.js
+  > > As a **developer working on a React or Next.js project** > I want the best_practices and documentation axes to **use framework-specific rules** > So that I get findings about **hooks rules, server components, App Router patterns**, not just generic TypeScript rules.
+  > **AC 31.18.1:** Given `best-practices.react.system.md` exists, Then it contains rules for: hooks exhaustive deps, no conditional hooks, component memoization (React.memo, useMemo, useCallback), key prop in lists, accessibility (a11y basics), prop types or TypeScript interface for props, no inline function props in JSX, event handler naming (`onXxx`/`handleXxx`), fragment usage, component file organization — minimum 12 rules.
+  > **AC 31.18.2:** Given `best-practices.nextjs.system.md` exists, Then it contains rules for: correct `'use client'` / `'use server'` directives, App Router conventions (page.tsx, layout.tsx, loading.tsx, error.tsx), `generateMetadata` usage, server component data fetching (no useEffect for data), Route Handlers (POST/GET in route.ts), `next/image` over `<img>`, `next/link` over `<a>`, ISR/SSG/SSR selection, middleware patterns, no client-side data fetching when server component suffices — minimum 12 rules.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-18
-
-- [x] Story 31.19: Axis Language & Framework Injection
-  > As a **developer running Anatoly on a multi-language project**
-  > I want all 7 axes to **correctly handle non-TypeScript files**.
-  > AC: Given `.sh` file evaluated by correction axis, Then user message includes `## Language: bash` and code fence is ` ```bash `
-  > AC: Given `.py` in Django project, Then user message includes `## Language: python` and `## Framework: django`
-  > AC: Given `.rs` evaluated by tests axis, Then `## Language: rust` injected
-  > AC: Given ALL 7 axes, Then EVERY axis injects `Language:` and (if applicable) `Framework:` + dynamic fence
-  > AC: Given a TypeScript file with no framework, Then output is IDENTICAL to current (zero regression)
+- [ ] Story 31.19: Axis Language & Framework Injection
+  > > As a **developer running Anatoly on a multi-language project** > I want all 7 axes to **correctly handle non-TypeScript files** > So that the evaluation is **accurate regardless of the language**.
+  > **AC 31.19.1:** Given a `.sh` file evaluated by the correction axis, When `buildCorrectionUserMessage()` runs, Then the user message includes `## Language: bash` and `## Parse method: ast`, And the code block uses ` ```bash ` fencing (not ` ```typescript `).
+  > **AC 31.19.2:** Given a `.py` file in a Django project evaluated by the overengineering axis, When `buildOverengineeringUserMessage()` runs, Then the user message includes `## Language: python` and `## Framework: django`.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-19
-
-- [x] Story 31.20: Pipeline Integration & End-to-End Validation
-  > As a **developer running `anatoly run` on a multi-language project**
-  > I want the **entire pipeline to work end-to-end**.
-  > AC: Given 50 `.ts`, 5 `.sh`, 3 `.py` files, Then ALL 58 are scanned, triaged, evaluated, and reported
-  > AC: Given pipeline phases, Then order is: config → lang-detect → framework-detect → auto-detect → grammars → setup table → scan → triage → usage-graph → estimate → review → report
-  > AC: Given `.sh` file in report, Then `.rev.json` contains `"language": "bash"` and `.rev.md` uses ShellGuard rules
-  > AC: Given heuristic-parsed file, Then `parse_method: 'heuristic'` is set and confidence is lower
-  > AC: Given a project with ONLY TypeScript, Then behavior is IDENTICAL to pre-v0.6.0 (zero regression)
-  > AC: Given second run with no changes, Then zero re-parsing and zero grammar re-downloads
+- [ ] Story 31.20: Pipeline Integration & End-to-End Validation
+  > > As a **developer running `anatoly run` on a multi-language project** > I want the **entire pipeline to work end-to-end** with non-TypeScript files > So that the report includes **findings from all languages**.
+  > **AC 31.20.1:** Given a project with 50 `.ts`, 5 `.sh`, and 3 `.py` files, When `anatoly run` executes, Then ALL 58 files are scanned, triaged, and evaluated, And the report includes findings from all three languages.
+  > **AC 31.20.2:** Given the pipeline runs, Then the phases execute in order: config → language-detect → framework-detect → auto-detect → grammars → render setup table → scan → triage → usage-graph → estimate → review → report.
   > Spec: specs/planning-artifacts/epic-31-multi-language.md#story-31-20
-
-- [x] Story 32.1: Adversarial Review & Auto-Fix — Epic 28 Stories 28.1–28.3
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 28.1–28.3 (Conversation Dump, RAG Logging, Unified Run Context)
-  > AC: Each AC of 28.1–28.3 audited, marked IMPLEMENTED/PARTIAL/MISSING with file:line proof
-  > AC: Any PARTIAL or MISSING AC is auto-fixed in the same iteration
-  > AC: Code quality issues (path injection, perf, race conditions) fixed with tests
-  > AC: Tests pass after fixes, report in `.ralph/logs/adversarial-review-28-part1.md`, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.1: Adversarial Review — Epic 28 Stories 28.1–28.3
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 28.1–28.3 > So that the logging infrastructure is **bulletproof**.
+  > **AC 32.1.1:** Given Story 28.1 (Conversation Dump Infrastructure), When each AC is audited, Then every AC is marked IMPLEMENTED with `file:line` proof, And any PARTIAL or MISSING AC is auto-fixed in the same iteration.
+  > **AC 32.1.2:** Given Story 28.2 (RAG LLM Call Logging), When each of the 3 RAG LLM call sites is inspected (`nlp-summarizer.ts:131`, `doc-indexer.ts:126`, `doc-indexer.ts:162`), Then each produces both an ndjson event AND a conversation dump, And any missing coverage is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-1
-
-- [x] Story 32.2: Adversarial Review & Auto-Fix — Epic 28 Stories 28.4–28.6
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 28.4–28.6 (Per-file Events, Watch Logging, Run Metrics)
-  > AC: All 14 event types verified at correct code locations, missing events auto-fixed
-  > AC: Watch mode events verified, timeline and run_summary accuracy verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.2: Adversarial Review — Epic 28 Stories 28.4–28.6
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 28.4–28.6 > So that per-file events, watch logging, and run metrics are **complete and correct**.
+  > **AC 32.2.1:** Given Story 28.4 (Per-file & Per-axis Events), When each of the 14 event types is audited (`file_triage`, `file_review_start`, `file_review_end`, `axis_complete`, `axis_failed`, `file_skip`, `rag_search`, `doc_resolve`, `retry`, etc.), Then each event is emitted at the correct code location, And any missing event is auto-fixed with the correct payload schema.
+  > **AC 32.2.2:** Given Story 28.5 (Watch Mode Logging), When watch mode is audited, Then `watch_start`, `watch_stop`, `file_change`, `file_delete` events are emitted, And session continuity is maintained across file changes, And any gap is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-2
-
-- [x] Story 32.3: Adversarial Review & Auto-Fix — Epic 29 Stories 29.1–29.6
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 29.1–29.6 (Type Detection, Scaffolder, Hints, Granularity, Mapping, Guard)
-  > AC: Project type detection, scaffolding, hints, module granularity, mapping all verified
-  > AC: Guard test proves no code path writes to docs/, any bypass auto-fixed as CRITICAL
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.3: Adversarial Review — Epic 29 Stories 29.1–29.6
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.1–29.6 > So that project type detection, scaffolding, and the docs guard are **solid**.
+  > **AC 32.3.1:** Given Story 29.1 (Project Type Detection), When `detectProjectTypes()` is audited, Then it correctly handles: React+Prisma→['Frontend','ORM'], bin+commander→['CLI'], workspaces→['Monorepo',...], no deps→['Library'], And any detection gap is auto-fixed.
+  > **AC 32.3.2:** Given Story 29.2 (Documentation Structure Scaffolder), When scaffolding is audited for Backend API+ORM project, Then all expected sections exist (REST-Endpoints, Middleware, Auth, Error-Handling, Data-Model, etc.), And `index.md` is complete, And idempotency (no overwrite) is verified, And any defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-3
-
-- [x] Story 32.4: Adversarial Review & Auto-Fix — Epic 29 Stories 29.7–29.11
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 29.7–29.11 (Source Analysis, LLM Gen, Cache, Scoring, Report)
-  > AC: Source extraction, LLM page quality, cache hit/miss, 5-dim scoring, report section verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.4: Adversarial Review — Epic 29 Stories 29.7–29.11
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.7–29.11 > So that source analysis, LLM generation, caching, scoring, and reporting are **accurate**.
+  > **AC 32.4.1:** Given Story 29.7 (Source Code Analysis), When the extraction is audited for each page type (modules, API, architecture), Then exported symbols, signatures, JSDoc, file tree are correctly extracted, And token truncation at 8000 tokens works correctly, And any defect is auto-fixed.
+  > **AC 32.4.2:** Given Story 29.8 (LLM Page Content Generation), When generated pages are inspected, Then they follow the template (H1, blockquote summary, H2s, examples), use real function names/paths, include code examples, And architecture pages have Mermaid diagrams, And any quality issue is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-4
-
-- [x] Story 32.5: Adversarial Review & Auto-Fix — Epic 29 Stories 29.12–29.17
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 29.12–29.17 (Doc Plan, Dual-Output, Ralph Sync, Modules, LLM Exec)
-  > AC: Doc plan resolution, dual-output fields, Ralph sync (NEVER deletes user content), module injection, LLM exec verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.5: Adversarial Review — Epic 29 Stories 29.12–29.17
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.12–29.17 > So that user doc plan resolution, dual-output, Ralph sync, module injection, and LLM execution are **correct**.
+  > **AC 32.5.1:** Given Story 29.12 (User Doc Plan Resolver), When resolution is audited for: structured docs/, flat docs/, no docs/, non-standard numbering, Then all cases produce correct mappings, And any misresolution is auto-fixed.
+  > **AC 32.5.2:** Given Story 29.13 (Dual-Output Recommendations), When recommendations are audited, Then each includes `path_ideal`, `path_user`, `content_ref`, `type`, `rationale`, `priority`, And all 8 recommendation types are covered, And any missing field is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-5
-
-- [x] Story 32.6: Adversarial Review & Auto-Fix — Epic 29 Stories 29.18–29.21
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 29.18–29.21 (Dual Context, docs_path, Coverage, Internal Pipeline)
-  > AC: Dual doc context with source tags, docs_path propagation, coverage distinction, internal pipeline verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.6: Adversarial Review — Epic 29 Stories 29.18–29.21
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 29.18–29.21 > So that dual doc context, docs_path, coverage distinction, and internal doc pipeline are **solid**.
+  > **AC 32.6.1:** Given Story 29.18 (Dual Doc Context), When the doc resolver is audited, Then both `docs/` (project) and `.anatoly/docs/` (internal) are provided as context with `source` tags, And RAG indexes both with separate sources, And budget is split 50/50, And any tagging defect is auto-fixed.
+  > **AC 32.6.2:** Given Story 29.19 (docs_path Propagation), When `docs_path: 'documentation'` is configured, Then `assertSafeOutputPath`, `buildDocRecommendations`, `resolveUserDocPlan`, `syncDocs` all use `documentation/` instead of `docs/`, And the default (no config) still works, And any hardcoded `'docs'` reference is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-6
-
-- [x] Story 32.7: Adversarial Review & Auto-Fix — Story 30.1 SDK Semaphore
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Story 30.1 (SDK Semaphore)
-  > AC: acquire/release/FIFO/finally verified, no deadlock, concurrent limit respected
-  > AC: CLI display and config validation verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 5 findings
+- [ ] Story 32.7: Adversarial Review — Story 30.1 SDK Semaphore
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Story 30.1 > So that the global SDK concurrency semaphore is **correct and deadlock-free**.
+  > **AC 32.7.1:** Given Story 30.1 (SDK Semaphore), When the semaphore implementation is audited, Then: `acquire()` blocks when all slots taken, `release()` frees a slot in FIFO order, crash in evaluator releases the slot (finally block), And the semaphore never deadlocks, And any concurrency defect is auto-fixed.
+  > **AC 32.7.2:** Given `--concurrency 4` and 7 axes (28 potential parallel calls), When the semaphore is audited with `sdkConcurrency: 8`, Then at most 8 SDK calls are in-flight, And the CLI displays `Agents: 6/8 running · 2 available`, And any violation is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-7
-
-- [x] Story 32.8: Adversarial Review & Auto-Fix — Epic 31 Stories 31.1–31.5
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 31.1–31.5 (Lang Detect, Framework Detect, Display, Auto-Detect, Grammar Manager)
-  > AC: Language detection, framework detection, setup table, auto-detect, grammar manager all verified
-  > AC: Zero regression for TS-only projects
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.8: Adversarial Review — Epic 31 Stories 31.1–31.5
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.1–31.5 > So that language detection, framework detection, auto-detect, and grammar manager are **correct**.
+  > **AC 32.8.1:** Given Story 31.1 (Language Detection), When `detectLanguages()` is audited, Then: extension grouping works (`.ts`+`.tsx`→TypeScript), <1% languages are filtered, `FILENAME_MAP` catches Dockerfile/Makefile, excluded dirs are ignored, git-tracked filter works, And any detection bug is auto-fixed.
+  > **AC 32.8.2:** Given Story 31.2 (Framework Detection), When `detectProjectProfile()` is audited, Then: React from package.json, Next.js from deps OR `next.config.*`, Django from requirements.txt, Actix from Cargo.toml, Gin from go.mod, ASP.NET from .csproj, Spring from pom.xml, multiple frameworks simultaneously, empty result when none found, And config files only read for detected languages, And any false positive/negative is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-8
-
-- [x] Story 32.9: Adversarial Review & Auto-Fix — Epic 31 Stories 31.6–31.11
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 31.6–31.11 (LanguageAdapter, all adapters)
-  > AC: LanguageAdapter interface + TS refactor = zero regression
-  > AC: Each adapter (Bash, Python, Rust, Go, Java, C#, SQL, YAML, JSON) verified against all ACs
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.9: Adversarial Review — Epic 31 Stories 31.6–31.11
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.6–31.11 > So that all language adapters **correctly extract symbols and imports**.
+  > **AC 32.9.1:** Given Story 31.6 (LanguageAdapter Interface + TS Refactor), When the refactor is audited, Then: `scanner.ts` contains zero TS-specific AST references, TypeScriptAdapter produces identical output to pre-refactor (zero regression), unknown extensions fallback to heuristic, TaskSchema includes `language`/`parse_method`/`framework`, backward compat with old `.task.json` works, And any regression is auto-fixed.
+  > **AC 32.9.2:** Given Story 31.7 (BashAdapter), When each AC is audited against the actual implementation, Then: `function` and `()` syntax both extract functions, UPPER_SNAKE → constant, non-UPPER_SNAKE → variable, `_` prefix → not exported, `source`/`.` → imports, local vars NOT extracted, And any extraction bug is auto-fixed with a regression test.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-9
-
-- [x] Story 32.10: Adversarial Review & Auto-Fix — Epic 31 Stories 31.12–31.14
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 31.12–31.14 (Heuristic, Usage-Graph, Prompt Cascade)
-  > AC: Heuristic parser, multi-language usage-graph, prompt cascade all verified
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.10: Adversarial Review — Epic 31 Stories 31.12–31.14
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.12–31.14 > So that heuristic parsing, usage-graph extension, and prompt cascade are **correct**.
+  > **AC 32.10.1:** Given Story 31.12 (Heuristic Parser), When `heuristicParse()` is audited, Then: Makefile targets extracted, Dockerfile stages extracted, UPPER_SNAKE assignments extracted, trivial files (< 5 lines) return empty, heuristic is never called when a grammar is available, And any extraction bug is auto-fixed.
+  > **AC 32.10.2:** Given Story 31.13 (Usage-Graph Multi-Language), When the extended usage-graph is audited, Then: `source`/`.` bash creates edges, Python `import` creates edges, Rust `use` creates edges, YAML/JSON/SQL have no edges, TypeScript graph is unchanged (zero regression), cross-language edges are NOT created, And any graph defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-10
-
-- [x] Story 32.11: Adversarial Review & Auto-Fix — Epic 31 Stories 31.15–31.18
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 31.15–31.18 (All Prompts)
-  > AC: All 9 best_practices prompts verified (rule counts, severities, Zod-compatible output)
-  > AC: All 8 doc prompts verified (correct language conventions)
-  > AC: React/Next.js framework prompts verified (≥12 rules each)
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.11: Adversarial Review — Epic 31 Stories 31.15–31.18
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.15–31.18 > So that all language and framework prompts are **complete, correct, and produce valid Zod output**.
+  > **AC 32.11.1:** Given Story 31.15 (Best Practices Shell/Python/Rust/Go), When each prompt is audited, Then: ShellGuard has ≥12 rules with correct severities, PyGuard has ≥13 rules, RustGuard has ≥10 rules, GoGuard has ≥10 rules, And each prompt's output format matches `BestPracticesResponseSchema` exactly (same JSON structure), And any missing rule or format defect is auto-fixed.
+  > **AC 32.11.2:** Given Story 31.16 (Best Practices Java/C#/SQL/YAML/JSON), When each prompt is audited, Then: JavaGuard ≥10 rules, CSharpGuard ≥10 rules, SqlGuard ≥8 rules, YamlGuard ≥8 rules, JsonGuard ≥5 rules, And output format matches `BestPracticesResponseSchema`, And any defect is auto-fixed.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-11
-
-- [x] Story 32.12: Adversarial Review & Auto-Fix — Epic 31 Stories 31.19–31.20
-  > As a **developer shipping Anatoly**
-  > I want an **adversarial review with auto-fix** of Stories 31.19–31.20 (Axis Injection, E2E)
-  > AC: All 7 axes inject Language + Framework + dynamic fence, TS output unchanged
-  > AC: Multi-language E2E verified (TS + Shell + Python processed correctly)
-  > AC: TS-only project = zero regression, second run = zero re-work
-  > AC: Real `anatoly run` on Anatoly itself produces valid report
-  > AC: Tests pass, report written, 0 CRITICAL/HIGH, min 10 findings
+- [ ] Story 32.12: Adversarial Review — Epic 31 Stories 31.19–31.20
+  > > As a **developer shipping Anatoly** > I want an **adversarial review with auto-fix** of Stories 31.19–31.20 > So that axis injection and end-to-end integration are **bulletproof**.
+  > **AC 32.12.1:** Given Story 31.19 (Axis Language & Framework Injection), When all 7 axes are audited, Then: every axis injects `## Language:` and `## Framework:` (when applicable) in the user message, every axis uses dynamic code fence (` ```bash `, ` ```python `, etc.), TypeScript files produce identical output to pre-v0.6.0 (zero regression), And any missing injection is auto-fixed.
+  > **AC 32.12.2:** Given Story 31.20 (Pipeline E2E), When a multi-language project (50 .ts + 5 .sh + 3 .py) is processed, Then: all 58 files scanned/triaged/evaluated/reported, pipeline phases execute in correct order, `.rev.json` contains `language` field, `.rev.md` uses correct language rules, heuristic-parsed files have lower confidence, And report groups findings by language.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
-
-- [x] Story 33.1: Création de la hiérarchie `src/prompts/` et migration des axes existants
-  > As a **développeur**
-  > I want déplacer les 28+ fichiers `.system.md` existants de `src/core/axes/prompts/` vers `src/prompts/axes/`
-  > So that tous les prompts soient regroupés sous une racine unique et cohérente.
-  > AC: Given les 28+ fichiers dans `src/core/axes/prompts/`, When la migration est exécutée, Then tous les fichiers sont déplacés vers `src/prompts/axes/` avec les mêmes noms
-  > AC: Les dossiers `src/prompts/_shared/`, `src/prompts/deliberation/`, `src/prompts/doc-generation/`, `src/prompts/rag/` sont créés (vides)
-  > AC: Tous les imports dans `src/core/axes/*.ts` et `src/core/prompt-resolver.ts` sont mis à jour vers les nouveaux chemins
-  > AC: Les tests existants (`best-practices-prompts.test.ts`, `documentation-prompts.test.ts`, `framework-prompts.test.ts`) passent sans modification de logique
-  > AC: `npx vitest run` passe à 100%
-  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-1
-
-- [x] Story 33.2: Extraction des 8 prompts inline vers des fichiers .system.md
-  > As a **développeur**
-  > I want extraire les 8 prompts inline dispersés dans le code TypeScript vers des fichiers `.system.md` dans `src/prompts/`
-  > So that chaque prompt soit versionnable, éditable et auditable indépendamment du code.
-  > Extractions: (1) `axis-evaluator.ts:~233` → `_shared/json-evaluator-wrapper.system.md`, (2) `correction.ts:101-136` → `axes/correction.verification.system.md`, (3) `deliberation.ts:49-91` → `deliberation/deliberation.system.md`, (4) `doc-generator.ts:68-95` → `doc-generation/doc-writer.system.md`, (5) `doc-generator.ts:97-100` → `doc-generation/doc-writer.architecture.system.md`, (6) `doc-generator.ts:102-105` → `doc-generation/doc-writer.api-reference.system.md`, (7) `doc-indexer.ts:90-102` → `rag/section-refiner.system.md`, (8) `nlp-summarizer.ts:37-42` → `rag/nlp-summarizer.system.md`
-  > AC: Chaque prompt inline est remplacé par un `import content from '../../prompts/...'` avec `.trimEnd()` (convention Epic 20)
-  > AC: Prompts avec template literals/interpolation : partie statique → .md, interpolation reste dans le builder TS
-  > AC: Les prompts extraits sont textuellement identiques caractère pour caractère à l'original
-  > AC: `npx vitest run` passe à 100%
-  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-2
-
-- [x] Story 33.3: Extension du `prompt-resolver.ts` en registre universel
-  > As a **développeur**
-  > I want étendre le prompt-resolver pour couvrir les domaines deliberation, doc-generation, rag et shared
-  > So that tout le projet utilise un point d'entrée unique pour résoudre n'importe quel prompt.
-  > AC: Le registre passe de ~28 entrées à ~36+ couvrant tous les domaines
-  > AC: `resolveSystemPrompt('deliberation')` retourne le contenu de `deliberation/deliberation.system.md`
-  > AC: `resolveSystemPrompt('doc-generation')` retourne le contenu de `doc-generation/doc-writer.system.md`, `resolveSystemPrompt('doc-generation.architecture')` et `resolveSystemPrompt('doc-generation.api-reference')` retournent les variantes
-  > AC: `resolveSystemPrompt('rag.section-refiner')` et `resolveSystemPrompt('rag.nlp-summarizer')` retournent les contenus rag
-  > AC: `resolveSystemPrompt('_shared.json-evaluator-wrapper')` retourne le wrapper JSON
-  > AC: Les 6 consommateurs (`doc-generator.ts`, `deliberation.ts`, `correction.ts`, `axis-evaluator.ts`, `doc-indexer.ts`, `nlp-summarizer.ts`) passent par le registre au lieu d'importer directement
-  > AC: Tests unitaires pour chaque nouvelle clé, `_clearPromptRegistry()` et `_resetPromptRegistry()` mis à jour
-  > AC: `npx vitest run` passe à 100%
-  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-3
-
-- [x] Story 33.4: Tests de non-régression et validation adversariale
-  > As a **développeur**
-  > I want valider que la centralisation n'a introduit aucune régression
-  > So that la qualité des évaluations LLM reste identique après le refactoring.
-  > AC: `npx vitest run` passe à 100% sans modification des tests
-  > AC: `npx anatoly estimate` sur le repo anatoly : estimations tokens identiques avant/après
-  > AC: Test snapshot du registre complet (clés triées + taille contenu en chars)
-  > AC: Test cohérence bidirectionnel : glob `src/prompts/**/*.system.md` ↔ `PROMPT_REGISTRY.keys()` — aucune clé orpheline, aucun .md orphelin
-  > AC: `grep -r "core/axes/prompts" src/` → 0 résultats, ancien dossier supprimé
-  > AC: `npm run typecheck && npm run build && npx vitest run` → 0 erreurs
-  > Spec: specs/planning-artifacts/epic-33-prompt-centralization.md#story-33-4
-
-### Epic 34 : Prompt Reinforcement — Audit, edge cases et renforcement des 36 prompts
-> Goal: Audit systématique des 36 system prompts, correction de 14 edge cases, injection de guard rails anti-hallucination, calibration des scores, injection dynamique d'exemples de schema Zod, et validation par gold-set testing.
-
-- [x] Story 34.1: Structural Fixes — Correction des contradictions et erreurs factuelles
-  > As a **développeur d'Anatoly**
-  > I want que les prompts système ne contiennent aucune contradiction interne ni erreur factuelle
-  > So that le LLM reçoive des instructions cohérentes et produise des réponses conformes au format attendu.
-  > AC: Aucun des 7 prompts axes ne contient de fences ` ```json ` dans sa section Output format
-  > AC: Chaque prompt dit "raw JSON object" dans l'instruction de sortie
-  > AC: Le prompt deliberation mentionne "7 independent axis evaluators" (pas "6")
-  > AC: Chaque prompt best-practices variant a un commentaire HTML documentant le nombre de règles et le delta vs TypeScript base
-  > AC: Test "no JSON fences in output format" passe pour les 7 prompts axes
-  > AC: Test "deliberation mentions 7 axes" passe
-  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.2: Guard Rails — Infrastructure anti-hallucination partagée
-  > As a **développeur d'Anatoly**
-  > I want un fichier de règles partagé injecté automatiquement dans tous les prompts d'axes
-  > So that le LLM ne puisse pas halluciner des symboles, des lignes hors limites, ou des structures invalides.
-  > AC: `src/prompts/_shared/guard-rails.system.md` existe avec sections "Constraints" et "Confidence Guide"
-  > AC: `resolveSystemPrompt('_shared.guard-rails')` retourne un contenu non-vide
-  > AC: Le registre contient 37 entrées (36 + 1 guard-rails)
-  > AC: Le system prompt composé pour chaque axe contient dans l'ordre : json-evaluator-wrapper, guard-rails, prompt spécifique
-  > AC: Le prompt composé contient "ONLY output symbols that exist in the provided source code"
-  > AC: Le prompt composé contient "Never output confidence below 50"
-  > AC: Le test de cohérence bidirectionnelle passe avec 37 entrées
-  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.3: Score Calibration — Ancrage des scores best-practices par langage
-  > As a **développeur d'Anatoly**
-  > I want que chaque prompt best-practices contienne des exemples calibrés de ce que signifie chaque niveau de score
-  > So that les scores soient mieux distribués et plus discriminants au lieu de se concentrer autour de 7-9.
-  > AC: Les 12 prompts best-practices (base + 11 variants) contiennent une section "Score Calibration"
-  > AC: Chaque section Score Calibration a 6 niveaux (9-10, 7-8, 5-6, 3-4, 1-2, 0)
-  > AC: Le prompt bash mentionne "set -euo pipefail" dans sa calibration (pas des concepts TypeScript)
-  > AC: Le prompt python mentionne "type hints" dans sa calibration (pas des concepts TypeScript)
-  > AC: Test vérifiant que les 12 prompts ont la section Score Calibration avec les 6 niveaux
-  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.4: Edge Case Handling — Code généré, doc-generation et RAG
-  > As a **développeur d'Anatoly**
-  > I want que les prompts gèrent explicitement les cas limites (code généré, doc-generation sous-spécifié, nlp-summarizer fragile)
-  > So that les évaluations soient fiables même sur des fichiers atypiques.
-  > AC: `correction.system.md` contient une règle "code generation marker" avec leniency et confidence -20
-  > AC: `best-practices.system.md` contient la même règle "code generation marker"
-  > AC: `overengineering.system.md` contient la même règle "code generation marker"
-  > AC: `doc-writer.system.md` contient les contraintes : max 500 lignes, ton technique/troisième personne, gestion des conflits source/docs
-  > AC: `nlp-summarizer.system.md` contient : focus interface publique pour fonctions >200 lignes, fallback "Purpose unclear from code alone", keyConcepts lowercase/hyphenated/max 30 chars
-  > AC: Tests vérifiant la présence de chaque nouvelle règle dans les prompts correspondants
-  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.5: Schema Example Injection — Génération dynamique depuis les schemas Zod
-  > As a **développeur d'Anatoly**
-  > I want que chaque system prompt d'axe contienne un exemple JSON généré dynamiquement depuis le schema Zod
-  > So that l'exemple soit toujours synchronisé avec le schema réel et que le taux de retry Zod diminue.
-  > AC: `src/utils/schema-example.ts` existe avec `generateSchemaExample()` et `formatSchemaExample()`
-  > AC: Round-trip test : `schema.safeParse(generateSchemaExample(schema)).success === true` pour les 8 schemas (7 axes + verification)
-  > AC: `formatSchemaExample()` produit des commentaires inline pour les enums (ex: `"OK"  // OK | NEEDS_FIX | ERROR`)
-  > AC: Le system prompt composé pour chaque axe se termine par "Expected output schema" suivi de l'exemple JSON
-  > AC: Chaque exemple formaté fait < 300 tokens (estimation par longueur)
-  > AC: Les schemas sont exportés depuis `src/core/axes/*.ts` pour accès depuis `axis-evaluator.ts`
-  > AC: `npm run typecheck && npm run build && npm run test` passe à 100%
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.6: Gold-Set Testing — Validation par appels LLM réels
-  > As a **tech lead**
-  > I want une suite de tests avec des fichiers gold-set évalués par les vrais prompts via appels LLM réels
-  > So that je puisse valider que les renforcements produisent les verdicts attendus.
-  > AC: 8 fichiers gold-set dans `src/prompts/__gold-set__/` (empty-file, generated-protobuf, monolith, mixed-lang-sql, perfect-10, terrible-1, dead-code, false-duplicate)
-  > AC: Suite de test `gold-set.test.ts` exclue du `npm run test` normal (tag @gold-set)
-  > AC: `empty-file.ts` → `{ "symbols": [] }` pour tous les axes
-  > AC: `perfect-10.ts` → best-practices score ≥ 9.0
-  > AC: `terrible-1.ts` → best-practices score ≤ 3.0
-  > AC: `dead-code.ts` → utility = DEAD pour les exports orphelins
-  > AC: `false-duplicate.ts` → duplication = UNIQUE
-  > AC: Baseline JSON sauvegardé, README documentant l'exécution et le coût (~$1.12/run)
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
-
-- [x] Story 34.7: Adversarial Code Review — Validation complète de l'Epic 34
-  > As a **tech lead**
-  > I want an adversarial code review of the complete Epic 34 implementation
-  > So that every claim is verified against reality and no regression passes.
-  > AC: `npm run typecheck && npm run build && npm run test` — zero failures
-  > AC: Prompt registry count = 37 avec cohérence bidirectionnelle
-  > AC: Aucun prompt axes ne contient ` ```json ` — zero matches
-  > AC: Deliberation mentionne "7 independent"
-  > AC: Les 12 best-practices prompts contiennent "Score Calibration" avec 6 niveaux
-  > AC: Guard-rails est entre json-evaluator-wrapper et le prompt d'axe dans la composition
-  > AC: Schema example est le DERNIER élément du system prompt
-  > AC: 8 fichiers gold-set existent
-  > AC: Chaque claim de story 34.1-34.6 vérifié contre `git diff` + source code
-  > Spec: specs/planning-artifacts/epic-34-prompt-reinforcement.md
+- [ ] Story 1: Prerequisites (schema + resolver + prompt)
+  > All foundation work with no runtime behavior.
+  > Can be parallelized internally.
+  > Tests embedded.
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-1
+- [ ] Story 2: Core Integration (evaluator + merger + orchestrator + registry)
+  > The axis becomes functional end-to-end.
+  > Tests embedded per task.
+  > | Task | File(s) | Tests | |------|---------|-------| | Evaluator implementation | `axes/documentation.ts` (NEW) | Mock LLM, validate Zod parsing | | Merger integration | `axis-merger.ts` | Coherence rules (DEAD→UNDOCUMENTED), action synthesis | | Orchestrator wiring | `file-evaluator.ts`, `run.ts`/`reviewer.ts` | docsTree passed via options, relevantDocs injection | | Registry registration | `axes/index.ts` | Enabled/disabled filtering | | Report updates | `reporter.ts` | `doc` column, "Documentation Coverage" section, coverage score |
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-2
+- [ ] Story 3: Documentation Meta (update project docs)
+  > Self-referential: the documentation axis documents itself.
+  > | Task | File(s) | |------|---------| | Rename Six-Axis → Seven-Axis | `docs/02-Architecture/02-Six-Axis-System.md` | | Add documentation evaluator section | `docs/04-Core-Modules/04-Axis-Evaluators.md` | | Update PRD Principle 1 + Non-goals | `_bmad-output/planning-artifacts/PRD.md` | Stories 1 and 3 can be worked in parallel.
+  > Story 2 depends on Story 1.
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-3
 
 ## Completed
 

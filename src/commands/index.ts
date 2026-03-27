@@ -19,3 +19,4 @@ export { registerCleanSyncCommand } from './clean-sync.js';
 export { registerSetupEmbeddingsCommand } from './setup-embeddings.js';
 export { registerInitCommand } from './init.js';
 export { registerDocsCommand } from './docs.js';
+export { registerProvidersCommand } from './providers.js';

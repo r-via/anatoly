@@ -34,9 +34,10 @@ describe('CLI program', () => {
         'setup-embeddings',
         'init',
         'docs',
+        'providers',
       ]),
     );
-    expect(commandNames).toHaveLength(14);
+    expect(commandNames).toHaveLength(15);
   });
 
   it('should register all global options', () => {

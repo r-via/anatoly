@@ -22,6 +22,7 @@ import {
   registerSetupEmbeddingsCommand,
   registerInitCommand,
   registerDocsCommand,
+  registerProvidersCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -110,6 +111,7 @@ export function createProgram(): Command {
   registerSetupEmbeddingsCommand(program);
   registerInitCommand(program);
   registerDocsCommand(program);
+  registerProvidersCommand(program);
 
   return program;
 }
