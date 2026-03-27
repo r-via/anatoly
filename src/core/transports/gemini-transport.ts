@@ -56,6 +56,8 @@ export class GeminiTransport implements LlmTransport {
   private readonly model: string;
   private config?: Config;
   private client?: GeminiClient;
+  private _initPromise: Promise<void> | null = null;
+  private _queryQueue: Promise<unknown> = Promise.resolve();
 
   constructor(projectRoot: string, model: string) {
     this.projectRoot = projectRoot;
@@ -67,9 +69,17 @@ export class GeminiTransport implements LlmTransport {
   }
 
   /** Lazy-initialize Config + GeminiClient on first call. */
-  private async ensureInitialized(): Promise<void> {
-    if (this.client) return;
+  private ensureInitialized(): Promise<void> {
+    if (!this._initPromise) {
+      this._initPromise = this._initialize().catch((err) => {
+        this._initPromise = null;
+        throw err;
+      });
+    }
+    return this._initPromise;
+  }
 
+  private async _initialize(): Promise<void> {
     suppressConsole();
     try {
       this.config = new Config({
@@ -96,6 +106,16 @@ export class GeminiTransport implements LlmTransport {
   async query(params: LlmRequest): Promise<LlmResponse> {
     await this.ensureInitialized();
     const client = this.client!;
+
+    // Serialize _doQuery calls to prevent interleaved resetChat/getChat/setSystemInstruction
+    const prev = this._queryQueue;
+    let resolve!: () => void;
+    this._queryQueue = new Promise<void>((r) => {
+      resolve = r;
+    });
+
+    await prev;
+
     const start = Date.now();
     const transcriptLines: string[] = [];
 
@@ -128,6 +148,7 @@ export class GeminiTransport implements LlmTransport {
       );
       throw err;
     } finally {
+      resolve();
       restoreConsole();
     }
   }
