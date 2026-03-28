@@ -18,25 +18,50 @@ import { indexProject, type RagIndexResult } from './orchestrator.js';
 import type { Task } from '../schemas/task.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
 
+/**
+ * Options for {@link indexProjectStandalone}.
+ *
+ * All callback fields are optional and default to no-ops internally.
+ */
 export interface StandaloneRagOptions {
+  /** Absolute path to the project root directory. */
   projectRoot: string;
+  /** Task list describing the files/scopes to index. */
   tasks: Task[];
+  /** When true, drops existing vector-store entries and re-indexes from scratch. */
   rebuild?: boolean;
+  /** Path to the documentation directory (relative to projectRoot). */
   docsDir?: string;
+  /** Called with informational messages during indexing. */
   onLog?: (msg: string) => void;
+  /** Called with (current, total) file counts as indexing progresses. */
   onProgress?: (current: number, total: number) => void;
+  /** Called when the indexer enters a new phase (e.g. "embedding", "summarizing"). */
   onPhase?: (phase: string) => void;
+  /** Called when processing of a file begins. */
   onFileStart?: (file: string) => void;
+  /** Called when processing of a file completes. */
   onFileDone?: (file: string) => void;
+  /** Polled periodically; return true to abort the indexing run early. */
   isInterrupted?: () => boolean;
+  /** Directory for persisting LLM conversation transcripts (debug/audit). */
   conversationDir?: string;
+  /** Global SDK concurrency semaphore for Claude API calls. */
   semaphore?: Semaphore;
+  /** Separate concurrency semaphore for Gemini API calls (used when the index model is a Gemini model). */
   geminiSemaphore?: Semaphore;
 }
 
 /**
  * Resolve the RAG table name for the current hardware/config.
- * Use this to open VectorStore with the correct table outside of indexing.
+ *
+ * Detects hardware, reads the embeddings-ready flag, and determines the
+ * active backend to derive the table name (`function_cards_advanced` or
+ * `function_cards_lite`). Use this to open VectorStore with the correct
+ * table outside of indexing.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns The vector-store table name (e.g. `"function_cards_lite"`).
  */
 export function resolveRagTableName(projectRoot: string): string {
   const hardware = detectHardware();
