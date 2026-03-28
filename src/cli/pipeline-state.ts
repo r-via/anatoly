@@ -26,7 +26,7 @@ export interface SummaryState {
   cost: string;
 }
 
-export type PipelinePhase = 'rag' | 'review' | 'summary';
+export type PipelinePhase = 'rag' | 'review' | 'refinement' | 'summary';
 
 /**
  * Shared mutable state bag for the review pipeline, consumed by the
