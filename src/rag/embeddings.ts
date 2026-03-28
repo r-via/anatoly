@@ -45,6 +45,7 @@ let onLog: (message: string) => void = () => {};
 /**
  * Set the log callback for embedding operations.
  * Called during model loading to report progress.
+ * @param logger - Callback invoked with status messages during model loading.
  */
 export function setEmbeddingLogger(logger: (message: string) => void): void {
   onLog = logger;
@@ -53,6 +54,7 @@ export function setEmbeddingLogger(logger: (message: string) => void): void {
 /**
  * Configure which models to use for code and NLP embedding.
  * Must be called before any embed calls. Resets cached model instances.
+ * @param resolved - The resolved model configuration from hardware detection.
  */
 export function configureModels(resolved: ResolvedModels): void {
   codeModelId = resolved.codeModel;
@@ -88,7 +90,7 @@ export function getNlpDim(): number {
   return nlpDim;
 }
 
-/** Embed via ONNX (Jina fallback). Always uses Jina regardless of codeModelId. */
+/** Cached ONNX Jina fallback model promise. Always uses Jina regardless of codeModelId. */
 let onnxFallbackPromise: Promise<any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
 async function embedViaOnnx(text: string): Promise<number[]> {
   if (!onnxFallbackPromise) {
@@ -275,6 +277,8 @@ async function embedBatchViaGguf(texts: string[], port: number): Promise<number[
 /**
  * Embed multiple code texts in a single batch request.
  * Falls back to sequential embedCode() for ONNX runtime.
+ * @param texts - Array of code strings to embed.
+ * @returns Array of embedding vectors, one per input text.
  */
 export async function embedCodeBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
@@ -293,6 +297,8 @@ export async function embedCodeBatch(texts: string[]): Promise<number[][]> {
 /**
  * Embed multiple NLP texts in a single batch request.
  * Falls back to sequential embedNlp() for ONNX runtime.
+ * @param texts - Array of natural-language strings to embed.
+ * @returns Array of embedding vectors, one per input text.
  */
 export async function embedNlpBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
@@ -313,6 +319,8 @@ export async function embedNlpBatch(texts: string[]): Promise<number[][]> {
 /**
  * Generate a code embedding vector for the given text.
  * Routes to GGUF Docker or ONNX based on configured runtime.
+ * @param text - The code text to embed.
+ * @returns The embedding vector as a number array.
  */
 export async function embedCode(text: string): Promise<number[]> {
   if (codeRuntime === 'gguf') {
@@ -325,6 +333,8 @@ export async function embedCode(text: string): Promise<number[]> {
 /**
  * Generate an NLP embedding vector for the given text.
  * Routes to GGUF Docker or ONNX based on configured runtime.
+ * @param text - The natural-language text to embed.
+ * @returns The embedding vector as a number array.
  */
 export async function embedNlp(text: string): Promise<number[]> {
   if (nlpRuntime === 'gguf') {
@@ -352,6 +362,10 @@ export async function embed(text: string): Promise<number[]> {
  * Build the code text to embed for a function.
  * Prefixes with name and signature, then includes the source body
  * (truncated to ~1500 chars to stay within the model's effective window).
+ * @param name - The function name.
+ * @param signature - The function signature line.
+ * @param sourceBody - The full source body of the function.
+ * @returns Formatted code string ready for embedding.
  */
 export function buildEmbedCode(name: string, signature: string, sourceBody: string): string {
   let body = sourceBody;
@@ -365,6 +379,11 @@ export function buildEmbedCode(name: string, signature: string, sourceBody: stri
  * Build natural language text to embed for a function's NLP summary.
  * Combines the summary, key concepts, and behavioral profile into a
  * semantically rich text representation optimized for NLP similarity.
+ * @param name - The function name.
+ * @param summary - A short natural-language summary of the function.
+ * @param keyConcepts - Key domain concepts the function relates to.
+ * @param behavioralProfile - Description of the function's runtime behavior.
+ * @returns Formatted NLP text string ready for embedding.
  */
 export function buildEmbedNlp(
   name: string,
