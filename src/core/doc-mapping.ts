@@ -63,6 +63,9 @@ const FRAMEWORK_PATTERNS: Array<{ pattern: string; docPage: string }> = [
 /**
  * Maps source directories to documentation pages using the fallback strategy.
  * Only directories with >= 200 LOC total are considered.
+ *
+ * @param dirs - Source directories to classify; entries below the LOC threshold are skipped.
+ * @returns An array of resolved mappings, one per qualifying directory.
  */
 export function resolveDocMappings(dirs: SourceDir[]): DocMapping[] {
   const mappings: DocMapping[] = [];
