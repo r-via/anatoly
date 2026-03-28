@@ -132,7 +132,7 @@ function collapseChain(parent: TreeNode, key: string, node: TreeNode): void {
     }
   } else {
     // Not collapsible, but still condense children at depth
-    for (const child of node.children.values()) {
+    for (const child of [...node.children.values()]) {
       if (!child.isFile && child.children.size > 0) {
         collapseChain(node, child.name, child);
       }
