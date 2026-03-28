@@ -29,8 +29,14 @@ export interface SymbolCoverage {
   internalModulesDocumented?: number;
 }
 
+/**
+ * Counts of doc pages out of sync with the current source state,
+ * broken down by recommendation type.
+ */
 export interface SyncByType {
+  /** Pages that exist in source but have no corresponding doc page yet. */
   toCreate: number;
+  /** Pages whose source has changed since the doc page was last generated. */
   outdated: number;
 }
 
