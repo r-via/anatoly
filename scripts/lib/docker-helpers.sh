@@ -29,6 +29,10 @@ docker_rm() {
 # GGUF containers (llama.cpp)
 # ---------------------------------------------------------------------------
 
+# Start a single GGUF (llama.cpp) embedding container.
+# Args: name models_dir model_file host_port
+# Runs with --gpus all and -ngl 999 (offload all layers to GPU).
+# Uses --pooling last and --embedding mode for vector output.
 start_gguf_container() {
   local name="$1"
   local models_dir="$2"
@@ -52,6 +56,8 @@ start_gguf_container() {
   log debug "Started GGUF container ${name} on port ${host_port}"
 }
 
+# Start both GGUF containers (code + NLP) with CONTAINER_PREFIX-based names.
+# Args: models_dir code_model nlp_model
 start_gguf_containers() {
   local models_dir="$1"
   local code_model="$2"
@@ -64,6 +70,7 @@ start_gguf_containers() {
   start_gguf_container "$nlp_name" "$models_dir" "$nlp_model" "$GGUF_NLP_PORT"
 }
 
+# Stop and remove both GGUF containers (code + NLP). No-op if absent.
 stop_gguf_containers() {
   docker_rm "${CONTAINER_PREFIX}-gguf-code"
   docker_rm "${CONTAINER_PREFIX}-gguf-nlp"
@@ -94,7 +101,9 @@ wait_for_health() {
   done
 }
 
-# Wait for GGUF containers (both code + NLP)
+# Wait for both GGUF containers (code + NLP) to pass health checks.
+# Args: [timeout=180] — total budget in seconds shared across both checks.
+# Returns 1 if either container fails to start within the timeout.
 wait_for_gguf() {
   local timeout="${1:-180}"
   local start remaining
