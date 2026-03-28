@@ -19,41 +19,42 @@ export interface UsageGraph {
   noImportFiles: Set<string>;
 }
 
-/**
- * Regex patterns for extracting imports from TypeScript source.
- * Matches:
- * - import { A, B as C } from './path'
- * - import Default from './path'
- * - import * as X from './path'
- * - export { A, B } from './path'
- * - import type { A } from './path' (type-only — tracked separately)
- * - export type { A } from './path' (type-only — tracked separately)
- */
+/** Matches named imports: `import { A, B as C } from './path'`. Excludes `import type` via negative lookahead. */
 const NAMED_IMPORT_RE =
   /import\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches default imports: `import X from './path'`. Excludes `import type` via negative lookahead. */
 const DEFAULT_IMPORT_RE =
   /import\s+(?!type\s)(\w+)\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches type-only named imports: `import type { A, B } from './path'`. */
 const TYPE_NAMED_IMPORT_RE =
   /import\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches type-only re-exports: `export type { A, B } from './path'`. */
 const TYPE_REEXPORT_RE =
   /export\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches namespace imports: `import * as X from './path'`. */
 const NAMESPACE_IMPORT_RE =
   /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches named re-exports: `export { A, B } from './path'`. Excludes `export type` via negative lookahead. */
 const REEXPORT_RE =
   /export\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
 
+/** Matches star re-exports: `export * from './path'`. */
 const STAR_REEXPORT_RE =
   /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
 
 /**
  * Resolve a relative import specifier to a project-relative file path.
  * Handles: .js → .ts, bare → .ts or /index.ts.
- * Returns null for node_modules or unresolvable imports.
+ *
+ * @param specifier - The import specifier string (e.g. `'./foo'`, `'./bar.js'`).
+ * @param importerAbsPath - Absolute filesystem path of the importing file.
+ * @param projectRoot - Absolute path to the project root for computing relative paths.
+ * @returns Project-relative path to the resolved file, or `null` for node_modules / unresolvable imports.
  */
 function resolveImportPath(
   specifier: string,
@@ -199,7 +200,10 @@ function extractImports(
 }
 
 /**
- * Build an export map from tasks: filePath → Set<exported symbol names>.
+ * Build an export map from tasks: filePath → Set\<exported symbol names\>.
+ *
+ * @param tasks - Scanned task list; each task contains a file path and its parsed symbols.
+ * @returns Map keyed by project-relative file path, with values being the set of exported symbol names.
  */
 function buildExportMap(tasks: Task[]): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
@@ -287,6 +291,11 @@ function stripCommentsAndStrings(source: string): string {
  * other exported symbols in the same file reference it in their body.
  * This enables transitive usage detection — if symbol A is imported
  * externally and references symbol B in its body, B is transitively alive.
+ *
+ * @param projectRoot - Absolute path to the project root (for resolving file reads).
+ * @param tasks - Scanned task list with symbol line ranges used to extract function bodies.
+ * @returns Map keyed by `"symbolName::filePath"`, with values being the set of
+ *   exported symbol names in the same file that reference this symbol.
  */
 function buildIntraFileGraph(
   projectRoot: string,
@@ -347,6 +356,12 @@ type RustCrateMap = Map<string, string>;
  *
  * Also detects the importer's own crate source directory for `crate::` resolution
  * in workspace members (where `src/` is relative to the member, not the project root).
+ *
+ * @param projectRoot - Absolute path to the project root containing the root Cargo.toml.
+ * @param taskFileSet - Set of project-relative file paths from scanned tasks,
+ *   used to verify that discovered crate source directories contain relevant files.
+ * @returns Map of underscored crate names to their project-relative source directories
+ *   (e.g. `"rustguard_core"` → `"rustguard-core/src"`).
  */
 function buildRustCrateMap(
   projectRoot: string,
@@ -427,7 +442,11 @@ function buildRustCrateMap(
 
 /**
  * Determine the workspace member source directory for a given Rust file.
- * E.g. "rustguard-core/src/noise.rs" → "rustguard-core/src"
+ * E.g. `"rustguard-core/src/noise.rs"` → `"rustguard-core/src"`.
+ *
+ * @param importerRelPath - Project-relative path to the Rust source file.
+ * @param crateMap - Workspace crate map built by {@link buildRustCrateMap}.
+ * @returns The matching crate source directory, or `"src"` as a fallback for single-crate projects.
  */
 function getRustCrateSrcDir(
   importerRelPath: string,
@@ -444,7 +463,13 @@ function getRustCrateSrcDir(
 
 /**
  * Try to resolve a Rust module path (array of segments) relative to a source directory.
- * Handles both file modules (foo.rs) and directory modules (foo/mod.rs).
+ * Handles both file modules (`foo.rs`) and directory modules (`foo/mod.rs`).
+ * Tries longest-prefix match first, then progressively shorter prefixes.
+ *
+ * @param parts - Module path segments (e.g. `["noise", "handshake"]` from `crate::noise::handshake`).
+ * @param srcDir - Project-relative source directory to resolve against.
+ * @param taskFileSet - Set of known project-relative file paths for existence checks.
+ * @returns Project-relative path to the resolved `.rs` file, or `null` if not found.
  */
 function resolveRustModulePath(
   parts: string[],
@@ -462,8 +487,15 @@ function resolveRustModulePath(
 
 /**
  * Resolve a non-TypeScript import path to a project-relative file path.
- * Handles Bash source paths, Python module names, and Rust crate paths
- * (including cross-crate workspace imports).
+ * Handles Bash `source` paths, Python dotted module names, and Rust crate paths
+ * (including `crate::`, `super::`, `self::`, and cross-crate workspace imports).
+ *
+ * @param importSource - The raw import string (e.g. `"./lib/helpers.sh"`, `"my_module.utils"`, `"crate::noise"`).
+ * @param importType - The type of import (e.g. `"source"` for Bash, inferred from extension otherwise).
+ * @param importerRelPath - Project-relative path of the importing file.
+ * @param taskFileSet - Set of known project-relative file paths for existence checks.
+ * @param rustCrateMap - Optional workspace crate map for cross-crate Rust resolution.
+ * @returns Project-relative path to the resolved file, or `null` if unresolvable.
  */
 function resolveNonTsImportPath(
   importSource: string,
@@ -680,6 +712,11 @@ export function buildUsageGraph(
 
 /**
  * Get the list of files that runtime-import a specific symbol from a specific file.
+ *
+ * @param graph - The usage graph built by {@link buildUsageGraph}.
+ * @param symbolName - The exported symbol name to look up.
+ * @param filePath - Project-relative path of the file that exports the symbol.
+ * @returns Sorted array of project-relative file paths that runtime-import this symbol.
  */
 export function getSymbolUsage(
   graph: UsageGraph,
@@ -693,6 +730,11 @@ export function getSymbolUsage(
 
 /**
  * Get the list of files that type-only import a specific symbol from a specific file.
+ *
+ * @param graph - The usage graph built by {@link buildUsageGraph}.
+ * @param symbolName - The exported symbol name to look up.
+ * @param filePath - Project-relative path of the file that exports the symbol.
+ * @returns Sorted array of project-relative file paths that type-only import this symbol.
  */
 export function getTypeOnlySymbolUsage(
   graph: UsageGraph,
@@ -706,7 +748,13 @@ export function getTypeOnlySymbolUsage(
 
 /**
  * Get exported symbols in the same file that reference the given symbol in their body.
- * Only returns referencers that are themselves alive (imported by other files).
+ * Only returns referencers that are themselves alive (runtime- or type-imported by other files).
+ *
+ * @param graph - The usage graph built by {@link buildUsageGraph}.
+ * @param symbolName - The exported symbol name to check for transitive references.
+ * @param filePath - Project-relative path of the file containing the symbol.
+ * @returns Sorted array of symbol names in the same file that reference this symbol
+ *   and are themselves directly imported by at least one other file.
  */
 export function getTransitiveUsage(
   graph: UsageGraph,
