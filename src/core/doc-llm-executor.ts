@@ -29,8 +29,24 @@ export interface ExecutorResult {
   costUsd: number;
 }
 
+/**
+ * Function signature for an LLM executor that sends a prompt and returns
+ * the generated text with its cost. The three prompt fields (`system`,
+ * `user`, `model`) are all required. Implementations typically wrap
+ * {@link retryWithBackoff} internally to handle transient API failures.
+ */
 export type DocExecutor = (prompt: { system: string; user: string; model: string }) => Promise<ExecutorResult>;
 
+/**
+ * Parameters for {@link executeDocPrompts}.
+ *
+ * - `outputDir` is the root directory where generated pages are written.
+ * - `projectRoot` and `docsPath` together define the boundary for
+ *   {@link assertSafeOutputPath} — writes outside `projectRoot` or into
+ *   `docsPath` (the user-facing docs directory) are rejected.
+ * - The three optional callbacks (`onPageStart`, `onPageComplete`,
+ *   `onPageError`) fire per-page and are intended for progress UI.
+ */
 export interface ExecuteDocPromptsParams {
   prompts: PagePrompt[];
   outputDir: string;
@@ -200,6 +216,17 @@ export interface StructureIssue {
   fixed: boolean;
 }
 
+/**
+ * Progress callbacks for {@link reviewDocStructure}.
+ *
+ * @property onCollected - Fired once after all markdown files are collected.
+ *   Receives the total file count and their combined size in KB.
+ * @property onCheck - Fired after each rule check completes. Receives the
+ *   rule name (e.g. `'preamble'`, `'heading-hierarchy'`) and the number of
+ *   issues found by that rule.
+ * @property onFileFixed - Fired for each auto-fixed file, with the relative
+ *   path and the rule that triggered the fix.
+ */
 export interface DocStructureReviewCallbacks {
   onCollected?: (fileCount: number, totalSizeKb: number) => void;
   onCheck?: (rule: string, issueCount: number) => void;
@@ -623,6 +650,18 @@ export interface DocCoherenceReviewResult {
   durationMs: number;
 }
 
+/**
+ * Parameters for {@link runDocCoherenceReview}.
+ *
+ * @property outputDir - Root directory containing the generated doc pages.
+ * @property projectRoot - Absolute path to the project root (for path safety).
+ * @property docsPath - Relative path to the user-facing docs directory (guarded from writes).
+ * @property abortController - Optional controller to cancel the agent mid-run.
+ * @property semaphore - Optional concurrency semaphore; a slot is held for the
+ *   duration of the agent call so the UI can show active work.
+ * @property callbacks.onToolUse - Fired each time the agent invokes a tool,
+ *   with the tool name and target file path.
+ */
 export interface DocCoherenceReviewParams {
   outputDir: string;
   projectRoot: string;
@@ -827,6 +866,20 @@ export interface DocContentReviewResult {
   durationMs: number;
 }
 
+/**
+ * Parameters for {@link runDocContentReview}.
+ *
+ * @property outputDir - Root directory containing the generated doc pages.
+ * @property projectRoot - Absolute path to the project root.
+ * @property gapReportText - The gap analysis report as text, injected into
+ *   the user message to guide the Opus agent.
+ * @property abortController - Optional controller to cancel the agent mid-run.
+ * @property semaphore - Optional concurrency semaphore; a slot is held for the
+ *   duration of the agent call.
+ * @property callbacks.onStart - Fired before the agent call begins.
+ * @property callbacks.onDone - Fired after the agent call completes.
+ * @property callbacks.onToolUse - Fired each time the agent invokes a tool.
+ */
 export interface DocContentReviewParams {
   outputDir: string;
   projectRoot: string;
