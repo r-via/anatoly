@@ -169,8 +169,13 @@ export interface EmbeddingsReadyFlag {
 }
 
 /**
- * Check if setup-embeddings.sh has been run successfully.
- * Returns the flag data if .anatoly/embeddings-ready.json exists, null otherwise.
+ * Read the embeddings-ready flag written by `setup-embeddings.sh`.
+ *
+ * Looks for `.anatoly/embeddings-ready.json` under the given project root.
+ * Returns the parsed flag data, or `null` if the file is missing or malformed.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Parsed {@link EmbeddingsReadyFlag}, or `null` if unavailable.
  */
 export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFlag | null {
   const flagPath = resolve(projectRoot, '.anatoly', 'embeddings-ready.json');
@@ -264,12 +269,16 @@ export interface ResolvedModels {
 }
 
 /**
- * Determine the backend tier from embeddings-ready.json.
- * Returns the backend field if set, or infers from available infrastructure.
+ * Determine the embedding backend tier from the embeddings-ready flag.
  *
- * Runtime backends: advanced-gguf (Docker GPU) or lite (ONNX CPU).
- * The legacy 'advanced-fp16' is treated as 'lite' at runtime since
- * fp16 has been replaced by Docker-only backends.
+ * Returns the explicit backend recorded in the flag, or falls back to
+ * `'lite'` when no flag is present. The legacy `'advanced-fp16'` value
+ * is coerced to `'lite'` since fp16 has been replaced by Docker-only backends.
+ *
+ * @param flag  - Parsed embeddings-ready flag, or `null` if setup has not run.
+ *                A `null` value always produces `'lite'`.
+ * @param hardware - Detected hardware profile (reserved for future heuristics).
+ * @returns The active {@link EmbeddingBackend}: `'advanced-gguf'` or `'lite'`.
  */
 export function determineBackend(
   flag: EmbeddingsReadyFlag | null,
@@ -289,9 +298,16 @@ export function determineBackend(
 /**
  * Resolve embedding models based on config and hardware.
  *
- * When config value is 'auto', picks the best model the hardware can run:
- * - If backend is advanced-gguf → use GGUF Docker containers
- * - Otherwise → fall back to Jina v2 (ONNX, CPU)
+ * When a config value is `'auto'`, picks the best model the hardware can run:
+ * - If backend is `advanced-gguf` → use GGUF Docker containers
+ * - Otherwise → fall back to Jina v2 / MiniLM (ONNX, CPU)
+ *
+ * @param config    - User-specified model IDs (`'auto'` for automatic selection).
+ * @param hardware  - Detected hardware profile used for backend determination.
+ * @param onLog     - Optional callback invoked with human-readable selection messages.
+ * @param readyFlag - Parsed embeddings-ready flag; when omitted, defaults to `null`
+ *                    (which forces the `'lite'` backend).
+ * @returns Resolved model IDs, dimensions, runtimes, and the active backend.
  */
 export async function resolveEmbeddingModels(
   config: { code_model: string; nlp_model: string },
