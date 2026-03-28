@@ -7,6 +7,7 @@ import { resolve, relative, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { embedNlpBatch } from './embeddings.js';
+import { cachePath as ragCachePath } from './indexer.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
 import type { VectorStore } from './vector-store.js';
 
@@ -23,10 +24,6 @@ interface DocCacheEntry {
 
 export interface DocCacheData {
   [filePath: string]: DocCacheEntry;
-}
-
-function ragCachePath(projectRoot: string, suffix: string): string {
-  return resolve(projectRoot, '.anatoly', 'rag', `cache_${suffix}.json`);
 }
 
 // ---------------------------------------------------------------------------

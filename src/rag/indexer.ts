@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embedCode, embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
+import { embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 import type { NlpSummary } from './nlp-summarizer.js';
 
@@ -199,36 +199,9 @@ export async function applyNlpSummaries(
   cards: FunctionCard[],
   nlpSummaries: Map<string, NlpSummary>,
 ): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][]; docEmbeddings: number[][]; nlpFailedIds: Set<string> }> {
-  const enrichedCards: FunctionCard[] = [];
-  const nlpEmbeddings: number[][] = [];
-  const docEmbeddings: number[][] = [];
-  const nlpFailedIds = new Set<string>();
-  const nlpDimSize = getNlpDim();
-  const zeroVector = new Array(nlpDimSize).fill(0);
-
-  for (const card of cards) {
-    const summary = nlpSummaries.get(card.id);
-    if (summary) {
-      enrichedCards.push({
-        ...card,
-        summary: summary.summary,
-        docSummary: summary.docSummary,
-        keyConcepts: summary.keyConcepts,
-        behavioralProfile: summary.behavioralProfile,
-      });
-      const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile ?? '');
-      nlpEmbeddings.push(await embedNlp(nlpText));
-      // Embed docSummary in doc-oriented semantic space for gap detection
-      const docText = summary.docSummary || summary.summary;
-      docEmbeddings.push(await embedNlp(docText));
-    } else {
-      enrichedCards.push(card);
-      nlpEmbeddings.push([...zeroVector]);
-      docEmbeddings.push([...zeroVector]);
-      nlpFailedIds.add(card.id);
-    }
-  }
-
+  const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(cards, nlpSummaries);
+  const nlpEmbeddings = await generateNlpEmbeddings(enrichedCards);
+  const docEmbeddings = await generateDocEmbeddings(enrichedCards);
   return { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds };
 }
 
@@ -262,6 +235,33 @@ export function enrichCardsWithSummaries(
   return { enrichedCards, nlpFailedIds };
 }
 
+async function generateEmbeddingsBatch(
+  cards: FunctionCard[],
+  textExtractor: (card: FunctionCard) => string | undefined,
+): Promise<number[][]> {
+  const nlpDimSize = getNlpDim();
+  const zeroVector = new Array(nlpDimSize).fill(0);
+
+  const textsToEmbed: string[] = [];
+  const textIndices: number[] = [];
+  for (let i = 0; i < cards.length; i++) {
+    const text = textExtractor(cards[i]);
+    if (text) {
+      textsToEmbed.push(text);
+      textIndices.push(i);
+    }
+  }
+
+  const batchResults = await embedNlpBatch(textsToEmbed);
+
+  const embeddings: number[][] = cards.map(() => [...zeroVector]);
+  for (let j = 0; j < textIndices.length; j++) {
+    embeddings[textIndices[j]] = batchResults[j];
+  }
+
+  return embeddings;
+}
+
 /**
  * Generate NLP embeddings for enriched function cards.
  * Cards without a summary get a zero-vector so they don't
@@ -270,30 +270,11 @@ export function enrichCardsWithSummaries(
 export async function generateNlpEmbeddings(
   cards: FunctionCard[],
 ): Promise<number[][]> {
-  const nlpDimSize = getNlpDim();
-  const zeroVector = new Array(nlpDimSize).fill(0);
-
-  // Collect texts and indices for cards that have summaries
-  const textsToEmbed: string[] = [];
-  const textIndices: number[] = [];
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    if (card.summary) {
-      textsToEmbed.push(buildEmbedNlp(card.name, card.summary, card.keyConcepts ?? [], card.behavioralProfile ?? ''));
-      textIndices.push(i);
-    }
-  }
-
-  // Batch-embed all NLP texts in a single request
-  const batchResults = await embedNlpBatch(textsToEmbed);
-
-  // Map back to card order, filling zero vectors for cards without summaries
-  const nlpEmbeddings: number[][] = cards.map(() => [...zeroVector]);
-  for (let j = 0; j < textIndices.length; j++) {
-    nlpEmbeddings[textIndices[j]] = batchResults[j];
-  }
-
-  return nlpEmbeddings;
+  return generateEmbeddingsBatch(cards, (card) =>
+    card.summary
+      ? buildEmbedNlp(card.name, card.summary, card.keyConcepts ?? [], card.behavioralProfile ?? '')
+      : undefined,
+  );
 }
 
 /**
@@ -303,37 +284,22 @@ export async function generateNlpEmbeddings(
 export async function generateDocEmbeddings(
   cards: FunctionCard[],
 ): Promise<number[][]> {
-  const nlpDimSize = getNlpDim();
-  const zeroVector = new Array(nlpDimSize).fill(0);
-
-  const textsToEmbed: string[] = [];
-  const textIndices: number[] = [];
-  for (let i = 0; i < cards.length; i++) {
-    const text = cards[i].docSummary || cards[i].summary;
-    if (text) {
-      textsToEmbed.push(text);
-      textIndices.push(i);
-    }
-  }
-
-  const batchResults = await embedNlpBatch(textsToEmbed);
-
-  const docEmbeddings: number[][] = cards.map(() => [...zeroVector]);
-  for (let j = 0; j < textIndices.length; j++) {
-    docEmbeddings[textIndices[j]] = batchResults[j];
-  }
-
-  return docEmbeddings;
+  return generateEmbeddingsBatch(cards, (card) =>
+    card.docSummary || card.summary || undefined,
+  );
 }
 
-function cachePath(projectRoot: string, cacheSuffix?: string): string {
-  const file = cacheSuffix ? `cache_${cacheSuffix}.json` : 'cache.json';
+function ragFilePath(projectRoot: string, prefix: string, cacheSuffix?: string): string {
+  const file = cacheSuffix ? `${prefix}_${cacheSuffix}.json` : `${prefix}.json`;
   return resolve(projectRoot, '.anatoly', 'rag', file);
+}
+
+export function cachePath(projectRoot: string, cacheSuffix?: string): string {
+  return ragFilePath(projectRoot, 'cache', cacheSuffix);
 }
 
 function nlpCachePath(projectRoot: string, cacheSuffix?: string): string {
-  const file = cacheSuffix ? `nlp_summary_cache_${cacheSuffix}.json` : 'nlp_summary_cache.json';
-  return resolve(projectRoot, '.anatoly', 'rag', file);
+  return ragFilePath(projectRoot, 'nlp_summary_cache', cacheSuffix);
 }
 
 /**
