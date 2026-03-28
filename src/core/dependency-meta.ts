@@ -29,7 +29,13 @@ export interface FileDependencyContext {
 
 /**
  * Load dependency metadata from the project's package.json.
- * Returns undefined if package.json is missing or unparsable.
+ *
+ * Reads and parses `package.json` at the given project root, merging both
+ * `dependencies` and `devDependencies` into a single map. Engine constraints
+ * (e.g. `{ node: '>=20.19' }`) are included when present.
+ *
+ * @param projectRoot - Absolute path to the project directory containing `package.json`.
+ * @returns Parsed dependency metadata, or `undefined` if `package.json` is missing, unparsable, or not an object.
  */
 export function loadDependencyMeta(projectRoot: string): DependencyMeta | undefined {
   const pkgPath = resolve(projectRoot, 'package.json');
@@ -77,6 +83,15 @@ export function loadDependencyMeta(projectRoot: string): DependencyMeta | undefi
 /**
  * Extract the subset of project dependencies that are actually imported
  * by the given file content.
+ *
+ * Scans `import` and `export … from` statements (including `type`-only imports)
+ * to identify bare package specifiers, then cross-references them against the
+ * provided {@link DependencyMeta} to return only the packages that are both
+ * imported by the file and listed in the project's dependencies.
+ *
+ * @param fileContent - Raw source text of the file to analyse.
+ * @param meta - Pre-loaded dependency metadata from {@link loadDependencyMeta}.
+ * @returns Context object containing matched dependencies and the Node engine constraint (if any).
  */
 export function extractFileDeps(fileContent: string, meta: DependencyMeta): FileDependencyContext {
   const seen = new Set<string>();
@@ -105,10 +120,23 @@ export function extractFileDeps(fileContent: string, meta: DependencyMeta): File
 
 /**
  * Extract sections of a README that are relevant to a set of search keywords.
+ *
  * Uses markdown heading structure to select targeted sections instead of
  * blindly truncating, ensuring that deeply-nested documentation (e.g. the
  * "Action handler" section in Commander's 43 KB README) is included when
  * relevant to the finding being verified.
+ *
+ * The algorithm parses the README into heading-delimited sections via
+ * {@link parseReadmeSections}, scores each against the keywords using
+ * {@link scoreSection}, then greedily selects the highest-scoring sections
+ * that fit within the character budget. The intro section is always included
+ * (capped at 1500 chars). Results are re-sorted into document order.
+ *
+ * @param projectRoot - Absolute path to the project root (used to locate `node_modules/<pkgName>/README.md`).
+ * @param pkgName - npm package name whose README should be read.
+ * @param keywords - Search terms used to score section relevance.
+ * @param maxChars - Maximum total character budget for the returned text (default 12 000).
+ * @returns Relevant README excerpt, or `null` if the README cannot be found.
  */
 export function extractRelevantReadmeSections(
   projectRoot: string,
@@ -199,7 +227,14 @@ function readFullReadme(projectRoot: string, pkgName: string): string | null {
 
 /**
  * Parse a markdown README into sections based on headings.
- * Each section runs from its heading to the next heading of equal or lesser depth.
+ *
+ * Each section runs from its heading line to just before the next heading.
+ * Pre-heading content (text before the first heading) is captured as a section
+ * with an empty heading and level 0. Sections whose content is only whitespace
+ * are discarded.
+ *
+ * @param content - Raw markdown text to parse.
+ * @returns Array of sections in document order, each carrying its heading, level, content, and byte offset.
  */
 export function parseReadmeSections(content: string): ReadmeSection[] {
   const headingRe = /^(#{1,6})\s+(.+)/;
@@ -253,7 +288,14 @@ export function parseReadmeSections(content: string): ReadmeSection[] {
 
 /**
  * Score a section's relevance to a set of (already lowercased) keywords.
- * Heading matches score higher than body matches.
+ *
+ * Heading matches contribute 3 points per keyword. Body matches contribute
+ * 1 point each, capped at 3 occurrences per keyword. Empty keywords are
+ * skipped to avoid false positives from zero-length `indexOf` matches.
+ *
+ * @param section - The README section to score.
+ * @param lowerKeywords - Search keywords, pre-lowercased by the caller.
+ * @returns Non-negative relevance score (0 means no keyword matches).
  */
 export function scoreSection(section: ReadmeSection, lowerKeywords: string[]): number {
   let score = 0;
