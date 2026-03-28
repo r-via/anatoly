@@ -6,7 +6,6 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { get_encoding } from 'tiktoken';
 import { TaskSchema, type Task } from '../schemas/task.js';
-import { ALL_AXIS_IDS } from './axes/index.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
@@ -23,51 +22,10 @@ export const BASE_SECONDS = 4;
 export const SECONDS_PER_SYMBOL = 0.8;
 
 /**
- * Concurrency does not scale linearly due to rate limits, API contention,
- * and tail effects (last workers finish alone). 0.75 = 25% overhead.
- */
-export const CONCURRENCY_EFFICIENCY = 0.75;
-
-/** Number of axis evaluators per file (derived from registry — single source of truth) */
-export const AXIS_COUNT = ALL_AXIS_IDS.length;
-
-/** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */
-export const HAIKU_AXES = 5; // utility, duplication, overengineering, tests, documentation
-export const SONNET_AXES = 2; // correction, best_practices
-
-export interface EstimateResult {
-  files: number;
-  symbols: number;
-  inputTokens: number;
-  outputTokens: number;
-  estimatedMinutes: number;
-  /** Breakdown: estimated LLM calls (AXIS_COUNT per file × N files) */
-  estimatedCalls: number;
-}
-
-/**
  * Compute the estimated seconds for a single file based on its symbol count.
  */
 export function estimateFileSeconds(symbolCount: number): number {
   return BASE_SECONDS + symbolCount * SECONDS_PER_SYMBOL;
-}
-
-/**
- * Compute estimated seconds for a list of tasks (evaluate-tier only).
- */
-export function estimateSequentialSeconds(tasks: Task[]): number {
-  return tasks.reduce((sum, t) => sum + estimateFileSeconds(t.symbols.length), 0);
-}
-
-/**
- * Compute estimated minutes factoring in concurrency overhead.
- */
-export function estimateMinutesWithConcurrency(sequentialSeconds: number, concurrency: number): number {
-  if (sequentialSeconds === 0) return 0;
-  const effectiveSeconds = concurrency > 1
-    ? sequentialSeconds / (concurrency * CONCURRENCY_EFFICIENCY)
-    : sequentialSeconds;
-  return Math.ceil(effectiveSeconds / 60);
 }
 
 /**
@@ -162,32 +120,6 @@ export function estimateTasksTokens(
   }
 
   return { inputTokens: totalInputTokens, outputTokens: totalOutputTokens, symbols: totalSymbols };
-}
-
-/**
- * Estimate token usage and time for reviewing all scanned files.
- * Reads actual file content to get accurate input token counts.
- */
-export function estimateProject(projectRoot: string): EstimateResult {
-  const tasks = loadTasks(projectRoot);
-
-  if (tasks.length === 0) {
-    return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0, estimatedCalls: 0 };
-  }
-
-  const { inputTokens, outputTokens, symbols } = estimateTasksTokens(projectRoot, tasks);
-
-  const estimatedMinutes = Math.ceil(estimateSequentialSeconds(tasks) / 60);
-  const estimatedCalls = tasks.length * AXIS_COUNT;
-
-  return {
-    files: tasks.length,
-    symbols,
-    inputTokens,
-    outputTokens,
-    estimatedMinutes,
-    estimatedCalls,
-  };
 }
 
 /**
