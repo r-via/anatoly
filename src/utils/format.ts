@@ -11,7 +11,7 @@ import type { ReviewFile } from '../schemas/review.js';
 export function buildProgressBar(current: number, total: number, width: number = 20): string {
   if (total === 0) return '░'.repeat(width);
   const ratio = Math.min(current / total, 1);
-  const filled = Math.round(ratio * width);
+  const filled = Math.max(0, Math.round(ratio * width));
   const empty = width - filled;
   return '█'.repeat(filled) + '░'.repeat(empty);
 }
