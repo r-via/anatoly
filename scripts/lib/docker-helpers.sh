@@ -9,12 +9,9 @@ set -euo pipefail
 # Constants
 # ---------------------------------------------------------------------------
 GGUF_DOCKER_IMAGE="ghcr.io/ggml-org/llama.cpp:server-cuda"
-TEI_DOCKER_IMAGE="ghcr.io/huggingface/text-embeddings-inference:1.9"
 
 GGUF_CODE_PORT=11437
 GGUF_NLP_PORT=11438
-TEI_CODE_PORT=11435
-TEI_NLP_PORT=11436
 
 CONTAINER_PREFIX="anatoly"
 
@@ -26,18 +23,6 @@ CONTAINER_PREFIX="anatoly"
 docker_rm() {
   local name="$1"
   docker rm -f "$name" >/dev/null 2>&1 || true
-}
-
-# Stop and remove all Anatoly containers
-docker_cleanup_all() {
-  log info "Stopping all Anatoly containers..."
-  local cids
-  cids=$(docker ps -aq --filter "name=${CONTAINER_PREFIX}-" 2>/dev/null || true)
-  if [[ -n "$cids" ]]; then
-    # shellcheck disable=SC2086
-    docker rm -f $cids >/dev/null 2>&1 || true
-  fi
-  log ok "All Anatoly containers stopped"
 }
 
 # ---------------------------------------------------------------------------
@@ -83,36 +68,6 @@ stop_gguf_containers() {
   docker_rm "${CONTAINER_PREFIX}-gguf-code"
   docker_rm "${CONTAINER_PREFIX}-gguf-nlp"
   log debug "GGUF containers stopped"
-}
-
-# ---------------------------------------------------------------------------
-# TEI containers (Hugging Face Text Embeddings Inference)
-# ---------------------------------------------------------------------------
-
-start_tei_container() {
-  local name="$1"
-  local model_id="$2"
-  local host_port="$3"
-  local cache_dir="${4:-$HOME/.cache/huggingface}"
-
-  docker_rm "$name"
-
-  docker run -d --gpus all \
-    --name "$name" \
-    -p "${host_port}:80" \
-    -v "${cache_dir}:/data" \
-    "$TEI_DOCKER_IMAGE" \
-    --model-id "$model_id" \
-    --dtype float16 \
-    --port 80 >/dev/null
-
-  log debug "Started TEI container ${name} on port ${host_port}"
-}
-
-stop_tei_containers() {
-  docker_rm "${CONTAINER_PREFIX}-tei-code"
-  docker_rm "${CONTAINER_PREFIX}-tei-nlp"
-  log debug "TEI containers stopped"
 }
 
 # ---------------------------------------------------------------------------
@@ -165,58 +120,6 @@ wait_for_gguf() {
   log ok "GGUF NLP container ready"
 }
 
-# Wait for TEI container, showing download/load progress from container logs.
-wait_for_tei() {
-  local port="$1"
-  local label="$2"
-  local timeout="${3:-180}"
-  local container="${4:-${CONTAINER_PREFIX}-tei-${label,,}}"
-
-  log info "Waiting for TEI ${label} container (downloading model if needed)..."
-
-  local start elapsed phase="starting"
-  start=$(date +%s)
-  while true; do
-    if curl -sf --max-time 2 "http://127.0.0.1:${port}/health" &>/dev/null; then
-      log ok "TEI ${label} container ready"
-      return 0
-    fi
-
-    # Check if container is still running
-    local status
-    status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || echo "gone")
-    if [[ "$status" == "exited" || "$status" == "dead" || "$status" == "gone" ]]; then
-      local exit_code
-      exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$container" 2>/dev/null || echo "?")
-      local last_logs
-      last_logs=$(docker logs --tail 5 "$container" 2>&1 || echo "(no logs)")
-      log error "TEI ${label} container died (status=${status}, exit=${exit_code})"
-      log error "Last logs:"
-      echo "$last_logs" | while IFS= read -r line; do log error "  $line"; done
-      return 1
-    fi
-
-    # Parse container logs to show progress
-    local last_log
-    last_log=$(docker logs --tail 1 "$container" 2>&1 || true)
-    if [[ "$last_log" == *"Downloading"* && "$phase" != "downloading" ]]; then
-      phase="downloading"
-      log info "TEI ${label}: downloading model weights from HuggingFace..."
-    elif [[ "$last_log" == *"Starting"*"model"* && "$phase" != "loading" ]]; then
-      phase="loading"
-      log info "TEI ${label}: loading model into GPU memory..."
-    fi
-
-    elapsed=$(( $(date +%s) - start ))
-    if [[ "$elapsed" -ge "$timeout" ]]; then
-      log error "TEI ${label} container failed to start within ${timeout}s"
-      log error "Last container log: ${last_log}"
-      return 1
-    fi
-    sleep 3
-  done
-}
-
 # ---------------------------------------------------------------------------
 # Embedding requests
 # ---------------------------------------------------------------------------
@@ -232,58 +135,4 @@ embed_gguf() {
   curl -sf --max-time 120 "http://127.0.0.1:${port}/embedding" \
     -H "Content-Type: application/json" \
     -d "{\"input\": ${json_text}}"
-}
-
-# Embed text via TEI.
-# Usage: embed_tei "text" 11435 → prints JSON array of arrays
-embed_tei() {
-  local text="$1"
-  local port="$2"
-  local json_text
-
-  json_text=$(jq -Rs '.' <<< "$text")
-  curl -sf --max-time 120 "http://127.0.0.1:${port}/embed" \
-    -H "Content-Type: application/json" \
-    -d "{\"inputs\": ${json_text}}"
-}
-
-# ---------------------------------------------------------------------------
-# GPU memory flush
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Port cleanup
-# ---------------------------------------------------------------------------
-
-# Kill any process listening on a given port. No-op if port is free.
-free_port() {
-  local port="$1"
-  local pid
-  pid=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1)
-  if [[ -n "$pid" ]]; then
-    log warn "Port ${port} in use by PID ${pid} — killing"
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    # Force kill if still alive
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
-      sleep 1
-    fi
-  fi
-}
-
-# Ensure all Anatoly ports are free before starting containers.
-free_all_ports() {
-  free_port "$GGUF_CODE_PORT"
-  free_port "$GGUF_NLP_PORT"
-  free_port "$TEI_CODE_PORT"
-  free_port "$TEI_NLP_PORT"
-}
-
-flush_gpu_memory() {
-  # Wait for GPU processes to release memory after container stop.
-  # NOTE: We intentionally avoid nvidia-smi --gpu-reset and cache flushing
-  # as these are system-wide operations that can disrupt other workloads.
-  sleep 5
-  log debug "GPU memory flush wait complete"
 }
