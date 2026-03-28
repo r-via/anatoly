@@ -11,6 +11,7 @@ const MARKER_START = '<!-- checked-by-anatoly -->';
 const MARKER_END = '<!-- /checked-by-anatoly -->';
 const MARKER_REGEX = new RegExp(
   `${MARKER_START}[\\s\\S]*?${MARKER_END}`,
+  'g',
 );
 
 const DEFAULT_LINK = 'https://github.com/r-via/anatoly';
@@ -101,7 +102,8 @@ export function injectBadge(options: BadgeOptions): BadgeResult {
   let newContent: string;
   let updated: boolean;
 
-  if (MARKER_REGEX.test(content)) {
+  if (content.includes(MARKER_START)) {
+    MARKER_REGEX.lastIndex = 0;
     newContent = content.replace(MARKER_REGEX, block);
     updated = true;
   } else {
