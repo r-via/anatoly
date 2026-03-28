@@ -64,6 +64,12 @@ export class GeminiTransport implements LlmTransport {
     this.model = model;
   }
 
+  /**
+   * Returns true if this transport handles the given model identifier.
+   * Matches any model name starting with `gemini-`.
+   *
+   * @param model - Model identifier to test (e.g. `"gemini-2.0-flash"`).
+   */
   supports(model: string): boolean {
     return model.startsWith('gemini-');
   }
@@ -103,6 +109,21 @@ export class GeminiTransport implements LlmTransport {
     }
   }
 
+  /**
+   * Sends a streaming request to Gemini and returns the assembled response.
+   *
+   * Lazily initializes the underlying {@link GeminiClient} on first call.
+   * Serializes concurrent calls through an internal queue to prevent
+   * interleaved `resetChat`/`setSystemInstruction` on the shared client.
+   * Console output is suppressed during the call to silence `gemini-cli-core` noise.
+   *
+   * Emits a structured `llm_call` event via {@link contextLogger} on both
+   * success and failure paths.
+   *
+   * @param params - The LLM request payload (system prompt, user message, model, etc.).
+   * @returns The assembled LLM response including text, token counts, and transcript.
+   * @throws Re-throws any error from the underlying Gemini stream after logging it.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
     await this.ensureInitialized();
     const client = this.client!;
@@ -153,6 +174,16 @@ export class GeminiTransport implements LlmTransport {
     }
   }
 
+  /**
+   * Core streaming query logic. Resets the chat, optionally sets a system
+   * instruction, streams the user message, and accumulates content and
+   * usage metadata into an {@link LlmResponse}.
+   *
+   * @param client - The initialized GeminiClient instance.
+   * @param params - The LLM request payload.
+   * @param start  - Timestamp (ms) when the outer query() call began, used for duration.
+   * @param transcriptLines - Mutable array collecting transcript sections.
+   */
   private async _doQuery(
     client: GeminiClient,
     params: LlmRequest,
