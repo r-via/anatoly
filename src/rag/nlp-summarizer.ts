@@ -14,6 +14,12 @@ import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * NLP-derived summary produced for a single function card.
+ *
+ * Returned by {@link generateNlpSummaries}; callers fall back to code-only
+ * indexing when a summary is absent.
+ */
 export interface NlpSummary {
   summary: string;
   docSummary: string;
@@ -81,8 +87,19 @@ function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodie
  * Generate NLP summaries for a batch of function cards from the same file.
  * Uses a single LLM call per file to generate all summaries efficiently.
  *
- * Returns a map of card.id → NlpSummary. Cards that fail summarization
- * are silently omitted from the result (the caller falls back to code-only).
+ * Cards that fail summarization are silently omitted from the result
+ * (the caller falls back to code-only indexing).
+ *
+ * @param cards            - Function cards to summarize (one entry per function).
+ * @param functionBodies   - Parallel array of raw function bodies (same order as `cards`).
+ * @param filePath         - Source file path, included as context in the LLM prompt.
+ * @param model            - Model identifier forwarded to `runSingleTurnQuery`.
+ * @param projectRoot      - Absolute path to the project root for prompt resolution.
+ * @param conversationDir  - Optional directory for persisting the LLM conversation transcript.
+ * @param semaphore        - Optional semaphore to throttle concurrent LLM calls.
+ * @param geminiSemaphore  - Optional separate semaphore for Gemini-backed models.
+ * @returns An object containing a `summaries` map (card.id to {@link NlpSummary}) and the
+ *          aggregate `costUsd` of the LLM call.
  */
 export async function generateNlpSummaries(
   cards: FunctionCard[],
