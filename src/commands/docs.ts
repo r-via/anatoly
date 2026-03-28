@@ -163,7 +163,22 @@ async function runDocUpdate(
   }
 }
 
-/** Registers the `docs` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `docs` CLI sub-command on the given Commander program.
+ *
+ * Adds nine sub-commands under `anatoly docs`:
+ * - **scaffold [scope]** — Generate `.anatoly/docs/` (internal) or copy to `docs/` (project).
+ * - **lint** — Deterministic structure lint with auto-fix on `.anatoly/docs/`.
+ * - **coherence** — Structure lint followed by Sonnet-driven coherence review.
+ * - **index** — Incremental RAG indexing: code cards, NLP summaries, and doc chunks.
+ * - **update** — RAG-driven gap detection → targeted Sonnet page updates → lint + coherence.
+ * - **gap-detection \<scope\>** — Analyse coverage gaps between code index and doc index.
+ * - **status** — Show page counts and scaffold-vs-generated breakdown.
+ * - **identity** — Check whether `docs/` and `.anatoly/docs/` are identical (deduplicated).
+ * - **reset-project** — Replace `docs/` with a fresh copy of `.anatoly/docs/`.
+ *
+ * @param program - The root Commander instance to attach the `docs` command to.
+ */
 export function registerDocsCommand(program: Command): void {
   const docs = program
     .command('docs')
