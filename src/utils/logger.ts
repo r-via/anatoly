@@ -54,7 +54,20 @@ export function resolveLogLevel(opts: {
 
 /**
  * Create a pino logger instance. This is the low-level factory — most callers
- * should use `getLogger()` (the singleton) or `initLogger()` to set it up.
+ * should use {@link getLogger} (the singleton) or {@link initLogger} to set it up.
+ *
+ * Configures up to two transport targets:
+ * - **stderr**: uses `pino-pretty` when the terminal is a TTY (or `pretty` is
+ *   explicitly set), otherwise plain ndjson. Filtered at the requested level.
+ * - **log file** (when `logFile` is provided): always captures `debug`+ to an
+ *   ndjson file. The pino instance level is lowered to `debug` so records are
+ *   not dropped before reaching this target.
+ *
+ * When `namespace` is provided the returned logger is a child logger with
+ * `{ component: namespace }` bound to every record.
+ *
+ * @param options - Logger configuration (level, file path, pretty-print, namespace).
+ * @returns A configured pino {@link Logger} instance.
  */
 export function createLogger(options: LoggerOptions = {}): Logger {
   const level = options.level ?? 'warn';
@@ -108,6 +121,9 @@ let _fileDestination: pino.DestinationStream | undefined;
 /**
  * Initialise the global logger singleton. Should be called once during CLI
  * startup. Subsequent calls emit a warning and return the existing instance.
+ *
+ * @param options - Logger configuration forwarded to {@link createLogger}.
+ * @returns The global {@link Logger} singleton.
  */
 export function initLogger(options: LoggerOptions = {}): Logger {
   if (_instance) {
@@ -133,6 +149,14 @@ export function getLogger(): Logger {
  * Create a standalone file logger that writes ndjson to a specific path.
  * Used for per-run log files (e.g. `.anatoly/runs/<runId>/anatoly.ndjson`).
  * Always writes at debug level regardless of the console logger's level.
+ *
+ * **Side-effect:** caches the underlying destination stream in a module-level
+ * variable so {@link flushFileLogger} can synchronously flush it on exit.
+ * Calling this function again replaces the cached destination.
+ *
+ * @param filePath - Absolute path for the ndjson log file. Parent directories
+ *   are created automatically.
+ * @returns A pino {@link Logger} writing at `debug` level to `filePath`.
  */
 export function createFileLogger(filePath: string): Logger {
   mkdirSync(dirname(filePath), { recursive: true });
