@@ -29,11 +29,9 @@ function countResetItems(anatolyDir: string, keepRag: boolean, keepDocs: boolean
   if (existsSync(runsDir)) {
     try {
       const runEntries = readdirSync(runsDir).filter((e) => e !== 'latest');
-      if (runEntries.length > 0) {
-        dirs.push(`runs (${runEntries.length} run(s))`);
-      }
+      dirs.push(runEntries.length > 0 ? `runs (${runEntries.length} run(s))` : 'runs');
     } catch {
-      // ignore read errors
+      dirs.push('runs');
     }
   }
 
