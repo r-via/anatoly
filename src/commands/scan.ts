@@ -24,29 +24,32 @@ export function registerScanCommand(program: Command): void {
       const runLog = createFileLogger(logPath);
 
       await runWithContext({ runId, phase: 'scan' }, async () => {
-        runLog.info({ event: 'phase_start', phase: 'scan', runId }, 'scan started');
-        const startMs = Date.now();
+        try {
+          runLog.info({ event: 'phase_start', phase: 'scan', runId }, 'scan started');
+          const startMs = Date.now();
 
-        const result = await scanProject(projectRoot, config);
+          const result = await scanProject(projectRoot, config);
 
-        // Emit per-file events for structured logging (AC 28.3.1)
-        if (result.files) {
-          for (const f of result.files) {
-            runLog.info({ event: 'file_discovered', file: f.file, hash: f.hash, symbolCount: f.symbolCount }, 'file discovered');
+          // Emit per-file events for structured logging (AC 28.3.1)
+          if (result.files) {
+            for (const f of result.files) {
+              runLog.info({ event: 'file_discovered', file: f.file, hash: f.hash, symbolCount: f.symbolCount }, 'file discovered');
+            }
           }
+
+          const durationMs = Date.now() - startMs;
+          runLog.info({
+            event: 'phase_end', phase: 'scan', durationMs,
+            filesScanned: result.filesScanned, filesNew: result.filesNew, filesCached: result.filesCached,
+          }, 'scan completed');
+
+          console.log('anatoly — scan');
+          console.log(`  files     ${result.filesScanned}`);
+          console.log(`  new       ${result.filesNew}`);
+          console.log(`  cached    ${result.filesCached}`);
+        } finally {
+          flushFileLogger();
         }
-
-        const durationMs = Date.now() - startMs;
-        runLog.info({
-          event: 'phase_end', phase: 'scan', durationMs,
-          filesScanned: result.filesScanned, filesNew: result.filesNew, filesCached: result.filesCached,
-        }, 'scan completed');
-        flushFileLogger();
-
-        console.log('anatoly — scan');
-        console.log(`  files     ${result.filesScanned}`);
-        console.log(`  new       ${result.filesNew}`);
-        console.log(`  cached    ${result.filesCached}`);
       });
     });
 }
