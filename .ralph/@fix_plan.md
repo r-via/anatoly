@@ -422,7 +422,7 @@
 ### Refinement 3-Tier
 > Goal: L'utilisateur obtient des reviews de meilleure qualité à moindre coût grâce à un pipeline de refinement qui élimine les faux positifs mécaniques (tier 1), les contradictions logiques (tier 2), et vérifie empiriquement les findings ambigus (tier 3).
 
-- [ ] Story 41.1: Retirer la délibération per-file et écrire les ReviewFiles bruts
+- [x] Story 41.1: Retirer la délibération per-file et écrire les ReviewFiles bruts
   > As a développeur du pipeline
   > I want supprimer l'appel Opus per-file dans `file-evaluator.ts` et écrire les ReviewFiles directement après le merge des axes
   > So that la phase review ne bloque plus 44 min de wall-clock sur la délibération et la refinement phase puisse opérer sur des reviews bruts.

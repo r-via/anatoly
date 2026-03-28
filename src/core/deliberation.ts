@@ -54,6 +54,8 @@ type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
  * Resolves the `deliberation` prompt template and injects the current axis
  * count into every `{{AXIS_COUNT}}` placeholder.
  *
+ * @deprecated Per-file deliberation removed in Story 41.1. Retained for
+ *   potential reuse by tier 3 agentic investigation (Story 41.4).
  * @returns The fully interpolated system prompt string.
  */
 export function buildDeliberationSystemPrompt(): string {
@@ -72,6 +74,8 @@ export function buildDeliberationSystemPrompt(): string {
  *   require confidence >= 85 for reclassification, and prohibit adding new
  *   findings, symbols, or actions
  *
+ * @deprecated Per-file deliberation removed in Story 41.1. Retained for
+ *   potential reuse by tier 3 agentic investigation (Story 41.4).
  * @param review - The merged ReviewFile from all axis evaluators.
  * @param fileContent - The raw source code of the file being reviewed.
  * @returns The fully assembled user message string for the deliberation LLM call.
@@ -147,6 +151,9 @@ Rules:
  *   - any symbol has correction NEEDS_FIX or ERROR
  *   - any symbol has utility DEAD or LOW_VALUE, duplication DUPLICATE, or overengineering OVER
  *   - verdict is CLEAN but any symbol confidence < 70
+ *
+ * @deprecated Per-file deliberation removed in Story 41.1. Retained for
+ *   potential reuse by tier 3 agentic investigation (Story 41.4).
  */
 export function needsDeliberation(review: ReviewFile): boolean {
   const log = contextLogger();
