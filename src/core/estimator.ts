@@ -23,6 +23,9 @@ export const SECONDS_PER_SYMBOL = 0.8;
 
 /**
  * Compute the estimated seconds for a single file based on its symbol count.
+ *
+ * @param symbolCount - Number of exported symbols in the file.
+ * @returns Estimated wall-clock seconds for reviewing the file.
  */
 export function estimateFileSeconds(symbolCount: number): number {
   return BASE_SECONDS + symbolCount * SECONDS_PER_SYMBOL;
@@ -30,6 +33,11 @@ export function estimateFileSeconds(symbolCount: number): number {
 
 /**
  * Load all .task.json files from the tasks directory.
+ * Returns an empty array when the directory does not exist.
+ * Silently skips files that cannot be read or fail schema validation.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns Parsed {@link Task} objects from `.anatoly/tasks/`.
  */
 export function loadTasks(projectRoot: string): Task[] {
   const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
@@ -52,6 +60,11 @@ export function loadTasks(projectRoot: string): Task[] {
 
 /**
  * Count tokens in a string using cl100k_base encoding (Claude-compatible).
+ * Allocates and frees a fresh encoder per call; for batch counting prefer
+ * {@link estimateTasksTokens} which reuses a single encoder.
+ *
+ * @param text - The string to tokenise.
+ * @returns Number of cl100k_base tokens.
  */
 export function countTokens(text: string): number {
   const enc = get_encoding('cl100k_base');
@@ -124,6 +137,9 @@ export function estimateTasksTokens(
 
 /**
  * Format a token count for display (e.g., 1200000 → "~1.2M", 340000 → "~340K").
+ *
+ * @param count - Raw token count.
+ * @returns Human-readable string prefixed with `~`.
  */
 export function formatTokenCount(count: number): string {
   if (count >= 1_000_000) {
