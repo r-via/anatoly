@@ -66,10 +66,10 @@ llm:
   # type: cli-core → Google OAuth via gemini-cli-core (Gemini Code Assist)
   gemini:
     enabled: true
-    type: genai
+    type: cli-core
     flash_model: gemini-2.5-flash-lite
     nlp_model: gemini-2.5-flash-lite
-    sdk_concurrency: 24
+    sdk_concurrency: 10
 
 # rag:
 #   enabled: true
