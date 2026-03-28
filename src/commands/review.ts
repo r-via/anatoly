@@ -218,7 +218,7 @@ export function registerReviewCommand(program: Command): void {
           const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
           const logsDir = resolve(projectRoot, '.anatoly', 'logs');
           console.log('');
-          console.log(chalk.bold('Done') + ` \u2014 ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
+          console.log(chalk.bold('Done') + ` \u2014 ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed} clean`);
           console.log('');
           console.log(`  reviews      ${chalk.cyan(rel(reviewsDir) + '/')}`);
           console.log(`  transcripts  ${chalk.cyan(rel(logsDir) + '/')}`);
