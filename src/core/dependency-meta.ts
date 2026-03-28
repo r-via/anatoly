@@ -104,20 +104,6 @@ export function extractFileDeps(fileContent: string, meta: DependencyMeta): File
 }
 
 /**
- * Read the README of a locally installed npm package from node_modules.
- * Returns the content truncated to maxChars, or null if not found.
- */
-export function readLocalPackageReadme(
-  projectRoot: string,
-  pkgName: string,
-  maxChars = 8000,
-): string | null {
-  const content = readFullReadme(projectRoot, pkgName);
-  if (!content) return null;
-  return content.length > maxChars ? content.slice(0, maxChars) + '\n[...truncated]' : content;
-}
-
-/**
  * Extract sections of a README that are relevant to a set of search keywords.
  * Uses markdown heading structure to select targeted sections instead of
  * blindly truncating, ensuring that deeply-nested documentation (e.g. the
