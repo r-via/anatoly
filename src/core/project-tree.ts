@@ -23,6 +23,10 @@ interface TreeNode {
  * - Directories sorted before files, both alphabetically
  * - Deep paths (> maxDepth levels) condensed as `a/b/c/d` on a single line
  * - Aims for < 300 tokens (cl100k_base) on 500+ file projects
+ *
+ * @param filePaths - Relative file paths to include in the tree.
+ * @param maxDepth - Maximum directory depth before condensing deep branches (default 4).
+ * @returns Multi-line ASCII tree string, or empty string if `filePaths` is empty.
  */
 export function buildProjectTree(filePaths: string[], maxDepth = 4): string {
   if (filePaths.length === 0) return '';
@@ -77,6 +81,10 @@ function buildTreeStructure(filePaths: string[]): TreeNode {
 /**
  * Condense branches deeper than maxDepth by collapsing single-child directory
  * chains into "a/b/c" path segments.
+ *
+ * @param node - Tree node whose children to condense.
+ * @param maxDepth - Depth threshold that triggers collapsing.
+ * @param currentDepth - Current depth in the tree (0 at root).
  */
 function condenseDeep(node: TreeNode, maxDepth: number, currentDepth: number): void {
   const entries = [...node.children.entries()];
@@ -179,6 +187,9 @@ function renderChildren(node: TreeNode, prefix: string, lines: string[]): void {
 
 /**
  * Sort: directories first (alphabetically), then files (alphabetically).
+ *
+ * @param children - Map of child nodes to sort.
+ * @returns Sorted array with directory nodes before file nodes, each group alphabetical.
  */
 function sortChildren(children: Map<string, TreeNode>): TreeNode[] {
   const dirs: TreeNode[] = [];
