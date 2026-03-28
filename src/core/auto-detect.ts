@@ -51,6 +51,9 @@ const LANGUAGE_EXCLUDE_GLOBS: Record<string, string[]> = {
  *
  * TypeScript is intentionally excluded — it is already covered by the
  * default `scan.include` configuration.
+ *
+ * @param languages - Detected languages to generate glob patterns for.
+ * @returns Include and exclude glob arrays derived from the language registries.
  */
 export function autoDetectGlobs(languages: LanguageInfo[]): AutoDetectResult {
   const includeSet = new Set<string>();
