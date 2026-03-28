@@ -23,6 +23,11 @@ const AxisVerdictSchema = z.object({
   confidence: z.int().min(0).max(100),
 });
 
+/**
+ * Zod schema for a single symbol's deliberation result, capturing the
+ * original axis verdicts from evaluators alongside the reclassified
+ * (deliberated) verdicts, with a reasoning string explaining the decision.
+ */
 export const DeliberatedSymbolSchema = z.object({
   name: z.string(),
   original: AxisVerdictSchema,
@@ -30,6 +35,11 @@ export const DeliberatedSymbolSchema = z.object({
   reasoning: z.string().min(10),
 });
 
+/**
+ * Zod schema for the full Opus deliberation response. Contains the
+ * file-level verdict, per-symbol reclassifications, IDs of actions to
+ * remove, and overall reasoning. `removed_actions` defaults to `[]`.
+ */
 export const DeliberationResponseSchema = z.object({
   verdict: z.enum(['CLEAN', 'NEEDS_REFACTOR', 'CRITICAL']),
   symbols: z.array(DeliberatedSymbolSchema),
@@ -37,7 +47,9 @@ export const DeliberationResponseSchema = z.object({
   reasoning: z.string().min(10),
 });
 
+/** Inferred TypeScript type for the full Opus deliberation response. */
 export type DeliberationResponse = z.infer<typeof DeliberationResponseSchema>;
+/** Inferred TypeScript type for a single symbol's deliberation result. */
 export type DeliberatedSymbol = z.infer<typeof DeliberatedSymbolSchema>;
 
 /** Axes that deliberation can reclassify — shared between apply and count logic. */
@@ -74,6 +86,9 @@ export function buildDeliberationSystemPrompt(): string {
  *
  * @param review - The merged ReviewFile from all axis evaluators.
  * @param fileContent - The raw source code of the file being reviewed.
+ * @param testFile - Optional test file to include in the prompt. When provided,
+ *   its content is injected (truncated to {@link MAX_TEST_LINES} lines) so the
+ *   deliberation LLM can independently verify tests-axis findings.
  * @returns The fully assembled user message string for the deliberation LLM call.
  */
 const EXT_TO_LANG: Record<string, string> = {
@@ -142,13 +157,19 @@ Rules:
 /**
  * Determine whether a merged ReviewFile warrants an Opus deliberation pass.
  *
- * Returns `false` (skip) when:
- *   - verdict is CLEAN and all symbol confidences are ≥ 95
- *
  * Returns `true` (deliberate) when:
  *   - any symbol has correction NEEDS_FIX or ERROR
  *   - any symbol has utility DEAD or LOW_VALUE, duplication DUPLICATE, or overengineering OVER
+ *   - any symbol has tests WEAK or NONE, or documentation UNDOCUMENTED or PARTIAL
+ *   - verdict is non-CLEAN (always deliberates)
  *   - verdict is CLEAN but any symbol confidence < 70
+ *
+ * Returns `false` (skip) when:
+ *   - verdict is CLEAN and all symbol confidences are ≥ 95
+ *   - verdict is CLEAN and all confidences are in the 70–94 range (medium confidence)
+ *
+ * @param review - The merged ReviewFile to evaluate.
+ * @returns Whether the file should undergo Opus deliberation.
  */
 export function needsDeliberation(review: ReviewFile): boolean {
   const log = contextLogger();
@@ -376,6 +397,15 @@ function setAxisValue(
 /**
  * Recompute the verdict from actual symbol state, using Opus's verdict as a
  * starting point but escalating if the symbols contradict it.
+ *
+ * Escalation rules:
+ *   - Any ERROR correction → CRITICAL (regardless of Opus verdict)
+ *   - Any non-clean finding + Opus says CLEAN → NEEDS_REFACTOR
+ *   - Otherwise → Opus verdict is trusted as-is
+ *
+ * @param symbols - The final symbol array after deliberation reclassifications.
+ * @param opusVerdict - The verdict proposed by the Opus deliberation pass.
+ * @returns The coherent verdict, never less severe than the symbols demand.
  */
 function recomputeVerdict(
   symbols: ReviewFile['symbols'],
