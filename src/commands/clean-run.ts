@@ -217,7 +217,31 @@ function syncToReport(projectRoot: string, reportFile: string): void {
   }
 }
 
-/** Registers the `clean-run` CLI sub-command on the given Commander {@link program}. */
+/**
+ * Registers the `clean-run` CLI sub-command on the given Commander {@link program}.
+ *
+ * The command accepts a `<target>` argument (`"all"`, an axis name from {@link REPORT_AXIS_IDS},
+ * or a shard file path) and two options:
+ * - `-n, --iterations <n>` — maximum clean-loop iterations (default 50, parsed as 10 on NaN)
+ * - `-m, --model <model>` — Claude model override (e.g. `claude-opus-4-6`)
+ *
+ * **Workflow:**
+ * 1. Generates clean artifacts (`prd.json`, `CLAUDE.md`) via `anatoly clean generate` if absent.
+ * 2. Reads `branchName` from `prd.json` and switches to (or creates) that branch for isolation.
+ * 3. Iterates up to `maxIterations` times, each iteration:
+ *    - Extracts the next pending batch (grouped by axis + file) from the master PRD.
+ *    - Writes the batch to `current-batch.json` and spawns a Claude Code subprocess to fix it.
+ *    - Retries the spawn up to {@link MAX_SPAWN_RETRIES} times with exponential backoff on
+ *      transient failures (exit code !== 0 with no partial progress).
+ *    - Merges results from `current-batch.json` back into the master PRD.
+ *    - Evaluates circuit breaker conditions (see {@link CB_NO_PROGRESS_THRESHOLD} and
+ *      {@link CB_SAME_ERROR_THRESHOLD}); opens the breaker and rolls back on repeated stalls.
+ * 4. Syncs completed fixes back to the report file after each iteration and on exit.
+ *
+ * Uses {@link PipelineState} and {@link ScreenRenderer} for terminal progress display.
+ * Registers SIGINT/SIGTERM handlers to kill the active child process, restore the original
+ * branch, and exit cleanly.
+ */
 export function registerCleanRunCommand(program: Command): void {
   program
     .command('run <target>')
