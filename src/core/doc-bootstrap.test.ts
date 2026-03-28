@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { needsBootstrap, shouldSkipDoublePass } from './doc-bootstrap.js';
+import { needsBootstrap } from './doc-bootstrap.js';
 
 /**
  * Story 29.21: Decouplage doc interne, RAG systematique, et pipeline post-review
@@ -57,28 +57,3 @@ describe('needsBootstrap', () => {
   });
 });
 
-describe('shouldSkipDoublePass', () => {
-  it('returns false when 0 pages failed', () => {
-    expect(shouldSkipDoublePass(0, 10)).toBe(false);
-  });
-
-  it('returns false when less than 50% of pages failed', () => {
-    expect(shouldSkipDoublePass(4, 10)).toBe(false);
-  });
-
-  it('returns true when exactly 50% of pages failed', () => {
-    expect(shouldSkipDoublePass(5, 10)).toBe(true);
-  });
-
-  it('returns true when more than 50% of pages failed', () => {
-    expect(shouldSkipDoublePass(6, 10)).toBe(true);
-  });
-
-  it('returns false when totalPages is 0', () => {
-    expect(shouldSkipDoublePass(0, 0)).toBe(false);
-  });
-
-  it('returns true when all pages failed', () => {
-    expect(shouldSkipDoublePass(24, 24)).toBe(true);
-  });
-});

@@ -29,13 +29,3 @@ export function needsBootstrap(projectRoot: string): boolean {
   return !hasIndex || !hasCache;
 }
 
-/**
- * Whether to skip the double-pass review on first run.
- *
- * If >= 50% of bootstrap pages failed LLM generation, the double pass
- * would gain little from the incomplete internal docs.
- */
-export function shouldSkipDoublePass(pagesFailed: number, totalPages: number): boolean {
-  if (totalPages === 0) return false;
-  return pagesFailed >= totalPages * 0.5;
-}
