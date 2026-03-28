@@ -37,6 +37,17 @@ export interface ModulePage {
 
 /**
  * Resolves which 05-Modules/ pages to create based on LOC granularity rules.
+ *
+ * Applies three granularity tiers per directory:
+ * - 0 files >= 200 LOC → skip (no pages emitted)
+ * - 1–2 files >= 200 LOC → file-level (one page per qualifying file)
+ * - 3+ files >= 200 LOC → directory-level (single page for the directory)
+ *
+ * Pages are sorted alphabetically by path and assigned zero-padded numeric
+ * prefixes (01-, 02-, ...) for deterministic ordering in the output section.
+ *
+ * @param modules - Source directories with their file LOC counts.
+ * @returns Sorted array of `ModulePage` entries with numbered path prefixes.
  */
 export function resolveModuleGranularity(modules: ModuleDir[]): ModulePage[] {
   const pages: ModulePage[] = [];
