@@ -29,20 +29,35 @@ export function sanitizeFilePath(path: string): string {
   return path.replace(/'/g, "''");
 }
 
+/**
+ * Shape of a single row in the LanceDB `function_cards` table.
+ *
+ * Two row types coexist in the same table, distinguished by {@link VectorRow.type}:
+ * - `'function'` — code-level function cards with code, NLP, and doc embedding vectors.
+ * - `'doc_section'` — documentation section summaries with NLP vectors only.
+ */
 interface VectorRow {
   [key: string]: unknown;
   id: string;
   filePath: string;
   name: string;
+  /** One-line LLM-generated summary of the function's purpose. */
   summary: string;
+  /** LLM-generated documentation-oriented summary (richer than `summary`); used for gap detection. */
   docSummary: string;
   keyConcepts: string;       // JSON-serialized string[]
+  /** Full function/method signature string. */
   signature: string;
+  /** Behavioral category: 'pure' | 'sideEffectful' | 'async' | 'memoized' | 'stateful' | 'utility'. */
   behavioralProfile: string;
+  /** LLM-assigned complexity score (1–10). */
   complexityScore: number;
   calledInternals: string;   // JSON-serialized string[]
+  /** ISO-8601 timestamp of the last indexing run that touched this row. */
   lastIndexed: string;
+  /** Code embedding vector (from the code embedding model). */
   vector: number[];
+  /** NLP embedding vector (from the NLP/natural-language embedding model). */
   nlp_vector: number[];
   /** Embedding of docSummary (documentation-oriented semantic space, for gap detection). */
   doc_vector: number[];
