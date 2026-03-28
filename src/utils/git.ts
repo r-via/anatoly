@@ -7,6 +7,9 @@ import { execFileSync } from 'node:child_process';
 /**
  * Get the set of files visible to git (tracked + untracked but not ignored).
  * Respects .gitignore. Returns null if not in a git repo.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Set of relative file paths, or null if git is unavailable.
  */
 export function getGitTrackedFiles(projectRoot: string): Set<string> | null {
   try {
@@ -24,6 +27,10 @@ export function getGitTrackedFiles(projectRoot: string): Set<string> | null {
 /**
  * Check if a single file is ignored by .gitignore.
  * Returns false if not in a git repo (permissive default).
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param relPath - Relative path to the file to check.
+ * @returns True if the file is ignored by git, false otherwise.
  */
 export function isGitIgnored(projectRoot: string, relPath: string): boolean {
   try {
