@@ -42,6 +42,7 @@ export function isRateLimitStandbyError(error: unknown): error is RateLimitStand
 // Retry options
 // ---------------------------------------------------------------------------
 
+/** Options controlling retry behaviour and backoff strategy for {@link retryWithBackoff}. */
 export interface RetryWithBackoffOptions {
   /** Maximum number of retries on rate limit errors. */
   maxRetries: number;
@@ -88,6 +89,12 @@ export function isRateLimitError(error: unknown): boolean {
 /**
  * Calculate backoff delay with jitter.
  * Formula: baseDelay * 2^attempt * (1 ± jitter)
+ *
+ * @param attempt - Zero-based retry attempt number (controls exponential scaling).
+ * @param baseDelayMs - Base delay in milliseconds before exponential scaling.
+ * @param maxDelayMs - Pre-jitter cap on the exponential delay.
+ * @param jitterFactor - Jitter range as a fraction (e.g. 0.2 = ±20%).
+ * @returns Delay in milliseconds, rounded to the nearest integer.
  */
 export function calculateBackoff(
   attempt: number,
@@ -113,6 +120,11 @@ const MAX_STANDBY_CYCLES = 3;
  * When a {@link RateLimitStandbyError} is caught (tier-level rate limit with a
  * known reset time), the function sleeps until `resetsAt + 5 min` and then
  * retries — the attempt counter is reset so normal retries remain available.
+ *
+ * @typeParam T - Resolved type of the wrapped async function.
+ * @param fn - The async operation to execute (and potentially retry).
+ * @param options - Retry configuration (limits, delays, callbacks).
+ * @returns The resolved value of {@link fn} on the first successful attempt.
  */
 export async function retryWithBackoff<T>(
   fn: () => Promise<T>,
