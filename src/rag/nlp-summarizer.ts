@@ -68,7 +68,7 @@ function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodie
   }
 
   parts.push('Output format:');
-  parts.push('{"functions": [{"name": "...", "summary": "...", "keyConcepts": [...], "behavioralProfile": "..."}]}');
+  parts.push('{"functions": [{"name": "...", "summary": "...", "docSummary": "...", "keyConcepts": [...], "behavioralProfile": "..."}]}');
 
   return parts.join('\n');
 }
