@@ -19,6 +19,7 @@ import { resolve, sep } from 'node:path';
  *
  * @param outputPath - The path about to be written to
  * @param projectRoot - The project root directory
+ * @param docsPath - Subdirectory name to guard (defaults to `'docs'`)
  * @throws Error with clear INVARIANT VIOLATION message
  */
 export function assertSafeOutputPath(outputPath: string, projectRoot: string, docsPath = 'docs'): void {
