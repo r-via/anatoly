@@ -8,6 +8,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # GPU detection
 # ---------------------------------------------------------------------------
+
+# detect_gpu — Probe available GPU hardware and echo the backend type.
+#
+# Checks nvidia-smi, Apple Silicon sysctl, and rocm-smi in that order.
+# Returns (stdout): "cuda" | "metal" | "rocm" | "none"
 detect_gpu() {
   if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     echo "cuda"
@@ -20,7 +25,11 @@ detect_gpu() {
   fi
 }
 
-# Total VRAM in GB (NVIDIA only, returns 0 otherwise)
+# detect_vram_gb — Query total GPU VRAM in GB (NVIDIA only).
+#
+# Uses nvidia-smi --query-gpu=memory.total. Returns "0" when nvidia-smi
+# is absent, the query fails, or the value is non-numeric.
+# Returns (stdout): integer GB string (e.g. "8", "24") or "0"
 detect_vram_gb() {
   if ! command -v nvidia-smi &>/dev/null; then
     echo "0"
@@ -35,7 +44,11 @@ detect_vram_gb() {
   echo $(( mib / 1024 ))
 }
 
-# Current VRAM usage in MiB (NVIDIA only)
+# detect_vram_used_mib — Query current VRAM usage in MiB (NVIDIA only).
+#
+# Uses nvidia-smi --query-gpu=memory.used. Returns "0" when nvidia-smi
+# is absent or the query fails.
+# Returns (stdout): integer MiB string (e.g. "512") or "0"
 detect_vram_used_mib() {
   command -v nvidia-smi &>/dev/null || { echo "0"; return; }
   nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "0"
@@ -44,10 +57,18 @@ detect_vram_used_mib() {
 # ---------------------------------------------------------------------------
 # Docker detection
 # ---------------------------------------------------------------------------
+
+# has_docker — Check whether Docker is installed and the daemon is reachable.
+#
+# Returns: exit 0 if docker CLI exists and `docker info` succeeds, exit 1 otherwise.
 has_docker() {
   command -v docker &>/dev/null && docker info &>/dev/null 2>&1
 }
 
+# has_nvidia_container_toolkit — Detect the NVIDIA Container Toolkit.
+#
+# Probes two paths: (1) nvidia-container-cli binary, (2) "nvidia" in `docker info`.
+# Returns: exit 0 if either probe succeeds, exit 1 otherwise.
 has_nvidia_container_toolkit() {
   if command -v nvidia-container-cli &>/dev/null; then
     return 0
@@ -61,7 +82,17 @@ has_nvidia_container_toolkit() {
 # ---------------------------------------------------------------------------
 # Tier selection
 # ---------------------------------------------------------------------------
-# Returns: "lite" or "advanced-gguf"
+
+# select_tier GPU VRAM_GB DOCKER_OK TOOLKIT_OK
+#
+# Choose an embedding tier based on hardware and Docker capabilities.
+#   GPU        — output of detect_gpu (cuda|metal|rocm|none)
+#   VRAM_GB    — integer GB from detect_vram_gb
+#   DOCKER_OK  — "true"|"false" from has_docker
+#   TOOLKIT_OK — "true"|"false" from has_nvidia_container_toolkit
+#
+# Returns (stdout): "advanced-gguf" when GPU is present, Docker + toolkit are
+# available, and VRAM >= 12 GB; "lite" otherwise.
 select_tier() {
   local gpu="$1"
   local vram_gb="$2"
@@ -89,6 +120,11 @@ select_tier() {
 # ---------------------------------------------------------------------------
 # Dependency check / install
 # ---------------------------------------------------------------------------
+
+# ensure_jq — Ensure jq is available, auto-installing via apt-get or brew if needed.
+#
+# Returns: exit 0 on success, exit 1 if jq cannot be installed automatically.
+# Side effects: may run sudo apt-get install or brew install.
 ensure_jq() {
   if command -v jq &>/dev/null; then
     return 0
@@ -108,6 +144,9 @@ ensure_jq() {
   fi
 }
 
+# ensure_curl — Verify that curl is available (no auto-install).
+#
+# Returns: exit 0 if curl is on PATH, exit 1 with an error message otherwise.
 ensure_curl() {
   if command -v curl &>/dev/null; then
     return 0
