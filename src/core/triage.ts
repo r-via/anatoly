@@ -23,7 +23,10 @@ const CONSTANT_KINDS = new Set(['constant']);
  */
 function isBarrelExport(task: Task, source: string): boolean {
   if (task.symbols.length > 0) return false;
-  const lines = source.split('\n').filter((l) => l.trim().length > 0);
+  const lines = source
+    .split('\n')
+    .filter((l) => l.trim().length > 0)
+    .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l));
   return lines.length > 0 && lines.every((l) => /^\s*export\s/.test(l));
 }
 
