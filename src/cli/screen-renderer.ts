@@ -13,7 +13,7 @@ const MIN_TASK_WIDTH = 60;
 function taskWidth(): number {
   const cols = process.stdout.columns || 80;
   // Leave 4 chars margin (2 indent + 2 safety); clamp between min and columns
-  return Math.max(MIN_TASK_WIDTH, Math.min(cols - 4, cols));
+  return Math.max(MIN_TASK_WIDTH, cols - 4);
 }
 
 function separator(): string {
@@ -185,6 +185,7 @@ export class ScreenRenderer {
     // On terminal resize, clear the entire screen to flush stale content
     if (this.needsFullClear) {
       this.needsFullClear = false;
+      this.lastLineCount = 0;
       process.stdout.write('\x1b[2J');
     }
 
