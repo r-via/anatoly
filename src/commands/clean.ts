@@ -83,7 +83,16 @@ export function parseUncheckedActions(content: string): CleanItem[] {
 
 /**
  * Resolve the axis shard files for a given axis in the latest run.
- * Returns the contents of all shard.*.md files concatenated.
+ * Reads all `shard.*.md` files from the axis directory, sorts them
+ * alphabetically, and returns their contents concatenated.
+ *
+ * @param projectRoot - Absolute path to the project root directory,
+ *   used to locate the `.anatoly/` run directory.
+ * @param axis - The report axis identifier (e.g. `'correction'`, `'documentation'`)
+ *   whose shard files should be resolved.
+ * @returns The concatenated content of all shard files for the axis,
+ *   or `null` if no run directory exists, the axis directory is missing,
+ *   or no shard files are found.
  */
 function resolveAxisShards(projectRoot: string, axis: ReportAxisId): string | null {
   const runDir = resolveRunDir(projectRoot);
