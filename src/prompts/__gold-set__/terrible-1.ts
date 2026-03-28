@@ -9,29 +9,22 @@ export var API_KEY = "sk-proj-1234567890abcdef1234567890abcdef";
 export var DB_PASSWORD = "admin123!@#";
 
 export function processData(data) {
-  var result;
-  try {
-    result = eval("(" + JSON.stringify(data) + ")");
-  } catch (e) {
-    console.log("DEBUG: processData serialization/eval failed", e);
-    return null;
-  }
-  console.log("DEBUG: processing", result);
+  console.log("DEBUG: processing", data);
 
-  if (result == null) {
+  if (data == null) {
     return null;
   }
 
   var i;
-  for (i = 0; i < result.length; i++) {
+  for (i = 0; i < data.length; i++) {
     try {
-      result[i] = result[i].toString();
+      data[i] = data[i].toString();
     } catch (e) {
       // swallow error
     }
   }
 
-  return result;
+  return data;
 }
 
 export function fetchUrl(url) {
