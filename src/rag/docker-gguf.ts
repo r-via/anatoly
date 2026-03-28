@@ -175,12 +175,6 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   logFn?.(`GGUF ${cfg.label} model ready`);
 }
 
-/** Return the port of the currently active model, or throw. */
-export function activePort(): number {
-  if (activeModel === null) throw new Error('No GGUF model is loaded');
-  return modelConfig(activeModel).port;
-}
-
 // ---------------------------------------------------------------------------
 // Public lifecycle API (unchanged signatures for callers)
 // ---------------------------------------------------------------------------
