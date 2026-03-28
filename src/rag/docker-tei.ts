@@ -154,50 +154,6 @@ export async function startTeiContainers(
 }
 
 /**
- * Start a single TEI container (used during A/B test where models run sequentially).
- *
- * @param name - Which container to start: `"code"` or `"nlp"`.
- * @param modelId - HuggingFace model ID to load in the container.
- * @param onLog - Optional callback for status messages.
- * @param onProgress - Optional callback receiving elapsed seconds during health-check polling.
- * @returns `true` if the container became healthy, `false` on any failure
- *          (Docker unavailable, health-check timeout, or startup error).
- */
-export async function startTeiContainer(
-  name: 'code' | 'nlp',
-  modelId: string,
-  onLog?: (message: string) => void,
-  onProgress?: (elapsed: number) => void,
-): Promise<boolean> {
-  const containerName = name === 'code' ? CODE_CONTAINER : NLP_CONTAINER;
-  const port = name === 'code' ? TEI_CODE_PORT : TEI_NLP_PORT;
-
-  if (!isDockerAvailable()) {
-    onLog?.('Docker not available');
-    return false;
-  }
-
-  try {
-    onLog?.(`starting TEI ${name} container (${modelId}) on port ${port}...`);
-    runContainer(containerName, modelId, port);
-
-    const ready = await waitForContainer(port, READY_TIMEOUT_MS, onProgress);
-    if (!ready) {
-      onLog?.(`TEI ${name} container failed to become healthy`);
-      removeContainer(containerName);
-      return false;
-    }
-
-    onLog?.(`TEI ${name} container ready`);
-    return true;
-  } catch (err) {
-    onLog?.(`TEI ${name} container start failed: ${(err as Error).message}`);
-    removeContainer(containerName);
-    return false;
-  }
-}
-
-/**
  * Stop and remove TEI Docker containers.
  * Safe to call even if containers aren't running — idempotent.
  */
