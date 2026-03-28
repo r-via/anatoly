@@ -27,7 +27,7 @@ export function getGitTrackedFiles(projectRoot: string): Set<string> | null {
  */
 export function isGitIgnored(projectRoot: string, relPath: string): boolean {
   try {
-    execFileSync('git', ['check-ignore', '-q', relPath], {
+    execFileSync('git', ['check-ignore', '-q', '--', relPath], {
       cwd: projectRoot,
       encoding: 'utf-8',
     });
