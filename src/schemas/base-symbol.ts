@@ -9,10 +9,14 @@ import { z } from 'zod';
 // Each axis extends this with its own verdict enum via .extend().
 // ---------------------------------------------------------------------------
 
-export const BaseSymbolSchema = z.object({
-  name: z.string(),
-  line_start: z.int().min(1),
-  line_end: z.int().min(1),
-  confidence: z.int().min(0).max(100),
-  detail: z.string().min(10),
-});
+export const BaseSymbolSchema = z
+  .object({
+    name: z.string(),
+    line_start: z.int().min(1),
+    line_end: z.int().min(1),
+    confidence: z.int().min(0).max(100),
+    detail: z.string().min(10),
+  })
+  .refine((d) => d.line_end >= d.line_start, {
+    message: 'line_end must be >= line_start',
+  });
