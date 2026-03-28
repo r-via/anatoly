@@ -77,7 +77,7 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
     parts.push('');
     for (const entry of ctx.preResolvedRag) {
       parts.push(`### ${entry.symbolName} (L${entry.lineStart}–L${entry.lineEnd})`);
-      if (entry.lineEnd - entry.lineStart <= 2) {
+      if (entry.lineEnd - entry.lineStart <= 1) {
         parts.push('Trivial function (≤ 2 lines). Mark UNIQUE.');
         parts.push('');
         continue;
@@ -163,7 +163,7 @@ function fileHasSimilarityCandidates(ctx: AxisContext): boolean {
   if (!ctx.preResolvedRag || ctx.preResolvedRag.length === 0) return false;
   return ctx.preResolvedRag.some(
     (entry) =>
-      entry.lineEnd - entry.lineStart > 2 &&
+      entry.lineEnd - entry.lineStart > 1 &&
       entry.results !== null &&
       entry.results.length > 0,
   );
@@ -182,7 +182,7 @@ function buildAutoUniqueResults(ctx: AxisContext): AxisSymbolResult[] {
       const entry = ctx.preResolvedRag.find(
         (e) => e.symbolName === sym.name,
       );
-      if (entry && entry.lineEnd - entry.lineStart <= 2) {
+      if (entry && entry.lineEnd - entry.lineStart <= 1) {
         detail = 'Trivial function (≤ 2 lines)';
       }
     }
