@@ -15,6 +15,10 @@ import {
  *
  * This is a non-blocking check: on failure the caller should disable Gemini
  * for the current run and fall back to Claude-only mode.
+ *
+ * @param projectRoot - Absolute path to the project directory, used as both
+ *   `targetDir` and `cwd` for the Gemini CLI config.
+ * @param model - Gemini model identifier to configure (e.g. `"gemini-2.5-pro"`).
  */
 export async function checkGeminiAuth(
   projectRoot: string,
