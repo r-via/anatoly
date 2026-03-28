@@ -12,6 +12,18 @@ import { VectorStore } from '../rag/vector-store.js';
 
 /**
  * Count items that will be deleted during reset, for the confirmation summary.
+ *
+ * Enumerates directories (`tasks`, `reviews`, `logs`, `cache`, `runs`, optionally
+ * `rag` and `docs`) and loose files (`progress.json`, `report.md`, `anatoly.lock`,
+ * `deliberation-memory.json`, `correction-memory.json`) that exist under the
+ * `.anatoly/` directory. The `runs/` entry includes a parenthetical count of
+ * non-`latest` entries when present.
+ *
+ * @param anatolyDir - Absolute path to the `.anatoly/` directory.
+ * @param keepRag - When `true`, exclude the `rag/` directory from the count.
+ * @param keepDocs - When `true`, exclude the `docs/` directory from the count.
+ * @returns An object with `dirs` (directory names to delete), `files` (file names
+ *   to delete), and `total` (sum of both arrays' lengths).
  */
 function countResetItems(anatolyDir: string, keepRag: boolean, keepDocs: boolean): { dirs: string[]; files: string[]; total: number } {
   const dirs: string[] = [];
@@ -60,7 +72,20 @@ function countResetItems(anatolyDir: string, keepRag: boolean, keepDocs: boolean
   return { dirs, files, total: dirs.length + files.length };
 }
 
-/** Registers the `reset` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `reset` CLI sub-command on the given Commander program.
+ *
+ * Clears all generated artifacts under `.anatoly/` — cache, reviews, logs, tasks,
+ * runs, progress, report, lock file, and memory files. Optionally preserves the
+ * RAG index (`--keep-rag`) and internal documentation (`--keep-docs`).
+ *
+ * Guards against running while a lock is active. In interactive mode, displays a
+ * summary of items to be deleted and prompts for confirmation; in non-interactive
+ * mode, requires `--yes` to proceed. LanceDB tables are dropped via the
+ * {@link VectorStore} API before the `rag/` directory is removed.
+ *
+ * @param program - The root Commander instance.
+ */
 export function registerResetCommand(program: Command): void {
   program
     .command('reset')
