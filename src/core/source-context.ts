@@ -166,7 +166,7 @@ function extractJsdoc(content: string, symbol: SymbolInfo): string | null {
   const lines = content.split('\n');
   const startIdx = symbol.line_start - 1;
 
-  if (startIdx <= 0) return null;
+  if (startIdx <= 0 || startIdx >= lines.length) return null;
 
   let endLine = -1;
   let startLine = -1;
