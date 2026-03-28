@@ -89,7 +89,20 @@ export function buildBestPracticesSystemPrompt(): string {
   return resolveSystemPrompt('best_practices');
 }
 
-/** Assembles the user message for the best-practices axis, including file content, stats, and project context. */
+/**
+ * Assembles the user message for the best-practices axis LLM call.
+ *
+ * The message is a multi-section Markdown string containing:
+ * - the file path, detected {@link FileContext}, and full source in a fenced code block;
+ * - file statistics (line count, symbol count, exported symbol count);
+ * - an optional project-dependency section (package names, versions, Node engine)
+ *   when {@link AxisContext.fileDeps} is present;
+ * - an optional project-structure tree with guidance for import-organisation rule
+ *   evaluation when {@link AxisContext.projectTree} is present.
+ *
+ * @param ctx - Axis evaluation context (file content, task, dependencies, project tree, etc.).
+ * @returns The assembled prompt string ready for the LLM.
+ */
 export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -144,11 +157,26 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
 // Evaluator class
 // ---------------------------------------------------------------------------
 
-/** Evaluator that scores a file against the 17 best-practices rules via an LLM call. */
+/**
+ * Axis evaluator for best-practices compliance.
+ *
+ * Scores a file against the 17 best-practices rules by sending the source
+ * code with file context and project metadata to an LLM, then parsing the
+ * structured response against {@link BestPracticesResponseSchema}.
+ * Implements the {@link AxisEvaluator} interface with `id = 'best_practices'`
+ * and a default model of `'sonnet'`.
+ */
 export class BestPracticesEvaluator implements AxisEvaluator {
   readonly id = 'best_practices' as const;
   readonly defaultModel = 'sonnet' as const;
 
+  /**
+   * Runs the best-practices evaluation for a single file.
+   * Resolves the axis model, builds the prompt with correction-memory
+   * reclassifications, and returns per-file rule results as an {@link AxisResult}.
+   * @param ctx - The axis evaluation context including file content, symbols, and config.
+   * @param abortController - Used to cancel in-flight LLM requests.
+   */
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = resolveSystemPrompt('best_practices', ctx.task.language, ctx.task.framework);
