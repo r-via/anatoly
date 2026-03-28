@@ -27,7 +27,21 @@ import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 
-/** Registers the `watch` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `watch` CLI sub-command on the given Commander program.
+ * Watches source files for changes via chokidar and incrementally re-scans
+ * and re-reviews modified files. Performs an initial full scan on startup,
+ * then queues changed files for sequential processing (hash, parse AST,
+ * evaluate, write review output). Handles file deletions by cleaning up
+ * task, review, and progress entries. Regenerates the HTML report after
+ * each review cycle. Acquires a project lock for the duration of the
+ * session and releases it on SIGINT or error.
+ *
+ * Supports `--axes <list>` to restrict evaluation to specific axes.
+ *
+ * @param program - The root Commander instance.
+ * @returns void
+ */
 export function registerWatchCommand(program: Command): void {
   program
     .command('watch')
