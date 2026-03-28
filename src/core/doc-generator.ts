@@ -16,6 +16,7 @@ import type { PageContext, SymbolContext } from './source-context.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import type { TypeContextSection } from './doc-type-context.js';
 
+/** LLM model identifier used when no explicit model is provided to {@link buildPagePrompt}. */
 export const DEFAULT_MODEL = 'sonnet';
 
 // --- Public interfaces ---
