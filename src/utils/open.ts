@@ -8,6 +8,11 @@ import { platform } from 'node:os';
 /**
  * Open a file with the system's default application.
  * Uses xdg-open on Linux, open on macOS, start on Windows.
+ *
+ * Errors are logged to stderr but never thrown — opening the file is a
+ * convenience action and must not interrupt the caller.
+ *
+ * @param filePath - Absolute or relative path to the file to open.
  */
 export function openFile(filePath: string): void {
   const p = platform();
