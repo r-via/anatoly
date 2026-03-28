@@ -26,7 +26,21 @@ import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
 
-/** Registers the `review` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `review` CLI sub-command on the given Commander program.
+ * Runs agentic review on all pending files sequentially, resetting any
+ * DONE/CACHED files back to PENDING so every file is re-reviewed.
+ *
+ * Acquires a project lock for the duration of the run. If a lock is already
+ * active, exits with code 1. Triggers an auto-scan when no tasks exist.
+ * Supports `--axes <list>` to restrict evaluation to specific axes.
+ *
+ * Handles SIGINT gracefully: first press aborts the current file review,
+ * second press releases the lock and force-exits.
+ *
+ * @param program - The root Commander instance.
+ * @returns void
+ */
 export function registerReviewCommand(program: Command): void {
   program
     .command('review')
