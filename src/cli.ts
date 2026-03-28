@@ -87,7 +87,7 @@ export function createProgram(): Command {
     initLogger({
       level,
       logFile: opts.logFile as string | undefined,
-      pretty: opts.noColor ? false : undefined,
+      pretty: opts.color === false ? false : undefined,
     });
   });
 
