@@ -18,6 +18,10 @@ export interface WorkerPoolOptions<T> {
   isInterrupted?: () => boolean;
 }
 
+/**
+ * Aggregate outcome counters returned by {@link runWorkerPool}.
+ * The three fields are mutually exclusive and always sum to `items.length`.
+ */
 export interface WorkerPoolResult {
   /** Number of items that completed (handler returned). */
   completed: number;
