@@ -46,6 +46,11 @@ function calibrationPath(projectRoot: string): string {
 
 /**
  * Load calibration data from disk, falling back to defaults.
+ * Returns default calibration seeded from {@link DEFAULT_MEDIANS} when the file
+ * is missing, contains invalid JSON, or has an unexpected schema version.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Persisted {@link CalibrationData} if valid, otherwise freshly-built defaults.
  */
 export function loadCalibration(projectRoot: string): CalibrationData {
   const path = calibrationPath(projectRoot);
@@ -67,7 +72,11 @@ export function loadCalibration(projectRoot: string): CalibrationData {
 }
 
 /**
- * Save calibration data to disk.
+ * Save calibration data to disk at `.anatoly/calibration.json`.
+ * Creates the `.anatoly` directory if it does not already exist.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param data - The calibration data to persist.
  */
 export function saveCalibration(projectRoot: string, data: CalibrationData): void {
   const path = calibrationPath(projectRoot);
@@ -95,6 +104,10 @@ interface RunMetrics {
  * Recalculate calibration from all historical run-metrics.json files.
  * Collects per-file durations (totalDurationMs / calls) per axis across all runs,
  * then computes the median. Falls back to defaults for axes with no data.
+ * Only the most recent 20 runs are considered to bound I/O and keep estimates fresh.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Freshly computed {@link CalibrationData} with per-axis medians.
  */
 export function recalibrateFromRuns(projectRoot: string): CalibrationData {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
@@ -222,7 +235,10 @@ export function estimateCalibratedMinutes(
 
 /**
  * Format calibrated estimate label for display.
- * Shows "~Xh Ym" or "~Xm" depending on duration.
+ * Shows `~Xh Ym` for durations of 60 minutes or more, `~Xm` otherwise.
+ *
+ * @param minutes - Estimated duration in whole minutes.
+ * @returns Human-readable time string (e.g. `~5m`, `~1h 30m`, `~2h`).
  */
 export function formatCalibratedTime(minutes: number): string {
   if (minutes >= 60) {
