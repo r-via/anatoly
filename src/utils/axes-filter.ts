@@ -29,7 +29,11 @@ export function parseAxesFilter(raw: string | undefined): AxisId[] | undefined {
 
 /**
  * Parse `--axes` option and set process.exitCode on error.
- * Returns the parsed filter, or `null` if parsing failed (caller should return early).
+ * Delegates to {@link parseAxesFilter} for parsing and validation.
+ *
+ * @param raw - Comma-separated axis IDs from the `--axes` CLI option.
+ * @returns The parsed axis filter, `undefined` when `raw` is absent/empty,
+ *          or `null` if parsing failed (sets `process.exitCode` to `2`; caller should return early).
  */
 export function parseAxesOption(raw: string | undefined): AxisId[] | undefined | null {
   try {
@@ -44,6 +48,9 @@ export function parseAxesOption(raw: string | undefined): AxisId[] | undefined |
 /**
  * Warn when axes requested via `--axes` are not in the post-filter evaluator list
  * (i.e. disabled in config). Should be called once at startup, not per-file.
+ *
+ * @param axesFilter - Axis IDs explicitly requested by the user via `--axes`.
+ * @param filteredIds - Axis IDs that are actually enabled after applying config filters.
  */
 export function warnDisabledAxes(
   axesFilter: AxisId[],
