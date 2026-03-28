@@ -6,7 +6,17 @@
  * Shared Docker container helpers used by both GGUF and TEI lifecycle modules.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
+
+/** Check if Docker daemon is running and accessible. */
+export function isDockerAvailable(): boolean {
+  try {
+    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Remove a Docker container by name (running or stopped).

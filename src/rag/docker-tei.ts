@@ -11,9 +11,9 @@
  * runtime TEI usage.
  */
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { removeContainer, waitForContainer } from './docker-utils.js';
+import { isDockerAvailable, removeContainer, waitForContainer } from './docker-utils.js';
 
 export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
@@ -25,16 +25,6 @@ const NLP_CONTAINER = `${CONTAINER_PREFIX}-nlp`;
 const READY_TIMEOUT_MS = 300_000; // TEI can take longer to download models
 
 let containersStarted = false;
-
-/** Check if Docker daemon is running and accessible. */
-function isDockerAvailable(): boolean {
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Start a TEI container for a given model.

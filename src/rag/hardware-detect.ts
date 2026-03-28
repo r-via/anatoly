@@ -6,6 +6,7 @@ import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { isDockerAvailable } from './docker-utils.js';
 
 // ---------------------------------------------------------------------------
 // Hardware detection
@@ -101,14 +102,7 @@ export function detectVramGB(): number | undefined {
 }
 
 /** Check if Docker daemon is running and accessible. */
-export function detectDocker(): boolean {
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+export const detectDocker = isDockerAvailable;
 
 /** Check if NVIDIA Container Toolkit is installed (needed for --gpus flag). */
 export function detectNvidiaContainerToolkit(): boolean {
