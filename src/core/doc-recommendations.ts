@@ -102,6 +102,11 @@ function stripFilePrefix(filename: string): string {
  * 1. If gap has existingUserPath → use it directly
  * 2. If userDocPlan has a mapping for the concept → use mapped directory + filename
  * 3. Otherwise → mirror ideal path under docs/
+ *
+ * @param gaps - Array of raw documentation gaps to transform.
+ * @param userDocPlan - Optional user doc plan providing concept-to-directory section mappings.
+ * @param opts - Optional settings; `docsPath` overrides the default `"docs"` base directory.
+ * @returns Array of enriched recommendations with dual output paths.
  */
 export function buildDocRecommendations(
   gaps: DocGap[],
