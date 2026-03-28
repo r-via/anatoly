@@ -44,23 +44,3 @@ export interface LlmTransport {
   supports(model: string): boolean;
   query(params: LlmRequest): Promise<LlmResponse>;
 }
-
-/**
- * Routes a model name to the first matching transport.
- */
-export class TransportRouter {
-  private readonly transports: readonly LlmTransport[];
-
-  constructor(transports: LlmTransport[]) {
-    this.transports = transports;
-  }
-
-  /** Returns the first transport where `supports(model)` is true. Throws if none matches. */
-  resolve(model: string): LlmTransport {
-    for (const transport of this.transports) {
-      if (transport.supports(model)) return transport;
-    }
-    const available = this.transports.map(t => t.provider).join(', ');
-    throw new Error(`No transport supports model "${model}" (available: ${available})`);
-  }
-}

@@ -4,7 +4,6 @@
 
 import { describe, it, expect } from 'vitest';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
-import { TransportRouter } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Stub transports for testing
@@ -120,49 +119,3 @@ describe('LlmRequest', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// TransportRouter
-// ---------------------------------------------------------------------------
-
-describe('TransportRouter', () => {
-  it('resolve() returns first matching transport', () => {
-    const anthropic = createStubTransport('anthropic', (m) => !m.startsWith('gemini-'));
-    const gemini = createStubTransport('gemini', (m) => m.startsWith('gemini-'));
-    const router = new TransportRouter([anthropic, gemini]);
-
-    expect(router.resolve('claude-sonnet-4-20250514')).toBe(anthropic);
-    expect(router.resolve('gemini-2.5-flash')).toBe(gemini);
-  });
-
-  it('resolve() returns first match when multiple transports support the model', () => {
-    const primary = createStubTransport('primary', () => true);
-    const fallback = createStubTransport('fallback', () => true);
-    const router = new TransportRouter([primary, fallback]);
-
-    expect(router.resolve('any-model')).toBe(primary);
-  });
-
-  it('resolve() throws when no transport matches', () => {
-    const anthropic = createStubTransport('anthropic', (m) => m.startsWith('claude-'));
-    const router = new TransportRouter([anthropic]);
-
-    expect(() => router.resolve('gemini-2.5-flash')).toThrow(
-      /no transport supports model.*gemini-2.5-flash/i,
-    );
-  });
-
-  it('resolve() throws with empty transport list', () => {
-    const router = new TransportRouter([]);
-
-    expect(() => router.resolve('claude-sonnet-4-20250514')).toThrow(
-      /no transport supports model/i,
-    );
-  });
-
-  it('works with a single transport', () => {
-    const transport = createStubTransport('anthropic', () => true);
-    const router = new TransportRouter([transport]);
-
-    expect(router.resolve('any-model')).toBe(transport);
-  });
-});
