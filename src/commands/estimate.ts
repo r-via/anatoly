@@ -21,7 +21,14 @@ import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 
-/** Registers the `estimate` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `estimate` CLI sub-command on the given Commander program.
+ * Displays project info, config, model assignments, and pipeline estimates
+ * without making any LLM calls.
+ *
+ * @param program - The root Commander instance.
+ * @returns void
+ */
 export function registerEstimateCommand(program: Command): void {
   program
     .command('estimate')
