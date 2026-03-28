@@ -178,8 +178,19 @@ function readAndBuildCards(
  * When false (standalone mode), LLM summarization and NLP embeddings are done
  * in the same call.
  *
+ * @param projectRoot - Absolute path to the project root for resolving file paths.
+ * @param task - AST-parsed task descriptor for the file to process.
+ * @param cache - RAG index cache mapping card IDs to file hashes; cached cards are skipped.
+ * @param indexModel - Model identifier used for NLP summary generation.
+ * @param nlpSummaryCache - Optional NLP summary cache for body-hash based hit detection.
  * @param deferNlpEmbeddings - When true, skips LLM summarization and NLP
  *   embeddings entirely; returns raw cards + functionBodies for the NLP phase.
+ * @param conversationDir - Optional path to conversation directory for LLM dump files.
+ * @param semaphore - Optional global SDK concurrency semaphore (Claude).
+ * @param geminiSemaphore - Optional Gemini-specific concurrency semaphore.
+ * @returns Indexed file result containing cards, code embeddings, and optionally
+ *   NLP embeddings/summaries (when not deferred) or raw functionBodies (when deferred).
+ *   Returns empty cards/embeddings if no function symbols exist or all are cached.
  */
 export async function processFileForDualIndex(
   projectRoot: string,
@@ -233,6 +244,19 @@ export async function processFileForDualIndex(
 /**
  * Run NLP summarization for a single file: partition functions into cached vs
  * uncached, call the LLM for uncached ones, and return merged summaries.
+ *
+ * @param cards - Function cards to summarize.
+ * @param functionBodies - Raw function body strings, parallel to `cards`.
+ * @param filePath - Relative file path (used for LLM context and logging).
+ * @param indexModel - Model identifier for NLP summary generation.
+ * @param projectRoot - Absolute path to the project root.
+ * @param nlpSummaryCache - Optional cache; entries with matching body hashes are reused.
+ * @param conversationDir - Optional path to conversation directory for LLM dump files.
+ * @param semaphore - Optional global SDK concurrency semaphore (Claude).
+ * @param geminiSemaphore - Optional Gemini-specific concurrency semaphore.
+ * @returns Object containing `mergedSummaries` (Map of card ID to NlpSummary for
+ *   all cards, cached and freshly generated), `nlpCacheUpdates` (entries to persist
+ *   back to the NLP summary cache), and `costUsd` (LLM cost for uncached summaries).
  */
 async function summarizeFile(
   cards: FunctionCard[],
@@ -291,7 +315,13 @@ async function summarizeFile(
   return { mergedSummaries, nlpCacheUpdates, costUsd };
 }
 
-/** Derive LanceDB table name and cache suffix from RAG mode. */
+/**
+ * Derive LanceDB table name and cache suffix from RAG mode.
+ *
+ * @param mode - The RAG indexing mode (`'lite'` or `'advanced'`).
+ * @returns Object with `tableName` (e.g. `'function_cards_lite'`) and
+ *   `cacheSuffix` (the mode string, used to namespace cache files).
+ */
 export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffix: string } {
   return { tableName: `function_cards_${mode}`, cacheSuffix: mode };
 }
