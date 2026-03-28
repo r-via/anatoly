@@ -4,11 +4,17 @@
 
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// Shared base schema for per-symbol LLM responses across all axes.
-// Each axis extends this with its own verdict enum via .extend().
-// ---------------------------------------------------------------------------
-
+/**
+ * Shared base schema for per-symbol LLM responses across all evaluation axes.
+ *
+ * Each axis extends this with its own verdict enum via `.extend()`.
+ *
+ * Fields:
+ * - `name` — symbol identifier
+ * - `line_start` / `line_end` — 1-based source range (validated: end >= start)
+ * - `confidence` — 0–100 integer score
+ * - `detail` — explanation string (min 10 chars)
+ */
 export const BaseSymbolSchema = z
   .object({
     name: z.string(),
