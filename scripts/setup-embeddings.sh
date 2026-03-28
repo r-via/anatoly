@@ -78,6 +78,14 @@ purge_embedding_configs() {
 # ---------------------------------------------------------------------------
 # GGUF model download (curl with resume support)
 # ---------------------------------------------------------------------------
+# Download and verify a GGUF model file from HuggingFace.
+# Skips download if the file already exists and checksum matches.
+# Supports huggingface-cli (preferred) and curl with resume (-C -).
+# Args: filename hf_repo [expected_sha256]
+#   filename        — GGUF file name (e.g., nomic-embed-code.Q5_K_M.gguf)
+#   hf_repo         — HuggingFace repo ID (e.g., nomic-ai/nomic-embed-code-GGUF)
+#   expected_sha256 — optional SHA256 checksum; triggers integrity verification
+# Returns: 0 on success, 1 on download failure or checksum mismatch.
 download_gguf_model() {
   local filename="$1"
   local hf_repo="$2"
@@ -454,6 +462,8 @@ fi
 
 BACKEND="advanced-gguf"
 NLP_DIM=4096
+# Code embedding dimensionality — set by the smoke test via embedding_dim(),
+# falls back to 768 (nomic-embed-code native dimension) if unset.
 CODE_DIM="${CODE_DIM:-768}"
 
 # Step 7: Write final config
