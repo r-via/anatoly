@@ -111,9 +111,8 @@ function extractDomain(filePath: string): string {
   return extractModuleName(filePath) ?? 'root';
 }
 
+/** Extract a sub-domain key from a file path by combining the module directory and filename (e.g. `src/core/scanner.ts` → `core/scanner`). Falls back to the full path (minus extension) when no `src/` segment is found. */
 function extractSubDomain(filePath: string): string {
-  // Use directory + filename (without extension) as sub-domain
-  // e.g. src/core/scanner.ts → core/scanner
   const parts = filePath.split('/');
   const srcIdx = parts.indexOf('src');
   if (srcIdx >= 0 && srcIdx + 1 < parts.length - 1) {
@@ -209,7 +208,16 @@ async function groupByPage(
 // Strategy 1: Module pages — domain vector matching
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Strategy 1: match code domains to module pages via macro (domain→page) + micro (function→page) vector similarity. */
+/**
+ * Strategy 1: match code domains to module pages via macro (domain→page) + micro (function→page) vector similarity.
+ *
+ * @param domains - Grouped code domains with averaged doc vectors
+ * @param modulePages - Doc pages classified as 'module' type
+ * @param vectorStore - Vector store for doc-section similarity searches
+ * @param scope - Whether to search 'internal' or 'project' doc sections
+ * @param opts - Threshold options controlling COVERED / LOW_RELEVANCE / NOT_FOUND classification
+ * @returns Per-domain reports with matched page, similarity score, and per-function coverage breakdown
+ */
 async function strategy1_moduleDomains(
   domains: Domain[],
   modulePages: DocPage[],
@@ -309,7 +317,15 @@ async function strategy1_moduleDomains(
 // Strategy 3: Conceptual pages — key concept coverage
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Strategy 3: identify top key concepts by frequency and check if they appear in conceptual pages. */
+/**
+ * Strategy 3: identify top key concepts by frequency and check if they appear in conceptual pages.
+ * Suggests the best existing page for each undocumented concept using a longest-term-match heuristic.
+ *
+ * @param conceptualPages - Doc pages classified as 'conceptual' type
+ * @param allCards - All function cards whose keyConcepts are aggregated for frequency analysis
+ * @param opts - Controls top-N count and minimum frequency threshold
+ * @returns Per-concept reports indicating mention status and suggested documentation page
+ */
 function strategy3_conceptualPages(
   conceptualPages: DocPage[],
   allCards: FunctionCard[],
