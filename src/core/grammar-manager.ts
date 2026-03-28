@@ -110,10 +110,10 @@ export function createGrammarManager(
     }
 
     // Download from CDN
-    mkdirSync(grammarsDir, { recursive: true });
     const url = `https://cdn.jsdelivr.net/npm/${entry.npmPackage}@${entry.version}/${entry.wasmFile}`;
 
     try {
+      mkdirSync(grammarsDir, { recursive: true });
       const effectiveFetcher = fetcher ?? defaultFetcher;
       const buffer = await effectiveFetcher(url);
       if (!buffer) return null;
