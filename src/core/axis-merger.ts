@@ -122,7 +122,15 @@ export function mergeAxisResults(
 // Internals
 // ---------------------------------------------------------------------------
 
-/** Validate that a value is a member of the expected enum, falling back to a default. */
+/**
+ * Validate that a value is a member of the expected enum, falling back to a default.
+ *
+ * @param value - The string value to validate against the allowed set.
+ * @param allowed - The readonly array of allowed enum values.
+ * @param fallback - The default value to return if {@link value} is not in {@link allowed}.
+ * @returns The original value cast to `T` if it is a member of {@link allowed}, otherwise
+ *   the {@link fallback}.
+ */
 function validateEnum<T extends string>(value: string, allowed: readonly T[], fallback: T): T {
   return (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
@@ -277,6 +285,8 @@ function mergeActions(results: AxisResult[]): Action[] {
  * don't produce on their own. Symbols with confidence below 30 are skipped.
  *
  * @param symbols - The merged symbol reviews to synthesize actions from.
+ * @param language - Optional source language (e.g. `'python'`, `'go'`); used to
+ *   select the correct doc-comment terminology (JSDoc vs docstring vs godoc, etc.).
  * @returns An array of synthesized actions (with placeholder id=0, to be
  *   reassigned by the caller).
  */
@@ -379,7 +389,15 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
  *
  * When 3+ actions share the same source axis, category, and description
  * template (differing only in the target symbol name), they are merged
- * into one action listing all affected symbols.
+ * into one action listing all affected symbols. Fingerprinting normalises
+ * the first backtick-quoted occurrence of `target_symbol` in each
+ * description to `\`\`` so that actions differing only by symbol name
+ * produce the same key (`source::category::normalised_description`).
+ *
+ * @param actions - The flat list of actions (LLM-generated + synthesized) to group.
+ * @returns A new array where groups of 3+ identical-template actions are collapsed
+ *   into a single action with a combined symbol list and line range; groups smaller
+ *   than 3 are passed through unchanged.
  */
 function groupIdenticalActions(actions: Action[]): Action[] {
   // Build a fingerprint for each action: source + category + description with ONLY target symbol replaced.
@@ -449,9 +467,17 @@ function mergeFileLevels(results: AxisResult[]) {
 /**
  * Detect contradictions between correction findings and best_practices results.
  * When correction flags NEEDS_FIX on a pattern that best_practices explicitly PASSes,
- * downgrade the correction confidence below the 60-threshold so it is excluded from verdict.
+ * downgrade the correction confidence below the 60-threshold so it is excluded from
+ * verdict but above the 30 discard threshold so it remains visible in `.rev.md`.
  *
  * Currently handled: async/error handling (Rule 12).
+ *
+ * @param symbols - The merged symbol reviews (post-coherence) to scan.
+ * @param bestPractices - Optional best-practices evaluation; when absent or when
+ *   Rule 12 is not PASS, the symbols are returned unchanged.
+ * @returns A new array of symbol reviews with confidence downgraded to at most 55
+ *   for any NEEDS_FIX symbol whose detail references async/promise/error-handling
+ *   patterns that Rule 12 explicitly passed.
  */
 function detectContradictions(
   symbols: SymbolReview[],
