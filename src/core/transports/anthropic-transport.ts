@@ -79,10 +79,24 @@ function formatMessage(message: SDKMessage): string {
 export class AnthropicTransport implements LlmTransport {
   readonly provider = 'anthropic' as const;
 
+  /** Returns true for any model that is not a Gemini variant. */
   supports(model: string): boolean {
     return !model.startsWith('gemini-');
   }
 
+  /**
+   * Executes a single-turn LLM query via the Claude Agent SDK.
+   *
+   * Streams SDK messages, accumulates token usage and cost, writes a
+   * conversation dump when a dump directory is configured, and emits
+   * structured `llm_call` log events on both success and failure.
+   *
+   * @param params - Request payload including prompt, model, and optional
+   *   retry/session-resume fields.
+   * @returns Accumulated response text, token counts, cost, and session ID.
+   * @throws {AnatolyError} On SDK stream errors or when no result message is received.
+   * @throws {RateLimitStandbyError} When a tier-level rate limit rejection is detected.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
     const {
       userMessage,
