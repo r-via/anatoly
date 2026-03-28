@@ -15,9 +15,13 @@ function extractTimestamp(runId: string): string {
 }
 
 /**
- * Generate a timestamp-based run ID.
- * Without prefix: `YYYY-MM-DD_HHmmss`
- * With prefix: `<prefix>-YYYY-MM-DD_HHmmss`
+ * Generate a timestamp-based run ID using the current local time.
+ *
+ * Without prefix the ID is `YYYY-MM-DD_HHmmss`.
+ * With a prefix the ID is `<prefix>-YYYY-MM-DD_HHmmss`.
+ *
+ * @param prefix - Optional label prepended to the timestamp (e.g. `"scan"`, `"review"`).
+ * @returns A run ID string that satisfies {@link isValidRunId}.
  */
 export function generateRunId(prefix?: string): string {
   const now = new Date();
@@ -28,6 +32,12 @@ export function generateRunId(prefix?: string): string {
 
 /**
  * Validate a user-provided run ID.
+ *
+ * A valid run ID contains only alphanumeric characters, hyphens, and
+ * underscores (`[a-zA-Z0-9_-]`) and is between 1 and 64 characters long.
+ *
+ * @param runId - The candidate run ID string to validate.
+ * @returns `true` if the run ID satisfies the character-set and length constraints.
  */
 export function isValidRunId(runId: string): boolean {
   return RUN_ID_REGEX.test(runId) && runId.length > 0 && runId.length <= 64;
@@ -35,7 +45,14 @@ export function isValidRunId(runId: string): boolean {
 
 /**
  * Create the run directory structure and update the `latest` symlink.
- * Returns the absolute path to the run directory.
+ *
+ * Creates `.anatoly/runs/<runId>/` with three subdirectories:
+ * `logs/`, `reviews/`, and `conversations/`. Then updates the `latest`
+ * pointer in the runs directory to point to this new run.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param runId - Unique identifier for the run (should satisfy {@link isValidRunId}).
+ * @returns The absolute path to the newly created run directory.
  */
 export function createRunDir(projectRoot: string, runId: string): string {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
@@ -86,9 +103,15 @@ export function createMiniRun(projectRoot: string, prefix: string): MiniRunPaths
 
 /**
  * Resolve a run directory from an optional run ID.
- * - If runId is provided, resolves to `.anatoly/runs/<runId>/`
- * - Otherwise, resolves to `.anatoly/runs/latest/` (symlink)
- * Returns null if the resolved directory doesn't exist.
+ *
+ * - If `runId` is provided, resolves to `.anatoly/runs/<runId>/`.
+ * - Otherwise, follows the `latest` pointer (symlink or text file).
+ * - If the `latest` pointer is stale or missing, falls back to the most
+ *   recent run from {@link listRuns} and repairs the pointer automatically.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param runId - Specific run ID to resolve. When omitted, resolves the latest run.
+ * @returns The absolute path to the run directory, or `null` if no matching run exists.
  */
 export function resolveRunDir(projectRoot: string, runId?: string): string | null {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
@@ -128,7 +151,15 @@ export function resolveRunDir(projectRoot: string, runId?: string): string | nul
 
 /**
  * List all run IDs sorted chronologically by their timestamp suffix.
- * For IDs without a recognised timestamp, falls back to lexicographic order.
+ *
+ * Reads `.anatoly/runs/`, excludes the `latest` pointer, and sorts entries
+ * by the trailing `YYYY-MM-DD_HHmmss` timestamp. IDs without a recognised
+ * timestamp suffix fall back to lexicographic order.
+ *
+ * Returns an empty array if the runs directory does not exist or cannot be read.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns Run ID strings in chronological order (oldest first).
  */
 export function listRuns(projectRoot: string): string[] {
   const runsDir = resolve(projectRoot, '.anatoly', 'runs');
@@ -148,7 +179,13 @@ export function listRuns(projectRoot: string): string[] {
 
 /**
  * Purge old runs, keeping only the most recent `keep` runs.
- * Returns the number of runs deleted.
+ *
+ * Lists all runs via {@link listRuns} (chronological order), then
+ * recursively deletes the oldest entries that exceed the `keep` threshold.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param keep - Number of most-recent runs to retain.
+ * @returns The number of run directories deleted.
  */
 export function purgeRuns(projectRoot: string, keep: number): number {
   const runs = listRuns(projectRoot);
