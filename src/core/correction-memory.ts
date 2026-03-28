@@ -37,9 +37,6 @@ export interface ReclassificationEntry {
   recorded_at: string;
 }
 
-/** @deprecated Use ReclassificationEntry instead */
-export type FalsePositiveEntry = ReclassificationEntry;
-
 /** V1 entry shape (per-axis), kept for migration. */
 interface LegacyReclassificationEntry {
   pattern: string;
@@ -60,9 +57,6 @@ export interface DeliberationMemory {
   version: 2;
   false_positives: ReclassificationEntry[];
 }
-
-/** @deprecated Use DeliberationMemory instead */
-export type CorrectionMemory = DeliberationMemory;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -216,9 +210,6 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
   return { version: 2, false_positives: [] };
 }
 
-/** @deprecated Use loadDeliberationMemory instead */
-export const loadCorrectionMemory = loadDeliberationMemory;
-
 /**
  * Save the deliberation memory to disk (atomic write).
  */
@@ -228,9 +219,6 @@ export function saveDeliberationMemory(projectRoot: string, memory: Deliberation
   const memPath = join(dir, MEMORY_FILE);
   atomicWriteJson(memPath, memory);
 }
-
-/** @deprecated Use saveDeliberationMemory instead */
-export const saveCorrectionMemory = saveDeliberationMemory;
 
 /**
  * Record a reclassification into the deliberation memory.
@@ -315,41 +303,6 @@ export function formatReclassificationsForAxis(
   for (const fp of relevant) {
     const dep = fp.dependency ? ` (${fp.dependency})` : '';
     const axisChange = fp.reclassifications.find((r) => r.axis === axisId);
-    const transition = axisChange ? ` [${axisChange.from} → ${axisChange.to}]` : '';
-    lines.push(`- **${fp.symbol}${dep}${transition}**: ${fp.reason}`);
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-/**
- * Format known false positives as a prompt section (correction axis, with dependency filtering).
- * Returns empty string if no relevant false positives exist.
- */
-export function formatMemoryForPrompt(
-  projectRoot: string,
-  depNames?: string[],
-): string {
-  const memory = loadDeliberationMemory(projectRoot);
-  if (memory.false_positives.length === 0) return '';
-
-  // Filter to entries with correction-axis reclassifications matching deps
-  const depSet = depNames ? new Set(depNames) : undefined;
-  const relevant = memory.false_positives.filter(
-    (fp) =>
-      fp.reclassifications.some((r) => r.axis === 'correction') &&
-      (!fp.dependency || !depSet || depSet.has(fp.dependency)),
-  );
-
-  if (relevant.length === 0) return '';
-
-  const lines = ['## Known False Positives (from previous verified runs)', ''];
-  lines.push('The following patterns have been verified as false positives in this codebase. Do NOT flag them again:');
-  lines.push('');
-  for (const fp of relevant) {
-    const dep = fp.dependency ? ` (${fp.dependency})` : '';
-    const axisChange = fp.reclassifications.find((r) => r.axis === 'correction');
     const transition = axisChange ? ` [${axisChange.from} → ${axisChange.to}]` : '';
     lines.push(`- **${fp.symbol}${dep}${transition}**: ${fp.reason}`);
   }
