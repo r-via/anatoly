@@ -13,7 +13,7 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { countTokens } from './estimator.js';
-import { getDocTokenBudget } from './docs-resolver.js';
+import { getDocTokenBudget, walkMarkdownPaths } from './docs-resolver.js';
 import type { Semaphore } from './sdk-semaphore.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
@@ -607,21 +607,10 @@ export function autoFixStructuralIssues(
 }
 
 function collectMarkdownFiles(dir: string): Array<{ fullPath: string; content: string }> {
-  const results: Array<{ fullPath: string; content: string }> = [];
-
-  function walk(current: string): void {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const full = join(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.name.endsWith('.md')) {
-        results.push({ fullPath: full, content: readFileSync(full, 'utf-8') });
-      }
-    }
-  }
-
-  walk(dir);
-  return results.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+  return walkMarkdownPaths(dir).map(fullPath => ({
+    fullPath,
+    content: readFileSync(fullPath, 'utf-8'),
+  }));
 }
 
 // --- Coherence review agent (single-pass, content-injected) ---

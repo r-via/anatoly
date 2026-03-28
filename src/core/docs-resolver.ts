@@ -58,35 +58,44 @@ interface TreeEntry {
   isDirectory: boolean;
 }
 
-function collectMdFiles(dir: string, rootDir: string): TreeEntry[] {
-  const result: TreeEntry[] = [];
-  let items: string[];
+/**
+ * Recursively collect all `.md` file paths under a directory.
+ * Returns sorted absolute paths. Silently skips unreadable entries.
+ */
+export function walkMarkdownPaths(dir: string): string[] {
+  const paths: string[] = [];
   try {
-    items = readdirSync(dir).sort();
-  } catch {
-    return result;
-  }
-
-  for (const item of items) {
-    const fullPath = join(dir, item);
-    let stat;
-    try {
-      stat = statSync(fullPath);
-    } catch {
-      continue;
-    }
-
-    const rel = relative(rootDir, fullPath);
-
-    if (stat.isDirectory()) {
-      const children = collectMdFiles(fullPath, rootDir);
-      if (children.length > 0) {
-        result.push({ relativePath: rel, isDirectory: true });
-        result.push(...children);
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        paths.push(...walkMarkdownPaths(full));
+      } else if (entry.name.endsWith('.md')) {
+        paths.push(full);
       }
-    } else if (item.endsWith('.md')) {
-      result.push({ relativePath: rel, isDirectory: false });
     }
+  } catch {
+    // skip unreadable directories
+  }
+  return paths.sort();
+}
+
+function collectMdFiles(dir: string, rootDir: string): TreeEntry[] {
+  const mdPaths = walkMarkdownPaths(dir);
+  const result: TreeEntry[] = [];
+  const seenDirs = new Set<string>();
+
+  for (const fullPath of mdPaths) {
+    const rel = relative(rootDir, fullPath);
+    // Add parent directory entries (only those containing .md descendants)
+    const parts = rel.split(sep);
+    for (let i = 1; i < parts.length; i++) {
+      const dirRel = parts.slice(0, i).join(sep);
+      if (!seenDirs.has(dirRel)) {
+        seenDirs.add(dirRel);
+        result.push({ relativePath: dirRel, isDirectory: true });
+      }
+    }
+    result.push({ relativePath: rel, isDirectory: false });
   }
 
   return result;
