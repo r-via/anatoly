@@ -18,6 +18,7 @@ const UtilitySymbolSchema = BaseSymbolSchema.extend({
   utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
 });
 
+/** Zod schema validating the LLM response for the utility axis. */
 export const UtilityResponseSchema = z.object({
   symbols: z.array(UtilitySymbolSchema),
 });
@@ -28,6 +29,14 @@ type UtilityResponse = z.infer<typeof UtilityResponseSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Builds the system prompt for the utility axis LLM call.
+ *
+ * Delegates to {@link resolveSystemPrompt} with the `'utility'` axis key
+ * to load the corresponding prompt template.
+ *
+ * @returns The resolved system prompt string for utility evaluation.
+ */
 export function buildUtilitySystemPrompt(): string {
   return resolveSystemPrompt('utility');
 }
@@ -152,6 +161,13 @@ function autoResolveSymbol(
 // Evaluator class
 // ---------------------------------------------------------------------------
 
+/**
+ * Axis evaluator for utility classification. Auto-resolves symbols whose
+ * usage is deterministic from the import graph, then falls back to a
+ * semaphore-guarded LLM query for ambiguous cases, injecting
+ * correction-memory reclassifications when available. Classifies each
+ * symbol as USED, DEAD, or LOW_VALUE. Defaults to `haiku` model.
+ */
 export class UtilityEvaluator implements AxisEvaluator {
   readonly id = 'utility' as const;
   readonly defaultModel = 'haiku' as const;
