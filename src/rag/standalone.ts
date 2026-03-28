@@ -81,35 +81,35 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
   const readyFlag = readEmbeddingsReadyFlag(projectRoot);
   let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
 
-  // Start GGUF containers if advanced mode
-  if (effectiveBackend === 'advanced-gguf') {
-    onLog('starting GGUF Docker containers…');
-    const started = await startGgufContainers(projectRoot, onLog);
-    if (!started) {
-      if (rebuild) {
-        onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
-        effectiveBackend = 'lite';
-      } else {
-        throw new Error(
-          'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
-          + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
-          + 'Please either:\n'
-          + '  1. Start Docker and retry, or\n'
-          + '  2. Run with --rebuild to re-index everything in lite mode',
-        );
+  try {
+    // Start GGUF containers if advanced mode
+    if (effectiveBackend === 'advanced-gguf') {
+      onLog('starting GGUF Docker containers…');
+      const started = await startGgufContainers(projectRoot, onLog);
+      if (!started) {
+        if (rebuild) {
+          onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
+          effectiveBackend = 'lite';
+        } else {
+          throw new Error(
+            'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
+            + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
+            + 'Please either:\n'
+            + '  1. Start Docker and retry, or\n'
+            + '  2. Run with --rebuild to re-index everything in lite mode',
+          );
+        }
       }
     }
-  }
 
-  // Resolve embedding models
-  const effectiveFlag = readyFlag
-    ? { ...readyFlag, backend: effectiveBackend }
-    : { device: 'cpu', backend: effectiveBackend } as EmbeddingsReadyFlag;
-  const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag);
+    // Resolve embedding models
+    const effectiveFlag = readyFlag
+      ? { ...readyFlag, backend: effectiveBackend }
+      : { device: 'cpu', backend: effectiveBackend } satisfies EmbeddingsReadyFlag;
+    const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag);
 
-  const ragMode = effectiveBackend === 'advanced-gguf' ? 'advanced' : 'lite';
+    const ragMode = effectiveBackend === 'advanced-gguf' ? 'advanced' : 'lite';
 
-  try {
     return await indexProject({
       projectRoot,
       tasks,
