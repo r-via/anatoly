@@ -11,7 +11,19 @@ import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
 import { buildProgressBar, verdictColor } from '../utils/format.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
 
-/** Registers the `status` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `status` CLI sub-command on the given Commander program.
+ * Displays current audit progress (visual progress bar, file counts by state)
+ * and a findings summary (dead code, duplicates, overengineering, errors).
+ *
+ * Exits early with an informational message when no `progress.json` exists.
+ * When reviews are available, loads them from the latest run-scoped directory
+ * first, falling back to the legacy flat layout. Shows the latest run ID and
+ * paths to the generated report and reviews directory.
+ *
+ * @param program - The root Commander instance.
+ * @returns void
+ */
 export function registerStatusCommand(program: Command): void {
   program
     .command('status')
