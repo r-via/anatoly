@@ -71,7 +71,11 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
     ...data.config,
     ...data.pipeline.map(r => ({ key: r.phase, value: r.detail })),
   ];
-  const singleKeyWidth = Math.max(...singleColRows.map(r => r.key.length), checkPrefix, 0);
+  const singleKeyWidth = Math.max(
+    ...singleColRows.map(r => r.key.length),
+    ...data.pipeline.map(r => r.phase.length + checkPrefix),
+    0,
+  );
   const singleValWidth = Math.max(...singleColRows.map(r => r.value.length), 0);
 
   // --- Compute two-column models widths ---
@@ -137,7 +141,7 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
 
   const sectionBorder = (label: string, color: (s: string) => string, left: string, right: string) => {
     const labelPart = ` ${label} `;
-    const dashes = innerWidth - labelPart.length;
+    const dashes = Math.max(0, innerWidth - labelPart.length);
     return d(`  ${left}`) + color(labelPart) + d(`${line('─', dashes)}${right}`);
   };
 
