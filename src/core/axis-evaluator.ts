@@ -28,7 +28,12 @@ const geminiTransportCache = new Map<string, LlmTransport>();
 /** Gemini transport type, set once at startup via {@link setGeminiTransportType}. */
 let _geminiTransportType: 'cli-core' | 'genai' = 'cli-core';
 
-/** Configure which Gemini transport backend to use. Call once at startup. */
+/**
+ * Configure which Gemini transport backend to use. Call once at startup.
+ * Clears the {@link geminiTransportCache} so stale transports are not reused after a backend switch.
+ * @param type - The Gemini transport backend: `'cli-core'` for the Vertex AI CLI transport,
+ *   or `'genai'` for the Google GenAI SDK transport.
+ */
 export function setGeminiTransportType(type: 'cli-core' | 'genai'): void {
   _geminiTransportType = type;
   geminiTransportCache.clear();
@@ -268,6 +273,8 @@ export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic
 
 /**
  * Resolve the model for the deliberation pass.
+ * @param config - Project configuration containing the `llm.deliberation_model` field.
+ * @returns The model identifier to use for deliberation (e.g. `'claude-sonnet-4-20250514'`).
  */
 export function resolveDeliberationModel(config: Config): string {
   return config.llm.deliberation_model;
