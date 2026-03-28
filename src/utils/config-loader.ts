@@ -22,9 +22,18 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
   let raw: string;
   try {
     raw = readFileSync(filePath, 'utf-8');
-  } catch {
+  } catch (err: unknown) {
     // No config file → return defaults
-    return ConfigSchema.parse({});
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ConfigSchema.parse({});
+    }
+    const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+    throw new AnatolyError(
+      `Cannot read config file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      ERROR_CODES.CONFIG_INVALID,
+      false,
+      `check file permissions and path — error code: ${code ?? 'unknown'}`,
+    );
   }
 
   let parsed: unknown;
