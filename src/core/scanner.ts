@@ -140,6 +140,11 @@ export async function parseFile(
 /**
  * Resolve the primary framework for a file based on its language and the project profile.
  * TypeScript files also match JavaScript-ecosystem frameworks (Next.js, Express, etc.).
+ *
+ * @param _filePath - Relative path of the file (reserved for future per-file overrides).
+ * @param language - Detected language name (e.g. "TypeScript"), or null if unknown.
+ * @param frameworks - Framework descriptors from the project profile.
+ * @returns The matched framework id (e.g. "nextjs"), or undefined if none matches.
  */
 function resolveFramework(
   _filePath: string,
@@ -159,6 +164,10 @@ function resolveFramework(
  * are merged with configured patterns so multi-language projects are scanned
  * without manual configuration.
  * Filters out files ignored by .gitignore when inside a git repo.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param config - Resolved project configuration with scan include/exclude patterns.
+ * @returns Deduplicated, sorted array of relative file paths matching the patterns.
  */
 export async function collectFiles(
   projectRoot: string,
@@ -222,6 +231,11 @@ type IstanbulCoverageMap = Record<string, IstanbulFileCoverage>;
  * Load Istanbul/Vitest/Jest coverage-final.json and return a map
  * from relative file paths to CoverageData.
  * Returns null if coverage is disabled, file is missing, or unreadable.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param config - Resolved project configuration with coverage settings.
+ * @returns Map of relative file paths to aggregated coverage metrics, or null
+ *          when coverage is disabled, the report file is missing, or JSON is malformed.
  */
 export function loadCoverage(
   projectRoot: string,
@@ -313,12 +327,22 @@ export interface ScanResult {
 }
 
 /**
- * Scan the project: parse AST, compute hashes, generate .task.json, update progress.json.
+ * Scan the project: collect files, parse each via AST or heuristic extraction,
+ * compute content hashes, generate per-file `.task.json`, and update the
+ * central `progress.json` cache.
+ *
+ * Files whose hash and evaluated axes are unchanged since the last run are
+ * marked CACHED and skipped, avoiding redundant parsing.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param config - Resolved project configuration (scan patterns, coverage settings, etc.).
+ * @param requestedAxes - When provided, a cached file is only reused if every
+ *                        requested axis was already evaluated in the previous run.
+ * @returns Summary counts (scanned, cached, new) and optional per-file detail.
  */
 export async function scanProject(
   projectRoot: string,
   config: Config,
-  /** When provided, the cache validates that all requested axes were previously evaluated */
   requestedAxes?: string[],
 ): Promise<ScanResult> {
   const anatolyDir = resolve(projectRoot, '.anatoly');
