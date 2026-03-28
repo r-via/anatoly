@@ -1100,7 +1100,18 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
 }
 
 /**
- * Copy .anatoly/docs/ → docs/ when in dedup mode, keeping project docs in sync.
+ * Copy `.anatoly/docs/` → `docs/` (or the configured `docs_path`) when running
+ * in dedup mode, keeping project-visible docs in sync with internally-generated docs.
+ *
+ * The destination directory is **removed entirely** via `rmSync` before the copy
+ * so stale pages do not linger. A symlink guard prevents `rmSync` from following a
+ * symbolic link and destroying the link target. Internal-only artifacts (`.cache.json`)
+ * are stripped from the copy.
+ *
+ * Errors are caught and logged as warnings — sync failure is non-fatal.
+ *
+ * @param ctx - Pipeline run context; uses `config.documentation.docs_path`,
+ *              `projectRoot`, `pipelineState`, and `docsIdentical`.
  */
 function syncProjectDocsFromInternal(ctx: RunContext): void {
   const taskId = 'sync-project-docs';
@@ -1145,10 +1156,19 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
 /**
  * Re-index doc sections after the doc-update pipeline has modified `.anatoly/docs/`.
  *
- * 1. Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate chunk cache.
+ * 1. Smart-chunk changed files (programmatic, zero LLM cost) → pre-populate chunk cache.
  * 2. For advanced mode, briefly restart GGUF containers for NLP embedding.
  * 3. Call `indexDocSections` which finds chunk-cache hits → skips Haiku → only embeds + upserts.
- * 4. Stop containers.
+ * 4. Stop containers (in a `finally` block to guarantee cleanup).
+ *
+ * When dedup mode is active (`ctx.docsIdentical`), project docs are skipped because
+ * `syncProjectDocsFromInternal` will overwrite them and the vector-store alias already
+ * maps internal → project.
+ *
+ * @param ctx - Pipeline run context; must have `resolvedRagMode` set (non-null).
+ *              Uses `projectRoot`, `config.documentation.docs_path`, `docsIdentical`,
+ *              `verbose`, `interrupted`, `runDir`, `sdkSemaphore`, and `renderer`.
+ * @param vectorStore - The active vector store instance for upserting doc section embeddings.
  */
 async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore): Promise<void> {
   const log = getLogger();
