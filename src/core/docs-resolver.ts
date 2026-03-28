@@ -29,7 +29,14 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 };
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
-/** Compute max doc tokens from model context window (20% of window). */
+/**
+ * Compute the maximum doc-injection token budget from a model's context window.
+ * Returns 20% of the model's context window (rounded), falling back to
+ * {@link DEFAULT_CONTEXT_WINDOW} when the model is absent or unrecognised.
+ *
+ * @param model - Optional model identifier (e.g. `'claude-opus-4-6'`).
+ * @returns Maximum number of tokens allocated for doc injection.
+ */
 export function getDocTokenBudget(model?: string): number {
   const window = (model ? MODEL_CONTEXT_WINDOWS[model] : undefined) ?? DEFAULT_CONTEXT_WINDOW;
   return Math.round(window * DOC_BUDGET_RATIO);
@@ -42,6 +49,10 @@ export function getDocTokenBudget(model?: string): number {
 /**
  * Build an ASCII tree of the docs directory. Returns null if the directory
  * doesn't exist or is empty.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param docsPath - Relative path from project root to the docs directory.
+ * @returns ASCII-formatted tree string, or `null` when the directory is missing/empty.
  */
 export function buildDocsTree(projectRoot: string, docsPath: string): string | null {
   const docsDir = join(projectRoot, docsPath);
@@ -320,6 +331,12 @@ function loadDoc(fullPath: string, docsDir: string): RelevantDoc | null {
  * Uses pre-computed NLP vectors from LanceDB when available (no runtime embedding needed).
  * Falls back to ONNX embedNlp with file name as query when no pre-computed vectors exist.
  * Doc token budget = 20% of model context window, split equally between project/internal sources.
+ *
+ * @param filePath - Relative path of the source file to find docs for.
+ * @param vectorStore - Vector store instance for similarity search and embedding lookup.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param model - Optional model identifier used to compute the doc token budget.
+ * @returns Array of relevant doc sections with content and source tags, respecting per-source token budgets.
  */
 export async function resolveRelevantDocsViaRag(
   filePath: string,
