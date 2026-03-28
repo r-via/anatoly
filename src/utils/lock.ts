@@ -16,6 +16,10 @@ interface LockData {
  * Acquire a lock file to prevent concurrent Anatoly instances.
  * Throws LOCK_EXISTS if another instance is running.
  * Stale locks (process no longer running) are automatically cleaned up.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns The absolute path to the created lock file (pass to {@link releaseLock} to release).
+ * @throws {AnatolyError} With code `LOCK_EXISTS` when another live process holds the lock.
  */
 export function acquireLock(projectRoot: string): string {
   const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
@@ -74,7 +78,9 @@ export function acquireLock(projectRoot: string): string {
 }
 
 /**
- * Release the lock file.
+ * Release the lock file. Silently succeeds if the file was already removed.
+ *
+ * @param lockPath - Path returned by {@link acquireLock}.
  */
 export function releaseLock(lockPath: string): void {
   try {
@@ -87,6 +93,10 @@ export function releaseLock(lockPath: string): void {
 /**
  * Check if the lock is held by another running process.
  * Does NOT acquire the lock — read-only check for hook coordination.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns `true` only when a lock exists held by a different live process
+ *   (the current process's own lock is excluded via a PID check).
  */
 export function isLockActive(projectRoot: string): boolean {
   const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
