@@ -30,6 +30,12 @@ fi
 # State
 # ---------------------------------------------------------------------------
 _LOG_FILE=""
+
+# Log verbosity level, overridable via environment variable.
+# Valid values: debug | info | warn | error
+# Filtering: each level includes itself and all higher-severity levels.
+#   debug → all messages; info → info/ok/warn/error; warn → warn/error; error → error only.
+# Unrecognised values suppress all output.
 LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # ---------------------------------------------------------------------------
@@ -81,6 +87,10 @@ log() {
 
 # ---------------------------------------------------------------------------
 # Section separator (visual only)
+# Prints a decorated section header with a title to stderr.
+# Arguments:
+#   $* — section title text displayed between separator lines
+# Output is suppressed when LOG_LEVEL is warn or error.
 # ---------------------------------------------------------------------------
 log_section() {
   # Only emit blank lines when info-level output is visible
@@ -95,6 +105,10 @@ log_section() {
   fi
 }
 
+# Print a thin horizontal rule to stderr for visual separation.
+# Unlike log_section, this is a lightweight divider with no title.
+# Respects LOG_LEVEL: only emits output at debug or info level.
+# Does not write to the log file (visual-only, stderr).
 log_separator() {
   # Treat separator as info-level visual output
   if [[ "$LOG_LEVEL" == "debug" || "$LOG_LEVEL" == "info" ]]; then
