@@ -34,6 +34,10 @@ export interface NlpSummaryCache {
 
 /**
  * Build a deterministic ID for a function based on file path and line range.
+ * @param filePath - Absolute or relative path to the source file.
+ * @param lineStart - 1-based start line of the function.
+ * @param lineEnd - 1-based end line of the function.
+ * @returns A 16-character hex string (truncated SHA-256).
  */
 export function buildFunctionId(filePath: string, lineStart: number, lineEnd: number): string {
   const input = `${filePath}:${lineStart}-${lineEnd}`;
@@ -42,6 +46,11 @@ export function buildFunctionId(filePath: string, lineStart: number, lineEnd: nu
 
 /**
  * Extract the signature of a function/method from source code using line range.
+ * Scans up to 3 lines from the symbol start looking for `{` or `=>`, then
+ * collapses whitespace and truncates to 200 characters.
+ * @param source - Full file source text.
+ * @param symbol - Symbol metadata with 1-based line_start.
+ * @returns The extracted signature string (max 200 chars).
  */
 export function extractSignature(source: string, symbol: SymbolInfo): string {
   const lines = source.split('\n');
@@ -59,6 +68,9 @@ export function extractSignature(source: string, symbol: SymbolInfo): string {
 
 /**
  * Extract the source body of a function from the full file source.
+ * @param source - Full file source text.
+ * @param symbol - Symbol metadata with 1-based line_start and line_end.
+ * @returns The source lines from line_start to line_end (inclusive), joined with newlines.
  */
 export function extractFunctionBody(source: string, symbol: SymbolInfo): string {
   const lines = source.split('\n');
@@ -68,6 +80,10 @@ export function extractFunctionBody(source: string, symbol: SymbolInfo): string 
 /**
  * Compute cyclomatic complexity from source lines of a function.
  * Counts branching constructs: if, else if, case, &&, ||, ternary, catch.
+ * Maps the raw count to a 1–5 scale: ≤2→1, ≤5→2, ≤10→3, ≤20→4, >20→5.
+ * @param source - Full file source text.
+ * @param symbol - Symbol metadata with 1-based line_start and line_end.
+ * @returns Complexity score on a 1–5 scale.
  */
 export function computeComplexity(source: string, symbol: SymbolInfo): number {
   const body = extractFunctionBody(source, symbol);
@@ -99,6 +115,10 @@ export function computeComplexity(source: string, symbol: SymbolInfo): number {
 /**
  * Extract internal function calls from the body of a function.
  * Looks for identifiers that match other symbols in the same file.
+ * @param source - Full file source text.
+ * @param symbol - The symbol whose body is searched for call sites.
+ * @param allSymbols - All symbols in the file (self is excluded from results).
+ * @returns Deduplicated array of symbol names called within the function body.
  */
 export function extractCalledInternals(
   source: string,
@@ -129,6 +149,11 @@ function escapeRegExp(str: string): string {
 
 /**
  * Build FunctionCards from AST-derived data only (no LLM dependency).
+ * Filters task symbols to function/method/hook kinds, then computes
+ * ID, signature, complexity, and internal call edges for each.
+ * @param task - The parsed task containing file path and symbol list.
+ * @param source - Full file source text.
+ * @returns Array of FunctionCards (one per function/method/hook symbol).
  */
 export function buildFunctionCards(
   task: Task,
@@ -164,6 +189,10 @@ export function buildFunctionCards(
 /**
  * Pure function: check if a card needs re-indexing by comparing its cached hash
  * against the current file hash.
+ * @param cache - The RAG cache mapping function IDs to file hashes.
+ * @param card - The function card to check.
+ * @param fileHash - The current hash of the card's source file.
+ * @returns `true` if the cached hash is missing or differs from fileHash.
  */
 export function needsReindex(cache: RagCache, card: FunctionCard, fileHash: string): boolean {
   return cache.entries[card.id] !== fileHash;
@@ -172,6 +201,10 @@ export function needsReindex(cache: RagCache, card: FunctionCard, fileHash: stri
 /**
  * Generate embeddings for a list of cards using code-direct embedding.
  * Requires the source text and symbol info to extract function bodies.
+ * @param cards - Function cards to embed.
+ * @param source - Full file source text for body extraction.
+ * @param symbols - Symbol metadata array for looking up each card's body.
+ * @returns Promise resolving to a 2-D array of embedding vectors (one per card).
  */
 export async function embedCards(cards: FunctionCard[], source: string, symbols: SymbolInfo[]): Promise<number[][]> {
   // Build all code texts first, then batch-embed in a single request
@@ -194,6 +227,10 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
  * Apply NLP summaries to function cards and generate NLP embeddings.
  * Cards without a corresponding NLP summary get a zero-vector so they
  * don't falsely trigger hybrid search (only real NLP embeddings count).
+ * @param cards - Function cards to enrich with summary data.
+ * @param nlpSummaries - Map of functionId → NlpSummary from the summariser.
+ * @returns Promise resolving to `{ enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds }`
+ *   where `nlpFailedIds` contains IDs of cards that had no summary available.
  */
 export async function applyNlpSummaries(
   cards: FunctionCard[],
@@ -208,6 +245,10 @@ export async function applyNlpSummaries(
 /**
  * Enrich function cards with NLP summary data without generating embeddings.
  * Used when NLP embedding is deferred to a batch phase after code embedding.
+ * @param cards - Function cards to enrich.
+ * @param nlpSummaries - Map of functionId → NlpSummary.
+ * @returns `{ enrichedCards, nlpFailedIds }` where enrichedCards have summary
+ *   fields merged and nlpFailedIds tracks cards with no available summary.
  */
 export function enrichCardsWithSummaries(
   cards: FunctionCard[],
@@ -266,6 +307,8 @@ async function generateEmbeddingsBatch(
  * Generate NLP embeddings for enriched function cards.
  * Cards without a summary get a zero-vector so they don't
  * falsely activate hybrid NLP search.
+ * @param cards - Enriched function cards (with optional summary fields).
+ * @returns Promise resolving to a 2-D array of NLP embedding vectors (one per card).
  */
 export async function generateNlpEmbeddings(
   cards: FunctionCard[],
@@ -280,6 +323,8 @@ export async function generateNlpEmbeddings(
 /**
  * Generate doc-oriented NLP embeddings for gap detection.
  * Uses docSummary (falls back to summary) for each card.
+ * @param cards - Enriched function cards (with optional docSummary/summary).
+ * @returns Promise resolving to a 2-D array of doc embedding vectors (one per card).
  */
 export async function generateDocEmbeddings(
   cards: FunctionCard[],
@@ -305,7 +350,11 @@ function nlpCachePath(projectRoot: string, cacheSuffix?: string): string {
 /**
  * Load the RAG cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
- * When cacheSuffix is provided, loads cache_<suffix>.json instead of cache.json.
+ * When cacheSuffix is provided, loads `cache_<suffix>.json` instead of `cache.json`.
+ * Falls back to the legacy unsuffixed `cache.json` when the mode-specific file is absent.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param cacheSuffix - Optional mode suffix (e.g. `"lite"`) for the cache filename.
+ * @returns The loaded RagCache, or an empty cache on missing/corrupted file.
  */
 export function loadRagCache(projectRoot: string, cacheSuffix?: string): RagCache {
   const path = cachePath(projectRoot, cacheSuffix);
@@ -334,7 +383,10 @@ export function loadRagCache(projectRoot: string, cacheSuffix?: string): RagCach
 
 /**
  * Save the RAG cache to disk atomically.
- * When cacheSuffix is provided, saves to cache_<suffix>.json instead of cache.json.
+ * When cacheSuffix is provided, saves to `cache_<suffix>.json` instead of `cache.json`.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param cache - The RagCache object to persist.
+ * @param cacheSuffix - Optional mode suffix for the cache filename.
  */
 export function saveRagCache(projectRoot: string, cache: RagCache, cacheSuffix?: string): void {
   atomicWriteJson(cachePath(projectRoot, cacheSuffix), cache);
@@ -346,6 +398,8 @@ export function saveRagCache(projectRoot: string, cache: RagCache, cacheSuffix?:
 
 /**
  * Compute a SHA-256 hash of a function body for NLP summary cache invalidation.
+ * @param body - The function body source text to hash.
+ * @returns A 16-character hex string (truncated SHA-256).
  */
 export function computeBodyHash(body: string): string {
   return createHash('sha256').update(body).digest('hex').slice(0, 16);
@@ -354,6 +408,9 @@ export function computeBodyHash(body: string): string {
 /**
  * Load the NLP summary cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param cacheSuffix - Optional mode suffix for the cache filename.
+ * @returns The loaded NlpSummaryCache, or an empty cache on missing/corrupted file.
  */
 export function loadNlpSummaryCache(projectRoot: string, cacheSuffix?: string): NlpSummaryCache {
   const path = nlpCachePath(projectRoot, cacheSuffix);
@@ -369,6 +426,9 @@ export function loadNlpSummaryCache(projectRoot: string, cacheSuffix?: string): 
 
 /**
  * Save the NLP summary cache to disk atomically.
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param cache - The NlpSummaryCache object to persist.
+ * @param cacheSuffix - Optional mode suffix for the cache filename.
  */
 export function saveNlpSummaryCache(projectRoot: string, cache: NlpSummaryCache, cacheSuffix?: string): void {
   atomicWriteJson(nlpCachePath(projectRoot, cacheSuffix), cache);
