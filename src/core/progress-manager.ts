@@ -18,6 +18,9 @@ export class ProgressManager {
   private readonly progressPath: string;
   private writeQueue: Promise<void> = Promise.resolve();
 
+  /**
+   * @param projectRoot - Absolute path to the project root directory.
+   */
   constructor(projectRoot: string) {
     this.progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
     this.progress = readProgress(this.progressPath) ?? {
@@ -30,6 +33,8 @@ export class ProgressManager {
   /**
    * Get all files that need to be reviewed.
    * Includes PENDING, ERROR, and IN_PROGRESS (stale from a previous interrupted run).
+   *
+   * @returns Array of file progress entries that still require review.
    */
   getPendingFiles(): FileProgress[] {
     return Object.values(this.progress.files).filter(
@@ -39,6 +44,8 @@ export class ProgressManager {
 
   /**
    * Get current progress snapshot.
+   *
+   * @returns The in-memory progress state (direct reference, not a copy).
    */
   getProgress(): Progress {
     return this.progress;
@@ -46,6 +53,8 @@ export class ProgressManager {
 
   /**
    * Get summary counts by status.
+   *
+   * @returns A record mapping each {@link FileStatus} to its count.
    */
   getSummary(): Record<FileStatus, number> {
     const counts: Record<string, number> = {
@@ -67,12 +76,16 @@ export class ProgressManager {
   /**
    * Update a file's status. Writes are serialized through an internal queue
    * so concurrent callers never corrupt progress.json.
+   *
+   * @param filePath - Relative path of the file to update (must already exist in progress).
+   * @param status - New status to assign.
+   * @param error - Optional error message when status is ERROR.
+   * @param axes - Sorted list of axis IDs that were evaluated (stored for per-axis cache invalidation).
    */
   updateFileStatus(
     filePath: string,
     status: FileStatus,
     error?: string,
-    /** Sorted list of axis IDs that were evaluated (stored for per-axis cache invalidation) */
     axes?: string[],
   ): void {
     const existing = this.progress.files[filePath];
@@ -103,6 +116,8 @@ export class ProgressManager {
 
   /**
    * Check if there are any files left to review.
+   *
+   * @returns `true` if any files are PENDING, ERROR, or IN_PROGRESS.
    */
   hasWork(): boolean {
     return this.getPendingFiles().length > 0;
@@ -110,6 +125,8 @@ export class ProgressManager {
 
   /**
    * Total number of tracked files.
+   *
+   * @returns Count of all files registered in progress (any status).
    */
   totalFiles(): number {
     return Object.keys(this.progress.files).length;
