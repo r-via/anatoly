@@ -35,13 +35,14 @@ function makeSymbol(overrides: Partial<SymbolReview> = {}): SymbolReview {
   };
 }
 
-function makeReview(overrides: Partial<ReviewFile> & { symbols?: Partial<SymbolReview>[] } = {}): ReviewFile {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeReview(overrides: Record<string, any> = {}): ReviewFile {
   const { symbols: symOverrides, ...rest } = overrides;
   return {
     version: 2,
     file: 'src/core/example.ts',
     verdict: 'NEEDS_REFACTOR',
-    symbols: symOverrides ? symOverrides.map((s) => makeSymbol(s)) : [makeSymbol()],
+    symbols: symOverrides ? symOverrides.map((s: Partial<SymbolReview>) => makeSymbol(s)) : [makeSymbol()],
     actions: [],
     file_level: { unused_imports: [], circular_dependencies: [], general_notes: '' },
     is_generated: false,
@@ -54,7 +55,8 @@ function makeUsageGraph(usages: Map<string, Set<string>> = new Map()): UsageGrap
   return {
     usages,
     typeOnlyUsages: new Map(),
-    transitiveCache: new Map(),
+    intraFileRefs: new Map(),
+    noImportFiles: new Set(),
   } as UsageGraph;
 }
 
