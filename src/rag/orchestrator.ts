@@ -400,7 +400,9 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   );
 
   // Load NLP summary cache for per-function body-hash caching
-  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+  // Defensive: JSON.parse in loadNlpSummaryCache uses an unsafe cast — guard
+  // against null/malformed cache files (first run, full rebuild, corrupted JSON).
+  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix) ?? { entries: {} };
 
   // Filter out files where all function cards are already cached for the current hash
   // AND have a valid NLP summary cache entry (cross-validation prevents stale cache
@@ -509,9 +511,9 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
 
   for (const result of results) {
-    // Delete all existing cards for this file first to remove stale entries
+    // Delete all existing function cards for this file first to remove stale entries
     // (e.g. functions that were removed or renamed since last indexing)
-    await store.deleteByFile(result.task.file);
+    await store.deleteByFile(result.task.file, 'function');
     await store.upsert(result.cards, result.embeddings, {
       nlpEmbeddings: result.nlpEmbeddings,
       docEmbeddings: result.docEmbeddings,
