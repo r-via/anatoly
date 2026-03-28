@@ -232,7 +232,20 @@ function appendSection(existing: string, _heading: string, sectionContent: strin
 
 /**
  * Replaces an existing section in markdown content with new content.
- * Adds a tracking comment before the replaced section.
+ *
+ * Locates the section by matching the heading level and text, then replaces
+ * everything from that heading up to (but not including) the next heading of
+ * the same or higher level. An HTML comment
+ * (`<!-- Updated by clean loop: section refreshed to match current code -->`)
+ * is inserted immediately before the replacement content.
+ *
+ * If the heading is not found in `existing`, falls back to
+ * {@link appendSection} so the new content is added at the end of the document.
+ *
+ * @param existing - The current markdown document content.
+ * @param heading - The markdown heading to locate (e.g. `"## Data Flow"`).
+ * @param newSectionContent - The replacement text for the matched section.
+ * @returns The updated markdown string with the section replaced (or appended).
  */
 function replaceSection(
   existing: string,
