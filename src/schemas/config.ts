@@ -4,11 +4,13 @@
 
 import { z } from 'zod';
 
+/** Project identity and structure settings (name, monorepo flag). */
 export const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   monorepo: z.boolean().default(false),
 });
 
+/** File scanning configuration: include/exclude globs and auto-detection toggle. */
 export const ScanConfigSchema = z.object({
   include: z.array(z.string()).default(['src/**/*.ts', 'src/**/*.tsx']),
   exclude: z.array(z.string()).default([
@@ -20,17 +22,20 @@ export const ScanConfigSchema = z.object({
   auto_detect: z.boolean().default(true),
 });
 
+/** Code coverage integration: toggle, shell command to run, and JSON report path. */
 export const CoverageConfigSchema = z.object({
   enabled: z.boolean().default(true),
   command: z.string().default('npx vitest run --coverage.reporter=json'),
   report_path: z.string().default('coverage/coverage-final.json'),
 });
 
+/** Per-axis override: enable/disable the axis and optionally specify a model (falls back to `llm.model`). */
 export const AxisConfigSchema = z.object({
   enabled: z.boolean().default(true),
   model: z.string().optional(),
 });
 
+/** Map of all review axes to their individual {@link AxisConfigSchema} overrides. */
 export const AxesConfigSchema = z.object({
   utility: AxisConfigSchema.default({ enabled: true }),
   duplication: AxisConfigSchema.default({ enabled: true }),
@@ -85,6 +90,7 @@ export const LlmConfigSchema = z.object({
   gemini: GeminiConfigSchema.default({ enabled: false, type: 'cli-core', flash_model: 'gemini-2.5-flash', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 }),
 });
 
+/** Retrieval-Augmented Generation settings: embedding models and hybrid-search weighting. */
 export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
   /** Embedding model for code vectors. 'auto' = detect hardware and pick best available. */
@@ -95,6 +101,7 @@ export const RagConfigSchema = z.object({
   code_weight: z.number().min(0).max(1).default(0.6),
 });
 
+/** README badge configuration: toggle, verdict label visibility, and link URL. */
 export const BadgeConfigSchema = z.object({
   enabled: z.boolean().default(true),
   /** When true, display the pass/fail verdict label (e.g. CLEAN / NEEDS_REFACTOR) on the badge. */
@@ -102,22 +109,29 @@ export const BadgeConfigSchema = z.object({
   link: z.string().url().default('https://github.com/r-via/anatoly'),
 });
 
+/** Logging configuration: severity level, optional file sink, and pretty-print toggle. */
 export const LoggingConfigSchema = z.object({
   level: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('warn'),
   file: z.string().optional(),
   pretty: z.boolean().default(true),
 });
 
+/** Documentation coverage settings: docs directory path and source-module-to-page mapping. */
 export const DocumentationConfigSchema = z.object({
   docs_path: z.string().default('docs'),
   /** Map from doc page name (key) to source module globs (values) that the page covers. */
   module_mapping: z.record(z.string(), z.array(z.string())).optional(),
 });
 
+/** Output retention settings: maximum number of historical run directories to keep. */
 export const OutputConfigSchema = z.object({
   max_runs: z.int().min(1).optional(),
 });
 
+/**
+ * Root configuration schema for Anatoly, parsed from `anatoly.config.json` or YAML.
+ * All sections have defaults and are optional at the file level.
+ */
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({ monorepo: false }),
   scan: ScanConfigSchema.default({
@@ -164,5 +178,6 @@ export const ConfigSchema = z.object({
   documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
 });
 
+/** Inferred TypeScript type for a single axis override (from {@link AxisConfigSchema}). */
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
