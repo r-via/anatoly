@@ -232,7 +232,16 @@ export function classifyFile(filePath: string): string | null {
 
 /**
  * Build a language distribution from a list of file paths.
- * Filters out languages below 1% of total files.
+ *
+ * Each path is classified via {@link classifyFile}; unrecognized extensions are
+ * ignored. Languages representing less than 1 % of the raw file count are
+ * filtered out, and `totalFiles` in the result reflects only the files that
+ * belong to the surviving languages (not the original input length).
+ *
+ * @param files - Absolute or relative file paths to classify (e.g. git-tracked files).
+ * @returns A {@link LanguageDistribution} sorted by descending percentage, with
+ *          ties broken alphabetically. Returns `{ languages: [], totalFiles: 0 }`
+ *          when no files map to a known language.
  */
 export function buildDistribution(files: string[]): LanguageDistribution {
   const counts = new Map<string, number>();
@@ -269,7 +278,17 @@ export function buildDistribution(files: string[]): LanguageDistribution {
 
 /**
  * Detect programming languages in a project by scanning git-tracked file extensions.
- * Excludes standard vendor/build directories.
+ *
+ * Files inside {@link DEFAULT_EXCLUDES} directories (e.g. `node_modules/`, `dist/`)
+ * are always filtered out. Any additional patterns supplied via `excludes` are
+ * appended to that list — they supplement, not replace, the defaults.
+ *
+ * @param projectRoot - Absolute path to the project root (must be a git repository).
+ * @param excludes - Optional extra directory patterns to exclude, in addition to
+ *                   {@link DEFAULT_EXCLUDES}. Each entry is matched as a path segment
+ *                   (trailing slashes are stripped before comparison).
+ * @returns A {@link LanguageDistribution} for the filtered file set, or an empty
+ *          distribution if the project is not a git repository.
  */
 export function detectLanguages(
   projectRoot: string,
