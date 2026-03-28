@@ -85,6 +85,8 @@ function syncAxis(
     .filter((f) => f.startsWith('shard.') && f.endsWith('.md'))
     .sort();
 
+  if (shardFiles.length === 0) return { shardChecked: 0, allDone: false };
+
   let totalChecked = 0;
   let allShardsDone = true;
 
