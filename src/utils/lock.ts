@@ -21,36 +21,56 @@ export function acquireLock(projectRoot: string): string {
   const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
   mkdirSync(dirname(lockPath), { recursive: true });
 
-  // Check for existing lock
-  if (existsSync(lockPath)) {
-    try {
-      const existing = JSON.parse(readFileSync(lockPath, 'utf-8')) as LockData;
-
-      // Check if the process is still running
-      if (isProcessRunning(existing.pid)) {
-        throw new AnatolyError(
-          `Another instance is running (PID: ${existing.pid}). Wait for it to finish or run 'anatoly reset' to force clear.`,
-          ERROR_CODES.LOCK_EXISTS,
-          false,
-        );
-      }
-
-      // Stale lock — clean it up
-      unlinkSync(lockPath);
-    } catch (error) {
-      if (error instanceof AnatolyError) throw error;
-      // Corrupted lock file — remove it
-      try { unlinkSync(lockPath); } catch { /* already gone */ }
-    }
-  }
-
   const lockData: LockData = {
     pid: process.pid,
     started_at: new Date().toISOString(),
   };
+  const lockContent = JSON.stringify(lockData, null, 2) + '\n';
 
-  writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + '\n');
-  return lockPath;
+  // Attempt atomic exclusive-create — eliminates TOCTOU race
+  try {
+    writeFileSync(lockPath, lockContent, { flag: 'wx' });
+    return lockPath;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+
+  // Lock file exists — check if stale
+  try {
+    const existing = JSON.parse(readFileSync(lockPath, 'utf-8')) as LockData;
+
+    if (isProcessRunning(existing.pid)) {
+      throw new AnatolyError(
+        `Another instance is running (PID: ${existing.pid}). Wait for it to finish or run 'anatoly reset' to force clear.`,
+        ERROR_CODES.LOCK_EXISTS,
+        false,
+      );
+    }
+
+    // Stale lock — clean it up
+    unlinkSync(lockPath);
+  } catch (error) {
+    if (error instanceof AnatolyError) throw error;
+    // Corrupted lock file — remove it
+    try { unlinkSync(lockPath); } catch { /* already gone */ }
+  }
+
+  // Retry atomic create after removing stale/corrupted lock
+  try {
+    writeFileSync(lockPath, lockContent, { flag: 'wx' });
+    return lockPath;
+  } catch (retryErr: unknown) {
+    if ((retryErr as NodeJS.ErrnoException).code === 'EEXIST') {
+      // Another process acquired the lock between our unlink and retry
+      let msg = 'Failed to acquire lock — another instance may be starting.';
+      try {
+        const winner = JSON.parse(readFileSync(lockPath, 'utf-8')) as LockData;
+        msg = `Another instance is running (PID: ${winner.pid}). Wait for it to finish or run 'anatoly reset' to force clear.`;
+      } catch { /* use default message */ }
+      throw new AnatolyError(msg, ERROR_CODES.LOCK_EXISTS, false);
+    }
+    throw retryErr;
+  }
 }
 
 /**
