@@ -84,7 +84,13 @@ export function createLogger(options: LoggerOptions = {}): Logger {
 
   const transport = pino.transport({ targets });
 
-  const logger = pino({ level }, transport);
+  // The pino instance level gates all transports — set it to the least
+  // restrictive level across all targets so no transport is starved.
+  const instanceLevel: LogLevel = options.logFile
+    ? (LOG_LEVELS.indexOf(level) > LOG_LEVELS.indexOf('debug') ? level : 'debug')
+    : level;
+
+  const logger = pino({ level: instanceLevel }, transport);
 
   if (options.namespace) {
     return logger.child({ component: options.namespace });
