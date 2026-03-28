@@ -10,6 +10,8 @@
 
 /**
  * Calculate the arithmetic mean of a numeric array.
+ * @param values - Array of numbers to average
+ * @returns The arithmetic mean, or 0 if the array is empty
  */
 export function calculateMean(values: number[]): number {
   if (values.length === 0) return 0;
