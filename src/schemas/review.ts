@@ -56,6 +56,13 @@ export const AxisIdSchema = z.enum([
   'documentation',
 ]);
 
+/**
+ * Zod schema for a recommended remediation action.
+ *
+ * - `target_symbol` — name of the symbol this action targets, or `null` for file-level actions.
+ * - `target_lines` — line range string (e.g. `'L10-L20'`), or `null` if not line-specific.
+ * - `source` — the review axis that produced this action, when applicable.
+ */
 export const ActionSchema = z.object({
   id: z.int().min(1),
   description: z.string().min(1),
