@@ -7,7 +7,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
-import { listRuns } from '../utils/run-id.js';
+import { listRuns, purgeRuns } from '../utils/run-id.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 
 /** Registers the `clean-runs` CLI sub-command on the given Commander program. @param program The root Commander instance. */
@@ -32,8 +32,6 @@ async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
     return;
   }
 
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
-
   const runs = listRuns(projectRoot);
 
   if (runs.length === 0) {
@@ -51,9 +49,9 @@ async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
   }
 
   const toKeep = keep ?? 0;
-  const toDelete = toKeep > 0 ? runs.slice(0, Math.max(0, runs.length - toKeep)) : runs;
+  const toDeleteCount = toKeep > 0 ? Math.max(0, runs.length - toKeep) : runs.length;
 
-  if (toDelete.length === 0) {
+  if (toDeleteCount === 0) {
     console.log('anatoly — clean-runs');
     console.log(`  Nothing to delete (${runs.length} run(s), keeping ${toKeep}).`);
     return;
@@ -63,7 +61,7 @@ async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
   if (toKeep === 0) {
     console.log('anatoly — clean-runs');
     console.log('');
-    console.log(`  Will delete ${chalk.bold(String(toDelete.length))} run(s) from .anatoly/runs/`);
+    console.log(`  Will delete ${chalk.bold(String(toDeleteCount))} run(s) from .anatoly/runs/`);
     console.log('');
 
     if (!yes) {
@@ -82,13 +80,11 @@ async function cleanRuns(keep?: number, yes?: boolean): Promise<void> {
     }
   }
 
-  for (const runId of toDelete) {
-    rmSync(resolve(runsDir, runId), { recursive: true, force: true });
-  }
+  const deleted = purgeRuns(projectRoot, toKeep);
 
-  const remaining = runs.length - toDelete.length;
+  const remaining = runs.length - deleted;
   if (toKeep > 0) {
     console.log('anatoly — clean-runs');
   }
-  console.log(`  deleted ${chalk.bold(String(toDelete.length))} run(s)${remaining > 0 ? `, kept ${remaining}` : ''}`);
+  console.log(`  deleted ${chalk.bold(String(deleted))} run(s)${remaining > 0 ? `, kept ${remaining}` : ''}`);
 }
