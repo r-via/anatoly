@@ -22,6 +22,7 @@ import {
   GGUF_CODE_MODEL_FILE,
   GGUF_NLP_MODEL_FILE,
 } from './hardware-detect.js';
+import { removeContainer, waitForContainer } from './docker-utils.js';
 
 const CONTAINER_PREFIX = 'anatoly-gguf';
 /** Timeout for model loading in Docker containers (3 minutes). */
@@ -38,17 +39,6 @@ let dockerVerified = false;
 // ---------------------------------------------------------------------------
 // Low-level helpers
 // ---------------------------------------------------------------------------
-
-function removeContainer(name: string): void {
-  try {
-    execFileSync('docker', ['rm', '-f', name], {
-      stdio: 'ignore',
-      timeout: 10_000,
-    });
-  } catch {
-    // Container doesn't exist — OK
-  }
-}
 
 /**
  * Start a detached Docker container running llama.cpp in embedding-serving
@@ -77,42 +67,6 @@ function runContainer(name: string, modelFile: string, hostPort: number): void {
   ];
 
   execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
-}
-
-/**
- * Poll a container's `/health` endpoint until it responds with HTTP 200 or
- * the overall timeout expires. Each individual fetch is aborted after 2 s to
- * avoid hanging on an unresponsive server, while the outer loop retries every
- * 1 s up to `timeoutMs` total elapsed time.
- *
- * @param port - Host port to poll (http://127.0.0.1:{port}/health).
- * @param timeoutMs - Maximum wall-clock time (ms) to wait before giving up.
- * @param onProgress - Optional callback invoked each second with elapsed seconds.
- * @returns `true` if the container became healthy, `false` if the timeout was reached.
- */
-async function waitForContainer(
-  port: number,
-  timeoutMs: number,
-  onProgress?: (elapsed: number) => void,
-): Promise<boolean> {
-  const start = Date.now();
-  const url = `http://127.0.0.1:${port}/health`;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(t);
-      if (res.ok) return true;
-    } catch {
-      // Not ready yet
-    }
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    onProgress?.(elapsed);
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

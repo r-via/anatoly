@@ -13,6 +13,7 @@
 
 import { execFileSync, execSync } from 'node:child_process';
 import { homedir } from 'node:os';
+import { removeContainer, waitForContainer } from './docker-utils.js';
 
 export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
@@ -32,18 +33,6 @@ function isDockerAvailable(): boolean {
     return true;
   } catch {
     return false;
-  }
-}
-
-/**
- * Remove a Docker container by name (running or stopped).
- * No-op if the container doesn't exist.
- */
-function removeContainer(name: string): void {
-  try {
-    execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 10_000 });
-  } catch {
-    // Container doesn't exist — OK
   }
 }
 
@@ -74,35 +63,6 @@ function runContainer(
   ];
 
   execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
-}
-
-/**
- * Wait for a container's /health endpoint to respond OK.
- * TEI models may need to be downloaded on first run (can take minutes).
- */
-async function waitForContainer(
-  port: number,
-  timeoutMs: number,
-  onProgress?: (elapsed: number) => void,
-): Promise<boolean> {
-  const start = Date.now();
-  const url = `http://127.0.0.1:${port}/health`;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(t);
-      if (res.ok) return true;
-    } catch {
-      // Not ready yet
-    }
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    onProgress?.(elapsed);
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  return false;
 }
 
 /**
