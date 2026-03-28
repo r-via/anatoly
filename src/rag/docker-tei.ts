@@ -29,6 +29,11 @@ let containersStarted = false;
 /**
  * Start a TEI container for a given model.
  * The model is downloaded by TEI on first run (cached in the data volume).
+ *
+ * @param name - Docker container name (used for later removal).
+ * @param modelId - HuggingFace model ID passed to TEI via `--model-id`.
+ * @param hostPort - Host port mapped to the container's internal port 80.
+ * @param cacheDir - Optional HuggingFace cache directory; defaults to `~/.cache/huggingface`.
  */
 function runContainer(
   name: string,
@@ -62,6 +67,12 @@ function runContainer(
  * Note: TEI loads one model per container. Both run simultaneously but
  * require significant VRAM (~14-16 GB each for large models).
  * For A/B testing during setup, containers are started sequentially.
+ *
+ * @param codeModel - HuggingFace model ID for the code-embedding container.
+ * @param nlpModel - HuggingFace model ID for the NLP-embedding container.
+ * @param onLog - Optional callback for status messages during startup.
+ * @param onProgress - Optional callback invoked each second with elapsed seconds (code container only).
+ * @returns `true` if both containers became healthy, `false` on any failure.
  */
 export async function startTeiContainers(
   codeModel: string,
