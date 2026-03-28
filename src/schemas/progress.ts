@@ -4,6 +4,13 @@
 
 import { z } from 'zod';
 
+/**
+ * Possible lifecycle states for a single file in a review run.
+ *
+ * A file moves through PENDING → IN_PROGRESS → DONE/TIMEOUT/ERROR.
+ * CACHED indicates the file's content hash matched a prior run and
+ * was reused without re-evaluation.
+ */
 export const FileStatusSchema = z.enum([
   'PENDING',
   'IN_PROGRESS',
@@ -13,6 +20,13 @@ export const FileStatusSchema = z.enum([
   'CACHED',
 ]);
 
+/**
+ * Schema for the per-file progress entry within a review run.
+ *
+ * Each record tracks a file's current {@link FileStatusSchema | status},
+ * the content hash used for cache invalidation, and an optional error
+ * message if the review failed.
+ */
 export const FileProgressSchema = z.object({
   file: z.string(),
   hash: z.string(),
