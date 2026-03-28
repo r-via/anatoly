@@ -59,6 +59,7 @@ export function registerWatchCommand(program: Command): void {
       // Acquire lock to prevent conflicts with concurrent anatoly instances
       const lockPath = acquireLock(projectRoot);
 
+      try {
       const { runId, runDir, logPath, conversationDir } = createMiniRun(projectRoot, 'watch');
       const runLog = createFileLogger(logPath);
 
@@ -266,12 +267,14 @@ export function registerWatchCommand(program: Command): void {
         if (processing) return;
         processing = true;
 
-        while (queue.length > 0) {
-          const filePath = queue.shift()!;
-          await processFile(filePath);
+        try {
+          while (queue.length > 0) {
+            const filePath = queue.shift()!;
+            await processFile(filePath);
+          }
+        } finally {
+          processing = false;
         }
-
-        processing = false;
       };
 
       const onFileChange = (filePath: string) => {
@@ -286,7 +289,7 @@ export function registerWatchCommand(program: Command): void {
           queue.push(relPath);
         }
 
-        processQueue();
+        void processQueue();
       };
 
       watcher.on('change', onFileChange);
@@ -304,5 +307,9 @@ export function registerWatchCommand(program: Command): void {
         process.exit(0);
       };
       process.on('SIGINT', onSigint);
+      } catch (err) {
+        releaseLock(lockPath);
+        throw err;
+      }
     });
 }
