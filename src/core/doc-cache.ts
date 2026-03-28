@@ -149,7 +149,7 @@ export function loadDocCache(cachePath: string): DocCache {
   try {
     const raw = readFileSync(cachePath, 'utf-8');
     const parsed = JSON.parse(raw) as DocCache;
-    if (parsed.version === 1 && typeof parsed.pages === 'object') {
+    if (parsed.version === 1 && parsed.pages !== null && typeof parsed.pages === 'object') {
       return parsed;
     }
     return { ...EMPTY_CACHE };
