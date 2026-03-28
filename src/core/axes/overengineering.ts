@@ -28,6 +28,14 @@ type OverengineeringResponse = z.infer<typeof OverengineeringResponseSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Builds the system prompt for the overengineering axis LLM call.
+ *
+ * Delegates to {@link resolveSystemPrompt} with the `'overengineering'` axis key
+ * to load the corresponding prompt template.
+ *
+ * @returns The resolved system prompt string for overengineering evaluation.
+ */
 export function buildOverengineeringSystemPrompt(): string {
   return resolveSystemPrompt('overengineering');
 }
