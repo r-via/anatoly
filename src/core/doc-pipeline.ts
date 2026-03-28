@@ -126,8 +126,14 @@ export function runDocScaffold(
  * @param tasks - Scanner task list used to resolve source files for each page.
  * @param packageJson - Parsed `package.json` contents, forwarded to page prompt
  *   building for project metadata.
+ * @param changedFiles - Optional set of file paths that changed since the last
+ *   run. When provided, only pages whose source files intersect this set are
+ *   regenerated; other stale/added pages are deferred (`pagesDeferred` count).
+ *   When omitted, all stale and added pages are regenerated.
  * @returns Generation result with cache status, prompt list for LLM execution,
- *   and counts of generated, removed, and total pages.
+ *   and counts of generated, deferred, removed, and total pages. Includes
+ *   `commitCache` to persist updated hashes after successful LLM writes, and
+ *   `rollbackPage` to remove a failed page from the pending cache.
  */
 export function runDocGeneration(
   projectRoot: string,
@@ -249,7 +255,15 @@ export function runDocGeneration(
 // --- Internal helpers ---
 
 /**
- * Builds ModuleDir[] from scanner tasks by grouping files by directory.
+ * Builds {@link ModuleDir} entries from scanner tasks by grouping files per
+ * directory. Each task is assigned to a directory via {@link extractModuleName},
+ * and the LOC estimate for each file is derived from the maximum `line_end`
+ * across its symbols.
+ *
+ * @param tasks - Scanner task list; each task represents a source file with
+ *   its detected symbols.
+ * @returns Array of module directories, each containing the directory name
+ *   and its constituent files with estimated LOC.
  */
 function buildModuleDirs(tasks: Task[]): ModuleDir[] {
   const dirMap = new Map<string, { name: string; loc: number }[]>();
@@ -273,9 +287,15 @@ function buildModuleDirs(tasks: Task[]): ModuleDir[] {
 }
 
 /**
- * Builds SourceDir[] from scanner tasks for doc mapping.
- * Framework detection is now handled by the unified ProjectProfile,
- * so filePatterns are no longer populated here.
+ * Builds {@link SourceDir} entries from scanner tasks for doc mapping.
+ * Framework detection is now handled by the unified {@link ProjectProfile},
+ * so `filePatterns` are no longer populated here. Each directory's `totalLoc`
+ * is the sum of per-file LOC estimates (max `line_end` across symbols).
+ *
+ * @param tasks - Scanner task list; each task represents a source file with
+ *   its detected symbols.
+ * @returns Array of source directories with aggregated LOC totals, suitable
+ *   for consumption by {@link resolveDocMappings}.
  */
 function buildSourceDirs(tasks: Task[]): SourceDir[] {
   const dirMap = new Map<string, number>();
@@ -360,6 +380,14 @@ function buildPageMappings(
 
 /**
  * Computes SHA-256 hashes for all source files referenced by page mappings.
+ * Files are deduplicated before hashing so each file is read at most once.
+ * Missing or unreadable files are silently skipped (e.g. recently deleted).
+ *
+ * @param projectRoot - Absolute path to the project root, used to resolve
+ *   relative source file paths.
+ * @param pageMappings - Page-to-source-file mappings from which the full set
+ *   of source files is extracted.
+ * @returns Map from relative source file path to its hex-encoded SHA-256 hash.
  */
 function computeSourceHashes(
   projectRoot: string,
@@ -389,7 +417,15 @@ function computeSourceHashes(
 }
 
 /**
- * Loads source files with their content and symbols for page context building.
+ * Loads source files with their content for page context building.
+ * Each returned {@link SourceFile} carries the file content and an empty
+ * `symbols` array (symbol data is not needed at this stage). Unreadable
+ * files are silently skipped.
+ *
+ * @param projectRoot - Absolute path to the project root, used to resolve
+ *   relative file paths.
+ * @param filePaths - Relative paths of source files to load.
+ * @returns Array of loaded source files with their content.
  */
 function loadSourceFiles(projectRoot: string, filePaths: string[]): SourceFile[] {
   const files: SourceFile[] = [];
@@ -410,7 +446,18 @@ function loadSourceFiles(projectRoot: string, filePaths: string[]): SourceFile[]
 /**
  * Loads existing doc pages from the same section as context for cross-referencing.
  * Only includes pages that already have real content (not scaffold-only).
- * Also always includes index.md for TOC awareness.
+ * Scaffold-only pages are detected by the presence of a `<!-- SCAFFOLDING` marker
+ * combined with fewer than 200 characters of non-comment, non-heading text.
+ * The `index.md` page is always included for TOC awareness.
+ *
+ * @param outputDir - Absolute path to the `.anatoly/docs/` output directory
+ *   where generated doc pages reside.
+ * @param currentPage - Relative path of the page being generated (excluded
+ *   from the neighbor list to avoid self-reference).
+ * @param allPages - Complete list of scaffolded page paths to scan for
+ *   same-section neighbors.
+ * @returns Array of neighbor pages with their content, suitable for providing
+ *   cross-reference context to the LLM prompt.
  */
 function loadNeighborPages(outputDir: string, currentPage: string, allPages: string[]): DocNeighbor[] {
   const neighbors: DocNeighbor[] = [];
