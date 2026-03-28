@@ -864,9 +864,16 @@ export function registerDocsCommand(program: Command): void {
       console.log(`  ${chalk.yellow('●')} Gap detection ${chalk.dim(`${scope} · 3-strategy analysis`)}`);
       console.log('');
 
+      const gapThreshold = parseFloat(opts.gapThreshold ?? '0.60');
+      const driftThreshold = parseFloat(opts.driftThreshold ?? '0.85');
+
       const report = await detectDocGapsV2(store, {
         scope: scope as 'internal' | 'project',
         projectDocsPath: docsPath,
+        domainGapThreshold: gapThreshold,
+        functionGapThreshold: gapThreshold,
+        domainDriftThreshold: driftThreshold,
+        functionDriftThreshold: driftThreshold,
         onProgress: (phase, current, total) => {
           if (!opts.json) {
             process.stdout.write(`\r    ${phase}: ${current}/${total}…`);
