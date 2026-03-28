@@ -27,6 +27,14 @@ const DuplicationSymbolSchema = BaseSymbolSchema.extend({
   duplicate_target: DuplicateTargetResponseSchema.nullable().optional(),
 });
 
+/**
+ * Top-level Zod schema for validating the duplication axis LLM response.
+ *
+ * Expects an object with a `symbols` array where each entry extends
+ * {@link BaseSymbolSchema} with a `duplication` verdict (`UNIQUE` | `DUPLICATE`)
+ * and an optional `duplicate_target` identifying the matched symbol.
+ * Used as the parse target in {@link DuplicationEvaluator.evaluate}.
+ */
 export const DuplicationResponseSchema = z.object({
   symbols: z.array(DuplicationSymbolSchema),
 });
@@ -37,6 +45,14 @@ type DuplicationResponse = z.infer<typeof DuplicationResponseSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns the system prompt for the duplication axis LLM call.
+ *
+ * Loads the prompt template via {@link resolveSystemPrompt} using the
+ * `'duplication'` axis key.
+ *
+ * @returns The resolved system prompt string.
+ */
 export function buildDuplicationSystemPrompt(): string {
   return resolveSystemPrompt('duplication');
 }
@@ -126,8 +142,19 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
 const MAX_CANDIDATE_LINES = 50;
 
 /**
- * Read candidate function source from disk for code-to-code comparison.
- * Returns null if the file is missing or the function can't be located.
+ * Reads the source code of a candidate function from disk for code-to-code
+ * duplication comparison.
+ *
+ * Locates the function by scanning the file for the first line that contains
+ * both the function name and an opening keyword (`function`, `=>`, or `(`),
+ * then extracts up to {@link MAX_CANDIDATE_LINES} lines starting from that
+ * position.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param filePath - Relative path (from project root) to the candidate file.
+ * @param functionName - Name of the function to locate within the file.
+ * @returns The extracted source snippet, or `null` if the file cannot be read
+ *   or the function cannot be located by the heuristic.
  */
 function readCandidateSource(projectRoot: string, filePath: string, functionName: string): string | null {
   try {
