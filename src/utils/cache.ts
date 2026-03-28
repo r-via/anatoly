@@ -10,6 +10,9 @@ import type { Progress } from '../schemas/progress.js';
 
 /**
  * Compute SHA-256 hash of a file's content.
+ *
+ * @param filePath - Absolute or relative path to the file to hash.
+ * @returns A 64-character lowercase hex-encoded SHA-256 digest string.
  */
 export function computeFileHash(filePath: string): string {
   const content = readFileSync(filePath);
@@ -19,6 +22,9 @@ export function computeFileHash(filePath: string): string {
 /**
  * Convert a source file path to the output filename convention.
  * Example: "src/utils/format.ts" → "src-utils-format"
+ *
+ * @param filePath - Source file path (forward or backslash separators).
+ * @returns The path with its extension stripped and separators replaced by dashes.
  */
 export function toOutputName(filePath: string): string {
   return filePath
@@ -28,6 +34,10 @@ export function toOutputName(filePath: string): string {
 
 /**
  * Atomically write a JSON file (tmp + rename) to prevent corruption.
+ * Creates parent directories if they do not exist.
+ *
+ * @param filePath - Destination path for the JSON file.
+ * @param data - Value to serialize via `JSON.stringify`.
  */
 export function atomicWriteJson(filePath: string, data: unknown): void {
   const dir = dirname(filePath);
@@ -43,6 +53,10 @@ export function atomicWriteJson(filePath: string, data: unknown): void {
 
 /**
  * Read progress.json if it exists, return null otherwise.
+ * Returns null on missing file, malformed JSON, or schema validation failure.
+ *
+ * @param progressPath - Absolute path to the progress JSON file.
+ * @returns Parsed and validated {@link Progress} object, or `null` on any failure.
  */
 export function readProgress(progressPath: string): Progress | null {
   try {
