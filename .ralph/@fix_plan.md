@@ -2,109 +2,21 @@
 
 ## Stories to Implement
 
-### Gemini Provider Foundation
-> Goal: Users can enable Gemini in `.anatoly.yml`, verify connectivity via `anatoly providers`, and confirm their Google auth works. The transport abstraction is in place, both providers are wired, but no axes are routed yet.
-
-- [x] Story 37.1: Create LlmTransport interface and TransportRouter
-  > As a developer
-  > I want a common `LlmTransport` interface that abstracts LLM I/O
-  > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
-  > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-1
-- [x] Story 37.2: Create AnthropicTransport wrapping existing execQuery()
-  > As a developer
-  > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
-  > So that it conforms to the `LlmTransport` interface without any behavior change.
-  > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
-  > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-2
-- [x] Story 37.3: Create GeminiTransport
-  > As a developer
-  > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
-  > So that Gemini Flash calls conform to the `LlmTransport` interface.
-  > AC: Given `src/core/transports/gemini-transport.ts` exists, When `GeminiTransport` is constructed with `projectRoot` and `model`, Then it lazy-initializes a `Config` + `geminiClient` on first `query()` call, And auth uses `getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE`
-  > AC: Given `GeminiTransport.query()` is called, When the system prompt and user message are provided, Then it calls `client.resetChat()` before each call (history isolation), Then it sets the system instruction via `client.getChat().setSystemInstruction()`, Then it consumes `sendMessageStream()` and assembles text from `content` events, Then it extracts `usageMetadata` from the `finished` event, Then it returns `LlmResponse` with `costUsd: 0`, correct token counts, and a transcript
-  > AC: Given `supports(model)` is called, When model starts with `gemini-`, Then returns `true`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-3
-- [x] Story 37.4: Add GeminiConfigSchema to .anatoly.yml
-  > As a user
-  > I want to configure Gemini provider settings in `.anatoly.yml`
-  > So that I can opt-in to Gemini routing and customize model names.
-  > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
-  > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-4
-- [x] Story 37.5: Gemini auth check and graceful fallback
-  > As a user
-  > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
-  > So that my run is never blocked by a missing Google login.
-  > AC: Given Gemini is enabled but auth fails, When the run starts, Then a warning is displayed: `⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.`, And Gemini is disabled for this run (non-blocking), And all axes route to Claude as if `gemini.enabled: false`
-  > AC: Given Gemini is enabled and auth succeeds, When the run starts, Then Gemini transport is initialized and ready for routing
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-5
-- [x] Story 37.6: Create `anatoly providers` command
-  > As a user
-  > I want to run `anatoly providers` to verify that each configured provider is reachable
-  > So that I can diagnose auth and connectivity issues before starting a run.
-  > AC: Given I run `anatoly providers`, When Claude API key is valid and Gemini auth is valid, Then a table is displayed with: Provider, Model, Status (✓/✗), Latency, Auth method, And each provider/model is tested with a minimal prompt ("Respond OK")
-  > AC: Given I run `anatoly providers --json`, When the tests complete, Then JSON output is produced with `{ providers: [{ provider, model, status, latencyMs, auth }] }`
-  > AC: Given Gemini is not enabled in config, When I run `anatoly providers`, Then only Claude models are tested (no Gemini rows)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-6
-### Review Axes on Gemini Flash
-> Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
-
-- [x] Story 38.1: Route review axes to Gemini via defaultGeminiMode
-  > As a user
-  > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
-  > So that my Claude quota is preserved for the quality-critical axes.
-  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator with `defaultGeminiMode: 'flash'`, Then it returns `config.llm.gemini.flash_model` (e.g. `gemini-3-flash-preview`)
-  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator without `defaultGeminiMode` (correction, best_practices), Then it returns the Claude model (existing behavior unchanged)
-  > AC: Given an explicit per-axis override exists (`config.llm.axes[axis].model`), When `resolveAxisModel()` is called, Then the override takes precedence over Gemini routing
-  > AC: Given `file-evaluator.ts` runs the axes, When the resolved model starts with `gemini-`, Then the `GeminiTransport` is used for that axis call, And the Gemini semaphore is used (not the Claude semaphore)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-1
-- [x] Story 38.2: Separate concurrency semaphores for Claude and Gemini
-  > As a system
-  > I want Claude and Gemini to have independent concurrency semaphores
-  > So that rate limits on one provider don't throttle the other.
-  > AC: Given a run with Gemini enabled, When the pipeline starts, Then two semaphores are created: Claude (`sdk_concurrency`, default 24) and Gemini (`gemini.sdk_concurrency`, default 12)
-  > AC: Given an axis resolved to Gemini, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Gemini semaphore
-  > AC: Given an axis resolved to Claude, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Claude semaphore
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-2
-- [x] Story 38.3: Implement circuit breaker for Gemini fallback
-  > As a system
-  > I want to stop sending requests to Gemini after 3 consecutive failures and fall back to Claude
-  > So that a Gemini outage doesn't stall the entire run.
-  > AC: Given Gemini transport encounters 3 consecutive errors (429, timeout, or connection error), When the circuit breaker trips, Then all subsequent Gemini-routed calls for this run are redirected to Claude, And a single CLI warning is displayed: `⚠ Gemini quota exhausted — falling back to Claude`, And the circuit breaker state is logged in structured logs
-  > AC: Given the circuit breaker is tripped, When 5 minutes have elapsed, Then the circuit breaker enters half-open state and allows one test call, Then the circuit breaker resets and Gemini routing resumes
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-3
-### RAG NLP on Gemini + Observability
-> Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
-
-- [x] Story 39.1: Route NLP summarization to Gemini Flash
-  > As a user
-  > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
-  > So that I save $2+ per run on Haiku costs.
-  > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
-  > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-1
-- [x] Story 39.2: Add provider field to logs and run metrics
-  > As a developer
-  > I want structured logs and run metrics to include the provider for each LLM call
-  > So that I can analyze quota usage and performance by provider.
-  > AC: Given a run with Gemini enabled completes, When I inspect `run-metrics.json`, Then it includes a `providers` object: `{ anthropic: { calls, axes }, gemini: { calls, axes } }`, And it includes `claude_quota_saved_pct`
-  > AC: Given a run with Gemini enabled, When I inspect `anatoly.ndjson` structured logs, Then each `llm_call` event includes `provider: 'anthropic' | 'gemini'`
-  > AC: Given a run completes, When the CLI summary is displayed, Then cost line shows: `Cost: $X (Claude) · $0.00 (Gemini)`, And quota line shows: `Quota: N Claude · M Gemini (−X%)`
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-2
-### Quality Validation
-> Goal: Developers validate that Gemini routing produces equivalent quality via gold-set comparison against Claude reference results.
-
-- [x] Story 40.1: Gold-set validation — Gemini vs Claude comparison
-  > As a developer
-  > I want to compare Gemini results against Claude reference results on a gold-set
-  > So that I can validate quality before enabling Gemini in production.
-  > AC: Given a gold-set of files from the rustguard project (aead.rs, timers.rs), When I run the comparison script, Then utility accuracy is ≥95% vs Claude reference, And overengineering accuracy is ≥85% vs Claude reference, And NLP summary produces valid schema output for ≥90% of files
-  > AC: Given the spike scripts exist in `spike/`, When validation is complete, Then the spike directory can be cleaned up (scripts are throwaway)
-  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-40-1
-### 
-
+- [x] Story 26.1: Prerequisites (schema + resolver + prompt)
+  > All foundation work with no runtime behavior.
+  > Can be parallelized internally.
+  > Tests embedded.
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-26-1
+- [x] Story 26.2: Core Integration (evaluator + merger + orchestrator + registry)
+  > The axis becomes functional end-to-end.
+  > Tests embedded per task.
+  > | Task | File(s) | Tests | |------|---------|-------| | Evaluator implementation | `axes/documentation.ts` (NEW) | Mock LLM, validate Zod parsing | | Merger integration | `axis-merger.ts` | Coherence rules (DEAD→UNDOCUMENTED), action synthesis | | Orchestrator wiring | `file-evaluator.ts`, `run.ts`/`reviewer.ts` | docsTree passed via options, relevantDocs injection | | Registry registration | `axes/index.ts` | Enabled/disabled filtering | | Report updates | `reporter.ts` | `doc` column, "Documentation Coverage" section, coverage score |
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-26-2
+- [x] Story 26.3: Documentation Meta (update project docs)
+  > Self-referential: the documentation axis documents itself.
+  > | Task | File(s) | |------|---------| | Rename Six-Axis → Seven-Axis | `docs/02-Architecture/02-Six-Axis-System.md` | | Add documentation evaluator section | `docs/04-Core-Modules/04-Axis-Evaluators.md` | | Update PRD Principle 1 + Non-goals | `_bmad-output/planning-artifacts/PRD.md` | Stories 1 and 3 can be worked in parallel.
+  > Story 2 depends on Story 1.
+  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-26-3
 - [x] Story 29.1: Project Type Detection
   > As a **developer running Anatoly**
   > I want Anatoly to **automatically detect my project type(s)** from package.json
@@ -406,21 +318,187 @@
   > **AC 32.12.1:** Given Story 31.19 (Axis Language & Framework Injection), When all 7 axes are audited, Then: every axis injects `## Language:` and `## Framework:` (when applicable) in the user message, every axis uses dynamic code fence (` ```bash `, ` ```python `, etc.), TypeScript files produce identical output to pre-v0.6.0 (zero regression), And any missing injection is auto-fixed.
   > **AC 32.12.2:** Given Story 31.20 (Pipeline E2E), When a multi-language project (50 .ts + 5 .sh + 3 .py) is processed, Then: all 58 files scanned/triaged/evaluated/reported, pipeline phases execute in correct order, `.rev.json` contains `language` field, `.rev.md` uses correct language rules, heuristic-parsed files have lower confidence, And report groups findings by language.
   > Spec: specs/planning-artifacts/epic-32-adversarial-review.md#story-32-12
-- [x] Story 1: Prerequisites (schema + resolver + prompt)
-  > All foundation work with no runtime behavior.
-  > Can be parallelized internally.
-  > Tests embedded.
-  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-1
-- [x] Story 2: Core Integration (evaluator + merger + orchestrator + registry)
-  > The axis becomes functional end-to-end.
-  > Tests embedded per task.
-  > | Task | File(s) | Tests | |------|---------|-------| | Evaluator implementation | `axes/documentation.ts` (NEW) | Mock LLM, validate Zod parsing | | Merger integration | `axis-merger.ts` | Coherence rules (DEAD→UNDOCUMENTED), action synthesis | | Orchestrator wiring | `file-evaluator.ts`, `run.ts`/`reviewer.ts` | docsTree passed via options, relevantDocs injection | | Registry registration | `axes/index.ts` | Enabled/disabled filtering | | Report updates | `reporter.ts` | `doc` column, "Documentation Coverage" section, coverage score |
-  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-2
-- [x] Story 3: Documentation Meta (update project docs)
-  > Self-referential: the documentation axis documents itself.
-  > | Task | File(s) | |------|---------| | Rename Six-Axis → Seven-Axis | `docs/02-Architecture/02-Six-Axis-System.md` | | Add documentation evaluator section | `docs/04-Core-Modules/04-Axis-Evaluators.md` | | Update PRD Principle 1 + Non-goals | `_bmad-output/planning-artifacts/PRD.md` | Stories 1 and 3 can be worked in parallel.
-  > Story 2 depends on Story 1.
-  > Spec: specs/planning-artifacts/epic-documentation-axis.md#story-3
+### Gemini Provider Foundation
+> Goal: Users can enable Gemini in `.anatoly.yml`, verify connectivity via `anatoly providers`, and confirm their Google auth works. The transport abstraction is in place, both providers are wired, but no axes are routed yet.
+
+- [x] Story 37.1: Create LlmTransport interface and TransportRouter
+  > As a developer
+  > I want a common `LlmTransport` interface that abstracts LLM I/O
+  > So that `runSingleTurnQuery()` can work with any provider without knowing the implementation.
+  > AC: Given the new file `src/core/transports/index.ts` exists, When I inspect its exports, Then it exports `LlmTransport`, `LlmRequest`, `LlmResponse`, and `TransportRouter` types/classes, And `LlmTransport` has `readonly provider: string`, `supports(model: string): boolean`, and `query(params: LlmRequest): Promise<LlmResponse>`, And `LlmResponse` includes `text`, `costUsd`, `durationMs`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `transcript`, `sessionId`, And `TransportRouter.resolve(model)` returns the first transport where `supports(model)` returns true, And `TransportRouter.resolve(model)` throws if no transport matches
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-1
+- [x] Story 37.2: Create AnthropicTransport wrapping existing execQuery()
+  > As a developer
+  > I want the existing Claude SDK call path extracted into an `AnthropicTransport` class
+  > So that it conforms to the `LlmTransport` interface without any behavior change.
+  > AC: Given `src/core/transports/anthropic-transport.ts` exists, When `AnthropicTransport.query()` is called with the same parameters as `execQuery()`, Then it produces identical results (text, cost, tokens, transcript), And `supports(model)` returns `true` for any model NOT starting with `gemini-`, And `provider` is `'anthropic'`
+  > AC: Given `runSingleTurnQuery()` in `axis-evaluator.ts` is updated, When called without an explicit transport parameter, Then it uses `AnthropicTransport` as default (backward compatible), When called with a transport parameter, Then it uses that transport for the I/O and keeps JSON extraction + Zod validation + retry logic unchanged
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-2
+- [x] Story 37.3: Create GeminiTransport
+  > As a developer
+  > I want a `GeminiTransport` class that wraps `@google/gemini-cli-core`
+  > So that Gemini Flash calls conform to the `LlmTransport` interface.
+  > AC: Given `src/core/transports/gemini-transport.ts` exists, When `GeminiTransport` is constructed with `projectRoot` and `model`, Then it lazy-initializes a `Config` + `geminiClient` on first `query()` call, And auth uses `getAuthTypeFromEnv() || AuthType.LOGIN_WITH_GOOGLE`
+  > AC: Given `GeminiTransport.query()` is called, When the system prompt and user message are provided, Then it calls `client.resetChat()` before each call (history isolation), Then it sets the system instruction via `client.getChat().setSystemInstruction()`, Then it consumes `sendMessageStream()` and assembles text from `content` events, Then it extracts `usageMetadata` from the `finished` event, Then it returns `LlmResponse` with `costUsd: 0`, correct token counts, and a transcript
+  > AC: Given `supports(model)` is called, When model starts with `gemini-`, Then returns `true`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-3
+- [x] Story 37.4: Add GeminiConfigSchema to .anatoly.yml
+  > As a user
+  > I want to configure Gemini provider settings in `.anatoly.yml`
+  > So that I can opt-in to Gemini routing and customize model names.
+  > AC: Given `.anatoly.yml` has a `llm.gemini` section, When `gemini.enabled` is `false` (default), Then no Gemini transport is instantiated and all calls go to Claude
+  > AC: Given `gemini.enabled` is `true`, When the config is loaded, Then `flash_model` defaults to `gemini-3-flash-preview`, And `nlp_model` defaults to `gemini-2.5-flash`, And `sdk_concurrency` defaults to `12`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-4
+- [x] Story 37.5: Gemini auth check and graceful fallback
+  > As a user
+  > I want the system to verify Gemini auth at startup and fall back to Claude if it fails
+  > So that my run is never blocked by a missing Google login.
+  > AC: Given Gemini is enabled but auth fails, When the run starts, Then a warning is displayed: `⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.`, And Gemini is disabled for this run (non-blocking), And all axes route to Claude as if `gemini.enabled: false`
+  > AC: Given Gemini is enabled and auth succeeds, When the run starts, Then Gemini transport is initialized and ready for routing
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-5
+- [x] Story 37.6: Create `anatoly providers` command
+  > As a user
+  > I want to run `anatoly providers` to verify that each configured provider is reachable
+  > So that I can diagnose auth and connectivity issues before starting a run.
+  > AC: Given I run `anatoly providers`, When Claude API key is valid and Gemini auth is valid, Then a table is displayed with: Provider, Model, Status (✓/✗), Latency, Auth method, And each provider/model is tested with a minimal prompt ("Respond OK")
+  > AC: Given I run `anatoly providers --json`, When the tests complete, Then JSON output is produced with `{ providers: [{ provider, model, status, latencyMs, auth }] }`
+  > AC: Given Gemini is not enabled in config, When I run `anatoly providers`, Then only Claude models are tested (no Gemini rows)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-37-6
+### Review Axes on Gemini Flash
+> Goal: Utility, duplication, and overengineering axes run on Gemini Flash — faster results, no Claude rate limit stalls. Circuit breaker ensures Gemini outages fall back to Claude transparently.
+
+- [x] Story 38.1: Route review axes to Gemini via defaultGeminiMode
+  > As a user
+  > I want utility, duplication, and overengineering axes to run on Gemini Flash when enabled
+  > So that my Claude quota is preserved for the quality-critical axes.
+  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator with `defaultGeminiMode: 'flash'`, Then it returns `config.llm.gemini.flash_model` (e.g. `gemini-3-flash-preview`)
+  > AC: Given Gemini is enabled in config, When `resolveAxisModel()` is called for an evaluator without `defaultGeminiMode` (correction, best_practices), Then it returns the Claude model (existing behavior unchanged)
+  > AC: Given an explicit per-axis override exists (`config.llm.axes[axis].model`), When `resolveAxisModel()` is called, Then the override takes precedence over Gemini routing
+  > AC: Given `file-evaluator.ts` runs the axes, When the resolved model starts with `gemini-`, Then the `GeminiTransport` is used for that axis call, And the Gemini semaphore is used (not the Claude semaphore)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-1
+- [x] Story 38.2: Separate concurrency semaphores for Claude and Gemini
+  > As a system
+  > I want Claude and Gemini to have independent concurrency semaphores
+  > So that rate limits on one provider don't throttle the other.
+  > AC: Given a run with Gemini enabled, When the pipeline starts, Then two semaphores are created: Claude (`sdk_concurrency`, default 24) and Gemini (`gemini.sdk_concurrency`, default 12)
+  > AC: Given an axis resolved to Gemini, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Gemini semaphore
+  > AC: Given an axis resolved to Claude, When `runSingleTurnQuery()` acquires a semaphore, Then it uses the Claude semaphore
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-2
+- [x] Story 38.3: Implement circuit breaker for Gemini fallback
+  > As a system
+  > I want to stop sending requests to Gemini after 3 consecutive failures and fall back to Claude
+  > So that a Gemini outage doesn't stall the entire run.
+  > AC: Given Gemini transport encounters 3 consecutive errors (429, timeout, or connection error), When the circuit breaker trips, Then all subsequent Gemini-routed calls for this run are redirected to Claude, And a single CLI warning is displayed: `⚠ Gemini quota exhausted — falling back to Claude`, And the circuit breaker state is logged in structured logs
+  > AC: Given the circuit breaker is tripped, When 5 minutes have elapsed, Then the circuit breaker enters half-open state and allows one test call, Then the circuit breaker resets and Gemini routing resumes
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-38-3
+### RAG NLP on Gemini + Observability
+> Goal: NLP summarization runs on Gemini ($0 vs $2+/run). Run metrics and CLI output show provider breakdown for full cost/quota visibility.
+
+- [x] Story 39.1: Route NLP summarization to Gemini Flash
+  > As a user
+  > I want RAG NLP summarization to run on Gemini 2.5 Flash when enabled
+  > So that I save $2+ per run on Haiku costs.
+  > AC: Given Gemini is enabled, When `generateNlpSummaries()` is called during RAG indexing, Then the model used is `config.llm.gemini.nlp_model` (default: `gemini-2.5-flash`), And the call goes through `GeminiTransport`, And cost is reported as `$0.00`
+  > AC: Given Gemini is disabled, When `generateNlpSummaries()` is called, Then the model used is the existing `index_model` (Haiku) via Claude — no change
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-1
+- [x] Story 39.2: Add provider field to logs and run metrics
+  > As a developer
+  > I want structured logs and run metrics to include the provider for each LLM call
+  > So that I can analyze quota usage and performance by provider.
+  > AC: Given a run with Gemini enabled completes, When I inspect `run-metrics.json`, Then it includes a `providers` object: `{ anthropic: { calls, axes }, gemini: { calls, axes } }`, And it includes `claude_quota_saved_pct`
+  > AC: Given a run with Gemini enabled, When I inspect `anatoly.ndjson` structured logs, Then each `llm_call` event includes `provider: 'anthropic' | 'gemini'`
+  > AC: Given a run completes, When the CLI summary is displayed, Then cost line shows: `Cost: $X (Claude) · $0.00 (Gemini)`, And quota line shows: `Quota: N Claude · M Gemini (−X%)`
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-39-2
+### Quality Validation
+> Goal: Developers validate that Gemini routing produces equivalent quality via gold-set comparison against Claude reference results.
+
+- [x] Story 40.1: Gold-set validation — Gemini vs Claude comparison
+  > As a developer
+  > I want to compare Gemini results against Claude reference results on a gold-set
+  > So that I can validate quality before enabling Gemini in production.
+  > AC: Given a gold-set of files from the rustguard project (aead.rs, timers.rs), When I run the comparison script, Then utility accuracy is ≥95% vs Claude reference, And overengineering accuracy is ≥85% vs Claude reference, And NLP summary produces valid schema output for ≥90% of files
+  > AC: Given the spike scripts exist in `spike/`, When validation is complete, Then the spike directory can be cleaned up (scripts are throwaway)
+  > Spec: specs/planning-artifacts/epic-gemini-provider.md#story-40-1
+### Refinement 3-Tier
+> Goal: L'utilisateur obtient des reviews de meilleure qualité à moindre coût grâce à un pipeline de refinement qui élimine les faux positifs mécaniques (tier 1), les contradictions logiques (tier 2), et vérifie empiriquement les findings ambigus (tier 3).
+
+- [ ] Story 41.1: Retirer la délibération per-file et écrire les ReviewFiles bruts
+  > As a développeur du pipeline
+  > I want supprimer l'appel Opus per-file dans `file-evaluator.ts` et écrire les ReviewFiles directement après le merge des axes
+  > So that la phase review ne bloque plus 44 min de wall-clock sur la délibération et la refinement phase puisse opérer sur des reviews bruts.
+  > AC: Given `file-evaluator.ts` est modifié, When `evaluateFile()` termine le merge des 7 axes, Then il écrit le ReviewFile JSON + MD immédiatement sans appeler `runSingleTurnQuery` avec le modèle de délibération, And le champ `verdict` est calculé par la logique de merge existante (pas par Opus), And les fonctions `needsDeliberation`, `buildDeliberationUserMessage`, `buildDeliberationSystemPrompt` sont dépréciées mais non supprimées (tier 3 les réutilisera peut-être)
+  > AC: Given un run complet sans délibération, When la phase review termine, Then les ReviewFile JSON contiennent les verdicts bruts des axes sans reclassification, And aucun appel Opus n'est fait pendant la review phase, And le coût de la review phase diminue d'environ $63
+  > AC: Given `correction-memory.ts`, When la review phase termine, Then `recordReclassification` n'est plus appelé depuis `file-evaluator.ts`, And la deliberation-memory.json existante n'est pas modifiée ni lue pendant la review
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-1
+- [ ] Story 41.2: Tier 1 — Auto-resolve déterministe
+  > As a utilisateur d'anatoly
+  > I want que les faux positifs mécaniques soient éliminés instantanément sans appel LLM
+  > So that le rapport ne contienne pas de findings trivialement faux (DEAD quand l'usage graph dit USED, UNIQUE quand pas de candidats RAG).
+  > AC: Given `src/core/refinement/tier1.ts` existe avec une fonction `applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile`, When un ReviewFile contient un symbole exporté avec `utility: DEAD` et le usage graph montre ≥ 1 runtime importers, Then le symbole est reclassifié `utility: USED` avec confidence 95 et detail "Auto-resolved: runtime-imported by N files", And le ReviewFile est réécrit sur disque (JSON + MD)
+  > AC: Given un symbole exporté avec `utility: DEAD` et 0 importers de tout type mais des usages transitifs, When tier 1 est appliqué, Then le symbole est reclassifié `utility: USED` avec detail "Auto-resolved: transitively used by X"
+  > AC: Given un symbole avec `duplication: DUPLICATE` mais aucun candidat RAG (score < 0.68 ou pas de RAG data), When tier 1 est appliqué, Then le symbole est reclassifié `duplication: UNIQUE` avec confidence 90
+  > AC: Given un symbole avec `duplication: DUPLICATE` et la fonction fait ≤ 2 lignes, When tier 1 est appliqué, Then le symbole est reclassifié `duplication: UNIQUE` avec detail "Trivial function (≤ 2 lines)"
+  > AC: Given un symbole avec `overengineering: OVER` et kind = interface/type/enum, When tier 1 est appliqué, Then le symbole est reclassifié `overengineering: LEAN`
+  > AC: Given un symbole avec `overengineering: OVER` et la fonction fait ≤ 5 lignes, When tier 1 est appliqué, Then le symbole est reclassifié `overengineering: LEAN`
+  > AC: Given un symbole avec `tests: NONE` et aucun fichier test n'existe pour ce fichier source, When tier 1 est appliqué, Then le verdict `tests: NONE` est confirmé (pas de changement, mais marqué comme vérifié)
+  > AC: Given un symbole exporté avec `documentation: UNDOCUMENTED` et un bloc JSDoc existe avant le symbole (> 20 chars), When tier 1 est appliqué, Then le symbole est reclassifié `documentation: DOCUMENTED` avec confidence 90
+  > AC: Given un symbole de type interface/type/enum avec ≤ 5 champs et des noms auto-descriptifs, When tier 1 est appliqué et le symbole est marqué `documentation: UNDOCUMENTED`, Then le symbole est reclassifié `documentation: DOCUMENTED` avec detail "Self-descriptive type"
+  > AC: Given un fichier dans un chemin contenant `__gold-set__` ou `__fixtures__`, When tier 1 est appliqué, Then tous les findings correction/utility sont marqués comme skip avec detail "Intentional fixture code"
+  > AC: Given `Tier1Context` est construit, When la refinement phase démarre, Then le contexte contient : usage graph, AST metadata (symbol kinds, line ranges, JSDoc présence), RAG index, coverage report
+  > AC: Given tous les ReviewFiles sont traités par tier 1, When tier 1 termine, Then la durée totale est < 1 seconde, And aucun appel réseau n'a été fait
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-2
+- [ ] Story 41.3: Tier 2 — Cohérence inter-axes via Flash Lite
+  > As a utilisateur d'anatoly
+  > I want que les contradictions logiques entre axes soient détectées et résolues automatiquement
+  > So that le rapport ne contienne pas d'absurdités (corriger du code mort, tester du code dupliqué, etc.).
+  > AC: Given `src/core/refinement/tier2.ts` existe avec une fonction `applyTier2(review: ReviewFile): Promise<{ review: ReviewFile; escalated: EscalatedFinding[] }>`, When un symbole a `utility: DEAD` et `correction: NEEDS_FIX`, Then `correction` est reclassifié à skip/OK avec detail "Moot — symbol is DEAD"
+  > AC: Given un symbole a `utility: DEAD` et `overengineering: OVER`, When tier 2 est appliqué, Then `overengineering` est reclassifié à skip/OK
+  > AC: Given un symbole a `utility: DEAD` et `duplication: DUPLICATE`, When tier 2 est appliqué, Then `duplication` est reclassifié à skip/OK
+  > AC: Given un symbole a `utility: DEAD` et `tests: WEAK` ou `tests: NONE`, When tier 2 est appliqué, Then `tests` est marqué skip
+  > AC: Given un symbole a `utility: DEAD` et `documentation: UNDOCUMENTED`, When tier 2 est appliqué, Then `documentation` est marqué skip
+  > AC: Given un symbole a `correction: NEEDS_FIX` avec confidence < 75 et aucun autre axe n'a de finding, When tier 2 est appliqué, Then le finding est ajouté à la liste `escalated` pour tier 3 avec raison "Low confidence isolated finding"
+  > AC: Given un symbole a `correction: ERROR`, When tier 2 est appliqué, Then le finding est toujours escaladé vers tier 3 (jamais auto-résolu)
+  > AC: Given tier 2 est implémenté comme un single-turn Gemini Flash Lite, When le prompt est construit, Then il contient uniquement le ReviewFile JSON (pas le code source), And l'output est un JSON structuré avec `resolutions[]` et `escalate_to_tier3[]`
+  > AC: Given le prompt tier 2 inclut les principes de validation de la délibération, When un finding concerne un changement de default/config, Then il est escaladé vers tier 3 avec raison "Behavioral change — needs investigation"
+  > AC: Given tous les fichiers sont traités par tier 2, When tier 2 termine, Then la durée totale est < 60 secondes, And le coût total est < $0.05
+  > AC: Given tier 2 détecte un pattern cross-file (ex: > 10 symboles DEAD dans le même module), When ce pattern est détecté, Then un finding synthétique est ajouté à `escalated` avec raison "Systemic pattern: N DEAD symbols in module X"
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-3
+- [ ] Story 41.4: Tier 3 — Investigation agentic Opus
+  > As a utilisateur d'anatoly
+  > I want que les findings ambigus soient vérifiés empiriquement par un agent qui lit le code et vérifie les claims
+  > So that les reclassifications sont basées sur des preuves, pas sur du raisonnement en chambre.
+  > AC: Given `src/core/refinement/tier3.ts` existe avec une fonction `runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier3Result>`, When les findings escaladés par tier 2 sont groupés en shards, Then chaque shard contient 10-20 fichiers regroupés par module/directory, And les findings sont présentés comme une liste de claims à vérifier (pas le code source)
+  > AC: Given l'agent Opus tier 3 est lancé sur un shard, When il reçoit la liste de findings, Then il a accès aux tools : Read, Grep, Glob, Bash, And Bash est restreint à read-only (pas de Write, Edit, ni commandes destructives), And maxTurns est borné à 100
+  > AC: Given l'agent investigue un finding `correction: NEEDS_FIX` sur un symbole, When il lit le code source du fichier, Then il peut confirmer ou infirmer le finding avec des preuves (lignes de code, grep results), And il produit un verdict `confirmed` ou `reclassified` avec reasoning
+  > AC: Given l'agent investigue un finding `utility: DEAD` sur un symbole exporté, When il grep le codebase pour les usages, Then il peut trouver des imports que l'usage graph a manqués (shell source, dynamic imports, etc.)
+  > AC: Given l'agent investigue un finding sur une valeur constante (ex: CODE_DIM), When il lit le fichier de configuration runtime (embeddings-ready.json, .env, etc.), Then il peut vérifier si la valeur actuelle correspond au finding
+  > AC: Given l'agent termine l'investigation d'un shard, When il produit son output, Then l'output est un JSON structuré compatible avec le format `DeliberationResponse` existant, And chaque reclassification inclut un `reasoning` de ≥ 10 caractères avec les preuves
+  > AC: Given tier 3 reclassifie un finding, When le résultat est appliqué, Then le ReviewFile JSON + MD du fichier concerné est mis à jour, And une entrée est ajoutée à `deliberation-memory.json` via `recordReclassification`
+  > AC: Given tier 3 traite un shard et rencontre une erreur (timeout, rate limit), When l'erreur survient, Then le shard en cours est marqué comme failed avec le nombre de findings traités, And les shards restants continuent normalement (isolation par shard), And les findings non-traités du shard failed restent inchangés dans les ReviewFiles
+  > AC: Given le coût total tier 3 dépasse un budget configurable (default: $30), When le budget est atteint, Then les shards restants sont skippés avec un warning, And les findings non-traités restent inchangés
+  > AC: Given tier 3 termine tous les shards, When le résultat est consolidé, Then un rapport de refinement est généré avec : nombre de findings investigués, confirmés, reclassifiés, et le coût total
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-4
+- [ ] Story 41.5: Intégration pipeline et UI
+  > As a utilisateur d'anatoly
+  > I want voir la progression du refinement dans le CLI et obtenir un rapport basé sur les reviews raffinés
+  > So that je sais exactement ce que fait le pipeline et le rapport reflète les verdicts finaux.
+  > AC: Given `run.ts` est modifié pour inclure la refinement phase, When la phase review termine, Then la refinement phase démarre automatiquement, And elle exécute tier 1 → tier 2 → tier 3 séquentiellement, And chaque tier opère sur les ReviewFile JSON écrits par la phase précédente
+  > AC: Given le screen renderer affiche la progression, When tier 1 tourne, Then le task affiche "Tier 1 — auto-resolve" avec un compteur de fichiers traités, When tier 2 tourne, Then le task affiche "Tier 2 — coherence" avec un compteur + nombre de findings escaladés, When tier 3 tourne, Then le task affiche "Tier 3 — investigation" avec shard N/M et findings traités
+  > AC: Given `pipeline-state.ts` est mis à jour, When la refinement phase est active, Then `phase` est `'refinement'`, And les tasks tier-1, tier-2, tier-3 sont visibles dans le renderer
+  > AC: Given le mode plain est activé (`--plain`), When la refinement phase tourne, Then les logs séquentiels affichent : `✔ tier-1 — 120 files, 45 findings resolved`, `✔ tier-2 — 90 files, 12 escalated`, `✔ tier-3 — 3 shards, 35 findings investigated`
+  > AC: Given la refinement phase termine, When la report phase démarre, Then elle lit les ReviewFile JSON finaux (post-tier 3), And le rapport reflète les verdicts post-refinement, And aucun changement n'est nécessaire dans le code du reporter
+  > AC: Given la refinement phase est optionnelle, When l'utilisateur passe `--no-deliberation`, Then la refinement phase est entièrement skippée, And les ReviewFiles bruts sont utilisés pour le rapport (comportement identique à aujourd'hui avec `--no-deliberation`)
+  > AC: Given le run metrics inclut les stats de refinement, When le run termine, Then les metrics affichent : nombre de findings auto-résolus (tier 1), findings résolus par cohérence (tier 2), findings investigués (tier 3), coût total refinement
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-5
+- [ ] Story 41.6: Validation qualité — Comparaison old vs new
+  > As a développeur du pipeline
+  > I want comparer les reclassifications du nouveau pipeline vs l'ancien sur le même jeu de données
+  > So that je puisse vérifier que la qualité ne régresse pas et quantifier l'amélioration.
+  > AC: Given le run 192337 existe avec ses ReviewFiles bruts et la deliberation-memory.json, When le nouveau pipeline (tier 1+2+3) est exécuté sur les mêmes ReviewFiles bruts, Then un rapport de comparaison est généré montrant :
+  > AC: Given les 336 reclassifications historiques dans deliberation-memory.json, When les tiers 1+2 sont exécutés seuls (sans tier 3), Then ≥ 86% des reclassifications historiques sont reproduites (basé sur l'analyse empirique : 191 tier 1 + 244 tier 2 = 435/504 changements d'axes)
+  > AC: Given le tier 3 est exécuté sur les findings escaladés, When il investigue les ~35 findings restants, Then il reproduit ou améliore ≥ 80% des 69 reclassifications historiques qui nécessitaient investigation, And il identifie au minimum le cas FIX-017 (CODE_DIM 3584→768) comme faux positif
+  > AC: Given le rapport de comparaison est disponible, When un développeur le lit, Then il peut identifier les cas où le nouveau pipeline est meilleur et ceux où il manque des reclassifications, And les cas manqués sont documentés pour améliorer les règles tier 1/2
+  > Spec: specs/planning-artifacts/epic-41-refinement-3-tier.md#story-41-6
 
 ## Completed
 

@@ -12,6 +12,20 @@ You receive a ReviewFile (merged from {{AXIS_COUNT}} independent axis evaluators
 6. **Remove invalid actions** — list action IDs that should be removed due to reclassification.
 7. **Recompute verdict** — based on your adjusted symbols.
 
+## Correction validation principles
+
+Before accepting a NEEDS_FIX or ERROR finding, ask yourself:
+
+1. **Intent vs defect** — Is the code wrong, or intentionally written this way? Test fixtures, calibration files, compatibility shims, and legacy wrappers may look broken on purpose. If the file's role explains the pattern, reclassify to OK.
+
+2. **Bug vs preference** — Does the finding describe a crash, data loss, or security flaw? Or is it a style/tuning preference (different default, different approach)? Only actual defects are NEEDS_FIX. Preferences, alternative designs, and "I would have done it differently" are not bugs.
+
+3. **Observable evidence** — Can the defect be confirmed from the provided source code alone? If the finding relies on assumptions about runtime behavior, external systems, library internals, or values computed elsewhere, lower confidence proportionally. A finding that says "X should be Y" without visible proof that X is wrong deserves confidence ≤ 70.
+
+4. **Blast radius** — Would the suggested fix change behavior for all users (default values, config schemas, public API signatures)? Behavioral changes require stronger evidence than localized fixes. A wrong default is a bug; a debatable default is not.
+
+5. **Dynamic vs static** — Is the value set dynamically at runtime (environment, auto-detection, user config) and the code just provides a fallback? If so, the fallback may intentionally differ from documentation or common knowledge. Don't "correct" a fallback without understanding the full assignment chain.
+
 ## Strict rules
 
 - ONLY deliberate symbols that have at least one finding (NEEDS_FIX, ERROR, DEAD, DUPLICATE, OVER, WEAK, LOW_VALUE, UNDOCUMENTED, PARTIAL). SKIP clean symbols entirely.
