@@ -88,27 +88,55 @@ export interface EvaluateFileOptions {
   fallbackModel?: string;
 }
 
+/**
+ * Per-axis metrics collected after a single axis evaluator completes.
+ *
+ * Despite its name, this interface bundles more than timing — it includes
+ * the LLM provider, cost, and token counts alongside wall-clock duration,
+ * giving callers a single object to attribute resource usage per axis.
+ */
 export interface AxisTiming {
+  /** Which axis produced these metrics. */
   axisId: AxisId;
   /** LLM provider used for this axis call ('anthropic' or 'gemini'). */
   provider: 'anthropic' | 'gemini';
+  /** Estimated cost in USD for this axis evaluation. */
   costUsd: number;
+  /** Wall-clock duration in milliseconds. */
   durationMs: number;
+  /** Total input tokens sent to the model. */
   inputTokens: number;
+  /** Total output tokens received from the model. */
   outputTokens: number;
+  /** Tokens read from the prompt cache (Anthropic). */
   cacheReadTokens: number;
+  /** Tokens written to the prompt cache (Anthropic). */
   cacheCreationTokens: number;
 }
 
+/**
+ * Return value of {@link evaluateFile} — the merged review, aggregate
+ * cost/token metrics, a human-readable transcript, per-axis timing
+ * breakdown, and a list of any axes that failed during evaluation.
+ */
 export interface EvaluateFileResult {
+  /** Merged ReviewFile v2 combining all successful axis results. */
   review: ReviewFile;
+  /** Total estimated cost in USD across all axes (and deliberation, if run). */
   costUsd: number;
+  /** Total wall-clock duration in milliseconds for the entire evaluation. */
   durationMs: number;
+  /** Total input tokens sent across all LLM calls. */
   inputTokens: number;
+  /** Total output tokens received across all LLM calls. */
   outputTokens: number;
+  /** Total tokens read from prompt cache across all calls. */
   cacheReadTokens: number;
+  /** Total tokens written to prompt cache across all calls. */
   cacheCreationTokens: number;
+  /** Human-readable transcript of all axis evaluations and deliberation. */
   transcript: string;
+  /** Per-axis breakdown of provider, cost, timing, and token usage. */
   axisTiming: AxisTiming[];
   /** Axis IDs that crashed during evaluation (empty when all axes succeed). */
   failedAxes: AxisId[];
@@ -486,21 +514,6 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
 // Test directory resolution (Strategy 5)
 // ---------------------------------------------------------------------------
 
-/**
- * Look for a tests/ directory at the crate/package root.
- *
- * For Rust:
- *   - `crate/src/lib.rs` → collect all files from `crate/tests/*.rs`
- *   - `crate/src/foo.rs` → try `crate/tests/foo.rs`, then fall back to all
- *
- * For Python:
- *   - `pkg/module.py` → try `tests/test_module.py`, `tests/module_test.py`, then all
- *
- * General:
- *   - Walk up from `dir` looking for a sibling `tests/` directory
- *
- * Returns concatenated content of discovered test files (capped at 1000 lines).
- */
 // Cache directory listings to avoid repeated readdirSync on the hot path
 const dirListingCache = new Map<string, string[]>();
 function cachedReaddirSync(absDir: string): string[] {
@@ -513,6 +526,31 @@ function cachedReaddirSync(absDir: string): string[] {
   return entries;
 }
 
+/**
+ * Look for a `tests/` directory at the crate/package root and return
+ * the content of matching test files.
+ *
+ * Resolution strategies (first match wins):
+ *
+ * - **Rust**: `crate/src/foo.rs` → try `crate/tests/foo.rs`, then collect all
+ *   `crate/tests/*.rs` when the source is a package root (`lib.rs`/`mod.rs`).
+ * - **Python**: `pkg/module.py` → try `tests/test_module.py` or
+ *   `tests/module_test.py`, then collect all when source is `__init__.py`.
+ * - **General**: Walk up from {@link dir} looking for a sibling `tests/`
+ *   directory.
+ *
+ * For package-root files the content of all test files is concatenated,
+ * capped at 500 lines to stay within deliberation context limits.
+ *
+ * @param dir   - Relative directory of the source file (e.g. `"src"`).
+ * @param base  - Filename without extension (e.g. `"lib"`).
+ * @param ext   - File extension including the dot (e.g. `".rs"`).
+ * @param lang  - Detected language identifier, or `undefined`.
+ * @param projectRoot - Absolute path to the project root.
+ * @returns An object with `content` (file text) and `name` (relative path)
+ *   of the resolved test file(s), or `undefined` if no tests/ directory
+ *   or matching files are found.
+ */
 function resolveTestsDirectory(
   dir: string,
   base: string,
