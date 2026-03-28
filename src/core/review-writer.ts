@@ -10,7 +10,13 @@ import { atomicWriteJson, toOutputName } from '../utils/cache.js';
 /**
  * Write both .rev.json and .rev.md for a completed review.
  * When runDir is provided, writes into the run-scoped reviews directory.
- * Returns the paths to both files.
+ *
+ * @param projectRoot - Absolute path to the project root; used to derive the
+ *                      default reviews directory (`.anatoly/reviews/`).
+ * @param review - The completed review object to persist.
+ * @param runDir - Optional run-scoped directory; when set, output is written
+ *                 into `<runDir>/reviews/` instead of the default location.
+ * @returns Paths to the written JSON and Markdown files.
  */
 export function writeReviewOutput(
   projectRoot: string,
@@ -105,7 +111,14 @@ function renderFileAction(lines: string[], a: Action): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Render a ReviewFile as a human-readable Markdown document.
+ * Render a {@link ReviewFile} as a human-readable Markdown document.
+ *
+ * Produces sections for the symbols table with per-axis detail breakdowns,
+ * best-practices rules and suggestions, categorised actions, and file-level
+ * notes (unused imports, circular dependencies, general notes).
+ *
+ * @param review - The review to render.
+ * @returns The complete Markdown string.
  */
 export function renderReviewMarkdown(review: ReviewFile): string {
   const lines: string[] = [];
