@@ -45,6 +45,14 @@ export interface CacheResult {
  * Compares current page mappings against the cache to determine
  * which pages need regeneration, which are fresh, which are new,
  * and which should be removed.
+ *
+ * Pages with zero source files ("base pages") are always treated as fresh
+ * once cached, and only regenerated on bootstrap or explicit update.
+ *
+ * @param cache - The previously persisted doc cache to compare against.
+ * @param currentPages - The current set of page-to-source-file mappings.
+ * @param currentHashes - Map of source file paths to their current SHA-256 hashes.
+ * @returns A {@link CacheResult} categorising each page as stale, fresh, added, or removed.
  */
 export function checkDocCache(
   cache: DocCache,
@@ -111,6 +119,12 @@ export function checkDocCache(
 
 /**
  * Returns a new cache with the given page entry added or updated.
+ * The original cache object is not mutated.
+ *
+ * @param cache - The existing doc cache.
+ * @param pagePath - The page path to add or update.
+ * @param sourceHashes - A record mapping source file paths to their SHA-256 hashes.
+ * @returns A new {@link DocCache} with the entry for `pagePath` set to `sourceHashes`.
  */
 export function updateDocCacheEntry(
   cache: DocCache,
@@ -128,6 +142,12 @@ export function updateDocCacheEntry(
 
 /**
  * Returns a new cache with the given page entry removed.
+ * The original cache object is not mutated. If `pagePath` does not exist
+ * in the cache, the returned cache is equivalent to the original.
+ *
+ * @param cache - The existing doc cache.
+ * @param pagePath - The page path to remove.
+ * @returns A new {@link DocCache} without the entry for `pagePath`.
  */
 export function removeDocCacheEntry(
   cache: DocCache,
@@ -144,6 +164,9 @@ const EMPTY_CACHE: DocCache = { version: 1, pages: {} };
 /**
  * Loads the doc cache from disk. Returns an empty cache if the file
  * does not exist or is malformed.
+ *
+ * @param cachePath - Absolute or relative path to the `.cache.json` file.
+ * @returns The parsed {@link DocCache}, or an empty cache on any read/parse failure.
  */
 export function loadDocCache(cachePath: string): DocCache {
   try {
@@ -160,6 +183,9 @@ export function loadDocCache(cachePath: string): DocCache {
 
 /**
  * Saves the doc cache to disk. Creates parent directories if needed.
+ *
+ * @param cachePath - Absolute or relative path to write the `.cache.json` file.
+ * @param cache - The {@link DocCache} to persist.
  */
 export function saveDocCache(cachePath: string, cache: DocCache): void {
   mkdirSync(dirname(cachePath), { recursive: true });
