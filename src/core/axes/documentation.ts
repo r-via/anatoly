@@ -43,10 +43,6 @@ export type DocsCoverage = z.infer<typeof DocsCoverageSchema>;
 // Prompt builders
 // ---------------------------------------------------------------------------
 
-export function buildDocumentationSystemPrompt(language?: string, framework?: string): string {
-  return resolveSystemPrompt('documentation', language, framework);
-}
-
 /**
  * Builds the user-message prompt for the documentation axis LLM call.
  *

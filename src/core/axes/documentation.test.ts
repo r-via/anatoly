@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { buildDocumentationSystemPrompt, buildDocumentationUserMessage } from './documentation.js';
+import { buildDocumentationUserMessage } from './documentation.js';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
@@ -33,9 +34,9 @@ function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
   };
 }
 
-describe('buildDocumentationSystemPrompt', () => {
+describe('resolveSystemPrompt for documentation axis', () => {
   it('should produce a focused prompt mentioning documentation evaluation', () => {
-    const prompt = buildDocumentationSystemPrompt();
+    const prompt = resolveSystemPrompt('documentation');
     expect(prompt).toContain('documentation');
     expect(prompt).toContain('DOCUMENTED');
     expect(prompt).toContain('PARTIAL');
@@ -43,12 +44,12 @@ describe('buildDocumentationSystemPrompt', () => {
   });
 
   it('should mention JSDoc evaluation', () => {
-    const prompt = buildDocumentationSystemPrompt();
+    const prompt = resolveSystemPrompt('documentation');
     expect(prompt).toContain('JSDoc');
   });
 
   it('should not mention other axes', () => {
-    const prompt = buildDocumentationSystemPrompt();
+    const prompt = resolveSystemPrompt('documentation');
     expect(prompt).not.toContain('overengineering');
     expect(prompt).not.toContain('duplication');
   });
