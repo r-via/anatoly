@@ -88,9 +88,9 @@ export class ProgressManager {
     };
 
     // Queue the disk write — each write waits for the previous one to finish
-    this.writeQueue = this.writeQueue.then(() => {
-      atomicWriteJson(this.progressPath, this.progress);
-    });
+    this.writeQueue = this.writeQueue.then(() =>
+      atomicWriteJson(this.progressPath, this.progress),
+    );
   }
 
   /**
