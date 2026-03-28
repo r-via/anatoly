@@ -86,6 +86,7 @@ export class GeminiCircuitBreaker {
     if (this._state === 'half-open') {
       this._state = 'open';
       this.trippedAt = this.now();
+      this._warningEmitted = false;
       return true;
     }
 
