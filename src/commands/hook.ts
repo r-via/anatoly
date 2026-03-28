@@ -29,7 +29,12 @@ async function readStdin(): Promise<string> {
 
 /**
  * Extract file_path from Claude Code hook stdin JSON.
- * PostToolUse hooks receive: { tool_name, tool_input: { file_path, ... }, ... }
+ *
+ * PostToolUse hooks receive: `{ tool_name, tool_input: { file_path, ... }, ... }`.
+ * Checks `tool_input.file_path` first, then falls back to a top-level `file_path` field.
+ *
+ * @param stdinJson - Raw JSON string read from stdin.
+ * @returns The extracted file path, or `null` if the JSON is malformed or contains no file_path.
  */
 function extractFilePath(stdinJson: string): string | null {
   try {
@@ -48,7 +53,27 @@ function extractFilePath(stdinJson: string): string | null {
   }
 }
 
-/** Registers the `hook` CLI sub-command on the given Commander program. @param program The root Commander instance. */
+/**
+ * Registers the `hook` CLI sub-command on the given Commander program.
+ *
+ * Adds three subcommands for Claude Code hook integration:
+ *
+ * - **`on-edit`** — PostToolUse hook triggered after Edit/Write. Reads the edited file path
+ *   from stdin JSON, debounces by killing any already-running review for the same file, then
+ *   spawns a detached `anatoly review` child process in the background. Skips non-TypeScript
+ *   files, deleted files, unchanged files (by SHA-256 hash), and files reviewed while an
+ *   `anatoly run` lock is active.
+ *
+ * - **`on-stop`** — Stop hook triggered when Claude Code finishes a task. Waits (up to 120 s)
+ *   for all running background reviews to complete, collects significant findings filtered by
+ *   `min_confidence`, and emits a `{ decision: "block", reason }` JSON payload to stdout to
+ *   prevent Claude Code from stopping and inject findings for autocorrection. Includes anti-loop
+ *   protection via `stop_count` checked against `max_stop_iterations`.
+ *
+ * - **`init`** — Generates or merges Claude Code hooks configuration into `.claude/settings.json`.
+ *
+ * @param program - The root Commander instance.
+ */
 export function registerHookCommand(program: Command): void {
   const hookCmd = program
     .command('hook')
@@ -393,8 +418,13 @@ export function registerHookCommand(program: Command): void {
 }
 
 /**
- * Wait for a process to exit, polling every 500ms.
- * Returns when process exits or timeout is reached.
+ * Wait for a process to exit, polling every 500 ms.
+ *
+ * Returns silently when the process exits or when the timeout is reached — callers
+ * should check {@link isProcessRunning} afterward to distinguish the two outcomes.
+ *
+ * @param pid - OS process ID to monitor.
+ * @param timeoutMs - Maximum time in milliseconds to wait before returning.
  */
 async function waitForProcess(pid: number, timeoutMs: number): Promise<void> {
   const pollInterval = 500;
