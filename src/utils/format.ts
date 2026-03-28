@@ -6,7 +6,15 @@ import chalk from 'chalk';
 import type { ReviewFile } from '../schemas/review.js';
 
 /**
- * Build a Unicode progress bar.
+ * Build a Unicode progress bar using filled (█) and empty (░) block characters.
+ *
+ * The ratio is clamped to [0, 1] so values of `current` exceeding `total`
+ * produce a full bar, and negative values produce an empty bar.
+ *
+ * @param current - Number of completed items.
+ * @param total - Total number of items. When 0, returns an all-empty bar.
+ * @param width - Character width of the bar (default 20).
+ * @returns A string of length `width` composed of █ and ░ characters.
  */
 export function buildProgressBar(current: number, total: number, width: number = 20): string {
   if (total === 0) return '░'.repeat(width);
@@ -18,6 +26,12 @@ export function buildProgressBar(current: number, total: number, width: number =
 
 /**
  * Colorize a verdict string for terminal display.
+ *
+ * Maps known verdicts to chalk colours: CLEAN → green, NEEDS_REFACTOR → yellow,
+ * CRITICAL → red. Unknown values are returned as-is without colour.
+ *
+ * @param verdict - The verdict string to colorize (e.g. 'CLEAN', 'NEEDS_REFACTOR', 'CRITICAL').
+ * @returns The verdict wrapped in ANSI colour codes, or the raw string for unknown values.
  */
 export function verdictColor(verdict: string): string {
   switch (verdict) {
