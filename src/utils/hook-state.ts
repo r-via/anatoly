@@ -46,6 +46,9 @@ export function initHookState(): HookState {
  * Load hook state from disk.
  * Returns fresh state if file doesn't exist or is corrupted.
  * Detects orphaned state from a previous session and resets it.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @returns The persisted {@link HookState}, or a fresh state if the file is missing, corrupted, or invalid.
  */
 export function loadHookState(projectRoot: string): HookState {
   const path = hookStatePath(projectRoot);
@@ -79,6 +82,9 @@ export function loadHookState(projectRoot: string): HookState {
 
 /**
  * Save hook state to disk atomically.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param state - The {@link HookState} to persist.
  */
 export function saveHookState(projectRoot: string, state: HookState): void {
   const path = hookStatePath(projectRoot);
