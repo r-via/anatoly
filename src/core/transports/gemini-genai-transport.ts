@@ -17,6 +17,10 @@ const GEMINI_PRICING: Record<string, { input: number; output: number }> = {
   'gemini-2.5-pro':         { input: 1.25,   output: 10.00 },
 };
 
+/**
+ * Computes the estimated cost in USD for a Gemini API call based on token usage.
+ * Returns 0 if the model is not found in the pricing table.
+ */
 function computeCost(model: string, inputTokens: number, outputTokens: number): number {
   const pricing = GEMINI_PRICING[model];
   if (!pricing) return 0;
@@ -32,6 +36,7 @@ export class GeminiGenaiTransport implements LlmTransport {
   readonly provider = 'gemini' as const;
   private readonly client: GoogleGenAI;
 
+  /** Creates a new transport instance. Throws if GEMINI_API_KEY is not set. */
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -40,10 +45,15 @@ export class GeminiGenaiTransport implements LlmTransport {
     this.client = new GoogleGenAI({ apiKey });
   }
 
+  /** Returns true if the model name starts with `gemini-`. */
   supports(model: string): boolean {
     return model.startsWith('gemini-');
   }
 
+  /**
+   * Sends a single-turn request to the Gemini API via the @google/genai SDK.
+   * Handles conversation dumping, cost estimation, and structured logging.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
     const { systemPrompt, userMessage, model, abortController, conversationDir, conversationPrefix, attempt } = params;
     const start = Date.now();
