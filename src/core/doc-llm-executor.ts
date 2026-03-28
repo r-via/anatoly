@@ -24,9 +24,6 @@ import { contextLogger } from '../utils/log-context.js';
 
 // --- Public interfaces ---
 
-/** @deprecated Use PagePrompt from doc-generator.ts instead */
-export type DocPrompt = PagePrompt;
-
 export interface ExecutorResult {
   text: string;
   costUsd: number;
@@ -35,7 +32,7 @@ export interface ExecutorResult {
 export type DocExecutor = (prompt: { system: string; user: string; model: string }) => Promise<ExecutorResult>;
 
 export interface ExecuteDocPromptsParams {
-  prompts: DocPrompt[];
+  prompts: PagePrompt[];
   outputDir: string;
   projectRoot: string;
   docsPath?: string;
@@ -107,7 +104,7 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
  * not here — this keeps the semaphore scope tight.
  */
 async function executeOnePage(
-  prompt: DocPrompt,
+  prompt: PagePrompt,
   outputDir: string,
   projectRoot: string,
   docsPath: string,
