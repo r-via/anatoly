@@ -42,7 +42,14 @@ export function buildCorrectionSystemPrompt(): string {
   return resolveSystemPrompt('correction');
 }
 
-/** Assembles the user message for the correction axis, including source code and symbol list. */
+/**
+ * Assembles the user message for the correction axis LLM call.
+ * Builds a multi-section prompt containing the source file in a fenced code block,
+ * the list of symbols to evaluate with their line ranges, and optionally a
+ * project-dependency section (package names, versions, Node engine) when available.
+ * @param ctx - Axis evaluation context providing file content, task symbols, and dependency info.
+ * @returns The fully assembled user-message string for the correction pass-1 LLM call.
+ */
 export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
 
@@ -190,6 +197,8 @@ function buildVerificationUserMessage(
 /**
  * Returns true when pass-2 verification should run: requires both file-level
  * dependency info and at least one NEEDS_FIX or ERROR symbol in the findings.
+ * @param findings - The pass-1 correction response containing per-symbol verdicts.
+ * @param ctx - Axis context; checked for the presence of non-empty `fileDeps`.
  */
 function findingsNeedVerification(
   findings: CorrectionResponse,
@@ -206,6 +215,10 @@ function findingsNeedVerification(
  * Apply verification results: override pass-1 findings with pass-2 verdicts.
  * Records false positives in the correction memory for future runs and filters
  * out actions whose lines fall within symbols reclassified to OK.
+ * @param pass1 - The original pass-1 correction response (symbols + actions).
+ * @param verification - The pass-2 verification response with confirmed/rejected verdicts.
+ * @param ctx - Axis context providing projectRoot (for recording reclassifications) and fileDeps.
+ * @returns A new CorrectionResponse with updated symbols and filtered actions.
  */
 function applyVerification(
   pass1: CorrectionResponse,
@@ -263,7 +276,9 @@ function applyVerification(
 }
 
 /**
- * Detect which dependency is implicated in a finding detail by name match.
+ * Detect which dependency is implicated in a finding detail by case-insensitive substring match.
+ * @param detail - The finding detail text to search for dependency names.
+ * @param fileDeps - Optional file-level dependency info containing package names and versions.
  * @returns The matched dependency name, or `undefined` if no dependency is mentioned or fileDeps is absent.
  */
 function detectImplicatedDep(
@@ -288,6 +303,12 @@ export class CorrectionEvaluator implements AxisEvaluator {
   readonly id = 'correction' as const;
   readonly defaultModel = 'sonnet' as const;
 
+  /**
+   * Runs a two-pass correction evaluation: pass 1 scans for bugs and logic errors;
+   * pass 2 verifies dependency-related findings against README documentation.
+   * @param ctx - The axis evaluation context including file content, symbols, and config.
+   * @param abortController - Used to cancel in-flight LLM requests.
+   */
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
     const systemPrompt = buildCorrectionSystemPrompt();
