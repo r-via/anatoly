@@ -255,7 +255,7 @@ function buildIndexContent(projectName: string, pages: PageDef[]): string {
     // Derive section number from path prefix (e.g., '05-Development/...' → '5')
     const firstPath = sectionPages[0]?.path ?? '';
     const prefix = firstPath.split('/')[0] ?? '';
-    const num = prefix.match(/^(\d+)-/)?.[1]?.replace(/^0+/, '') ?? '';
+    const num = prefix.match(/^(\d+)-/)?.[1]?.replace(/^0+(?=\d)/, '') ?? '';
     lines.push(`## ${num}. ${section}\n`);
     lines.push('| Document | Description |');
     lines.push('|----------|-------------|');
