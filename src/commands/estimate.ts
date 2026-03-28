@@ -157,13 +157,17 @@ export function registerEstimateCommand(program: Command): void {
         pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
       } else if (docScanInternal) {
         pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
-        if (docScanProject) {
-          pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
-        } else {
-          pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
-        }
       } else {
         pipelineRows.push({ phase: 'internal docs', detail: '.anatoly/docs/ ready' });
+      }
+
+      // project docs (independent of internal docs)
+      if (!bootstrapNeeded) {
+        if (docScanProject) {
+          pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
+        } else if (docScanInternal) {
+          pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
+        }
       }
 
       // estimate (with calibrated ETA)
