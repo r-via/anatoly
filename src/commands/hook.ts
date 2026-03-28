@@ -137,9 +137,20 @@ export function registerHookCommand(program: Command): void {
       );
       child.unref();
 
-      // Update hook state
+      // Update hook state — if spawn failed (pid undefined), mark as error immediately
+      if (!child.pid) {
+        state.reviews[relPath] = {
+          pid: 0,
+          status: 'error',
+          started_at: new Date().toISOString(),
+          rev_path: revJsonPath,
+        };
+        saveHookState(projectRoot, state);
+        process.exit(0);
+      }
+
       state.reviews[relPath] = {
-        pid: child.pid ?? 0,
+        pid: child.pid,
         status: 'running',
         started_at: new Date().toISOString(),
         rev_path: revJsonPath,
@@ -184,8 +195,7 @@ export function registerHookCommand(program: Command): void {
         process.exit(0);
       }
 
-      // Increment stop_count
-      state.stop_count++;
+      // stop_count is incremented below only when a block decision is emitted
 
       // Wait for running reviews to complete (timeout 120s)
       const timeoutMs = 120_000;
@@ -195,6 +205,12 @@ export function registerHookCommand(program: Command): void {
       );
 
       for (const [file, review] of runningFiles) {
+        // Skip reviews with invalid pid (spawn failed)
+        if (review.pid === 0) {
+          state.reviews[file] = { ...review, status: 'timeout' };
+          continue;
+        }
+
         const elapsed = Date.now() - startTime;
         const remaining = timeoutMs - elapsed;
 
@@ -249,12 +265,15 @@ export function registerHookCommand(program: Command): void {
         }
       }
 
-      saveHookState(projectRoot, state);
-
-      // If no findings, exit cleanly
+      // If no findings, save state and exit cleanly (no stop_count increment)
       if (findings.length === 0) {
+        saveHookState(projectRoot, state);
         process.exit(0);
       }
+
+      // Block decision: increment stop_count before saving
+      state.stop_count++;
+      saveHookState(projectRoot, state);
 
       // Format findings as reason for Claude Code Stop hook protocol
       const contextLines: string[] = [];
