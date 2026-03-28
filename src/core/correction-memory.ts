@@ -140,8 +140,15 @@ function migrateV1toV2(entries: LegacyReclassificationEntry[]): Reclassification
 
 /**
  * Load the deliberation memory from disk.
+ *
  * Returns an empty memory if the file does not exist or is corrupted.
- * Migrates from legacy correction-memory.json and v1 format if needed.
+ * Handles three migration paths:
+ * - Legacy `correction-memory.json` → renames to `deliberation-memory.json` with v1→v2 migration
+ * - In-place v1 `deliberation-memory.json` → migrates to v2 format
+ * - Corrupted file → backs up to `.corrupted.<timestamp>` and returns fresh empty memory
+ *
+ * @param projectRoot - Absolute path to the project root (parent of `.anatoly/`)
+ * @returns The loaded (or migrated/fresh) deliberation memory
  */
 export function loadDeliberationMemory(projectRoot: string): DeliberationMemory {
   const dir = resolve(projectRoot, MEMORY_DIR);
@@ -211,7 +218,13 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
 }
 
 /**
- * Save the deliberation memory to disk (atomic write).
+ * Save the deliberation memory to disk.
+ *
+ * Creates the `.anatoly/` directory if it does not exist, then performs an
+ * atomic write to prevent partial/corrupt files on crash.
+ *
+ * @param projectRoot - Absolute path to the project root (parent of `.anatoly/`)
+ * @param memory - The deliberation memory object to persist
  */
 export function saveDeliberationMemory(projectRoot: string, memory: DeliberationMemory): void {
   const dir = resolve(projectRoot, MEMORY_DIR);
@@ -222,7 +235,14 @@ export function saveDeliberationMemory(projectRoot: string, memory: Deliberation
 
 /**
  * Record a reclassification into the deliberation memory.
- * Groups by symbol+dependency — merges axis reclassifications into existing entries.
+ *
+ * Loads the current memory from disk, merges the new entry by
+ * (symbol + dependency) key, and saves back. For existing entries, stale
+ * `from`/`to` values are updated and new axes are appended. The
+ * `recorded_at` timestamp is set automatically on write.
+ *
+ * @param projectRoot - Absolute path to the project root (parent of `.anatoly/`)
+ * @param entry - Reclassification data without `recorded_at` (auto-stamped on persist)
  */
 export function recordReclassification(
   projectRoot: string,
@@ -274,11 +294,20 @@ export function recordReclassification(
 }
 
 /**
- * Format reclassifications for a specific axis as a prompt section.
- * When `symbolNames` is provided, only reclassifications for those symbols
- * are included — this avoids injecting irrelevant false positives from other
- * files into the prompt (which wastes tokens).
- * Returns empty string if no relevant reclassifications exist.
+ * Format reclassifications for a specific axis as a Markdown prompt section.
+ *
+ * Loads the deliberation memory and filters to entries that have at least one
+ * reclassification matching `axisId`. When `symbolNames` is provided, only
+ * entries whose symbol is in the set are included — this avoids injecting
+ * irrelevant false positives from other files into the prompt.
+ *
+ * The output starts with a `## Known False Positives` heading followed by a
+ * bullet list of symbol names with their transition and reason.
+ *
+ * @param projectRoot - Absolute path to the project root (parent of `.anatoly/`)
+ * @param axisId - The axis identifier to filter reclassifications by (e.g. `"utility"`)
+ * @param symbolNames - Optional set of symbol names to scope results to the current file
+ * @returns Markdown string, or empty string if no relevant reclassifications exist
  */
 export function formatReclassificationsForAxis(
   projectRoot: string,
