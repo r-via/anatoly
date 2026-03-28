@@ -118,6 +118,9 @@ export function saveDocCacheToRagCache(projectRoot: string, suffix: string, docE
  * detects the change, finds a chunk-cache hit (skipping Haiku), and only needs
  * to re-embed + upsert to the vector store.
  *
+ * @param projectRoot - Absolute path to the project root.
+ * @param docsDir - Docs directory relative to projectRoot (e.g. `'docs'`).
+ * @param cacheSuffix - Cache variant discriminator (e.g. `'lite'` or `'advanced'`).
  * @returns Number of files that were re-chunked.
  */
 export function smartChunkAndCache(projectRoot: string, docsDir: string, cacheSuffix: string): number {
@@ -162,6 +165,11 @@ export function smartChunkAndCache(projectRoot: string, docsDir: string, cacheSu
 /**
  * Cheaply count how many doc files have changed vs cached (SHA comparison only, no chunking).
  * Returns `null` when the docs directory does not exist.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param docsDir - Docs directory relative to projectRoot (e.g. `'docs'`).
+ * @param cacheSuffix - Cache variant discriminator (e.g. `'lite'` or `'advanced'`).
+ * @returns Breakdown of total, changed, and cached file counts, or `null` if the docs directory is missing.
  */
 export function countChangedDocs(
   projectRoot: string,
@@ -219,6 +227,9 @@ export const MAX_BATCH_CHARS = 30_000;
  * Split eligible sections into sub-batches where each batch's total prose
  * stays under {@link MAX_BATCH_CHARS}. Returns at least one batch even if the
  * first section alone exceeds the limit.
+ *
+ * @param sections - Array of section entries with their prose text and original index.
+ * @returns Array of batches, where each batch is an array of section entries whose combined prose length is within the limit.
  */
 export function splitIntoBatches(
   sections: Array<{ section: DocSection; prose: string; originalIndex: number }>,
@@ -568,6 +579,9 @@ export interface DocIndexResult {
  * embed prose via NLP model, and upsert as type='doc_section' cards.
  *
  * Uses SHA-256 per doc file to skip unchanged files.
+ *
+ * @param options - Configuration for the indexing run (paths, callbacks, concurrency, etc.).
+ * @returns Indexing result with section count, cache-hit flag, and total LLM cost.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
   const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
@@ -775,6 +789,11 @@ function isScaffoldingOnly(source: string): boolean {
  * - Any file differs in size or SHA-256 content hash
  *
  * Used by the orchestrator to skip double-chunking when `docs/` is a copy of `.anatoly/docs/`.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param projectDocsDir - First docs directory, relative to projectRoot.
+ * @param internalDocsDir - Second docs directory, relative to projectRoot.
+ * @returns `true` if both directories contain byte-identical `.md` files (or both are missing).
  */
 export function areDocTreesIdentical(
   projectRoot: string,
@@ -828,6 +847,11 @@ export function areDocTreesIdentical(
  * Remap a doc file path from one directory prefix to another.
  *
  * Example: `remapDocPath('.anatoly/docs/02-Arch/foo.md', '.anatoly/docs', 'docs')` → `'docs/02-Arch/foo.md'`
+ *
+ * @param filePath - The original file path to remap.
+ * @param fromPrefix - Directory prefix to strip (trailing slashes are normalized).
+ * @param toPrefix - Replacement directory prefix.
+ * @returns The remapped path, or the original path unchanged if it doesn't start with `fromPrefix`.
  */
 export function remapDocPath(filePath: string, fromPrefix: string, toPrefix: string): string {
   // Normalize: strip trailing slashes for consistent comparison
