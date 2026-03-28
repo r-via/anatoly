@@ -6,8 +6,10 @@ import { createInterface } from 'node:readline';
 
 /**
  * Prompt the user for a y/n confirmation.
- * Returns true if the user confirms, false otherwise.
  * Rejects non-TTY environments — caller should check isTTY first.
+ *
+ * @param message - The question to display (a `[y/N]` suffix is appended automatically).
+ * @returns `true` if the user answers "y" (case-insensitive), `false` otherwise.
  */
 export async function confirm(message: string): Promise<boolean> {
   const rl = createInterface({
