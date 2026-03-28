@@ -3,8 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * Extract a JSON object from a string that may contain markdown fences or surrounding text.
- * Returns the raw JSON string or null if no valid JSON structure is found.
+ * Extract a JSON object or array from a string that may contain markdown fences
+ * or surrounding prose. Tries markdown code fences first, then falls back to
+ * brace/bracket matching with string-escape awareness.
+ *
+ * @param text - The input string potentially containing embedded JSON.
+ * @returns The raw JSON substring, or `null` if no valid JSON structure is found.
  */
 export function extractJson(text: string): string | null {
   // Try extracting from markdown code fences first
