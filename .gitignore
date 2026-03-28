@@ -16,3 +16,4 @@ cli-tester
 publish.sh
 spike/
 .env
+.githooks/
