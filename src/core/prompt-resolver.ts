@@ -116,7 +116,15 @@ function register(key: string, content: string): void {
 // Auto-register defaults on module load
 registerDefaults();
 
-/** Register a language or framework-specific system prompt. */
+/**
+ * Register a language or framework-specific system prompt.
+ * Overwrites any existing prompt registered under the same key.
+ *
+ * @param key - Dot-separated composite key (e.g. `"best_practices.python"`,
+ *              `"doc-generation.architecture"`). See {@link PROMPT_REGISTRY}
+ *              for naming conventions.
+ * @param content - The prompt content string (trailing whitespace is trimmed).
+ */
 export function registerPrompt(key: string, content: string): void {
   register(key, content);
 }
