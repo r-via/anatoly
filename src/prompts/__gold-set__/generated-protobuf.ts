@@ -25,6 +25,10 @@ export function serializeUserMessage(msg: UserMessage): string {
   return JSON.stringify(msg);
 }
 
-export function deserializeUserMessage(data: string): UserMessage {
-  return JSON.parse(data) as UserMessage;
+export function deserializeUserMessage(data: string): UserMessage | null {
+  try {
+    return JSON.parse(data) as UserMessage;
+  } catch {
+    return null;
+  }
 }
