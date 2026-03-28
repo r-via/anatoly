@@ -15,6 +15,10 @@ const CONFIG_FILENAME = '.anatoly.yml';
  * Load Anatoly configuration from `.anatoly.yml` in the given directory.
  * Falls back to sensible defaults if no config file exists.
  * Throws AnatolyError CONFIG_INVALID for malformed YAML or invalid config.
+ *
+ * @param projectRoot - Root directory of the project (used to locate `.anatoly.yml`)
+ * @param configPath - Optional explicit path to a config file, bypassing auto-detection
+ * @returns Parsed and validated configuration object
  */
 export function loadConfig(projectRoot: string, configPath?: string): Config {
   const filePath = configPath ?? resolve(projectRoot, CONFIG_FILENAME);
