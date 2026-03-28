@@ -148,7 +148,7 @@ export function resolveSystemPrompt(
     if (langPrompt) return langPrompt;
   }
   const defaultPrompt = PROMPT_REGISTRY.get(axisId);
-  if (!defaultPrompt) {
+  if (defaultPrompt === undefined) {
     throw new Error(`No system prompt found for axis: ${axisId}`);
   }
   return defaultPrompt;
