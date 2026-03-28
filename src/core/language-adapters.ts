@@ -22,7 +22,10 @@ export interface ImportRef {
 
 /**
  * Contract for language-specific tree-sitter adapters.
- * `wasmModule` is null for languages that lack a tree-sitter grammar and rely on heuristic extraction instead.
+ *
+ * Each adapter declares the file extensions it handles, a language identifier,
+ * and the WASM module path for its tree-sitter grammar (`null` when the language
+ * lacks a grammar and relies on heuristic extraction instead).
  */
 export interface LanguageAdapter {
   readonly extensions: readonly string[];
@@ -126,6 +129,7 @@ function extractTsImports(source: string): ImportRef[] {
 
 // --- Adapter implementations ---
 
+/** TypeScript adapter — extracts exported/unexported declarations and imports via tree-sitter, with AST-based import extraction for `require()` calls. */
 export class TypeScriptAdapter implements LanguageAdapter {
   readonly extensions: readonly string[] = ['.ts'];
   readonly languageId: string = 'typescript';
@@ -221,6 +225,7 @@ function extractBashImports(source: string): ImportRef[] {
 
 // --- Bash adapter ---
 
+/** Bash adapter — extracts top-level function definitions and variable assignments, with AST-based detection of `source`/`.` commands. */
 export class BashAdapter implements LanguageAdapter {
   readonly extensions = ['.sh', '.bash'] as const;
   readonly languageId = 'bash';
@@ -442,6 +447,10 @@ function extractRustImports(source: string): ImportRef[] {
 /**
  * Recursively collect fully-qualified use paths from a tree-sitter Rust `use_declaration` subtree.
  * Handles simple paths, grouped imports `{A, B}`, nested groups, wildcards, and `as` aliases.
+ *
+ * @param node - A tree-sitter node within a `use_declaration` (e.g. `scoped_use_list`, `use_list`, `identifier`).
+ * @param prefix - Accumulated path prefix from parent scopes (e.g. `std::collections`).
+ * @returns Fully-qualified use paths (e.g. `['std::collections::HashMap', 'std::collections::HashSet']`).
  */
 function collectRustUsePaths(node: TSNode, prefix: string = ''): string[] {
   switch (node.type) {
@@ -515,6 +524,7 @@ const RUST_SYMBOL_TYPES: Record<string, SymbolKind> = {
   static_item: 'constant',
 };
 
+/** Rust adapter — extracts functions, structs, traits, enums, and constants, using `pub` visibility modifiers to determine export status. */
 export class RustAdapter implements LanguageAdapter {
   readonly extensions = ['.rs'] as const;
   readonly languageId = 'rust';
@@ -586,6 +596,7 @@ function isGoExported(name: string): boolean {
   return /^[A-Z]/.test(name);
 }
 
+/** Go adapter — extracts functions, methods, types, and constants, using uppercase-initial naming convention to determine export status. */
 export class GoAdapter implements LanguageAdapter {
   readonly extensions = ['.go'] as const;
   readonly languageId = 'go';
@@ -1031,6 +1042,12 @@ for (const adapter of adapters) {
   }
 }
 
+/**
+ * Look up the {@link LanguageAdapter} registered for a given file extension.
+ *
+ * @param extension - Dot-prefixed file extension (e.g. `'.ts'`, `'.go'`).
+ * @returns The matching adapter, or `null` if no adapter is registered for the extension.
+ */
 export function resolveAdapter(extension: string): LanguageAdapter | null {
   return ADAPTER_REGISTRY.get(extension) ?? null;
 }
