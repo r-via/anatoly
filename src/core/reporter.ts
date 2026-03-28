@@ -11,6 +11,10 @@ import type { AxisId } from './axis-evaluator.js';
 import { toOutputName } from '../utils/cache.js';
 
 
+/**
+ * Statistics from the triage phase that decides which files to evaluate.
+ * `estimatedTimeSaved` is in seconds.
+ */
 export interface TriageStats {
   total: number;
   skip: number;
@@ -138,6 +142,9 @@ export function computeFileVerdict(review: ReviewFile): Verdict {
 /**
  * Compute the global verdict from all file verdicts.
  * Uses computeFileVerdict to recompute each file's verdict.
+ * Returns `'CLEAN'` when `reviews` is empty.
+ * @param reviews - All parsed review files for the run.
+ * @returns The worst verdict across all files: `'CRITICAL'` > `'NEEDS_REFACTOR'` > `'CLEAN'`.
  */
 export function computeGlobalVerdict(reviews: ReviewFile[]): Verdict {
   if (reviews.length === 0) return 'CLEAN';
@@ -149,6 +156,10 @@ export function computeGlobalVerdict(reviews: ReviewFile[]): Verdict {
 
 /**
  * Classify a symbol finding into a severity level based on the axes.
+ * High-confidence (>= 80) ERROR/NEEDS_FIX/DEAD/DUPLICATE findings are `'high'`;
+ * lower-confidence versions of those plus OVER are `'medium'`; everything else is `'low'`.
+ * @param s - The symbol review to classify.
+ * @returns `'high'`, `'medium'`, or `'low'`.
  */
 function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
   if (s.correction === 'ERROR') return 'high';
@@ -229,10 +240,6 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
 }
 
 /**
- * Generate a deterministic action ID for checkbox matching.
- * Format: ACT-{6-char file hash}-{action id}
- */
-/**
  * Convert a file path to a GitHub-compatible heading anchor.
  * Matches GitHub's algorithm: lowercase, strip non-alphanumeric (except hyphens), replace spaces with hyphens.
  * Used for axis shard "details" links that anchor to ### `file/path.rs` headings.
@@ -244,6 +251,10 @@ function fileToAnchor(filePath: string): string {
     .replace(/ /g, '-');
 }
 
+/**
+ * Generate a deterministic action ID for checkbox matching.
+ * Format: `ACT-{6-char SHA-256 hash of file}-{action id}`.
+ */
 export function makeActId(file: string, actionId: number): string {
   const hash = createHash('sha256').update(file).digest('hex').slice(0, 6);
   return `ACT-${hash}-${actionId}`;
@@ -504,7 +515,11 @@ export function buildAxisReports(data: ReportData): AxisReport[] {
 // Language-aware terminology
 // ---------------------------------------------------------------------------
 
-/** Map language to its doc comment convention name. */
+/**
+ * Map a programming language to its doc comment convention name.
+ * @param language - Lowercase language identifier (e.g. `'rust'`, `'python'`).
+ * @returns The convention name (e.g. `'docstring'`). Falls back to `'JSDoc'` for unknown languages.
+ */
 export function docCommentTerm(language?: string): string {
   switch (language) {
     case 'rust': return '`///` doc comment';
@@ -691,7 +706,10 @@ export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): 
 }
 
 /**
- * Render verdict distribution for a specific axis.
+ * Render a markdown verdict distribution table for a specific axis.
+ * Each axis has its own table format showing counts of each verdict value.
+ * @param report - The axis report containing files and their symbol reviews.
+ * @returns Markdown lines for the distribution section; empty if no reliable symbols.
  */
 function renderAxisVerdictDistribution(report: AxisReport): string[] {
   const lines: string[] = [];
@@ -1209,7 +1227,10 @@ function renderAxisSummary(data: ReportData): string[] {
 }
 
 /**
- * Render the Deliberation summary section.
+ * Render the Deliberation summary section showing reclassification and verdict change metrics.
+ * Only emits content when at least one review has deliberation data.
+ * @param data - The aggregated report data.
+ * @returns Markdown lines for the deliberation section; empty array if no deliberations occurred.
  */
 function renderDeliberationSummary(data: ReportData): string[] {
   const lines: string[] = [];
@@ -1481,6 +1502,10 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
 
 /**
  * Compute a "health" percentage for an axis based on the "good" verdict ratio.
+ * For best-practices, the average score (0–10) is scaled to 0–100.
+ * @param data - The aggregated report data containing all reviews.
+ * @param axis - The axis to compute health for.
+ * @returns `{ pct, label }` where `pct` is 0–100 and `label` describes the "good" state.
  */
 function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string } {
   const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
@@ -1627,7 +1652,10 @@ function axisVerdictBreakdown(data: ReportData, axis: ReportAxisId): string {
 /**
  * Re-render the raw documentation reference section for the public report.
  * Parses the original rendered section and produces a more readable version
- * with explanations of each metric.
+ * with explanations of each metric. Handles three modes: synced (all docs up-to-date),
+ * internal-only (no user docs), and diverged (gaps detected).
+ * @param raw - The raw markdown documentation section produced by the doc pipeline.
+ * @returns Markdown lines for the polished documentation section.
  */
 function renderPublicDocSection(raw: string): string[] {
   const lines: string[] = [];
@@ -1767,6 +1795,13 @@ function renderPublicDocSection(raw: string): string[] {
  * Render the public-facing report (public_report.md).
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
+ * @param data - Aggregated report data (verdicts, counts, actions).
+ * @param axisReports - Per-axis reports used for the health scorecard.
+ * @param triageStats - Optional triage phase statistics for the hero block.
+ * @param runStats - Optional run timing/cost stats for the details section.
+ * @param docReferenceSection - Optional raw doc-pipeline section to re-render.
+ * @param reportsBaseUrl - Optional base URL for resolving axis report links.
+ * @returns The complete public report as a markdown string.
  */
 export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string): string {
   const lines: string[] = [];
@@ -2035,6 +2070,8 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
 /**
  * Render a single shard (legacy flat format).
  * @deprecated Use renderAxisShard instead. Remove once clean-run is migrated to axis-based reports.
+ * @param shard - The shard to render, containing files, actions, and verdict counts.
+ * @returns The complete shard as a markdown string.
  */
 export function renderShard(shard: ShardInfo): string {
   const lines: string[] = [];
