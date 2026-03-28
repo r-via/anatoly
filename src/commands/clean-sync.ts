@@ -24,8 +24,12 @@ interface PrdFile {
 
 /**
  * Check a single checkbox in file content by its ACT-ID.
- * Replaces `- [ ] <!-- ACT-xxx -->` with `- [x] <!-- ACT-xxx -->`.
- * Returns the updated content and whether a replacement was made.
+ * Replaces every `- [ ] <!-- ACT-xxx -->` with `- [x] <!-- ACT-xxx -->`.
+ *
+ * @param content - The full text content of a shard file containing ACT-ID checkboxes.
+ * @param actId - The ACT-ID to match (e.g. `"ACT-723e57-6"`).
+ * @returns An object with the (possibly updated) `content` string and a `changed`
+ *   flag indicating whether at least one checkbox was toggled.
  */
 export function checkAction(content: string, actId: string): { content: string; changed: boolean } {
   const pattern = `- [ ] <!-- ${actId} -->`;
@@ -37,7 +41,16 @@ export function checkAction(content: string, actId: string): { content: string; 
 }
 
 /**
- * Check if all ACT checkboxes in a file section are checked.
+ * Check whether every ACT-ID checkbox in a shard's content is checked.
+ *
+ * Uses two regex tests: verifies that no unchecked `- [ ] <!-- ACT-... -->`
+ * lines exist **and** that at least one checked `- [x] <!-- ACT-... -->` line
+ * is present. Returns `false` for content with no ACT checkboxes at all (e.g.
+ * an empty or unpopulated shard).
+ *
+ * @param content - The full text content of a shard file.
+ * @returns `true` if all ACT checkboxes are checked and at least one exists;
+ *   `false` otherwise.
  */
 export function allActionsChecked(content: string): boolean {
   const unchecked = /^- \[ \] <!-- ACT-[a-f0-9]+-\d+ -->/m;
@@ -46,8 +59,15 @@ export function allActionsChecked(content: string): boolean {
 }
 
 /**
- * Check the shard line in an axis index when all shard actions are done.
- * Finds `- [ ] [shard.N.md]` and replaces with `- [x] [shard.N.md]`.
+ * Check off a shard line in an axis index file once all its actions are done.
+ * Finds the first `- [ ] [shard.N.md]` matching the given filename and
+ * replaces it with `- [x] [shard.N.md]`.
+ *
+ * @param indexContent - The full text content of the axis `index.md` file.
+ * @param shardFilename - The bare filename of the shard (e.g. `"shard.1.md"`),
+ *   not a full or relative path.
+ * @returns An object with the (possibly updated) `content` string and a `changed`
+ *   flag indicating whether the shard line was toggled.
  */
 export function checkShardInIndex(indexContent: string, shardFilename: string): { content: string; changed: boolean } {
   const pattern = `- [ ] [${shardFilename}]`;
