@@ -11,7 +11,6 @@ import type {
   SDKUserMessage,
   SDKSystemMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import { appendFileSync } from 'node:fs';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
@@ -102,10 +101,8 @@ export class AnthropicTransport implements LlmTransport {
 
     // --- Conversation dump setup ---
     let convDump: ConvDump | undefined;
-    let convPath: string | undefined;
     if (conversationDir && conversationPrefix != null && attempt != null) {
       convDump = initConvDump({ conversationDir, conversationPrefix, attempt, model, provider: 'anthropic', systemPrompt, userMessage });
-      convPath = convDump?.path;
     }
 
     // --- SDK call ---
@@ -150,19 +147,19 @@ export class AnthropicTransport implements LlmTransport {
         }
 
         // Stream assistant response to conversation dump
-        if (convPath && message.type === 'assistant') {
-          try {
-            appendFileSync(convPath, formatMessage(message) + '\n---\n\n');
-          } catch (e) {
-            contextLogger().warn(
-              {
-                err: e instanceof Error ? e.message : String(e),
-                path: convPath,
-              },
-              'conversation dump append failed',
-            );
-            convPath = undefined;
-          }
+        if (convDump && message.type === 'assistant') {
+          const msg = message as SDKAssistantMessage;
+          const content = msg.message.content;
+          const text =
+            typeof content === 'string'
+              ? content
+              : Array.isArray(content)
+                ? (content as Array<Record<string, unknown>>)
+                    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+                    .map((b) => b.text as string)
+                    .join('\n')
+                : '';
+          appendAssistant(convDump, text);
         }
 
         if (message.type === 'result') {
@@ -240,7 +237,7 @@ export class AnthropicTransport implements LlmTransport {
     }
 
     // Guard: tier-level rate limit
-    if (rateLimitResetsAt != null && costUsd === 0) {
+    if (rateLimitResetsAt != null && !sessionId) {
       throw new RateLimitStandbyError(rateLimitResetsAt);
     }
 
