@@ -82,7 +82,13 @@ function modelConfig(model: 'code' | 'nlp') {
 /**
  * Ensure the requested model is loaded. If a different model is active,
  * stop the current container and start a new one.  No-op if the requested
- * model is already running.
+ * model is already running.  If the container for the requested model has
+ * died, it is automatically restarted.
+ *
+ * @param model - Which embedding model to activate (`'code'` or `'nlp'`).
+ * @returns Resolves when the model container is healthy and ready to serve requests.
+ * @throws If `startGgufContainers` has not been called yet or if the container
+ *         fails its health check within {@link READY_TIMEOUT_MS}.
  */
 export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   if (!modelsDirectory) {
@@ -202,8 +208,10 @@ export async function startGgufContainers(
 }
 
 /**
- * Stop and remove the active GGUF Docker container.
+ * Stop and remove all GGUF Docker containers (both code and NLP).
  * Safe to call even if no container is running — idempotent.
+ *
+ * @param onLog - Optional callback for status messages during shutdown.
  */
 export async function stopGgufContainers(
   onLog?: (message: string) => void,
