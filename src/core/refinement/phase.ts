@@ -90,7 +90,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   ctx.onProgress?.('tier1-start', `${reviews.length} files`);
 
   const tier1Ctx: Tier1Context = {
-    usageGraph: ctx.usageGraph ?? { usages: new Map(), typeOnlyUsages: new Map(), transitiveCache: new Map() } as UsageGraph,
+    usageGraph: ctx.usageGraph ?? { usages: new Map(), typeOnlyUsages: new Map(), intraFileRefs: new Map(), noImportFiles: new Set() },
     preResolvedRag: ctx.preResolvedRag,
     fileContents: ctx.fileContents,
   };

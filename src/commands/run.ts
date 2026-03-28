@@ -49,8 +49,9 @@ import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../cor
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
-import { saveDeliberationMemory } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveNlpModel, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
+import { resolveAxisModel, resolveNlpModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { DeliberationResponseSchema } from '../core/deliberation.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -462,7 +463,21 @@ export function registerRunCommand(program: Command): void {
               plain: ctx.plain,
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
-              recordFn: undefined, // Use tier 3's built-in memory recording
+              queryFn: async (params) => {
+                const result = await runSingleTurnQuery({
+                  systemPrompt: params.systemPrompt,
+                  userMessage: params.userMessage,
+                  model: params.model,
+                  projectRoot: params.projectRoot,
+                  abortController: params.abortController,
+                  semaphore: ctx.sdkSemaphore,
+                  geminiSemaphore: ctx.geminiSemaphore,
+                  circuitBreaker: ctx.circuitBreaker,
+                  fallbackModel: ctx.config.llm.model,
+                }, DeliberationResponseSchema);
+                return result;
+              },
+              recordFn: (pr, entry) => recordReclassification(pr, entry),
               onProgress: (event, detail) => {
                 const state = ctx.pipelineState;
                 if (!state) return;
