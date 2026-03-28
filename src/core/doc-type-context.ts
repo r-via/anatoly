@@ -67,6 +67,13 @@ interface TypeContextProvider {
  * Detects the binary name from package.json `bin` field, then runs:
  *   1. `<binary> --help` for the top-level help
  *   2. `<binary> <subcommand> --help` for each detected subcommand
+ *   3. `<binary> <subcommand> <nested> --help` for nested subcommands
+ *
+ * Output is truncated to 3000 characters to avoid prompt bloat.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param pkg - Parsed package.json contents (used to resolve the CLI binary name).
+ * @returns A context section with concatenated --help output, or null if no CLI binary is found.
  */
 function collectCliContext(projectRoot: string, pkg: Record<string, unknown>): TypeContextSection | null {
   // Find the CLI binary name
