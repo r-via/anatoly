@@ -48,6 +48,10 @@ export interface ProviderCheckResult {
 /**
  * Build the list of provider/model pairs to check based on config.
  * Deduplicates models within the same provider.
+ *
+ * @param config - The loaded project configuration containing LLM provider settings.
+ * @returns An array of unique provider/model pairs ordered: Anthropic models first
+ *   (main, index, deliberation, optional fast), then Gemini models if enabled.
  */
 export function buildProviderChecks(config: Config): ProviderCheck[] {
   const seen = new Set<string>();
