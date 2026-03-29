@@ -614,6 +614,18 @@ export function registerRunCommand(program: Command): void {
             ctx.totalCostUsd += refinementResult.totalCostUsd;
             ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'refinement', durationMs: refinementDuration });
 
+            // Update findings counter to reflect post-refinement net
+            const totalResolved = refinementResult.tier1Stats.resolved
+              + refinementResult.tier2Stats.resolved
+              + refinementResult.tier3Stats.reclassified;
+            ctx.totalFindings = Math.max(0, ctx.totalFindings - totalResolved);
+
+            // Count tier 3 Claude SDK calls in provider stats
+            if (refinementResult.tier3Stats.investigated > 0) {
+              ctx.providerStats.anthropic.calls += refinementResult.tier3Stats.investigated;
+              ctx.providerStats.anthropic.costUsd += refinementResult.totalCostUsd;
+            }
+
             getLogger().info({
               phase: 'refinement',
               tier1Resolved: refinementResult.tier1Stats.resolved,
@@ -621,6 +633,7 @@ export function registerRunCommand(program: Command): void {
               tier2Escalated: refinementResult.tier2Stats.escalated,
               tier3Investigated: refinementResult.tier3Stats.investigated,
               tier3Reclassified: refinementResult.tier3Stats.reclassified,
+              totalResolved,
               costUsd: refinementResult.totalCostUsd,
               durationMs: refinementDuration,
             }, 'refinement phase complete');
