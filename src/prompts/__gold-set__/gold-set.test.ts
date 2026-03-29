@@ -319,3 +319,237 @@ describe('Gold-Set: mixed-lang-sql.ts → SQL not penalized as bad TypeScript', 
     TIMEOUT,
   );
 });
+
+// ---------------------------------------------------------------------------
+// New fixtures: correction, overengineering, tests, documentation,
+//               true duplication, used symbols
+// ---------------------------------------------------------------------------
+
+const CORRECTION_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'function', name: 'clamp', lineStart: 15, lineEnd: 20 },
+  { exported: true, kind: 'function', name: 'sumArray', lineStart: 27, lineEnd: 32 },
+  { exported: true, kind: 'function', name: 'parseUserPayload', lineStart: 39, lineEnd: 48 },
+];
+
+const OVERENG_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'function', name: 'slugify', lineStart: 17, lineEnd: 23 },
+  { exported: true, kind: 'function', name: 'slugifyOverengineered', lineStart: 82, lineEnd: 89 },
+];
+
+const WEAK_TEST_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'function', name: 'divide', lineStart: 18, lineEnd: 23 },
+  { exported: true, kind: 'function', name: 'formatList', lineStart: 25, lineEnd: 30 },
+];
+
+const DOC_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'function', name: 'weightedAverage', lineStart: 33, lineEnd: 48 },
+  { exported: true, kind: 'function', name: 'proc', lineStart: 54, lineEnd: 66 },
+];
+
+const TRUE_DUP_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'function', name: 'findMax', lineStart: 19, lineEnd: 30 },
+  { exported: true, kind: 'function', name: 'getHighestValue', lineStart: 36, lineEnd: 47 },
+];
+
+const USED_SYMBOLS: SymbolDef[] = [
+  { exported: true, kind: 'interface', name: 'RetryOptions', lineStart: 13, lineEnd: 17 },
+  { exported: true, kind: 'const', name: 'DEFAULT_RETRY', lineStart: 19, lineEnd: 23 },
+  { exported: true, kind: 'function', name: 'withRetry', lineStart: 25, lineEnd: 43 },
+  { exported: true, kind: 'function', name: 'isRetryable', lineStart: 45, lineEnd: 47 },
+];
+
+describe('Gold-Set: correction-bugs.ts → OK, NEEDS_FIX, and ERROR', () => {
+  it(
+    'clamp is OK, sumArray is NEEDS_FIX or ERROR, parseUserPayload is NEEDS_FIX or ERROR',
+    async () => {
+      const content = readFixture('correction-bugs.ts');
+      const userMsg = buildUserMessage(
+        'gold-set/correction-bugs.ts',
+        content,
+        CORRECTION_SYMBOLS,
+      );
+      const data = await runAxis('correction', userMsg, CorrectionResponseSchema);
+
+      expect(data.symbols.length).toBe(3);
+
+      const clamp = data.symbols.find((s) => s.name === 'clamp');
+      const sumArray = data.symbols.find((s) => s.name === 'sumArray');
+      const parsePayload = data.symbols.find((s) => s.name === 'parseUserPayload');
+
+      expect(clamp).toBeDefined();
+      expect(sumArray).toBeDefined();
+      expect(parsePayload).toBeDefined();
+
+      expect(clamp!.correction, 'clamp should be OK').toBe('OK');
+      expect(
+        ['NEEDS_FIX', 'ERROR'].includes(sumArray!.correction),
+        `sumArray should be NEEDS_FIX or ERROR, got ${sumArray!.correction}`,
+      ).toBe(true);
+      expect(
+        ['NEEDS_FIX', 'ERROR'].includes(parsePayload!.correction),
+        `parseUserPayload should be NEEDS_FIX or ERROR, got ${parsePayload!.correction}`,
+      ).toBe(true);
+    },
+    TIMEOUT,
+  );
+});
+
+describe('Gold-Set: overengineered.ts → LEAN vs OVER', () => {
+  it(
+    'slugify is LEAN, slugifyOverengineered is OVER',
+    async () => {
+      const content = readFixture('overengineered.ts');
+      const userMsg = buildUserMessage(
+        'gold-set/overengineered.ts',
+        content,
+        OVERENG_SYMBOLS,
+      );
+      const data = await runAxis('overengineering', userMsg, OverengineeringResponseSchema);
+
+      expect(data.symbols.length).toBe(2);
+
+      const lean = data.symbols.find((s) => s.name === 'slugify');
+      const over = data.symbols.find((s) => s.name === 'slugifyOverengineered');
+
+      expect(lean).toBeDefined();
+      expect(over).toBeDefined();
+
+      expect(lean!.overengineering, 'slugify should be LEAN').toBe('LEAN');
+      expect(over!.overengineering, 'slugifyOverengineered should be OVER').toBe('OVER');
+    },
+    TIMEOUT,
+  );
+});
+
+describe('Gold-Set: weak-tests.ts → WEAK test coverage', () => {
+  it(
+    'both functions have WEAK tests',
+    async () => {
+      const content = readFixture('weak-tests.ts');
+      const testSection = [
+        '## Test Coverage',
+        '',
+        '### divide',
+        'Test file: `gold-set/weak-tests.test.ts`',
+        '- ✅ `divides two numbers` — asserts divide(10, 2) === 5',
+        '- No tests for: division by zero, negative numbers, NaN, Infinity',
+        '',
+        '### formatList',
+        'Test file: `gold-set/weak-tests.test.ts`',
+        '- ✅ `formats a list of three items` — asserts formatList(["a","b","c"])',
+        '- No tests for: empty array, single item, two items, special characters',
+      ].join('\n');
+      const userMsg = buildUserMessage(
+        'gold-set/weak-tests.ts',
+        content,
+        WEAK_TEST_SYMBOLS,
+        testSection,
+      );
+      const data = await runAxis('tests', userMsg, TestsResponseSchema);
+
+      expect(data.symbols.length).toBe(2);
+      for (const sym of data.symbols) {
+        expect(sym.tests, `${sym.name} should be WEAK`).toBe('WEAK');
+      }
+    },
+    TIMEOUT,
+  );
+});
+
+describe('Gold-Set: undocumented.ts → DOCUMENTED vs UNDOCUMENTED', () => {
+  it(
+    'weightedAverage is DOCUMENTED, proc is UNDOCUMENTED',
+    async () => {
+      const content = readFixture('undocumented.ts');
+      const userMsg = buildUserMessage(
+        'gold-set/undocumented.ts',
+        content,
+        DOC_SYMBOLS,
+      );
+      const data = await runAxis('documentation', userMsg, DocumentationResponseSchema);
+
+      expect(data.symbols.length).toBe(2);
+
+      const documented = data.symbols.find((s) => s.name === 'weightedAverage');
+      const undocumented = data.symbols.find((s) => s.name === 'proc');
+
+      expect(documented).toBeDefined();
+      expect(undocumented).toBeDefined();
+
+      expect(
+        documented!.documentation,
+        'weightedAverage should be DOCUMENTED',
+      ).toBe('DOCUMENTED');
+      expect(
+        undocumented!.documentation,
+        'proc should be UNDOCUMENTED',
+      ).toBe('UNDOCUMENTED');
+    },
+    TIMEOUT,
+  );
+});
+
+describe('Gold-Set: true-duplicate.ts → DUPLICATE for both functions', () => {
+  it(
+    'findMax and getHighestValue are both DUPLICATE',
+    async () => {
+      const content = readFixture('true-duplicate.ts');
+      const ragSection = [
+        '## RAG — Semantic Duplication',
+        '',
+        '### findMax (L19–L30)',
+        'Similar functions found:',
+        '- **getHighestValue** in `gold-set/true-duplicate.ts` (score: 0.960)',
+        '  Signature: (values: number[]) => number',
+        '  Complexity: 2/5',
+        '',
+        '### getHighestValue (L36–L47)',
+        'Similar functions found:',
+        '- **findMax** in `gold-set/true-duplicate.ts` (score: 0.960)',
+        '  Signature: (numbers: number[]) => number',
+        '  Complexity: 2/5',
+      ].join('\n');
+      const userMsg = buildUserMessage(
+        'gold-set/true-duplicate.ts',
+        content,
+        TRUE_DUP_SYMBOLS,
+        ragSection,
+      );
+      const data = await runAxis('duplication', userMsg, DuplicationResponseSchema);
+
+      expect(data.symbols.length).toBe(2);
+      for (const sym of data.symbols) {
+        expect(sym.duplication, `${sym.name} should be DUPLICATE`).toBe('DUPLICATE');
+      }
+    },
+    TIMEOUT,
+  );
+});
+
+describe('Gold-Set: used-symbols.ts → all symbols USED', () => {
+  it(
+    'all exported symbols are classified as USED',
+    async () => {
+      const content = readFixture('used-symbols.ts');
+      const importAnalysis = [
+        '- RetryOptions (exported): imported by 5 files — LIKELY USED',
+        '- DEFAULT_RETRY (exported): imported by 3 files — LIKELY USED',
+        '- withRetry (exported): imported by 8 files — LIKELY USED',
+        '- isRetryable (exported): imported by 2 files — LIKELY USED',
+      ].join('\n');
+      const userMsg = buildUserMessage(
+        'gold-set/used-symbols.ts',
+        content,
+        USED_SYMBOLS,
+        `## Pre-computed Import Analysis\n\n${importAnalysis}`,
+      );
+      const data = await runAxis('utility', userMsg, UtilityResponseSchema);
+
+      expect(data.symbols.length).toBe(USED_SYMBOLS.length);
+      for (const sym of data.symbols) {
+        expect(sym.utility, `${sym.name} should be USED`).toBe('USED');
+      }
+    },
+    TIMEOUT,
+  );
+});
