@@ -801,7 +801,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     ? ctx.resolvedRagMode === 'advanced' ? 'advanced' : 'lite'
     : 'off';
   configRows.push(
-    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.anthropic.concurrency} SDK slots` },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic.concurrency} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic.concurrency} SDK slots`}` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );
