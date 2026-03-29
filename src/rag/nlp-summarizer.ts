@@ -23,8 +23,8 @@ export interface NlpSummary {
 
 const NlpFunctionSchema = z.object({
   name: z.string(),
-  summary: z.string().max(400),
-  docSummary: z.string().max(400).optional().default(''),
+  summary: z.string().transform(s => s.slice(0, 400)),
+  docSummary: z.string().transform(s => s.slice(0, 400)).optional().default(''),
   keyConcepts: z.array(z.string()).min(1).max(7),
   behavioralProfile: BehavioralProfileSchema,
 });
