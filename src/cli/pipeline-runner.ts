@@ -145,19 +145,21 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const profile = detectProjectProfile(projectRoot);
 
   // Gemini auth check — graceful fallback to Claude if auth fails
-  if (config.llm.gemini.enabled) {
-    const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
+  let geminiEnabled = !!config.providers.google;
+  if (geminiEnabled) {
+    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+    const authOk = await checkGeminiAuth(projectRoot, geminiModel);
     if (!authOk) {
       console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
-      config.llm.gemini.enabled = false;
+      geminiEnabled = false;
     }
   }
 
-  const semaphore = new Semaphore(config.llm.sdk_concurrency);
-  const geminiSemaphore = config.llm.gemini.enabled
-    ? new Semaphore(config.llm.gemini.sdk_concurrency)
+  const semaphore = new Semaphore(config.providers.anthropic.concurrency);
+  const geminiSemaphore = geminiEnabled
+    ? new Semaphore(config.providers.google!.concurrency)
     : undefined;
-  const circuitBreaker = config.llm.gemini.enabled
+  const circuitBreaker = geminiEnabled
     ? new GeminiCircuitBreaker()
     : undefined;
   const executor = createExecutor(projectRoot, semaphore);

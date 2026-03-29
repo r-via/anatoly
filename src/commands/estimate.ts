@@ -10,7 +10,7 @@ import { scanProject } from '../core/scanner.js';
 import { estimateTasksTokens, formatTokenCount, loadTasks } from '../core/estimator.js';
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime } from '../core/calibration.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
-import { resolveAxisModel } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel } from '../core/axis-evaluator.js';
 import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -30,7 +30,7 @@ export function registerEstimateCommand(program: Command): void {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
-      const concurrency = config.llm.concurrency;
+      const concurrency = config.runtime.concurrency;
 
       printBanner();
 
@@ -74,7 +74,7 @@ export function registerEstimateCommand(program: Command): void {
       }
 
       const configRows = [
-        { key: 'concurrency', value: `${concurrency} files · ${config.llm.sdk_concurrency} SDK slots` },
+        { key: 'concurrency', value: `${concurrency} files · ${config.providers.anthropic.concurrency} SDK slots` },
         { key: 'rag', value: ragLabel },
         { key: 'cache', value: 'on' },
       ];
@@ -95,10 +95,7 @@ export function registerEstimateCommand(program: Command): void {
           modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
         }
         modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
-        const nlpSumModel = config.llm.gemini.enabled
-          ? shortModelName(config.llm.gemini.nlp_model)
-          : shortModelName(config.llm.index_model);
-        modelsRight.push({ key: 'summarization', value: nlpSumModel });
+        modelsRight.push({ key: 'summarization', value: shortModelName(resolveCodeSummaryModel(config)) });
       }
 
       // --- Pipeline rows ---

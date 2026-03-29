@@ -87,52 +87,6 @@ export const RuntimeConfigSchema = z.object({
   max_stop_iterations: z.int().min(1).max(10).default(3),
 });
 
-// --- Legacy schemas (deprecated — will be removed in Story 42.4 after consumer migration) ---
-
-/** @deprecated Use GoogleProviderConfigSchema + ProvidersConfigSchema. */
-export const GeminiConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  /** Transport backend: `cli-core` uses Google OAuth via gemini-cli-core,
-   *  `genai` uses the @google/genai SDK with an API key (GEMINI_API_KEY). */
-  type: z.enum(['cli-core', 'genai']).default('cli-core'),
-  flash_model: z.string().default('gemini-2.5-flash'),
-  nlp_model: z.string().default('gemini-2.5-flash'),
-  sdk_concurrency: z.int().min(1).max(32).default(12),
-});
-
-/** @deprecated Use top-level providers/models/agents/runtime/axes. Will be removed in Story 42.4. */
-export const LlmConfigSchema = z.object({
-  model: z.string().default('claude-sonnet-4-6'),
-  index_model: z.string().default('claude-haiku-4-5-20251001'),
-  fast_model: z.string().optional(),
-  /** @deprecated Unused — will be removed. */
-  agentic_tools: z.boolean().default(true),
-  timeout_per_file: z.int().min(1).default(600),
-  max_retries: z.int().min(1).max(10).default(3),
-  /** Maximum number of files reviewed in parallel. */
-  concurrency: z.int().min(1).max(10).default(8),
-  /** Maximum concurrent Anthropic SDK requests across all files. */
-  sdk_concurrency: z.int().min(1).max(32).default(24),
-  min_confidence: z.int().min(0).max(100).default(70),
-  /** Maximum agentic iterations before the reviewer must produce a final verdict. */
-  max_stop_iterations: z.int().min(1).max(10).default(3),
-  /** Enable a second-pass deliberation review to reclassify borderline findings. */
-  deliberation: z.boolean().default(true),
-  /** Model used for the deliberation (second-pass) review. */
-  deliberation_model: z.string().default('claude-opus-4-6'),
-  axes: AxesConfigSchema.default({
-    utility: { enabled: true },
-    duplication: { enabled: true },
-    correction: { enabled: true },
-    overengineering: { enabled: true },
-    tests: { enabled: true },
-    best_practices: { enabled: true },
-    documentation: { enabled: true },
-  }),
-  /** Optional Gemini provider configuration. When enabled, eligible axes route to Gemini Flash. */
-  gemini: GeminiConfigSchema.default({ enabled: false, type: 'cli-core', flash_model: 'gemini-2.5-flash', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 }),
-});
-
 // --- Other sections ---
 
 export const RagConfigSchema = z.object({
@@ -205,31 +159,6 @@ export const ConfigSchema = z.object({
     tests: { enabled: true },
     best_practices: { enabled: true },
     documentation: { enabled: true },
-  }),
-  // Legacy — kept for consumers until Story 42.4 migrates them
-  /** @deprecated Use providers/models/agents/runtime/axes instead. */
-  llm: LlmConfigSchema.default({
-    model: 'claude-sonnet-4-6',
-    index_model: 'claude-haiku-4-5-20251001',
-    agentic_tools: true,
-    timeout_per_file: 600,
-    max_retries: 3,
-    concurrency: 4,
-    sdk_concurrency: 24,
-    min_confidence: 70,
-    max_stop_iterations: 3,
-    deliberation: true,
-    deliberation_model: 'claude-opus-4-6',
-    axes: {
-      utility: { enabled: true },
-      duplication: { enabled: true },
-      correction: { enabled: true },
-      overengineering: { enabled: true },
-      tests: { enabled: true },
-      best_practices: { enabled: true },
-      documentation: { enabled: true },
-    },
-    gemini: { enabled: false, type: 'cli-core', flash_model: 'gemini-2.5-flash', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 },
   }),
   // Other sections
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),

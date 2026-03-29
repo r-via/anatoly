@@ -111,15 +111,15 @@ export function registerReviewCommand(program: Command): void {
           warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
         }
         const depMeta = loadDependencyMeta(projectRoot);
-        const sdkSemaphore = new Semaphore(config.llm.sdk_concurrency);
-        const geminiSemaphore = config.llm.gemini.enabled
-          ? new Semaphore(config.llm.gemini.sdk_concurrency)
+        const sdkSemaphore = new Semaphore(config.providers.anthropic.concurrency);
+        const geminiSemaphore = config.providers.google
+          ? new Semaphore(config.providers.google.concurrency)
           : undefined;
-        const circuitBreaker = config.llm.gemini.enabled
+        const circuitBreaker = config.providers.google
           ? new GeminiCircuitBreaker()
           : undefined;
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
-        process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
+        process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
         const axesTotal = evaluators.length;
 
         // Pipeline display
@@ -166,11 +166,11 @@ export function registerReviewCommand(program: Command): void {
                 runDir,
                 conversationDir,
                 depMeta,
-                deliberation: config.llm.deliberation ?? true,
+                deliberation: config.agents.enabled,
                 semaphore: sdkSemaphore,
                 geminiSemaphore,
                 circuitBreaker,
-                fallbackModel: config.llm.model,
+                fallbackModel: config.models.quality,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);
                 },

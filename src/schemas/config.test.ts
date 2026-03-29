@@ -219,27 +219,11 @@ describe('AxesConfigSchema (top-level)', () => {
   });
 });
 
-describe('Legacy llm section (deprecated, kept for consumer compat)', () => {
-  it('should still parse llm section for backward compat', () => {
-    const config = ConfigSchema.parse({});
-    expect(config.llm.timeout_per_file).toBe(600);
-    expect(config.llm.max_retries).toBe(3);
-    expect(config.llm.sdk_concurrency).toBe(24);
-    expect(config.llm.min_confidence).toBe(70);
-    expect(config.llm.gemini.enabled).toBe(false);
-  });
-
-  it('should accept legacy llm overrides', () => {
-    const config = ConfigSchema.parse({
-      llm: { model: 'custom-model', timeout_per_file: 300 },
-    });
-    expect(config.llm.model).toBe('custom-model');
-    expect(config.llm.timeout_per_file).toBe(300);
-  });
-
-  it('should still have llm.axes', () => {
-    const config = ConfigSchema.parse({});
-    expect(config.llm.axes.utility.enabled).toBe(true);
+describe('Legacy llm section removed (Story 42.4)', () => {
+  it('should reject unknown llm key in strict parse', () => {
+    // llm is no longer in the schema — Zod strips unknown keys by default
+    const config = ConfigSchema.parse({ llm: { model: 'custom' } });
+    expect((config as Record<string, unknown>).llm).toBeUndefined();
   });
 });
 
@@ -254,8 +238,5 @@ describe('Exported schemas', () => {
     expect(mod.RuntimeConfigSchema).toBeDefined();
     expect(mod.AxisConfigSchema).toBeDefined();
     expect(mod.ConfigSchema).toBeDefined();
-    // Legacy schemas still available for migration
-    expect(mod.LlmConfigSchema).toBeDefined();
-    expect(mod.GeminiConfigSchema).toBeDefined();
   });
 });

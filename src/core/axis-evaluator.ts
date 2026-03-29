@@ -25,19 +25,19 @@ import { GeminiGenaiTransport } from './transports/gemini-genai-transport.js';
  *  Avoids creating a new Config (and its `model-changed` listener) per call. */
 const geminiTransportCache = new Map<string, LlmTransport>();
 
-/** Gemini transport type, set once at startup via {@link setGeminiTransportType}. */
-let _geminiTransportType: 'cli-core' | 'genai' = 'cli-core';
+/** Gemini transport mode, set once at startup via {@link setGeminiTransportType}. */
+let _geminiTransportMode: 'subscription' | 'api' = 'subscription';
 
 /** Configure which Gemini transport backend to use. Call once at startup. */
-export function setGeminiTransportType(type: 'cli-core' | 'genai'): void {
-  _geminiTransportType = type;
+export function setGeminiTransportType(mode: 'subscription' | 'api'): void {
+  _geminiTransportMode = mode;
   geminiTransportCache.clear();
 }
 
 function getOrCreateGeminiTransport(projectRoot: string, model: string): LlmTransport {
   const existing = geminiTransportCache.get(projectRoot);
   if (existing) return existing;
-  const transport = _geminiTransportType === 'genai'
+  const transport = _geminiTransportMode === 'api'
     ? new GeminiGenaiTransport()
     : new GeminiTransport(projectRoot, model);
   geminiTransportCache.set(projectRoot, transport);

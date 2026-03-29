@@ -161,7 +161,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     const tier3Ctx: Tier3Context = {
       projectRoot: ctx.projectRoot,
       runDir: ctx.runDir,
-      model: ctx.config.llm.deliberation_model,
+      model: ctx.config.models.deliberation,
       abortController: ctx.abortController,
       reviewsByFile: finalReviews,
       budgetUsd: 30,

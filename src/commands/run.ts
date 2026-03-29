@@ -50,7 +50,7 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveNlpModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
 import { DeliberationResponseSchema, type DeliberationResponse } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
@@ -209,7 +209,7 @@ export function registerRunCommand(program: Command): void {
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
       const cliConcurrency = parentOpts.concurrency as number | undefined;
-      const concurrency = cliConcurrency ?? config.llm.concurrency;
+      const concurrency = cliConcurrency ?? config.runtime.concurrency;
 
       if (concurrency < 1 || concurrency > 10 || !Number.isInteger(concurrency)) {
         console.error('error: --concurrency must be between 1 and 10');
@@ -224,7 +224,7 @@ export function registerRunCommand(program: Command): void {
           process.exitCode = 2;
           return;
         }
-        config.llm.sdk_concurrency = cliSdkConcurrency;
+        config.providers.anthropic.concurrency = cliSdkConcurrency;
       }
 
       const runId = cmdOpts.runId ?? generateRunId();
@@ -263,17 +263,20 @@ export function registerRunCommand(program: Command): void {
       }
 
       // Gemini auth check — graceful fallback to Claude if auth fails
-      if (config.llm.gemini.enabled) {
-        setGeminiTransportType(config.llm.gemini.type);
-        if (config.llm.gemini.type === 'cli-core') {
-          const authOk = await checkGeminiAuth(projectRoot, config.llm.gemini.flash_model);
+      let geminiEnabled = !!config.providers.google;
+      if (geminiEnabled) {
+        const google = config.providers.google!;
+        setGeminiTransportType(google.mode);
+        if (google.mode === 'subscription') {
+          const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+          const authOk = await checkGeminiAuth(projectRoot, geminiModel);
           if (!authOk) {
             console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
-            config.llm.gemini.enabled = false;
+            geminiEnabled = false;
           }
         } else if (!process.env.GEMINI_API_KEY) {
-          console.log(chalk.yellow('⚠ Gemini type: genai mais GEMINI_API_KEY absent. Fallback Claude.'));
-          config.llm.gemini.enabled = false;
+          console.log(chalk.yellow('⚠ Gemini type: api mais GEMINI_API_KEY absent. Fallback Claude.'));
+          geminiEnabled = false;
         }
       }
 
@@ -294,7 +297,7 @@ export function registerRunCommand(program: Command): void {
         triageEnabled: parentOpts.triage !== false,
         deliberation: parentOpts.deliberation !== undefined
           ? parentOpts.deliberation as boolean
-          : config.llm.deliberation ?? true,
+          : config.agents.enabled,
         interrupted: false,
         activeAborts: new Set(),
         filesReviewed: 0,
@@ -319,11 +322,11 @@ export function registerRunCommand(program: Command): void {
           verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
           link: config.badge.link,
         },
-        sdkSemaphore: new Semaphore(config.llm.sdk_concurrency),
-        geminiSemaphore: config.llm.gemini.enabled
-          ? new Semaphore(config.llm.gemini.sdk_concurrency)
+        sdkSemaphore: new Semaphore(config.providers.anthropic.concurrency),
+        geminiSemaphore: geminiEnabled
+          ? new Semaphore(config.providers.google!.concurrency)
           : undefined,
-        circuitBreaker: config.llm.gemini.enabled
+        circuitBreaker: geminiEnabled
           ? new GeminiCircuitBreaker()
           : undefined,
         isFirstRun: false,
@@ -331,7 +334,7 @@ export function registerRunCommand(program: Command): void {
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      process.setMaxListeners(Math.max(process.getMaxListeners(), config.llm.sdk_concurrency + 10));
+      process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
 
       // Create per-run ndjson log file at debug level (skip in dry-run)
       if (!ctx.dryRun) {
@@ -355,7 +358,11 @@ export function registerRunCommand(program: Command): void {
           fileFilter: ctx.fileFilter ?? null,
           badge: ctx.badge,
           config: {
-            llm: ctx.config.llm,
+            providers: ctx.config.providers,
+            models: ctx.config.models,
+            agents: ctx.config.agents,
+            runtime: ctx.config.runtime,
+            axes: ctx.config.axes,
             rag: ctx.config.rag,
             scan: ctx.config.scan,
           },
@@ -775,7 +782,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     ? ctx.resolvedRagMode === 'advanced' ? 'advanced' : 'lite'
     : 'off';
   configRows.push(
-    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.llm.sdk_concurrency} SDK slots` },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.anthropic.concurrency} SDK slots` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );
@@ -790,7 +797,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     value: shortModelName(resolveAxisModel(e, ctx.config)),
   }));
   if (ctx.deliberation) {
-    modelsLeft.push({ key: 'deliberation', value: shortModelName(ctx.config.llm.deliberation_model) });
+    modelsLeft.push({ key: 'deliberation', value: shortModelName(ctx.config.models.deliberation) });
   }
   const modelsRight: { key: string; value: string }[] = [];
   if (ctx.enableRag) {
@@ -802,10 +809,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
     }
     modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
-    const nlpSumModel = ctx.config.llm.gemini.enabled
-      ? shortModelName(ctx.config.llm.gemini.nlp_model)
-      : shortModelName(ctx.config.llm.index_model);
-    modelsRight.push({ key: 'summarization', value: nlpSumModel });
+    modelsRight.push({ key: 'summarization', value: shortModelName(resolveCodeSummaryModel(ctx.config)) });
   }
 
   // --- Phase: scan ---
@@ -1350,7 +1354,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
         vectorStore,
         docsDir: internalDocsDir,
         cacheSuffix: `${cacheSuffix}-internal`,
-        chunkModel: ctx.config.llm.index_model,
+        chunkModel: ctx.config.models.fast,
         onLog,
         isInterrupted: () => ctx.interrupted,
         conversationDir: join(ctx.runDir, 'conversations'),
@@ -1366,7 +1370,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
         vectorStore,
         docsDir,
         cacheSuffix,
-        chunkModel: ctx.config.llm.index_model,
+        chunkModel: ctx.config.models.fast,
         onLog,
         isInterrupted: () => ctx.interrupted,
         conversationDir: join(ctx.runDir, 'conversations'),
@@ -1440,7 +1444,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const state = ctx.pipelineState!;
   const codeModel = shortModelName(ctx.resolvedModels.codeModel);
   const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
-  const indexModel = resolveNlpModel(ctx.config);
+  const indexModel = resolveCodeSummaryModel(ctx.config);
   const llmModel = shortModelName(indexModel);
   state.relabelTask('rag-code', `Embedding code (${codeModel})`);
   state.relabelTask('rag-nlp', `LLM summaries (${llmModel}) & embedding (${nlpModel})`);
@@ -1719,7 +1723,7 @@ async function runReviewPhase(
               semaphore: ctx.sdkSemaphore,
               geminiSemaphore: ctx.geminiSemaphore,
               circuitBreaker: ctx.circuitBreaker,
-              fallbackModel: ctx.config.llm.model,
+              fallbackModel: ctx.config.models.quality,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

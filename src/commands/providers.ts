@@ -62,26 +62,26 @@ export function buildProviderChecks(config: Config): ProviderCheck[] {
   };
 
   // Main review model
-  addClaude(config.llm.model);
+  addClaude(config.models.quality);
   // Index / fast model (haiku)
-  addClaude(config.llm.index_model);
+  addClaude(config.models.fast);
   // Deliberation model (opus)
-  addClaude(config.llm.deliberation_model);
-  // Fast model override (if set)
-  if (config.llm.fast_model) {
-    addClaude(config.llm.fast_model);
-  }
+  addClaude(config.models.deliberation);
 
   // Gemini models (when enabled)
-  if (config.llm.gemini?.enabled) {
+  if (config.providers.google) {
     const addGemini = (model: string) => {
       const key = `gemini:${model}`;
       if (seen.has(key)) return;
       seen.add(key);
-      checks.push({ provider: 'gemini', model, auth: 'Google OAuth' });
+      checks.push({ provider: 'gemini', model, auth: config.providers.google!.mode === 'api' ? 'API Key' : 'Google OAuth' });
     };
-    addGemini(config.llm.gemini.flash_model);
-    addGemini(config.llm.gemini.nlp_model);
+    // Add all per-axis Gemini models
+    for (const axisConfig of Object.values(config.axes)) {
+      if (axisConfig.model?.startsWith('gemini-')) addGemini(axisConfig.model);
+    }
+    // Add code_summary model if Gemini
+    if (config.models.code_summary?.startsWith('gemini-')) addGemini(config.models.code_summary);
   }
 
   return checks;
@@ -165,15 +165,15 @@ async function checkAnthropic(model: string, projectRoot: string, signal?: Abort
 // Gemini connectivity check
 // ---------------------------------------------------------------------------
 
-function createGeminiTransport(type: 'cli-core' | 'genai', projectRoot: string, model: string): LlmTransport {
-  return type === 'genai' ? new GeminiGenaiTransport() : new GeminiTransport(projectRoot, model);
+function createGeminiTransport(mode: 'subscription' | 'api', projectRoot: string, model: string): LlmTransport {
+  return mode === 'api' ? new GeminiGenaiTransport() : new GeminiTransport(projectRoot, model);
 }
 
-async function checkGemini(model: string, projectRoot: string, type: 'cli-core' | 'genai'): Promise<ProviderCheckResult> {
-  const auth = type === 'genai' ? 'API Key' : 'Google OAuth';
+async function checkGemini(model: string, projectRoot: string, mode: 'subscription' | 'api'): Promise<ProviderCheckResult> {
+  const auth = mode === 'api' ? 'API Key' : 'Google OAuth';
   const start = Date.now();
   try {
-    const transport = createGeminiTransport(type, projectRoot, model);
+    const transport = createGeminiTransport(mode, projectRoot, model);
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 30_000);
 
@@ -231,14 +231,14 @@ async function stressAnthropic(model: string, projectRoot: string, n: number): P
   return { attempted: n, succeeded, failed: n - succeeded, totalMs: Date.now() - start };
 }
 
-async function stressGemini(model: string, projectRoot: string, n: number, type: 'cli-core' | 'genai'): Promise<ConcurrencyResult> {
+async function stressGemini(model: string, projectRoot: string, n: number, mode: 'subscription' | 'api'): Promise<ConcurrencyResult> {
   const start = Date.now();
   const bail = new AbortController();
-  // cli-core: each call needs its own transport — resetChat() is not safe for concurrent use
-  // genai: single transport is fine — stateless SDK
-  const sharedTransport = type === 'genai' ? createGeminiTransport(type, projectRoot, model) : undefined;
+  // subscription: each call needs its own transport — resetChat() is not safe for concurrent use
+  // api: single transport is fine — stateless SDK
+  const sharedTransport = mode === 'api' ? createGeminiTransport(mode, projectRoot, model) : undefined;
   const promises = Array.from({ length: n }, () => {
-    const transport = sharedTransport ?? createGeminiTransport(type, projectRoot, model);
+    const transport = sharedTransport ?? createGeminiTransport(mode, projectRoot, model);
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 60_000);
     bail.signal.addEventListener('abort', () => ac.abort(), { once: true });
@@ -297,7 +297,7 @@ export function registerProvidersCommand(program: Command): void {
 
       // Raise limit early — each SDK query() adds an exit listener to process,
       // and each gemini-cli-core Config adds listeners to the shared coreEvents emitter
-      const maxConcurrency = Math.max(config.llm.sdk_concurrency, config.llm.gemini.sdk_concurrency, checks.length);
+      const maxConcurrency = Math.max(config.providers.anthropic.concurrency, config.providers.google?.concurrency ?? 0, checks.length);
       const prevMaxListeners = process.getMaxListeners();
       const prevCoreMaxListeners = coreEvents.getMaxListeners();
       process.setMaxListeners(Math.max(prevMaxListeners, maxConcurrency + 10));
@@ -315,7 +315,7 @@ export function registerProvidersCommand(program: Command): void {
           const result = await checkAnthropic(check.model, projectRoot);
           results.push(result);
         } else if (check.provider === 'gemini') {
-          const result = await checkGemini(check.model, projectRoot, config.llm.gemini.type);
+          const result = await checkGemini(check.model, projectRoot, config.providers.google?.mode ?? 'subscription');
           results.push(result);
         }
       }
@@ -330,8 +330,8 @@ export function registerProvidersCommand(program: Command): void {
         testedProviders.add(r.provider);
 
         const slots = r.provider === 'gemini'
-          ? config.llm.gemini.sdk_concurrency
-          : config.llm.sdk_concurrency;
+          ? (config.providers.google?.concurrency ?? 10)
+          : config.providers.anthropic.concurrency;
 
         if (!opts.json) {
           console.log(chalk.dim(`  Stress-testing ${r.provider} (${r.model}) × ${slots} concurrent...`));
@@ -339,7 +339,7 @@ export function registerProvidersCommand(program: Command): void {
 
         try {
           const cr = r.provider === 'gemini'
-            ? await stressGemini(r.model, projectRoot, slots, config.llm.gemini.type)
+            ? await stressGemini(r.model, projectRoot, slots, config.providers.google?.mode ?? 'subscription')
             : await stressAnthropic(r.model, projectRoot, slots);
           concurrencyResults.push({ provider: r.provider, model: r.model, concurrency: cr });
         } catch (err) {

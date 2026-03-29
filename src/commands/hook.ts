@@ -158,7 +158,7 @@ export function registerHookCommand(program: Command): void {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
-      const minConfidence = config.llm.min_confidence;
+      const minConfidence = config.runtime.min_confidence;
 
       // Read stdin JSON from Claude Code to check stop_hook_active
       const stdinData = await readStdin();
@@ -176,7 +176,7 @@ export function registerHookCommand(program: Command): void {
       }
 
       const state = loadHookState(projectRoot);
-      const maxStopIterations = config.llm.max_stop_iterations;
+      const maxStopIterations = config.runtime.max_stop_iterations;
 
       // Anti-loop: check stop_count against max_stop_iterations
       if (state.stop_count >= maxStopIterations) {

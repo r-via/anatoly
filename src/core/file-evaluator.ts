@@ -202,7 +202,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore) {
     try {
-      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot, config.llm.model);
+      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot, config.models.quality);
       docResolveMethod = 'rag';
     } catch {
       // Fall back to convention-based matching on RAG failure
