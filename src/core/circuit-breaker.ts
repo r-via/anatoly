@@ -2,6 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+import { extractProvider } from './transports/index.js';
+
 /**
  * Circuit breaker states:
  * - **closed** — Gemini calls proceed normally.
@@ -115,7 +117,7 @@ export class GeminiCircuitBreaker {
    * open and the requested model is a Gemini model.
    */
   resolveModel(model: string, fallbackModel: string): string {
-    if (!model.startsWith('gemini-')) return model;
+    if (extractProvider(model) !== 'google') return model;
     if (this.shouldFallback()) return fallbackModel;
     return model;
   }

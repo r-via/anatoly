@@ -546,7 +546,7 @@ providers:
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).toContain('migrate-config');
+    expect(output).toContain('bare model names');
     // Models should be prefixed in memory
     expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
     stderrSpy.mockRestore();
@@ -565,7 +565,7 @@ providers:
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     loadConfig(tempDir);
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).not.toContain('v1');
+    expect(output).not.toContain('bare model names');
     stderrSpy.mockRestore();
   });
 });

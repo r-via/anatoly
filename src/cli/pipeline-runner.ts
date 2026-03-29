@@ -36,7 +36,7 @@ import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
-import { TransportRouter } from '../core/transports/index.js';
+import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
@@ -154,8 +154,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   let geminiEnabled = !!config.providers.google;
   if (geminiEnabled) {
     const googleConfig = config.providers.google!;
-    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-'))
-      ?? config.models.code_summary?.startsWith('gemini-') ? config.models.code_summary! : 'gemini-2.5-flash';
+    const geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
     if (googleConfig.mode === 'api') {
       if (!process.env.GEMINI_API_KEY) {
         console.log(chalk.yellow('⚠ Gemini API mode but GEMINI_API_KEY not set. Fallback Claude.'));
@@ -175,7 +174,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     anthropic: new AnthropicTransport(),
   };
   if (geminiEnabled) {
-    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+    const geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
     nativeTransports.google = new GeminiTransport(projectRoot, geminiModel);
   }
   const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};

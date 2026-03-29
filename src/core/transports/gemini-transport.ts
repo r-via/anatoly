@@ -9,7 +9,7 @@ import {
   createSessionId,
 } from '@google/gemini-cli-core';
 import type { GeminiClient } from '@google/gemini-cli-core';
-import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
+import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, type ConvDump } from './conversation-dump.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
@@ -65,11 +65,11 @@ export class GeminiTransport implements LlmTransport {
 
   constructor(projectRoot: string, model: string) {
     this.projectRoot = projectRoot;
-    this.model = model;
+    this.model = stripPrefix(model);
   }
 
   supports(model: string): boolean {
-    return model.startsWith('gemini-');
+    return extractProvider(model) === 'google';
   }
 
   /** Lazy-initialize Config + GeminiClient on first call. */

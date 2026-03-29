@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import type { LlmTransport } from '../core/transports/index.js';
+import { extractProvider, type LlmTransport } from '../core/transports/index.js';
 import { coreEvents } from '@google/gemini-cli-core';
 
 // ---------------------------------------------------------------------------
@@ -59,17 +59,19 @@ export function buildProviderChecks(config: Config): ProviderCheck[] {
     : undefined;
 
   const addModel = (model: string) => {
-    const isGemini = model.startsWith('gemini-');
-    const provider = isGemini ? 'gemini' : 'anthropic';
+    const providerId = extractProvider(model);
+    const isGoogle = providerId === 'google';
+    // Map provider id to display name used by check functions
+    const provider = isGoogle ? 'gemini' : 'anthropic';
     const key = `${provider}:${model}`;
     if (seen.has(key)) return;
-    // Skip Gemini models when Google provider is not configured
-    if (isGemini && !config.providers.google) return;
+    // Skip Google models when Google provider is not configured
+    if (isGoogle && !config.providers.google) return;
     seen.add(key);
     checks.push({
       provider,
       model,
-      auth: isGemini ? geminiAuth! : 'Claude Code SDK',
+      auth: isGoogle ? geminiAuth! : 'Claude Code SDK',
     });
   };
 
@@ -114,6 +116,8 @@ export function formatProvidersTable(results: ProviderCheckResult[]): string {
 // ---------------------------------------------------------------------------
 
 async function checkAnthropic(model: string, projectRoot: string, signal?: AbortSignal): Promise<ProviderCheckResult> {
+  // Strip provider prefix for native SDK (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6")
+  const bareModel = model.includes('/') ? model.split('/').slice(1).join('/') : model;
   const start = Date.now();
   const ac = new AbortController();
   // Abort on either local timeout or external signal
@@ -124,7 +128,7 @@ async function checkAnthropic(model: string, projectRoot: string, signal?: Abort
       prompt: 'Respond OK',
       options: {
         systemPrompt: 'Respond with exactly "OK" and nothing else.',
-        model,
+        model: bareModel,
         cwd: projectRoot,
         allowedTools: [],
         maxTurns: 1,

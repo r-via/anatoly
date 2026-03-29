@@ -12,7 +12,7 @@ import type {
   SDKSystemMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { appendFileSync } from 'node:fs';
-import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
+import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
@@ -81,14 +81,14 @@ export class AnthropicTransport implements LlmTransport {
   readonly provider = 'anthropic' as const;
 
   supports(model: string): boolean {
-    return !model.startsWith('gemini-');
+    return extractProvider(model) !== 'google';
   }
 
   async query(params: LlmRequest): Promise<LlmResponse> {
     const {
       userMessage,
       systemPrompt,
-      model,
+      model: rawModel,
       projectRoot,
       abortController,
       conversationDir,
@@ -98,13 +98,16 @@ export class AnthropicTransport implements LlmTransport {
       retryReason,
     } = params;
 
+    // Strip provider prefix for native SDK (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6")
+    const model = stripPrefix(rawModel);
+
     const transcriptLines: string[] = [];
 
     // --- Conversation dump setup ---
     let convDump: ConvDump | undefined;
     let convPath: string | undefined;
     if (conversationDir && conversationPrefix != null && attempt != null) {
-      convDump = initConvDump({ conversationDir, conversationPrefix, attempt, model, provider: 'anthropic', systemPrompt, userMessage });
+      convDump = initConvDump({ conversationDir, conversationPrefix, attempt, model: rawModel, provider: 'anthropic', systemPrompt, userMessage });
       convPath = convDump?.path;
     }
 

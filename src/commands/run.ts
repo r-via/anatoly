@@ -51,7 +51,7 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, type AxisId } from '../core/axis-evaluator.js';
-import { TransportRouter } from '../core/transports/index.js';
+import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
@@ -275,8 +275,8 @@ export function registerRunCommand(program: Command): void {
       if (geminiEnabled) {
         const google = config.providers.google!;
         if (google.mode === 'subscription') {
-          const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
-          const authOk = await checkGeminiAuth(projectRoot, geminiModel);
+          const googleModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
+          const authOk = await checkGeminiAuth(projectRoot, googleModel);
           if (!authOk) {
             console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
             geminiEnabled = false;
@@ -292,7 +292,7 @@ export function registerRunCommand(program: Command): void {
         anthropic: new AnthropicTransport(),
       };
       if (geminiEnabled) {
-        const _geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+        const _geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
         _nativeTransports.google = new GeminiTransport(projectRoot, _geminiModel);
       }
       const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};

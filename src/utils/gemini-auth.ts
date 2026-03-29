@@ -29,12 +29,14 @@ export async function checkGeminiAuth(
   console.warn = () => {};
 
   try {
+    // Strip provider prefix if present (e.g. "google/gemini-2.5-flash" → "gemini-2.5-flash")
+    const bareModel = model.includes('/') ? model.split('/').slice(1).join('/') : model;
     const config = new Config({
       sessionId: createSessionId(),
       targetDir: projectRoot,
       cwd: projectRoot,
       debugMode: false,
-      model,
+      model: bareModel,
       userMemory: '',
       enableHooks: false,
       mcpEnabled: false,

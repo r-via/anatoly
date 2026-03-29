@@ -26,7 +26,7 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
-import { TransportRouter } from '../core/transports/index.js';
+import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 
@@ -89,7 +89,7 @@ export function registerWatchCommand(program: Command): void {
       };
       if (config.providers.google) {
         const { GeminiTransport } = await import('../core/transports/gemini-transport.js');
-        const gemModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+        const gemModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
         _watchNativeTransports.google = new GeminiTransport(projectRoot, gemModel);
       }
       const watchRouter = new TransportRouter({

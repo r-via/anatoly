@@ -18,6 +18,7 @@ import type { Semaphore } from './sdk-semaphore.js';
 import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import type { TransportRouter } from './transports/index.js';
+import { extractProvider } from './transports/index.js';
 import { AnthropicTransport } from './transports/anthropic-transport.js';
 
 // ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
   const axisConfig = config.axes?.[evaluator.id];
   // Honour per-axis override, but ignore gemini-* models when Google provider is absent
   if (axisConfig?.model) {
-    if (axisConfig.model.startsWith('gemini-') && !config.providers.google) {
+    if (extractProvider(axisConfig.model) === 'google' && !config.providers.google) {
       // Fall through to default resolution — Gemini provider not configured
     } else {
       return axisConfig.model;
@@ -279,7 +280,7 @@ export function resolveSemaphore(
   claudeSemaphore: Semaphore | undefined,
   geminiSemaphore: Semaphore | undefined,
 ): Semaphore | undefined {
-  if (model.startsWith('gemini-')) {
+  if (extractProvider(model) === 'google') {
     if (geminiSemaphore) return geminiSemaphore;
     contextLogger().warn(
       { event: 'gemini_semaphore_missing', model },
@@ -342,8 +343,8 @@ export async function runSingleTurnQuery<T>(
   const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel, transport, router } = params;
 
   // Circuit breaker: redirect Gemini → Claude when tripped
-  const isGeminiModel = model.startsWith('gemini-');
-  const effectiveModel = (isGeminiModel && circuitBreaker && fallbackModel)
+  const isGemini = extractProvider(model) === 'google';
+  const effectiveModel = (isGemini && circuitBreaker && fallbackModel)
     ? circuitBreaker.resolveModel(model, fallbackModel)
     : model;
 
@@ -359,7 +360,7 @@ export async function runSingleTurnQuery<T>(
     const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, effectiveModel, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport);
 
     // Record success for Gemini calls (only if we actually called Gemini)
-    if (effectiveModel.startsWith('gemini-') && circuitBreaker) {
+    if (extractProvider(effectiveModel) === 'google' && circuitBreaker) {
       circuitBreaker.recordSuccess();
     }
 

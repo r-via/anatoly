@@ -14,7 +14,7 @@ import type { ReviewFile, BestPractices } from '../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
 import type { Semaphore } from './sdk-semaphore.js';
 import type { GeminiCircuitBreaker } from './circuit-breaker.js';
-import type { TransportRouter } from './transports/index.js';
+import { extractProvider, type TransportRouter } from './transports/index.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
@@ -350,7 +350,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     const model = ev ? resolveAxisModel(ev, opts.config) : '';
     return {
       axisId: r.axisId,
-      provider: (model.startsWith('gemini-') ? 'gemini' : 'anthropic') as 'anthropic' | 'gemini',
+      provider: (extractProvider(model) === 'google' ? 'gemini' : 'anthropic') as 'anthropic' | 'gemini',
       costUsd: r.costUsd,
       durationMs: r.durationMs,
       inputTokens: r.inputTokens,
