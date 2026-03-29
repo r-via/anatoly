@@ -54,34 +54,39 @@ export function buildProviderChecks(config: Config): ProviderCheck[] {
   const seen = new Set<string>();
   const checks: ProviderCheck[] = [];
 
-  const addClaude = (model: string) => {
-    const key = `anthropic:${model}`;
+  const geminiAuth = config.providers.google
+    ? (config.providers.google.mode === 'api' ? 'API Key' : 'Google OAuth')
+    : undefined;
+
+  const addModel = (model: string) => {
+    const isGemini = model.startsWith('gemini-');
+    const provider = isGemini ? 'gemini' : 'anthropic';
+    const key = `${provider}:${model}`;
     if (seen.has(key)) return;
+    // Skip Gemini models when Google provider is not configured
+    if (isGemini && !config.providers.google) return;
     seen.add(key);
-    checks.push({ provider: 'anthropic', model, auth: 'Claude Code SDK' });
+    checks.push({
+      provider,
+      model,
+      auth: isGemini ? geminiAuth! : 'Claude Code SDK',
+    });
   };
 
-  // Main review model
-  addClaude(config.models.quality);
-  // Index / fast model (haiku)
-  addClaude(config.models.fast);
-  // Deliberation model (opus)
-  addClaude(config.models.deliberation);
+  // Models section
+  addModel(config.models.quality);
+  addModel(config.models.fast);
+  addModel(config.models.deliberation);
+  if (config.models.code_summary) addModel(config.models.code_summary);
 
-  // Gemini models (when enabled)
-  if (config.providers.google) {
-    const addGemini = (model: string) => {
-      const key = `gemini:${model}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      checks.push({ provider: 'gemini', model, auth: config.providers.google!.mode === 'api' ? 'API Key' : 'Google OAuth' });
-    };
-    // Add all per-axis Gemini models
-    for (const axisConfig of Object.values(config.axes)) {
-      if (axisConfig.model?.startsWith('gemini-')) addGemini(axisConfig.model);
-    }
-    // Add code_summary model if Gemini
-    if (config.models.code_summary?.startsWith('gemini-')) addGemini(config.models.code_summary);
+  // Agents section
+  if (config.agents.scaffolding) addModel(config.agents.scaffolding);
+  if (config.agents.review) addModel(config.agents.review);
+  if (config.agents.deliberation) addModel(config.agents.deliberation);
+
+  // Per-axis overrides
+  for (const axisConfig of Object.values(config.axes)) {
+    if (axisConfig.model) addModel(axisConfig.model);
   }
 
   return checks;
