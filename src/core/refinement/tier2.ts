@@ -116,6 +116,18 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
       return s;
     }
 
+    // --- Coherence: LOW_VALUE + OVER/UNDOCUMENTED → moot ---
+    if (s.utility === 'LOW_VALUE') {
+      if (s.overengineering === 'OVER' || s.overengineering === 'ACCEPTABLE') {
+        s.overengineering = '-';
+        stats.resolved++;
+      }
+      if (s.documentation === 'UNDOCUMENTED' || s.documentation === 'PARTIAL') {
+        s.documentation = '-';
+        stats.resolved++;
+      }
+    }
+
     // --- Escalation: Low confidence isolated NEEDS_FIX ---
     if (
       s.correction === 'NEEDS_FIX' &&

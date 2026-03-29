@@ -5,7 +5,7 @@
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
 import type { UsageGraph } from '../usage-graph.js';
 import type { PreResolvedRag } from '../axis-evaluator.js';
-import { getSymbolUsage, getTransitiveUsage } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,13 +95,22 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         stats.resolved++;
         stats.breakdown.deadToUsed++;
       } else {
-        const transitiveRefs = getTransitiveUsage(ctx.usageGraph, s.name, review.file);
-        if (transitiveRefs.length > 0) {
+        const typeOnlyImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
+        if (typeOnlyImporters.length > 0) {
           s.utility = 'USED';
           s.confidence = 95;
-          s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
+          s.detail = `Auto-resolved: type-only imported by ${typeOnlyImporters.length} files`;
           stats.resolved++;
           stats.breakdown.deadToUsed++;
+        } else {
+          const transitiveRefs = getTransitiveUsage(ctx.usageGraph, s.name, review.file);
+          if (transitiveRefs.length > 0) {
+            s.utility = 'USED';
+            s.confidence = 95;
+            s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
+            stats.resolved++;
+            stats.breakdown.deadToUsed++;
+          }
         }
       }
     }

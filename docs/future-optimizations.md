@@ -40,40 +40,15 @@ best-practices is the costliest axis ($32.70/run, 122 calls, ~14K output tokens/
 
 ## Agentic deliberation — shard-based investigation
 
-**Status**: Planned — high priority
+**Status**: DONE (Epic 41, commit a0f7045)
 **Impact**: Prevents false-positive fixes, enables cross-file coherence, reduces cost
 
-### Current model (per-file, single-turn JSON)
-- 115 calls × ~$0.21 = $24/run
-- Receives ReviewFile JSON + full source code + test file
-- Cannot verify anything — reasons only on what it's given
-- No cross-file visibility (same false positive reclassified 15 times independently)
+Implemented as 3-tier refinement pipeline:
+- Tier 1: Deterministic auto-resolve (usage graph, AST, RAG) — 0 tokens
+- Tier 2: Inter-axis coherence rules (DEAD+NEEDS_FIX moot, etc.) — 0 tokens
+- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob, Bash, WebFetch)
 
-### Proposed model (per-shard, full-agentic)
-Replace the current per-file deliberation with a single post-run agentic pass:
-
-1. Group findings into shards (by module/directory, 10-20 files per shard)
-2. Give the agent **only the shard of findings** — no code source, no prompt
-3. The agent has full tool access (Read, Grep, Glob, Bash) and must **investigate each finding itself**
-4. It reads files, greps usages, checks configs, verifies claims independently
-5. It produces a deliberation report per shard
-
-**Key principle**: Instead of "here's the code, tell me if the finding is correct", say "here are claims about this codebase, prove or disprove each one". The agent cannot rubber-stamp — it must do the work.
-
-**What this solves**:
-- Gold set/fixture files: agent reads the file, sees it's intentional
-- Runtime values (CODE_DIM): agent checks embeddings-ready.json, verifies actual dimensions
-- Dead code claims: agent greps for actual usages
-- Cross-file patterns: agent sees all findings in a module together
-- Default value "fixes": agent checks who uses the value, measures blast radius
-
-**Trade-offs**:
-- Estimated cost: 10-15 shards × $1-3 = $10-45 (vs $24 currently)
-- Sequential per shard, but shards can run in parallel
-- Needs bounded turns (maxTurns: 50-100) to prevent runaway
-- Bash should be read-only (no writes — investigation only)
-
-**Incident**: FIX-017 changed CODE_DIM fallback from 3584 to 768 based on a correction finding. An investigative agent would have read `embeddings-ready.json` and found `dim_code: 3584`, disproving the finding.
+Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
 
 ## Reduce correction axis output verbosity
 
@@ -84,38 +59,28 @@ correction produces ~10K output tokens per file with detailed fix suggestions. C
 
 ## Tier 2 — skip OVER/UNDOCUMENTED on LOW_VALUE
 
-**Status**: Minor optimization
+**Status**: DONE
 **Impact**: Marginal — reduces noise, no cost change
 
 Currently LOW_VALUE symbols keep all their findings (OVER, UNDOCUMENTED, etc.). These are debatable — why document or refactor a symbol flagged as low value? Safe to skip OVER and UNDOCUMENTED on LOW_VALUE, similar to DEAD treatment.
 
 ## Tier 1 — add type-only importers resolution
 
-**Status**: Minor gap
+**Status**: DONE
 **Impact**: Catches additional DEAD → USED cases
 
 `applyTier1` checks `getSymbolUsage` (runtime) and `getTransitiveUsage` but not `getTypeOnlySymbolUsage`. Exported types with type-only importers should be auto-resolved to USED.
 
 ## Tier 3 — switch to agentic mode
 
-**Status**: Planned — high priority
-**Impact**: Transforms tier 3 from rubber-stamp to real investigation
+**Status**: DONE (commit a0f7045)
 
-Current tier 3 is a single-turn JSON call via `runSingleTurnQuery` — same model as the old per-file deliberation. Opus reasons in a vacuum without verifying claims.
-
-**Required change**: Replace `queryFn` implementation in `run.ts` with a full `query()` call:
+Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
 - `allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch']`
-- No maxTurns (let the agent work freely)
-- No budget cap for V1 (analyze transcript patterns first)
-- `permissionMode: 'bypassPermissions'`
-- Parse the final JSON from `result.text`
+- No maxTurns, no budget cap (V1 — analyze transcripts first)
+- JSON extracted from agentic response via `extractJson` + Zod validation
 
-The `Tier3Context.queryFn` interface stays the same — only the implementation changes. ~1-2h effort.
-
-**Benchmarking opportunity**: The current run produces a baseline of tier 3 single-turn deliberation results. After switching to agentic mode, we can compare:
-- Same escalated findings, same shards
-- Single-turn reclassifications vs agentic reclassifications
-- Cost and duration comparison
-- Quality: did the agentic agent catch things the single-turn missed? (e.g. FIX-017 CODE_DIM)
-
-This gives us a direct A/B comparison: global single-turn deliberation vs global agentic deliberation, both operating on the same tier 1+2 pre-filtered findings.
+**Benchmarking**: Three baselines available for comparison:
+1. Legacy per-file Opus (`.anatoly/baseline/legacy-deliberation-run/`)
+2. 3-tier single-turn (run 093442)
+3. 3-tier agentic (next run)
