@@ -421,6 +421,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // Accumulate results from all files via concurrent worker pool
   const results: IndexedFileResult[] = [];
   let fileCounter = 0;
+  let fileStartCounter = 0;
 
   onPhase?.('code');
   await runWorkerPool({
@@ -428,7 +429,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     concurrency,
     isInterrupted,
     handler: async (task) => {
-      onLog(`[${fileCounter + 1}/${tasksToIndex.length}] ${task.file}`);
+      const fileNum = ++fileStartCounter;
+      onLog(`[${fileNum}/${tasksToIndex.length}] ${task.file}`);
       onFileStart?.(task.file);
 
       try {
