@@ -139,7 +139,7 @@ function prefixModel(name: string): string {
  * Detect whether a raw config object is v1 format: has `models` section with
  * at least one bare (un-prefixed) model name.
  */
-function isV1Config(obj: Record<string, any>): boolean {
+export function isV1Config(obj: Record<string, any>): boolean {
   const models = obj.models as Record<string, any> | undefined;
   if (!models || typeof models !== 'object') return false;
   for (const value of Object.values(models)) {
