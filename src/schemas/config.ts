@@ -41,7 +41,55 @@ export const AxesConfigSchema = z.object({
   documentation: AxisConfigSchema.default({ enabled: true }),
 });
 
-/** Gemini provider configuration for optional Google AI routing. */
+// --- v1.0 Providers ---
+
+export const AnthropicProviderConfigSchema = z.object({
+  concurrency: z.int().min(1).max(32).default(24),
+});
+
+export const GoogleProviderConfigSchema = z.object({
+  /** Transport backend: `subscription` uses Google OAuth via gemini-cli-core,
+   *  `api` uses the @google/genai SDK with an API key (GEMINI_API_KEY). */
+  mode: z.enum(['subscription', 'api']).default('subscription'),
+  concurrency: z.int().min(1).max(32).default(10),
+});
+
+export const ProvidersConfigSchema = z.object({
+  anthropic: AnthropicProviderConfigSchema.default({ concurrency: 24 }),
+  google: GoogleProviderConfigSchema.optional(),
+});
+
+// --- v1.0 Models ---
+
+export const ModelsConfigSchema = z.object({
+  quality: z.string().default('claude-sonnet-4-6'),
+  fast: z.string().default('claude-haiku-4-5-20251001'),
+  deliberation: z.string().default('claude-opus-4-6'),
+  code_summary: z.string().optional(),
+});
+
+// --- v1.0 Agents ---
+
+export const AgentsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  scaffolding: z.string().optional(),
+  review: z.string().optional(),
+  deliberation: z.string().optional(),
+});
+
+// --- v1.0 Runtime ---
+
+export const RuntimeConfigSchema = z.object({
+  timeout_per_file: z.int().min(1).default(600),
+  max_retries: z.int().min(1).max(10).default(3),
+  concurrency: z.int().min(1).max(10).default(8),
+  min_confidence: z.int().min(0).max(100).default(70),
+  max_stop_iterations: z.int().min(1).max(10).default(3),
+});
+
+// --- Legacy schemas (deprecated — will be removed in Story 42.4 after consumer migration) ---
+
+/** @deprecated Use GoogleProviderConfigSchema + ProvidersConfigSchema. */
 export const GeminiConfigSchema = z.object({
   enabled: z.boolean().default(false),
   /** Transport backend: `cli-core` uses Google OAuth via gemini-cli-core,
@@ -52,12 +100,12 @@ export const GeminiConfigSchema = z.object({
   sdk_concurrency: z.int().min(1).max(32).default(12),
 });
 
-/** LLM configuration controlling model selection, parallelism, and review behaviour. */
+/** @deprecated Use top-level providers/models/agents/runtime/axes. Will be removed in Story 42.4. */
 export const LlmConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   index_model: z.string().default('claude-haiku-4-5-20251001'),
   fast_model: z.string().optional(),
-  /** Enable agentic tool use (file read, grep, glob) during LLM review passes. */
+  /** @deprecated Unused — will be removed. */
   agentic_tools: z.boolean().default(true),
   timeout_per_file: z.int().min(1).default(600),
   max_retries: z.int().min(1).max(10).default(3),
@@ -84,6 +132,8 @@ export const LlmConfigSchema = z.object({
   /** Optional Gemini provider configuration. When enabled, eligible axes route to Gemini Flash. */
   gemini: GeminiConfigSchema.default({ enabled: false, type: 'cli-core', flash_model: 'gemini-2.5-flash', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 }),
 });
+
+// --- Other sections ---
 
 export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -118,6 +168,8 @@ export const OutputConfigSchema = z.object({
   max_runs: z.int().min(1).optional(),
 });
 
+// --- Main ConfigSchema ---
+
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({ monorepo: false }),
   scan: ScanConfigSchema.default({
@@ -130,6 +182,32 @@ export const ConfigSchema = z.object({
     command: 'npx vitest run --coverage.reporter=json',
     report_path: 'coverage/coverage-final.json',
   }),
+  // v1.0 sections
+  providers: ProvidersConfigSchema.default({ anthropic: { concurrency: 24 } }),
+  models: ModelsConfigSchema.default({
+    quality: 'claude-sonnet-4-6',
+    fast: 'claude-haiku-4-5-20251001',
+    deliberation: 'claude-opus-4-6',
+  }),
+  agents: AgentsConfigSchema.default({ enabled: true }),
+  runtime: RuntimeConfigSchema.default({
+    timeout_per_file: 600,
+    max_retries: 3,
+    concurrency: 8,
+    min_confidence: 70,
+    max_stop_iterations: 3,
+  }),
+  axes: AxesConfigSchema.default({
+    utility: { enabled: true },
+    duplication: { enabled: true },
+    correction: { enabled: true },
+    overengineering: { enabled: true },
+    tests: { enabled: true },
+    best_practices: { enabled: true },
+    documentation: { enabled: true },
+  }),
+  // Legacy — kept for consumers until Story 42.4 migrates them
+  /** @deprecated Use providers/models/agents/runtime/axes instead. */
   llm: LlmConfigSchema.default({
     model: 'claude-sonnet-4-6',
     index_model: 'claude-haiku-4-5-20251001',
@@ -153,6 +231,7 @@ export const ConfigSchema = z.object({
     },
     gemini: { enabled: false, type: 'cli-core', flash_model: 'gemini-2.5-flash', nlp_model: 'gemini-2.5-flash', sdk_concurrency: 12 },
   }),
+  // Other sections
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),
   output: OutputConfigSchema.default({}),
@@ -164,5 +243,13 @@ export const ConfigSchema = z.object({
   documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
 });
 
+// --- Exported types ---
+
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;
+export type AnthropicProviderConfig = z.infer<typeof AnthropicProviderConfigSchema>;
+export type GoogleProviderConfig = z.infer<typeof GoogleProviderConfigSchema>;
+export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
+export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
+export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
+export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
