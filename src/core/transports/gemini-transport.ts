@@ -38,15 +38,18 @@ let _suppressCount = 0;
 let _origLog: typeof console.log;
 let _origDebug: typeof console.debug;
 let _origWarn: typeof console.warn;
+let _origError: typeof console.error;
 
 function suppressConsole(): void {
   if (_suppressCount === 0) {
     _origLog = console.log;
     _origDebug = console.debug;
     _origWarn = console.warn;
+    _origError = console.error;
     console.log = () => {};
     console.debug = () => {};
     console.warn = () => {};
+    console.error = () => {};
   }
   _suppressCount++;
 }
@@ -57,6 +60,7 @@ function restoreConsole(): void {
     console.log = _origLog;
     console.debug = _origDebug;
     console.warn = _origWarn;
+    console.error = _origError;
   }
 }
 
