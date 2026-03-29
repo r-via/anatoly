@@ -155,7 +155,6 @@ function autoResolveSymbol(
 export class UtilityEvaluator implements AxisEvaluator {
   readonly id = 'utility' as const;
   readonly defaultModel = 'haiku' as const;
-  readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     // --- Phase 1: auto-resolve trivially deterministic symbols ---

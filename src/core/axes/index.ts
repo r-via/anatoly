@@ -33,7 +33,7 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
  */
 export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): AxisEvaluator[] {
   return ALL_EVALUATORS.filter((evaluator) => {
-    const axisConfig = config.llm.axes?.[evaluator.id];
+    const axisConfig = config.axes?.[evaluator.id];
     if (axisConfig?.enabled === false) return false;
     if (axesFilter && !axesFilter.includes(evaluator.id)) return false;
     return true;

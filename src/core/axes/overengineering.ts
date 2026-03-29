@@ -92,7 +92,6 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
 export class OverengineeringEvaluator implements AxisEvaluator {
   readonly id = 'overengineering' as const;
   readonly defaultModel = 'sonnet' as const;
-  readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);

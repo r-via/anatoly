@@ -21,7 +21,7 @@ describe('getEnabledEvaluators', () => {
 
   it('should filter out disabled axes', () => {
     const config = makeConfig({
-      llm: { axes: { utility: { enabled: false }, best_practices: { enabled: false } } },
+      axes: { utility: { enabled: false }, best_practices: { enabled: false } },
     });
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(ALL_AXIS_IDS.length - 2);
@@ -30,23 +30,21 @@ describe('getEnabledEvaluators', () => {
   });
 
   it('should keep axis enabled when config is missing for that axis', () => {
-    const config = makeConfig({ llm: { axes: {} } });
+    const config = makeConfig({ axes: {} });
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
   });
 
   it('should return empty when all axes disabled', () => {
     const config = makeConfig({
-      llm: {
-        axes: {
-          utility: { enabled: false },
-          duplication: { enabled: false },
-          correction: { enabled: false },
-          overengineering: { enabled: false },
-          tests: { enabled: false },
-          best_practices: { enabled: false },
-          documentation: { enabled: false },
-        },
+      axes: {
+        utility: { enabled: false },
+        duplication: { enabled: false },
+        correction: { enabled: false },
+        overengineering: { enabled: false },
+        tests: { enabled: false },
+        best_practices: { enabled: false },
+        documentation: { enabled: false },
       },
     });
     const evaluators = getEnabledEvaluators(config);
@@ -62,7 +60,7 @@ describe('getEnabledEvaluators', () => {
 
   it('should intersect axesFilter with config-disabled axes', () => {
     const config = makeConfig({
-      llm: { axes: { correction: { enabled: false } } },
+      axes: { correction: { enabled: false } },
     });
     const evaluators = getEnabledEvaluators(config, ['correction', 'tests']);
     expect(evaluators).toHaveLength(1);

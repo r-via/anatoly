@@ -213,7 +213,6 @@ function buildAutoUniqueResults(ctx: AxisContext): AxisSymbolResult[] {
 export class DuplicationEvaluator implements AxisEvaluator {
   readonly id = 'duplication' as const;
   readonly defaultModel = 'haiku' as const;
-  readonly defaultGeminiMode = 'flash' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     // --- Skip LLM when no symbol has similarity candidates ---

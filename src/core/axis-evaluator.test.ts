@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { resolveAxisModel, resolveNlpModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
 import type { AxisTiming } from './file-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
@@ -26,11 +26,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
   return ConfigSchema.parse(overrides);
 }
 
-function makeEvaluator(defaultModel: 'sonnet' | 'haiku', opts?: { defaultGeminiMode?: 'flash'; id?: string }): AxisEvaluator {
+function makeEvaluator(defaultModel: 'sonnet' | 'haiku', opts?: { id?: string }): AxisEvaluator {
   return {
     id: (opts?.id ?? 'utility') as AxisEvaluator['id'],
     defaultModel,
-    defaultGeminiMode: opts?.defaultGeminiMode,
     evaluate: async (_ctx: AxisContext, _abort: AbortController): Promise<AxisResult> => {
       throw new Error('not implemented');
     },
@@ -38,121 +37,155 @@ function makeEvaluator(defaultModel: 'sonnet' | 'haiku', opts?: { defaultGeminiM
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — Story 42.3: resolveAxisModel (v1.0 config paths)
 // ---------------------------------------------------------------------------
 
 describe('resolveAxisModel', () => {
-  it('should use config axis model override when specified', () => {
+  it('should use config.axes.[id].model override when specified', () => {
     const config = makeConfig({
-      llm: { axes: { utility: { enabled: true, model: 'custom-model-123' } } },
+      axes: { utility: { enabled: true, model: 'custom-model-123' } },
     });
     const evaluator = makeEvaluator('haiku');
     expect(resolveAxisModel(evaluator, config)).toBe('custom-model-123');
   });
 
-  it('should use fast_model for haiku evaluators when no axis override', () => {
+  it('should use models.fast for haiku evaluators when no axis override', () => {
     const config = makeConfig({
-      llm: { fast_model: 'claude-haiku-4-5-20251001' },
+      models: { fast: 'claude-haiku-4-5-20251001' },
     });
     const evaluator = makeEvaluator('haiku');
     expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
   });
 
-  it('should use main model for sonnet evaluators when no axis override', () => {
+  it('should use models.quality for sonnet evaluators when no axis override', () => {
     const config = makeConfig({
-      llm: { model: 'claude-sonnet-4-6' },
+      models: { quality: 'claude-sonnet-4-6' },
     });
     const evaluator = makeEvaluator('sonnet');
     expect(resolveAxisModel(evaluator, config)).toBe('claude-sonnet-4-6');
   });
 
-  it('should fall back to index_model when fast_model is not set for haiku evaluators', () => {
+  it('should fall back to models.fast when no override for haiku evaluators', () => {
     const config = makeConfig();
     const evaluator = makeEvaluator('haiku');
-    // fast_model is optional, should fall back to index_model
     expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
   });
 
-  it('should prefer axis model over fast_model and main model', () => {
+  it('should prefer axis model over models.fast and models.quality', () => {
     const config = makeConfig({
-      llm: {
-        model: 'claude-sonnet-4-6',
-        fast_model: 'claude-haiku-4-5-20251001',
-        axes: { utility: { model: 'override-model' } },
-      },
+      models: { quality: 'claude-sonnet-4-6', fast: 'claude-haiku-4-5-20251001' },
+      axes: { utility: { model: 'override-model' } },
     });
     const evaluator = makeEvaluator('haiku');
     expect(resolveAxisModel(evaluator, config)).toBe('override-model');
   });
 
-  // --- Story 38.1: Gemini routing via defaultGeminiMode ---
-
-  it('AC 38.1.1: returns gemini flash_model when defaultGeminiMode is flash and gemini enabled', () => {
+  it('should route to Gemini when axis model is set to gemini-* and Google provider exists', () => {
     const config = makeConfig({
-      llm: { gemini: { enabled: true, flash_model: 'gemini-2.5-flash' } },
+      providers: { google: { mode: 'subscription' } },
+      axes: { utility: { model: 'gemini-2.5-flash' } },
     });
-    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
+    const evaluator = makeEvaluator('haiku');
     expect(resolveAxisModel(evaluator, config)).toBe('gemini-2.5-flash');
   });
 
-  it('AC 38.1.2: returns Claude model when defaultGeminiMode is undefined (correction)', () => {
+  it('should fall through gemini-* axis model when Google provider is absent', () => {
     const config = makeConfig({
-      llm: { model: 'claude-sonnet-4-6', gemini: { enabled: true } },
+      axes: { utility: { model: 'gemini-2.5-flash' } },
+    });
+    const evaluator = makeEvaluator('haiku');
+    // No providers.google → fall through to default
+    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('should return models.quality for sonnet evaluators with no override and no Gemini', () => {
+    const config = makeConfig({
+      models: { quality: 'claude-sonnet-4-6' },
     });
     const evaluator = makeEvaluator('sonnet', { id: 'correction' });
     expect(resolveAxisModel(evaluator, config)).toBe('claude-sonnet-4-6');
   });
+});
 
-  it('AC 38.1.3: explicit per-axis override takes precedence over Gemini routing', () => {
+// ---------------------------------------------------------------------------
+// Story 42.3: resolveCodeSummaryModel (replaces resolveNlpModel)
+// ---------------------------------------------------------------------------
+
+describe('resolveCodeSummaryModel', () => {
+  it('returns models.code_summary when defined', () => {
     const config = makeConfig({
-      llm: {
-        gemini: { enabled: true, flash_model: 'gemini-2.5-flash' },
-        axes: { utility: { model: 'my-custom-model' } },
-      },
+      models: { code_summary: 'gemini-2.5-flash' },
     });
-    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
-    expect(resolveAxisModel(evaluator, config)).toBe('my-custom-model');
+    expect(resolveCodeSummaryModel(config)).toBe('gemini-2.5-flash');
   });
 
-  it('returns Claude model when defaultGeminiMode is flash but gemini disabled', () => {
+  it('falls back to models.fast when code_summary is undefined', () => {
+    const config = makeConfig();
+    expect(resolveCodeSummaryModel(config)).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('uses custom fast model as fallback', () => {
     const config = makeConfig({
-      llm: { gemini: { enabled: false } },
+      models: { fast: 'custom-fast-model' },
     });
-    const evaluator = makeEvaluator('haiku', { defaultGeminiMode: 'flash' });
-    // Should fall back to Claude behavior
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveCodeSummaryModel(config)).toBe('custom-fast-model');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Story 39.1: resolveNlpModel — Gemini NLP routing
+// Story 42.3: resolveDeliberationModel (v1.0 paths)
 // ---------------------------------------------------------------------------
 
-describe('resolveNlpModel', () => {
-  it('AC 39.1.1: returns gemini nlp_model when Gemini is enabled', () => {
+describe('resolveDeliberationModel', () => {
+  it('returns agents.deliberation when defined', () => {
     const config = makeConfig({
-      llm: { gemini: { enabled: true, nlp_model: 'gemini-2.5-flash' } },
+      agents: { deliberation: 'custom-delib-model' },
     });
-    expect(resolveNlpModel(config)).toBe('gemini-2.5-flash');
+    expect(resolveDeliberationModel(config)).toBe('custom-delib-model');
   });
 
-  it('AC 39.1.2: returns index_model when Gemini is disabled', () => {
+  it('falls back to models.deliberation when agents.deliberation is undefined', () => {
     const config = makeConfig({
-      llm: { index_model: 'claude-haiku-4-5-20251001', gemini: { enabled: false } },
+      models: { deliberation: 'claude-opus-4-6' },
     });
-    expect(resolveNlpModel(config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveDeliberationModel(config)).toBe('claude-opus-4-6');
   });
 
-  it('returns index_model by default (gemini not configured)', () => {
+  it('uses default models.deliberation', () => {
     const config = makeConfig();
-    expect(resolveNlpModel(config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveDeliberationModel(config)).toBe('claude-opus-4-6');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 42.3: resolveAgentModel (new)
+// ---------------------------------------------------------------------------
+
+describe('resolveAgentModel', () => {
+  it('returns agents.scaffolding when defined for scaffolding phase', () => {
+    const config = makeConfig({
+      agents: { scaffolding: 'custom-scaffolding-model' },
+    });
+    expect(resolveAgentModel('scaffolding', config)).toBe('custom-scaffolding-model');
   });
 
-  it('uses custom nlp_model when Gemini is enabled with override', () => {
+  it('returns agents.review when defined for review phase', () => {
     const config = makeConfig({
-      llm: { gemini: { enabled: true, nlp_model: 'gemini-custom-nlp' } },
+      agents: { review: 'custom-review-model' },
     });
-    expect(resolveNlpModel(config)).toBe('gemini-custom-nlp');
+    expect(resolveAgentModel('review', config)).toBe('custom-review-model');
+  });
+
+  it('falls back to models.quality when agents.scaffolding is undefined', () => {
+    const config = makeConfig({
+      models: { quality: 'claude-sonnet-4-6' },
+    });
+    expect(resolveAgentModel('scaffolding', config)).toBe('claude-sonnet-4-6');
+  });
+
+  it('falls back to models.quality when agents.review is undefined', () => {
+    const config = makeConfig();
+    expect(resolveAgentModel('review', config)).toBe('claude-sonnet-4-6');
   });
 });
 
@@ -390,5 +423,23 @@ describe('buildProviderStats', () => {
     expect(stats.claude_quota_saved_pct).toBe(0);
     expect(stats.providers.anthropic).toEqual({ calls: 0, costUsd: 0 });
     expect(stats.providers.gemini).toEqual({ calls: 0, costUsd: 0 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 42.3: AxisEvaluator interface no longer has defaultGeminiMode
+// ---------------------------------------------------------------------------
+
+describe('AxisEvaluator interface', () => {
+  it('should not require defaultGeminiMode', () => {
+    const evaluator: AxisEvaluator = {
+      id: 'utility',
+      defaultModel: 'haiku',
+      evaluate: async () => { throw new Error('not implemented'); },
+    };
+    // Should compile and work without defaultGeminiMode
+    expect(evaluator.id).toBe('utility');
+    expect(evaluator.defaultModel).toBe('haiku');
+    expect((evaluator as unknown as Record<string, unknown>).defaultGeminiMode).toBeUndefined();
   });
 });

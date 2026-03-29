@@ -164,8 +164,6 @@ export interface AxisResult {
 export interface AxisEvaluator {
   readonly id: AxisId;
   readonly defaultModel: 'sonnet' | 'haiku';
-  /** When set to 'flash' and Gemini is enabled, this axis routes to gemini.flash_model. */
-  readonly defaultGeminiMode?: 'flash';
   evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult>;
 }
 
@@ -205,37 +203,38 @@ export function getLanguageLines(task: Task): string[] {
 
 /**
  * Resolve the effective model for an axis evaluator based on config overrides.
- * Priority: axes.[axis].model → Gemini flash (when enabled + defaultGeminiMode) → (haiku ? fast_model : model)
+ * Priority: axes.[axis].model → (haiku ? models.fast : models.quality)
+ *
+ * Gemini routing is now implicit: if the user sets `axes.utility.model: gemini-2.5-flash`
+ * in the config, the model name determines the transport (no separate defaultGeminiMode flag).
  */
 export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): string {
-  const axisConfig = config.llm.axes?.[evaluator.id];
-  // Honour per-axis override, but ignore gemini-* models when Gemini provider is disabled
+  const axisConfig = config.axes?.[evaluator.id];
+  // Honour per-axis override, but ignore gemini-* models when Google provider is absent
   if (axisConfig?.model) {
-    if (axisConfig.model.startsWith('gemini-') && !config.llm.gemini.enabled) {
-      // Fall through to default resolution — Gemini is off
+    if (axisConfig.model.startsWith('gemini-') && !config.providers.google) {
+      // Fall through to default resolution — Gemini provider not configured
     } else {
       return axisConfig.model;
     }
   }
 
-  if (evaluator.defaultGeminiMode === 'flash' && config.llm.gemini.enabled) {
-    return config.llm.gemini.flash_model;
-  }
-
   return evaluator.defaultModel === 'haiku'
-    ? (config.llm.fast_model ?? config.llm.index_model)
-    : config.llm.model;
+    ? config.models.fast
+    : config.models.quality;
 }
 
 /**
- * Resolve the model for NLP summarization during RAG indexing.
- * When Gemini is enabled, uses gemini.nlp_model; otherwise falls back to index_model (Haiku).
+ * Resolve the model for code summarization during RAG indexing.
+ * Returns `code_summary` when set (e.g. a Gemini model), falls back to `models.fast` (Haiku).
  */
+export function resolveCodeSummaryModel(config: Config): string {
+  return config.models.code_summary ?? config.models.fast;
+}
+
+/** @deprecated Alias kept for consumers not yet migrated (Story 42.4). */
 export function resolveNlpModel(config: Config): string {
-  if (config.llm.gemini.enabled) {
-    return config.llm.gemini.nlp_model;
-  }
-  return config.llm.index_model;
+  return resolveCodeSummaryModel(config);
 }
 
 /**
@@ -274,9 +273,18 @@ export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic
 
 /**
  * Resolve the model for the deliberation pass.
+ * Uses agents.deliberation override if set, otherwise falls back to models.deliberation.
  */
 export function resolveDeliberationModel(config: Config): string {
-  return config.llm.deliberation_model;
+  return config.agents.deliberation ?? config.models.deliberation;
+}
+
+/**
+ * Resolve the model for an agentic phase (scaffolding, review).
+ * Uses agents.[phase] override if set, otherwise falls back to models.quality.
+ */
+export function resolveAgentModel(phase: 'scaffolding' | 'review', config: Config): string {
+  return config.agents[phase] ?? config.models.quality;
 }
 
 // ---------------------------------------------------------------------------
