@@ -138,7 +138,7 @@ runtime:
     expect(config.providers.google).toBeUndefined();
     expect(config.models.quality).toBe('claude-sonnet-4-6');
     expect(config.models.fast).toBe('claude-haiku-4-5-20251001');
-    expect(config.providers.anthropic.concurrency).toBe(24);
+    expect(config.providers.anthropic!.concurrency).toBe(24);
     expect(config.models.code_summary).toBeUndefined();
   });
 
@@ -149,8 +149,8 @@ runtime:
     const config = loadConfig(projectRoot);
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
     expect(output).not.toContain('legacy');
-    expect(config.providers.anthropic.concurrency).toBe(24);
-    expect(config.providers.google).toBeUndefined();
+    expect(config.providers.anthropic!.concurrency).toBe(24);
+    expect(config.providers.google?.mode).toBe('subscription');
     stderrSpy.mockRestore();
   });
 
@@ -178,7 +178,7 @@ axes:
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.models.quality).toBe('claude-opus-4-6');
-    expect(config.providers.anthropic.concurrency).toBe(16);
+    expect(config.providers.anthropic!.concurrency).toBe(16);
     expect(config.providers.google?.mode).toBe('api');
     expect(config.providers.google?.concurrency).toBe(8);
     expect(config.runtime.timeout_per_file).toBe(300);

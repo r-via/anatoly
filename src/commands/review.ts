@@ -111,7 +111,7 @@ export function registerReviewCommand(program: Command): void {
           warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
         }
         const depMeta = loadDependencyMeta(projectRoot);
-        const sdkSemaphore = new Semaphore(config.providers.anthropic.concurrency);
+        const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
         const geminiSemaphore = config.providers.google
           ? new Semaphore(config.providers.google.concurrency)
           : undefined;
@@ -119,7 +119,7 @@ export function registerReviewCommand(program: Command): void {
           ? new GeminiCircuitBreaker()
           : undefined;
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
-        process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
+        process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
         const axesTotal = evaluators.length;
 
         // Pipeline display

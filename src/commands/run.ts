@@ -224,7 +224,9 @@ export function registerRunCommand(program: Command): void {
           process.exitCode = 2;
           return;
         }
-        config.providers.anthropic.concurrency = cliSdkConcurrency;
+        if (config.providers.anthropic) {
+          config.providers.anthropic.concurrency = cliSdkConcurrency;
+        }
       }
 
       const runId = cmdOpts.runId ?? generateRunId();
@@ -322,7 +324,7 @@ export function registerRunCommand(program: Command): void {
           verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
           link: config.badge.link,
         },
-        sdkSemaphore: new Semaphore(config.providers.anthropic.concurrency),
+        sdkSemaphore: new Semaphore(config.providers.anthropic?.concurrency ?? 24),
         geminiSemaphore: geminiEnabled
           ? new Semaphore(config.providers.google!.concurrency)
           : undefined,
@@ -335,7 +337,7 @@ export function registerRunCommand(program: Command): void {
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       // and gemini-cli-core Config instances that each add a model-changed listener
-      const maxConcurrency = Math.max(config.providers.anthropic.concurrency, config.providers.google?.concurrency ?? 0);
+      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 24, config.providers.google?.concurrency ?? 0);
       process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
       try {
         const { coreEvents } = await import('@google/gemini-cli-core');
@@ -801,7 +803,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     ? ctx.resolvedRagMode === 'advanced' ? 'advanced' : 'lite'
     : 'off';
   configRows.push(
-    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic.concurrency} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic.concurrency} Claude slots`}` },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );

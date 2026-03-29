@@ -69,7 +69,7 @@ export function registerWatchCommand(program: Command): void {
 
       // Warn once at startup if any requested axes are config-disabled
       const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
-      const sdkSemaphore = new Semaphore(config.providers.anthropic.concurrency);
+      const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
       const geminiSemaphore = config.providers.google
         ? new Semaphore(config.providers.google.concurrency)
         : undefined;
@@ -77,7 +77,7 @@ export function registerWatchCommand(program: Command): void {
         ? new GeminiCircuitBreaker()
         : undefined;
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
+      process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
       if (axesFilter) {
         warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
       }

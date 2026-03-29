@@ -3,7 +3,13 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { ConfigSchema, AxisConfigSchema } from './config.js';
+import {
+  ConfigSchema,
+  AxisConfigSchema,
+  AnthropicProviderConfigSchema,
+  GoogleProviderConfigSchema,
+  GenericProviderConfigSchema,
+} from './config.js';
 
 describe('ConfigSchema — v1.0 new sections', () => {
   it('should apply all defaults when given empty object', () => {
@@ -42,7 +48,7 @@ describe('ConfigSchema — v1.0 new sections', () => {
 describe('ProvidersConfigSchema', () => {
   it('should default anthropic.concurrency to 24', () => {
     const config = ConfigSchema.parse({});
-    expect(config.providers.anthropic.concurrency).toBe(24);
+    expect(config.providers.anthropic!.concurrency).toBe(24);
   });
 
   it('should default google to undefined (Gemini disabled)', () => {
@@ -77,7 +83,134 @@ describe('ProvidersConfigSchema', () => {
     const config = ConfigSchema.parse({
       providers: { anthropic: { concurrency: 16 } },
     });
-    expect(config.providers.anthropic.concurrency).toBe(16);
+    expect(config.providers.anthropic!.concurrency).toBe(16);
+  });
+});
+
+describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
+  // --- Anthropic mode ---
+  it('should default anthropic.mode to subscription', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.providers.anthropic!.mode).toBe('subscription');
+  });
+
+  it('should accept anthropic.mode = api', () => {
+    const config = ConfigSchema.parse({
+      providers: { anthropic: { mode: 'api' } },
+    });
+    expect(config.providers.anthropic!.mode).toBe('api');
+  });
+
+  it('should reject anthropic.mode = invalid', () => {
+    const result = ConfigSchema.safeParse({
+      providers: { anthropic: { mode: 'invalid' } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // --- single_turn / agents split ---
+  it('should accept anthropic single_turn and agents mode overrides', () => {
+    const config = ConfigSchema.parse({
+      providers: { anthropic: { single_turn: 'subscription', agents: 'api' } },
+    });
+    expect(config.providers.anthropic!.single_turn).toBe('subscription');
+    expect(config.providers.anthropic!.agents).toBe('api');
+  });
+
+  it('should accept google single_turn and agents mode overrides', () => {
+    const config = ConfigSchema.parse({
+      providers: { google: { single_turn: 'api', agents: 'subscription' } },
+    });
+    expect(config.providers.google!.single_turn).toBe('api');
+    expect(config.providers.google!.agents).toBe('subscription');
+  });
+
+  it('should default single_turn and agents to undefined', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.providers.anthropic!.single_turn).toBeUndefined();
+    expect(config.providers.anthropic!.agents).toBeUndefined();
+  });
+
+  // --- anthropic optional ---
+  it('should allow anthropic to be absent when google is present', () => {
+    const config = ConfigSchema.parse({
+      providers: { google: {} },
+    });
+    expect(config.providers.anthropic).toBeUndefined();
+    expect(config.providers.google).toBeDefined();
+  });
+
+  // --- at least one provider required ---
+  it('should reject empty providers object (no providers configured)', () => {
+    const result = ConfigSchema.safeParse({ providers: {} });
+    expect(result.success).toBe(false);
+  });
+
+  // --- GenericProviderConfigSchema / catchall ---
+  it('should accept a custom provider via catchall (e.g., ollama)', () => {
+    const config = ConfigSchema.parse({
+      providers: { ollama: { mode: 'api' } },
+    });
+    expect(config.providers.ollama).toBeDefined();
+    expect(config.providers.ollama!.mode).toBe('api');
+  });
+
+  it('should default custom provider concurrency to 8', () => {
+    const config = ConfigSchema.parse({
+      providers: { qwen: {} },
+    });
+    expect(config.providers.qwen!.concurrency).toBe(8);
+  });
+
+  it('should default custom provider mode to api', () => {
+    const config = ConfigSchema.parse({
+      providers: { deepseek: {} },
+    });
+    expect(config.providers.deepseek!.mode).toBe('api');
+  });
+
+  it('should accept custom provider with base_url and env_key', () => {
+    const config = ConfigSchema.parse({
+      providers: { ollama: { mode: 'api', base_url: 'http://localhost:11434', env_key: 'OLLAMA_KEY' } },
+    });
+    expect(config.providers.ollama!.base_url).toBe('http://localhost:11434');
+    expect(config.providers.ollama!.env_key).toBe('OLLAMA_KEY');
+  });
+
+  it('should accept multiple providers simultaneously', () => {
+    const config = ConfigSchema.parse({
+      providers: {
+        anthropic: { mode: 'api' },
+        google: { mode: 'api' },
+        ollama: { mode: 'api', base_url: 'http://localhost:11434' },
+      },
+    });
+    expect(config.providers.anthropic!.mode).toBe('api');
+    expect(config.providers.google!.mode).toBe('api');
+    expect(config.providers.ollama!.mode).toBe('api');
+  });
+});
+
+describe('GenericProviderConfigSchema standalone', () => {
+  it('should parse empty object with defaults', () => {
+    const result = GenericProviderConfigSchema.parse({});
+    expect(result.mode).toBe('api');
+    expect(result.concurrency).toBe(8);
+    expect(result.base_url).toBeUndefined();
+    expect(result.env_key).toBeUndefined();
+  });
+
+  it('should accept all fields', () => {
+    const result = GenericProviderConfigSchema.parse({
+      mode: 'api',
+      base_url: 'https://api.example.com',
+      env_key: 'MY_KEY',
+      concurrency: 4,
+    });
+    expect(result.mode).toBe('api');
+    expect(result.base_url).toBe('https://api.example.com');
+    expect(result.env_key).toBe('MY_KEY');
+    expect(result.concurrency).toBe(4);
   });
 });
 
@@ -228,10 +361,11 @@ describe('Legacy llm section removed (Story 42.4)', () => {
 });
 
 describe('Exported schemas', () => {
-  it('should export all v1.0 schema names', async () => {
+  it('should export all v1.0 + v2.0 schema names', async () => {
     const mod = await import('./config.js');
     expect(mod.AnthropicProviderConfigSchema).toBeDefined();
     expect(mod.GoogleProviderConfigSchema).toBeDefined();
+    expect(mod.GenericProviderConfigSchema).toBeDefined();
     expect(mod.ProvidersConfigSchema).toBeDefined();
     expect(mod.ModelsConfigSchema).toBeDefined();
     expect(mod.AgentsConfigSchema).toBeDefined();

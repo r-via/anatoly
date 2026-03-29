@@ -74,7 +74,7 @@ export function registerEstimateCommand(program: Command): void {
       }
 
       const configRows = [
-        { key: 'concurrency', value: `${concurrency} files · ${config.providers.google ? `${config.providers.anthropic.concurrency} Claude + ${config.providers.google.concurrency} Gemini slots` : `${config.providers.anthropic.concurrency} Claude slots`}` },
+        { key: 'concurrency', value: `${concurrency} files · ${config.providers.google ? `${config.providers.anthropic?.concurrency ?? 24} Claude + ${config.providers.google.concurrency} Gemini slots` : `${config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
         { key: 'rag', value: ragLabel },
         { key: 'cache', value: 'on' },
       ];

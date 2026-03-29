@@ -41,23 +41,42 @@ export const AxesConfigSchema = z.object({
   documentation: AxisConfigSchema.default({ enabled: true }),
 });
 
-// --- v1.0 Providers ---
+// --- v2.0 Providers ---
 
-export const AnthropicProviderConfigSchema = z.object({
+/** Accepted provider transport modes. */
+const ProviderModeSchema = z.enum(['subscription', 'api']);
+
+/** Base fields shared by all provider configs. */
+export const GenericProviderConfigSchema = z.object({
+  mode: ProviderModeSchema.default('api'),
+  concurrency: z.int().min(1).max(32).default(8),
+  /** Override transport mode for single-turn (axis) calls. Takes precedence over `mode`. */
+  single_turn: ProviderModeSchema.optional(),
+  /** Override transport mode for agentic calls. Takes precedence over `mode`. */
+  agents: ProviderModeSchema.optional(),
+  /** Base URL for OpenAI-compatible providers. Known providers have defaults via the registry. */
+  base_url: z.string().optional(),
+  /** Environment variable name holding the API key. Known providers have defaults. */
+  env_key: z.string().optional(),
+});
+
+export const AnthropicProviderConfigSchema = GenericProviderConfigSchema.extend({
+  mode: ProviderModeSchema.default('subscription'),
   concurrency: z.int().min(1).max(32).default(24),
 });
 
-export const GoogleProviderConfigSchema = z.object({
-  /** Transport backend: `subscription` uses Google OAuth via gemini-cli-core,
-   *  `api` uses the @google/genai SDK with an API key (GEMINI_API_KEY). */
-  mode: z.enum(['subscription', 'api']).default('subscription'),
+export const GoogleProviderConfigSchema = GenericProviderConfigSchema.extend({
+  mode: ProviderModeSchema.default('subscription'),
   concurrency: z.int().min(1).max(32).default(10),
 });
 
 export const ProvidersConfigSchema = z.object({
-  anthropic: AnthropicProviderConfigSchema.default({ concurrency: 24 }),
+  anthropic: AnthropicProviderConfigSchema.optional(),
   google: GoogleProviderConfigSchema.optional(),
-});
+}).catchall(GenericProviderConfigSchema).refine(
+  (data) => Object.keys(data).length > 0,
+  'At least one provider must be configured',
+);
 
 // --- v1.0 Models ---
 
@@ -136,8 +155,8 @@ export const ConfigSchema = z.object({
     command: 'npx vitest run --coverage.reporter=json',
     report_path: 'coverage/coverage-final.json',
   }),
-  // v1.0 sections
-  providers: ProvidersConfigSchema.default({ anthropic: { concurrency: 24 } }),
+  // v2.0 sections
+  providers: ProvidersConfigSchema.default({ anthropic: { mode: 'subscription', concurrency: 24 } }),
   models: ModelsConfigSchema.default({
     quality: 'claude-sonnet-4-6',
     fast: 'claude-haiku-4-5-20251001',
@@ -175,6 +194,7 @@ export const ConfigSchema = z.object({
 // --- Exported types ---
 
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;
+export type GenericProviderConfig = z.infer<typeof GenericProviderConfigSchema>;
 export type AnthropicProviderConfig = z.infer<typeof AnthropicProviderConfigSchema>;
 export type GoogleProviderConfig = z.infer<typeof GoogleProviderConfigSchema>;
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;

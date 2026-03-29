@@ -166,7 +166,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     }
   }
 
-  const semaphore = new Semaphore(config.providers.anthropic.concurrency);
+  const semaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
   const geminiSemaphore = geminiEnabled
     ? new Semaphore(config.providers.google!.concurrency)
     : undefined;
