@@ -245,7 +245,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         error: `Budget exceeded ($${totalCostUsd.toFixed(2)} >= $${ctx.budgetUsd})`,
       };
       shardResults.push(skipped);
-      ctx.onShardDone?.(shardResults.length, shards.length, skipped);
+      ctx.onShardDone?.(shardResults.length, filteredShards.length, skipped);
       continue;
     }
 
@@ -288,7 +288,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         error: err instanceof Error ? err.message : String(err),
       };
       shardResults.push(failed);
-      ctx.onShardDone?.(shardResults.length, shards.length, failed);
+      ctx.onShardDone?.(shardResults.length, filteredShards.length, failed);
     }
   }
 

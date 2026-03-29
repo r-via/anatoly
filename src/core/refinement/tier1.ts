@@ -2,6 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
 import type { UsageGraph } from '../usage-graph.js';
 import type { PreResolvedRag } from '../axis-evaluator.js';
@@ -16,8 +18,10 @@ export interface Tier1Context {
   usageGraph: UsageGraph;
   /** Pre-resolved RAG results keyed by file path. */
   preResolvedRag: Map<string, PreResolvedRag>;
-  /** File contents keyed by project-relative path (for JSDoc detection). */
+  /** File contents keyed by project-relative path (for JSDoc detection). Loaded lazily if empty. */
   fileContents: Map<string, string>;
+  /** Project root for lazy file loading. */
+  projectRoot?: string;
 }
 
 export interface Tier1Stats {
@@ -86,32 +90,53 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
     }
 
     // --- Utility: DEAD → USED ---
-    if (s.utility === 'DEAD' && s.exported) {
-      const runtimeImporters = getSymbolUsage(ctx.usageGraph, s.name, review.file);
-      if (runtimeImporters.length > 0) {
-        s.utility = 'USED';
-        s.confidence = 95;
-        s.detail = `Auto-resolved: runtime-imported by ${runtimeImporters.length} files`;
-        stats.resolved++;
-        stats.breakdown.deadToUsed++;
-      } else {
-        const typeOnlyImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
-        if (typeOnlyImporters.length > 0) {
+    if (s.utility === 'DEAD') {
+      let resolved = false;
+
+      if (s.exported) {
+        const runtimeImporters = getSymbolUsage(ctx.usageGraph, s.name, review.file);
+        if (runtimeImporters.length > 0) {
           s.utility = 'USED';
           s.confidence = 95;
-          s.detail = `Auto-resolved: type-only imported by ${typeOnlyImporters.length} files`;
-          stats.resolved++;
-          stats.breakdown.deadToUsed++;
+          s.detail = `Auto-resolved: runtime-imported by ${runtimeImporters.length} files`;
+          resolved = true;
         } else {
-          const transitiveRefs = getTransitiveUsage(ctx.usageGraph, s.name, review.file);
-          if (transitiveRefs.length > 0) {
+          const typeOnlyImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
+          if (typeOnlyImporters.length > 0) {
             s.utility = 'USED';
             s.confidence = 95;
-            s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
-            stats.resolved++;
-            stats.breakdown.deadToUsed++;
+            s.detail = `Auto-resolved: type-only imported by ${typeOnlyImporters.length} files`;
+            resolved = true;
           }
         }
+      }
+
+      if (!resolved) {
+        // Check transitive usage (works for both exported and non-exported)
+        const transitiveRefs = getTransitiveUsage(ctx.usageGraph, s.name, review.file);
+        if (transitiveRefs.length > 0) {
+          s.utility = 'USED';
+          s.confidence = 95;
+          s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
+          resolved = true;
+        }
+      }
+
+      if (!resolved && !s.exported) {
+        // Non-exported: check intra-file references
+        const key = `${review.file}::${s.name}`;
+        const intraRefs = ctx.usageGraph.intraFileRefs.get(key);
+        if (intraRefs && intraRefs.size > 0) {
+          s.utility = 'USED';
+          s.confidence = 95;
+          s.detail = `Auto-resolved: referenced by ${[...intraRefs].join(', ')} in same file`;
+          resolved = true;
+        }
+      }
+
+      if (resolved) {
+        stats.resolved++;
+        stats.breakdown.deadToUsed++;
       }
     }
 
@@ -161,7 +186,14 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
     // --- Documentation: UNDOCUMENTED → DOCUMENTED ---
     if (s.documentation === 'UNDOCUMENTED' && s.exported) {
-      const content = ctx.fileContents.get(review.file);
+      // Lazy-load file content if not pre-populated
+      let content = ctx.fileContents.get(review.file);
+      if (!content && ctx.projectRoot) {
+        try {
+          content = readFileSync(resolve(ctx.projectRoot, review.file), 'utf-8');
+          ctx.fileContents.set(review.file, content);
+        } catch { /* file may have been deleted */ }
+      }
 
       if (content) {
         // Check for JSDoc block before the symbol's line
@@ -222,6 +254,13 @@ function hasJsDocBefore(content: string, symbolLineStart: number): boolean {
     if (line.startsWith('/**')) {
       inBlock = true;
       blockContent = line;
+      // Handle single-line JSDoc: /** @deprecated Use foo instead. */
+      if (line.includes('*/')) {
+        if (blockContent.length > JSDOC_MIN_LENGTH) return true;
+        inBlock = false;
+        blockContent = '';
+        continue;
+      }
     } else if (inBlock) {
       blockContent += line;
       if (line.includes('*/')) {

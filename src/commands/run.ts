@@ -459,7 +459,7 @@ export function registerRunCommand(program: Command): void {
               usageGraph: setup.usageGraph,
               fileContents: new Map(), // Tier 1 reads files on demand
               preResolvedRag: new Map(), // RAG results are per-file, not cached globally
-              abortController: new AbortController(),
+              abortController: (() => { const ac = new AbortController(); ctx.activeAborts.add(ac); return ac; })(),
               deliberation: ctx.deliberation,
               plain: ctx.plain,
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),

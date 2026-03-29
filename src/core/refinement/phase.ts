@@ -93,6 +93,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     usageGraph: ctx.usageGraph ?? { usages: new Map(), typeOnlyUsages: new Map(), intraFileRefs: new Map(), noImportFiles: new Set() },
     preResolvedRag: ctx.preResolvedRag,
     fileContents: ctx.fileContents,
+    projectRoot: ctx.projectRoot,
   };
 
   const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } };

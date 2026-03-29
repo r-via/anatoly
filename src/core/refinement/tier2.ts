@@ -97,12 +97,13 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
         s.detail = `Moot — symbol is DEAD | ${s.detail}`;
         stats.resolved++;
       }
-      if (s.overengineering === 'OVER' || s.overengineering === 'ACCEPTABLE') {
+      if (s.overengineering === 'OVER') {
         s.overengineering = '-';
         stats.resolved++;
       }
       if (s.duplication === 'DUPLICATE') {
         s.duplication = '-';
+        s.duplicate_target = undefined;
         stats.resolved++;
       }
       if (s.tests === 'WEAK' || s.tests === 'NONE') {
@@ -118,7 +119,7 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
 
     // --- Coherence: LOW_VALUE + OVER/UNDOCUMENTED → moot ---
     if (s.utility === 'LOW_VALUE') {
-      if (s.overengineering === 'OVER' || s.overengineering === 'ACCEPTABLE') {
+      if (s.overengineering === 'OVER') {
         s.overengineering = '-';
         stats.resolved++;
       }

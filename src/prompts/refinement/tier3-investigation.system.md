@@ -8,9 +8,8 @@ You receive a list of escalated findings (claims from automated axes evaluators)
 
 1. **Read the source files**: Use the Read tool to inspect the actual code for each finding. If you cannot access a file, do NOT guess its contents.
 2. **Grep for evidence**: Search for usages, imports, and references to verify claims about dead code, duplicates, or unused variables.
-3. **Run commands with Bash**: Execute shell commands to check runtime values, inspect build output, run type checks, or verify configurations. Use Bash for anything Read/Grep cannot answer (e.g., `cat package.json | jq .version`, `git log --oneline -5`, `node -e "..."`)
-4. **Check configs and runtime values**: Read configuration files, environment files, and package.json when findings involve constants, defaults, or library behavior.
-5. **Use WebFetch sparingly**: Only to verify library API claims or version-specific behavior.
+3. **Check configs and runtime values**: Read configuration files, environment files, and package.json when findings involve constants, defaults, or library behavior.
+4. **Use Glob**: Find related files by pattern when you need to verify project structure or file existence.
 
 ## Verification Principles
 
