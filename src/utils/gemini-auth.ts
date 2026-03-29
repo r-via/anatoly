@@ -8,6 +8,7 @@ import {
   getAuthTypeFromEnv,
   createSessionId,
 } from '@google/gemini-cli-core';
+import { stripPrefix } from '../core/transports/index.js';
 
 /**
  * Attempts to initialize Gemini auth credentials.
@@ -29,8 +30,7 @@ export async function checkGeminiAuth(
   console.warn = () => {};
 
   try {
-    // Strip provider prefix if present (e.g. "google/gemini-2.5-flash" → "gemini-2.5-flash")
-    const bareModel = model.includes('/') ? model.split('/').slice(1).join('/') : model;
+    const bareModel = stripPrefix(model);
     const config = new Config({
       sessionId: createSessionId(),
       targetDir: projectRoot,

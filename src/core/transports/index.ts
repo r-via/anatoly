@@ -59,6 +59,7 @@ export function extractProvider(modelId: string): string {
   }
   if (modelId.startsWith('claude-')) return 'anthropic';
   if (modelId.startsWith('gemini-')) return 'google';
+  if (modelId.startsWith('gpt-')) return 'openai';
   return 'anthropic';
 }
 

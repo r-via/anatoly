@@ -11,7 +11,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import { extractProvider, type LlmTransport } from '../core/transports/index.js';
+import { extractProvider, stripPrefix, type LlmTransport } from '../core/transports/index.js';
 import { coreEvents } from '@google/gemini-cli-core';
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ export function formatProvidersTable(results: ProviderCheckResult[]): string {
 
 async function checkAnthropic(model: string, projectRoot: string, signal?: AbortSignal): Promise<ProviderCheckResult> {
   // Strip provider prefix for native SDK (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6")
-  const bareModel = model.includes('/') ? model.split('/').slice(1).join('/') : model;
+  const bareModel = stripPrefix(model);
   const start = Date.now();
   const ac = new AbortController();
   // Abort on either local timeout or external signal

@@ -367,7 +367,7 @@ export async function runSingleTurnQuery<T>(
     return result;
   } catch (err) {
     // Record failure for Gemini calls (based on original model, not effective model after redirect)
-    if (isGeminiModel && circuitBreaker) {
+    if (isGemini && circuitBreaker) {
       circuitBreaker.recordFailure();
       if (circuitBreaker.consumeWarning()) {
         contextLogger().warn(
