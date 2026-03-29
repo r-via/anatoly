@@ -18,7 +18,7 @@ import { buildShards, runTier3, type Tier3Context, type Tier3Result } from './ti
 export type ProgressEvent =
   | 'tier1-start' | 'tier1-done'
   | 'tier2-start' | 'tier2-done'
-  | 'tier3-start' | 'tier3-done';
+  | 'tier3-start' | 'tier3-shard' | 'tier3-done';
 
 export interface RefinementContext {
   projectRoot: string;
@@ -151,6 +151,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
 
   let tier3Stats = { investigated: 0, confirmed: 0, reclassified: 0 };
   let tier3CostUsd = 0;
+  let tier3DurationMs = 0;
   const finalReviews = new Map(tier2Reviews.map((r) => [r.file, r]));
 
   if (allEscalated.length > 0 && ctx.queryFn) {
@@ -158,12 +159,17 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
 
     const tier3Ctx: Tier3Context = {
       projectRoot: ctx.projectRoot,
+      runDir: ctx.runDir,
       model: ctx.config.llm.deliberation_model,
       abortController: ctx.abortController,
       reviewsByFile: finalReviews,
       budgetUsd: 30,
       queryFn: ctx.queryFn,
       recordFn: ctx.recordFn,
+      onShardDone: (idx, total, result) => {
+        const status = result.status === 'ok' ? `${result.confirmed} confirmed, ${result.reclassified} reclassified` : result.status;
+        ctx.onProgress?.('tier3-shard', `shard ${idx}/${total} ${result.module} — ${status} (${(result.durationMs / 1000).toFixed(1)}s)`);
+      },
     };
 
     const tier3Result = await runTier3(shards, tier3Ctx);
@@ -173,6 +179,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
       reclassified: tier3Result.reclassified,
     };
     tier3CostUsd = tier3Result.totalCostUsd;
+    tier3DurationMs = tier3Result.totalDurationMs;
 
     // Merge tier 3 updated reviews back
     for (const [file, updated] of tier3Result.updatedReviews) {
@@ -183,8 +190,8 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   const t3Parts = [`${tier3Stats.investigated} investigated`];
   if (tier3Stats.confirmed) t3Parts.push(`${tier3Stats.confirmed} confirmed`);
   if (tier3Stats.reclassified) t3Parts.push(`${tier3Stats.reclassified} reclassified`);
-  if (tier3CostUsd > 0) t3Parts.push(`$${tier3CostUsd.toFixed(2)}`);
-  ctx.onProgress?.('tier3-done', t3Parts.join(', '));
+  const t3Suffix = tier3DurationMs > 0 ? ` (${(tier3DurationMs / 1000).toFixed(1)}s)` : '';
+  ctx.onProgress?.('tier3-done', t3Parts.join(', ') + t3Suffix);
 
   // --- Write refined ReviewFiles back to disk ---
   for (const review of finalReviews.values()) {

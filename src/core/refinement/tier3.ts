@@ -2,7 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import type { ReviewFile } from '../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
 import {
@@ -24,9 +25,24 @@ export interface Shard {
   findings: EscalatedFinding[];
 }
 
+/** Cache entry for a single investigated finding. */
+export interface InvestigatedFindingCache {
+  original: Record<string, string | number>;
+  deliberated: Record<string, string | number>;
+  reasoning: string;
+  timestamp: string;
+}
+
+/** Persistent cache for tier 3 investigation progress. */
+export interface RefinementCache {
+  investigated: Record<string, InvestigatedFindingCache>;
+}
+
 export interface Tier3Context {
   /** Absolute project root path. */
   projectRoot: string;
+  /** Run directory for cache persistence. */
+  runDir?: string;
   /** Model to use for investigation (default: claude-opus-4-6). */
   model: string;
   /** Abort controller for cancellation. */
@@ -39,6 +55,8 @@ export interface Tier3Context {
   queryFn: (params: QueryParams) => Promise<QueryResult>;
   /** Injectable record function for testability. Default: recordReclassification. */
   recordFn?: (projectRoot: string, entry: Omit<ReclassificationEntry, 'recorded_at'>) => void;
+  /** Progress callback fired after each shard completes. */
+  onShardDone?: (shardIndex: number, totalShards: number, result: ShardResult) => void;
 }
 
 export interface QueryParams {
@@ -81,6 +99,36 @@ export interface Tier3Result {
   shardResults: ShardResult[];
   /** ReviewFiles updated by tier 3 investigation. */
   updatedReviews: Map<string, ReviewFile>;
+}
+
+// ---------------------------------------------------------------------------
+// Refinement cache I/O
+// ---------------------------------------------------------------------------
+
+function findingCacheKey(file: string, symbol: string, axis: string): string {
+  return `${file}::${symbol}::${axis}`;
+}
+
+function cachePath(runDir: string): string {
+  return join(runDir, 'refinement-cache.json');
+}
+
+export function loadRefinementCache(runDir: string): RefinementCache {
+  try {
+    const raw = readFileSync(cachePath(runDir), 'utf-8');
+    return JSON.parse(raw) as RefinementCache;
+  } catch {
+    return { investigated: {} };
+  }
+}
+
+function saveRefinementCache(runDir: string, cache: RefinementCache): void {
+  try {
+    mkdirSync(dirname(cachePath(runDir)), { recursive: true });
+    writeFileSync(cachePath(runDir), JSON.stringify(cache, null, 2) + '\n');
+  } catch {
+    // non-critical
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,11 +196,45 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   let totalDurationMs = 0;
   let budgetExceeded = false;
 
+  // Load refinement cache — skip findings already investigated in a previous run/attempt
+  const cache = ctx.runDir ? loadRefinementCache(ctx.runDir) : { investigated: {} };
+  let cacheHits = 0;
+
+  // Filter already-cached findings from shards and apply cached results
+  const filteredShards: Shard[] = [];
   for (const shard of shards) {
+    const uncached: EscalatedFinding[] = [];
+    for (const f of shard.findings) {
+      const key = findingCacheKey(f.file, f.symbolName, f.axis);
+      const cached = cache.investigated[key];
+      if (cached) {
+        cacheHits++;
+        // Apply cached deliberation to the review
+        const review = updatedReviews.get(f.file) ?? ctx.reviewsByFile.get(f.file);
+        if (review) {
+          const sym = review.symbols.find(s => s.name === f.symbolName);
+          if (sym && f.axis in cached.deliberated) {
+            (sym as Record<string, unknown>)[f.axis] = cached.deliberated[f.axis];
+            if (typeof cached.deliberated.confidence === 'number') {
+              sym.confidence = cached.deliberated.confidence as number;
+            }
+            updatedReviews.set(f.file, { ...review });
+          }
+        }
+      } else {
+        uncached.push(f);
+      }
+    }
+    if (uncached.length > 0) {
+      filteredShards.push({ module: shard.module, findings: uncached });
+    }
+  }
+
+  for (const shard of filteredShards) {
     // Budget check before starting shard
     if (totalCostUsd >= ctx.budgetUsd) {
       budgetExceeded = true;
-      shardResults.push({
+      const skipped: ShardResult = {
         module: shard.module,
         status: 'skipped',
         investigated: 0,
@@ -161,7 +243,9 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         costUsd: 0,
         durationMs: 0,
         error: `Budget exceeded ($${totalCostUsd.toFixed(2)} >= $${ctx.budgetUsd})`,
-      });
+      };
+      shardResults.push(skipped);
+      ctx.onShardDone?.(shardResults.length, shards.length, skipped);
       continue;
     }
 
@@ -170,8 +254,30 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
       totalCostUsd += result.costUsd;
       totalDurationMs += result.durationMs;
       shardResults.push(result);
+      ctx.onShardDone?.(shardResults.length, filteredShards.length, result);
+
+      // Persist each investigated finding to cache immediately
+      if (ctx.runDir && result.deliberation) {
+        for (const sym of result.deliberation.symbols) {
+          for (const axis of DELIBERATION_AXES) {
+            const orig = sym.original[axis];
+            if (!orig || orig === '-') continue;
+            // Find the matching escalated finding to get the file path
+            const finding = shard.findings.find(f => f.symbolName === sym.name && f.axis === axis);
+            if (!finding) continue;
+            const key = findingCacheKey(finding.file, sym.name, axis);
+            cache.investigated[key] = {
+              original: sym.original as Record<string, string | number>,
+              deliberated: sym.deliberated as Record<string, string | number>,
+              reasoning: sym.reasoning,
+              timestamp: new Date().toISOString(),
+            };
+          }
+        }
+        saveRefinementCache(ctx.runDir, cache);
+      }
     } catch (err) {
-      shardResults.push({
+      const failed: ShardResult = {
         module: shard.module,
         status: 'failed',
         investigated: 0,
@@ -180,7 +286,9 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         costUsd: 0,
         durationMs: 0,
         error: err instanceof Error ? err.message : String(err),
-      });
+      };
+      shardResults.push(failed);
+      ctx.onShardDone?.(shardResults.length, shards.length, failed);
     }
   }
 
@@ -221,7 +329,7 @@ async function investigateShard(
   shard: Shard,
   ctx: Tier3Context,
   updatedReviews: Map<string, ReviewFile>,
-): Promise<ShardResult> {
+): Promise<ShardResult & { deliberation?: DeliberationResponse }> {
   const systemPrompt = buildTier3SystemPrompt();
   const userMessage = buildTier3UserMessage(shard, ctx.reviewsByFile);
 
@@ -309,6 +417,7 @@ async function investigateShard(
     reclassified: reclassifiedCount,
     costUsd: queryResult.costUsd,
     durationMs: queryResult.durationMs,
+    deliberation,
   };
 }
 

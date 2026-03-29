@@ -578,11 +578,17 @@ export function registerRunCommand(program: Command): void {
                     state.updateTask('refinement', `Tier 2 done (${detail})`);
                     state.relabelTask('refinement', 'Tier 3 — investigation');
                     break;
+                  case 'tier3-shard':
+                    state.updateTask('refinement', `Tier 3 — ${detail}`);
+                    break;
                   case 'tier3-done':
                     state.completeTask('refinement', `Done — ${detail}`);
                     break;
                 }
                 // Plain mode sequential logging
+                if (ctx.plain && event === 'tier3-shard') {
+                  console.log(`[refinement]   ${detail}`);
+                }
                 if (ctx.plain && event.endsWith('-done')) {
                   const tier = event.replace('-done', '');
                   console.log(`[refinement] \u2714 ${tier} — ${detail}`);
@@ -1801,7 +1807,7 @@ async function runReviewPhase(
           const verdict = result.review.verdict;
           const dur = (result.durationMs / 1000).toFixed(1);
           const note = findings > 0 ? ` | ${findings} findings` : '';
-          ctx.renderer?.logPlain(`[review] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
+          ctx.renderer?.logPlain(`[review] [${completedCount}/${evaluateTotal}] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
         }
       } catch (error) {
         if (ctx.interrupted) return;
