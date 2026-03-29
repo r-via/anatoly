@@ -120,6 +120,100 @@ export function migrateConfigV0toV1(raw: Record<string, any>): Record<string, an
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
+ * Add a provider prefix to a bare model name based on inference rules.
+ * Already-prefixed names (containing `/`) are returned unchanged.
+ *
+ * - `claude-*` → `anthropic/claude-*`
+ * - `gemini-*` → `google/gemini-*`
+ * - unknown   → unchanged (left bare)
+ */
+function prefixModel(name: string): string {
+  if (name.includes('/')) return name;
+  if (name.startsWith('claude')) return `anthropic/${name}`;
+  if (name.startsWith('gemini-')) return `google/${name}`;
+  return name;
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Detect whether a raw config object is v1 format: has `models` section with
+ * at least one bare (un-prefixed) model name.
+ */
+function isV1Config(obj: Record<string, any>): boolean {
+  const models = obj.models as Record<string, any> | undefined;
+  if (!models || typeof models !== 'object') return false;
+  for (const value of Object.values(models)) {
+    if (typeof value === 'string' && !value.includes('/')) return true;
+  }
+  // Also check axes.*.model and agents.* string values
+  const axes = obj.axes as Record<string, any> | undefined;
+  if (axes && typeof axes === 'object') {
+    for (const axis of Object.values(axes)) {
+      if (axis && typeof axis === 'object' && typeof (axis as any).model === 'string' && !(axis as any).model.includes('/')) {
+        return true;
+      }
+    }
+  }
+  const agents = obj.agents as Record<string, any> | undefined;
+  if (agents && typeof agents === 'object') {
+    for (const [key, value] of Object.entries(agents)) {
+      if (key !== 'enabled' && typeof value === 'string' && !value.includes('/')) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Migrate a v1 config (bare model names) to v2 format (prefixed model names).
+ *
+ * Applies `prefixModel()` to all model name strings in:
+ * - `models.*`
+ * - `axes.*.model`
+ * - `agents.*` (string values only, excluding `enabled`)
+ *
+ * If no migration is needed (no bare model names found), returns the input unchanged.
+ */
+export function migrateConfigV1toV2(raw: Record<string, any>): Record<string, any> {
+  const result = { ...raw };
+
+  // Prefix models.*
+  if (result.models && typeof result.models === 'object') {
+    const models = { ...result.models };
+    for (const [key, value] of Object.entries(models)) {
+      if (typeof value === 'string') {
+        models[key] = prefixModel(value);
+      }
+    }
+    result.models = models;
+  }
+
+  // Prefix axes.*.model
+  if (result.axes && typeof result.axes === 'object') {
+    const axes = { ...result.axes };
+    for (const [axisKey, axisValue] of Object.entries(axes)) {
+      if (axisValue && typeof axisValue === 'object' && typeof (axisValue as any).model === 'string') {
+        axes[axisKey] = { ...(axisValue as any), model: prefixModel((axisValue as any).model) };
+      }
+    }
+    result.axes = axes;
+  }
+
+  // Prefix agents.* string values (skip boolean `enabled`)
+  if (result.agents && typeof result.agents === 'object') {
+    const agents = { ...result.agents };
+    for (const [key, value] of Object.entries(agents)) {
+      if (typeof value === 'string') {
+        agents[key] = prefixModel(value);
+      }
+    }
+    result.agents = agents;
+  }
+
+  return result;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
  * Load Anatoly configuration from `.anatoly.yml` in the given directory.
  * Falls back to sensible defaults if no config file exists.
  * Throws AnatolyError CONFIG_INVALID for malformed YAML or invalid config.
@@ -173,6 +267,16 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
       '  Legacy format supported until v2.0.\n\n',
     );
     configObj = migrateConfigV0toV1(configObj);
+  }
+
+  // Migrate v1 config (bare model names) to v2 (prefixed)
+  if (isV1Config(configObj as Record<string, any>)) {
+    process.stderr.write(
+      '\n⚠ .anatoly.yml uses bare model names (v1 format).\n' +
+      '  Run `anatoly migrate-config` to add provider prefixes.\n' +
+      '  Bare model names supported until v3.0.\n\n',
+    );
+    configObj = migrateConfigV1toV2(configObj as Record<string, any>);
   }
 
   const result = ConfigSchema.safeParse(configObj);

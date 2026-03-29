@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
-import { TransportRouter } from './index.js';
+import { TransportRouter, extractProvider } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Stub transports for testing
@@ -164,5 +164,36 @@ describe('TransportRouter', () => {
     const router = new TransportRouter([transport]);
 
     expect(router.resolve('any-model')).toBe(transport);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractProvider — Story 43.3
+// ---------------------------------------------------------------------------
+
+describe('extractProvider', () => {
+  it('should extract provider from prefixed model id', () => {
+    expect(extractProvider('anthropic/claude-sonnet-4-6')).toBe('anthropic');
+    expect(extractProvider('google/gemini-2.5-flash')).toBe('google');
+    expect(extractProvider('openai/gpt-4o')).toBe('openai');
+    expect(extractProvider('groq/llama-3-70b')).toBe('groq');
+  });
+
+  it('should infer anthropic from claude-* bare names', () => {
+    expect(extractProvider('claude-sonnet-4-6')).toBe('anthropic');
+    expect(extractProvider('claude-opus-4-6')).toBe('anthropic');
+    expect(extractProvider('claude-haiku-4-5-20251001')).toBe('anthropic');
+    expect(extractProvider('claude-opus-4-20250514')).toBe('anthropic');
+  });
+
+  it('should infer google from gemini-* bare names', () => {
+    expect(extractProvider('gemini-2.5-flash')).toBe('google');
+    expect(extractProvider('gemini-2.5-flash-lite')).toBe('google');
+    expect(extractProvider('gemini-3-flash-preview')).toBe('google');
+  });
+
+  it('should return anthropic as default for unknown bare names', () => {
+    expect(extractProvider('some-unknown-model')).toBe('anthropic');
+    expect(extractProvider('llama-3-70b')).toBe('anthropic');
   });
 });

@@ -46,6 +46,23 @@ export interface LlmTransport {
 }
 
 /**
+ * Extract the provider id from a model identifier.
+ *
+ * - Prefixed: `"anthropic/claude-sonnet-4-6"` → `"anthropic"`
+ * - Bare `claude-*` → `"anthropic"`
+ * - Bare `gemini-*` → `"google"`
+ * - Unknown bare name → `"anthropic"` (default fallback)
+ */
+export function extractProvider(modelId: string): string {
+  if (modelId.includes('/')) {
+    return modelId.split('/')[0];
+  }
+  if (modelId.startsWith('claude')) return 'anthropic';
+  if (modelId.startsWith('gemini-')) return 'google';
+  return 'anthropic';
+}
+
+/**
  * Routes a model name to the first matching transport.
  */
 export class TransportRouter {
