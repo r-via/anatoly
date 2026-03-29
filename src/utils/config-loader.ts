@@ -129,8 +129,9 @@ export function migrateConfigV0toV1(raw: Record<string, any>): Record<string, an
  */
 function prefixModel(name: string): string {
   if (name.includes('/')) return name;
-  if (name.startsWith('claude')) return `anthropic/${name}`;
+  if (name.startsWith('claude-')) return `anthropic/${name}`;
   if (name.startsWith('gemini-')) return `google/${name}`;
+  if (name.startsWith('gpt-')) return `openai/${name}`;
   return name;
 }
 
@@ -263,7 +264,7 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
   if (isLegacyConfig(configObj)) {
     process.stderr.write(
       '\n⚠ .anatoly.yml uses the legacy `llm` section (pre-v1.0).\n' +
-      '  Run `anatoly migrate-config` to update your config file.\n' +
+      '  Update your config to use `providers`, `models`, `axes` sections.\n' +
       '  Legacy format supported until v2.0.\n\n',
     );
     configObj = migrateConfigV0toV1(configObj);
@@ -273,7 +274,7 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
   if (isV1Config(configObj as Record<string, any>)) {
     process.stderr.write(
       '\n⚠ .anatoly.yml uses bare model names (v1 format).\n' +
-      '  Run `anatoly migrate-config` to add provider prefixes.\n' +
+      '  Add provider prefixes (e.g. google/gemini-2.5-flash, anthropic/claude-sonnet-4-6).\n' +
       '  Bare model names supported until v3.0.\n\n',
     );
     configObj = migrateConfigV1toV2(configObj as Record<string, any>);

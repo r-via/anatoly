@@ -81,9 +81,9 @@ export const ProvidersConfigSchema = z.object({
 // --- v1.0 Models ---
 
 export const ModelsConfigSchema = z.object({
-  quality: z.string().default('claude-sonnet-4-6'),
-  fast: z.string().default('claude-haiku-4-5-20251001'),
-  deliberation: z.string().default('claude-opus-4-6'),
+  quality: z.string().default('anthropic/claude-sonnet-4-6'),
+  fast: z.string().default('anthropic/claude-haiku-4-5-20251001'),
+  deliberation: z.string().default('anthropic/claude-opus-4-6'),
   code_summary: z.string().optional(),
 });
 
@@ -162,9 +162,9 @@ export const ConfigSchema = z.object({
   // v2.0 sections
   providers: ProvidersConfigSchema.default({ anthropic: { mode: 'subscription', concurrency: 24 } }),
   models: ModelsConfigSchema.default({
-    quality: 'claude-sonnet-4-6',
-    fast: 'claude-haiku-4-5-20251001',
-    deliberation: 'claude-opus-4-6',
+    quality: 'anthropic/claude-sonnet-4-6',
+    fast: 'anthropic/claude-haiku-4-5-20251001',
+    deliberation: 'anthropic/claude-opus-4-6',
   }),
   agents: AgentsConfigSchema.default({ enabled: true }),
   runtime: RuntimeConfigSchema.default({

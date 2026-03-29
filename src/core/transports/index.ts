@@ -57,7 +57,7 @@ export function extractProvider(modelId: string): string {
   if (modelId.includes('/')) {
     return modelId.split('/')[0];
   }
-  if (modelId.startsWith('claude')) return 'anthropic';
+  if (modelId.startsWith('claude-')) return 'anthropic';
   if (modelId.startsWith('gemini-')) return 'google';
   return 'anthropic';
 }
@@ -120,13 +120,15 @@ export class TransportRouter {
       effectiveMode = providerConfig.agents;
     }
 
-    // subscription → native transport if available, otherwise vercel-sdk
+    // subscription → native transport if available
     if (effectiveMode === 'subscription') {
       const native = this.nativeTransports[providerId];
       if (native) return native;
+      // No native transport for subscription mode — warn and fall through to API
+      process.stderr.write(`⚠ ${providerId}: subscription mode requested but no native transport — falling back to API billing\n`);
     }
 
-    // api or no native transport → vercel-sdk
+    // api or fallback → vercel-sdk
     return this.vercelSdkTransport;
   }
 }

@@ -107,7 +107,8 @@ export class VercelSdkTransport implements LlmTransport {
       const text = result.text ?? '';
       const inputTokens = result.usage?.inputTokens ?? 0;
       const outputTokens = result.usage?.outputTokens ?? 0;
-      const cacheReadTokens = (result.usage as Record<string, unknown>)?.cachedInputTokens as number ?? 0;
+      const rawCached = (result.usage as Record<string, unknown>)?.cachedInputTokens;
+      const cacheReadTokens = typeof rawCached === 'number' ? rawCached : 0;
       const durationMs = Date.now() - start;
       const costUsd = calculateCost(modelId, inputTokens, outputTokens);
 

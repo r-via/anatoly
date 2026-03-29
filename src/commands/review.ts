@@ -126,8 +126,16 @@ export function registerReviewCommand(program: Command): void {
         for (const [id, prov] of Object.entries(config.providers)) {
           if (prov) _provModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
         }
+        const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
+          anthropic: new AnthropicTransport(),
+        };
+        if (config.providers.google) {
+          const { GeminiTransport } = await import('../core/transports/gemini-transport.js');
+          const gemModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+          _nativeTransports.google = new GeminiTransport(projectRoot, gemModel);
+        }
         const reviewRouter = new TransportRouter({
-          nativeTransports: { anthropic: new AnthropicTransport() },
+          nativeTransports: _nativeTransports,
           vercelSdkTransport: new VercelSdkTransport(config),
           providerModes: _provModes,
         });

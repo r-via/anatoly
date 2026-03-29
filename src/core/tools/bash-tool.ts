@@ -29,8 +29,13 @@ const WRITE_PREFIXES = [
 /** Shell operators that imply write operations. */
 const WRITE_OPERATORS = ['>', '>>', '|tee '];
 
+/** Shell metacharacters that enable chaining/subshells — reject in read-only mode. */
+const SHELL_METACHAR_RE = /[;`$]|\$\(|&&|\|\||{\s/;
+
 function isWriteCommand(command: string): boolean {
   const trimmed = command.trim();
+  // Reject shell metacharacters that could bypass prefix checks
+  if (SHELL_METACHAR_RE.test(trimmed)) return true;
   for (const prefix of WRITE_PREFIXES) {
     if (trimmed.startsWith(prefix)) return true;
   }
