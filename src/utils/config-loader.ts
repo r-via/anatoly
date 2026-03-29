@@ -72,6 +72,8 @@ export function migrateConfigV0toV1(raw: Record<string, any>): Record<string, an
   if (llm.max_stop_iterations !== undefined) runtime.max_stop_iterations = llm.max_stop_iterations;
 
   // --- agents ---
+  // llm.deliberation controlled deliberation only — map to agents.enabled
+  // (currently agents.enabled only gates deliberation in run.ts/review.ts)
   const agents: Record<string, any> = {};
   if (llm.deliberation !== undefined) agents.enabled = llm.deliberation;
 
@@ -153,9 +155,18 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
     return ConfigSchema.parse({});
   }
 
+  // Guard against non-object YAML (arrays, scalars)
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new AnatolyError(
+      `.anatoly.yml must contain a YAML mapping (got ${Array.isArray(parsed) ? 'array' : typeof parsed})`,
+      'CONFIG_INVALID',
+      false,
+    );
+  }
+
   // Migrate legacy v0 config if detected
   let configObj = parsed as Record<string, unknown>;
-  if (typeof configObj === 'object' && configObj !== null && isLegacyConfig(configObj)) {
+  if (isLegacyConfig(configObj)) {
     process.stderr.write(
       '\n⚠ .anatoly.yml uses the legacy `llm` section (pre-v1.0).\n' +
       '  Run `anatoly migrate-config` to update your config file.\n' +

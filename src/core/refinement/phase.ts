@@ -5,7 +5,7 @@
 import type { ReviewFile } from '../../schemas/review.js';
 import type { Config } from '../../schemas/config.js';
 import type { UsageGraph } from '../usage-graph.js';
-import type { PreResolvedRag } from '../axis-evaluator.js';
+import { resolveDeliberationModel, type PreResolvedRag } from '../axis-evaluator.js';
 import type { ReclassificationEntry } from '../correction-memory.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
@@ -161,7 +161,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     const tier3Ctx: Tier3Context = {
       projectRoot: ctx.projectRoot,
       runDir: ctx.runDir,
-      model: ctx.config.models.deliberation,
+      model: resolveDeliberationModel(ctx.config),
       abortController: ctx.abortController,
       reviewsByFile: finalReviews,
       budgetUsd: 30,

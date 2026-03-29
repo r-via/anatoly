@@ -36,6 +36,7 @@ import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
+import { setGeminiTransportType } from '../core/axis-evaluator.js';
 
 // --- Public interfaces ---
 
@@ -147,11 +148,21 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   // Gemini auth check — graceful fallback to Claude if auth fails
   let geminiEnabled = !!config.providers.google;
   if (geminiEnabled) {
-    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
-    const authOk = await checkGeminiAuth(projectRoot, geminiModel);
-    if (!authOk) {
-      console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
-      geminiEnabled = false;
+    const googleConfig = config.providers.google!;
+    setGeminiTransportType(googleConfig.mode);
+    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-'))
+      ?? config.models.code_summary?.startsWith('gemini-') ? config.models.code_summary! : 'gemini-2.5-flash';
+    if (googleConfig.mode === 'api') {
+      if (!process.env.GEMINI_API_KEY) {
+        console.log(chalk.yellow('⚠ Gemini API mode but GEMINI_API_KEY not set. Fallback Claude.'));
+        geminiEnabled = false;
+      }
+    } else {
+      const authOk = await checkGeminiAuth(projectRoot, geminiModel);
+      if (!authOk) {
+        console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Fallback Claude.'));
+        geminiEnabled = false;
+      }
     }
   }
 

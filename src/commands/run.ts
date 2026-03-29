@@ -797,7 +797,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     value: shortModelName(resolveAxisModel(e, ctx.config)),
   }));
   if (ctx.deliberation) {
-    modelsLeft.push({ key: 'deliberation', value: shortModelName(ctx.config.models.deliberation) });
+    modelsLeft.push({ key: 'deliberation', value: shortModelName(resolveDeliberationModel(ctx.config)) });
   }
   const modelsRight: { key: string; value: string }[] = [];
   if (ctx.enableRag) {
