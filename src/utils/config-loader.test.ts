@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'no
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { loadConfig, migrateConfigV0toV1 } from './config-loader.js';
+import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2 } from './config-loader.js';
 import { AnatolyError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,8 +52,8 @@ llm:
     expect(config.project.name).toBe('my-project');
     expect(config.project.monorepo).toBe(true);
     expect(config.scan.include).toEqual(['packages/*/src/**/*.ts']);
-    // After migration: llm.model → models.quality, llm.timeout_per_file → runtime.timeout_per_file
-    expect(config.models.quality).toBe('claude-opus-4-20250514');
+    // After migration: llm.model → models.quality (v0→v1), then bare → prefixed (v1→v2)
+    expect(config.models.quality).toBe('anthropic/claude-opus-4-20250514');
     expect(config.runtime.timeout_per_file).toBe(300);
     expect(config.coverage.enabled).toBe(true);
   });
@@ -136,9 +136,9 @@ runtime:
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.providers.google).toBeUndefined();
-    expect(config.models.quality).toBe('claude-sonnet-4-6');
-    expect(config.models.fast).toBe('claude-haiku-4-5-20251001');
-    expect(config.providers.anthropic.concurrency).toBe(24);
+    expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    expect(config.models.fast).toBe('anthropic/claude-haiku-4-5-20251001');
+    expect(config.providers.anthropic!.concurrency).toBe(24);
     expect(config.models.code_summary).toBeUndefined();
   });
 
@@ -149,8 +149,8 @@ runtime:
     const config = loadConfig(projectRoot);
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
     expect(output).not.toContain('legacy');
-    expect(config.providers.anthropic.concurrency).toBe(24);
-    expect(config.providers.google).toBeUndefined();
+    expect(config.providers.anthropic!.concurrency).toBe(24);
+    expect(config.providers.google?.mode).toBe('subscription');
     stderrSpy.mockRestore();
   });
 
@@ -177,13 +177,13 @@ axes:
 `;
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
-    expect(config.models.quality).toBe('claude-opus-4-6');
-    expect(config.providers.anthropic.concurrency).toBe(16);
+    expect(config.models.quality).toBe('anthropic/claude-opus-4-6');
+    expect(config.providers.anthropic!.concurrency).toBe(16);
     expect(config.providers.google?.mode).toBe('api');
     expect(config.providers.google?.concurrency).toBe(8);
     expect(config.runtime.timeout_per_file).toBe(300);
     expect(config.agents.deliberation).toBe('custom-model');
-    expect(config.axes.correction.model).toBe('claude-opus-4-6');
+    expect(config.axes.correction.model).toBe('anthropic/claude-opus-4-6');
   });
 });
 
@@ -414,5 +414,158 @@ describe('migrateConfigV0toV1', () => {
     };
     const result = migrateConfigV0toV1(input);
     expect(JSON.stringify(result)).not.toContain('agentic_tools');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateConfigV1toV2 — Story 43.3: Model prefixes
+// ---------------------------------------------------------------------------
+
+describe('migrateConfigV1toV2', () => {
+  it('should prefix claude-* models with anthropic/', () => {
+    const input = {
+      models: { quality: 'claude-sonnet-4-6', fast: 'claude-haiku-4-5-20251001' },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    expect(result.models.fast).toBe('anthropic/claude-haiku-4-5-20251001');
+  });
+
+  it('should prefix gemini-* models with google/', () => {
+    const input = {
+      models: { quality: 'gemini-2.5-flash', code_summary: 'gemini-2.5-flash-lite' },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.models.quality).toBe('google/gemini-2.5-flash');
+    expect(result.models.code_summary).toBe('google/gemini-2.5-flash-lite');
+  });
+
+  it('should prefix axes.*.model', () => {
+    const input = {
+      models: { quality: 'claude-sonnet-4-6' },
+      axes: {
+        utility: { model: 'gemini-2.5-flash-lite' },
+        correction: { model: 'claude-opus-4-6' },
+      },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.axes.utility.model).toBe('google/gemini-2.5-flash-lite');
+    expect(result.axes.correction.model).toBe('anthropic/claude-opus-4-6');
+  });
+
+  it('should prefix agents model strings', () => {
+    const input = {
+      models: { quality: 'claude-sonnet-4-6' },
+      agents: { deliberation: 'claude-opus-4-6', scaffolding: 'gemini-2.5-flash' },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.agents.deliberation).toBe('anthropic/claude-opus-4-6');
+    expect(result.agents.scaffolding).toBe('google/gemini-2.5-flash');
+  });
+
+  it('should NOT double-prefix already-prefixed model names', () => {
+    const input = {
+      models: {
+        quality: 'anthropic/claude-sonnet-4-6',
+        fast: 'google/gemini-2.5-flash',
+      },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    expect(result.models.fast).toBe('google/gemini-2.5-flash');
+  });
+
+  it('should return object unchanged when all models already have prefixes', () => {
+    const input = {
+      models: {
+        quality: 'anthropic/claude-sonnet-4-6',
+        fast: 'anthropic/claude-haiku-4-5-20251001',
+        deliberation: 'anthropic/claude-opus-4-6',
+      },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result).toEqual(input);
+  });
+
+  it('should leave unknown bare model names unchanged', () => {
+    const input = {
+      models: { quality: 'llama-3-70b' },
+    };
+    const result = migrateConfigV1toV2(input);
+    // Unknown models are left as-is (error at runtime if provider unknown)
+    expect(result.models.quality).toBe('llama-3-70b');
+  });
+
+  it('should handle missing models section gracefully', () => {
+    const input = { project: { name: 'test' } };
+    const result = migrateConfigV1toV2(input);
+    expect(result).toEqual(input);
+  });
+
+  it('should handle axes without model field', () => {
+    const input = {
+      models: { quality: 'claude-sonnet-4-6' },
+      axes: { utility: { enabled: true } },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.axes.utility).toEqual({ enabled: true });
+    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
+  });
+
+  it('should skip undefined model values in models section', () => {
+    const input = {
+      models: { quality: 'claude-sonnet-4-6', code_summary: undefined },
+    };
+    const result = migrateConfigV1toV2(input);
+    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    expect(result.models.code_summary).toBeUndefined();
+  });
+});
+
+describe('loadConfig — v1→v2 migration warning', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-v1v2-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should emit v1→v2 migration warning for bare model names', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const yml = `
+models:
+  quality: claude-sonnet-4-6
+  fast: claude-haiku-4-5-20251001
+providers:
+  anthropic:
+    concurrency: 24
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    const config = loadConfig(tempDir);
+    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+    expect(output).toContain('migrate-config');
+    // Models should be prefixed in memory
+    expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    stderrSpy.mockRestore();
+  });
+
+  it('should NOT emit v1→v2 warning when models already have prefixes', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const yml = `
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5-20251001
+providers:
+  anthropic:
+    concurrency: 24
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    loadConfig(tempDir);
+    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+    expect(output).not.toContain('v1');
+    stderrSpy.mockRestore();
   });
 });

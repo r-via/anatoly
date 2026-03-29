@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
-import { TransportRouter } from './index.js';
+import { TransportRouter, extractProvider } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Stub transports for testing
@@ -124,45 +124,167 @@ describe('LlmRequest', () => {
 // TransportRouter
 // ---------------------------------------------------------------------------
 
-describe('TransportRouter', () => {
-  it('resolve() returns first matching transport', () => {
-    const anthropic = createStubTransport('anthropic', (m) => !m.startsWith('gemini-'));
-    const gemini = createStubTransport('gemini', (m) => m.startsWith('gemini-'));
-    const router = new TransportRouter([anthropic, gemini]);
+describe('TransportRouter — basic', () => {
+  const stubAnthropic = createStubTransport('anthropic', () => true);
+  const stubVercel = createStubTransport('vercel-sdk', () => true);
 
-    expect(router.resolve('claude-sonnet-4-20250514')).toBe(anthropic);
-    expect(router.resolve('gemini-2.5-flash')).toBe(gemini);
+  it('resolve() routes subscription-mode provider to native transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropic },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription' } },
+    });
+    expect(router.resolve('claude-sonnet-4-20250514')).toBe(stubAnthropic);
   });
 
-  it('resolve() returns first match when multiple transports support the model', () => {
-    const primary = createStubTransport('primary', () => true);
-    const fallback = createStubTransport('fallback', () => true);
-    const router = new TransportRouter([primary, fallback]);
-
-    expect(router.resolve('any-model')).toBe(primary);
+  it('resolve() routes api-mode provider to vercel-sdk', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropic },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'api' } },
+    });
+    expect(router.resolve('claude-sonnet-4-20250514')).toBe(stubVercel);
   });
 
-  it('resolve() throws when no transport matches', () => {
-    const anthropic = createStubTransport('anthropic', (m) => m.startsWith('claude-'));
-    const router = new TransportRouter([anthropic]);
+  it('resolve() defaults to vercel-sdk for unknown providers', () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: {},
+    });
+    expect(router.resolve('groq/llama-3-70b')).toBe(stubVercel);
+  });
+});
 
-    expect(() => router.resolve('gemini-2.5-flash')).toThrow(
-      /no transport supports model.*gemini-2.5-flash/i,
-    );
+// ---------------------------------------------------------------------------
+// extractProvider — Story 43.3
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// TransportRouter — mode-aware resolve (Story 43.5)
+// ---------------------------------------------------------------------------
+
+describe('TransportRouter — mode-aware resolve', () => {
+  const stubAnthropicNative = createStubTransport('anthropic-native', () => true);
+  const stubGeminiNative = createStubTransport('gemini-native', () => true);
+  const stubVercelSdk = createStubTransport('vercel-sdk', () => true);
+
+  it('resolve() routes subscription-mode anthropic to native transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'subscription' } },
+    });
+    expect(router.resolve('anthropic/claude-sonnet-4-6')).toBe(stubAnthropicNative);
   });
 
-  it('resolve() throws with empty transport list', () => {
-    const router = new TransportRouter([]);
-
-    expect(() => router.resolve('claude-sonnet-4-20250514')).toThrow(
-      /no transport supports model/i,
-    );
+  it('resolve() routes api-mode anthropic to vercel-sdk transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'api' } },
+    });
+    expect(router.resolve('anthropic/claude-sonnet-4-6')).toBe(stubVercelSdk);
   });
 
-  it('works with a single transport', () => {
-    const transport = createStubTransport('anthropic', () => true);
-    const router = new TransportRouter([transport]);
+  it('resolve() routes subscription-mode google to native gemini transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { google: { mode: 'subscription' } },
+    });
+    expect(router.resolve('google/gemini-2.5-flash')).toBe(stubGeminiNative);
+  });
 
-    expect(router.resolve('any-model')).toBe(transport);
+  it('resolve() routes api-mode google to vercel-sdk transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { google: { mode: 'api' } },
+    });
+    expect(router.resolve('google/gemini-2.5-flash')).toBe(stubVercelSdk);
+  });
+
+  it('resolve() uses single_turn mode override when task is single_turn', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'api', single_turn: 'subscription' } },
+    });
+    expect(router.resolve('anthropic/claude-sonnet-4-6', 'single_turn')).toBe(stubAnthropicNative);
+  });
+
+  it('resolve() uses agents mode override when task is agents', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'subscription', agents: 'api' } },
+    });
+    expect(router.resolve('anthropic/claude-sonnet-4-6', 'agents')).toBe(stubVercelSdk);
+  });
+
+  it('resolve() defaults task to single_turn when not specified', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'api', single_turn: 'subscription' } },
+    });
+    // No task arg → defaults to single_turn → uses single_turn override
+    expect(router.resolve('anthropic/claude-sonnet-4-6')).toBe(stubAnthropicNative);
+  });
+
+  it('resolve() falls through to vercel-sdk for providers without native transport', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { openai: { mode: 'api' } },
+    });
+    expect(router.resolve('openai/gpt-4o')).toBe(stubVercelSdk);
+  });
+
+  it('resolve() handles bare model names via extractProvider', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: { anthropic: { mode: 'subscription' }, google: { mode: 'subscription' } },
+    });
+    expect(router.resolve('claude-sonnet-4-6')).toBe(stubAnthropicNative);
+    expect(router.resolve('gemini-2.5-flash')).toBe(stubGeminiNative);
+  });
+
+  it('resolve() defaults unknown providers to api mode (vercel-sdk)', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropicNative },
+      vercelSdkTransport: stubVercelSdk,
+      providerModes: {},
+    });
+    expect(router.resolve('groq/llama-3-70b')).toBe(stubVercelSdk);
+  });
+});
+
+describe('extractProvider', () => {
+  it('should extract provider from prefixed model id', () => {
+    expect(extractProvider('anthropic/claude-sonnet-4-6')).toBe('anthropic');
+    expect(extractProvider('google/gemini-2.5-flash')).toBe('google');
+    expect(extractProvider('openai/gpt-4o')).toBe('openai');
+    expect(extractProvider('groq/llama-3-70b')).toBe('groq');
+  });
+
+  it('should infer anthropic from claude-* bare names', () => {
+    expect(extractProvider('claude-sonnet-4-6')).toBe('anthropic');
+    expect(extractProvider('claude-opus-4-6')).toBe('anthropic');
+    expect(extractProvider('claude-haiku-4-5-20251001')).toBe('anthropic');
+    expect(extractProvider('claude-opus-4-20250514')).toBe('anthropic');
+  });
+
+  it('should infer google from gemini-* bare names', () => {
+    expect(extractProvider('gemini-2.5-flash')).toBe('google');
+    expect(extractProvider('gemini-2.5-flash-lite')).toBe('google');
+    expect(extractProvider('gemini-3-flash-preview')).toBe('google');
+  });
+
+  it('should return anthropic as default for unknown bare names', () => {
+    expect(extractProvider('some-unknown-model')).toBe('anthropic');
+    expect(extractProvider('llama-3-70b')).toBe('anthropic');
   });
 });

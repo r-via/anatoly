@@ -17,32 +17,8 @@ import { contextLogger } from '../utils/log-context.js';
 import type { Semaphore } from './sdk-semaphore.js';
 import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
+import type { TransportRouter } from './transports/index.js';
 import { AnthropicTransport } from './transports/anthropic-transport.js';
-import { GeminiTransport } from './transports/gemini-transport.js';
-import { GeminiGenaiTransport } from './transports/gemini-genai-transport.js';
-
-/** Module-level cache for Gemini transport instances, keyed by projectRoot.
- *  Avoids creating a new Config (and its `model-changed` listener) per call. */
-const geminiTransportCache = new Map<string, LlmTransport>();
-
-/** Gemini transport mode, set once at startup via {@link setGeminiTransportType}. */
-let _geminiTransportMode: 'subscription' | 'api' = 'subscription';
-
-/** Configure which Gemini transport backend to use. Call once at startup. */
-export function setGeminiTransportType(mode: 'subscription' | 'api'): void {
-  _geminiTransportMode = mode;
-  geminiTransportCache.clear();
-}
-
-function getOrCreateGeminiTransport(projectRoot: string, model: string): LlmTransport {
-  const existing = geminiTransportCache.get(projectRoot);
-  if (existing) return existing;
-  const transport = _geminiTransportMode === 'api'
-    ? new GeminiGenaiTransport()
-    : new GeminiTransport(projectRoot, model);
-  geminiTransportCache.set(projectRoot, transport);
-  return transport;
-}
 
 // ---------------------------------------------------------------------------
 // Pre-resolved RAG types (moved from prompt-builder.ts)
@@ -122,6 +98,8 @@ export interface AxisContext {
   circuitBreaker?: GeminiCircuitBreaker;
   /** Claude model to fall back to when circuit breaker redirects Gemini calls */
   fallbackModel?: string;
+  /** Mode-aware transport router — when set, passed to runSingleTurnQuery */
+  router?: TransportRouter;
 }
 
 export interface RelevantDoc {
@@ -336,6 +314,8 @@ export interface SingleTurnQueryParams {
   fallbackModel?: string;
   /** LLM transport override — defaults to AnthropicTransport when not provided */
   transport?: LlmTransport;
+  /** Mode-aware transport router — when set, used for automatic transport selection */
+  router?: TransportRouter;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -359,7 +339,7 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel, transport } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel, transport, router } = params;
 
   // Circuit breaker: redirect Gemini → Claude when tripped
   const isGeminiModel = model.startsWith('gemini-');
@@ -367,12 +347,9 @@ export async function runSingleTurnQuery<T>(
     ? circuitBreaker.resolveModel(model, fallbackModel)
     : model;
 
-  // Resolve transport based on effective model (after circuit breaker may redirect)
-  const effectiveTransport = transport ?? (
-    effectiveModel.startsWith('gemini-')
-      ? getOrCreateGeminiTransport(projectRoot, effectiveModel)
-      : new AnthropicTransport()
-  );
+  // Resolve transport: explicit injection > router > fallback AnthropicTransport
+  const effectiveTransport = transport
+    ?? (router ? router.resolve(effectiveModel, 'single_turn') : new AnthropicTransport());
 
   const activeSemaphore = resolveSemaphore(effectiveModel, semaphore, geminiSemaphore);
   if (activeSemaphore) {

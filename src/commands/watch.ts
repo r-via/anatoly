@@ -26,6 +26,9 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
+import { TransportRouter } from '../core/transports/index.js';
+import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
+import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 
 /** Registers the `watch` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerWatchCommand(program: Command): void {
@@ -69,15 +72,33 @@ export function registerWatchCommand(program: Command): void {
 
       // Warn once at startup if any requested axes are config-disabled
       const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
-      const sdkSemaphore = new Semaphore(config.providers.anthropic.concurrency);
+      const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
       const geminiSemaphore = config.providers.google
         ? new Semaphore(config.providers.google.concurrency)
         : undefined;
       const circuitBreaker = config.providers.google
         ? new GeminiCircuitBreaker()
         : undefined;
+      // Build mode-aware transport router
+      const _watchProvModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
+      for (const [id, prov] of Object.entries(config.providers)) {
+        if (prov) _watchProvModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+      }
+      const _watchNativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
+        anthropic: new AnthropicTransport(),
+      };
+      if (config.providers.google) {
+        const { GeminiTransport } = await import('../core/transports/gemini-transport.js');
+        const gemModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+        _watchNativeTransports.google = new GeminiTransport(projectRoot, gemModel);
+      }
+      const watchRouter = new TransportRouter({
+        nativeTransports: _watchNativeTransports,
+        vercelSdkTransport: new VercelSdkTransport(config),
+        providerModes: _watchProvModes,
+      });
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
+      process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
       if (axesFilter) {
         warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
       }
@@ -185,6 +206,7 @@ export function registerWatchCommand(program: Command): void {
             geminiSemaphore,
             circuitBreaker,
             fallbackModel: config.models.quality,
+            router: watchRouter,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict, durationMs: result.durationMs }, 'file review completed');

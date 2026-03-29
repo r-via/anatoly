@@ -25,6 +25,9 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { createMiniRun } from '../utils/run-id.js';
 import { createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
+import { TransportRouter } from '../core/transports/index.js';
+import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
+import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 
 /** Registers the `review` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerReviewCommand(program: Command): void {
@@ -111,15 +114,33 @@ export function registerReviewCommand(program: Command): void {
           warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
         }
         const depMeta = loadDependencyMeta(projectRoot);
-        const sdkSemaphore = new Semaphore(config.providers.anthropic.concurrency);
+        const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
         const geminiSemaphore = config.providers.google
           ? new Semaphore(config.providers.google.concurrency)
           : undefined;
         const circuitBreaker = config.providers.google
           ? new GeminiCircuitBreaker()
           : undefined;
+        // Build mode-aware transport router
+        const _provModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
+        for (const [id, prov] of Object.entries(config.providers)) {
+          if (prov) _provModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+        }
+        const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
+          anthropic: new AnthropicTransport(),
+        };
+        if (config.providers.google) {
+          const { GeminiTransport } = await import('../core/transports/gemini-transport.js');
+          const gemModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+          _nativeTransports.google = new GeminiTransport(projectRoot, gemModel);
+        }
+        const reviewRouter = new TransportRouter({
+          nativeTransports: _nativeTransports,
+          vercelSdkTransport: new VercelSdkTransport(config),
+          providerModes: _provModes,
+        });
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
-        process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
+        process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
         const axesTotal = evaluators.length;
 
         // Pipeline display
@@ -171,6 +192,7 @@ export function registerReviewCommand(program: Command): void {
                 geminiSemaphore,
                 circuitBreaker,
                 fallbackModel: config.models.quality,
+                router: reviewRouter,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);
                 },

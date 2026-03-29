@@ -1,4 +1,4 @@
-# Anatoly configuration — v1.0 format
+# Anatoly configuration — v2.0 format (multi-provider)
 # See docs/02-Architecture for schema reference.
 
 project:
@@ -16,20 +16,21 @@ scan:
     - "**/*.spec.ts"
   auto_detect: true
 
-# --- v1.0 sections ---
+# --- v2.0 providers ---
 
 providers:
   anthropic:
+    mode: subscription
     concurrency: 24
   google:
     mode: subscription
     concurrency: 10
 
 models:
-  quality: gemini-3-flash-preview
-  fast: gemini-2.5-flash-lite
-  deliberation: claude-opus-4-6
-  code_summary: gemini-2.5-flash-lite
+  quality: google/gemini-3-flash-preview
+  fast: google/gemini-2.5-flash-lite
+  deliberation: anthropic/claude-opus-4-6
+  code_summary: google/gemini-2.5-flash-lite
 
 agents:
   enabled: true
@@ -47,13 +48,13 @@ runtime:
 axes:
   utility:
     enabled: true
-    model: gemini-2.5-flash
+    model: google/gemini-2.5-flash
   duplication:
     enabled: true
-    model: gemini-2.5-flash
+    model: google/gemini-2.5-flash
   overengineering:
     enabled: true
-    model: gemini-2.5-flash
+    model: google/gemini-2.5-flash
   tests:
     enabled: true
   best_practices:
