@@ -67,7 +67,7 @@ export interface RefinementResult {
 export async function runRefinementPhase(ctx: RefinementContext): Promise<RefinementResult> {
   const emptyResult: RefinementResult = {
     skipped: true,
-    tier1Stats: { resolved: 0, confirmed: 0 },
+    tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } },
     tier2Stats: { resolved: 0, escalated: 0 },
     tier3Stats: { investigated: 0, confirmed: 0, reclassified: 0 },
     totalDurationMs: 0,
@@ -95,7 +95,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     fileContents: ctx.fileContents,
   };
 
-  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0 };
+  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } };
   const tier1Reviews: ReviewFile[] = [];
 
   for (const review of reviews) {
@@ -103,13 +103,24 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     if (result._tier1Stats) {
       tier1TotalStats.resolved += result._tier1Stats.resolved;
       tier1TotalStats.confirmed += result._tier1Stats.confirmed;
+      for (const key of Object.keys(tier1TotalStats.breakdown) as Array<keyof typeof tier1TotalStats.breakdown>) {
+        tier1TotalStats.breakdown[key] += result._tier1Stats.breakdown[key];
+      }
     }
     // Strip internal stat marker before passing downstream
     const { _tier1Stats, ...clean } = result;
     tier1Reviews.push(clean as ReviewFile);
   }
 
-  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved} resolved`);
+  const bd = tier1TotalStats.breakdown;
+  const parts: string[] = [];
+  if (bd.deadToUsed) parts.push(`${bd.deadToUsed} DEAD→USED`);
+  if (bd.duplicateToUnique) parts.push(`${bd.duplicateToUnique} DUP→UNIQUE`);
+  if (bd.overToLean) parts.push(`${bd.overToLean} OVER→LEAN`);
+  if (bd.undocToDoc) parts.push(`${bd.undocToDoc} UNDOC→DOC`);
+  if (bd.fixtureSkipped) parts.push(`${bd.fixtureSkipped} fixture`);
+  const breakdownStr = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved} resolved${breakdownStr}`);
 
   // --- Tier 2: Inter-axis coherence ---
   ctx.onProgress?.('tier2-start', `${tier1Reviews.length} files`);
@@ -131,7 +142,9 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   allEscalated.push(...crossFileFindings);
   tier2TotalStats.escalated += crossFileFindings.length;
 
-  ctx.onProgress?.('tier2-done', `${tier2TotalStats.resolved} resolved, ${tier2TotalStats.escalated} escalated`);
+  const t2Detail = `${tier2TotalStats.resolved} resolved, ${tier2TotalStats.escalated} escalated` +
+    (crossFileFindings.length > 0 ? ` (${crossFileFindings.length} systemic)` : '');
+  ctx.onProgress?.('tier2-done', t2Detail);
 
   // --- Tier 3: Agentic investigation (only if there are escalated findings) ---
   ctx.onProgress?.('tier3-start', `${allEscalated.length} findings`);
@@ -167,7 +180,11 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     }
   }
 
-  ctx.onProgress?.('tier3-done', `${tier3Stats.investigated} investigated`);
+  const t3Parts = [`${tier3Stats.investigated} investigated`];
+  if (tier3Stats.confirmed) t3Parts.push(`${tier3Stats.confirmed} confirmed`);
+  if (tier3Stats.reclassified) t3Parts.push(`${tier3Stats.reclassified} reclassified`);
+  if (tier3CostUsd > 0) t3Parts.push(`$${tier3CostUsd.toFixed(2)}`);
+  ctx.onProgress?.('tier3-done', t3Parts.join(', '));
 
   // --- Write refined ReviewFiles back to disk ---
   for (const review of finalReviews.values()) {

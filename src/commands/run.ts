@@ -51,7 +51,8 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveNlpModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
-import { DeliberationResponseSchema } from '../core/deliberation.js';
+import { DeliberationResponseSchema, type DeliberationResponse } from '../core/deliberation.js';
+import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -464,18 +465,70 @@ export function registerRunCommand(program: Command): void {
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
               queryFn: async (params) => {
-                const result = await runSingleTurnQuery({
-                  systemPrompt: params.systemPrompt,
-                  userMessage: params.userMessage,
-                  model: params.model,
-                  projectRoot: params.projectRoot,
-                  abortController: params.abortController,
-                  semaphore: ctx.sdkSemaphore,
-                  geminiSemaphore: ctx.geminiSemaphore,
-                  circuitBreaker: ctx.circuitBreaker,
-                  fallbackModel: ctx.config.llm.model,
-                }, DeliberationResponseSchema);
-                return result;
+                const start = Date.now();
+                await ctx.sdkSemaphore.acquire();
+                try {
+                  const q = query({
+                    prompt: params.userMessage,
+                    options: {
+                      systemPrompt: params.systemPrompt,
+                      model: params.model,
+                      cwd: params.projectRoot,
+                      allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
+                      permissionMode: 'bypassPermissions' as const,
+                      allowDangerouslySkipPermissions: true,
+                      abortController: params.abortController,
+                    },
+                  });
+
+                  let resultText = '';
+                  let costUsd = 0;
+                  let inputTokens = 0;
+                  let outputTokens = 0;
+                  let cacheReadTokens = 0;
+                  let cacheCreationTokens = 0;
+
+                  for await (const message of q) {
+                    if (message.type === 'result') {
+                      if (message.subtype === 'success') {
+                        resultText = (message as { result: string }).result;
+                        costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+                      } else {
+                        const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+                        throw new Error(`Tier 3 SDK error [${message.subtype}]: ${errMsg}`);
+                      }
+                    }
+                    if (message.type === 'usage') {
+                      const u = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }).usage;
+                      if (u) {
+                        inputTokens += u.input_tokens ?? 0;
+                        outputTokens += u.output_tokens ?? 0;
+                        cacheReadTokens += u.cache_read_input_tokens ?? 0;
+                        cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+                      }
+                    }
+                  }
+
+                  // Extract JSON from the agentic response
+                  const jsonStr = extractJson(resultText);
+                  if (!jsonStr) {
+                    throw new Error('Tier 3: no valid JSON found in agentic response');
+                  }
+                  const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
+
+                  return {
+                    data: parsed,
+                    costUsd,
+                    durationMs: Date.now() - start,
+                    inputTokens,
+                    outputTokens,
+                    cacheReadTokens,
+                    cacheCreationTokens,
+                    transcript: resultText,
+                  };
+                } finally {
+                  ctx.sdkSemaphore.release();
+                }
               },
               recordFn: (pr, entry) => recordReclassification(pr, entry),
               onProgress: (event, detail) => {
@@ -497,7 +550,7 @@ export function registerRunCommand(program: Command): void {
                 // Plain mode sequential logging
                 if (ctx.plain && event.endsWith('-done')) {
                   const tier = event.replace('-done', '');
-                  console.log(`  \u2714 ${tier} — ${detail}`);
+                  console.log(`[refinement] \u2714 ${tier} — ${detail}`);
                 }
               },
             });

@@ -81,3 +81,41 @@ Replace the current per-file deliberation with a single post-run agentic pass:
 **Impact**: ~30% output token reduction ($27/run axis)
 
 correction produces ~10K output tokens per file with detailed fix suggestions. Could instruct the model to be more concise (max 100 chars per detail, skip code suggestions) without losing actionable information.
+
+## Tier 2 — skip OVER/UNDOCUMENTED on LOW_VALUE
+
+**Status**: Minor optimization
+**Impact**: Marginal — reduces noise, no cost change
+
+Currently LOW_VALUE symbols keep all their findings (OVER, UNDOCUMENTED, etc.). These are debatable — why document or refactor a symbol flagged as low value? Safe to skip OVER and UNDOCUMENTED on LOW_VALUE, similar to DEAD treatment.
+
+## Tier 1 — add type-only importers resolution
+
+**Status**: Minor gap
+**Impact**: Catches additional DEAD → USED cases
+
+`applyTier1` checks `getSymbolUsage` (runtime) and `getTransitiveUsage` but not `getTypeOnlySymbolUsage`. Exported types with type-only importers should be auto-resolved to USED.
+
+## Tier 3 — switch to agentic mode
+
+**Status**: Planned — high priority
+**Impact**: Transforms tier 3 from rubber-stamp to real investigation
+
+Current tier 3 is a single-turn JSON call via `runSingleTurnQuery` — same model as the old per-file deliberation. Opus reasons in a vacuum without verifying claims.
+
+**Required change**: Replace `queryFn` implementation in `run.ts` with a full `query()` call:
+- `allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch']`
+- No maxTurns (let the agent work freely)
+- No budget cap for V1 (analyze transcript patterns first)
+- `permissionMode: 'bypassPermissions'`
+- Parse the final JSON from `result.text`
+
+The `Tier3Context.queryFn` interface stays the same — only the implementation changes. ~1-2h effort.
+
+**Benchmarking opportunity**: The current run produces a baseline of tier 3 single-turn deliberation results. After switching to agentic mode, we can compare:
+- Same escalated findings, same shards
+- Single-turn reclassifications vs agentic reclassifications
+- Cost and duration comparison
+- Quality: did the agentic agent catch things the single-turn missed? (e.g. FIX-017 CODE_DIM)
+
+This gives us a direct A/B comparison: global single-turn deliberation vs global agentic deliberation, both operating on the same tier 1+2 pre-filtered findings.

@@ -42,6 +42,7 @@ import sectionRefinerPrompt from '../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../prompts/_shared/json-evaluator-wrapper.system.md';
 import guardRailsPrompt from '../prompts/_shared/guard-rails.system.md';
+import tier3InvestigationPrompt from '../prompts/refinement/tier3-investigation.system.md';
 
 /**
  * Registry of system prompts keyed by domain, axis, or composite key.
@@ -103,6 +104,9 @@ function registerDefaults(): void {
   // --- RAG ---
   register('rag.section-refiner', sectionRefinerPrompt);
   register('rag.nlp-summarizer', nlpSummarizerPrompt);
+
+  // --- Refinement ---
+  register('refinement.tier3-investigation', tier3InvestigationPrompt);
 
   // --- Shared ---
   register('_shared.json-evaluator-wrapper', jsonEvaluatorWrapperPrompt);

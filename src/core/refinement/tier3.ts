@@ -7,9 +7,10 @@ import type { ReviewFile } from '../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
 import {
   applyDeliberation,
-  buildDeliberationSystemPrompt,
   type DeliberationResponse,
 } from '../deliberation.js';
+import { resolveSystemPrompt } from '../prompt-resolver.js';
+import { ALL_AXIS_IDS } from '../axes/index.js';
 import type { AxisReclassification, ReclassificationEntry } from '../correction-memory.js';
 
 // ---------------------------------------------------------------------------
@@ -316,7 +317,8 @@ async function investigateShard(
  * Reuses the deliberation system prompt as base, since the output format is identical.
  */
 function buildTier3SystemPrompt(): string {
-  return buildDeliberationSystemPrompt();
+  const raw = resolveSystemPrompt('refinement.tier3-investigation');
+  return raw.replace('{{AXIS_LIST}}', ALL_AXIS_IDS.join(', '));
 }
 
 /**
@@ -352,42 +354,23 @@ Each finding below is a claim from the automated review that needs empirical ver
   for (const [filePath, fileFindings] of byFile) {
     parts.push(`### File: \`${filePath}\``);
 
-    const review = reviewsByFile.get(filePath);
-    if (review) {
-      // Include the ReviewFile JSON for context
-      parts.push(`\`\`\`json\n${JSON.stringify(review, null, 2)}\n\`\`\``);
-    }
-
     for (const f of fileFindings) {
-      parts.push(`- **${f.symbolName}**: \`${f.axis}\` = \`${f.value}\` — ${f.reason}`);
+      const review = reviewsByFile.get(filePath);
+      const sym = review?.symbols.find(s => s.name === f.symbolName);
+      const confidence = sym?.confidence ?? '?';
+      const detail = sym?.detail ? ` | Detail: "${sym.detail.slice(0, 150)}"` : '';
+      parts.push(`- **${f.symbolName}**: \`${f.axis}\` = \`${f.value}\` (confidence: ${confidence})${detail}`);
+      parts.push(`  Escalation reason: ${f.reason}`);
     }
   }
 
-  parts.push(`## Instructions
+  parts.push(`## What to do
 
-Investigate each finding above by reading the source code. Produce a JSON response matching the DeliberationResponse schema:
-
-\`\`\`
-{
-  "verdict": "CLEAN" | "NEEDS_REFACTOR" | "CRITICAL",
-  "symbols": [
-    {
-      "name": "symbolName",
-      "original": { "<axis>": "<original_value>", "confidence": <N> },
-      "deliberated": { "<axis>": "<new_value>", "confidence": <N> },
-      "reasoning": "Evidence-based reasoning (≥ 10 chars)"
-    }
-  ],
-  "removed_actions": [],
-  "reasoning": "Overall investigation summary"
-}
-\`\`\`
-
-Rules:
-- Only include axes with findings in original/deliberated
-- Reclassification requires confidence ≥ 85
-- Protect ERROR (require ≥ 95 confidence to downgrade)
-- Include evidence (line numbers, grep results) in reasoning`);
+1. Read each file listed above using the Read tool
+2. Verify each claim against the actual source code
+3. Grep for usages if a symbol is claimed DEAD
+4. Check configs/runtime values if a finding involves constants
+5. Produce a single JSON object with your verdicts at the end`);
 
   return parts.join('\n\n');
 }

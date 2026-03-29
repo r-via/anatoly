@@ -25,6 +25,14 @@ export interface Tier1Stats {
   resolved: number;
   /** Total findings confirmed (unchanged but verified). */
   confirmed: number;
+  /** Breakdown of resolutions by type. */
+  breakdown: {
+    deadToUsed: number;
+    duplicateToUnique: number;
+    overToLean: number;
+    undocToDoc: number;
+    fixtureSkipped: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +63,7 @@ const FIXTURE_PATTERNS = ['__gold-set__', '__fixtures__'];
  * Zero network calls. Returns a new ReviewFile (input not mutated).
  */
 export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & { _tier1Stats?: Tier1Stats } {
-  const stats: Tier1Stats = { resolved: 0, confirmed: 0 };
+  const stats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } };
   const isFixture = FIXTURE_PATTERNS.some((p) => review.file.includes(p));
 
   const newSymbols = review.symbols.map((sym) => {
@@ -66,10 +74,12 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (s.correction !== 'OK' && s.correction !== '-') {
         s.correction = 'OK';
         stats.resolved++;
+        stats.breakdown.fixtureSkipped++;
       }
       if (s.utility !== 'USED' && s.utility !== '-') {
         s.utility = 'USED';
         stats.resolved++;
+        stats.breakdown.fixtureSkipped++;
       }
       s.detail = 'Intentional fixture code';
       return s;
@@ -83,6 +93,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         s.confidence = 95;
         s.detail = `Auto-resolved: runtime-imported by ${runtimeImporters.length} files`;
         stats.resolved++;
+        stats.breakdown.deadToUsed++;
       } else {
         const transitiveRefs = getTransitiveUsage(ctx.usageGraph, s.name, review.file);
         if (transitiveRefs.length > 0) {
@@ -90,6 +101,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
           s.confidence = 95;
           s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
           stats.resolved++;
+          stats.breakdown.deadToUsed++;
         }
       }
     }
@@ -104,6 +116,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         s.detail = `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`;
         s.confidence = 90;
         stats.resolved++;
+        stats.breakdown.duplicateToUnique++;
       } else {
         // Rule: no RAG candidate with score ≥ threshold → unique
         const fileRag = ctx.preResolvedRag.get(review.file);
@@ -115,6 +128,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
           s.confidence = 90;
           s.detail = `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`;
           stats.resolved++;
+          stats.breakdown.duplicateToUnique++;
         }
       }
     }
@@ -127,10 +141,12 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         s.overengineering = 'LEAN';
         s.detail = `Auto-resolved: ${s.kind} cannot be over-engineered`;
         stats.resolved++;
+        stats.breakdown.overToLean++;
       } else if (symLines <= SMALL_FUNCTION_MAX_LINES) {
         s.overengineering = 'LEAN';
         s.detail = `Auto-resolved: function ≤ ${SMALL_FUNCTION_MAX_LINES} lines`;
         stats.resolved++;
+        stats.breakdown.overToLean++;
       }
     }
 
@@ -145,11 +161,13 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
           s.confidence = 90;
           s.detail = 'Auto-resolved: JSDoc block found before symbol';
           stats.resolved++;
+          stats.breakdown.undocToDoc++;
         } else if (TYPE_KINDS.has(s.kind) && isSelfDescriptiveType(content, s)) {
           s.documentation = 'DOCUMENTED';
           s.confidence = 90;
           s.detail = 'Self-descriptive type';
           stats.resolved++;
+          stats.breakdown.undocToDoc++;
         }
       }
     }
