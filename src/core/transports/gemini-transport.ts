@@ -12,22 +12,7 @@ import type { GeminiClient } from '@google/gemini-cli-core';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, type ConvDump } from './conversation-dump.js';
-
-/**
- * Per-1M-token pricing for Gemini models (subscription mode uses the same pricing).
- * Source: https://ai.google.dev/pricing
- */
-const GEMINI_PRICING: Record<string, { input: number; output: number }> = {
-  'gemini-2.5-flash-lite':  { input: 0.075,  output: 0.30 },
-  'gemini-2.5-flash':       { input: 0.15,   output: 0.60 },
-  'gemini-2.5-pro':         { input: 1.25,   output: 10.00 },
-};
-
-function computeCost(model: string, inputTokens: number, outputTokens: number): number {
-  const pricing = GEMINI_PRICING[model];
-  if (!pricing) return 0;
-  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
-}
+import { calculateCost } from '../../utils/cost-calculator.js';
 
 /**
  * Reference-counted console suppression for gemini-cli-core noise.
@@ -212,7 +197,7 @@ export class GeminiTransport implements LlmTransport {
     }
 
     const durationMs = Date.now() - start;
-    const costUsd = computeCost(params.model, inputTokens, outputTokens);
+    const costUsd = calculateCost(params.model, inputTokens, outputTokens);
     transcriptLines.push(`## Assistant\n\n${text}\n`);
 
     // --- Conversation dump: append result ---

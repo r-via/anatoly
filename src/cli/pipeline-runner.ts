@@ -149,7 +149,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   let geminiEnabled = !!config.providers.google;
   if (geminiEnabled) {
     const googleConfig = config.providers.google!;
-    setGeminiTransportType(googleConfig.mode);
+    setGeminiTransportType(googleConfig.mode, config);
     const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-'))
       ?? config.models.code_summary?.startsWith('gemini-') ? config.models.code_summary! : 'gemini-2.5-flash';
     if (googleConfig.mode === 'api') {

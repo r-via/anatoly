@@ -19,7 +19,7 @@ import type { GeminiCircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import { AnthropicTransport } from './transports/anthropic-transport.js';
 import { GeminiTransport } from './transports/gemini-transport.js';
-import { GeminiGenaiTransport } from './transports/gemini-genai-transport.js';
+import { VercelSdkTransport } from './transports/vercel-sdk-transport.js';
 
 /** Module-level cache for Gemini transport instances, keyed by projectRoot.
  *  Avoids creating a new Config (and its `model-changed` listener) per call. */
@@ -28,17 +28,21 @@ const geminiTransportCache = new Map<string, LlmTransport>();
 /** Gemini transport mode, set once at startup via {@link setGeminiTransportType}. */
 let _geminiTransportMode: 'subscription' | 'api' = 'subscription';
 
+/** Stored config for VercelSdkTransport creation when in api mode. */
+let _geminiConfig: Config | undefined;
+
 /** Configure which Gemini transport backend to use. Call once at startup. */
-export function setGeminiTransportType(mode: 'subscription' | 'api'): void {
+export function setGeminiTransportType(mode: 'subscription' | 'api', config?: Config): void {
   _geminiTransportMode = mode;
+  _geminiConfig = config;
   geminiTransportCache.clear();
 }
 
 function getOrCreateGeminiTransport(projectRoot: string, model: string): LlmTransport {
   const existing = geminiTransportCache.get(projectRoot);
   if (existing) return existing;
-  const transport = _geminiTransportMode === 'api'
-    ? new GeminiGenaiTransport()
+  const transport = _geminiTransportMode === 'api' && _geminiConfig
+    ? new VercelSdkTransport(_geminiConfig)
     : new GeminiTransport(projectRoot, model);
   geminiTransportCache.set(projectRoot, transport);
   return transport;

@@ -268,7 +268,7 @@ export function registerRunCommand(program: Command): void {
       let geminiEnabled = !!config.providers.google;
       if (geminiEnabled) {
         const google = config.providers.google!;
-        setGeminiTransportType(google.mode);
+        setGeminiTransportType(google.mode, config);
         if (google.mode === 'subscription') {
           const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
           const authOk = await checkGeminiAuth(projectRoot, geminiModel);
