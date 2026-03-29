@@ -4,10 +4,13 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { loadConfig, migrateConfigV0toV1 } from './config-loader.js';
 import { AnatolyError } from './errors.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('loadConfig', () => {
   let tempDir: string;
@@ -116,6 +119,38 @@ llm:
     loadConfig(tempDir);
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
     expect(output).not.toContain('legacy');
+    stderrSpy.mockRestore();
+  });
+
+  it('should load v1.0 config without providers.google (Gemini disabled, no undefined errors)', () => {
+    const yml = `
+models:
+  quality: claude-sonnet-4-6
+  fast: claude-haiku-4-5-20251001
+providers:
+  anthropic:
+    concurrency: 24
+runtime:
+  concurrency: 8
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    const config = loadConfig(tempDir);
+    expect(config.providers.google).toBeUndefined();
+    expect(config.models.quality).toBe('claude-sonnet-4-6');
+    expect(config.models.fast).toBe('claude-haiku-4-5-20251001');
+    expect(config.providers.anthropic.concurrency).toBe(24);
+    expect(config.models.code_summary).toBeUndefined();
+  });
+
+  it('should load the project anatoly.yml without warnings or errors', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // Load from the actual project root
+    const projectRoot = join(__dirname, '..', '..');
+    const config = loadConfig(projectRoot);
+    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+    expect(output).not.toContain('legacy');
+    expect(config.providers.anthropic.concurrency).toBe(24);
+    expect(config.providers.google).toBeUndefined();
     stderrSpy.mockRestore();
   });
 

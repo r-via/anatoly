@@ -1,0 +1,61 @@
+# Anatoly configuration — v1.0 format
+# See docs/02-Architecture for schema reference.
+
+project:
+  name: anatoly
+  monorepo: false
+
+scan:
+  include:
+    - "src/**/*.ts"
+    - "src/**/*.tsx"
+  exclude:
+    - "node_modules/**"
+    - "dist/**"
+    - "**/*.test.ts"
+    - "**/*.spec.ts"
+  auto_detect: true
+
+# --- v1.0 sections ---
+
+providers:
+  anthropic:
+    concurrency: 24
+  # google:           # Uncomment to enable Gemini
+  #   mode: subscription
+  #   concurrency: 10
+
+models:
+  quality: claude-sonnet-4-6
+  fast: claude-haiku-4-5-20251001
+  deliberation: claude-opus-4-6
+  # code_summary:     # Optional: defaults to models.fast
+
+agents:
+  enabled: true
+  # scaffolding:      # Override model for scaffolding agent
+  # review:           # Override model for review agent
+  # deliberation:     # Override model for deliberation agent
+
+runtime:
+  timeout_per_file: 600
+  max_retries: 3
+  concurrency: 8
+  min_confidence: 70
+  max_stop_iterations: 3
+
+axes:
+  utility:
+    enabled: true
+  duplication:
+    enabled: true
+  correction:
+    enabled: true
+  overengineering:
+    enabled: true
+  tests:
+    enabled: true
+  best_practices:
+    enabled: true
+  documentation:
+    enabled: true
