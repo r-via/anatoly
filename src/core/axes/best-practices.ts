@@ -173,6 +173,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         fallbackModel: ctx.fallbackModel,
+        router: ctx.router,
       },
       BestPracticesResponseSchema,
     );

@@ -50,7 +50,11 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, type AxisId } from '../core/axis-evaluator.js';
+import { TransportRouter } from '../core/transports/index.js';
+import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
+import { GeminiTransport } from '../core/transports/gemini-transport.js';
+import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { DeliberationResponseSchema, type DeliberationResponse } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
@@ -165,6 +169,8 @@ interface RunContext {
   docReportResult?: DocReportResult;
   /** True when docs/ and .anatoly/docs/ were identical at RAG indexing time */
   docsIdentical: boolean;
+  /** Mode-aware transport router for LLM call routing */
+  router?: TransportRouter;
 }
 
 /**
@@ -268,7 +274,6 @@ export function registerRunCommand(program: Command): void {
       let geminiEnabled = !!config.providers.google;
       if (geminiEnabled) {
         const google = config.providers.google!;
-        setGeminiTransportType(google.mode, config);
         if (google.mode === 'subscription') {
           const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
           const authOk = await checkGeminiAuth(projectRoot, geminiModel);
@@ -281,6 +286,24 @@ export function registerRunCommand(program: Command): void {
           geminiEnabled = false;
         }
       }
+
+      // Build mode-aware transport router
+      const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
+        anthropic: new AnthropicTransport(),
+      };
+      if (geminiEnabled) {
+        const _geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+        _nativeTransports.google = new GeminiTransport(projectRoot, _geminiModel);
+      }
+      const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
+      for (const [id, prov] of Object.entries(config.providers)) {
+        if (prov) _providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+      }
+      const _router = new TransportRouter({
+        nativeTransports: _nativeTransports,
+        vercelSdkTransport: new VercelSdkTransport(config),
+        providerModes: _providerModes,
+      });
 
       const ctx: RunContext = {
         projectRoot,
@@ -333,6 +356,7 @@ export function registerRunCommand(program: Command): void {
           : undefined,
         isFirstRun: false,
         docsIdentical: false,
+        router: _router,
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -1745,6 +1769,7 @@ async function runReviewPhase(
               geminiSemaphore: ctx.geminiSemaphore,
               circuitBreaker: ctx.circuitBreaker,
               fallbackModel: ctx.config.models.quality,
+              router: ctx.router,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

@@ -62,22 +62,71 @@ export function extractProvider(modelId: string): string {
   return 'anthropic';
 }
 
+/** Provider mode config used by the router. */
+export interface ProviderModeConfig {
+  mode: 'subscription' | 'api';
+  single_turn?: 'subscription' | 'api';
+  agents?: 'subscription' | 'api';
+}
+
+/** Task type for mode resolution. */
+export type TaskType = 'single_turn' | 'agents';
+
+/** Configuration for the mode-aware TransportRouter. */
+export interface TransportRouterConfig {
+  /** Native transports keyed by provider id (e.g. anthropic, google). */
+  nativeTransports: Record<string, LlmTransport>;
+  /** Vercel AI SDK transport for all api-mode calls. */
+  vercelSdkTransport: LlmTransport;
+  /** Provider mode configurations (from config.providers). */
+  providerModes: Record<string, ProviderModeConfig>;
+}
+
 /**
- * Routes a model name to the first matching transport.
+ * Mode-aware transport router.
+ *
+ * Routes models to the appropriate transport based on the provider's configured
+ * mode (subscription vs api) and optional task-level overrides (single_turn, agents).
+ *
+ * - subscription → native transport (AnthropicTransport, GeminiTransport)
+ * - api → VercelSdkTransport
  */
 export class TransportRouter {
-  private readonly transports: readonly LlmTransport[];
+  private readonly nativeTransports: Record<string, LlmTransport>;
+  private readonly vercelSdkTransport: LlmTransport;
+  private readonly providerModes: Record<string, ProviderModeConfig>;
 
-  constructor(transports: LlmTransport[]) {
-    this.transports = transports;
+  constructor(config: TransportRouterConfig) {
+    this.nativeTransports = config.nativeTransports;
+    this.vercelSdkTransport = config.vercelSdkTransport;
+    this.providerModes = config.providerModes;
   }
 
-  /** Returns the first transport where `supports(model)` is true. Throws if none matches. */
-  resolve(model: string): LlmTransport {
-    for (const transport of this.transports) {
-      if (transport.supports(model)) return transport;
+  /**
+   * Resolve a model to the appropriate transport.
+   *
+   * @param model - Model identifier (prefixed or bare)
+   * @param task - Task type for mode override resolution (default: 'single_turn')
+   */
+  resolve(model: string, task: TaskType = 'single_turn'): LlmTransport {
+    const providerId = extractProvider(model);
+    const providerConfig = this.providerModes[providerId];
+
+    // Determine effective mode: task-specific override > base mode > default api
+    let effectiveMode: 'subscription' | 'api' = providerConfig?.mode ?? 'api';
+    if (task === 'single_turn' && providerConfig?.single_turn) {
+      effectiveMode = providerConfig.single_turn;
+    } else if (task === 'agents' && providerConfig?.agents) {
+      effectiveMode = providerConfig.agents;
     }
-    const available = this.transports.map(t => t.provider).join(', ');
-    throw new Error(`No transport supports model "${model}" (available: ${available})`);
+
+    // subscription → native transport if available, otherwise vercel-sdk
+    if (effectiveMode === 'subscription') {
+      const native = this.nativeTransports[providerId];
+      if (native) return native;
+    }
+
+    // api or no native transport → vercel-sdk
+    return this.vercelSdkTransport;
   }
 }

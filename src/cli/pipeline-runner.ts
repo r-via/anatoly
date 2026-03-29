@@ -36,7 +36,10 @@ import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
-import { setGeminiTransportType } from '../core/axis-evaluator.js';
+import { TransportRouter } from '../core/transports/index.js';
+import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
+import { GeminiTransport } from '../core/transports/gemini-transport.js';
+import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 
 // --- Public interfaces ---
 
@@ -82,6 +85,8 @@ export interface PipelineContext {
   renderer: ScreenRenderer;
   plain: boolean;
   addCost: (usd: number) => void;
+  /** Mode-aware transport router for LLM call routing. */
+  router: TransportRouter;
 }
 
 /**
@@ -149,7 +154,6 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   let geminiEnabled = !!config.providers.google;
   if (geminiEnabled) {
     const googleConfig = config.providers.google!;
-    setGeminiTransportType(googleConfig.mode, config);
     const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-'))
       ?? config.models.code_summary?.startsWith('gemini-') ? config.models.code_summary! : 'gemini-2.5-flash';
     if (googleConfig.mode === 'api') {
@@ -165,6 +169,24 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
       }
     }
   }
+
+  // Build mode-aware transport router
+  const nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
+    anthropic: new AnthropicTransport(),
+  };
+  if (geminiEnabled) {
+    const geminiModel = Object.values(config.axes).map(a => a.model).find(m => m?.startsWith('gemini-')) ?? 'gemini-2.5-flash';
+    nativeTransports.google = new GeminiTransport(projectRoot, geminiModel);
+  }
+  const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
+  for (const [id, prov] of Object.entries(config.providers)) {
+    if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+  }
+  const router = new TransportRouter({
+    nativeTransports,
+    vercelSdkTransport: new VercelSdkTransport(config),
+    providerModes,
+  });
 
   const semaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
   const geminiSemaphore = geminiEnabled
@@ -213,6 +235,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     renderer,
     plain,
     addCost: (usd: number) => { totalCostUsd += usd; },
+    router,
   };
 
   // In plain mode, log task transitions to console

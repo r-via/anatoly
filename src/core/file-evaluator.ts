@@ -14,6 +14,7 @@ import type { ReviewFile, BestPractices } from '../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
 import type { Semaphore } from './sdk-semaphore.js';
 import type { GeminiCircuitBreaker } from './circuit-breaker.js';
+import type { TransportRouter } from './transports/index.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
@@ -79,6 +80,8 @@ export interface EvaluateFileOptions {
   circuitBreaker?: GeminiCircuitBreaker;
   /** Claude model to fall back to when circuit breaker redirects Gemini calls */
   fallbackModel?: string;
+  /** Mode-aware transport router for LLM call routing */
+  router?: TransportRouter;
 }
 
 export interface AxisTiming {
@@ -250,6 +253,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     geminiSemaphore: opts.geminiSemaphore,
     circuitBreaker: opts.circuitBreaker,
     fallbackModel: opts.fallbackModel,
+    router: opts.router,
   };
 
   const startTime = Date.now();

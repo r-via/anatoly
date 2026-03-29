@@ -163,8 +163,8 @@ describe('VercelSdkTransport', () => {
     mockGenerateText.mockResolvedValue({
       text: 'Hello from AI',
       usage: {
-        promptTokens: 100,
-        completionTokens: 50,
+        inputTokens: 100,
+        outputTokens: 50,
       },
     });
 
@@ -184,9 +184,9 @@ describe('VercelSdkTransport', () => {
     mockGenerateText.mockResolvedValue({
       text: 'Response',
       usage: {
-        promptTokens: 200,
-        completionTokens: 100,
-        cachedPromptTokens: 50,
+        inputTokens: 200,
+        outputTokens: 100,
+        cachedInputTokens: 50,
       },
     });
 
@@ -201,7 +201,7 @@ describe('VercelSdkTransport', () => {
   it('query() should return costUsd: 0 for models not in pricing table', async () => {
     mockGenerateText.mockResolvedValue({
       text: 'Response',
-      usage: { promptTokens: 100, completionTokens: 50 },
+      usage: { inputTokens: 100, outputTokens: 50 },
     });
 
     // Use a known provider but an unpriced model
@@ -215,7 +215,7 @@ describe('VercelSdkTransport', () => {
   it('query() should pass system prompt and user message to generateText', async () => {
     mockGenerateText.mockResolvedValue({
       text: 'OK',
-      usage: { promptTokens: 10, completionTokens: 5 },
+      usage: { inputTokens: 10, outputTokens: 5 },
     });
 
     const transport = new VercelSdkTransport(makeConfig());

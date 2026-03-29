@@ -309,6 +309,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         fallbackModel: ctx.fallbackModel,
+        router: ctx.router,
       },
       CorrectionResponseSchema,
     );
@@ -341,6 +342,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
             geminiSemaphore: ctx.geminiSemaphore,
             circuitBreaker: ctx.circuitBreaker,
             fallbackModel: ctx.fallbackModel,
+        router: ctx.router,
           },
           VerificationResponseSchema,
         );
