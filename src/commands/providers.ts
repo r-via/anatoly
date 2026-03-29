@@ -12,6 +12,7 @@ import type { Config } from '../schemas/config.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { GeminiGenaiTransport } from '../core/transports/gemini-genai-transport.js';
 import type { LlmTransport } from '../core/transports/index.js';
+import { coreEvents } from '@google/gemini-cli-core';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,10 +108,12 @@ export function formatProvidersTable(results: ProviderCheckResult[]): string {
 // SDK connectivity check
 // ---------------------------------------------------------------------------
 
-async function checkAnthropic(model: string, projectRoot: string, concurrency?: number): Promise<ProviderCheckResult> {
+async function checkAnthropic(model: string, projectRoot: string, signal?: AbortSignal): Promise<ProviderCheckResult> {
   const start = Date.now();
   const ac = new AbortController();
+  // Abort on either local timeout or external signal
   const timeout = setTimeout(() => ac.abort(), 30_000);
+  if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
   try {
     const q = query({
       prompt: 'Respond OK',
@@ -216,8 +219,12 @@ interface ConcurrencyResult {
 
 async function stressAnthropic(model: string, projectRoot: string, n: number): Promise<ConcurrencyResult> {
   const start = Date.now();
+  const bail = new AbortController();
   const promises = Array.from({ length: n }, () =>
-    checkAnthropic(model, projectRoot).then(r => r.status === 'ok'),
+    checkAnthropic(model, projectRoot, bail.signal).then(r => {
+      if (r.status !== 'ok') bail.abort();
+      return r.status === 'ok';
+    }),
   );
   const outcomes = await Promise.all(promises);
   const succeeded = outcomes.filter(Boolean).length;
@@ -226,6 +233,7 @@ async function stressAnthropic(model: string, projectRoot: string, n: number): P
 
 async function stressGemini(model: string, projectRoot: string, n: number, type: 'cli-core' | 'genai'): Promise<ConcurrencyResult> {
   const start = Date.now();
+  const bail = new AbortController();
   // cli-core: each call needs its own transport — resetChat() is not safe for concurrent use
   // genai: single transport is fine — stateless SDK
   const sharedTransport = type === 'genai' ? createGeminiTransport(type, projectRoot, model) : undefined;
@@ -233,6 +241,7 @@ async function stressGemini(model: string, projectRoot: string, n: number, type:
     const transport = sharedTransport ?? createGeminiTransport(type, projectRoot, model);
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), 60_000);
+    bail.signal.addEventListener('abort', () => ac.abort(), { once: true });
     return transport.query({
       systemPrompt: 'Respond with exactly "OK" and nothing else.',
       userMessage: 'Respond OK',
@@ -242,9 +251,11 @@ async function stressGemini(model: string, projectRoot: string, n: number, type:
     }).then(r => {
       clearTimeout(timeout);
       const ok = r.text.trim().length > 0;
+      if (!ok) bail.abort();
       return ok;
-    }).catch((err) => {
+    }).catch(() => {
       clearTimeout(timeout);
+      bail.abort();
       return false;
     });
   });
@@ -284,10 +295,13 @@ export function registerProvidersCommand(program: Command): void {
 
       const checks = buildProviderChecks(config);
 
-      // Raise limit early — each SDK query() adds an exit listener to process
+      // Raise limit early — each SDK query() adds an exit listener to process,
+      // and each gemini-cli-core Config adds listeners to the shared coreEvents emitter
       const maxConcurrency = Math.max(config.llm.sdk_concurrency, config.llm.gemini.sdk_concurrency, checks.length);
       const prevMaxListeners = process.getMaxListeners();
+      const prevCoreMaxListeners = coreEvents.getMaxListeners();
       process.setMaxListeners(Math.max(prevMaxListeners, maxConcurrency + 10));
+      coreEvents.setMaxListeners(Math.max(prevCoreMaxListeners, maxConcurrency + 10));
 
       if (!opts.json) {
         console.log(chalk.bold('\nanatoly — providers\n'));
@@ -375,5 +389,6 @@ export function registerProvidersCommand(program: Command): void {
       }
 
       process.setMaxListeners(prevMaxListeners);
+      coreEvents.setMaxListeners(prevCoreMaxListeners);
     });
 }

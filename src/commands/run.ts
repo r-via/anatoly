@@ -49,14 +49,17 @@ import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../cor
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
-import { saveDeliberationMemory } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveNlpModel, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
+import { resolveAxisModel, resolveNlpModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, setGeminiTransportType, type AxisId } from '../core/axis-evaluator.js';
+import { DeliberationResponseSchema, type DeliberationResponse } from '../core/deliberation.js';
+import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { runRefinementPhase, type RefinementResult } from '../core/refinement/phase.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -404,6 +407,9 @@ export function registerRunCommand(program: Command): void {
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
         pipelineState.addTask('review', 'Reviewing files');
+        if (ctx.deliberation) {
+          pipelineState.addTask('refinement', 'Refinement — auto-resolve & verify');
+        }
         pipelineState.addTask('internal-docs', 'Updating internal docs');
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
@@ -436,6 +442,178 @@ export function registerRunCommand(program: Command): void {
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
+        }
+
+        // --- Phase: refinement (tier 1 → tier 2 → tier 3) — Story 41.5 ---
+        if (ctx.deliberation && ctx.filesReviewed > 0 && !ctx.interrupted) {
+          await runWithContext({ phase: 'refinement' }, async () => {
+            const refinementStart = Date.now();
+            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'refinement' });
+            ctx.pipelineState?.setPhase('refinement');
+            ctx.pipelineState?.startTask('refinement', 'Tier 1 — auto-resolve');
+
+            const refinementResult = await runRefinementPhase({
+              projectRoot: ctx.projectRoot,
+              runDir: ctx.runDir,
+              config: ctx.config,
+              usageGraph: setup.usageGraph,
+              fileContents: new Map(), // Tier 1 reads files on demand
+              preResolvedRag: new Map(), // RAG results are per-file, not cached globally
+              abortController: new AbortController(),
+              deliberation: ctx.deliberation,
+              plain: ctx.plain,
+              loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
+              writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
+              queryFn: async (params) => {
+                const start = Date.now();
+                const shardId = `tier3-shard-${Date.now()}`;
+                await ctx.sdkSemaphore.acquire();
+                try {
+                  const q = query({
+                    prompt: params.userMessage,
+                    options: {
+                      systemPrompt: params.systemPrompt,
+                      model: params.model,
+                      cwd: params.projectRoot,
+                      allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
+                      permissionMode: 'bypassPermissions' as const,
+                      allowDangerouslySkipPermissions: true,
+                      abortController: params.abortController,
+                    },
+                  });
+
+                  let resultText = '';
+                  let costUsd = 0;
+                  let inputTokens = 0;
+                  let outputTokens = 0;
+                  let cacheReadTokens = 0;
+                  let cacheCreationTokens = 0;
+
+                  for await (const message of q) {
+                    if (message.type === 'result') {
+                      if (message.subtype === 'success') {
+                        resultText = (message as { result: string }).result;
+                        costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+                      } else {
+                        const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
+                        throw new Error(`Tier 3 SDK error [${message.subtype}]: ${errMsg}`);
+                      }
+                    }
+                    if (message.type === 'usage') {
+                      const u = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }).usage;
+                      if (u) {
+                        inputTokens += u.input_tokens ?? 0;
+                        outputTokens += u.output_tokens ?? 0;
+                        cacheReadTokens += u.cache_read_input_tokens ?? 0;
+                        cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+                      }
+                    }
+                  }
+
+                  // Extract JSON from the agentic response
+                  const jsonStr = extractJson(resultText);
+                  if (!jsonStr) {
+                    throw new Error('Tier 3: no valid JSON found in agentic response');
+                  }
+                  const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
+
+                  // Dump tier 3 conversation transcript
+                  try {
+                    const convDir = join(ctx.runDir, 'conversations');
+                    mkdirSync(convDir, { recursive: true });
+                    const durationMs = Date.now() - start;
+                    const log = [
+                      `# Tier 3 Investigation — ${shardId}`,
+                      '',
+                      `| Field | Value |`,
+                      `|-------|-------|`,
+                      `| Model | ${params.model} |`,
+                      `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
+                      `| Cost | $${costUsd.toFixed(4)} |`,
+                      `| Input tokens | ${inputTokens} |`,
+                      `| Output tokens | ${outputTokens} |`,
+                      `| Timestamp | ${new Date().toISOString()} |`,
+                      '',
+                      '## System',
+                      '',
+                      params.systemPrompt,
+                      '',
+                      '## User',
+                      '',
+                      params.userMessage,
+                      '',
+                      '## Agent Response',
+                      '',
+                      resultText,
+                    ].join('\n');
+                    writeFileSync(join(convDir, `${shardId}.md`), log);
+                  } catch {
+                    // non-critical
+                  }
+
+                  return {
+                    data: parsed,
+                    costUsd,
+                    durationMs: Date.now() - start,
+                    inputTokens,
+                    outputTokens,
+                    cacheReadTokens,
+                    cacheCreationTokens,
+                    transcript: resultText,
+                  };
+                } finally {
+                  ctx.sdkSemaphore.release();
+                }
+              },
+              recordFn: (pr, entry) => recordReclassification(pr, entry),
+              onProgress: (event, detail) => {
+                const state = ctx.pipelineState;
+                if (!state) return;
+                switch (event) {
+                  case 'tier1-done':
+                    state.updateTask('refinement', `Tier 1 done (${detail})`);
+                    state.relabelTask('refinement', 'Tier 2 — coherence');
+                    break;
+                  case 'tier2-done':
+                    state.updateTask('refinement', `Tier 2 done (${detail})`);
+                    state.relabelTask('refinement', 'Tier 3 — investigation');
+                    break;
+                  case 'tier3-shard':
+                    state.updateTask('refinement', `Tier 3 — ${detail}`);
+                    break;
+                  case 'tier3-done':
+                    state.completeTask('refinement', `Done — ${detail}`);
+                    break;
+                }
+                // Plain mode sequential logging
+                if (ctx.plain && event === 'tier3-shard') {
+                  console.log(`[refinement]   ${detail}`);
+                }
+                if (ctx.plain && event.endsWith('-done')) {
+                  const tier = event.replace('-done', '');
+                  console.log(`[refinement] \u2714 ${tier} — ${detail}`);
+                }
+              },
+            });
+
+            const refinementDuration = Date.now() - refinementStart;
+            ctx.phaseDurations.refinement = refinementDuration;
+            ctx.totalCostUsd += refinementResult.totalCostUsd;
+            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'refinement', durationMs: refinementDuration });
+
+            getLogger().info({
+              phase: 'refinement',
+              tier1Resolved: refinementResult.tier1Stats.resolved,
+              tier2Resolved: refinementResult.tier2Stats.resolved,
+              tier2Escalated: refinementResult.tier2Stats.escalated,
+              tier3Investigated: refinementResult.tier3Stats.investigated,
+              tier3Reclassified: refinementResult.tier3Stats.reclassified,
+              costUsd: refinementResult.totalCostUsd,
+              durationMs: refinementDuration,
+            }, 'refinement phase complete');
+          });
+        } else if (!ctx.interrupted && ctx.filesReviewed > 0) {
+          ctx.pipelineState?.completeTask('refinement', 'skipped — deliberation disabled');
         }
 
         // --- Phase: update internal docs — Story 29.21 ---
@@ -1629,7 +1807,7 @@ async function runReviewPhase(
           const verdict = result.review.verdict;
           const dur = (result.durationMs / 1000).toFixed(1);
           const note = findings > 0 ? ` | ${findings} findings` : '';
-          ctx.renderer?.logPlain(`[review] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
+          ctx.renderer?.logPlain(`[review] [${completedCount}/${evaluateTotal}] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
         }
       } catch (error) {
         if (ctx.interrupted) return;

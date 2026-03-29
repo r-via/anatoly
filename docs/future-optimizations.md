@@ -40,40 +40,15 @@ best-practices is the costliest axis ($32.70/run, 122 calls, ~14K output tokens/
 
 ## Agentic deliberation — shard-based investigation
 
-**Status**: Planned — high priority
+**Status**: DONE (Epic 41, commit a0f7045)
 **Impact**: Prevents false-positive fixes, enables cross-file coherence, reduces cost
 
-### Current model (per-file, single-turn JSON)
-- 115 calls × ~$0.21 = $24/run
-- Receives ReviewFile JSON + full source code + test file
-- Cannot verify anything — reasons only on what it's given
-- No cross-file visibility (same false positive reclassified 15 times independently)
+Implemented as 3-tier refinement pipeline:
+- Tier 1: Deterministic auto-resolve (usage graph, AST, RAG) — 0 tokens
+- Tier 2: Inter-axis coherence rules (DEAD+NEEDS_FIX moot, etc.) — 0 tokens
+- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob, Bash, WebFetch)
 
-### Proposed model (per-shard, full-agentic)
-Replace the current per-file deliberation with a single post-run agentic pass:
-
-1. Group findings into shards (by module/directory, 10-20 files per shard)
-2. Give the agent **only the shard of findings** — no code source, no prompt
-3. The agent has full tool access (Read, Grep, Glob, Bash) and must **investigate each finding itself**
-4. It reads files, greps usages, checks configs, verifies claims independently
-5. It produces a deliberation report per shard
-
-**Key principle**: Instead of "here's the code, tell me if the finding is correct", say "here are claims about this codebase, prove or disprove each one". The agent cannot rubber-stamp — it must do the work.
-
-**What this solves**:
-- Gold set/fixture files: agent reads the file, sees it's intentional
-- Runtime values (CODE_DIM): agent checks embeddings-ready.json, verifies actual dimensions
-- Dead code claims: agent greps for actual usages
-- Cross-file patterns: agent sees all findings in a module together
-- Default value "fixes": agent checks who uses the value, measures blast radius
-
-**Trade-offs**:
-- Estimated cost: 10-15 shards × $1-3 = $10-45 (vs $24 currently)
-- Sequential per shard, but shards can run in parallel
-- Needs bounded turns (maxTurns: 50-100) to prevent runaway
-- Bash should be read-only (no writes — investigation only)
-
-**Incident**: FIX-017 changed CODE_DIM fallback from 3584 to 768 based on a correction finding. An investigative agent would have read `embeddings-ready.json` and found `dim_code: 3584`, disproving the finding.
+Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
 
 ## Reduce correction axis output verbosity
 
@@ -81,3 +56,31 @@ Replace the current per-file deliberation with a single post-run agentic pass:
 **Impact**: ~30% output token reduction ($27/run axis)
 
 correction produces ~10K output tokens per file with detailed fix suggestions. Could instruct the model to be more concise (max 100 chars per detail, skip code suggestions) without losing actionable information.
+
+## Tier 2 — skip OVER/UNDOCUMENTED on LOW_VALUE
+
+**Status**: DONE
+**Impact**: Marginal — reduces noise, no cost change
+
+Currently LOW_VALUE symbols keep all their findings (OVER, UNDOCUMENTED, etc.). These are debatable — why document or refactor a symbol flagged as low value? Safe to skip OVER and UNDOCUMENTED on LOW_VALUE, similar to DEAD treatment.
+
+## Tier 1 — add type-only importers resolution
+
+**Status**: DONE
+**Impact**: Catches additional DEAD → USED cases
+
+`applyTier1` checks `getSymbolUsage` (runtime) and `getTransitiveUsage` but not `getTypeOnlySymbolUsage`. Exported types with type-only importers should be auto-resolved to USED.
+
+## Tier 3 — switch to agentic mode
+
+**Status**: DONE (commit a0f7045)
+
+Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
+- `allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch']`
+- No maxTurns, no budget cap (V1 — analyze transcripts first)
+- JSON extracted from agentic response via `extractJson` + Zod validation
+
+**Benchmarking**: Three baselines available for comparison:
+1. Legacy per-file Opus (`.anatoly/baseline/legacy-deliberation-run/`)
+2. 3-tier single-turn (run 093442)
+3. 3-tier agentic (next run)

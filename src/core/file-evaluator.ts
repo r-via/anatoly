@@ -7,7 +7,7 @@ import { resolve, join, basename, dirname, extname } from 'node:path';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
-import { isRateLimitStandbyError, retryWithBackoff } from '../utils/rate-limiter.js';
+import { isRateLimitStandbyError } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../schemas/review.js';
@@ -21,14 +21,7 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
 import { resolveRelevantDocs, resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
-import { resolveAxisModel, resolveDeliberationModel, runSingleTurnQuery } from './axis-evaluator.js';
-import {
-  DeliberationResponseSchema,
-  buildDeliberationSystemPrompt,
-  buildDeliberationUserMessage,
-  needsDeliberation,
-  applyDeliberation,
-} from './deliberation.js';
+import { resolveAxisModel } from './axis-evaluator.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,7 +119,6 @@ export interface EvaluateFileResult {
  * 3. Executes all evaluators concurrently via Promise.allSettled
  * 4. Extracts best_practices and docs_coverage data if present
  * 5. Merges results into a single ReviewFile v2
- * 6. Optionally runs a deliberation pass to reconcile conflicting scores
  *
  * @param opts - Full evaluation configuration (see {@link EvaluateFileOptions}).
  * @returns A {@link EvaluateFileResult} containing the merged review, aggregate
@@ -344,72 +336,8 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const enabledAxes = opts.evaluators.map((e) => e.id);
   let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes, docsCoverage);
 
-  // --- Deliberation pass (optional) ---
-  if (opts.deliberation !== false) {
-    if (needsDeliberation(review)) {
-      try {
-        const deliberationModel = resolveDeliberationModel(config);
-        const deliberationResult = await retryWithBackoff(
-          () => runSingleTurnQuery(
-            {
-              systemPrompt: buildDeliberationSystemPrompt(),
-              userMessage: buildDeliberationUserMessage(
-                review,
-                fileContent,
-                testFileContent && testFileName ? { name: testFileName, content: testFileContent } : undefined,
-              ),
-              model: deliberationModel,
-              projectRoot,
-              abortController,
-              conversationDir: opts.conversationDir,
-              conversationPrefix: fileSlug ? `${fileSlug}__deliberation` : undefined,
-              semaphore: opts.semaphore,
-              geminiSemaphore: opts.geminiSemaphore,
-              circuitBreaker: opts.circuitBreaker,
-              fallbackModel: opts.fallbackModel,
-            },
-            DeliberationResponseSchema,
-          ),
-          {
-            maxRetries: 3,
-            baseDelayMs: 5_000,
-            maxDelayMs: 60_000,
-            jitterFactor: 0.2,
-            filePath: task.file,
-          },
-        );
-
-        review = applyDeliberation(review, deliberationResult.data, projectRoot);
-        totalCost += deliberationResult.costUsd;
-        totalInputTokens += deliberationResult.inputTokens;
-        totalOutputTokens += deliberationResult.outputTokens;
-        totalCacheReadTokens += deliberationResult.cacheReadTokens;
-        totalCacheCreationTokens += deliberationResult.cacheCreationTokens;
-        const delibChunk = `# Deliberation Pass\n\n${deliberationResult.transcript}\n`;
-        transcriptParts.push(delibChunk);
-        opts.onTranscriptChunk?.(delibChunk);
-      } catch (err) {
-        const shortMsg = err instanceof AnatolyError ? err.message : String(err);
-        const failChunk = `# Deliberation Pass — FAILED\n\n${shortMsg}\n`;
-        transcriptParts.push(failChunk);
-        opts.onTranscriptChunk?.(failChunk);
-        // Suppress noisy warnings when the user interrupted via Ctrl+C
-        if (!abortController.signal.aborted) {
-          const errFields = err instanceof AnatolyError
-            ? err.toLogObject()
-            : { errorMessage: String(err) };
-          const dumpFile = err instanceof AnatolyError
-            ? err.writeDump(join(opts.runDir, 'errors'), `${toOutputName(task.file)}__deliberation`)
-            : undefined;
-          contextLogger().warn({ file: task.file, ...errFields, ...(dumpFile ? { dumpFile } : {}) }, 'deliberation failed');
-        }
-      }
-    } else {
-      const skipChunk = '# Deliberation Pass — SKIPPED\n\nFile is CLEAN with high confidence.\n';
-      transcriptParts.push(skipChunk);
-      opts.onTranscriptChunk?.(skipChunk);
-    }
-  }
+  // Per-file deliberation removed (Story 41.1) — verdict comes from merge logic.
+  // Refinement tiers (41.2–41.4) will post-process ReviewFiles after the review phase.
 
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');

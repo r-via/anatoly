@@ -209,7 +209,14 @@ export function getLanguageLines(task: Task): string[] {
  */
 export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): string {
   const axisConfig = config.llm.axes?.[evaluator.id];
-  if (axisConfig?.model) return axisConfig.model;
+  // Honour per-axis override, but ignore gemini-* models when Gemini provider is disabled
+  if (axisConfig?.model) {
+    if (axisConfig.model.startsWith('gemini-') && !config.llm.gemini.enabled) {
+      // Fall through to default resolution — Gemini is off
+    } else {
+      return axisConfig.model;
+    }
+  }
 
   if (evaluator.defaultGeminiMode === 'flash' && config.llm.gemini.enabled) {
     return config.llm.gemini.flash_model;

@@ -187,73 +187,43 @@ describe('evaluateFile', () => {
     expect(result.review.best_practices!.score).toBe(8);
   });
 
-  it('should run deliberation when enabled and needsDeliberation returns true', async () => {
-    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(true);
-    const applySpy = vi.spyOn(deliberationModule, 'applyDeliberation').mockImplementation((review) => ({
-      ...review,
-      verdict: 'CLEAN',
-    }));
-    const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery').mockResolvedValue({
-      data: {
-        verdict: 'CLEAN',
-        symbols: [],
-        removed_actions: [],
-        reasoning: 'Everything looks fine after deliberation',
-      },
-      costUsd: 0.05,
-      durationMs: 2000,
-      inputTokens: 500,
-      outputTokens: 200,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-      transcript: '## Deliberation\n\nOpus output',
-    });
-
-    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
-    const opts = makeOptions({ config: deliberationConfig, deliberation: true });
-    const result = await evaluateFile(opts);
-
-    expect(needsSpy).toHaveBeenCalled();
-    expect(querySpy).toHaveBeenCalled();
-    expect(applySpy).toHaveBeenCalled();
-    expect(result.transcript).toContain('Deliberation Pass');
-    expect(result.costUsd).toBeGreaterThan(0.05);
-
-    needsSpy.mockRestore();
-    applySpy.mockRestore();
-    querySpy.mockRestore();
-  });
-
-  it('should skip deliberation when needsDeliberation returns false', async () => {
-    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(false);
+  it('should never call deliberation LLM even when deliberation option is true (Story 41.1)', async () => {
+    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation');
+    const applySpy = vi.spyOn(deliberationModule, 'applyDeliberation');
     const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery');
 
     const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
     const opts = makeOptions({ config: deliberationConfig, deliberation: true });
     const result = await evaluateFile(opts);
 
-    expect(needsSpy).toHaveBeenCalled();
+    // Per-file deliberation is removed — no Opus calls during review phase
+    expect(needsSpy).not.toHaveBeenCalled();
     expect(querySpy).not.toHaveBeenCalled();
-    expect(result.transcript).toContain('Deliberation Pass — SKIPPED');
+    expect(applySpy).not.toHaveBeenCalled();
+    // Transcript should NOT contain any deliberation references
+    expect(result.transcript).not.toContain('Deliberation Pass');
+    // Verdict comes from merge logic, not from Opus
+    expect(result.review.verdict).toBeDefined();
+    expect(result.review.version).toBe(2);
 
     needsSpy.mockRestore();
+    applySpy.mockRestore();
     querySpy.mockRestore();
   });
 
-  it('should handle deliberation failure gracefully', async () => {
-    const needsSpy = vi.spyOn(deliberationModule, 'needsDeliberation').mockReturnValue(true);
-    const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery').mockRejectedValue(new Error('Opus timeout'));
-
-    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
-    const opts = makeOptions({ config: deliberationConfig, deliberation: true });
+  it('should produce raw ReviewFile with merge-computed verdict (no reclassification)', async () => {
+    // Evaluator returns findings — previously this would trigger deliberation
+    const findingEvaluator = makeMockEvaluator('utility', {
+      symbols: [
+        { name: 'doWork', line_start: 1, line_end: 10, value: 'DEAD', confidence: 70, detail: 'No importers found' },
+      ],
+    });
+    const opts = makeOptions({ evaluators: [findingEvaluator, makeMockEvaluator('correction')], deliberation: true });
     const result = await evaluateFile(opts);
 
-    // Should still return a valid review (the pre-deliberation one)
-    expect(result.review.version).toBe(2);
-    expect(result.transcript).toContain('Deliberation Pass — FAILED');
-    expect(result.transcript).toContain('Opus timeout');
-
-    needsSpy.mockRestore();
-    querySpy.mockRestore();
+    // Review should contain the raw axis verdict without deliberation reclassification
+    expect(result.review.symbols[0].utility).toBe('DEAD');
+    // No deliberation cost should be added
+    expect(result.costUsd).toBeLessThan(0.01);
   });
 });
