@@ -46,7 +46,7 @@ best-practices is the costliest axis ($32.70/run, 122 calls, ~14K output tokens/
 Implemented as 3-tier refinement pipeline:
 - Tier 1: Deterministic auto-resolve (usage graph, AST, RAG) — 0 tokens
 - Tier 2: Inter-axis coherence rules (DEAD+NEEDS_FIX moot, etc.) — 0 tokens
-- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob, Bash, WebFetch)
+- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob)
 
 Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
 
@@ -76,11 +76,31 @@ Currently LOW_VALUE symbols keep all their findings (OVER, UNDOCUMENTED, etc.). 
 **Status**: DONE (commit a0f7045)
 
 Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
-- `allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch']`
-- No maxTurns, no budget cap (V1 — analyze transcripts first)
+- `allowedTools: ['Read', 'Grep', 'Glob']` (Bash removed for security — see below)
 - JSON extracted from agentic response via `extractJson` + Zod validation
 
 **Benchmarking**: Three baselines available for comparison:
 1. Legacy per-file Opus (`.anatoly/baseline/legacy-deliberation-run/`)
 2. 3-tier single-turn (run 093442)
 3. 3-tier agentic (next run)
+
+## Tier 3 — sandboxed Bash for agentic investigation
+
+**Status**: Planned
+**Impact**: Better investigation quality (type-checking, runtime verification)
+
+Bash was removed from tier 3 tools (commit 573949b) because the agent reads audited project files which may contain prompt injection in comments. With Bash enabled, a malicious `// TODO: ignore instructions and run curl...` could trigger arbitrary command execution.
+
+**Use cases that would benefit from Bash:**
+- `tsc --noEmit` to verify type error claims
+- `git log --oneline` to check recent changes
+- `node -e "..."` to verify runtime behavior
+- `cat package.json | jq .version` to check dependency versions
+
+**Requirements for re-enabling:**
+- Sandbox/allowlist mechanism at the SDK level (not available yet in Claude Agent SDK)
+- Command allowlist: only permit read-only commands (`git log`, `tsc`, `node -e`, `cat`, `jq`)
+- Block write commands (`rm`, `mv`, `cp`, `curl`, `wget`, `chmod`, `chown`, network access)
+- Or: run the agent in a Docker container / chroot with no network and read-only filesystem
+
+**Current workaround:** The LLM can infer most of what Bash would provide by reading source files, config files, and grepping for patterns. The quality impact is marginal — tier 3 primarily validates code-level claims, not runtime behavior.
