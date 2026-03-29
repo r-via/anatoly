@@ -174,17 +174,25 @@ describe('BestPracticesRuleSchema', () => {
     expect(BestPracticesRuleSchema.safeParse(rule).success).toBe(true);
   });
 
-  it('should reject rule_id outside 1-17', () => {
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 0, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' }).success).toBe(false);
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 18, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' }).success).toBe(false);
+  it('should clamp rule_id outside 1-17', () => {
+    const r0 = BestPracticesRuleSchema.parse({ rule_id: 0, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' });
+    expect(r0.rule_id).toBe(1);
+    const r18 = BestPracticesRuleSchema.parse({ rule_id: 18, rule_name: 'X', status: 'PASS', severity: 'MEDIUM' });
+    expect(r18.rule_id).toBe(17);
   });
 
   it('should reject invalid status', () => {
     expect(BestPracticesRuleSchema.safeParse({ rule_id: 1, rule_name: 'X', status: 'INVALID', severity: 'MEDIUM' }).success).toBe(false);
   });
 
-  it('should reject invalid severity', () => {
-    expect(BestPracticesRuleSchema.safeParse({ rule_id: 1, rule_name: 'X', status: 'PASS', severity: 'LOW' }).success).toBe(false);
+  it('should coerce unknown severity to MEDIUM', () => {
+    const result = BestPracticesRuleSchema.parse({ rule_id: 1, rule_name: 'X', status: 'PASS', severity: 'LOW' });
+    expect(result.severity).toBe('MEDIUM');
+  });
+
+  it('should coerce null lines to undefined', () => {
+    const result = BestPracticesRuleSchema.parse({ rule_id: 1, rule_name: 'X', status: 'PASS', severity: 'HIGH', lines: null });
+    expect(result.lines).toBeUndefined();
   });
 });
 

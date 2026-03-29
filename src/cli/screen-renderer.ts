@@ -115,10 +115,12 @@ export class ScreenRenderer {
     }
   }
 
-  /** Log a line in plain mode (no-op in fancy mode) */
+  /** Log a line in plain mode (no-op in fancy mode).
+   *  Uses process.stdout.write directly to avoid being silenced by
+   *  GeminiTransport's console.log suppression during concurrent calls. */
   logPlain(message: string): void {
     if (this.opts.plain) {
-      console.log(message);
+      process.stdout.write(message + '\n');
     }
   }
 

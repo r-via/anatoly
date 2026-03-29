@@ -11,6 +11,23 @@ import {
 import type { GeminiClient } from '@google/gemini-cli-core';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { contextLogger } from '../../utils/log-context.js';
+import { initConvDump, appendAssistant, appendResult, type ConvDump } from './conversation-dump.js';
+
+/**
+ * Per-1M-token pricing for Gemini models (subscription mode uses the same pricing).
+ * Source: https://ai.google.dev/pricing
+ */
+const GEMINI_PRICING: Record<string, { input: number; output: number }> = {
+  'gemini-2.5-flash-lite':  { input: 0.075,  output: 0.30 },
+  'gemini-2.5-flash':       { input: 0.15,   output: 0.60 },
+  'gemini-2.5-pro':         { input: 1.25,   output: 10.00 },
+};
+
+function computeCost(model: string, inputTokens: number, outputTokens: number): number {
+  const pricing = GEMINI_PRICING[model];
+  if (!pricing) return 0;
+  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+}
 
 /**
  * Reference-counted console suppression for gemini-cli-core noise.
@@ -147,6 +164,11 @@ export class GeminiTransport implements LlmTransport {
       chat.setSystemInstruction(params.systemPrompt);
     }
 
+    // --- Conversation dump ---
+    const dump: ConvDump | undefined = (params.conversationDir && params.conversationPrefix != null && params.attempt != null)
+      ? initConvDump({ conversationDir: params.conversationDir, conversationPrefix: params.conversationPrefix, attempt: params.attempt, model: params.model, provider: 'gemini (subscription)', systemPrompt: params.systemPrompt, userMessage: params.userMessage })
+      : undefined;
+
     // Build transcript header
     if (params.systemPrompt) {
       transcriptLines.push(`## System\n\n${params.systemPrompt}\n`);
@@ -186,7 +208,14 @@ export class GeminiTransport implements LlmTransport {
     }
 
     const durationMs = Date.now() - start;
+    const costUsd = computeCost(params.model, inputTokens, outputTokens);
     transcriptLines.push(`## Assistant\n\n${text}\n`);
+
+    // --- Conversation dump: append result ---
+    if (dump) {
+      appendAssistant(dump, text);
+      appendResult(dump, { durationMs, costUsd, inputTokens, outputTokens, success: true });
+    }
 
     // Emit structured llm_call event
     contextLogger().info(
@@ -200,7 +229,7 @@ export class GeminiTransport implements LlmTransport {
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
         cacheHitRate: 0,
-        costUsd: 0,
+        costUsd,
         durationMs,
         success: true,
         ...(params.retryReason ? { retryReason: params.retryReason } : {}),
@@ -210,7 +239,7 @@ export class GeminiTransport implements LlmTransport {
 
     return {
       text,
-      costUsd: 0,
+      costUsd,
       durationMs,
       inputTokens,
       outputTokens,

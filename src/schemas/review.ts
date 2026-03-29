@@ -79,21 +79,29 @@ export const FileLevelSchema = z.object({
 
 export const BestPracticesRuleSeveritySchema = z.enum(['CRITICAL', 'HIGH', 'MEDIUM']);
 
+/** Lenient severity: coerce unknown values (e.g. "LOW", "INFO") to "MEDIUM". */
+const LenientSeveritySchema = z.string().transform((v) => {
+  const upper = v.toUpperCase();
+  if (upper === 'CRITICAL' || upper === 'HIGH' || upper === 'MEDIUM') return upper as 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  return 'MEDIUM' as const;
+});
+
 export const BestPracticesRuleStatusSchema = z.enum(['PASS', 'WARN', 'FAIL']);
 
 /**
  * Zod schema for a single best-practices rule evaluation.
  *
- * `rule_id` is constrained to 1..17, matching the total number of rules in
- * the best-practices checklist.
+ * `rule_id` is clamped to 1..17, matching the total number of rules in
+ * the best-practices checklist. Values outside the range are clamped rather
+ * than rejected, to tolerate models that invent extra rule IDs.
  */
 export const BestPracticesRuleSchema = z.object({
-  rule_id: z.int().min(1).max(17),
+  rule_id: z.number().int().transform((v) => Math.max(1, Math.min(17, v))),
   rule_name: z.string().min(1),
   status: BestPracticesRuleStatusSchema,
-  severity: BestPracticesRuleSeveritySchema,
+  severity: LenientSeveritySchema,
   detail: z.string().optional(),
-  lines: z.string().optional(),
+  lines: z.string().nullable().transform((v) => v ?? undefined).optional(),
 });
 
 export const BestPracticesSuggestionSchema = z.object({

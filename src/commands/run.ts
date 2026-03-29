@@ -334,7 +334,13 @@ export function registerRunCommand(program: Command): void {
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      process.setMaxListeners(Math.max(process.getMaxListeners(), config.providers.anthropic.concurrency + 10));
+      // and gemini-cli-core Config instances that each add a model-changed listener
+      const maxConcurrency = Math.max(config.providers.anthropic.concurrency, config.providers.google?.concurrency ?? 0);
+      process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
+      try {
+        const { coreEvents } = await import('@google/gemini-cli-core');
+        coreEvents.setMaxListeners(Math.max(coreEvents.getMaxListeners(), maxConcurrency + 10));
+      } catch { /* gemini-cli-core not installed — no-op */ }
 
       // Create per-run ndjson log file at debug level (skip in dry-run)
       if (!ctx.dryRun) {
@@ -592,13 +598,13 @@ export function registerRunCommand(program: Command): void {
                     state.completeTask('refinement', `Done — ${detail}`);
                     break;
                 }
-                // Plain mode sequential logging
+                // Plain mode sequential logging (use logPlain to bypass console.log suppression)
                 if (ctx.plain && event === 'tier3-shard') {
-                  console.log(`[refinement]   ${detail}`);
+                  ctx.renderer?.logPlain(`[refinement]   ${detail}`);
                 }
                 if (ctx.plain && event.endsWith('-done')) {
                   const tier = event.replace('-done', '');
-                  console.log(`[refinement] \u2714 ${tier} — ${detail}`);
+                  ctx.renderer?.logPlain(`[refinement] \u2714 ${tier} — ${detail}`);
                 }
               },
             });
