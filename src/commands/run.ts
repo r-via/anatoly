@@ -466,6 +466,7 @@ export function registerRunCommand(program: Command): void {
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
               queryFn: async (params) => {
                 const start = Date.now();
+                const shardId = `tier3-shard-${Date.now()}`;
                 await ctx.sdkSemaphore.acquire();
                 try {
                   const q = query({
@@ -515,6 +516,40 @@ export function registerRunCommand(program: Command): void {
                     throw new Error('Tier 3: no valid JSON found in agentic response');
                   }
                   const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
+
+                  // Dump tier 3 conversation transcript
+                  try {
+                    const convDir = join(ctx.runDir, 'conversations');
+                    mkdirSync(convDir, { recursive: true });
+                    const durationMs = Date.now() - start;
+                    const log = [
+                      `# Tier 3 Investigation — ${shardId}`,
+                      '',
+                      `| Field | Value |`,
+                      `|-------|-------|`,
+                      `| Model | ${params.model} |`,
+                      `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
+                      `| Cost | $${costUsd.toFixed(4)} |`,
+                      `| Input tokens | ${inputTokens} |`,
+                      `| Output tokens | ${outputTokens} |`,
+                      `| Timestamp | ${new Date().toISOString()} |`,
+                      '',
+                      '## System',
+                      '',
+                      params.systemPrompt,
+                      '',
+                      '## User',
+                      '',
+                      params.userMessage,
+                      '',
+                      '## Agent Response',
+                      '',
+                      resultText,
+                    ].join('\n');
+                    writeFileSync(join(convDir, `${shardId}.md`), log);
+                  } catch {
+                    // non-critical
+                  }
 
                   return {
                     data: parsed,
