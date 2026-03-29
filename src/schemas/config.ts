@@ -141,6 +141,10 @@ export const OutputConfigSchema = z.object({
   max_runs: z.int().min(1).optional(),
 });
 
+export const SearchConfigSchema = z.object({
+  provider: z.enum(['exa', 'brave']).optional(),
+});
+
 // --- Main ConfigSchema ---
 
 export const ConfigSchema = z.object({
@@ -189,6 +193,7 @@ export const ConfigSchema = z.object({
     link: 'https://github.com/r-via/anatoly',
   }),
   documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
+  search: SearchConfigSchema.default({}),
 });
 
 // --- Exported types ---
