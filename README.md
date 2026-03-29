@@ -46,8 +46,9 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 
 - **7-axis analysis** — correction, overengineering, utility, duplication, tests, best practices, documentation — all axes run in parallel per file, each crash-isolated
 - **Evidence-based review** — the agent must grep/read to prove every finding before reporting it — no guesswork, no hallucinated issues
-- **Opus deliberation** — senior-auditor pass (Opus) reviews merged results, detects inter-axis incoherence, and filters residual false positives. Enabled by default
+- **3-tier refinement** — post-review pipeline that eliminates false positives: tier 1 auto-resolves trivially wrong findings (usage graph, AST, RAG — 0 tokens), tier 2 detects inter-axis contradictions (DEAD+NEEDS_FIX is moot), tier 3 launches an Opus agent with full tool access (Read, Grep, Bash, WebFetch) to investigate ambiguous findings with empirical evidence. -22% faster, -20% cheaper, +150% CLEAN files vs legacy per-file deliberation
 - **Two-pass correction** — re-evaluates findings against dependency documentation (package.json + node_modules READMEs) to eliminate API-misunderstanding false positives
+- **Refinement cache** — per-finding persistence in `refinement-cache.json` enables crash recovery (resumes at next finding) and prevents re-investigation across runs
 - **Deliberation memory** — persistent reclassification registry prevents repeated false positives across runs, covers all axes
 - **RAG semantic duplication** — local code embeddings + dual code+NLP embedding for hybrid similarity search via LanceDB. Concept-level matching, not just syntax
 - **RAG-powered documentation review** — function summaries (Haiku) and doc sections are embedded as NLP vectors. The documentation axis evaluates quality by semantic similarity. Separate from `anatoly docs` which manages internal documentation

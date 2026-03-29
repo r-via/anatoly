@@ -1,66 +1,112 @@
-# Deliberation Pass
+# 3-Tier Refinement Pipeline
 
-The deliberation pass is an optional validation phase where a stronger model (typically Claude Opus) reviews the merged output of all seven axis evaluators. Its purpose is to catch inter-axis contradictions, filter residual false positives, and ensure the final verdict is coherent.
+The refinement pipeline is a post-review validation phase that eliminates false positives, resolves inter-axis contradictions, and investigates ambiguous findings. It replaces the legacy per-file Opus deliberation with a three-tier approach: deterministic auto-resolve, coherence rules, and agentic investigation.
 
 ## When It Runs
 
-Deliberation is controlled by two settings:
+Refinement is controlled by two settings:
 
 1. **CLI flag:** `--deliberation` / `--no-deliberation` (takes precedence)
 2. **Config:** `llm.deliberation` (boolean, default from config)
 
-The model used for deliberation is configured separately via `llm.deliberation_model`.
+When enabled, the refinement phase runs after all files have been reviewed and their ReviewFile JSON/MD written to disk. The three tiers execute sequentially.
 
-Even when enabled globally, deliberation is **skipped** for files that do not need it. The `needsDeliberation` function applies a selective filter:
+## Pipeline Overview
 
-### Files That Trigger Deliberation
+```
+Review phase (7 axes per file, parallel)
+  → write ReviewFile JSON + MD (no deliberation)
+  ↓
+Tier 1: Deterministic auto-resolve (0 tokens, < 1s)
+  ↓
+Tier 2: Inter-axis coherence rules (0 tokens, < 1s)
+  ↓
+Tier 3: Agentic investigation (Opus + tools, post-run)
+  ↓
+Write refined ReviewFiles → Report phase
+```
 
-- Any symbol has correction = `NEEDS_FIX` or `ERROR`
-- Any symbol has utility = `DEAD`
-- Any symbol has duplication = `DUPLICATE`
-- Any symbol has overengineering = `OVER`
-- Verdict is not `CLEAN` (i.e., `NEEDS_REFACTOR` or `CRITICAL`)
-- Verdict is `CLEAN` but any symbol has confidence below 70
+## Tier 1 — Deterministic Auto-Resolve
 
-### Files That Skip Deliberation
+Resolves trivially false findings using structured data already available (usage graph, AST, RAG index). No LLM calls.
 
-- Verdict is `CLEAN` and all symbol confidences are >= 95 (high-confidence clean)
-- Verdict is `CLEAN` and all symbol confidences are in the 70-94 range (medium-confidence clean)
+| Finding | Resolution | Data source |
+|---------|-----------|-------------|
+| DEAD (exported + runtime importers > 0) | → USED | Usage graph |
+| DEAD (exported + type-only importers > 0) | → USED | Usage graph |
+| DEAD (exported + transitive usage) | → USED | Usage graph |
+| DUPLICATE (no RAG candidates or score < 0.68) | → UNIQUE | RAG index |
+| DUPLICATE (function ≤ 2 lines) | → UNIQUE | AST |
+| OVER (kind = interface/type/enum) | → LEAN | AST |
+| OVER (function ≤ 5 lines) | → LEAN | AST |
+| UNDOCUMENTED (JSDoc block exists, > 20 chars) | → DOCUMENTED | AST |
+| UNDOCUMENTED (self-descriptive type ≤ 5 fields) | → DOCUMENTED | AST |
+| Any finding on `__gold-set__` or `__fixtures__` file | → skip | Path pattern |
 
-This selective approach means that clean files with solid confidence scores avoid the additional cost of an Opus call entirely.
+**Implementation:** `src/core/refinement/tier1.ts` — pure function, no side effects.
 
-## What It Does
+## Tier 2 — Inter-Axis Coherence Rules
 
-The deliberation judge receives two inputs:
+Detects logical contradictions between axes and resolves them deterministically. No LLM calls.
 
-1. The complete merged `ReviewFile` (JSON with all symbol verdicts, actions, and axis metadata)
-2. The original source code of the file
+| Pattern | Resolution | Reasoning |
+|---------|-----------|-----------|
+| DEAD + NEEDS_FIX | correction → OK | No point fixing dead code |
+| DEAD + OVER | overengineering → skip | No point evaluating dead code complexity |
+| DEAD + DUPLICATE | duplication → skip | No point deduplicating dead code |
+| DEAD + WEAK/NONE | tests → skip | No tests needed for dead code |
+| DEAD + UNDOCUMENTED | documentation → skip | No docs needed for dead code |
+| LOW_VALUE + OVER | overengineering → skip | No point refactoring low-value code |
+| LOW_VALUE + UNDOCUMENTED | documentation → skip | No point documenting low-value code |
 
-It performs five tasks:
+Tier 2 also **escalates** findings to tier 3 when they require investigation:
 
-### 1. Inter-Axis Coherence Verification
+- correction ERROR → always escalated
+- NEEDS_FIX with confidence < 75 and no other findings → escalated
+- Findings mentioning defaults, config, thresholds → escalated (behavioral change)
+- Systemic patterns (> 10 DEAD symbols in a module) → escalated
 
-Checks whether the combined findings from all seven axes make sense together. For example, if the utility axis says a function is `DEAD` but the correction axis flagged a bug in it, the deliberation judge determines which assessment better reflects reality.
+**Implementation:** `src/core/refinement/tier2.ts` — pure function with cross-file pattern detection.
 
-### 2. False Positive Filtering
+## Tier 3 — Agentic Investigation
 
-Reclassifies `NEEDS_FIX` findings to `OK` when the original assessment was incorrect. This is the primary value of deliberation -- the stronger model can catch mistakes that the individual axis evaluators made.
+A full Opus agent with tool access investigates the findings escalated by tier 2. Unlike tiers 1-2, this tier calls the LLM and reads actual source code.
 
-### 3. ERROR Protection
+**Tools available:** Read, Grep, Glob, Bash, WebFetch
 
-ERROR findings receive special protection. The deliberation judge can only downgrade an ERROR to a less severe classification if its confidence is >= 95. This prevents the deliberation pass from accidentally dismissing genuine critical bugs.
+**Process:**
+1. Escalated findings are grouped into shards by module/directory
+2. For each shard, the agent receives only the list of claims to verify (not the source code)
+3. The agent reads files, greps for usages, checks configs, and verifies each claim
+4. It produces a JSON response with confirmed/reclassified verdicts and evidence
 
-### 4. Confidence Adjustment
+**Key principle:** The agent receives claims, not evidence. It must investigate and prove or disprove each finding itself.
 
-Raises or lowers confidence values based on cross-axis evidence. A correction finding that is corroborated by the best_practices axis may see its confidence increased. A finding that contradicts other axes may be lowered.
+**System prompt:** `src/prompts/refinement/tier3-investigation.system.md`
 
-### 5. Action Cleanup
+**Verification principles (from the prompt):**
+- Intent vs. defect: is the code wrong, or intentionally written this way?
+- Bug vs. preference: only actual defects are NEEDS_FIX
+- Observable evidence: assumptions lower confidence
+- Blast radius: behavioral changes require stronger evidence
+- Dynamic vs. static: runtime values may differ from documentation
+- Trace the full chain: when a finding disputes a value, trace its origin end-to-end
 
-When a symbol is reclassified (e.g., NEEDS_FIX to OK), the associated actions become invalid. The deliberation judge outputs a list of action IDs to remove.
+### Refinement Cache
+
+Tier 3 results are persisted per-finding in `refinement-cache.json` (in the run directory). This enables:
+
+- **Crash recovery:** if a shard fails mid-investigation, the next run resumes at the next unprocessed finding
+- **Incremental runs:** findings already investigated are skipped
+- **Cache key:** `file::symbol::axis` — unique per finding
+
+### Deliberation Memory
+
+Tier 3 is the only tier that writes to `deliberation-memory.json`. This persistent registry prevents the same false positive from being re-investigated across runs. The memory is also used to inject "Known False Positives" into axis prompts.
 
 ## Output Format
 
-The deliberation response follows a strict schema:
+Tier 3 uses the same `DeliberationResponse` schema as the legacy deliberation:
 
 ```json
 {
@@ -70,44 +116,31 @@ The deliberation response follows a strict schema:
       "name": "symbolName",
       "original": { "correction": "NEEDS_FIX", "confidence": 72 },
       "deliberated": { "correction": "OK", "confidence": 90 },
-      "reasoning": "The pattern is safe because..."
+      "reasoning": "Checked src/scanner.ts:45 — the value is set dynamically by the smoke test..."
     }
   ],
   "removed_actions": [1, 3],
-  "reasoning": "Overall assessment explaining the deliberation decisions"
+  "reasoning": "Overall investigation summary"
 }
 ```
 
-Each symbol entry includes both the original and deliberated values, making the changes transparent and auditable.
+## Performance
 
-## Applying Deliberation Results
+Benchmarked on rustguard (41 Rust files):
 
-The `applyDeliberation` function merges the Opus response back into the original `ReviewFile`:
+| Metric | Legacy (per-file Opus) | 3-Tier | Delta |
+|--------|----------------------|--------|-------|
+| Total time | 58 min | 45 min | -22% |
+| Per-file avg | 331s | 220s | -34% |
+| Cost | $47.58 | $38.23 | -20% |
+| CLEAN files | 4 | 10 | +150% |
+| Findings | 76 | 72 | -4 |
 
-1. For each deliberated symbol, apply the new correction and confidence values
-2. Enforce ERROR protection: if the original was ERROR and Opus's confidence for downgrading is below 95, keep ERROR
-3. Enrich the symbol detail string with the deliberation reasoning (e.g., `"(deliberated: NEEDS_FIX -> OK -- The pattern is safe...)"`)
-4. Remove invalidated actions by their IDs
-5. Recompute the verdict from the final symbol state, not just from what Opus said -- if ERROR protection kept an ERROR symbol, the verdict escalates to CRITICAL regardless of Opus's recommendation
-
-> **Note:** `recomputeVerdict` (used after deliberation) does NOT apply the confidence >= 60 threshold that `computeVerdict` uses during the initial axis merge. All symbols are considered regardless of confidence. This is a meaningful behavioral difference -- after deliberation, even low-confidence symbols can influence the file verdict.
-
-## Cost Implications
-
-Deliberation adds one additional LLM call per qualifying file, using the deliberation model (typically Claude Opus, which is more expensive than Sonnet or Haiku).
-
-**Cost factors:**
-
-- **Input tokens:** the full merged ReviewFile (JSON) plus the complete source code of the file
-- **Output tokens:** the deliberation response (smaller than the review itself)
-- **Frequency:** only files with findings or low-confidence results trigger deliberation. In practice, on a well-maintained codebase, this is often 10-30% of files.
-
-**Cost optimization strategies:**
-
-1. **Disable for CI:** use `--no-deliberation` in CI pipelines where speed matters more than precision
-2. **Enable for release audits:** use `--deliberation` before releases when you want maximum accuracy
-3. **Selective model:** configure `llm.deliberation_model` to use a mid-tier model if Opus is too expensive
+Tier 1+2 are free (0 tokens). Tier 3 adds 7-8 min post-run for 2 shards.
 
 ## Failure Handling
 
-If the deliberation pass fails (API error, timeout, validation failure), the original merged review is kept unchanged. The failure is logged in the transcript but does not block the report phase. This means deliberation is purely additive -- it can only improve results, never break them.
+- **Tier 1/2 failure:** impossible (deterministic code, no I/O)
+- **Tier 3 shard failure:** isolated per shard — failed shards don't block others
+- **Tier 3 crash:** refinement cache preserves progress — next run resumes
+- **All tiers skipped:** when `--no-deliberation` is set, ReviewFiles are used as-is
