@@ -21,21 +21,21 @@ scan:
 providers:
   anthropic:
     concurrency: 24
-  # google:           # Uncomment to enable Gemini
-  #   mode: subscription
-  #   concurrency: 10
+  google:
+    mode: subscription
+    concurrency: 10
 
 models:
-  quality: claude-sonnet-4-6
-  fast: claude-haiku-4-5-20251001
+  quality: gemini-3-flash-preview
+  fast: gemini-2.5-flash-lite
   deliberation: claude-opus-4-6
-  # code_summary:     # Optional: defaults to models.fast
+  code_summary: gemini-2.5-flash-lite
 
 agents:
   enabled: true
-  # scaffolding:      # Override model for scaffolding agent
-  # review:           # Override model for review agent
-  # deliberation:     # Override model for deliberation agent
+  # scaffolding:                        # doc-generation scaffolding (default: models.quality)
+  # review:                             # file review agent (default: models.quality)
+  # deliberation:                       # tier-3 investigation agent (default: models.deliberation)
 
 runtime:
   timeout_per_file: 600
@@ -47,12 +47,13 @@ runtime:
 axes:
   utility:
     enabled: true
+    model: gemini-2.5-flash
   duplication:
     enabled: true
-  correction:
-    enabled: true
+    model: gemini-2.5-flash
   overengineering:
     enabled: true
+    model: gemini-2.5-flash
   tests:
     enabled: true
   best_practices:
