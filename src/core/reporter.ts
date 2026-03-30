@@ -1478,7 +1478,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
 /**
  * Compute a "health" percentage for an axis based on the "good" verdict ratio.
  */
-function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string } {
+export function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string } {
   const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
 
   switch (axis) {

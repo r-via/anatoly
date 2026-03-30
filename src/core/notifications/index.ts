@@ -20,7 +20,7 @@ export interface NotificationPayload {
   errorFiles: number;
   durationMs: number;
   costUsd: number;
-  axisScorecard: Record<string, { high: number; medium: number; low: number }>;
+  axisScorecard: Record<string, { high: number; medium: number; low: number; healthPct: number; label: string }>;
   topFindings: Array<{ file: string; axis: string; severity: string; detail: string }>;
   reportUrl?: string;
 }

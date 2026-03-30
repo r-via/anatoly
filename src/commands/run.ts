@@ -16,7 +16,7 @@ import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds }
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
-import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
@@ -2032,7 +2032,18 @@ function runReportPhase(ctx: RunContext): void {
       errorFiles: data.errorFiles.length,
       durationMs: Date.now() - ctx.startTime,
       costUsd: ctx.totalCostUsd,
-      axisScorecard: data.counts,
+      axisScorecard: Object.fromEntries(
+        REPORT_AXIS_IDS.map((axis) => {
+          const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
+            correction: 'correction', utility: 'dead', duplication: 'duplicate',
+            overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+            'best-practices': 'best_practices',
+          };
+          const c = data.counts[countsKey[axis]];
+          const { pct, label } = axisHealthPercent(data, axis);
+          return [countsKey[axis], { ...c, healthPct: pct, label }];
+        }),
+      ),
       topFindings: data.actions.slice(0, 10).map(a => ({
         file: a.file,
         axis: a.source ?? 'unknown',

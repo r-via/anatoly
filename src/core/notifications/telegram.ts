@@ -67,19 +67,18 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   // ── Axis scorecard with health bars ──
   for (const [axis, counts] of Object.entries(payload.axisScorecard)) {
     const total = counts.high + counts.medium + counts.low;
-    const pct = payload.totalFiles > 0
-      ? Math.round((1 - (counts.high + counts.medium) / payload.totalFiles) * 100)
-      : 100;
+    const pct = counts.healthPct;
     const name = AXIS_DISPLAY[axis] ?? e(axis);
     const bar = healthBar(Math.max(0, Math.min(100, pct)), counts.high, payload.totalFiles);
+    const label = counts.label ? ` ${e(counts.label)}` : '';
 
     if (total === 0) {
-      lines.push(`${name}  ${bar} ${e(String(pct))}%`);
+      lines.push(`${name}  ${bar} ${e(String(pct))}%${label}`);
     } else {
       const parts: string[] = [];
       if (counts.high > 0) parts.push(`${counts.high}H`);
       if (counts.medium > 0) parts.push(`${counts.medium}M`);
-      lines.push(`${name}  ${bar} ${e(String(pct))}%  ${e(parts.join(' '))}`);
+      lines.push(`${name}  ${bar} ${e(String(pct))}%${label}  ${e(parts.join(' '))}`);
     }
   }
 
