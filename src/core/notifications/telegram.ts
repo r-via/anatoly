@@ -89,9 +89,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     `${e(String(payload.totalFiles))} files reviewed · \\$${e(payload.costUsd.toFixed(2))} · ${e(String(durationMin))} min`,
     `*${e(String(totalFindings))}* findings in *${e(String(payload.findingFiles))}* files`,
     ``,
-    ``,
     SEP,
-    ``,
     ``,
   ];
 
@@ -110,7 +108,6 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
       : '';
     lines.push(`${emoji} *${e(name)}*${e(counts)}`);
     lines.push(`${bar} ${e(String(pct))}%`);
-    lines.push(``);
   }
 
   // ── Finding summary by severity ──
@@ -119,9 +116,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   if (totalHigh > 0 || totalMed > 0) {
     lines.push(``);
-    lines.push(``);
     lines.push(SEP);
-    lines.push(``);
     lines.push(``);
 
     if (totalHigh > 0) {
@@ -150,9 +145,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   // ── Footer ──
   lines.push(``);
-  lines.push(``);
   lines.push(SEP);
-  lines.push(``);
   lines.push(``);
   if (payload.reportUrl) {
     lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
