@@ -92,7 +92,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   const lines: string[] = [
     intro,
     ``,
-    `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
+    `${verdictEmoji(payload.verdict)} *Verdict: ${e(payload.verdict)}*`,
     ``,
     `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
     `🔴 ${e(String(totalHigh))} *H*igh · 🟡 ${e(String(totalMed))} *M*ed · ⚪ ${e(String(totalLow))} *L*ow`,
