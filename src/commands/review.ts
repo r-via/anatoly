@@ -191,7 +191,6 @@ export function registerReviewCommand(program: Command): void {
                 semaphore: sdkSemaphore,
                 geminiSemaphore,
                 circuitBreaker,
-                fallbackModel: config.models.quality,
                 router: reviewRouter,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);

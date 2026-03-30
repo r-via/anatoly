@@ -180,28 +180,4 @@ describe('GeminiCircuitBreaker', () => {
     expect(cb.shouldFallback()).toBe(false); // half-open
   });
 
-  // -----------------------------------------------------------------------
-  // resolveModel helper
-  // -----------------------------------------------------------------------
-
-  it('resolveModel returns model as-is when closed', () => {
-    const cb = new GeminiCircuitBreaker();
-    expect(cb.resolveModel('gemini-2.5-flash', 'claude-sonnet-4-20250514')).toBe('gemini-2.5-flash');
-  });
-
-  it('resolveModel returns fallback when open and model is gemini', () => {
-    const cb = new GeminiCircuitBreaker();
-    cb.recordFailure();
-    cb.recordFailure();
-    cb.recordFailure();
-    expect(cb.resolveModel('gemini-2.5-flash', 'claude-sonnet-4-20250514')).toBe('claude-sonnet-4-20250514');
-  });
-
-  it('resolveModel returns model as-is for non-gemini models even when open', () => {
-    const cb = new GeminiCircuitBreaker();
-    cb.recordFailure();
-    cb.recordFailure();
-    cb.recordFailure();
-    expect(cb.resolveModel('claude-sonnet-4-20250514', 'claude-haiku-3-5-20241022')).toBe('claude-sonnet-4-20250514');
-  });
 });

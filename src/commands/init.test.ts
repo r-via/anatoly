@@ -50,9 +50,9 @@ describe('detectApiKey', () => {
     expect(detectApiKey('anthropic')).toBe('ANTHROPIC_API_KEY');
   });
 
-  it('detects GOOGLE_API_KEY for google', () => {
-    vi.stubEnv('GOOGLE_API_KEY', 'test-key');
-    expect(detectApiKey('google')).toBe('GOOGLE_API_KEY');
+  it('detects GOOGLE_GENERATIVE_AI_API_KEY for google', () => {
+    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
+    expect(detectApiKey('google')).toBe('GOOGLE_GENERATIVE_AI_API_KEY');
   });
 
   it('returns null when env var is missing', () => {

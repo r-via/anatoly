@@ -64,7 +64,7 @@ describe('KNOWN_PROVIDERS registry', () => {
 
   it('should have correct env_key for each provider', () => {
     expect(KNOWN_PROVIDERS.anthropic.env_key).toBe('ANTHROPIC_API_KEY');
-    expect(KNOWN_PROVIDERS.google.env_key).toBe('GOOGLE_API_KEY');
+    expect(KNOWN_PROVIDERS.google.env_key).toBe('GOOGLE_GENERATIVE_AI_API_KEY');
     expect(KNOWN_PROVIDERS.openai.env_key).toBe('OPENAI_API_KEY');
     expect(KNOWN_PROVIDERS.groq.env_key).toBe('GROQ_API_KEY');
     expect(KNOWN_PROVIDERS.deepseek.env_key).toBe('DEEPSEEK_API_KEY');

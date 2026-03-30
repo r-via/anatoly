@@ -215,19 +215,18 @@ describe('GenericProviderConfigSchema standalone', () => {
 });
 
 describe('ModelsConfigSchema', () => {
-  it('should default quality to claude-sonnet-4-6', () => {
+  it('should have non-empty defaults for quality, fast, deliberation', () => {
     const config = ConfigSchema.parse({});
-    expect(config.models.quality).toBe('claude-sonnet-4-6');
+    expect(config.models.quality).toBeTruthy();
+    expect(config.models.fast).toBeTruthy();
+    expect(config.models.deliberation).toBeTruthy();
   });
 
-  it('should default fast to claude-haiku-4-5-20251001', () => {
+  it('should use provider/model format for defaults', () => {
     const config = ConfigSchema.parse({});
-    expect(config.models.fast).toBe('claude-haiku-4-5-20251001');
-  });
-
-  it('should default deliberation to claude-opus-4-6', () => {
-    const config = ConfigSchema.parse({});
-    expect(config.models.deliberation).toBe('claude-opus-4-6');
+    expect(config.models.quality).toContain('/');
+    expect(config.models.fast).toContain('/');
+    expect(config.models.deliberation).toContain('/');
   });
 
   it('should default code_summary to undefined', () => {
@@ -314,15 +313,19 @@ describe('RuntimeConfigSchema', () => {
 });
 
 describe('AxesConfigSchema (top-level)', () => {
-  it('should default all axes to enabled via top-level axes', () => {
+  it('should leave absent axes as undefined', () => {
     const config = ConfigSchema.parse({});
-    expect(config.axes.utility.enabled).toBe(true);
-    expect(config.axes.duplication.enabled).toBe(true);
-    expect(config.axes.correction.enabled).toBe(true);
-    expect(config.axes.overengineering.enabled).toBe(true);
-    expect(config.axes.tests.enabled).toBe(true);
-    expect(config.axes.best_practices.enabled).toBe(true);
-    expect(config.axes.documentation.enabled).toBe(true);
+    expect(config.axes.utility).toBeUndefined();
+    expect(config.axes.correction).toBeUndefined();
+  });
+
+  it('should set present axes to enabled by default', () => {
+    const config = ConfigSchema.parse({
+      axes: { utility: {}, duplication: {} },
+    });
+    expect(config.axes.utility?.enabled).toBe(true);
+    expect(config.axes.duplication?.enabled).toBe(true);
+    expect(config.axes.correction).toBeUndefined();
   });
 
   it('should accept per-axis model override at top level', () => {
@@ -331,18 +334,19 @@ describe('AxesConfigSchema (top-level)', () => {
         correction: { model: 'claude-opus-4-20250514' },
       },
     });
-    expect(config.axes.correction.model).toBe('claude-opus-4-20250514');
-    expect(config.axes.utility.model).toBeUndefined();
+    expect(config.axes.correction?.model).toBe('claude-opus-4-20250514');
+    expect(config.axes.utility).toBeUndefined();
   });
 
   it('should accept disabling an axis at top level', () => {
     const config = ConfigSchema.parse({
       axes: {
         best_practices: { enabled: false },
+        utility: {},
       },
     });
-    expect(config.axes.best_practices.enabled).toBe(false);
-    expect(config.axes.utility.enabled).toBe(true);
+    expect(config.axes.best_practices?.enabled).toBe(false);
+    expect(config.axes.utility?.enabled).toBe(true);
   });
 
   it('should validate standalone AxisConfigSchema', () => {

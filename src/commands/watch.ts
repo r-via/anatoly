@@ -205,7 +205,6 @@ export function registerWatchCommand(program: Command): void {
             semaphore: sdkSemaphore,
             geminiSemaphore,
             circuitBreaker,
-            fallbackModel: config.models.quality,
             router: watchRouter,
           });
           writeReviewOutput(projectRoot, result.review, runDir);

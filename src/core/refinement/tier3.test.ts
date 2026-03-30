@@ -79,7 +79,7 @@ function makeDeliberationResponse(overrides: Partial<DeliberationResponse> = {})
 function makeCtx(overrides: Partial<Tier3Context> = {}): Tier3Context {
   return {
     projectRoot: '/tmp/test-project',
-    model: 'claude-opus-4-6',
+    model: 'anthropic/claude-opus-4-6',
     abortController: new AbortController(),
     reviewsByFile: new Map(),
     budgetUsd: 30,
@@ -317,7 +317,7 @@ describe('runTier3', () => {
     const call = queryFn.mock.calls[0];
     expect(call[0]).toHaveProperty('systemPrompt');
     expect(call[0]).toHaveProperty('userMessage');
-    expect(call[0]).toHaveProperty('model', 'claude-opus-4-6');
+    expect(call[0]).toHaveProperty('model', 'anthropic/claude-opus-4-6');
   });
 
   // --- AC: Error isolation per shard ---

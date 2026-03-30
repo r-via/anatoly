@@ -50,60 +50,57 @@ describe('resolveAxisModel', () => {
   });
 
   it('should use models.fast for haiku evaluators when no axis override', () => {
-    const config = makeConfig({
-      models: { fast: 'claude-haiku-4-5-20251001' },
-    });
+    const config = makeConfig({ models: { fast: 'provider/fast-model' } });
     const evaluator = makeEvaluator('haiku');
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveAxisModel(evaluator, config)).toBe('provider/fast-model');
   });
 
   it('should use models.quality for sonnet evaluators when no axis override', () => {
-    const config = makeConfig({
-      models: { quality: 'claude-sonnet-4-6' },
-    });
+    const config = makeConfig({ models: { quality: 'provider/quality-model' } });
     const evaluator = makeEvaluator('sonnet');
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-sonnet-4-6');
+    expect(resolveAxisModel(evaluator, config)).toBe('provider/quality-model');
   });
 
-  it('should fall back to models.fast when no override for haiku evaluators', () => {
+  it('should fall back to models.fast default for haiku evaluators', () => {
     const config = makeConfig();
     const evaluator = makeEvaluator('haiku');
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveAxisModel(evaluator, config)).toBe(config.models.fast);
   });
 
   it('should prefer axis model over models.fast and models.quality', () => {
     const config = makeConfig({
-      models: { quality: 'claude-sonnet-4-6', fast: 'claude-haiku-4-5-20251001' },
-      axes: { utility: { model: 'override-model' } },
+      models: { quality: 'provider/quality', fast: 'provider/fast' },
+      axes: { utility: { model: 'provider/override' } },
     });
     const evaluator = makeEvaluator('haiku');
-    expect(resolveAxisModel(evaluator, config)).toBe('override-model');
+    expect(resolveAxisModel(evaluator, config)).toBe('provider/override');
   });
 
-  it('should route to Gemini when axis model is set to gemini-* and Google provider exists', () => {
+  it('should use axis model when its provider is configured', () => {
     const config = makeConfig({
       providers: { google: { mode: 'subscription' } },
-      axes: { utility: { model: 'gemini-2.5-flash' } },
+      axes: { utility: { model: 'google/gemini-2.5-flash' } },
     });
     const evaluator = makeEvaluator('haiku');
-    expect(resolveAxisModel(evaluator, config)).toBe('gemini-2.5-flash');
+    expect(resolveAxisModel(evaluator, config)).toBe('google/gemini-2.5-flash');
   });
 
-  it('should fall through gemini-* axis model when Google provider is absent', () => {
+  it('should fall through google axis model when Google provider is absent', () => {
     const config = makeConfig({
-      axes: { utility: { model: 'gemini-2.5-flash' } },
+      axes: { utility: { model: 'google/gemini-2.5-flash' } },
     });
     const evaluator = makeEvaluator('haiku');
     // No providers.google → fall through to default
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveAxisModel(evaluator, config)).toBe(config.models.fast);
   });
 
-  it('should return models.quality for sonnet evaluators with no override and no Gemini', () => {
+  it('should return models.quality for sonnet evaluators with no override', () => {
     const config = makeConfig({
-      models: { quality: 'claude-sonnet-4-6' },
+      models: { quality: 'provider/quality-model' },
+      axes: { correction: {} },
     });
     const evaluator = makeEvaluator('sonnet', { id: 'correction' });
-    expect(resolveAxisModel(evaluator, config)).toBe('claude-sonnet-4-6');
+    expect(resolveAxisModel(evaluator, config)).toBe('provider/quality-model');
   });
 });
 
@@ -114,14 +111,14 @@ describe('resolveAxisModel', () => {
 describe('resolveCodeSummaryModel', () => {
   it('returns models.code_summary when defined', () => {
     const config = makeConfig({
-      models: { code_summary: 'gemini-2.5-flash' },
+      models: { code_summary: 'google/gemini-2.5-flash' },
     });
-    expect(resolveCodeSummaryModel(config)).toBe('gemini-2.5-flash');
+    expect(resolveCodeSummaryModel(config)).toBe('google/gemini-2.5-flash');
   });
 
   it('falls back to models.fast when code_summary is undefined', () => {
     const config = makeConfig();
-    expect(resolveCodeSummaryModel(config)).toBe('claude-haiku-4-5-20251001');
+    expect(resolveCodeSummaryModel(config)).toBe(config.models.fast);
   });
 
   it('uses custom fast model as fallback', () => {
@@ -146,14 +143,14 @@ describe('resolveDeliberationModel', () => {
 
   it('falls back to models.deliberation when agents.deliberation is undefined', () => {
     const config = makeConfig({
-      models: { deliberation: 'claude-opus-4-6' },
+      models: { deliberation: 'provider/delib-model' },
     });
-    expect(resolveDeliberationModel(config)).toBe('claude-opus-4-6');
+    expect(resolveDeliberationModel(config)).toBe('provider/delib-model');
   });
 
   it('uses default models.deliberation', () => {
     const config = makeConfig();
-    expect(resolveDeliberationModel(config)).toBe('claude-opus-4-6');
+    expect(resolveDeliberationModel(config)).toBe(config.models.deliberation);
   });
 });
 
@@ -178,14 +175,14 @@ describe('resolveAgentModel', () => {
 
   it('falls back to models.quality when agents.scaffolding is undefined', () => {
     const config = makeConfig({
-      models: { quality: 'claude-sonnet-4-6' },
+      models: { quality: 'provider/quality-model' },
     });
-    expect(resolveAgentModel('scaffolding', config)).toBe('claude-sonnet-4-6');
+    expect(resolveAgentModel('scaffolding', config)).toBe('provider/quality-model');
   });
 
   it('falls back to models.quality when agents.review is undefined', () => {
     const config = makeConfig();
-    expect(resolveAgentModel('review', config)).toBe('claude-sonnet-4-6');
+    expect(resolveAgentModel('review', config)).toBe(config.models.quality);
   });
 });
 

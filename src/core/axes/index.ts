@@ -28,16 +28,26 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
 
 /**
  * Returns the list of enabled evaluators based on the config.
- * Respects `axes.[axis].enabled` (default true for all axes).
+ * An axis must be present in `axes` to be enabled — absent axes are skipped
+ * with a warning. Axes explicitly set to `enabled: false` are also skipped.
  * When `axesFilter` is provided, only axes in both the config AND the filter are returned (intersection).
  */
 export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): AxisEvaluator[] {
-  return ALL_EVALUATORS.filter((evaluator) => {
+  const skipped: string[] = [];
+  const result = ALL_EVALUATORS.filter((evaluator) => {
     const axisConfig = config.axes?.[evaluator.id];
-    if (axisConfig?.enabled === false) return false;
+    if (!axisConfig) {
+      skipped.push(evaluator.id);
+      return false;
+    }
+    if (axisConfig.enabled === false) return false;
     if (axesFilter && !axesFilter.includes(evaluator.id)) return false;
     return true;
   });
+  if (skipped.length > 0) {
+    console.info(`ℹ Axes not in config (disabled): ${skipped.join(', ')}. Add them to 'axes' in .anatoly.yml to enable.`);
+  }
+  return result;
 }
 
 /**

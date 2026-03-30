@@ -95,10 +95,8 @@ export interface AxisContext {
   semaphore?: Semaphore;
   /** Gemini-specific SDK concurrency semaphore — used when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
-  /** Circuit breaker for Gemini fallback — when tripped, Gemini models redirect to Claude */
+  /** Circuit breaker — when tripped, calls to the affected provider fail fast */
   circuitBreaker?: GeminiCircuitBreaker;
-  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
-  fallbackModel?: string;
   /** Mode-aware transport router — when set, passed to runSingleTurnQuery */
   router?: TransportRouter;
 }
@@ -309,10 +307,8 @@ export interface SingleTurnQueryParams {
   semaphore?: Semaphore;
   /** Gemini-specific semaphore — used instead of `semaphore` when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
-  /** Circuit breaker for Gemini fallback */
+  /** Circuit breaker — when tripped, calls fail fast instead of silently falling back */
   circuitBreaker?: GeminiCircuitBreaker;
-  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
-  fallbackModel?: string;
   /** LLM transport override — defaults to AnthropicTransport when not provided */
   transport?: LlmTransport;
   /** Mode-aware transport router — when set, used for automatic transport selection */
@@ -340,39 +336,37 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, fallbackModel, transport, router } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, transport, router } = params;
 
-  // Circuit breaker: redirect Gemini → Claude when tripped
+  // Circuit breaker: abort early when provider is down (no silent fallback)
   const isGemini = extractProvider(model) === 'google';
-  const effectiveModel = (isGemini && circuitBreaker && fallbackModel)
-    ? circuitBreaker.resolveModel(model, fallbackModel)
-    : model;
+  if (isGemini && circuitBreaker?.shouldFallback()) {
+    throw new Error(`Provider "google" circuit breaker is open — too many consecutive failures. Wait for recovery or fix your provider configuration.`);
+  }
 
   // Resolve transport: explicit injection > router > fallback AnthropicTransport
   const effectiveTransport = transport
-    ?? (router ? router.resolve(effectiveModel, 'single_turn') : new AnthropicTransport());
+    ?? (router ? router.resolve(model, 'single_turn') : new AnthropicTransport());
 
-  const activeSemaphore = resolveSemaphore(effectiveModel, semaphore, geminiSemaphore);
+  const activeSemaphore = resolveSemaphore(model, semaphore, geminiSemaphore);
   if (activeSemaphore) {
     await activeSemaphore.acquire();
   }
   try {
-    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, effectiveModel, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport);
+    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport);
 
-    // Record success for Gemini calls (only if we actually called Gemini)
-    if (extractProvider(effectiveModel) === 'google' && circuitBreaker) {
+    if (isGemini && circuitBreaker) {
       circuitBreaker.recordSuccess();
     }
 
     return result;
   } catch (err) {
-    // Record failure for Gemini calls (based on original model, not effective model after redirect)
     if (isGemini && circuitBreaker) {
       circuitBreaker.recordFailure();
       if (circuitBreaker.consumeWarning()) {
         contextLogger().warn(
-          { event: 'gemini_circuit_breaker_tripped' },
-          '\u26A0 Gemini quota exhausted \u2014 falling back to Claude',
+          { event: 'circuit_breaker_tripped', provider: 'google' },
+          '\u26A0 Google provider circuit breaker tripped — calls will fail until recovery',
         );
       }
     }

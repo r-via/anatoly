@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { getEnabledEvaluators, ALL_AXIS_IDS } from './index.js';
 import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
@@ -11,48 +11,69 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
   return ConfigSchema.parse(overrides);
 }
 
+/** Helper: config with all axes present and enabled. */
+function allAxesConfig(extra: Record<string, unknown> = {}): Config {
+  return makeConfig({
+    axes: {
+      utility: { enabled: true },
+      duplication: { enabled: true },
+      correction: { enabled: true },
+      overengineering: { enabled: true },
+      tests: { enabled: true },
+      best_practices: { enabled: true },
+      documentation: { enabled: true },
+    },
+    ...extra,
+  });
+}
+
 describe('getEnabledEvaluators', () => {
-  it('should return all evaluators with default config', () => {
-    const config = makeConfig();
+  it('should return all evaluators when all axes are in config', () => {
+    const config = allAxesConfig();
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
     expect(evaluators.map((e) => e.id)).toEqual([...ALL_AXIS_IDS]);
   });
 
-  it('should filter out disabled axes', () => {
-    const config = makeConfig({
-      axes: { utility: { enabled: false }, best_practices: { enabled: false } },
-    });
-    const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length - 2);
-    expect(evaluators.map((e) => e.id)).not.toContain('utility');
-    expect(evaluators.map((e) => e.id)).not.toContain('best_practices');
-  });
-
-  it('should keep axis enabled when config is missing for that axis', () => {
-    const config = makeConfig({ axes: {} });
-    const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
-  });
-
-  it('should return empty when all axes disabled', () => {
-    const config = makeConfig({
-      axes: {
-        utility: { enabled: false },
-        duplication: { enabled: false },
-        correction: { enabled: false },
-        overengineering: { enabled: false },
-        tests: { enabled: false },
-        best_practices: { enabled: false },
-        documentation: { enabled: false },
-      },
-    });
+  it('should return empty when config has no axes', () => {
+    const config = makeConfig();
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(0);
   });
 
+  it('should only return axes present in config', () => {
+    const config = makeConfig({
+      axes: { utility: {}, tests: {} },
+    });
+    const evaluators = getEnabledEvaluators(config);
+    expect(evaluators).toHaveLength(2);
+    expect(evaluators.map((e) => e.id)).toEqual(['utility', 'tests']);
+  });
+
+  it('should filter out explicitly disabled axes', () => {
+    const config = makeConfig({
+      axes: {
+        utility: { enabled: false },
+        duplication: {},
+        best_practices: { enabled: false },
+      },
+    });
+    const evaluators = getEnabledEvaluators(config);
+    expect(evaluators).toHaveLength(1);
+    expect(evaluators[0].id).toBe('duplication');
+  });
+
+  it('should log info for axes not in config', () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const config = makeConfig({ axes: { utility: {} } });
+    getEnabledEvaluators(config);
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0][0]).toContain('correction');
+    spy.mockRestore();
+  });
+
   it('should filter by axesFilter when provided', () => {
-    const config = makeConfig();
+    const config = allAxesConfig();
     const evaluators = getEnabledEvaluators(config, ['correction', 'tests']);
     expect(evaluators).toHaveLength(2);
     expect(evaluators.map((e) => e.id)).toEqual(['correction', 'tests']);
@@ -60,7 +81,7 @@ describe('getEnabledEvaluators', () => {
 
   it('should intersect axesFilter with config-disabled axes', () => {
     const config = makeConfig({
-      axes: { correction: { enabled: false } },
+      axes: { correction: { enabled: false }, tests: {} },
     });
     const evaluators = getEnabledEvaluators(config, ['correction', 'tests']);
     expect(evaluators).toHaveLength(1);
@@ -68,7 +89,7 @@ describe('getEnabledEvaluators', () => {
   });
 
   it('should return all enabled axes when axesFilter is undefined', () => {
-    const config = makeConfig();
+    const config = allAxesConfig();
     const evaluators = getEnabledEvaluators(config, undefined);
     expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
   });

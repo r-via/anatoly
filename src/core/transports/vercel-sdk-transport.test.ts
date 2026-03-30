@@ -64,7 +64,7 @@ function makeRequest(model: string): LlmRequest {
 describe('getVercelModel', () => {
   beforeEach(() => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
-    vi.stubEnv('GOOGLE_API_KEY', 'test-key');
+    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
     vi.stubEnv('OPENAI_API_KEY', 'test-key');
     vi.stubEnv('GROQ_API_KEY', 'test-key');
   });
@@ -138,7 +138,7 @@ describe('getVercelModel', () => {
 describe('VercelSdkTransport', () => {
   beforeEach(() => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
-    vi.stubEnv('GOOGLE_API_KEY', 'test-key');
+    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
     mockGenerateText.mockReset();
   });
 

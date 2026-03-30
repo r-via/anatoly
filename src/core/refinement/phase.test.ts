@@ -66,8 +66,9 @@ function makeCtx(overrides: Partial<RefinementContext> = {}): RefinementContext 
     runDir: '/tmp/test-project/.anatoly/runs/test-run',
     config: {
       models: {
-        deliberation: 'claude-opus-4-6',
+        deliberation: 'anthropic/claude-opus-4-6',
       },
+      agents: {},
     } as RefinementContext['config'],
     usageGraph: makeUsageGraph(),
     fileContents: new Map(),

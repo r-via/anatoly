@@ -2,12 +2,11 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { extractProvider } from './transports/index.js';
 
 /**
  * Circuit breaker states:
  * - **closed** — Gemini calls proceed normally.
- * - **open** — Gemini calls are redirected to Claude (fallback).
+ * - **open** — Gemini calls fail fast with an error.
  * - **half-open** — One test call is allowed to probe Gemini health.
  */
 export type CircuitState = 'closed' | 'open' | 'half-open';
@@ -25,8 +24,8 @@ export interface CircuitBreakerOptions {
  * Circuit breaker for Gemini transport.
  *
  * After {@link failureThreshold} consecutive Gemini errors (429, timeout,
- * connection), the breaker trips and redirects all Gemini-routed calls to
- * Claude. After {@link halfOpenDelayMs}, a single test call is allowed.
+ * connection), the breaker trips and all Gemini-routed calls fail fast.
+ * After {@link halfOpenDelayMs}, a single test call is allowed.
  * If it succeeds the breaker resets; if it fails the breaker re-trips.
  */
 export class GeminiCircuitBreaker {
@@ -112,13 +111,4 @@ export class GeminiCircuitBreaker {
     return false;
   }
 
-  /**
-   * Resolve the effective model, falling back to Claude when the breaker is
-   * open and the requested model is a Gemini model.
-   */
-  resolveModel(model: string, fallbackModel: string): string {
-    if (extractProvider(model) !== 'google') return model;
-    if (this.shouldFallback()) return fallbackModel;
-    return model;
-  }
 }

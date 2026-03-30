@@ -27,7 +27,7 @@ export const KNOWN_PROVIDERS: Readonly<Record<string, KnownProviderEntry>> = {
   },
   google: {
     base_url: null,
-    env_key: 'GOOGLE_API_KEY',
+    env_key: 'GOOGLE_GENERATIVE_AI_API_KEY',
     type: 'native',
   },
   openai: {

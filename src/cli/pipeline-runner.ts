@@ -150,31 +150,31 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
 
-  // Gemini auth check — graceful fallback to Claude if auth fails
-  let geminiEnabled = !!config.providers.google;
-  if (geminiEnabled) {
-    const googleConfig = config.providers.google!;
-    const geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
+  // Validate Google provider auth — fail fast if misconfigured
+  if (config.providers.google) {
+    const googleConfig = config.providers.google;
+    const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
     if (googleConfig.mode === 'api') {
-      if (!process.env.GEMINI_API_KEY) {
-        console.log(chalk.yellow('⚠ Gemini API mode but GEMINI_API_KEY not set. Fallback Claude.'));
-        geminiEnabled = false;
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+        console.error(chalk.red('✗ Google provider configured (api) but GOOGLE_GENERATIVE_AI_API_KEY is not set.'));
+        process.exit(1);
       }
     } else {
       const authOk = await checkGeminiAuth(projectRoot, geminiModel);
       if (!authOk) {
-        console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Fallback Claude.'));
-        geminiEnabled = false;
+        console.error(chalk.red('✗ Google provider configured (subscription) but auth failed. Run `gemini auth login` first.'));
+        process.exit(1);
       }
     }
   }
 
   // Build mode-aware transport router
+  const googleEnabled = !!config.providers.google;
   const nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
     anthropic: new AnthropicTransport(),
   };
-  if (geminiEnabled) {
-    const geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
+  if (googleEnabled) {
+    const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
     nativeTransports.google = new GeminiTransport(projectRoot, geminiModel);
   }
   const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
@@ -188,10 +188,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   });
 
   const semaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
-  const geminiSemaphore = geminiEnabled
+  const geminiSemaphore = googleEnabled
     ? new Semaphore(config.providers.google!.concurrency)
     : undefined;
-  const circuitBreaker = geminiEnabled
+  const circuitBreaker = googleEnabled
     ? new GeminiCircuitBreaker()
     : undefined;
   const executor = createExecutor(projectRoot, semaphore);

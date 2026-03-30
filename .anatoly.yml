@@ -23,7 +23,7 @@ providers:
     mode: subscription
     concurrency: 24
   google:
-    mode: subscription
+    mode: api
     concurrency: 10
 
 models:
@@ -48,13 +48,13 @@ runtime:
 axes:
   utility:
     enabled: true
-    model: google/gemini-2.5-flash
+    model: google/gemini-2.5-flash-lite
   duplication:
     enabled: true
-    model: google/gemini-2.5-flash
+    model: google/gemini-2.5-flash-lite
   overengineering:
     enabled: true
-    model: google/gemini-2.5-flash
+    model: google/gemini-2.5-flash-lite
   tests:
     enabled: true
   best_practices:

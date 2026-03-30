@@ -32,13 +32,13 @@ export const AxisConfigSchema = z.object({
 });
 
 export const AxesConfigSchema = z.object({
-  utility: AxisConfigSchema.default({ enabled: true }),
-  duplication: AxisConfigSchema.default({ enabled: true }),
-  correction: AxisConfigSchema.default({ enabled: true }),
-  overengineering: AxisConfigSchema.default({ enabled: true }),
-  tests: AxisConfigSchema.default({ enabled: true }),
-  best_practices: AxisConfigSchema.default({ enabled: true }),
-  documentation: AxisConfigSchema.default({ enabled: true }),
+  utility: AxisConfigSchema.optional(),
+  duplication: AxisConfigSchema.optional(),
+  correction: AxisConfigSchema.optional(),
+  overengineering: AxisConfigSchema.optional(),
+  tests: AxisConfigSchema.optional(),
+  best_practices: AxisConfigSchema.optional(),
+  documentation: AxisConfigSchema.optional(),
 });
 
 // --- v2.0 Providers ---
@@ -174,15 +174,7 @@ export const ConfigSchema = z.object({
     min_confidence: 70,
     max_stop_iterations: 3,
   }),
-  axes: AxesConfigSchema.default({
-    utility: { enabled: true },
-    duplication: { enabled: true },
-    correction: { enabled: true },
-    overengineering: { enabled: true },
-    tests: { enabled: true },
-    best_practices: { enabled: true },
-    documentation: { enabled: true },
-  }),
+  axes: AxesConfigSchema.default({}),
   // Other sections
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),

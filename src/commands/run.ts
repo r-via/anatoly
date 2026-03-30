@@ -1769,7 +1769,6 @@ async function runReviewPhase(
               semaphore: ctx.sdkSemaphore,
               geminiSemaphore: ctx.geminiSemaphore,
               circuitBreaker: ctx.circuitBreaker,
-              fallbackModel: ctx.config.models.quality,
               router: ctx.router,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);

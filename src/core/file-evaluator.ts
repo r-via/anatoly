@@ -76,10 +76,8 @@ export interface EvaluateFileOptions {
   semaphore?: Semaphore;
   /** Gemini-specific concurrency semaphore — bounds total in-flight Gemini SDK calls */
   geminiSemaphore?: Semaphore;
-  /** Circuit breaker for Gemini fallback — when tripped, Gemini models redirect to Claude */
+  /** Circuit breaker — when tripped, calls to affected provider fail fast */
   circuitBreaker?: GeminiCircuitBreaker;
-  /** Claude model to fall back to when circuit breaker redirects Gemini calls */
-  fallbackModel?: string;
   /** Mode-aware transport router for LLM call routing */
   router?: TransportRouter;
 }
@@ -252,7 +250,6 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     semaphore: opts.semaphore,
     geminiSemaphore: opts.geminiSemaphore,
     circuitBreaker: opts.circuitBreaker,
-    fallbackModel: opts.fallbackModel,
     router: opts.router,
   };
 
