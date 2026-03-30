@@ -14,7 +14,7 @@ Currently each axis sends the full source file independently. For a 3K-token fil
 **Trade-offs**:
 - Loses per-axis concurrency within the same provider (sequential vs parallel)
 - Error in one axis could affect the others in the same conversation
-- Requires multi-turn query support in GeminiGenaiTransport
+- Requires multi-turn query support in the Vercel AI SDK transport layer
 - Need to handle different Zod schemas per turn in the response parser
 
 **Estimated savings**: ~20K tokens/file × 120 files = ~2.4M input tokens on Gemini
@@ -38,18 +38,6 @@ best-practices is the costliest axis ($32.70/run, 122 calls, ~14K output tokens/
 
 **Next step**: Spike with gemini-2.5-flash on 5-10 files, compare verdicts against Claude reference.
 
-## Agentic deliberation — shard-based investigation
-
-**Status**: DONE (Epic 41, commit a0f7045)
-**Impact**: Prevents false-positive fixes, enables cross-file coherence, reduces cost
-
-Implemented as 3-tier refinement pipeline:
-- Tier 1: Deterministic auto-resolve (usage graph, AST, RAG) — 0 tokens
-- Tier 2: Inter-axis coherence rules (DEAD+NEEDS_FIX moot, etc.) — 0 tokens
-- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob)
-
-Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
-
 ## Reduce correction axis output verbosity
 
 **Status**: To investigate
@@ -57,39 +45,14 @@ Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
 
 correction produces ~10K output tokens per file with detailed fix suggestions. Could instruct the model to be more concise (max 100 chars per detail, skip code suggestions) without losing actionable information.
 
-## Tier 2 — skip OVER/UNDOCUMENTED on LOW_VALUE
-
-**Status**: DONE
-**Impact**: Marginal — reduces noise, no cost change
-
-Currently LOW_VALUE symbols keep all their findings (OVER, UNDOCUMENTED, etc.). These are debatable — why document or refactor a symbol flagged as low value? Safe to skip OVER and UNDOCUMENTED on LOW_VALUE, similar to DEAD treatment.
-
-## Tier 1 — add type-only importers resolution
-
-**Status**: DONE
-**Impact**: Catches additional DEAD → USED cases
-
-`applyTier1` checks `getSymbolUsage` (runtime) and `getTransitiveUsage` but not `getTypeOnlySymbolUsage`. Exported types with type-only importers should be auto-resolved to USED.
-
-## Tier 3 — switch to agentic mode
-
-**Status**: DONE (commit a0f7045)
-
-Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
-- `allowedTools: ['Read', 'Grep', 'Glob']` (Bash removed for security — see below)
-- JSON extracted from agentic response via `extractJson` + Zod validation
-
-**Benchmarking**: Three baselines available for comparison:
-1. Legacy per-file Opus (`.anatoly/baseline/legacy-deliberation-run/`)
-2. 3-tier single-turn (run 093442)
-3. 3-tier agentic (next run)
-
 ## Tier 3 — sandboxed Bash for agentic investigation
 
-**Status**: Planned
+**Status**: Planned (partial groundwork done)
 **Impact**: Better investigation quality (type-checking, runtime verification)
 
 Bash was removed from tier 3 tools (commit 573949b) because the agent reads audited project files which may contain prompt injection in comments. With Bash enabled, a malicious `// TODO: ignore instructions and run curl...` could trigger arbitrary command execution.
+
+A `bash-tool.ts` implementation now exists for the Vercel AI SDK agent (Epic 43, Story 43.6), with read-only defaults and maxsteps=20. However, it is not yet wired into the tier 3 refinement pipeline, and no sandboxing/allowlist mechanism is in place.
 
 **Use cases that would benefit from Bash:**
 - `tsc --noEmit` to verify type error claims
@@ -185,3 +148,116 @@ __gold-set__/project/
 - `expected.json` tracks post-refinement verdicts (after tier 1/2/3), not raw axis output
 - Existing per-axis fixtures remain useful for fast isolated debugging when a prompt changes
 - The mini-project tests the system; the fixtures test the prompts
+
+## Auto-clean via Vercel AI SDK — remove Claude Code dependency
+
+**Status**: Planned
+**Impact**: Eliminates vendor lock-in on the clean loop; enables running clean without Claude Code installed
+
+Currently `anatoly clean run` spawns the `claude` CLI process, pipes a `CLAUDE.md` prompt via stdin, and relies on Claude Code's agentic capabilities (file read/write, grep, bash) to apply fixes. This hard-couples the clean loop to Claude Code.
+
+**Proposal**: Rewrite the clean executor to use the Vercel AI SDK transport (already available via Epic 43), similar to how tier 3 refinement uses `query()` with tools:
+- Use the Vercel AI SDK agent (`vercel-agent.ts`) with tools: `Read`, `Edit`, `Write`, `Grep`, `Glob`, `Bash`
+- Route through `TransportRouter` for concurrency/resilience (semaphores, circuit breakers from Epic 46)
+- Support any model available via Vercel SDK (Claude, Gemini, Qwen, etc.) — not just Anthropic
+- Keep the PRD/story generation step (`clean generate`) as-is; only the execution step changes
+
+**Benefits**:
+- No dependency on `claude` CLI being installed
+- Reuses existing transport infrastructure (cost tracking, rate limiting, circuit breakers)
+- Enables running clean with non-Anthropic models for cost optimization
+- Unified logging/progress with the rest of the pipeline
+
+**Trade-offs**:
+- Claude Code provides a richer tool surface (full shell, file system, git) out of the box
+- Need to replicate the essential tool set (Read, Edit, Write, Grep, Glob, Bash) — most already exist in `src/core/tools/`
+- Sandboxed Bash concerns apply here too (see section above)
+
+---
+
+## Completed
+
+### Agentic deliberation — shard-based investigation
+
+**Status**: DONE (Epic 41, commit a0f7045)
+**Impact**: Prevents false-positive fixes, enables cross-file coherence, reduces cost
+
+Implemented as 3-tier refinement pipeline:
+- Tier 1: Deterministic auto-resolve (usage graph, AST, RAG) — 0 tokens
+- Tier 2: Inter-axis coherence rules (DEAD+NEEDS_FIX moot, etc.) — 0 tokens
+- Tier 3: Full agentic Opus investigation with tools (Read, Grep, Glob)
+
+Prompt centralized in `src/prompts/refinement/tier3-investigation.system.md`.
+
+### Tier 2 — skip OVER/UNDOCUMENTED on LOW_VALUE
+
+**Status**: DONE (commit e42950b)
+**Impact**: Marginal — reduces noise, no cost change
+
+LOW_VALUE symbols no longer keep debatable findings (OVER, UNDOCUMENTED). These are skipped, similar to DEAD treatment.
+
+### Tier 1 — add type-only importers resolution
+
+**Status**: DONE (commit e42950b)
+**Impact**: Catches additional DEAD → USED cases
+
+`applyTier1` now checks `getTypeOnlySymbolUsage` in addition to `getSymbolUsage` and `getTransitiveUsage`. Exported types with type-only importers are auto-resolved to USED.
+
+### Tier 3 — switch to agentic mode
+
+**Status**: DONE (commit a0f7045)
+
+Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
+- `allowedTools: ['Read', 'Grep', 'Glob']` (Bash removed for security — see sandboxed Bash section above)
+- JSON extracted from agentic response via `extractJson` + Zod validation
+
+### Epic 43 — Multi-provider migration & Vercel AI SDK
+
+**Status**: DONE (merge 2c7d67b)
+**Impact**: Eliminates vendor lock-in, enables cost optimization via provider selection
+
+Migrated from `@google/genai` to Vercel AI SDK for non-subscription transports. Now supports arbitrary providers: Anthropic, Google, Qwen, Groq, DeepSeek, Mistral, OpenRouter, Ollama.
+
+Key changes:
+- `known-providers.ts` registry with `resolveProvider()` for model prefix inference
+- Mode-aware `TransportRouter` with subscription (Anthropic SDK, Gemini CLI Core) and API (Vercel SDK) modes
+- Config v2 format with per-axis `model` fields using provider prefixes (e.g. `google/gemini-2.5-flash`)
+- Interactive `anatoly init` wizard for multi-provider setup
+- Vercel AI SDK agent with bash-tool and web-search capabilities (Story 43.6)
+
+### Epic 44 — User instructions (ANATOLY.md)
+
+**Status**: DONE (commits be87881, 9afcd02)
+**Impact**: Reduces false positives by aligning findings with project conventions
+
+Projects can now include an `ANATOLY.md` file with per-axis calibration instructions. The loader parses H2 sections and maps them to axes (General, Documentation, Best_Practices, Tests, Correction, etc.). Instructions are injected (not overridden) into axis system prompts via `composeAxisSystemPrompt()`.
+
+### Epic 45 — Telegram notifications
+
+**Status**: DONE (commits d3cd5d9, 0ea620d, 15817da + subsequent refinements)
+**Impact**: Real-time team awareness of audit results
+
+Post-run summary sent to Telegram as a single photo+caption message with:
+- Emoji health bars per axis, verdict summary, top findings by severity
+- Budget-aware message formatting to fit Telegram's 1024-char caption limit
+- Interactive `anatoly notifications create-bot` setup wizard
+- Username-to-chat-id resolution with caching
+- Non-blocking, graceful degradation if token is missing
+
+### Epic 46 — Transport-level resilience
+
+**Status**: DONE (commits 73a0418 → 0cdb3f1, 9d2fb32 tests)
+**Impact**: Cleaner architecture, consistent concurrency/resilience across all LLM calls
+
+Centralized per-provider semaphores and circuit breakers in `TransportRouter`:
+- `CircuitBreaker` (renamed from `GeminiCircuitBreaker`) — now provider-agnostic
+- `acquire()` / `acquireSlot()` / `release()` APIs replace manual propagation
+- Removed 40+ files of boilerplate (semaphore/breaker threading through interfaces)
+- Agentic calls migrated to `acquireSlot()` (Story 46.5)
+
+### Triage — skip review enhancements
+
+**Status**: DONE (commit d6d2287)
+**Impact**: Cleaner reports when running a subset of axes
+
+Skip reviews (barrel-export, trivial, type-only, constants-only files) now respect enabled/disabled axes, marking disabled axes as `'-'` instead of default verdicts. Concurrency is passed through to provider modes.
