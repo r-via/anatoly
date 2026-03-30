@@ -315,13 +315,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
-  onLog?.(`rag: mode=${effectiveMode} table=${tableName} codeRuntime=${options.resolvedModels?.codeRuntime ?? '?'}`);
+  onLog?.(`mode=${effectiveMode} table=${tableName} codeRuntime=${options.resolvedModels?.codeRuntime ?? '?'}`);
 
   setEmbeddingLogger(onLog);
 
   // Configure embedding models if resolved models provided
   if (options.resolvedModels) {
-    onLog?.(`rag: models — code=${options.resolvedModels.codeModel} (${options.resolvedModels.codeRuntime}) + nlp=${options.resolvedModels.nlpModel} (${options.resolvedModels.nlpRuntime})`);
+    onLog?.(`models — code=${options.resolvedModels.codeModel} (${options.resolvedModels.codeRuntime}) + nlp=${options.resolvedModels.nlpModel} (${options.resolvedModels.nlpRuntime})`);
     configureModels(options.resolvedModels);
   }
 
@@ -390,6 +390,25 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
   );
 
+  // Garbage-collect orphaned cache entries whose function IDs no longer match
+  // any current task symbol (e.g. after parser changes shift line ranges).
+  const validIds = new Set<string>();
+  for (const task of tasksWithFunctions) {
+    for (const s of task.symbols) {
+      if (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook') {
+        validIds.add(buildFunctionId(task.file, s.line_start, s.line_end));
+      }
+    }
+  }
+  let gcCacheCount = 0;
+  for (const id of Object.keys(cache.entries)) {
+    if (!validIds.has(id)) { delete cache.entries[id]; gcCacheCount++; }
+  }
+  if (gcCacheCount > 0) {
+    onLog(`gc: removed ${gcCacheCount} orphaned cache entries`);
+    saveRagCache(projectRoot, cache, cacheSuffix);
+  }
+
   const log = contextLogger();
   log.debug(
     { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
@@ -398,6 +417,16 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   // Load NLP summary cache for per-function body-hash caching
   const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+
+  // GC orphaned NLP summary entries too
+  let gcNlpCount = 0;
+  for (const id of Object.keys(nlpSummaryCache.entries)) {
+    if (!validIds.has(id)) { delete nlpSummaryCache.entries[id]; gcNlpCount++; }
+  }
+  if (gcNlpCount > 0) {
+    onLog(`gc: removed ${gcNlpCount} orphaned NLP summary cache entries`);
+    saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
+  }
 
   // Filter out files where all function cards are already cached for the current hash
   // AND have a valid NLP summary cache entry (cross-validation prevents stale cache
@@ -439,7 +468,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileDone?.(task.file);
       } catch (err) {
         const msg = (err as Error).message ?? String(err);
-        onLog?.(`rag: failed to index ${task.file}: ${msg}`);
+        onLog?.(`failed to index ${task.file}: ${msg}`);
 
         // Fatal: GGUF container is unreachable — abort the entire indexing run
         if (msg.includes('fetch failed') || msg.includes('GGUF container failed') || msg.includes('No GGUF model is loaded')) {
@@ -452,12 +481,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   });
 
   // NLP phase: summarize via LLM (concurrent) then embed (sequential to avoid GGUF container swaps)
-  onLog?.(`rag: code phase done — ${results.length} files with cards (of ${tasksToIndex.length} indexed)`);
+  onLog?.(`code phase done — ${results.length} files with cards (of ${tasksToIndex.length} indexed)`);
   if (results.length > 0) {
     onPhase?.('nlp');
 
     // Step 1 — LLM summarization (concurrent via worker pool)
-    onLog?.(`rag: summarizing ${results.length} files via LLM...`);
+    onLog?.(`summarizing ${results.length} files via LLM...`);
     let nlpCounter = 0;
     await runWorkerPool({
       items: results,
@@ -480,7 +509,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
         if (nlpFailedIds.size > 0) {
           const failedNames = result.cards.filter((c) => nlpFailedIds.has(c.id)).map((c) => c.name);
-          onLog?.(`rag: ⚠ ${result.task.file}: ${nlpFailedIds.size}/${result.cards.length} functions failed NLP summarization (${failedNames.join(', ')}) — will retry next run`);
+          onLog?.(`⚠ ${result.task.file}: ${nlpFailedIds.size}/${result.cards.length} functions failed NLP summarization (${failedNames.join(', ')}) — will retry next run`);
         }
 
         onFileDone?.(result.task.file);
@@ -490,19 +519,19 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     });
 
     // Step 2 — NLP + doc embeddings (sequential to avoid swapping GGUF containers)
-    onLog?.(`rag: embedding summaries for ${results.length} files...`);
+    onLog?.(`embedding summaries for ${results.length} files...`);
     for (const result of results) {
       if (result.cards.length > 0 && !result.nlpEmbeddings) {
         result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
         result.docEmbeddings = await generateDocEmbeddings(result.cards);
       }
     }
-    onLog?.('rag: NLP phase complete');
+    onLog?.('NLP phase complete');
   }
 
   // Batch upsert all accumulated results sequentially
   onPhase?.('upsert');
-  onLog?.(`rag: upserting ${results.length} file results to ${tableName}`);
+  onLog?.(`upserting ${results.length} file results to ${tableName}`);
   let cardsIndexed = 0;
   let filesIndexed = 0;
   let ragCostUsd = 0;
@@ -558,12 +587,12 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   try {
     docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);
   } catch (err) {
-    onLog(`rag: doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
+    onLog(`doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
   }
 
   if (docsIdentical) {
     // Trees are identical — index only internal, then alias as project
-    onLog('rag: docs/ identical to .anatoly/docs/ — indexing internal only, aliasing project');
+    onLog('docs/ identical to .anatoly/docs/ — indexing internal only, aliasing project');
 
     onPhase?.('doc-project'); // emit both phases so UI task transitions work
     onPhase?.('doc-internal');
@@ -594,7 +623,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       projectDocSections = aliased;
       projectDocsCached = intResult.cached;
     } catch (err) {
-      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
+      onLog(`internal doc section indexing failed: ${(err as Error).message}`);
     }
   } else {
     // Trees differ — index both independently (original behavior)
@@ -623,7 +652,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       ragCostUsd += projResult.costUsd;
       docSectionsIndexed += projectDocSections;
     } catch (err) {
-      onLog(`rag: doc section indexing failed: ${(err as Error).message}`);
+      onLog(`doc section indexing failed: ${(err as Error).message}`);
     }
 
     // Internal docs (.anatoly/docs/)
@@ -650,7 +679,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       ragCostUsd += intResult.costUsd;
       docSectionsIndexed += internalDocSections;
     } catch (err) {
-      onLog(`rag: internal doc section indexing failed: ${(err as Error).message}`);
+      onLog(`internal doc section indexing failed: ${(err as Error).message}`);
     }
   }
 
