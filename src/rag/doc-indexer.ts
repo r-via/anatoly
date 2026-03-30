@@ -743,13 +743,13 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   const absDocsDir = resolve(projectRoot, docsDir);
   const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
   if (!existsSync(absDocsDir)) {
-    onLog(`rag: no ${sourceLabel} docs/ directory found`);
+    onLog(`no ${sourceLabel} docs/ directory found`);
     return { sections: 0, cached: false, costUsd: 0 };
   }
 
   const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
   if (files.length === 0) {
-    onLog(`rag: no ${sourceLabel} doc files found`);
+    onLog(`no ${sourceLabel} doc files found`);
     return { sections: 0, cached: false, costUsd: 0 };
   }
 
@@ -784,7 +784,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
 
   if (scaffoldSkipped > 0) {
-    onLog(`rag: skipped ${scaffoldSkipped} scaffolded-only ${sourceLabel} doc files`);
+    onLog(`skipped ${scaffoldSkipped} scaffolded-only ${sourceLabel} doc files`);
   }
 
   // Remove stale sections for deleted/changed files
@@ -797,12 +797,12 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
 
   if (changedFiles.length === 0) {
-    onLog(`rag: ${sourceLabel} doc sections up to date (${cachedCount} files cached)`);
+    onLog(`${sourceLabel} doc sections up to date (${cachedCount} files cached)`);
     saveDocCacheToRagCache(projectRoot, cacheSuffix, newCache);
     return { sections: 0, cached: true, costUsd: 0 };
   }
 
-  onLog(`rag: processing ${changedFiles.length} ${sourceLabel} doc files via smart-chunk (${cachedCount} cached)`);
+  onLog(`processing ${changedFiles.length} ${sourceLabel} doc files via smart-chunk (${cachedCount} cached)`);
 
   let totalIndexed = 0;
   let totalCostUsd = 0;
@@ -820,17 +820,17 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
     if (isInterrupted?.()) return;
     onFileStart?.(relPath);
     docFileCounter++;
-    onLog(`rag: [${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
+    onLog(`[${docFileCounter}/${changedFiles.length}] chunking ${relPath}`);
 
     // Check chunk cache first, then smart-chunk programmatically (no LLM)
     const cachedChunks = chunkCache[relPath];
     let sections: DocSection[];
     if (cachedChunks && cachedChunks.sha === sha) {
       sections = cachedChunks.sections.map(s => ({ filePath: relPath, ...s }));
-      onLog(`rag: ${relPath} → ${sections.length} sections (from chunk cache)`);
+      onLog(`${relPath} → ${sections.length} sections (from chunk cache)`);
     } else {
       sections = smartChunkDoc(relPath, source);
-      onLog(`rag: ${relPath} → ${sections.length} sections (smart-chunked)`);
+      onLog(`${relPath} → ${sections.length} sections (smart-chunked)`);
     }
 
     chunkedFiles.push({ relPath, sha, sections });
@@ -867,7 +867,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
 
     for (const section of sections) {
       const id = buildDocSectionId(section.filePath, section.heading);
-      onLog(`rag:   section "${section.heading}" (${section.embedText.length} chars)`);
+      onLog(`  section "${section.heading}" (${section.embedText.length} chars)`);
       cards.push({ id, filePath: section.filePath, name: section.heading, summary: section.embedText.slice(0, 400) });
       sectionIds.push(id);
       allTextsToEmbed.push(section.embedText);
@@ -877,7 +877,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
 
   if (allTextsToEmbed.length > 0) {
-    onLog(`rag: embedding ${allTextsToEmbed.length} sections across ${fileCardsList.length} files in one batch...`);
+    onLog(`embedding ${allTextsToEmbed.length} sections across ${fileCardsList.length} files in one batch...`);
     const allEmbeddings = await embedNlpBatch(allTextsToEmbed);
 
     // Phase 3: Upsert per file using sliced embeddings
@@ -887,7 +887,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
       newCache[fc.relPath] = { sha: fc.sha, sectionIds: fc.sectionIds };
       newChunkCache[fc.relPath] = { sha: fc.sha, sections: fc.sections.map(s => ({ heading: s.heading, embedText: s.embedText, content: s.content })) };
       totalIndexed += fc.sections.length;
-      onLog(`rag: ${fc.relPath} → ${fc.sections.length} sections`);
+      onLog(`${fc.relPath} → ${fc.sections.length} sections`);
       onFileDone?.(fc.relPath);
     }
   }
@@ -908,7 +908,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   }
   Object.assign(mergedChunkCache, newChunkCache); // add/overwrite with new entries
   saveDocChunkCache(projectRoot, cacheSuffix, mergedChunkCache);
-  onLog(`rag: indexed ${totalIndexed} ${sourceLabel} doc sections from ${changedFiles.length} files`);
+  onLog(`indexed ${totalIndexed} ${sourceLabel} doc sections from ${changedFiles.length} files`);
 
   return { sections: totalIndexed, cached: false, costUsd: totalCostUsd };
 }
