@@ -313,10 +313,10 @@ describe('RuntimeConfigSchema', () => {
 });
 
 describe('AxesConfigSchema (top-level)', () => {
-  it('should leave absent axes as undefined', () => {
+  it('should enable all axes by default when config is empty', () => {
     const config = ConfigSchema.parse({});
-    expect(config.axes.utility).toBeUndefined();
-    expect(config.axes.correction).toBeUndefined();
+    expect(config.axes.utility?.enabled).toBe(true);
+    expect(config.axes.correction?.enabled).toBe(true);
   });
 
   it('should set present axes to enabled by default', () => {

@@ -80,6 +80,8 @@ export interface EvaluateFileOptions {
   circuitBreaker?: GeminiCircuitBreaker;
   /** Mode-aware transport router for LLM call routing */
   router?: TransportRouter;
+  /** User instructions from ANATOLY.md — passed to each axis evaluator for prompt calibration */
+  userInstructions?: import('../utils/user-instructions.js').UserInstructions;
 }
 
 export interface AxisTiming {
@@ -251,6 +253,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     geminiSemaphore: opts.geminiSemaphore,
     circuitBreaker: opts.circuitBreaker,
     router: opts.router,
+    userInstructions: opts.userInstructions,
   };
 
   const startTime = Date.now();

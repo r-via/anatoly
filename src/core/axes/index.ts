@@ -45,7 +45,7 @@ export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): Axi
     return true;
   });
   if (skipped.length > 0) {
-    console.info(`ℹ Axes not in config (disabled): ${skipped.join(', ')}. Add them to 'axes' in .anatoly.yml to enable.`);
+    process.stderr.write(`ℹ Axes not in config (disabled): ${skipped.join(', ')}. Add them to 'axes' in .anatoly.yml to enable.\n`);
   }
   return result;
 }

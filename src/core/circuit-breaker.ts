@@ -2,7 +2,6 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-
 /**
  * Circuit breaker states:
  * - **closed** — Gemini calls proceed normally.
@@ -49,7 +48,7 @@ export class GeminiCircuitBreaker {
   }
 
   /**
-   * Returns `true` if Gemini calls should be redirected to Claude.
+   * Returns `true` if calls should fail fast (breaker is open).
    * Also handles the open → half-open transition when the delay has elapsed.
    */
   shouldFallback(): boolean {
@@ -101,7 +100,7 @@ export class GeminiCircuitBreaker {
 
   /**
    * Returns `true` exactly once per trip, so that the CLI can display
-   * a single warning: "⚠ Gemini quota exhausted — falling back to Claude".
+   * a single warning when the breaker trips.
    */
   consumeWarning(): boolean {
     if (this._state === 'open' && !this._warningEmitted) {

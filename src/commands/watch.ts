@@ -8,6 +8,7 @@ import { readFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { watch } from 'chokidar';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
+import { loadUserInstructions } from '../utils/user-instructions.js';
 import { scanProject, parseFile } from '../core/scanner.js';
 import { resolveAdapter } from '../core/language-adapters.js';
 import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
@@ -47,6 +48,7 @@ export function registerWatchCommand(program: Command): void {
 
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+      const _userInstructions = loadUserInstructions(projectRoot);
 
       // Parse --axes filter
       const axesFilter = parseAxesOption(cmdOpts.axes);
@@ -206,6 +208,7 @@ export function registerWatchCommand(program: Command): void {
             geminiSemaphore,
             circuitBreaker,
             router: watchRouter,
+            userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
           });
           writeReviewOutput(projectRoot, result.review, runDir);
           runLog.info({ event: 'file_review_end', file: relPath, verdict: result.review.verdict, durationMs: result.durationMs }, 'file review completed');

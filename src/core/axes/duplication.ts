@@ -255,6 +255,7 @@ export class DuplicationEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         router: ctx.router,
+        userInstructions: ctx.userInstructions?.forAxis('duplication'),
       },
       DuplicationResponseSchema,
     );

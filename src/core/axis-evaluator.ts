@@ -9,6 +9,7 @@ import type { UsageGraph } from './usage-graph.js';
 import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
+import type { UserInstructions } from '../utils/user-instructions.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
@@ -103,6 +104,8 @@ export interface AxisContext {
   circuitBreaker?: GeminiCircuitBreaker;
   /** Mode-aware transport router — when set, passed to runSingleTurnQuery */
   router?: TransportRouter;
+  /** User instructions from ANATOLY.md — loaded once per run, passed to each evaluator */
+  userInstructions?: UserInstructions;
 }
 
 export interface RelevantDoc {
@@ -317,6 +320,8 @@ export interface SingleTurnQueryParams {
   transport?: LlmTransport;
   /** Mode-aware transport router — when set, used for automatic transport selection */
   router?: TransportRouter;
+  /** User calibration text from ANATOLY.md (pre-resolved for this axis via forAxis()) */
+  userInstructions?: string;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -340,7 +345,7 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, transport, router } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, transport, router, userInstructions } = params;
 
   // Circuit breaker: abort early when provider is down (no silent fallback)
   const isGemini = extractProvider(model) === 'google';
@@ -357,7 +362,7 @@ export async function runSingleTurnQuery<T>(
     await activeSemaphore.acquire();
   }
   try {
-    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport);
+    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
 
     if (isGemini && circuitBreaker) {
       circuitBreaker.recordSuccess();
@@ -392,10 +397,11 @@ async function _runSingleTurnQueryInner<T>(
   conversationPrefix: string | undefined,
   schema: z.ZodType<T>,
   transport: LlmTransport,
+  userInstructions?: string,
 ): Promise<SingleTurnQueryResult<T>> {
 
-  // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt → schema example
-  const systemPrompt = composeAxisSystemPrompt(rawSystemPrompt, schema);
+  // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt → user calibration → schema example
+  const systemPrompt = composeAxisSystemPrompt(rawSystemPrompt, schema, userInstructions);
 
   const transcriptParts: string[] = [];
   let totalCost = 0;

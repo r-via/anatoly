@@ -195,6 +195,7 @@ export class TestsEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         router: ctx.router,
+        userInstructions: ctx.userInstructions?.forAxis('tests'),
       },
       TestsResponseSchema,
     );

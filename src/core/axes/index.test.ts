@@ -35,8 +35,14 @@ describe('getEnabledEvaluators', () => {
     expect(evaluators.map((e) => e.id)).toEqual([...ALL_AXIS_IDS]);
   });
 
-  it('should return empty when config has no axes', () => {
+  it('should return all evaluators with default config (all axes enabled by default)', () => {
     const config = makeConfig();
+    const evaluators = getEnabledEvaluators(config);
+    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
+  });
+
+  it('should return empty when all axes are explicitly absent', () => {
+    const config = makeConfig({ axes: {} });
     const evaluators = getEnabledEvaluators(config);
     expect(evaluators).toHaveLength(0);
   });
@@ -64,11 +70,11 @@ describe('getEnabledEvaluators', () => {
   });
 
   it('should log info for axes not in config', () => {
-    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const config = makeConfig({ axes: { utility: {} } });
     getEnabledEvaluators(config);
     expect(spy).toHaveBeenCalledOnce();
-    expect(spy.mock.calls[0][0]).toContain('correction');
+    expect(String(spy.mock.calls[0][0])).toContain('correction');
     spy.mockRestore();
   });
 

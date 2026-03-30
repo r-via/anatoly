@@ -174,7 +174,15 @@ export const ConfigSchema = z.object({
     min_confidence: 70,
     max_stop_iterations: 3,
   }),
-  axes: AxesConfigSchema.default({}),
+  axes: AxesConfigSchema.default({
+    utility: { enabled: true },
+    duplication: { enabled: true },
+    correction: { enabled: true },
+    overengineering: { enabled: true },
+    tests: { enabled: true },
+    best_practices: { enabled: true },
+    documentation: { enabled: true },
+  }),
   // Other sections
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
   logging: LoggingConfigSchema.default({ level: 'warn', pretty: true }),

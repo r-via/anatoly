@@ -154,7 +154,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains exactly 38 entries after reset', () => {
+  it('registry contains exactly 41 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -164,6 +164,7 @@ describe('universal registry — new domain keys', () => {
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
       'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.content-review', 'doc-generation.updater',
       'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
+      'refinement.tier3-investigation',
     ];
     for (const key of expectedKeys) {
       expect(() => resolveSystemPrompt(key), `key "${key}" should resolve`).not.toThrow();
@@ -219,6 +220,11 @@ describe('Story 33.4 — registry coherence', () => {
     if (key.startsWith('rag.')) {
       const sub = key.replace('rag.', '');
       return `rag/${sub}.system.md`;
+    }
+    // refinement.X → refinement/X.system.md (strip refinement. prefix)
+    if (key.startsWith('refinement.')) {
+      const sub = key.replace('refinement.', '');
+      return `refinement/${sub}.system.md`;
     }
     // _shared.X → _shared/X.system.md (strip _shared. prefix)
     if (key.startsWith('_shared.')) {
@@ -311,6 +317,7 @@ describe('Story 33.4 — registry coherence', () => {
         "overengineering",
         "rag.nlp-summarizer",
         "rag.section-refiner",
+        "refinement.tier3-investigation",
         "tests",
         "utility",
       ]

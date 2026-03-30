@@ -17,7 +17,7 @@ import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recal
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
 import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
-import { AnatolyError } from '../utils/errors.js';
+import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
@@ -40,6 +40,7 @@ import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { countReviewFindings } from '../utils/format.js';
+import { loadUserInstructions } from '../utils/user-instructions.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
 import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
@@ -171,6 +172,8 @@ interface RunContext {
   docsIdentical: boolean;
   /** Mode-aware transport router for LLM call routing */
   router?: TransportRouter;
+  /** User instructions from ANATOLY.md — loaded once per run */
+  userInstructions?: import('../utils/user-instructions.js').UserInstructions;
 }
 
 /**
@@ -277,12 +280,20 @@ export function registerRunCommand(program: Command): void {
           const googleModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
           const authOk = await checkGeminiAuth(projectRoot, googleModel);
           if (!authOk) {
-            console.error(chalk.red('✗ Google provider configured (subscription) but auth failed. Run `gemini auth login` first.'));
-            process.exit(1);
+            throw new AnatolyError(
+              'Google provider configured (subscription) but auth failed.',
+              ERROR_CODES.PROVIDER_AUTH_FAILED,
+              false,
+              'run `gemini auth login` first',
+            );
           }
-        } else if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-          console.error(chalk.red('✗ Google provider configured (api) but GOOGLE_GENERATIVE_AI_API_KEY is not set.'));
-          process.exit(1);
+        } else if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
+          throw new AnatolyError(
+            'Google provider configured (api) but neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set.',
+            ERROR_CODES.PROVIDER_AUTH_FAILED,
+            false,
+            'set GOOGLE_GENERATIVE_AI_API_KEY in your environment',
+          );
         }
       }
 
@@ -304,6 +315,8 @@ export function registerRunCommand(program: Command): void {
         vercelSdkTransport: new VercelSdkTransport(config),
         providerModes: _providerModes,
       });
+
+      const _userInstructions = loadUserInstructions(projectRoot);
 
       const ctx: RunContext = {
         projectRoot,
@@ -357,6 +370,7 @@ export function registerRunCommand(program: Command): void {
         isFirstRun: false,
         docsIdentical: false,
         router: _router,
+        userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -1770,6 +1784,7 @@ async function runReviewPhase(
               geminiSemaphore: ctx.geminiSemaphore,
               circuitBreaker: ctx.circuitBreaker,
               router: ctx.router,
+              userInstructions: ctx.userInstructions,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

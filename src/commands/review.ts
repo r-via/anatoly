@@ -6,6 +6,7 @@ import type { Command } from 'commander';
 import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
+import { loadUserInstructions } from '../utils/user-instructions.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
@@ -46,6 +47,7 @@ export function registerReviewCommand(program: Command): void {
 
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+      const _userInstructions = loadUserInstructions(projectRoot);
       const plain = parentOpts.plain === true || !process.stdout.isTTY;
 
       // Parse --axes filter

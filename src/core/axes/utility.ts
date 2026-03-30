@@ -217,6 +217,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         router: ctx.router,
+        userInstructions: ctx.userInstructions?.forAxis('utility'),
       },
       UtilityResponseSchema,
     );

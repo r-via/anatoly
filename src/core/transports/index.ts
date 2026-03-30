@@ -79,7 +79,7 @@ export function stripPrefix(modelId: string): string {
 export function findModelForProvider(config: { axes: Record<string, { model?: string }>; models: Record<string, string | undefined>; agents: Record<string, unknown> }, providerId: string): string | undefined {
   // Check axes models first
   for (const axis of Object.values(config.axes)) {
-    if (axis.model && extractProvider(axis.model) === providerId) return axis.model;
+    if (axis && axis.model && extractProvider(axis.model) === providerId) return axis.model;
   }
   // Check named models
   for (const value of Object.values(config.models)) {

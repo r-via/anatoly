@@ -70,7 +70,10 @@ export function validateProviderMode(
 export function detectApiKey(providerId: string): string | null {
   const known = KNOWN_PROVIDERS[providerId];
   const envKey = known?.env_key ?? `${providerId.toUpperCase().replace(/-/g, '_')}_API_KEY`;
-  return process.env[envKey] ? envKey : null;
+  if (process.env[envKey]) return envKey;
+  // Backward compat: also check GOOGLE_API_KEY for google provider
+  if (providerId === 'google' && process.env.GOOGLE_API_KEY) return 'GOOGLE_API_KEY';
+  return null;
 }
 
 /**

@@ -117,6 +117,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         geminiSemaphore: ctx.geminiSemaphore,
         circuitBreaker: ctx.circuitBreaker,
         router: ctx.router,
+        userInstructions: ctx.userInstructions?.forAxis('overengineering'),
       },
       OverengineeringResponseSchema,
     );

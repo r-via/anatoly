@@ -36,6 +36,7 @@ import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
+import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
@@ -155,15 +156,23 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     const googleConfig = config.providers.google;
     const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
     if (googleConfig.mode === 'api') {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-        console.error(chalk.red('✗ Google provider configured (api) but GOOGLE_GENERATIVE_AI_API_KEY is not set.'));
-        process.exit(1);
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
+        throw new AnatolyError(
+          'Google provider configured (api) but neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set.',
+          ERROR_CODES.PROVIDER_AUTH_FAILED,
+          false,
+          'set GOOGLE_GENERATIVE_AI_API_KEY in your environment',
+        );
       }
     } else {
       const authOk = await checkGeminiAuth(projectRoot, geminiModel);
       if (!authOk) {
-        console.error(chalk.red('✗ Google provider configured (subscription) but auth failed. Run `gemini auth login` first.'));
-        process.exit(1);
+        throw new AnatolyError(
+          'Google provider configured (subscription) but auth failed.',
+          ERROR_CODES.PROVIDER_AUTH_FAILED,
+          false,
+          'run `gemini auth login` first',
+        );
       }
     }
   }
