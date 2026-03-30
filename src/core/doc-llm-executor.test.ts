@@ -6,8 +6,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Semaphore } from './sdk-semaphore.js';
 import { executeDocPrompts, type DocPrompt, type DocLlmResult } from './doc-llm-executor.js';
+import { TransportRouter, type LlmTransport, type LlmResponse } from './transports/index.js';
+
+/** Build a mock TransportRouter with a given concurrency for the anthropic provider. */
+function mockRouter(concurrency: number): TransportRouter {
+  const stub: LlmTransport = { provider: 'anthropic', supports: () => true, query: async () => ({} as LlmResponse) };
+  return new TransportRouter({
+    nativeTransports: { anthropic: stub },
+    vercelSdkTransport: stub,
+    providerModes: { anthropic: { mode: 'subscription', concurrency } },
+  });
+}
 
 /**
  * Story 29.17: Execution LLM et ecriture du contenu documentaire
@@ -28,13 +38,13 @@ function makePrompt(pagePath: string, content = 'Test content'): DocPrompt {
 describe('executeDocPrompts', () => {
   let tempDir: string;
   let outputDir: string;
-  let semaphore: Semaphore;
+  let router: TransportRouter;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'doc-llm-'));
     outputDir = join(tempDir, '.anatoly', 'docs');
     mkdirSync(outputDir, { recursive: true });
-    semaphore = new Semaphore(4);
+    router = mockRouter(4);
   });
 
   afterEach(() => {
@@ -57,7 +67,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
     });
 
@@ -80,9 +90,9 @@ describe('executeDocPrompts', () => {
     }));
   });
 
-  // --- AC2: Respects sdkConcurrency semaphore budget ---
-  it('should respect semaphore concurrency limit', async () => {
-    const smallSemaphore = new Semaphore(2);
+  // --- AC2: Respects concurrency budget via router ---
+  it('should respect router concurrency limit', async () => {
+    const smallRouter = mockRouter(2);
     let maxConcurrent = 0;
     let currentConcurrent = 0;
 
@@ -103,11 +113,11 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore: smallSemaphore,
+      router: smallRouter,
       executor: slowExecutor,
     });
 
-    // Should never exceed semaphore capacity
+    // Should never exceed router concurrency
     expect(maxConcurrent).toBeLessThanOrEqual(2);
     expect(slowExecutor).toHaveBeenCalledTimes(6);
   });
@@ -120,7 +130,7 @@ describe('executeDocPrompts', () => {
       prompts: [],
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
     });
 
@@ -147,7 +157,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
     });
 
@@ -163,8 +173,8 @@ describe('executeDocPrompts', () => {
     expect(readFileSync(join(outputDir, '05-Modules/good2.md'), 'utf-8')).toBe('# Good 2\n\nAlso works.');
   });
 
-  it('should release semaphore slot even on failure', async () => {
-    const tightSemaphore = new Semaphore(1);
+  it('should release router slot even on failure', async () => {
+    const tightRouter = mockRouter(1);
     const prompts: DocPrompt[] = [
       makePrompt('05-Modules/fail.md'),
       makePrompt('05-Modules/pass.md'),
@@ -178,7 +188,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore: tightSemaphore,
+      router: tightRouter,
       executor: mockExecutor,
     });
 
@@ -205,7 +215,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
     });
 
@@ -227,7 +237,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
       onPageComplete: (pagePath) => completed.push(pagePath),
     });
@@ -248,7 +258,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
       onPageError: (pagePath, err) => errors.push({ pagePath, error: err.message }),
     });
@@ -268,7 +278,7 @@ describe('executeDocPrompts', () => {
       prompts,
       outputDir,
       projectRoot: tempDir,
-      semaphore,
+      router,
       executor: mockExecutor,
     });
 

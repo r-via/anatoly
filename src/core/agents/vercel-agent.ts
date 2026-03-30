@@ -8,6 +8,7 @@ import { createBashTool } from '../tools/bash-tool.js';
 import { getSearchTool } from '../tools/web-search.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import type { Config } from '../../schemas/config.js';
+import type { TransportRouter } from '../transports/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +21,8 @@ export interface VercelAgentParams {
   projectRoot: string;
   config: Config;
   abortController: AbortController;
+  /** Mode-aware transport router for concurrency and circuit breaking. */
+  router?: TransportRouter;
   /** Maximum agentic steps (default: 20). */
   maxSteps?: number;
   /** Allow bash tool write operations (default: false). */
@@ -57,6 +60,7 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
     projectRoot,
     config,
     abortController,
+    router,
     maxSteps = 20,
     allowWrite = false,
     allowSearch = false,
@@ -80,25 +84,33 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
     }
   }
 
-  const result = await generateText({
-    model,
-    system: systemPrompt,
-    prompt: userMessage,
-    tools,
-    maxSteps,
-    abortSignal: abortController.signal,
-  });
+  // Acquire router slot for concurrency + circuit breaker
+  const slot = await router?.acquireSlot(modelId);
+  let success = false;
+  try {
+    const result = await generateText({
+      model,
+      system: systemPrompt,
+      prompt: userMessage,
+      tools,
+      maxSteps,
+      abortSignal: abortController.signal,
+    });
 
-  const inputTokens = result.usage?.inputTokens ?? 0;
-  const outputTokens = result.usage?.outputTokens ?? 0;
-  const durationMs = Date.now() - start;
-  const costUsd = calculateCost(modelId, inputTokens, outputTokens);
+    const inputTokens = result.usage?.inputTokens ?? 0;
+    const outputTokens = result.usage?.outputTokens ?? 0;
+    const durationMs = Date.now() - start;
+    const costUsd = calculateCost(modelId, inputTokens, outputTokens);
 
-  return {
-    text: result.text ?? '',
-    costUsd,
-    durationMs,
-    inputTokens,
-    outputTokens,
-  };
+    success = true;
+    return {
+      text: result.text ?? '',
+      costUsd,
+      durationMs,
+      inputTokens,
+      outputTokens,
+    };
+  } finally {
+    slot?.release({ success });
+  }
 }

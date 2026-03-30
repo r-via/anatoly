@@ -14,7 +14,7 @@ import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { countTokens } from './estimator.js';
 import { getDocTokenBudget } from './docs-resolver.js';
-import type { Semaphore } from './sdk-semaphore.js';
+import type { TransportRouter } from './transports/index.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
@@ -39,7 +39,7 @@ export interface ExecuteDocPromptsParams {
   outputDir: string;
   projectRoot: string;
   docsPath?: string;
-  semaphore?: Semaphore;
+  router?: TransportRouter;
   executor: DocExecutor;
   /** Directory for conversation dumps (scaffolding transcripts). */
   logDir?: string;
@@ -64,14 +64,14 @@ export interface DocLlmResult {
  * Uses Promise.allSettled so a single page failure doesn't block others.
  */
 export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
-  const { prompts, outputDir, projectRoot, docsPath, semaphore, executor, logDir, onPageStart, onPageComplete, onPageError } = params;
+  const { prompts, outputDir, projectRoot, docsPath, router, executor, logDir, onPageStart, onPageComplete, onPageError } = params;
 
   if (prompts.length === 0) {
     return { pagesWritten: 0, pagesFailed: 0, totalCostUsd: 0, errors: [] };
   }
 
   const results = await Promise.allSettled(
-    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', semaphore, executor, logDir, onPageStart, onPageComplete, onPageError)),
+    prompts.map(prompt => executeOnePage(prompt, outputDir, projectRoot, docsPath ?? 'docs', router, executor, logDir, onPageStart, onPageComplete, onPageError)),
   );
 
   let pagesWritten = 0;
@@ -100,25 +100,26 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
 
 /**
  * Execute a single doc-generation prompt through the executor, writing the
- * result to disk. Acquires a semaphore slot for the duration of the call
+ * result to disk. Acquires a router slot for the duration of the call
  * and releases it in a finally block to guarantee no leaks.
  *
  * Retry logic lives in the executor itself (via {@link retryWithBackoff}),
- * not here — this keeps the semaphore scope tight.
+ * not here — this keeps the slot scope tight.
  */
 async function executeOnePage(
   prompt: DocPrompt,
   outputDir: string,
   projectRoot: string,
   docsPath: string,
-  semaphore: Semaphore | undefined,
+  router: TransportRouter | undefined,
   executor: DocExecutor,
   logDir?: string,
   onPageStart?: (pagePath: string) => void,
   onPageComplete?: (pagePath: string) => void,
   onPageError?: (pagePath: string, error: Error) => void,
 ): Promise<{ costUsd: number }> {
-  if (semaphore) await semaphore.acquire();
+  const slot = await router?.acquireSlot(prompt.model);
+  let success = false;
   const start = Date.now();
   try {
     onPageStart?.(prompt.pagePath);
@@ -176,13 +177,14 @@ async function executeOnePage(
     }
 
     onPageComplete?.(prompt.pagePath);
+    success = true;
     return { costUsd: result.costUsd };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     onPageError?.(prompt.pagePath, error);
     throw error;
   } finally {
-    if (semaphore) semaphore.release();
+    slot?.release({ success });
   }
 }
 
@@ -643,7 +645,7 @@ export interface DocCoherenceReviewParams {
   docsPath: string;
   abortController?: AbortController;
   logDir?: string;
-  semaphore?: Semaphore;
+  router?: TransportRouter;
   callbacks?: {
     onToolUse?: (tool: string, filePath: string) => void;
   };
@@ -668,7 +670,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     docsPath,
     abortController,
     logDir,
-    semaphore,
+    router,
     callbacks,
   } = params;
 
@@ -729,8 +731,9 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   // Determine allowed tools based on whether content was injected
   const allowedTools = contentInjected ? ['Write'] : ['Read', 'Write'];
 
-  // Run the Sonnet agent — single pass (acquire semaphore slot so UI shows 1/N active)
-  if (semaphore) await semaphore.acquire();
+  // Run the Sonnet agent — single pass (acquire router slot so UI shows 1/N active)
+  const slot = await router?.acquireSlot('sonnet');
+  let success = false;
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
@@ -788,8 +791,9 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     );
     resultText = result.text;
     costUsd = result.cost;
+    success = true;
   } finally {
-    if (semaphore) semaphore.release();
+    slot?.release({ success });
   }
 
   // Post-review linter verification
@@ -848,7 +852,7 @@ export interface DocContentReviewParams {
   gapReportText: string;
   abortController?: AbortController;
   logDir?: string;
-  semaphore?: Semaphore;
+  router?: TransportRouter;
   callbacks?: {
     onStart?: () => void;
     onDone?: () => void;
@@ -861,7 +865,7 @@ export interface DocContentReviewParams {
  * to fill content gaps. Focused on content only — not structure.
  */
 export async function runDocContentReview(params: DocContentReviewParams): Promise<DocContentReviewResult> {
-  const { outputDir, gapReportText, abortController, logDir, semaphore, callbacks } = params;
+  const { outputDir, gapReportText, abortController, logDir, router, callbacks } = params;
 
   const start = Date.now();
   callbacks?.onStart?.();
@@ -880,7 +884,8 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
-  if (semaphore) await semaphore.acquire();
+  const slot = await router?.acquireSlot('opus');
+  let success = false;
   try {
     const result = await retryWithBackoff(
       async () => {
@@ -934,8 +939,9 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
     );
     resultText = result.text;
     costUsd = result.cost;
+    success = true;
   } finally {
-    if (semaphore) semaphore.release();
+    slot?.release({ success });
   }
 
   callbacks?.onDone?.();

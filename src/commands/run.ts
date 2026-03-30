@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -24,7 +24,7 @@ import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, in
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
@@ -236,6 +236,17 @@ export function registerRunCommand(program: Command): void {
         console.error(`anatoly — error: invalid --run-id "${cmdOpts.runId}" (use alphanumeric, dashes, underscores)`);
         process.exitCode = 2;
         return;
+      }
+
+      // Warn about empty (phantom) runs
+      const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+      const existingRuns = listRuns(projectRoot);
+      const emptyRunCount = existingRuns.filter((id) => {
+        try { return readdirSync(join(runsDir, id, 'reviews')).length === 0; } catch { return true; }
+      }).length;
+      if (emptyRunCount > 0) {
+        console.log(chalk.dim(`${emptyRunCount} empty audit(s) in .anatoly/runs/ — run ${chalk.bold('anatoly audit remove --empty')} to clean up`));
+        console.log('');
       }
 
       const dryRun = parentOpts.dryRun as boolean ?? false;
@@ -505,8 +516,8 @@ export function registerRunCommand(program: Command): void {
               queryFn: async (params) => {
                 const start = Date.now();
                 const shardId = `tier3-shard-${Date.now()}`;
-                const _sem = ctx.router?.semaphores.get('anthropic');
-                if (_sem) await _sem.acquire();
+                const slot = await ctx.router?.acquireSlot(params.model);
+                let success = false;
                 try {
                   const q = query({
                     prompt: params.userMessage,
@@ -590,6 +601,7 @@ export function registerRunCommand(program: Command): void {
                     // non-critical
                   }
 
+                  success = true;
                   return {
                     data: parsed,
                     costUsd,
@@ -601,7 +613,7 @@ export function registerRunCommand(program: Command): void {
                     transcript: resultText,
                   };
                 } finally {
-                  _sem?.release();
+                  slot?.release({ success });
                 }
               },
               recordFn: (pr, entry) => recordReclassification(pr, entry),
@@ -1102,7 +1114,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       prompts: genResult.prompts,
       outputDir,
       projectRoot: ctx.projectRoot,
-      semaphore: ctx.router?.semaphores.get('anthropic'),
+      router: ctx.router,
       executor,
       logDir: join(ctx.runDir, 'conversations'),
       onPageComplete: (pagePath) => {
@@ -1161,7 +1173,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           docsPath,
           abortController: ac,
           logDir: coherenceLogDir,
-          semaphore: ctx.router?.semaphores.get('anthropic'),
+          router: ctx.router,
           callbacks: {
             onToolUse: (_tool, filePath) => {
               const name = filePath.split('/').pop() ?? filePath;

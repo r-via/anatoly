@@ -115,7 +115,7 @@ async function runDocUpdate(
       outputDir,
       projectRoot: ctx.projectRoot,
       docsPath: ctx.docsPath,
-      semaphore: ctx.router.semaphores.get('anthropic'),
+      router: ctx.router,
       logDir: structLogDir,
       callbacks: {
         onToolUse: (_tool, filePath) => {
@@ -145,7 +145,7 @@ async function runDocUpdate(
         projectRoot: ctx.projectRoot,
         gapReportText: formatGapReportV2(gapReport),
         logDir: contentLogDir,
-        semaphore: ctx.router.semaphores.get('anthropic'),
+        router: ctx.router,
         callbacks: {
           onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
           onDone: () => {},
@@ -295,7 +295,7 @@ export function registerDocsCommand(program: Command): void {
               prompts: genResult.prompts,
               outputDir,
               projectRoot: ctx.projectRoot,
-              semaphore: ctx.router.semaphores.get('anthropic'),
+              router: ctx.router,
               executor: ctx.executor,
               logDir: scaffoldLogDir,
               onPageComplete: (pagePath) => {
@@ -338,7 +338,7 @@ export function registerDocsCommand(program: Command): void {
               outputDir,
               projectRoot: ctx.projectRoot,
               docsPath: ctx.docsPath,
-              semaphore: ctx.router.semaphores.get('anthropic'),
+              router: ctx.router,
               logDir: coherenceLogDir,
               callbacks: {
                 onToolUse: (_tool, filePath) => {

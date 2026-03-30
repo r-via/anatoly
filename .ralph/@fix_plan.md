@@ -963,7 +963,7 @@
   > AC: Given `resolveSemaphore()` dans `axis-evaluator.ts`, When il est supprimé, Then aucun code ne le référence
   > AC: Given les params dans `rag/orchestrator.ts`, `rag/nlp-summarizer.ts`, `rag/standalone.ts`, When `geminiSemaphore` est supprimé des signatures, Then seul le `router` est passé
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-4
-- [ ] Story 46.5: Migration appels agentic vers acquireSlot
+- [x] Story 46.5: Migration appels agentic vers acquireSlot
   > As a développeur du pipeline
   > I want que les appels agentic (Tier 3, doc gen, Vercel Agent) utilisent `acquireSlot()`, So que la concurrence et le breaker couvrent tous les chemins LLM.
   > AC: Given Tier 3 correction dans `run.ts` (direct `query()` Claude SDK), When `ctx.sdkSemaphore.acquire()` est remplacé par `router.acquireSlot(model)`, Then le semaphore est géré par le router, And `release({ success })` est appelé en finally, And le breaker est vérifié avant l'appel
