@@ -156,7 +156,7 @@ export function registerNotificationsCommand(parent: Command): void {
       // Step 3: Get username
       const username = await p.text({
         message: 'Your Telegram username (without @)',
-        placeholder: 'LeetPunk',
+        placeholder: 'your_username',
         validate: (value) => {
           if (!value) return 'Username is required';
         },
