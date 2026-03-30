@@ -63,10 +63,12 @@ describe('renderTelegramMessage', () => {
     const msg = renderTelegramMessage(basePayload);
     expect(msg).toMatch(/🟩|🟨|🟥|⬜/); // emoji health bar
     expect(msg).toContain('━━'); // separator
-    // Tests (54%) should appear before Correction (96%) — worst first
-    const testsIdx = msg.indexOf('Tests');
-    const bugsIdx = msg.indexOf('Bugs');
-    expect(testsIdx).toBeLessThan(bugsIdx);
+    // 54% (tests) should appear before 96% (correction) — worst first
+    const idx54 = msg.indexOf('54%');
+    const idx96 = msg.indexOf('96%');
+    expect(idx54).toBeGreaterThan(-1);
+    expect(idx96).toBeGreaterThan(-1);
+    expect(idx54).toBeLessThan(idx96);
   });
 
   it('should show severity summary instead of file list', () => {

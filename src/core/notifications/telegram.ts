@@ -18,25 +18,26 @@ function verdictEmoji(verdict: string): string {
   return '🟡'; // NEEDS_REFACTOR
 }
 
-/** Short axis names to avoid line wrapping on mobile. */
-const AXIS_LABEL: Record<string, string> = {
-  correction: '🐛 Bugs',
-  dead: '♻️ Dead',
-  utility: '♻️ Dead',
-  duplicate: '📋 Dups',
-  duplication: '📋 Dups',
-  overengineering: '🏗️ Over',
-  tests: '🧪 Tests',
-  documentation: '📝 Docs',
-  best_practices: '✅ BP',
+/** Axis emoji + short name pairs for severity summary. */
+const AXIS_NAME: Record<string, string> = {
+  correction: 'bugs', dead: 'dead', utility: 'dead',
+  duplicate: 'dups', duplication: 'dups', overengineering: 'over',
+  tests: 'tests', documentation: 'docs', best_practices: 'bp',
+};
+
+/** Axis emoji for scorecard lines. */
+const AXIS_EMOJI: Record<string, string> = {
+  correction: '🐛', dead: '♻️', utility: '♻️',
+  duplicate: '📋', duplication: '📋', overengineering: '🏗️',
+  tests: '🧪', documentation: '📝', best_practices: '✅',
 };
 
 /**
- * Build an emoji health bar matching the public report style.
- * 10 squares, color by pct + high-finding density.
+ * Build a compact 5-block emoji health bar for mobile.
+ * Color by pct + high-finding density (same logic as public report).
  */
 function healthBar(pct: number, highFindings = 0, totalFiles = 0): string {
-  const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
+  const filled = Math.max(0, Math.min(5, Math.round(pct / 20)));
   const density = totalFiles > 0 ? highFindings / totalFiles : highFindings > 0 ? 1 : 0;
   let square: string;
   if (density >= 0.15) {
@@ -48,7 +49,7 @@ function healthBar(pct: number, highFindings = 0, totalFiles = 0): string {
   } else {
     square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
   }
-  return square.repeat(filled) + '⬜'.repeat(10 - filled);
+  return square.repeat(filled) + '⬜'.repeat(5 - filled);
 }
 
 /** Build a human-readable Telegram message from the notification payload. */
@@ -64,22 +65,22 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     ``,
     `${e(String(payload.totalFiles))} files reviewed · \\$${e(payload.costUsd.toFixed(2))} · ${e(String(durationMin))} min`,
     `*${e(String(totalFindings))}* findings in *${e(String(payload.findingFiles))}* files`,
+    ``,
+    ``,
+    SEP,
+    ``,
+    ``,
   ];
 
-  // ── Scorecard ── sorted worst-first, compact lines
-  lines.push(``);
-  lines.push(SEP);
-  lines.push(``);
-
+  // ── Scorecard ── sorted worst-first
   const entries = Object.entries(payload.axisScorecard)
     .map(([axis, c]) => ({ axis, ...c, pct: c.healthPct ?? 0 }))
     .sort((a, b) => a.pct - b.pct);
 
-  for (const { axis, pct, high, low } of entries) {
-    const label = AXIS_LABEL[axis] ?? e(axis);
+  for (const { axis, pct, high } of entries) {
+    const emoji = AXIS_EMOJI[axis] ?? '•';
     const bar = healthBar(Math.max(0, Math.min(100, pct)), high, payload.totalFiles);
-    // Pad label to 8 chars for alignment (emoji counts as ~2)
-    lines.push(`${label}  ${bar}  ${e(String(pct))}%`);
+    lines.push(`${emoji} ${bar} ${e(String(pct))}%`);
   }
 
   // ── Finding summary by severity ──
@@ -88,16 +89,17 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   if (totalHigh > 0 || totalMed > 0) {
     lines.push(``);
+    lines.push(``);
     lines.push(SEP);
     lines.push(``);
+    lines.push(``);
 
-    // Per-axis high counts on one line
     if (totalHigh > 0) {
       const highParts: string[] = [];
       for (const { axis, high } of entries) {
         if (high > 0) {
-          const name = AXIS_LABEL[axis]?.replace(/^.\S*\s/, '') ?? axis;
-          highParts.push(`${high} ${e(name.toLowerCase())}`);
+          const name = AXIS_NAME[axis] ?? axis;
+          highParts.push(`${high} ${e(name)}`);
         }
       }
       lines.push(`🔴 ${e(String(totalHigh))} high — ${highParts.join(' · ')}`);
@@ -107,8 +109,8 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
       const medParts: string[] = [];
       for (const { axis, medium } of entries) {
         if (medium > 0) {
-          const name = AXIS_LABEL[axis]?.replace(/^.\S*\s/, '') ?? axis;
-          medParts.push(`${medium} ${e(name.toLowerCase())}`);
+          const name = AXIS_NAME[axis] ?? axis;
+          medParts.push(`${medium} ${e(name)}`);
         }
       }
       lines.push(`🟡 ${e(String(totalMed))} med — ${medParts.join(' · ')}`);
@@ -117,7 +119,9 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   // ── Footer ──
   lines.push(``);
+  lines.push(``);
   lines.push(SEP);
+  lines.push(``);
   lines.push(``);
   if (payload.reportUrl) {
     lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
