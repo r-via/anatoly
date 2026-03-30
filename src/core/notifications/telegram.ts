@@ -29,10 +29,24 @@ const AXIS_DISPLAY: Record<string, string> = {
   best_practices: '✅ Best Practices',
 };
 
-/** Build a 5-block health bar from a percentage. */
-function healthBar(pct: number): string {
-  const filled = Math.round(pct / 20);
-  return '▓'.repeat(filled) + '░'.repeat(5 - filled);
+/**
+ * Build an emoji health bar matching the public report style.
+ * 10 squares, color by pct + high-finding density.
+ */
+function healthBar(pct: number, highFindings = 0, totalFiles = 0): string {
+  const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
+  const density = totalFiles > 0 ? highFindings / totalFiles : highFindings > 0 ? 1 : 0;
+  let square: string;
+  if (density >= 0.15) {
+    square = '🟥';
+  } else if (density >= 0.03) {
+    square = pct >= 50 ? '🟨' : '🟥';
+  } else if (density > 0) {
+    square = pct >= 95 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  } else {
+    square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
+  }
+  return square.repeat(filled) + '⬜'.repeat(10 - filled);
 }
 
 /** Build a human-readable Telegram message from the notification payload. */
@@ -57,7 +71,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
       ? Math.round((1 - (counts.high + counts.medium) / payload.totalFiles) * 100)
       : 100;
     const name = AXIS_DISPLAY[axis] ?? e(axis);
-    const bar = healthBar(Math.max(0, Math.min(100, pct)));
+    const bar = healthBar(Math.max(0, Math.min(100, pct)), counts.high, payload.totalFiles);
 
     if (total === 0) {
       lines.push(`${name}  ${bar} ${e(String(pct))}%`);

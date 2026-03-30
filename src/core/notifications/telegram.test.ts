@@ -62,7 +62,7 @@ describe('renderTelegramMessage', () => {
     const msg = renderTelegramMessage(basePayload);
     expect(msg).toContain('Utility'); // dead → Utility display name
     expect(msg).toContain('Correction');
-    expect(msg).toContain('▓'); // health bar chars
+    expect(msg).toMatch(/🟩|🟨|🟥|⬜/); // emoji health bar
   });
 
   it('should include top findings (file only, no detail)', () => {
