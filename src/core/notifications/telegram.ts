@@ -168,7 +168,7 @@ export class TelegramNotifier implements NotificationChannel {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: this.chatId,
-          photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg',
+          photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/banner-telegram.jpg',
         }),
       });
     } catch { /* non-critical */ }
