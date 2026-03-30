@@ -153,7 +153,7 @@ export function purgeRuns(projectRoot: string, keep: number): number {
  * Update the `latest` pointer to a given run ID.
  * Tries a relative symlink first; falls back to a plain text file on Windows.
  */
-function updateLatestPointer(runsDir: string, runId: string): void {
+export function updateLatestPointer(runsDir: string, runId: string): void {
   const latestPath = join(runsDir, 'latest');
   try {
     lstatSync(latestPath);
@@ -173,7 +173,7 @@ function updateLatestPointer(runsDir: string, runId: string): void {
 /**
  * Read the `latest` pointer — resolves both symlinks and plain text files.
  */
-function readLatestPointer(runsDir: string): string | null {
+export function readLatestPointer(runsDir: string): string | null {
   const latestPath = join(runsDir, 'latest');
   try {
     const stat = lstatSync(latestPath);
