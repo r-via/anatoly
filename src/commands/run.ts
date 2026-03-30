@@ -844,6 +844,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );
   if (ctx.fileFilter) configRows.push({ key: 'filter', value: ctx.fileFilter });
+  if (ctx.userInstructions) configRows.push({ key: 'custom rules', value: ctx.userInstructions.recognizedSections.join(', ') });
   configRows.push({ key: 'run', value: ctx.runId });
   const depMeta = loadDependencyMeta(ctx.projectRoot);
 

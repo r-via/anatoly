@@ -17,12 +17,15 @@ const TOKEN_WARN_THRESHOLD = 8_000; // ~2000 tokens
 export interface UserInstructions {
   /** True when ANATOLY.md exists and has at least one recognized H2 section. */
   readonly hasInstructions: boolean;
+  /** Normalized keys of all recognized sections found in ANATOLY.md. */
+  readonly recognizedSections: readonly string[];
   /** Returns General + axis-specific content, or undefined if nothing applies. */
   forAxis(axisId: AxisId): string | undefined;
 }
 
 const EMPTY: UserInstructions = {
   hasInstructions: false,
+  recognizedSections: [],
   forAxis: () => undefined,
 };
 
@@ -118,6 +121,7 @@ export function loadUserInstructions(projectRoot: string): UserInstructions {
 
   return {
     hasInstructions: true,
+    recognizedSections: recognizedKeys,
     forAxis(axisId: AxisId): string | undefined {
       const axisContent = recognized.get(axisId);
 
