@@ -94,7 +94,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     ``,
     `${verdictEmoji(payload.verdict)} *Verdict: ${e(payload.verdict)}*`,
     ``,
-    `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
+    `${e(String(payload.evaluated))} files reviewed${payload.cached > 0 ? ` · ${e(String(payload.cached))} cached` : ''} · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
     `🔴 ${e(String(totalHigh))} *H*igh · 🟡 ${e(String(totalMed))} *M*ed · ⚪ ${e(String(totalLow))} *L*ow`,
     ``,
   ];

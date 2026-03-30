@@ -312,7 +312,7 @@ export function registerRunCommand(program: Command): void {
       }
       const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
       for (const [id, prov] of Object.entries(config.providers)) {
-        if (prov) _providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+        if (prov) _providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };
       }
       const _router = new TransportRouter({
         nativeTransports: _nativeTransports,
@@ -1722,7 +1722,7 @@ async function runReviewPhase(
       // Handle skip-tier files: generate synthetic review, no API call
       if (ctx.triageEnabled && triage?.tier === 'skip') {
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
-        const skipReview = generateSkipReview(task, triage.reason);
+        const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         cacheReview(ctx.projectRoot, skipReview);
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
@@ -2024,12 +2024,14 @@ function runReportPhase(ctx: RunContext): void {
     const notifPayload: NotificationPayload = {
       verdict: data.globalVerdict,
       totalFiles: data.totalFiles,
+      evaluated: ctx.reviewCounts.evaluated,
+      cached: ctx.reviewCounts.skipped,
       cleanFiles: data.cleanFiles.length,
       findingFiles: data.findingFiles.length,
       errorFiles: data.errorFiles.length,
       durationMs: Date.now() - ctx.startTime,
       costUsd: ctx.totalCostUsd,
-      totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens, 0),
+      totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0),
       axisScorecard: Object.fromEntries(
         REPORT_AXIS_IDS.map((axis) => {
           const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {

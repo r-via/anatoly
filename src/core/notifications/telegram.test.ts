@@ -9,6 +9,8 @@ import type { NotificationPayload } from './index.js';
 const basePayload: NotificationPayload = {
   verdict: 'NEEDS_REFACTOR',
   totalFiles: 42,
+  evaluated: 42,
+  cached: 0,
   cleanFiles: 30,
   findingFiles: 10,
   errorFiles: 2,
@@ -63,7 +65,7 @@ describe('renderTelegramMessage', () => {
   it('should include scorecard with health bars sorted worst-first', () => {
     const msg = renderTelegramMessage(basePayload);
     expect(msg).toMatch(/🟩|🟨|🟥|⬜/); // emoji health bar
-    expect(msg).toContain('━━'); // separator
+    expect(msg).toMatch(/%/); // percentages present
     // 54% (tests) should appear before 96% (correction) — worst first
     const idx54 = msg.indexOf('54%');
     const idx96 = msg.indexOf('96%');
@@ -111,26 +113,16 @@ describe('TelegramNotifier', () => {
     vi.restoreAllMocks();
   });
 
-  it('should send logo photo then message', async () => {
+  it('should send single photo+caption when message fits', async () => {
     const notifier = new TelegramNotifier('test-token', '-100123');
     await notifier.send(basePayload);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    // First call: photo
-    const [photoUrl] = fetchMock.mock.calls[0];
-    expect(photoUrl).toContain('/sendPhoto');
-    // Second call: message
-    const [msgUrl] = fetchMock.mock.calls[1];
-    expect(msgUrl).toBe('https://api.telegram.org/bottest-token/sendMessage');
-  });
-
-  it('should send with parse_mode MarkdownV2', async () => {
-    const notifier = new TelegramNotifier('test-token', '-100123');
-    await notifier.send(basePayload);
-    const [, opts] = fetchMock.mock.calls[1]; // message is second call
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/sendPhoto');
     const body = JSON.parse(opts.body);
     expect(body.parse_mode).toBe('MarkdownV2');
+    expect(body.caption).toBeTruthy();
     expect(body.chat_id).toBe('-100123');
-    expect(body.text).toBeTruthy();
   });
 
   it('should throw on HTTP error from Telegram API', async () => {

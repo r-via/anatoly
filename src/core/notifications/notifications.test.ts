@@ -11,6 +11,8 @@ import { ConfigSchema } from '../../schemas/config.js';
 const basePayload: NotificationPayload = {
   verdict: 'CLEAN',
   totalFiles: 10,
+  evaluated: 10,
+  cached: 0,
   cleanFiles: 10,
   findingFiles: 0,
   errorFiles: 0,
@@ -56,7 +58,7 @@ describe('sendNotifications', () => {
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     await sendNotifications(config, basePayload);
-    expect(fetchMock).toHaveBeenCalledTimes(2); // photo + message
+    expect(fetchMock).toHaveBeenCalledOnce(); // single photo+caption
   });
 
   it('should warn and skip when bot token env var is missing', async () => {
@@ -118,8 +120,8 @@ describe('sendNotifications', () => {
       notifications: { telegram: { enabled: true, chat_id: '-100123', bot_token_env: 'MY_CUSTOM_TOKEN' } },
     });
     await sendNotifications(config, basePayload);
-    expect(fetchMock).toHaveBeenCalledTimes(2); // photo + message
-    const [msgUrl] = fetchMock.mock.calls[1]; // message is second
-    expect(msgUrl).toContain('custom-token');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toContain('custom-token');
   });
 });

@@ -152,6 +152,8 @@ export function registerReportCommand(program: Command): void {
         const payload: NotificationPayload = {
           verdict: reportData.globalVerdict,
           totalFiles: reportData.totalFiles,
+          evaluated: reportData.totalFiles,
+          cached: 0,
           cleanFiles: reportData.cleanFiles.length,
           findingFiles: reportData.findingFiles.length,
           errorFiles: reportData.errorFiles.length,

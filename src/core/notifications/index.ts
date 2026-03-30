@@ -15,6 +15,8 @@ import { TelegramNotifier } from './telegram.js';
 export interface NotificationPayload {
   verdict: Verdict;
   totalFiles: number;
+  evaluated: number;
+  cached: number;
   cleanFiles: number;
   findingFiles: number;
   errorFiles: number;
