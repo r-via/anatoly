@@ -17,6 +17,7 @@ import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recal
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
 import { generateReport, loadReviews, type TriageStats } from '../core/reporter.js';
+import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
@@ -2027,6 +2028,29 @@ function runReportPhase(ctx: RunContext): void {
     if (badgeResult.injected && !badgeResult.updated) {
       badgeNote = ' (badge added in README.md)';
     }
+  }
+
+  // Notifications (fire-and-forget, after report generation)
+  {
+    const notifPayload: NotificationPayload = {
+      verdict: data.globalVerdict,
+      totalFiles: data.totalFiles,
+      cleanFiles: data.cleanFiles.length,
+      findingFiles: data.findingFiles.length,
+      errorFiles: data.errorFiles.length,
+      durationMs: Date.now() - ctx.startTime,
+      costUsd: ctx.totalCostUsd,
+      axisScorecard: data.counts,
+      topFindings: data.actions.slice(0, 10).map(a => ({
+        file: a.file,
+        axis: a.source ?? 'unknown',
+        severity: a.severity,
+        detail: a.description,
+      })),
+      reportUrl: ctx.config.notifications?.telegram?.report_url ?? undefined,
+    };
+    // Fire-and-forget: errors are caught internally by sendNotifications
+    void sendNotifications(ctx.config, notifPayload);
   }
 
   const { skipped, evaluated } = ctx.reviewCounts;
