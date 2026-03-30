@@ -50,25 +50,31 @@ describe('escapeMarkdownV2', () => {
 });
 
 describe('renderTelegramMessage', () => {
-  it('should include verdict emoji, files count, cost, and duration', () => {
+  it('should include verdict, files count, cost, and duration', () => {
     const msg = renderTelegramMessage(basePayload);
     expect(msg).toContain('🟡'); // NEEDS_REFACTOR verdict emoji
-    expect(msg).toContain('*42*'); // total files
+    expect(msg).toContain('NEEDS\\_REFACTOR'); // verdict text
+    expect(msg).toContain('42 files reviewed');
     expect(msg).toContain('1\\.23'); // cost
     expect(msg).toContain('2 min'); // duration
   });
 
-  it('should include axis scorecard with health bars', () => {
+  it('should include scorecard with health bars sorted worst-first', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('Utility'); // dead → Utility display name
-    expect(msg).toContain('Correction');
     expect(msg).toMatch(/🟩|🟨|🟥|⬜/); // emoji health bar
+    expect(msg).toContain('━━'); // separator
+    // Tests (54%) should appear before Correction (96%) — worst first
+    const testsIdx = msg.indexOf('Tests');
+    const bugsIdx = msg.indexOf('Bugs');
+    expect(testsIdx).toBeLessThan(bugsIdx);
   });
 
-  it('should include top findings (file only, no detail)', () => {
+  it('should show severity summary instead of file list', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('scanner');
-    expect(msg).not.toContain('Null dereference'); // detail excluded by design
+    expect(msg).toContain('🔴'); // high severity marker
+    expect(msg).toContain('high');
+    // No individual file paths in main message (findings are aggregated)
+    expect(msg).not.toContain('scanner');
   });
 
   it('should append report URL when provided', () => {
@@ -82,22 +88,13 @@ describe('renderTelegramMessage', () => {
   });
 
   it('should respect the 4096 character limit', () => {
-    const manyFindings = Array.from({ length: 50 }, (_, i) => ({
-      file: `src/module-${i}/very-long-file-name-to-fill-space.ts`,
-      axis: 'correction' as const,
-      severity: 'high' as const,
-      detail: `Finding ${i}: Very long description that should contribute to exceeding the character limit when many findings are present`,
-    }));
-    const largePayload: NotificationPayload = { ...basePayload, topFindings: manyFindings };
+    const largeScorecard: NotificationPayload['axisScorecard'] = {};
+    for (let i = 0; i < 20; i++) {
+      largeScorecard[`axis_${i}`] = { high: 100, medium: 200, low: 300, healthPct: 10, label: 'bad' };
+    }
+    const largePayload: NotificationPayload = { ...basePayload, axisScorecard: largeScorecard };
     const msg = renderTelegramMessage(largePayload);
     expect(msg.length).toBeLessThanOrEqual(4096);
-  });
-
-  it('should group findings by axis with axis emoji', () => {
-    const msg = renderTelegramMessage(basePayload);
-    // correction findings get 🐛, dead findings get ♻️
-    expect(msg).toContain('🐛');
-    expect(msg).toContain('♻️');
   });
 });
 

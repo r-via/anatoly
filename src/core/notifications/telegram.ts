@@ -18,17 +18,17 @@ function verdictEmoji(verdict: string): string {
   return '🟡'; // NEEDS_REFACTOR
 }
 
-/** Axis display names — supports both countsKey (dead, duplicate) and AxisId (utility, duplication) formats. */
-const AXIS_DISPLAY: Record<string, string> = {
-  correction: '🐛 Correction',
-  dead: '♻️ Utility',
-  utility: '♻️ Utility',
-  duplicate: '📋 Duplication',
-  duplication: '📋 Duplication',
-  overengineering: '🏗️ Overeng',
+/** Short axis names to avoid line wrapping on mobile. */
+const AXIS_LABEL: Record<string, string> = {
+  correction: '🐛 Bugs',
+  dead: '♻️ Dead',
+  utility: '♻️ Dead',
+  duplicate: '📋 Dups',
+  duplication: '📋 Dups',
+  overengineering: '🏗️ Over',
   tests: '🧪 Tests',
   documentation: '📝 Docs',
-  best_practices: '✅ Best Practices',
+  best_practices: '✅ BP',
 };
 
 /**
@@ -56,69 +56,73 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   const e = escapeMarkdownV2;
   const durationMin = Math.round(payload.durationMs / 60_000);
   const totalFindings = Object.values(payload.axisScorecard).reduce((sum, c) => sum + c.high + c.medium + c.low, 0);
+  const SEP = '━━━━━━━━━━━━━━━━━━━━';
 
-  // ── Hero block ──
+  // ── Hero ──
   const lines: string[] = [
-    `${verdictEmoji(payload.verdict)} *Anatoly Audit*`,
+    `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
     ``,
-    `*${e(String(payload.totalFiles))}* files · *${e(String(totalFindings))}* findings · *${e(String(payload.findingFiles))}* files affected`,
-    `${e(String(durationMin))} min · \\$${e(payload.costUsd.toFixed(2))}`,
-    ``,
+    `${e(String(payload.totalFiles))} files reviewed · \\$${e(payload.costUsd.toFixed(2))} · ${e(String(durationMin))} min`,
+    `*${e(String(totalFindings))}* findings in *${e(String(payload.findingFiles))}* files`,
   ];
 
-  // ── Axis scorecard with health bars ──
-  for (const [axis, counts] of Object.entries(payload.axisScorecard)) {
-    const total = counts.high + counts.medium + counts.low;
-    const pct = counts.healthPct ?? 0;
-    const name = AXIS_DISPLAY[axis] ?? e(axis);
-    const bar = healthBar(Math.max(0, Math.min(100, pct)), counts.high, payload.totalFiles);
-    const label = counts.label ? ` ${e(counts.label)}` : '';
+  // ── Scorecard ── sorted worst-first, compact lines
+  lines.push(``);
+  lines.push(SEP);
+  lines.push(``);
 
-    if (total === 0) {
-      lines.push(`${name}  ${bar} ${e(String(pct))}%${label}`);
-    } else {
-      const parts: string[] = [];
-      if (counts.high > 0) parts.push(`${counts.high}H`);
-      if (counts.medium > 0) parts.push(`${counts.medium}M`);
-      lines.push(`${name}  ${bar} ${e(String(pct))}%${label}  ${e(parts.join(' '))}`);
-    }
+  const entries = Object.entries(payload.axisScorecard)
+    .map(([axis, c]) => ({ axis, ...c, pct: c.healthPct ?? 0 }))
+    .sort((a, b) => a.pct - b.pct);
+
+  for (const { axis, pct, high, low } of entries) {
+    const label = AXIS_LABEL[axis] ?? e(axis);
+    const bar = healthBar(Math.max(0, Math.min(100, pct)), high, payload.totalFiles);
+    // Pad label to 8 chars for alignment (emoji counts as ~2)
+    lines.push(`${label}  ${bar}  ${e(String(pct))}%`);
   }
 
-  // ── Top findings (file + axis, grouped per axis) ──
-  if (payload.topFindings.length > 0) {
-    lines.push(``);
-    lines.push(`*Top findings:*`);
+  // ── Finding summary by severity ──
+  const totalHigh = Object.values(payload.axisScorecard).reduce((s, c) => s + c.high, 0);
+  const totalMed = Object.values(payload.axisScorecard).reduce((s, c) => s + c.medium, 0);
 
-    // Group by axis, preserve order
-    const byAxis = new Map<string, typeof payload.topFindings>();
-    for (const f of payload.topFindings) {
-      const list = byAxis.get(f.axis) ?? [];
-      list.push(f);
-      byAxis.set(f.axis, list);
+  if (totalHigh > 0 || totalMed > 0) {
+    lines.push(``);
+    lines.push(SEP);
+    lines.push(``);
+
+    // Per-axis high counts on one line
+    if (totalHigh > 0) {
+      const highParts: string[] = [];
+      for (const { axis, high } of entries) {
+        if (high > 0) {
+          const name = AXIS_LABEL[axis]?.replace(/^.\S*\s/, '') ?? axis;
+          highParts.push(`${high} ${e(name.toLowerCase())}`);
+        }
+      }
+      lines.push(`🔴 ${e(String(totalHigh))} high — ${highParts.join(' · ')}`);
     }
 
-    const axisEmojis: Record<string, string> = {
-      correction: '🐛', utility: '♻️', dead: '♻️',
-      duplication: '📋', duplicate: '📋',
-      overengineering: '🏗️', tests: '🧪', documentation: '📝',
-      best_practices: '✅',
-    };
-
-    for (const [axis, findings] of byAxis) {
-      const emoji = axisEmojis[axis] ?? '•';
-      for (const f of findings) {
-        const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
-        lines.push(`${sev} ${emoji} \`${e(f.file)}\``);
+    if (totalMed > 0) {
+      const medParts: string[] = [];
+      for (const { axis, medium } of entries) {
+        if (medium > 0) {
+          const name = AXIS_LABEL[axis]?.replace(/^.\S*\s/, '') ?? axis;
+          medParts.push(`${medium} ${e(name.toLowerCase())}`);
+        }
       }
+      lines.push(`🟡 ${e(String(totalMed))} med — ${medParts.join(' · ')}`);
     }
   }
 
   // ── Footer ──
   lines.push(``);
+  lines.push(SEP);
+  lines.push(``);
   if (payload.reportUrl) {
     lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
   } else {
-    lines.push(`_See the full report on the machine that ran the audit\\._`);
+    lines.push(`_Full report on the machine that ran the audit_`);
   }
 
   let message = lines.join('\n');
