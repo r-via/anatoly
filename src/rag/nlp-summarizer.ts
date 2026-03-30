@@ -67,6 +67,9 @@ function buildUserMessage(filePath: string, cards: FunctionCard[], functionBodie
     parts.push('');
   }
 
+  parts.push('IMPORTANT: You MUST use these exact function names (case-sensitive):');
+  parts.push(cards.map((c) => `- ${c.name}`).join('\n'));
+  parts.push('');
   parts.push('Output format:');
   parts.push('{"functions": [{"name": "...", "summary": "...", "keyConcepts": [...], "behavioralProfile": "..."}]}');
 
@@ -119,7 +122,10 @@ export async function generateNlpSummaries(
     costUsd = response.costUsd;
 
     // Match response functions to cards by name
+    const expectedNames = new Set(cards.map((c) => c.name));
+    const returnedNames: string[] = [];
     for (const fn of response.data.functions) {
+      returnedNames.push(fn.name);
       const card = cards.find((c) => c.name === fn.name);
       if (card) {
         summaries.set(card.id, {
@@ -129,6 +135,25 @@ export async function generateNlpSummaries(
           behavioralProfile: fn.behavioralProfile,
         });
       }
+    }
+
+    // Detect name mismatches — LLM may hallucinate function names on retry
+    const unmatchedReturned = returnedNames.filter((n) => !expectedNames.has(n));
+    const unmatchedExpected = cards.filter((c) => !summaries.has(c.id)).map((c) => c.name);
+    if (unmatchedReturned.length > 0 || unmatchedExpected.length > 0) {
+      log.warn(
+        {
+          filePath,
+          code: 'NLP_NAME_MISMATCH',
+          expected: [...expectedNames],
+          returned: returnedNames,
+          unmatchedReturned,
+          unmatchedExpected,
+          matched: summaries.size,
+          total: cards.length,
+        },
+        `NLP name mismatch: ${summaries.size}/${cards.length} functions matched (unmatched LLM names: ${unmatchedReturned.join(', ') || 'none'}; missing: ${unmatchedExpected.join(', ') || 'none'})`,
+      );
     }
   } catch (err) {
     log.warn({ filePath, code: 'NLP_SUMMARIZATION_FAILED', err: String(err) }, 'Code NLP summarization call failed');

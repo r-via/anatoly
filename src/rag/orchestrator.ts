@@ -478,6 +478,11 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         result.costUsd = costUsd;
         result.functionBodies = undefined; // free memory
 
+        if (nlpFailedIds.size > 0) {
+          const failedNames = result.cards.filter((c) => nlpFailedIds.has(c.id)).map((c) => c.name);
+          onLog?.(`rag: ⚠ ${result.task.file}: ${nlpFailedIds.size}/${result.cards.length} functions failed NLP summarization (${failedNames.join(', ')}) — will retry next run`);
+        }
+
         onFileDone?.(result.task.file);
         nlpCounter++;
         onProgress?.(nlpCounter, results.length);
