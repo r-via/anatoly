@@ -79,8 +79,11 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   for (const { axis, pct, high } of entries) {
     const emoji = AXIS_EMOJI[axis] ?? '•';
+    const name = AXIS_NAME[axis] ?? axis;
     const bar = healthBar(Math.max(0, Math.min(100, pct)), high, payload.totalFiles);
-    lines.push(`${emoji} ${bar} ${e(String(pct))}%`);
+    lines.push(`${emoji} *${e(name)}* ${e(String(pct))}%`);
+    lines.push(`${bar}`);
+    lines.push(``);
   }
 
   // ── Finding summary by severity ──
