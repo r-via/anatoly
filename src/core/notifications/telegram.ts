@@ -108,38 +108,20 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
       : '';
     lines.push(`${emoji} *${e(name)}*${e(counts)}`);
     lines.push(`${bar} ${e(String(pct))}%`);
+    lines.push(``);
   }
 
-  // ── Finding summary by severity ──
-  const totalHigh = Object.values(payload.axisScorecard).reduce((s, c) => s + c.high, 0);
-  const totalMed = Object.values(payload.axisScorecard).reduce((s, c) => s + c.medium, 0);
-
-  if (totalHigh > 0 || totalMed > 0) {
+  // ── Top findings ──
+  if (payload.topFindings.length > 0) {
     lines.push(``);
     lines.push(SEP);
     lines.push(``);
+    lines.push(`*Top findings:*`);
 
-    if (totalHigh > 0) {
-      lines.push(`🔴 *${e(String(totalHigh))} high*`);
-      for (const { axis, high } of entries) {
-        if (high > 0) {
-          const emoji = AXIS_EMOJI[axis] ?? '•';
-          const name = AXIS_NAME[axis] ?? axis;
-          lines.push(`  ${emoji} ${e(String(high))} ${e(name)}`);
-        }
-      }
-    }
-
-    if (totalMed > 0) {
-      if (totalHigh > 0) lines.push(``);
-      lines.push(`🟡 *${e(String(totalMed))} med*`);
-      for (const { axis, medium } of entries) {
-        if (medium > 0) {
-          const emoji = AXIS_EMOJI[axis] ?? '•';
-          const name = AXIS_NAME[axis] ?? axis;
-          lines.push(`  ${emoji} ${e(String(medium))} ${e(name)}`);
-        }
-      }
+    for (const f of payload.topFindings) {
+      const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
+      const emoji = AXIS_EMOJI[f.axis] ?? '•';
+      lines.push(`${sev} ${emoji} \`${e(f.file)}\``);
     }
   }
 
