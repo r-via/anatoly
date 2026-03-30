@@ -7,27 +7,7 @@ import * as p from '@clack/prompts';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { loadConfig } from '../utils/config-loader.js';
-import { sendNotifications, resolveUsernameToChatId, type NotificationPayload } from '../core/notifications/index.js';
-
-const TEST_PAYLOAD: NotificationPayload = {
-  verdict: 'NEEDS_REFACTOR',
-  totalFiles: 42,
-  cleanFiles: 35,
-  findingFiles: 5,
-  errorFiles: 2,
-  durationMs: 123_456,
-  costUsd: 0.87,
-  axisScorecard: {
-    correction: { high: 1, medium: 3, low: 0 },
-    utility: { high: 0, medium: 2, low: 1 },
-    tests: { high: 0, medium: 1, low: 4 },
-  },
-  topFindings: [
-    { file: 'src/core/example.ts', axis: 'correction', severity: 'HIGH', detail: 'Unhandled promise rejection in async handler' },
-    { file: 'src/utils/helpers.ts', axis: 'utility', severity: 'MEDIUM', detail: 'Function exportedButNeverImported is dead code' },
-    { file: 'src/commands/run.ts', axis: 'tests', severity: 'MEDIUM', detail: 'No test coverage for error branch' },
-  ],
-};
+import { resolveUsernameToChatId } from '../core/notifications/index.js';
 
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
@@ -221,26 +201,38 @@ export function registerNotificationsCommand(parent: Command): void {
       }
       p.log.success('.anatoly.yml updated');
 
-      // Step 6: Send welcome message
+      // Step 6: Send logo + welcome message
       const welcomeSpinner = p.spinner();
       welcomeSpinner.start('Sending welcome message...');
       try {
+        // Send the logo first
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg',
+            caption: '🧹✨ *Anatoly is in the building\\!*',
+            parse_mode: 'MarkdownV2',
+          }),
+        });
+
         const welcomeText =
-          `*Welcome to Anatoly* 🧹\n\n` +
-          `Notifications are now active for *@${username}*\\.\n\n` +
-          `After each \\\`anatoly run\\\`, you'll receive:\n` +
-          `  \\- Audit verdict \\(CLEAN / NEEDS\\_REFACTOR / CRITICAL\\)\n` +
-          `  \\- File stats and cost summary\n` +
-          `  \\- Axis scorecard with finding counts\n` +
-          `  \\- Top findings with severity\n\n` +
-          `Run \\\`anatoly notifications test\\\` anytime to verify\\.`;
+          `🎉 *Houston, we have liftoff\\!*\n\n` +
+          `Comms are live for *@${username}* 📡\n\n` +
+          `After every \\\`anatoly run\\\`, I'll beam you:\n` +
+          `  🔍 The verdict \\— CLEAN, NEEDS\\_REFACTOR, or CRITICAL\n` +
+          `  📊 Health bars for all 7 axes\n` +
+          `  🔴 Top findings at a glance\n` +
+          `  💰 Cost \\& duration\n\n` +
+          `You're all set\\. Go break some code, I'll watch\\. 🫡`;
 
         await botApi('sendMessage', {
           chat_id: chatId,
           text: welcomeText,
           parse_mode: 'MarkdownV2',
         });
-        welcomeSpinner.stop('Welcome message sent!');
+        welcomeSpinner.stop('Welcome message sent! 🚀');
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         welcomeSpinner.stop(`Failed: ${msg}`);
@@ -250,10 +242,10 @@ export function registerNotificationsCommand(parent: Command): void {
         `Other team members just need to:\n` +
         `1. Send /start to @${botUsername}\n` +
         `2. Set their username in .anatoly.yml`,
-        'Team onboarding',
+        '👥 Team onboarding',
       );
 
-      p.outro('Setup complete');
+      p.outro('🧹 Setup complete — Anatoly is watching.');
     });
 
   // --- test ---
@@ -305,26 +297,41 @@ export function registerNotificationsCommand(parent: Command): void {
         return;
       }
 
-      p.intro('Notification test');
-      p.log.info(`Channel:   Telegram`);
-      if (telegram.username) p.log.info(`Username:  @${telegram.username}`);
-      p.log.info(`Chat ID:   ${chatId}`);
-
-      const payload: NotificationPayload = {
-        ...TEST_PAYLOAD,
-        reportUrl: telegram.report_url ?? undefined,
-      };
+      p.intro('🧪 Notification test');
 
       const sendSpinner = p.spinner();
-      sendSpinner.start('Sending test notification...');
+      sendSpinner.start('Pinging Telegram...');
       try {
-        await sendNotifications(config, payload, projectRoot);
-        sendSpinner.stop('Test notification sent successfully');
+        const testMessage =
+          `🧹 *Houston, do you copy\\?*\n\n` +
+          `This is Anatoly\\. Comms check\\.\n\n` +
+          `📡 Signal strength: ▓▓▓▓▓ *5/5*\n` +
+          `✅ Bot token: valid\n` +
+          `✅ Chat ID: resolved\n` +
+          `✅ Delivery: confirmed\n\n` +
+          `_Roger that\\. Standing by for the next audit run\\. 🫡_`;
+
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: testMessage,
+            parse_mode: 'MarkdownV2',
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+          throw new Error(String(body.description ?? response.status));
+        }
+
+        sendSpinner.stop('Message received! 🎉');
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         sendSpinner.stop(`Failed: ${msg}`);
         process.exitCode = 1;
       }
-      p.outro('Done');
+      p.outro('📡 Loud and clear.');
     });
 }
