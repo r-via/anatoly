@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore } from './axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore, composeAxisSystemPrompt } from './axis-evaluator.js';
 import type { AxisTiming } from './file-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
@@ -13,7 +13,7 @@ import { Semaphore } from './sdk-semaphore.js';
 import { buildBestPracticesUserMessage } from './axes/best-practices.js';
 import { buildDocumentationUserMessage } from './axes/documentation.js';
 import { buildCorrectionUserMessage } from './axes/correction.js';
-import { buildUtilityUserMessage } from './axes/utility.js';
+import { buildUtilityUserMessage, UtilityResponseSchema } from './axes/utility.js';
 import { buildDuplicationUserMessage } from './axes/duplication.js';
 import { buildOverengineeringUserMessage } from './axes/overengineering.js';
 import { buildTestsUserMessage } from './axes/tests.js';
@@ -438,5 +438,45 @@ describe('AxisEvaluator interface', () => {
     expect(evaluator.id).toBe('utility');
     expect(evaluator.defaultModel).toBe('haiku');
     expect((evaluator as unknown as Record<string, unknown>).defaultGeminiMode).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 44.2 — composeAxisSystemPrompt with user instructions
+// ---------------------------------------------------------------------------
+
+describe('composeAxisSystemPrompt — user instructions injection', () => {
+  const AXIS_PROMPT = 'You are the correction evaluator.';
+
+  it('does not inject calibration block when userInstructions is undefined', () => {
+    const result = composeAxisSystemPrompt(AXIS_PROMPT, undefined, undefined);
+    expect(result).not.toContain('## User Calibration');
+  });
+
+  it('injects calibration block between axis prompt and schema', () => {
+    const result = composeAxisSystemPrompt(AXIS_PROMPT, undefined, 'Prefer const over let.');
+    expect(result).toContain('## User Calibration');
+    expect(result).toContain('Prefer const over let.');
+  });
+
+  it('calibration block appears after axis prompt', () => {
+    const result = composeAxisSystemPrompt(AXIS_PROMPT, undefined, 'Custom rule.');
+    const axisIdx = result.indexOf(AXIS_PROMPT);
+    const calibIdx = result.indexOf('## User Calibration');
+    expect(axisIdx).toBeLessThan(calibIdx);
+  });
+
+  it('calibration block appears before schema when schema is provided', () => {
+    const result = composeAxisSystemPrompt(AXIS_PROMPT, UtilityResponseSchema, 'Custom rule.');
+    const calibIdx = result.indexOf('## User Calibration');
+    const schemaIdx = result.indexOf('## Expected output schema');
+    expect(calibIdx).toBeGreaterThan(-1);
+    expect(schemaIdx).toBeGreaterThan(-1);
+    expect(calibIdx).toBeLessThan(schemaIdx);
+  });
+
+  it('does not inject calibration block when userInstructions is empty string', () => {
+    const result = composeAxisSystemPrompt(AXIS_PROMPT, undefined, '');
+    expect(result).not.toContain('## User Calibration');
   });
 });

@@ -42,14 +42,18 @@ export type PreResolvedRag = PreResolvedRagEntry[];
 
 /**
  * Compose the full system prompt for an axis evaluator.
- * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt → schema example (if provided).
+ * Order: json-evaluator-wrapper → guard-rails → axis-specific prompt → user calibration (if provided) → schema example (if provided).
  * @param axisPrompt - The axis-specific system prompt text.
  * @param schema - Optional Zod schema; when provided, a formatted example is appended.
+ * @param userInstructions - Optional user calibration text from ANATOLY.md.
  */
-export function composeAxisSystemPrompt(axisPrompt: string, schema?: z.ZodType): string {
+export function composeAxisSystemPrompt(axisPrompt: string, schema?: z.ZodType, userInstructions?: string): string {
   const wrapper = resolveSystemPrompt('_shared.json-evaluator-wrapper');
   const guardRails = resolveSystemPrompt('_shared.guard-rails');
   let result = `${wrapper}\n\n${guardRails}\n\n${axisPrompt}`;
+  if (userInstructions) {
+    result += `\n\n## User Calibration\n\nThe project maintainer provided these instructions. Adjust your evaluation accordingly — treat them as authoritative project conventions.\n\n${userInstructions}`;
+  }
   if (schema) {
     result += `\n\n## Expected output schema\n\n${formatSchemaExample(schema)}`;
   }
