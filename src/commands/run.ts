@@ -270,29 +270,29 @@ export function registerRunCommand(program: Command): void {
         console.log(chalk.dim('deliberation memory flushed'));
       }
 
-      // Gemini auth check — graceful fallback to Claude if auth fails
-      let geminiEnabled = !!config.providers.google;
-      if (geminiEnabled) {
-        const google = config.providers.google!;
+      // Validate Google provider auth — fail fast if misconfigured
+      if (config.providers.google) {
+        const google = config.providers.google;
         if (google.mode === 'subscription') {
-          const googleModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
+          const googleModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
           const authOk = await checkGeminiAuth(projectRoot, googleModel);
           if (!authOk) {
-            console.log(chalk.yellow('⚠ Gemini activé mais auth Google introuvable. Exécutez gemini une fois. Fallback Claude.'));
-            geminiEnabled = false;
+            console.error(chalk.red('✗ Google provider configured (subscription) but auth failed. Run `gemini auth login` first.'));
+            process.exit(1);
           }
-        } else if (!process.env.GEMINI_API_KEY) {
-          console.log(chalk.yellow('⚠ Gemini type: api mais GEMINI_API_KEY absent. Fallback Claude.'));
-          geminiEnabled = false;
+        } else if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+          console.error(chalk.red('✗ Google provider configured (api) but GOOGLE_GENERATIVE_AI_API_KEY is not set.'));
+          process.exit(1);
         }
       }
 
       // Build mode-aware transport router
+      const googleEnabled = !!config.providers.google;
       const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
         anthropic: new AnthropicTransport(),
       };
-      if (geminiEnabled) {
-        const _geminiModel = findModelForProvider(config, 'google') ?? 'gemini-2.5-flash';
+      if (googleEnabled) {
+        const _geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
         _nativeTransports.google = new GeminiTransport(projectRoot, _geminiModel);
       }
       const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
@@ -348,10 +348,10 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         sdkSemaphore: new Semaphore(config.providers.anthropic?.concurrency ?? 24),
-        geminiSemaphore: geminiEnabled
+        geminiSemaphore: googleEnabled
           ? new Semaphore(config.providers.google!.concurrency)
           : undefined,
-        circuitBreaker: geminiEnabled
+        circuitBreaker: googleEnabled
           ? new GeminiCircuitBreaker()
           : undefined,
         isFirstRun: false,
@@ -1560,6 +1560,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       conversationDir: join(ctx.runDir, 'conversations'),
       semaphore: ctx.sdkSemaphore,
       geminiSemaphore: ctx.geminiSemaphore,
+      router: ctx.router,
       fileFilter: ctx.fileFilter ?? undefined,
     });
   } finally {

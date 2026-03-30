@@ -15,6 +15,7 @@ export const ERROR_CODES = {
   ZOD_VALIDATION_FAILED: 'ZOD_VALIDATION_FAILED',
   TREE_SITTER_PARSE_ERROR: 'TREE_SITTER_PARSE_ERROR',
   WRITE_ERROR: 'WRITE_ERROR',
+  NLP_SUMMARIZATION_FAILED: 'NLP_SUMMARIZATION_FAILED',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -33,6 +34,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   TREE_SITTER_PARSE_ERROR: 'ensure the file is valid TypeScript',
   WRITE_ERROR: 'check disk space and file permissions',
   FILE_NOT_FOUND: 'make sure you are running Anatoly from your project root',
+  NLP_SUMMARIZATION_FAILED: 'NLP summarization LLM call failed — check provider config and API keys',
 };
 
 /**

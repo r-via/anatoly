@@ -7,6 +7,7 @@ import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { Semaphore } from '../core/sdk-semaphore.js';
+import type { TransportRouter } from '../core/transports/index.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
@@ -93,6 +94,7 @@ export async function generateNlpSummaries(
   conversationDir?: string,
   semaphore?: Semaphore,
   geminiSemaphore?: Semaphore,
+  router?: TransportRouter,
 ): Promise<{ summaries: Map<string, NlpSummary>; costUsd: number }> {
   const summaries = new Map<string, NlpSummary>();
   if (cards.length === 0) return { summaries, costUsd: 0 };
@@ -114,6 +116,7 @@ export async function generateNlpSummaries(
         conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
         semaphore,
         geminiSemaphore,
+        router,
       },
       NlpResponseSchema,
     ));
@@ -133,7 +136,7 @@ export async function generateNlpSummaries(
       }
     }
   } catch (err) {
-    log.warn({ filePath, err: String(err) }, 'NLP summarization call failed');
+    log.warn({ filePath, code: 'NLP_SUMMARIZATION_FAILED', err: String(err) }, 'Code NLP summarization call failed');
   }
 
   return { summaries, costUsd };
