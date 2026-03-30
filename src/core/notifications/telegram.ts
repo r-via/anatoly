@@ -38,7 +38,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   // Top findings — build incrementally, respecting the limit
   const findingsHeader = `\n*Top Findings:*`;
   const reportUrlLine = payload.reportUrl
-    ? `\n[Full report](${payload.reportUrl})`
+    ? `\n[Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`
     : '';
 
   // Reserve space for header, URL line, and a potential (+N more) line
@@ -74,7 +74,9 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
 
   // Final safety truncation (should not trigger with the budget logic above)
   if (message.length > TELEGRAM_MAX_LENGTH) {
-    message = message.slice(0, TELEGRAM_MAX_LENGTH - 3) + '\\.\\.\\.';
+    // '\\.\\.\\.'' is 6 chars — ensure total stays under limit
+    const cutPoint = message.lastIndexOf('\n', TELEGRAM_MAX_LENGTH - 6);
+    message = message.slice(0, cutPoint > 0 ? cutPoint : TELEGRAM_MAX_LENGTH - 6) + '\\.\\.\\.';
   }
 
   return message;

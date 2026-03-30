@@ -732,7 +732,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   const allowedTools = contentInjected ? ['Write'] : ['Read', 'Write'];
 
   // Run the Sonnet agent — single pass (acquire router slot so UI shows 1/N active)
-  const slot = await router?.acquireSlot('sonnet');
+  const slot = await router?.acquireSlot('claude-sonnet-4-6');
   let success = false;
   const ac = abortController ?? new AbortController();
   let resultText = '';
@@ -884,7 +884,7 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
-  const slot = await router?.acquireSlot('opus');
+  const slot = await router?.acquireSlot('claude-opus-4-6');
   let success = false;
   try {
     const result = await retryWithBackoff(

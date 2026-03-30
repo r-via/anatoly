@@ -136,7 +136,7 @@ export function registerReportCommand(program: Command): void {
           reportUrl: config.notifications?.telegram?.report_url ?? undefined,
         };
         try {
-          await sendNotifications(config, payload);
+          await sendNotifications(config, payload, projectRoot);
           console.log(chalk.green('✓ Notification sent'));
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);

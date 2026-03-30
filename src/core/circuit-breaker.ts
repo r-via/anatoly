@@ -32,6 +32,7 @@ export class CircuitBreaker {
   private _state: CircuitState = 'closed';
   private trippedAt?: number;
   private _warningEmitted = false;
+  private _halfOpenProbeInFlight = false;
 
   private readonly failureThreshold: number;
   private readonly halfOpenDelayMs: number;
@@ -56,19 +57,22 @@ export class CircuitBreaker {
 
     if (this._state === 'open') {
       if (this.trippedAt != null && this.now() - this.trippedAt >= this.halfOpenDelayMs) {
+        if (this._halfOpenProbeInFlight) return true; // another probe is already running
         this._state = 'half-open';
-        return false; // allow one test call
+        this._halfOpenProbeInFlight = true;
+        return false; // allow exactly one test call
       }
       return true;
     }
 
-    // half-open: allow the test call through
-    return false;
+    // half-open with probe in flight: reject additional callers
+    return true;
   }
 
   /** Record a successful call. Resets the breaker if in half-open state. */
   recordSuccess(): void {
     this.consecutiveFailures = 0;
+    this._halfOpenProbeInFlight = false;
     if (this._state === 'half-open') {
       this._state = 'closed';
       this.trippedAt = undefined;
@@ -82,6 +86,7 @@ export class CircuitBreaker {
    */
   recordFailure(): boolean {
     this.consecutiveFailures++;
+    this._halfOpenProbeInFlight = false;
 
     if (this._state === 'half-open') {
       this._state = 'open';
