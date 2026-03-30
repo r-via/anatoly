@@ -117,27 +117,39 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     lines.push(``);
   }
 
-  // ── Top findings ──
-  if (payload.topFindings.length > 0) {
-    lines.push(``);
+  // ── Footer ──
+  const footer = payload.reportUrl
+    ? `📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`
+    : `_Full report in \\.anatoly/runs/latest/report\\.md_`;
 
-    lines.push(``);
-    lines.push(`*Top findings:*`);
+  // ── Top findings (budget-aware to fit in 1024 caption) ──
+  const CAPTION_LIMIT = 1024;
+  const footerLen = footer.length + 2; // +2 for blank line
+  const bodyLen = lines.join('\n').length;
+
+  if (payload.topFindings.length > 0) {
+    const headerLine = `*Top findings:*`;
+    let budget = CAPTION_LIMIT - bodyLen - footerLen - headerLine.length - 4; // margins
+    const findingLines: string[] = [];
 
     for (const f of payload.topFindings) {
       const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
       const emoji = AXIS_EMOJI[f.axis] ?? '•';
-      lines.push(`${sev} ${emoji} \`${e(f.file)}\``);
+      const line = `${sev} ${emoji} \`${e(f.file)}\``;
+      if (budget - line.length - 1 < 0) break;
+      findingLines.push(line);
+      budget -= line.length + 1;
+    }
+
+    if (findingLines.length > 0) {
+      lines.push(``);
+      lines.push(headerLine);
+      lines.push(...findingLines);
     }
   }
 
-  // ── Footer ──
   lines.push(``);
-  if (payload.reportUrl) {
-    lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
-  } else {
-    lines.push(`_Full report on the machine that ran the audit in \\.anatoly/runs/latest/report\\.md_`);
-  }
+  lines.push(footer);
 
   let message = lines.join('\n');
 

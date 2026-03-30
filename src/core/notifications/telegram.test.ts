@@ -87,7 +87,7 @@ describe('renderTelegramMessage', () => {
 
   it('should show machine hint when URL absent', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('machine that ran the audit');
+    expect(msg).toContain('report\\.md');
   });
 
   it('should respect the 4096 character limit', () => {
