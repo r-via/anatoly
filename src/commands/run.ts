@@ -189,9 +189,6 @@ export function registerRunCommand(program: Command): void {
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)
-    .option('--no-rag', 'disable semantic RAG cross-file analysis')
-    .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
-    .option('--rag-advanced', 'force advanced RAG mode (GGUF Docker GPU)')
     .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
     .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
@@ -200,17 +197,20 @@ export function registerRunCommand(program: Command): void {
     .option('--no-deliberation', 'disable deliberation pass')
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
-    .option('--open', 'open report in default app after generation')
     .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
-    .option('--plain', 'disable log-update, linear sequential output')
-    .option('--verbose', 'show detailed operation logs')
-    .action(async (cmdOpts: { runId?: string; axes?: string; flushMemory?: boolean }) => {
+    .action(async (cmdOpts: {
+      runId?: string; axes?: string; flushMemory?: boolean;
+      cache?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
+      rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
+      triage?: boolean; deliberation?: boolean;
+      badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
+    }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
-      const cliConcurrency = parentOpts.concurrency as number | undefined;
+      const cliConcurrency = cmdOpts.concurrency;
       const concurrency = cliConcurrency ?? config.runtime.concurrency;
 
       if (concurrency < 1 || concurrency > 10 || !Number.isInteger(concurrency)) {
@@ -219,7 +219,7 @@ export function registerRunCommand(program: Command): void {
         return;
       }
 
-      const cliSdkConcurrency = parentOpts.sdkConcurrency as number | undefined;
+      const cliSdkConcurrency = cmdOpts.sdkConcurrency;
       if (cliSdkConcurrency !== undefined) {
         if (cliSdkConcurrency < 1 || cliSdkConcurrency > 20 || !Number.isInteger(cliSdkConcurrency)) {
           console.error('error: --sdk-concurrency must be between 1 and 20');
@@ -249,7 +249,7 @@ export function registerRunCommand(program: Command): void {
         console.log('');
       }
 
-      const dryRun = parentOpts.dryRun as boolean ?? false;
+      const dryRun = cmdOpts.dryRun ?? false;
       const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
 
       // Validate --lite / --advanced mutual exclusivity
@@ -263,8 +263,8 @@ export function registerRunCommand(program: Command): void {
         : 'auto';
 
       // CLI model overrides take precedence over config
-      if (parentOpts.codeModel) config.rag.code_model = parentOpts.codeModel as string;
-      if (parentOpts.nlpModel) config.rag.nlp_model = parentOpts.nlpModel as string;
+      if (cmdOpts.codeModel) config.rag.code_model = cmdOpts.codeModel;
+      if (cmdOpts.nlpModel) config.rag.nlp_model = cmdOpts.nlpModel;
 
       // Parse --axes filter (fail fast on invalid axis IDs)
       const axesResult = parseAxesOption(cmdOpts.axes);
@@ -330,15 +330,15 @@ export function registerRunCommand(program: Command): void {
         concurrency,
         plain,
         verbose: parentOpts.verbose as boolean | undefined,
-        fileFilter: parentOpts.file as string | undefined,
-        noCache: parentOpts.cache === false,
+        fileFilter: cmdOpts.file,
+        noCache: cmdOpts.cache === false,
         enableRag: parentOpts.rag !== false && config.rag.enabled,
         ragMode,
-        rebuildRag: parentOpts.rebuildRag as boolean | undefined,
+        rebuildRag: cmdOpts.rebuildRag,
         shouldOpen: parentOpts.open as boolean | undefined,
-        triageEnabled: parentOpts.triage !== false,
-        deliberation: parentOpts.deliberation !== undefined
-          ? parentOpts.deliberation as boolean
+        triageEnabled: cmdOpts.triage !== false,
+        deliberation: cmdOpts.deliberation !== undefined
+          ? cmdOpts.deliberation
           : config.agents.enabled,
         interrupted: false,
         activeAborts: new Set(),
@@ -360,8 +360,8 @@ export function registerRunCommand(program: Command): void {
         axesFilter,
         dryRun,
         badge: {
-          enabled: parentOpts.badge !== false && config.badge.enabled,
-          verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
+          enabled: cmdOpts.badge !== false && config.badge.enabled,
+          verdict: cmdOpts.badgeVerdict ?? config.badge.verdict,
           link: config.badge.link,
         },
         isFirstRun: false,

@@ -50,31 +50,24 @@ export function createProgram(): Command {
     .description('Deep Audit Agent for codebases')
     .option('--config <path>', 'path to .anatoly.yml config file')
     .option('--verbose', 'show detailed operation logs')
-    .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
-    .option('--file <glob>', 'restrict scope to matching files')
     .option('--plain', 'disable log-update, linear sequential output')
     .option('--no-color', 'disable chalk colors (also respects $NO_COLOR env var)')
     .option('--no-rag', 'disable semantic RAG cross-file analysis')
-    .option('--rebuild-rag', 'force full RAG re-indexation')
     .option('--rag-lite', 'force lite RAG mode (Jina dual embedding)')
     .option('--rag-advanced', 'force advanced RAG mode (GGUF Docker GPU)')
-    .option('--code-model <model>', 'embedding model for code vectors (default: auto-detect)')
-    .option('--nlp-model <model>', 'embedding model for NLP vectors (default: auto-detect)')
     .option('--open', 'open report in default app after generation')
-    .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
-    .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)
-    .option('--no-triage', 'disable triage, review all files with full agent')
-    .option('--deliberation', 'enable Opus deliberation pass after axis merge')
-    .option('--no-deliberation', 'disable deliberation pass (overrides config)')
-    .option('--no-badge', 'skip README badge injection after audit')
-    .option('--badge-verdict', 'include audit verdict in README badge')
-    .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--log-level <level>', 'set log level (fatal, error, warn, info, debug, trace)')
     .option('--log-file <path>', 'write logs to file in ndjson format');
 
-  // Initialize logger before any command runs
+  // Initialize logger and apply --no-color before any command runs
   program.hook('preAction', (thisCommand) => {
     const opts = thisCommand.opts();
+
+    // --no-color: disable chalk globally (complement $NO_COLOR env var)
+    if (opts.color === false) {
+      chalk.level = 0;
+    }
+
     const logLevel = opts.logLevel as string | undefined;
 
     // Validate --log-level value
@@ -89,7 +82,7 @@ export function createProgram(): Command {
     initLogger({
       level,
       logFile: opts.logFile as string | undefined,
-      pretty: opts.noColor ? false : undefined,
+      pretty: opts.color === false ? false : undefined,
     });
   });
 
