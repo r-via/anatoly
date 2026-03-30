@@ -11,70 +11,93 @@ export function escapeMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
+/** Verdict → emoji mapping. */
+function verdictEmoji(verdict: string): string {
+  if (verdict === 'CLEAN') return '✅';
+  if (verdict === 'CRITICAL') return '🔴';
+  return '🟡'; // NEEDS_REFACTOR
+}
+
+/** Axis display names (telegram-friendly, no special chars). */
+const AXIS_DISPLAY: Record<string, string> = {
+  correction: '🐛 Correction',
+  dead: '♻️ Utility',
+  duplicate: '📋 Duplication',
+  overengineering: '🏗️ Overeng',
+  tests: '🧪 Tests',
+  documentation: '📝 Docs',
+  best_practices: '✅ Best Practices',
+};
+
+/** Build a 5-block health bar from a percentage. */
+function healthBar(pct: number): string {
+  const filled = Math.round(pct / 20);
+  return '▓'.repeat(filled) + '░'.repeat(5 - filled);
+}
+
 /** Build a human-readable Telegram message from the notification payload. */
 export function renderTelegramMessage(payload: NotificationPayload): string {
   const e = escapeMarkdownV2;
-  const durationSec = Math.round(payload.durationMs / 1000);
+  const durationMin = Math.round(payload.durationMs / 60_000);
+  const totalFindings = Object.values(payload.axisScorecard).reduce((sum, c) => sum + c.high + c.medium + c.low, 0);
 
-  // Header
+  // ── Hero block ──
   const lines: string[] = [
-    `*Anatoly Audit Report*`,
+    `${verdictEmoji(payload.verdict)} *Anatoly Audit*`,
     ``,
-    `*Verdict:* ${e(payload.verdict)}`,
-    `*Files:* ${e(String(payload.totalFiles))} total \\| ${e(String(payload.cleanFiles))} clean \\| ${e(String(payload.findingFiles))} findings \\| ${e(String(payload.errorFiles))} errors`,
-    `*Cost:* \\$${e(payload.costUsd.toFixed(2))}`,
-    `*Duration:* ${e(String(durationSec))}s`,
+    `*${e(String(payload.totalFiles))}* files · *${e(String(totalFindings))}* findings · *${e(String(payload.findingFiles))}* files affected`,
+    `${e(String(durationMin))} min · \\$${e(payload.costUsd.toFixed(2))}`,
     ``,
-    `*Axis Scorecard:*`,
   ];
 
-  // Axis scorecard
+  // ── Axis scorecard with health bars ──
   for (const [axis, counts] of Object.entries(payload.axisScorecard)) {
     const total = counts.high + counts.medium + counts.low;
-    if (total === 0) continue;
-    lines.push(`  ${e(axis)}: ${e(String(counts.high))}H ${e(String(counts.medium))}M ${e(String(counts.low))}L`);
+    const pct = payload.totalFiles > 0
+      ? Math.round((1 - (counts.high + counts.medium) / payload.totalFiles) * 100)
+      : 100;
+    const name = AXIS_DISPLAY[axis] ?? e(axis);
+    const bar = healthBar(Math.max(0, Math.min(100, pct)));
+
+    if (total === 0) {
+      lines.push(`${name}  ${bar} ${e(String(pct))}%`);
+    } else {
+      const parts: string[] = [];
+      if (counts.high > 0) parts.push(`${counts.high}H`);
+      if (counts.medium > 0) parts.push(`${counts.medium}M`);
+      lines.push(`${name}  ${bar} ${e(String(pct))}%  ${e(parts.join(' '))}`);
+    }
   }
 
-  // Top findings — build incrementally, respecting the limit
-  const findingsHeader = `\n*Top Findings:*`;
-  const reportUrlLine = payload.reportUrl
-    ? `\n[Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`
-    : '';
+  // ── Top findings (file + axis only, no detail) ──
+  if (payload.topFindings.length > 0) {
+    lines.push(``);
+    lines.push(`*Top findings:*`);
 
-  // Reserve space for header, URL line, and a potential (+N more) line
-  const reservedChars = findingsHeader.length + reportUrlLine.length + 30;
-  let bodyText = lines.join('\n');
-  const budget = TELEGRAM_MAX_LENGTH - bodyText.length - reservedChars;
-
-  const findingLines: string[] = [];
-  let usedChars = 0;
-  let includedCount = 0;
-
-  for (const finding of payload.topFindings) {
-    const line = `  \\- ${e(finding.file)}: ${e(finding.detail)}`;
-    if (usedChars + line.length + 1 > budget) break;
-    findingLines.push(line);
-    usedChars += line.length + 1;
-    includedCount++;
+    const maxFindings = 5;
+    const shown = payload.topFindings.slice(0, maxFindings);
+    for (const f of shown) {
+      const sev = f.severity === 'HIGH' ? '🔴' : '🟡';
+      lines.push(`${sev} \`${e(f.file)}\``);
+    }
+    const remaining = payload.topFindings.length - shown.length;
+    if (remaining > 0) {
+      lines.push(`\\+${e(String(remaining))} more`);
+    }
   }
 
-  const remaining = payload.topFindings.length - includedCount;
-  if (remaining > 0) {
-    findingLines.push(`  ${e(`(+${remaining} more)`)}`);
+  // ── Report link ──
+  lines.push(``);
+  if (payload.reportUrl) {
+    lines.push(`📄 [Read the full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
+  } else {
+    lines.push(`📄 _Run_ \`anatoly report\` _to view the full report_`);
   }
 
-  // Assemble final message
-  let message = bodyText;
-  if (findingLines.length > 0) {
-    message += findingsHeader + '\n' + findingLines.join('\n');
-  }
-  if (reportUrlLine) {
-    message += reportUrlLine;
-  }
+  let message = lines.join('\n');
 
-  // Final safety truncation (should not trigger with the budget logic above)
+  // Safety truncation
   if (message.length > TELEGRAM_MAX_LENGTH) {
-    // '\\.\\.\\.'' is 6 chars — ensure total stays under limit
     const cutPoint = message.lastIndexOf('\n', TELEGRAM_MAX_LENGTH - 6);
     message = message.slice(0, cutPoint > 0 ? cutPoint : TELEGRAM_MAX_LENGTH - 6) + '\\.\\.\\.';
   }

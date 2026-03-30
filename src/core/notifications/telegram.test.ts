@@ -50,24 +50,25 @@ describe('escapeMarkdownV2', () => {
 });
 
 describe('renderTelegramMessage', () => {
-  it('should include verdict, files count, cost, and duration', () => {
+  it('should include verdict emoji, files count, cost, and duration', () => {
     const msg = renderTelegramMessage(basePayload);
-    // Verdict is escaped for MarkdownV2
-    expect(msg).toContain('NEEDS\\_REFACTOR');
-    expect(msg).toContain('42');
-    expect(msg).toContain('1\\.23');
+    expect(msg).toContain('🟡'); // NEEDS_REFACTOR verdict emoji
+    expect(msg).toContain('*42*'); // total files
+    expect(msg).toContain('1\\.23'); // cost
+    expect(msg).toContain('2 min'); // duration
   });
 
-  it('should include axis scorecard', () => {
+  it('should include axis scorecard with health bars', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('dead');
-    expect(msg).toContain('correction');
+    expect(msg).toContain('Utility'); // dead → Utility display name
+    expect(msg).toContain('Correction');
+    expect(msg).toContain('▓'); // health bar chars
   });
 
-  it('should include top findings', () => {
+  it('should include top findings (file only, no detail)', () => {
     const msg = renderTelegramMessage(basePayload);
     expect(msg).toContain('scanner');
-    expect(msg).toContain('Null dereference');
+    expect(msg).not.toContain('Null dereference'); // detail excluded by design
   });
 
   it('should append report URL when provided', () => {
@@ -75,9 +76,9 @@ describe('renderTelegramMessage', () => {
     expect(msg).toContain('https://example.com/report');
   });
 
-  it('should not include report URL when absent', () => {
+  it('should show inline report hint when URL absent', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).not.toContain('Full report');
+    expect(msg).toContain('anatoly report');
   });
 
   it('should respect the 4096 character limit', () => {
