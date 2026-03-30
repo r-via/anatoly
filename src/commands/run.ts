@@ -1684,8 +1684,9 @@ async function runReviewPhase(
     return;
   }
 
-  // Count cached files (already reviewed in a previous run)
-  const cachedCount = Object.values(progress.files).filter((f) => f.status === 'DONE' || f.status === 'CACHED').length;
+  // Count cached files (already reviewed in a previous run — re-read after PENDING resets)
+  const currentProgress = pm.getProgress();
+  const cachedCount = Object.values(currentProgress.files).filter((f) => f.status === 'DONE' || f.status === 'CACHED').length;
   ctx.totalFiles = pending.length + cachedCount;
   ctx.reviewCounts.skipped = cachedCount;
 
