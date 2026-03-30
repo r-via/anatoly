@@ -973,7 +973,7 @@
   > AC: Given `vercel-agent.ts`, When il n'a actuellement ni semaphore ni breaker, Then le router est injecté et `acquireSlot(model)` est ajouté avec `release({ success })` en finally
   > AC: Given `screen-renderer.ts` affiche les stats semaphore, When il accédait directement aux semaphores, Then il utilise `router.getSemaphoreStats()`
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-5
-- [ ] Story 46.6: Tests d'intégration et validation
+- [x] Story 46.6: Tests d'intégration et validation
   > As a mainteneur d'anatoly
   > I want valider que la migration n'a introduit aucune régression
   > So that les appels LLM fonctionnent identiquement avec le nouveau router.

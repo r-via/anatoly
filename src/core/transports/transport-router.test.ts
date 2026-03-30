@@ -81,6 +81,86 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
     expect(statsAfter.get('anthropic')).toEqual({ active: 0, total: 24 });
   });
 
+  it('AC 46.2: acquire() should block when all slots are taken', async () => {
+    const router = new TransportRouter(buildConfig({ anthropic: 2 }));
+
+    // Acquire both slots
+    const slot1 = await router.acquire('anthropic/claude-sonnet-4-6', 'single_turn');
+    const slot2 = await router.acquire('anthropic/claude-sonnet-4-6', 'single_turn');
+
+    // Third acquire should block until a slot is released
+    let thirdResolved = false;
+    const thirdPromise = router.acquire('anthropic/claude-sonnet-4-6', 'single_turn').then(r => {
+      thirdResolved = true;
+      return r;
+    });
+
+    // Give event loop time to process
+    await new Promise(r => setTimeout(r, 20));
+    expect(thirdResolved).toBe(false);
+
+    // Release one slot — third should now resolve
+    slot1.release({ success: true });
+    const slot3 = await thirdPromise;
+    expect(thirdResolved).toBe(true);
+
+    // Cleanup
+    slot2.release({ success: true });
+    slot3.release({ success: true });
+  });
+
+  it('AC 46.6: acquireSlot() should block at concurrency limit', async () => {
+    const router = new TransportRouter(buildConfig({ anthropic: 2 }));
+
+    const s1 = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+    const s2 = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+
+    let blocked = true;
+    const s3Promise = router.acquireSlot('anthropic/claude-sonnet-4-6').then(r => {
+      blocked = false;
+      return r;
+    });
+
+    await new Promise(r => setTimeout(r, 20));
+    expect(blocked).toBe(true);
+
+    s1.release({ success: true });
+    const s3 = await s3Promise;
+    expect(blocked).toBe(false);
+
+    s2.release({ success: true });
+    s3.release({ success: true });
+  });
+
+  it('AC 46.6: 3 failed releases should trip breaker, next acquire() throws', async () => {
+    const router = new TransportRouter(buildConfig({ anthropic: 10 }));
+
+    // 3 consecutive failures
+    for (let i = 0; i < 3; i++) {
+      const slot = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+      slot.release({ success: false });
+    }
+
+    expect(router.getBreakerState('anthropic')).toBe('open');
+
+    // Next acquireSlot should throw immediately
+    await expect(router.acquireSlot('anthropic/claude-sonnet-4-6'))
+      .rejects.toThrow(/circuit breaker is open/);
+  });
+
+  it('AC 46.6: acquireSlot + release(success:true) frees slot and records success', async () => {
+    const router = new TransportRouter(buildConfig({ anthropic: 2 }));
+
+    const slot = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+    const stats1 = router.getSemaphoreStats();
+    expect(stats1.get('anthropic')!.active).toBe(1);
+
+    slot.release({ success: true });
+    const stats2 = router.getSemaphoreStats();
+    expect(stats2.get('anthropic')!.active).toBe(0);
+    expect(router.getBreakerState('anthropic')).toBe('closed');
+  });
+
   it('should create breakers for all providers in providerModes', () => {
     const config: TransportRouterConfig = {
       nativeTransports: {},

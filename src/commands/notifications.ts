@@ -80,7 +80,7 @@ export function registerNotificationsCommand(parent: Command): void {
         message: 'Paste the bot token here',
         placeholder: '123456:ABC-DEF...',
         validate: (value) => {
-          if (!value.includes(':')) return 'Invalid format. Expected something like 123456:ABC-DEF...';
+          if (!value?.includes(':')) return 'Invalid format. Expected something like 123456:ABC-DEF...';
         },
       });
       if (isCancelled(token)) { p.cancel('Setup cancelled.'); process.exit(0); }
@@ -212,12 +212,12 @@ export function registerNotificationsCommand(parent: Command): void {
         const welcomeText =
           `*Welcome to Anatoly* 🧹\n\n` +
           `Notifications are now active for *@${username}*\\.\n\n` +
-          `After each \\`anatoly run\\`, you'll receive:\n` +
+          `After each \\\`anatoly run\\\`, you'll receive:\n` +
           `  \\- Audit verdict \\(CLEAN / NEEDS\\_REFACTOR / CRITICAL\\)\n` +
           `  \\- File stats and cost summary\n` +
           `  \\- Axis scorecard with finding counts\n` +
           `  \\- Top findings with severity\n\n` +
-          `Run \\`anatoly notifications test\\` anytime to verify\\.`;
+          `Run \\\`anatoly notifications test\\\` anytime to verify\\.`;
 
         await botApi('sendMessage', {
           chat_id: chatId,
