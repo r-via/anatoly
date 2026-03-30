@@ -181,7 +181,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   }
   const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
   for (const [id, prov] of Object.entries(config.providers)) {
-    if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
+    if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };
   }
   const router = new TransportRouter({
     nativeTransports,

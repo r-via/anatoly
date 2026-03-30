@@ -93,10 +93,12 @@ export function triageFile(task: Task, source: string): TriageResult {
  *   (correction: `OK`, overengineering: `LEAN`, utility: `USED`,
  *    duplication: `UNIQUE`, confidence: 100).
  * @param reason - Triage skip reason (e.g. `barrel-export`, `trivial`).
+ * @param enabledAxes - Optional axes filter; non-listed axes are marked `'-'`.
  * @returns A complete {@link ReviewFile} with verdict `CLEAN` and `is_generated: true`.
  */
-export function generateSkipReview(task: Task, reason: string): ReviewFile {
+export function generateSkipReview(task: Task, reason: string, enabledAxes?: string[]): ReviewFile {
   const detail = `Trivial file — auto-skipped by triage (${reason})`;
+  const active = enabledAxes ? new Set(enabledAxes) : undefined;
 
   const symbols = task.symbols.map((s: SymbolInfo) => ({
     name: s.name,
@@ -104,10 +106,10 @@ export function generateSkipReview(task: Task, reason: string): ReviewFile {
     exported: s.exported,
     line_start: s.line_start,
     line_end: s.line_end,
-    correction: 'OK' as const,
-    overengineering: 'LEAN' as const,
-    utility: 'USED' as const,
-    duplication: 'UNIQUE' as const,
+    correction: (!active || active.has('correction') ? 'OK' : '-') as 'OK' | '-',
+    overengineering: (!active || active.has('overengineering') ? 'LEAN' : '-') as 'LEAN' | '-',
+    utility: (!active || active.has('utility') ? 'USED' : '-') as 'USED' | '-',
+    duplication: (!active || active.has('duplication') ? 'UNIQUE' : '-') as 'UNIQUE' | '-',
     tests: '-' as const,
     documentation: '-' as const,
     confidence: 100,
