@@ -2195,6 +2195,8 @@ function runReportPhase(ctx: RunContext): void {
     runId: ctx.runId,
     durationMs: totalDurationMs,
     filesReviewed: ctx.filesReviewed,
+    evaluated: ctx.reviewCounts.evaluated,
+    cached: ctx.reviewCounts.skipped,
     findings: ctx.totalFindings,
     errors: ctx.errorCount,
     errorsByCode: ctx.errorsByCode,

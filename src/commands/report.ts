@@ -152,14 +152,14 @@ export function registerReportCommand(program: Command): void {
         const payload: NotificationPayload = {
           verdict: reportData.globalVerdict,
           totalFiles: reportData.totalFiles,
-          evaluated: reportData.totalFiles,
-          cached: 0,
+          evaluated: (runStats as Record<string, unknown>)?.evaluated as number ?? reportData.totalFiles,
+          cached: (runStats as Record<string, unknown>)?.cached as number ?? 0,
           cleanFiles: reportData.cleanFiles.length,
           findingFiles: reportData.findingFiles.length,
           errorFiles: reportData.errorFiles.length,
           durationMs: runStats?.durationMs ?? 0,
           costUsd: runStats?.costUsd ?? 0,
-          totalTokens: runStats ? Object.values(runStats.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens, 0) : 0,
+          totalTokens: runStats ? Object.values(runStats.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0) : 0,
           axisScorecard,
           topFindings: picked.slice(0, 14).map(a => ({
             file: a.file,
