@@ -95,7 +95,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
     ``,
     `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
-    `🔴 ${e(String(totalHigh))} high · 🟡 ${e(String(totalMed))} med · ⚪ ${e(String(totalLow))} low`,
+    `🔴 ${e(String(totalHigh))} *H*igh · 🟡 ${e(String(totalMed))} *M*ed · ⚪ ${e(String(totalLow))} *L*ow`,
     ``,
   ];
 
