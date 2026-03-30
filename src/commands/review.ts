@@ -194,6 +194,7 @@ export function registerReviewCommand(program: Command): void {
                 geminiSemaphore,
                 circuitBreaker,
                 router: reviewRouter,
+                userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
                 onAxisComplete: () => {
                   state.markAxisDone(fp.file);
                 },
