@@ -3,31 +3,31 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { GeminiCircuitBreaker } from './circuit-breaker.js';
+import { CircuitBreaker } from './circuit-breaker.js';
 
-describe('GeminiCircuitBreaker', () => {
+describe('CircuitBreaker', () => {
   // -----------------------------------------------------------------------
   // Closed state (default)
   // -----------------------------------------------------------------------
 
   it('starts in closed state', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     expect(cb.state).toBe('closed');
   });
 
   it('shouldFallback returns false when closed', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     expect(cb.shouldFallback()).toBe(false);
   });
 
   it('shouldFallback returns false after 1 failure', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     cb.recordFailure();
     expect(cb.shouldFallback()).toBe(false);
   });
 
   it('shouldFallback returns false after 2 failures', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     cb.recordFailure();
     cb.recordFailure();
     expect(cb.shouldFallback()).toBe(false);
@@ -38,7 +38,7 @@ describe('GeminiCircuitBreaker', () => {
   // -----------------------------------------------------------------------
 
   it('trips after 3 consecutive failures', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -47,7 +47,7 @@ describe('GeminiCircuitBreaker', () => {
   });
 
   it('recordSuccess resets consecutive failure count', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     cb.recordFailure();
     cb.recordFailure();
     cb.recordSuccess(); // resets
@@ -62,7 +62,7 @@ describe('GeminiCircuitBreaker', () => {
   // -----------------------------------------------------------------------
 
   it('consumeWarning returns true once when tripped', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -71,7 +71,7 @@ describe('GeminiCircuitBreaker', () => {
   });
 
   it('consumeWarning returns false when closed', () => {
-    const cb = new GeminiCircuitBreaker();
+    const cb = new CircuitBreaker();
     expect(cb.consumeWarning()).toBe(false);
   });
 
@@ -81,7 +81,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('stays open before halfOpenDelayMs has elapsed', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ now: () => now });
+    const cb = new CircuitBreaker({ now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -94,7 +94,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('enters half-open state after halfOpenDelayMs', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ now: () => now });
+    const cb = new CircuitBreaker({ now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -107,7 +107,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('recordSuccess in half-open resets to closed', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ now: () => now });
+    const cb = new CircuitBreaker({ now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -122,7 +122,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('recordFailure in half-open re-trips to open', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ now: () => now });
+    const cb = new CircuitBreaker({ now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -137,7 +137,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('consumeWarning can fire again after reset from half-open', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ now: () => now });
+    const cb = new CircuitBreaker({ now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();
@@ -160,7 +160,7 @@ describe('GeminiCircuitBreaker', () => {
   // -----------------------------------------------------------------------
 
   it('respects custom failureThreshold', () => {
-    const cb = new GeminiCircuitBreaker({ failureThreshold: 5 });
+    const cb = new CircuitBreaker({ failureThreshold: 5 });
     for (let i = 0; i < 4; i++) cb.recordFailure();
     expect(cb.state).toBe('closed');
     cb.recordFailure();
@@ -169,7 +169,7 @@ describe('GeminiCircuitBreaker', () => {
 
   it('respects custom halfOpenDelayMs', () => {
     let now = 1000;
-    const cb = new GeminiCircuitBreaker({ halfOpenDelayMs: 10_000, now: () => now });
+    const cb = new CircuitBreaker({ halfOpenDelayMs: 10_000, now: () => now });
     cb.recordFailure();
     cb.recordFailure();
     cb.recordFailure();

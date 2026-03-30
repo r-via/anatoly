@@ -43,7 +43,7 @@ import { buildDocsTree } from '../core/docs-resolver.js';
 import { countReviewFindings } from '../utils/format.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
-import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
+import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { injectBadge } from '../core/badge.js';
@@ -156,7 +156,7 @@ interface RunContext {
   /** Gemini-specific semaphore — created only when Gemini is enabled */
   geminiSemaphore?: Semaphore;
   /** Circuit breaker for Gemini fallback — created only when Gemini is enabled */
-  circuitBreaker?: GeminiCircuitBreaker;
+  circuitBreaker?: CircuitBreaker;
   /** Pipeline display state — created after setup, shared across rag/review/report */
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
@@ -366,7 +366,7 @@ export function registerRunCommand(program: Command): void {
           ? new Semaphore(config.providers.google!.concurrency)
           : undefined,
         circuitBreaker: googleEnabled
-          ? new GeminiCircuitBreaker()
+          ? new CircuitBreaker()
           : undefined,
         isFirstRun: false,
         docsIdentical: false,

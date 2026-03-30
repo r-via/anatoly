@@ -18,7 +18,7 @@ import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
-import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
+import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
@@ -79,7 +79,7 @@ export function registerWatchCommand(program: Command): void {
         ? new Semaphore(config.providers.google.concurrency)
         : undefined;
       const circuitBreaker = config.providers.google
-        ? new GeminiCircuitBreaker()
+        ? new CircuitBreaker()
         : undefined;
       // Build mode-aware transport router
       const _watchProvModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};

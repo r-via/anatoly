@@ -16,7 +16,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
 import type { Semaphore } from './sdk-semaphore.js';
-import type { GeminiCircuitBreaker } from './circuit-breaker.js';
+import type { CircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import type { TransportRouter } from './transports/index.js';
 import { extractProvider } from './transports/index.js';
@@ -101,7 +101,7 @@ export interface AxisContext {
   /** Gemini-specific SDK concurrency semaphore — used when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
   /** Circuit breaker — when tripped, calls to the affected provider fail fast */
-  circuitBreaker?: GeminiCircuitBreaker;
+  circuitBreaker?: CircuitBreaker;
   /** Mode-aware transport router — when set, passed to runSingleTurnQuery */
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — loaded once per run, passed to each evaluator */
@@ -315,7 +315,7 @@ export interface SingleTurnQueryParams {
   /** Gemini-specific semaphore — used instead of `semaphore` when model starts with `gemini-` */
   geminiSemaphore?: Semaphore;
   /** Circuit breaker — when tripped, calls fail fast instead of silently falling back */
-  circuitBreaker?: GeminiCircuitBreaker;
+  circuitBreaker?: CircuitBreaker;
   /** LLM transport override — defaults to AnthropicTransport when not provided */
   transport?: LlmTransport;
   /** Mode-aware transport router — when set, used for automatic transport selection */

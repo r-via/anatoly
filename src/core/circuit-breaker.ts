@@ -4,9 +4,9 @@
 
 /**
  * Circuit breaker states:
- * - **closed** — Gemini calls proceed normally.
- * - **open** — Gemini calls fail fast with an error.
- * - **half-open** — One test call is allowed to probe Gemini health.
+ * - **closed** — Calls proceed normally.
+ * - **open** — Calls fail fast with an error.
+ * - **half-open** — One test call is allowed to probe provider health.
  */
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
@@ -20,14 +20,14 @@ export interface CircuitBreakerOptions {
 }
 
 /**
- * Circuit breaker for Gemini transport.
+ * Provider-agnostic circuit breaker for LLM transports.
  *
- * After {@link failureThreshold} consecutive Gemini errors (429, timeout,
- * connection), the breaker trips and all Gemini-routed calls fail fast.
+ * After {@link failureThreshold} consecutive errors (429, timeout,
+ * connection), the breaker trips and all calls fail fast.
  * After {@link halfOpenDelayMs}, a single test call is allowed.
  * If it succeeds the breaker resets; if it fails the breaker re-trips.
  */
-export class GeminiCircuitBreaker {
+export class CircuitBreaker {
   private consecutiveFailures = 0;
   private _state: CircuitState = 'closed';
   private trippedAt?: number;
@@ -66,7 +66,7 @@ export class GeminiCircuitBreaker {
     return false;
   }
 
-  /** Record a successful Gemini call. Resets the breaker if in half-open state. */
+  /** Record a successful call. Resets the breaker if in half-open state. */
   recordSuccess(): void {
     this.consecutiveFailures = 0;
     if (this._state === 'half-open') {
@@ -77,7 +77,7 @@ export class GeminiCircuitBreaker {
   }
 
   /**
-   * Record a failed Gemini call. Returns `true` if this failure caused the
+   * Record a failed call. Returns `true` if this failure caused the
    * breaker to trip (or re-trip from half-open).
    */
   recordFailure(): boolean {

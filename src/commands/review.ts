@@ -19,7 +19,7 @@ import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { countReviewFindings } from '../utils/format.js';
 import { Semaphore } from '../core/sdk-semaphore.js';
-import { GeminiCircuitBreaker } from '../core/circuit-breaker.js';
+import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
@@ -121,7 +121,7 @@ export function registerReviewCommand(program: Command): void {
           ? new Semaphore(config.providers.google.concurrency)
           : undefined;
         const circuitBreaker = config.providers.google
-          ? new GeminiCircuitBreaker()
+          ? new CircuitBreaker()
           : undefined;
         // Build mode-aware transport router
         const _provModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};

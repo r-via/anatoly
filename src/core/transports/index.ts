@@ -37,7 +37,7 @@ export interface LlmResponse {
 }
 
 import { Semaphore } from '../sdk-semaphore.js';
-import { GeminiCircuitBreaker, type CircuitState } from '../circuit-breaker.js';
+import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
 
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
@@ -139,7 +139,7 @@ export class TransportRouter {
   /** Per-provider concurrency semaphores. */
   readonly semaphores: Map<string, Semaphore>;
   /** Per-provider circuit breakers. */
-  readonly breakers: Map<string, GeminiCircuitBreaker>;
+  readonly breakers: Map<string, CircuitBreaker>;
 
   constructor(config: TransportRouterConfig) {
     this.nativeTransports = config.nativeTransports;
@@ -154,7 +154,7 @@ export class TransportRouter {
         ?? providerConfig.concurrency
         ?? DEFAULT_PROVIDER_CONCURRENCY;
       this.semaphores.set(providerId, new Semaphore(concurrency));
-      this.breakers.set(providerId, new GeminiCircuitBreaker());
+      this.breakers.set(providerId, new CircuitBreaker());
     }
   }
 
