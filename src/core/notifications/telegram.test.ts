@@ -76,9 +76,9 @@ describe('renderTelegramMessage', () => {
     expect(msg).toContain('https://example.com/report');
   });
 
-  it('should show inline report hint when URL absent', () => {
+  it('should show machine hint when URL absent', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('anatoly report');
+    expect(msg).toContain('machine that ran the audit');
   });
 
   it('should respect the 4096 character limit', () => {
@@ -93,16 +93,11 @@ describe('renderTelegramMessage', () => {
     expect(msg.length).toBeLessThanOrEqual(4096);
   });
 
-  it('should add (+N more) indicator when findings are truncated', () => {
-    const manyFindings = Array.from({ length: 80 }, (_, i) => ({
-      file: `src/module-${i}/very-long-path/deeply-nested-directory/component.ts`,
-      axis: 'correction' as const,
-      severity: 'high' as const,
-      detail: `Finding ${i}: This is a detailed description of the issue that adds significant character length to each finding entry in the message`,
-    }));
-    const largePayload: NotificationPayload = { ...basePayload, topFindings: manyFindings };
-    const msg = renderTelegramMessage(largePayload);
-    expect(msg).toMatch(/\+\d+ more/);
+  it('should group findings by axis with axis emoji', () => {
+    const msg = renderTelegramMessage(basePayload);
+    // correction findings get 🐛, dead findings get ♻️
+    expect(msg).toContain('🐛');
+    expect(msg).toContain('♻️');
   });
 });
 

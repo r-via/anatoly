@@ -82,29 +82,40 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     }
   }
 
-  // ── Top findings (file + axis only, no detail) ──
+  // ── Top findings (file + axis, grouped per axis) ──
   if (payload.topFindings.length > 0) {
     lines.push(``);
     lines.push(`*Top findings:*`);
 
-    const maxFindings = 5;
-    const shown = payload.topFindings.slice(0, maxFindings);
-    for (const f of shown) {
-      const sev = f.severity === 'HIGH' ? '🔴' : '🟡';
-      lines.push(`${sev} \`${e(f.file)}\``);
+    // Group by axis, preserve order
+    const byAxis = new Map<string, typeof payload.topFindings>();
+    for (const f of payload.topFindings) {
+      const list = byAxis.get(f.axis) ?? [];
+      list.push(f);
+      byAxis.set(f.axis, list);
     }
-    const remaining = payload.topFindings.length - shown.length;
-    if (remaining > 0) {
-      lines.push(`\\+${e(String(remaining))} more`);
+
+    const axisEmojis: Record<string, string> = {
+      correction: '🐛', dead: '♻️', duplicate: '📋',
+      overengineering: '🏗️', tests: '🧪', documentation: '📝',
+      best_practices: '✅',
+    };
+
+    for (const [axis, findings] of byAxis) {
+      const emoji = axisEmojis[axis] ?? '•';
+      for (const f of findings) {
+        const sev = f.severity === 'HIGH' ? '🔴' : '🟡';
+        lines.push(`${sev} ${emoji} \`${e(f.file)}\``);
+      }
     }
   }
 
-  // ── Report link ──
+  // ── Footer ──
   lines.push(``);
   if (payload.reportUrl) {
-    lines.push(`📄 [Read the full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
+    lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
   } else {
-    lines.push(`📄 _Run_ \`anatoly report\` _to view the full report_`);
+    lines.push(`_See the full report on the machine that ran the audit\\._`);
   }
 
   let message = lines.join('\n');

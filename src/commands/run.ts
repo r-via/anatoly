@@ -2044,12 +2044,29 @@ function runReportPhase(ctx: RunContext): void {
           return [countsKey[axis], { ...c, healthPct: pct, label }];
         }),
       ),
-      topFindings: data.actions.slice(0, 10).map(a => ({
-        file: a.file,
-        axis: a.source ?? 'unknown',
-        severity: a.severity,
-        detail: a.description,
-      })),
+      topFindings: (() => {
+        // Pick top 2 high-severity findings per axis (mirrors public report's per-axis top findings)
+        const byAxis = new Map<string, typeof data.actions>();
+        for (const a of data.actions) {
+          const axis = a.source ?? 'unknown';
+          const list = byAxis.get(axis) ?? [];
+          list.push(a);
+          byAxis.set(axis, list);
+        }
+        const picked: typeof data.actions = [];
+        for (const [, actions] of byAxis) {
+          const highFirst = actions.filter(a => a.severity === 'HIGH' || a.severity === 'MEDIUM');
+          picked.push(...highFirst.slice(0, 2));
+        }
+        // Sort: HIGH first, then by axis
+        picked.sort((a, b) => (a.severity === 'HIGH' ? 0 : 1) - (b.severity === 'HIGH' ? 0 : 1));
+        return picked.slice(0, 14).map(a => ({
+          file: a.file,
+          axis: a.source ?? 'unknown',
+          severity: a.severity,
+          detail: a.description,
+        }));
+      })(),
       reportUrl: ctx.config.notifications?.telegram?.report_url ?? undefined,
     };
     // Fire-and-forget: errors are caught internally by sendNotifications
