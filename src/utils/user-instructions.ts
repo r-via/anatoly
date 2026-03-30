@@ -117,13 +117,15 @@ export function loadUserInstructions(projectRoot: string): UserInstructions {
     }
   }
 
-  // Warn when exclusion language appears in prompt sections — should use .anatoly.yml instead
-  const exclusionPattern = /\b(skip|ignore|exclude|do not (flag|review|scan|evaluate))\b/i;
+  // Warn when file/module exclusion language appears in prompt sections.
+  // Match "skip X entirely", "skip X/", "ignore X/", "exclude X/" where X looks like a path or module.
+  // Do NOT match calibration language like "do not flag X as Y" — that's legitimate prompt tuning.
+  const exclusionPattern = /\b(skip\b.{0,30}\b(entirely|completely|module|directory|folder|file)|(?:ignore|exclude)\s+\S+\/)/i;
   for (const [key, content] of recognized) {
     if (exclusionPattern.test(content)) {
       log.warn(
         { event: 'user_instructions_exclusion_language', section: key },
-        `ANATOLY.md section "${key}" contains exclusion language (skip/ignore/exclude). ` +
+        `ANATOLY.md section "${key}" contains file/module exclusion language. ` +
         `For deterministic exclusion, use scan.exclude or axes.*.skip in .anatoly.yml instead.`,
       );
     }
