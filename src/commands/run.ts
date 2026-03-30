@@ -133,6 +133,8 @@ interface RunContext {
   errorCount: number;
   /** Errors aggregated by code for end-of-run summary */
   errorsByCode: Record<string, number>;
+  /** Per-file error details for end-of-run summary */
+  errorDetails: Array<{ file: string; code: string; message: string }>;
   /** Number of files where at least one axis evaluator crashed */
   degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */
@@ -353,6 +355,7 @@ export function registerRunCommand(program: Command): void {
         totalCostUsd: 0,
         errorCount: 0,
         errorsByCode: {},
+        errorDetails: [],
         degradedReviews: 0,
         axisStats: {},
         providerStats: { anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } },
@@ -1872,6 +1875,7 @@ async function runReviewPhase(
         pm.updateFileStatus(filePath, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
         ctx.errorCount++;
         ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
+        ctx.errorDetails.push({ file: filePath, code: errorCode, message });
         log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
         ctx.runLog?.error({ event: 'file_review_end', file: filePath, code: errorCode, message, verdict: 'ERROR' }, 'file review failed');
         ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: 'ERROR', error: errorCode });
@@ -2145,8 +2149,8 @@ function runReportPhase(ctx: RunContext): void {
 
   // Log error summary by code (if any errors occurred)
   if (ctx.errorCount > 0) {
-    log.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
-    rl?.warn({ errorsByCode: ctx.errorsByCode, total: ctx.errorCount }, 'run error summary');
+    log.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
+    rl?.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
   }
 
   // Write run summary to per-run log file
