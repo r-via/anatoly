@@ -64,9 +64,7 @@ export function registerNotificationsCommand(parent: Command): void {
     .action(async () => {
       const projectRoot = resolve('.');
 
-      p.intro('Telegram Bot Setup');
-
-      // Guard: check if already configured
+      // Guard: check if already configured — before any user interaction
       const existingConfig = loadConfig(projectRoot);
       const existingTelegram = existingConfig.notifications?.telegram;
       if (existingTelegram?.enabled && (existingTelegram.chat_id || existingTelegram.username)) {
@@ -81,6 +79,8 @@ export function registerNotificationsCommand(parent: Command): void {
           process.exit(0);
         }
       }
+
+      p.intro('Telegram Bot Setup');
 
       // Step 1: Create bot
       p.note(
