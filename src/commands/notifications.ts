@@ -66,6 +66,22 @@ export function registerNotificationsCommand(parent: Command): void {
 
       p.intro('Telegram Bot Setup');
 
+      // Guard: check if already configured
+      const existingConfig = loadConfig(projectRoot);
+      const existingTelegram = existingConfig.notifications?.telegram;
+      if (existingTelegram?.enabled && (existingTelegram.chat_id || existingTelegram.username)) {
+        const target = existingTelegram.username ? `@${existingTelegram.username}` : `chat_id ${existingTelegram.chat_id}`;
+        p.log.warn(`Telegram notifications are already configured for ${target}.`);
+        const overwrite = await p.confirm({
+          message: 'Overwrite existing configuration?',
+          initialValue: false,
+        });
+        if (isCancelled(overwrite) || !overwrite) {
+          p.cancel('Existing configuration preserved.');
+          process.exit(0);
+        }
+      }
+
       // Step 1: Create bot
       p.note(
         '1. Open Telegram and search for @BotFather\n' +
