@@ -110,7 +110,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     const bar = healthBar(Math.max(0, Math.min(100, pct)), high, payload.totalFiles);
     const total = high + medium;
     const counts = total > 0
-      ? `  ${[high > 0 ? `${high}H` : '', medium > 0 ? `${medium}M` : ''].filter(Boolean).join(' ')}`
+      ? `  ${[high > 0 ? `${high}H` : '', medium > 0 ? `${medium}M` : ''].filter(Boolean).join(' \\- ')}`
       : '';
     lines.push(`${emoji} *${e(name)}*${e(counts)}`);
     lines.push(`${bar} ${e(String(pct))}%`);
