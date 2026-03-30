@@ -5,7 +5,7 @@ workflowType: 'epics-and-stories'
 project_name: 'anatoly'
 user_name: 'Rviau'
 date: '2026-03-30'
-status: 'draft'
+status: 'done'
 ---
 
 # Epic 46 : Transport-Level Resilience — Semaphores & Circuit Breakers dans le Router
