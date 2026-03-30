@@ -171,7 +171,9 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
       queryFn: ctx.queryFn,
       recordFn: ctx.recordFn,
       onShardDone: (idx, total, result) => {
-        const status = result.status === 'ok' ? `${result.confirmed} confirmed, ${result.reclassified} reclassified` : result.status;
+        const status = result.status === 'ok'
+          ? `${result.confirmed} confirmed, ${result.reclassified} reclassified`
+          : result.error ? `${result.status}: ${result.error}` : result.status;
         ctx.onProgress?.('tier3-shard', `shard ${idx}/${total} ${result.module} — ${status} (${(result.durationMs / 1000).toFixed(1)}s)`);
       },
     };
