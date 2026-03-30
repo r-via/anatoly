@@ -157,6 +157,7 @@ export function registerReportCommand(program: Command): void {
           errorFiles: reportData.errorFiles.length,
           durationMs: runStats?.durationMs ?? 0,
           costUsd: runStats?.costUsd ?? 0,
+          totalTokens: runStats ? Object.values(runStats.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens, 0) : 0,
           axisScorecard,
           topFindings: picked.slice(0, 14).map(a => ({
             file: a.file,

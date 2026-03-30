@@ -6,6 +6,13 @@ import type { NotificationChannel, NotificationPayload } from './index.js';
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
+/** Format token count with K/M suffix. */
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
+  return String(tokens);
+}
+
 /** Escape special characters for Telegram MarkdownV2. */
 export function escapeMarkdownV2(text: string): string {
   return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
@@ -86,7 +93,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     ``,
     `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
     ``,
-    `${e(String(payload.totalFiles))} files reviewed · \\$${e(payload.costUsd.toFixed(2))} · ${e(String(durationMin))} min`,
+    `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
     `*${e(String(totalFindings))}* findings in *${e(String(payload.findingFiles))}* files`,
     ``,
     SEP,
@@ -132,7 +139,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   if (payload.reportUrl) {
     lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
   } else {
-    lines.push(`_Full report on the machine that ran the audit_`);
+    lines.push(`_Full report on the machine that ran the audit in \\.anatoly/runs/latest/report\\.md_`);
   }
 
   let message = lines.join('\n');
@@ -157,6 +164,19 @@ export class TelegramNotifier implements NotificationChannel {
   ) {}
 
   async send(payload: NotificationPayload): Promise<void> {
+    // Send logo first (fire-and-forget — don't block on failure)
+    try {
+      await fetch(`https://api.telegram.org/bot${this.botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: this.chatId,
+          photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/logo.jpg',
+        }),
+      });
+    } catch { /* non-critical */ }
+
+    // Send report message
     const text = renderTelegramMessage(payload);
     const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
 

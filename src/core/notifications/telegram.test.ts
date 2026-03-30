@@ -14,6 +14,7 @@ const basePayload: NotificationPayload = {
   errorFiles: 2,
   durationMs: 120000,
   costUsd: 1.23,
+  totalTokens: 1_250_000,
   axisScorecard: {
     dead: { high: 3, medium: 5, low: 0, healthPct: 86, label: 'used' },
     duplicate: { high: 1, medium: 2, low: 0, healthPct: 100, label: 'unique' },
@@ -55,7 +56,7 @@ describe('renderTelegramMessage', () => {
     expect(msg).toContain('🟡'); // NEEDS_REFACTOR verdict emoji
     expect(msg).toContain('NEEDS\\_REFACTOR'); // verdict text
     expect(msg).toContain('42 files reviewed');
-    expect(msg).toContain('1\\.23'); // cost
+    expect(msg).toContain('1\\.3M tokens'); // token count
     expect(msg).toContain('2 min'); // duration
   });
 
@@ -71,12 +72,10 @@ describe('renderTelegramMessage', () => {
     expect(idx54).toBeLessThan(idx96);
   });
 
-  it('should show severity summary instead of file list', () => {
+  it('should show top findings with file paths', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('🔴'); // high severity marker
-    expect(msg).toContain('high');
-    // No individual file paths in main message (findings are aggregated)
-    expect(msg).not.toContain('scanner');
+    expect(msg).toContain('Top findings');
+    expect(msg).toContain('scanner'); // file path from topFindings
   });
 
   it('should append report URL when provided', () => {
@@ -112,18 +111,22 @@ describe('TelegramNotifier', () => {
     vi.restoreAllMocks();
   });
 
-  it('should POST to the correct Telegram API URL', async () => {
+  it('should send logo photo then message', async () => {
     const notifier = new TelegramNotifier('test-token', '-100123');
     await notifier.send(basePayload);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://api.telegram.org/bottest-token/sendMessage');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // First call: photo
+    const [photoUrl] = fetchMock.mock.calls[0];
+    expect(photoUrl).toContain('/sendPhoto');
+    // Second call: message
+    const [msgUrl] = fetchMock.mock.calls[1];
+    expect(msgUrl).toBe('https://api.telegram.org/bottest-token/sendMessage');
   });
 
   it('should send with parse_mode MarkdownV2', async () => {
     const notifier = new TelegramNotifier('test-token', '-100123');
     await notifier.send(basePayload);
-    const [, opts] = fetchMock.mock.calls[0];
+    const [, opts] = fetchMock.mock.calls[1]; // message is second call
     const body = JSON.parse(opts.body);
     expect(body.parse_mode).toBe('MarkdownV2');
     expect(body.chat_id).toBe('-100123');

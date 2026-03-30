@@ -2032,6 +2032,7 @@ function runReportPhase(ctx: RunContext): void {
       errorFiles: data.errorFiles.length,
       durationMs: Date.now() - ctx.startTime,
       costUsd: ctx.totalCostUsd,
+      totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens, 0),
       axisScorecard: Object.fromEntries(
         REPORT_AXIS_IDS.map((axis) => {
           const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
