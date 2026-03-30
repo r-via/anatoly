@@ -63,7 +63,9 @@ function healthBar(pct: number, highFindings = 0, totalFiles = 0): string {
 export function renderTelegramMessage(payload: NotificationPayload): string {
   const e = escapeMarkdownV2;
   const durationMin = Math.round(payload.durationMs / 60_000);
-  const totalFindings = Object.values(payload.axisScorecard).reduce((sum, c) => sum + c.high + c.medium + c.low, 0);
+  const totalHigh = Object.values(payload.axisScorecard).reduce((s, c) => s + c.high, 0);
+  const totalMed = Object.values(payload.axisScorecard).reduce((s, c) => s + c.medium, 0);
+  const totalLow = Object.values(payload.axisScorecard).reduce((s, c) => s + c.low, 0);
   const SEP = '━━━━━━━━━━━━━━━━━━━━';
 
   // ── Intro ──
@@ -94,7 +96,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
     ``,
     `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
-    `*${e(String(totalFindings))}* findings in *${e(String(payload.findingFiles))}* files`,
+    `🔴 ${e(String(totalHigh))} high · 🟡 ${e(String(totalMed))} med · ⚪ ${e(String(totalLow))} low`,
     ``,
     SEP,
     ``,
