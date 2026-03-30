@@ -65,6 +65,7 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines, colored cost display
+- **Telegram notifications** — automatic audit summary to a Telegram channel/group after each run. Fire-and-forget: delivery failures never break the pipeline. See [setup guide](docs/05-Integration/04-Telegram-Notifications.md)
 - **Multi-provider LLM** (experimental) — Gemini 2.5 Flash routes utility, duplication, overengineering axes and NLP summarization at $0/token via Google OAuth. Circuit breaker auto-falls back to Claude on failure. Reduces Claude API calls by ~69%
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for the evaluation axes.
@@ -178,6 +179,9 @@ npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
 npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (Docker GGUF)
 npx anatoly providers            # Verify LLM connectivity (Claude + Gemini)
+npx anatoly notifications create-bot  # Interactive Telegram bot setup wizard
+npx anatoly notifications test   # Send a test Telegram notification
+npx anatoly report --notify      # Re-generate report + send notification
 
 # Useful flags
 npx anatoly run --dry-run        # Simulate: scan, estimate, triage — no API calls
@@ -233,7 +237,7 @@ rag:
 | [Architecture](docs/02-Architecture/) | [Pipeline](docs/02-Architecture/01-Pipeline-Overview.md), [7-Axis System](docs/02-Architecture/02-Seven-Axis-System.md), [RAG Engine](docs/02-Architecture/03-RAG-Engine.md), [Usage Graph](docs/02-Architecture/04-Usage-Graph.md), [Deliberation](docs/02-Architecture/05-Deliberation-Pass.md) |
 | [CLI Reference](docs/03-CLI-Reference/) | [Commands](docs/03-CLI-Reference/01-Commands.md), [Global Options](docs/03-CLI-Reference/02-Global-Options.md), [Output Formats](docs/03-CLI-Reference/03-Output-Formats.md) |
 | [Core Modules](docs/04-Core-Modules/) | [Scanner](docs/04-Core-Modules/01-Scanner.md), [Estimator](docs/04-Core-Modules/02-Estimator.md), [Triage](docs/04-Core-Modules/03-Triage.md), [Evaluators](docs/04-Core-Modules/04-Axis-Evaluators.md), [Reporter](docs/04-Core-Modules/05-Reporter.md), [Worker Pool](docs/04-Core-Modules/06-Worker-Pool.md) |
-| [Integration](docs/05-Integration/) | [Claude Code Hooks](docs/05-Integration/01-Claude-Code-Hooks.md), [CI/CD](docs/05-Integration/02-CI-CD.md), [Watch Mode](docs/05-Integration/03-Watch-Mode.md) |
+| [Integration](docs/05-Integration/) | [Claude Code Hooks](docs/05-Integration/01-Claude-Code-Hooks.md), [CI/CD](docs/05-Integration/02-CI-CD.md), [Watch Mode](docs/05-Integration/03-Watch-Mode.md), [Telegram Notifications](docs/05-Integration/04-Telegram-Notifications.md) |
 | [Development](docs/06-Development/) | [Source Tree](docs/06-Development/00-Source-Tree.md), [Contributing](docs/06-Development/01-Contributing.md), [Testing](docs/06-Development/02-Testing.md), [Schemas](docs/06-Development/03-Schemas.md) |
 | [Design Decisions](docs/07-Design-Decisions/) | [Why Local RAG](docs/07-Design-Decisions/01-Why-Local-RAG.md), [Evidence-Based](docs/07-Design-Decisions/02-Evidence-Based-Approach.md), [Cost Optimization](docs/07-Design-Decisions/03-Cost-Optimization.md) |
 

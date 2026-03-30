@@ -16,6 +16,7 @@ import { detectProjectProfile } from '../core/language-detect.js';
 import { loadTasks } from '../core/estimator.js';
 import { aggregateDocReport } from '../core/doc-report-aggregator.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 
 /** Registers the `report` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerReportCommand(program: Command): void {
@@ -23,7 +24,8 @@ export function registerReportCommand(program: Command): void {
     .command('report')
     .description('Aggregate review results into a structured Markdown report')
     .option('--run <id>', 'generate report from a specific run (default: latest)')
-    .action((cmdOpts: { run?: string }) => {
+    .option('--notify', 'send notification after report generation')
+    .action(async (cmdOpts: { run?: string; notify?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -89,9 +91,12 @@ export function registerReportCommand(program: Command): void {
         }
       }
 
+      let reportData: ReturnType<typeof generateReport>['data'] | undefined;
+
       if (runDir && existsSync(resolve(runDir, 'reviews'))) {
         // Run-scoped mode: read reviews from run directory
         const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl);
+        reportData = data;
         printReportSummary(data, axisReports, reportPath, resolve(runDir, 'reviews'));
         if (shouldOpen) openFile(reportPath);
       } else {
@@ -105,8 +110,38 @@ export function registerReportCommand(program: Command): void {
         }
 
         const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles);
+        reportData = data;
         printReportSummary(data, axisReports, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
         if (shouldOpen) openFile(reportPath);
+      }
+
+      // Send notification if --notify flag is set
+      if (cmdOpts.notify && reportData) {
+        const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+        const payload: NotificationPayload = {
+          verdict: reportData.globalVerdict,
+          totalFiles: reportData.totalFiles,
+          cleanFiles: reportData.cleanFiles.length,
+          findingFiles: reportData.findingFiles.length,
+          errorFiles: reportData.errorFiles.length,
+          durationMs: runStats?.durationMs ?? 0,
+          costUsd: runStats?.costUsd ?? 0,
+          axisScorecard: reportData.counts,
+          topFindings: reportData.actions.slice(0, 10).map(a => ({
+            file: a.file,
+            axis: a.source ?? 'unknown',
+            severity: a.severity ?? 'medium',
+            detail: a.description,
+          })),
+          reportUrl: config.notifications?.telegram?.report_url ?? undefined,
+        };
+        try {
+          await sendNotifications(config, payload);
+          console.log(chalk.green('✓ Notification sent'));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(chalk.yellow(`Notification failed: ${msg}`));
+        }
       }
     });
 }

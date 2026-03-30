@@ -54,7 +54,7 @@ FR1-FR15 (validation): Story 46.6 — Tests d'intégration
 
 ---
 
-## Stories
+## Epic 46: Transport-Level Resilience — Semaphores & circuit breakers dans le router
 
 ### Story 46.1: TransportRouter — semaphores et breakers par provider
 

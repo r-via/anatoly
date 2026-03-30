@@ -47,6 +47,7 @@
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/openai-compatible": "^2.0.37",
     "@anthropic-ai/claude-agent-sdk": "^0.2.52",
+    "@clack/prompts": "^1.1.0",
     "@lancedb/lancedb": "^0.26.2",
     "@xenova/transformers": "^2.17.2",
     "ai": "^6.0.141",

@@ -149,15 +149,17 @@ export const SearchConfigSchema = z.object({
 
 export const TelegramNotificationSchema = z.object({
   enabled: z.boolean().default(false),
-  /** Telegram chat ID (channel, group, or user). Required when enabled. */
+  /** Telegram username (without @). The bot resolves this to a chat_id automatically. */
+  username: z.string().optional(),
+  /** Telegram chat ID (channel, group, or user). Resolved automatically from username if not set. */
   chat_id: z.string().optional(),
   /** Environment variable name holding the bot token. Never store tokens in YAML. */
   bot_token_env: z.string().default('ANATOLY_TELEGRAM_BOT_TOKEN'),
   /** Optional URL to the published report (appended as link in the message). */
   report_url: z.string().url().optional(),
 }).refine(
-  (data) => !data.enabled || (data.enabled && data.chat_id),
-  { message: 'chat_id is required when telegram notifications are enabled', path: ['chat_id'] },
+  (data) => !data.enabled || (data.enabled && (data.chat_id || data.username)),
+  { message: 'chat_id or username is required when telegram notifications are enabled', path: ['username'] },
 );
 
 export const NotificationsConfigSchema = z.object({

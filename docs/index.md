@@ -59,6 +59,7 @@
 | [Claude Code Hooks](05-Integration/01-Claude-Code-Hooks.md) | Using Anatoly as a Claude Code hook |
 | [CI/CD](05-Integration/02-CI-CD.md) | GitHub Actions, GitLab CI, and other pipeline integrations |
 | [Watch Mode](05-Integration/03-Watch-Mode.md) | Continuous audit on file changes |
+| [Telegram Notifications](05-Integration/04-Telegram-Notifications.md) | Automatic audit summaries to Telegram |
 
 ---
 

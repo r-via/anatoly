@@ -23,6 +23,8 @@ import {
   registerInitCommand,
   registerDocsCommand,
   registerProvidersCommand,
+  registerNotificationsCommand,
+  registerAuditCommand,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -112,6 +114,13 @@ export function createProgram(): Command {
   registerInitCommand(program);
   registerDocsCommand(program);
   registerProvidersCommand(program);
+
+  // Parent "notifications" command with subcommands: create-bot, test
+  const notificationsCmd = program.command('notifications').description('Telegram notification setup and testing');
+  registerNotificationsCommand(notificationsCmd);
+
+  // Parent "runs" command with subcommands: list, remove
+  registerAuditCommand(program);
 
   return program;
 }

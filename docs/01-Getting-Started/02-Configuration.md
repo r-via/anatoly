@@ -69,6 +69,14 @@ logging:
 output:
   max_runs: ~               # Auto-purge old runs, keeping N most recent
 
+notifications:
+  telegram:
+    enabled: false                          # Enable Telegram notifications
+    username: "YourTelegramUsername"         # Your Telegram username (without @)
+    # chat_id: "-1001234567890"             # Or explicit chat ID (for groups/channels)
+    bot_token_env: "ANATOLY_TELEGRAM_BOT_TOKEN"  # Env var holding the bot token
+    report_url: ~                           # Optional URL to hosted report
+
 badge:
   enabled: true             # Inject "Checked by Anatoly" badge into README.md
   verdict: false            # Include audit verdict (CLEAN/FINDINGS) in badge
@@ -174,6 +182,18 @@ When no `/docs/` directory exists, only JSDoc inline evaluation is performed (gr
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `max_runs` | integer | *(none)* | Automatically delete old runs, keeping the N most recent |
+
+### notifications
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `telegram.enabled` | boolean | `false` | Enable Telegram notifications after each run |
+| `telegram.username` | string | *(none)* | Your Telegram username (without `@`). Resolved to a chat ID automatically |
+| `telegram.chat_id` | string | *(none)* | Explicit chat ID. Overrides `username`. Use for groups/channels |
+| `telegram.bot_token_env` | string | `"ANATOLY_TELEGRAM_BOT_TOKEN"` | Environment variable holding the bot token |
+| `telegram.report_url` | string (URL) | *(none)* | Optional URL appended as a clickable link in the message |
+
+Either `username` or `chat_id` is required when enabled. Run `anatoly notifications create-bot` for interactive setup. See [Telegram Notifications](../05-Integration/04-Telegram-Notifications.md) for details.
 
 ### badge
 
