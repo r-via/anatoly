@@ -29,6 +29,8 @@ export const CoverageConfigSchema = z.object({
 export const AxisConfigSchema = z.object({
   enabled: z.boolean().default(true),
   model: z.string().optional(),
+  /** Glob patterns for files to skip on this axis. Matched against relative file paths. */
+  skip: z.array(z.string()).optional(),
 });
 
 export const AxesConfigSchema = z.object({

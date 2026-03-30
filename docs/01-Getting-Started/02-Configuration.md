@@ -51,6 +51,8 @@ llm:
       enabled: true
     tests:
       enabled: true
+      skip:                 # Skip test axis on specific files
+        - "src/drivers/**"
     best_practices:
       enabled: true
 
@@ -125,14 +127,34 @@ badge:
 
 ### llm.axes
 
-Each axis can be individually toggled and assigned a model override.
+Each axis can be individually toggled, assigned a model override, and given file-level skip patterns.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | boolean | `true` | Whether this axis runs during review |
 | `model` | string | *(uses llm.model)* | Override the model for this specific axis |
+| `skip` | string[] | *(none)* | Glob patterns for files to skip on this axis (matched against relative paths) |
 
 The seven axes are: `utility`, `duplication`, `correction`, `overengineering`, `tests`, `best_practices`, `documentation`.
+
+#### Per-axis skip patterns
+
+Use `skip` to exclude specific files from an axis without disabling the axis globally. This is useful when certain files are inherently untestable (OS-specific I/O), intentionally undocumented (private helpers), or have known accepted patterns.
+
+```yaml
+axes:
+  tests:
+    enabled: true
+    skip:
+      - "src/drivers/**"       # OS-specific I/O — integration tests only
+      - "**/tunnel.rs"
+  documentation:
+    enabled: true
+    skip:
+      - "src/internal/**"      # Private helpers with inline comments
+```
+
+Skipped axes produce no API call — the file is evaluated on all other axes normally. This is different from `scan.exclude`, which removes the file from the entire pipeline.
 
 ### documentation
 
@@ -334,6 +356,10 @@ Your instructions neither override nor replace the standard evaluation rules. Th
 - If you say "we don't use JSDoc", then absence of JSDoc is not a finding -- but other documentation aspects (header comments, README coverage) are still evaluated.
 - If you add a stricter rule (e.g., "Zod required for all inputs"), it becomes an additional criterion on top of the standard rules.
 - If you say nothing about an axis, it evaluates with the default rules unchanged.
+
+### Exclusion language warning
+
+If your `ANATOLY.md` contains words like "skip", "ignore", "exclude", or "do not flag", Anatoly will log a warning suggesting you use `scan.exclude` or `axes.*.skip` in `.anatoly.yml` instead. ANATOLY.md calibrates the LLM's judgment but cannot structurally prevent a file from being scanned or an axis from running — config-level exclusions are deterministic and always respected.
 
 ### Section length warning
 

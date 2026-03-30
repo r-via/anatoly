@@ -117,6 +117,18 @@ export function loadUserInstructions(projectRoot: string): UserInstructions {
     }
   }
 
+  // Warn when exclusion language appears in prompt sections — should use .anatoly.yml instead
+  const exclusionPattern = /\b(skip|ignore|exclude|do not (flag|review|scan|evaluate))\b/i;
+  for (const [key, content] of recognized) {
+    if (exclusionPattern.test(content)) {
+      log.warn(
+        { event: 'user_instructions_exclusion_language', section: key },
+        `ANATOLY.md section "${key}" contains exclusion language (skip/ignore/exclude). ` +
+        `For deterministic exclusion, use scan.exclude or axes.*.skip in .anatoly.yml instead.`,
+      );
+    }
+  }
+
   const generalContent = recognized.get('general');
 
   return {

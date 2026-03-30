@@ -4,6 +4,7 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, join, basename, dirname, extname } from 'node:path';
+import picomatch from 'picomatch';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
 import { AnatolyError } from '../utils/errors.js';
@@ -245,12 +246,28 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     userInstructions: opts.userInstructions,
   };
 
+  // Filter out evaluators whose axes.*.skip patterns match this file
+  const activeEvaluators = evaluators.filter((ev) => {
+    const axisConf = config.axes?.[ev.id];
+    if (!axisConf?.skip || axisConf.skip.length === 0) return true;
+    const isSkipped = picomatch(axisConf.skip)(task.file);
+    if (isSkipped) {
+      contextLogger().info({ event: 'axis_skipped', axis: ev.id, file: task.file, patterns: axisConf.skip }, 'axis skipped by config skip pattern');
+    }
+    return !isSkipped;
+  });
+  const skippedAxes = evaluators.filter((ev) => !activeEvaluators.includes(ev)).map((ev) => ev.id);
+  // Fire progress callbacks for config-skipped axes so UI counters stay accurate
+  for (const ev of evaluators) {
+    if (skippedAxes.includes(ev.id)) onAxisComplete?.(ev.id);
+  }
+
   const startTime = Date.now();
   const transcriptParts: string[] = [];
 
   // Execute all evaluators in parallel, each in its own axis sub-context
   const settledResults = await Promise.allSettled(
-    evaluators.map(async (evaluator) => {
+    activeEvaluators.map(async (evaluator) => {
       return runWithContext({ axis: evaluator.id }, async () => {
         const result = await evaluator.evaluate(ctx, abortController);
         onAxisComplete?.(evaluator.id);
@@ -327,6 +344,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
 
   const enabledAxes = opts.evaluators.map((e) => e.id);
+  // Config-skipped axes produce '-' markers (same as disabled axes) — don't treat as failures
   let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes, docsCoverage);
 
   // Per-file deliberation removed (Story 41.1) — verdict comes from merge logic.
@@ -335,7 +353,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
   const axisTiming: AxisTiming[] = successResults.map((r) => {
-    const ev = evaluators.find(e => e.id === r.axisId);
+    const ev = activeEvaluators.find(e => e.id === r.axisId);
     const model = ev ? resolveAxisModel(ev, opts.config) : '';
     return {
       axisId: r.axisId,

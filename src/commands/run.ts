@@ -31,6 +31,7 @@ import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
+import { ReviewFileSchema } from '../schemas/review.js';
 import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
@@ -113,8 +114,8 @@ interface RunContext {
   totalFindings: number;
   /** Total number of files discovered during scanning */
   totalFiles: number;
-  /** Count of skipped (cached) vs evaluated files */
-  reviewCounts: { skipped: number; evaluated: number };
+  /** Count of skipped (triage), cached (previous run), and evaluated files */
+  reviewCounts: { skipped: number; cached: number; evaluated: number };
   /** Epoch timestamp when the run started */
   startTime: number;
   /** All loaded tasks — set during setup phase, used in report phase for time estimation */
@@ -347,7 +348,7 @@ export function registerRunCommand(program: Command): void {
         filesReviewed: 0,
         totalFindings: 0,
         totalFiles: 0,
-        reviewCounts: { skipped: 0, evaluated: 0 },
+        reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },
         startTime: Date.now(),
         allTasks: [],
         triageMap: new Map(),
@@ -1678,34 +1679,43 @@ async function runReviewPhase(
     pending = pending.filter((fp) => isMatch(fp.file));
   }
 
-  if (pending.length === 0) {
+  // Collect cached files so they flow through the handler for accurate metrics + display
+  const currentProgress = pm.getProgress();
+  const cachedFiles = Object.values(currentProgress.files).filter((f) => f.status === 'DONE' || f.status === 'CACHED');
+
+  if (pending.length === 0 && cachedFiles.length === 0) {
     console.log('anatoly — review');
     console.log('  No pending files to review.');
     console.log('');
     return;
   }
 
-  // Count cached files (already reviewed in a previous run — re-read after PENDING resets)
-  const currentProgress = pm.getProgress();
-  const cachedCount = Object.values(currentProgress.files).filter((f) => f.status === 'DONE' || f.status === 'CACHED').length;
-  ctx.totalFiles = pending.length + cachedCount;
-  ctx.reviewCounts.skipped = cachedCount;
+  ctx.totalFiles = pending.length + cachedFiles.length;
 
   const allTasks = loadTasks(ctx.projectRoot);
   const taskMap = new Map<string, Task>();
   for (const t of allTasks) taskMap.set(t.file, t);
 
-  const reviewItems = pending
-    .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file) }))
-    .filter((item): item is { filePath: string; task: Task } => item.task !== undefined);
+  const reviewItems: Array<{ filePath: string; task: Task; cached: boolean }> = [
+    // Cached files first — instant, no API call
+    ...cachedFiles
+      .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file), cached: true }))
+      .filter((item): item is { filePath: string; task: Task; cached: boolean } => item.task !== undefined),
+    // Pending files — actual evaluation
+    ...pending
+      .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file), cached: false }))
+      .filter((item): item is { filePath: string; task: Task; cached: boolean } => item.task !== undefined),
+  ];
 
   const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
   if (ctx.axesFilter) {
     warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
   }
-  const evaluateTotal = ctx.triageEnabled
-    ? reviewItems.filter((item) => triageMap.get(item.filePath)?.tier !== 'skip').length
-    : reviewItems.length;
+  const evaluateTotal = reviewItems.filter((item) => {
+    if (item.cached) return false;
+    if (ctx.triageEnabled && triageMap.get(item.filePath)?.tier === 'skip') return false;
+    return true;
+  }).length;
   const state = ctx.pipelineState!;
   const axesTotal = evaluators.length;
   state.setPhase('review');
@@ -1723,8 +1733,28 @@ async function runReviewPhase(
     concurrency: ctx.concurrency,
     isInterrupted: () => ctx.interrupted,
     handler: async (item, workerIndex) => {
-      const { filePath, task } = item;
+      const { filePath, task, cached } = item;
       await runWithContext({ file: filePath, worker: workerIndex }, async () => {
+
+      // Handle cached files: load existing review, count findings, display [CACHED]
+      if (cached) {
+        const cachedReview = loadCachedReview(ctx.projectRoot, filePath);
+        if (cachedReview) {
+          // Copy into current run dir so the report is complete
+          writeReviewOutput(ctx.projectRoot, cachedReview, ctx.runDir);
+          ctx.filesReviewed++;
+          ctx.reviewCounts.cached++;
+          ctx.totalFindings += countReviewFindings(cachedReview, 60);
+          if (ctx.plain) {
+            const findings = countReviewFindings(cachedReview);
+            const note = findings > 0 ? ` | ${findings} findings` : '';
+            ctx.renderer?.logPlain(`[review] [CACHED] ${filePath} → ${cachedReview.verdict}${note}`);
+          }
+          rl?.info({ event: 'file_cached', phase: 'review', file: filePath, verdict: cachedReview.verdict }, 'file loaded from cache');
+        }
+        return;
+      }
+
       const triage = triageMap.get(filePath);
 
       // Handle skip-tier files: generate synthetic review, no API call
@@ -1926,8 +1956,8 @@ function runReportPhase(ctx: RunContext): void {
 
   let triageStats: TriageStats | undefined;
   if (ctx.triageEnabled) {
-    const { skipped, evaluated } = ctx.reviewCounts;
-    const total = skipped + evaluated;
+    const { skipped, cached, evaluated } = ctx.reviewCounts;
+    const total = skipped + cached + evaluated;
     // Time saved = weighted seconds of files that were skipped (would have been evaluated)
     let skippedSeconds = 0;
     for (const task of ctx.allTasks) {
@@ -1951,9 +1981,8 @@ function runReportPhase(ctx: RunContext): void {
     phaseDurations: ctx.phaseDurations,
     degradedReviews: ctx.degradedReviews,
   };
-  // Copy cached reviews from previous run into current runDir so the report is complete.
-  // Files with status CACHED have an unchanged SHA-256 — their .rev.json is still valid.
-  copyCachedReviews(ctx.projectRoot, ctx.runDir, pm);
+  // Cached reviews are now copied into the run dir during the review phase handler,
+  // so copyCachedReviews is no longer needed here.
 
   // --- Doc report aggregation ---
   let docReferenceSection: string | undefined;
@@ -2035,7 +2064,7 @@ function runReportPhase(ctx: RunContext): void {
       verdict: data.globalVerdict,
       totalFiles: data.totalFiles,
       evaluated: ctx.reviewCounts.evaluated,
-      cached: ctx.reviewCounts.skipped,
+      cached: ctx.reviewCounts.cached,
       cleanFiles: data.cleanFiles.length,
       findingFiles: data.findingFiles.length,
       errorFiles: data.errorFiles.length,
@@ -2060,10 +2089,11 @@ function runReportPhase(ctx: RunContext): void {
     void sendNotifications(ctx.config, notifPayload);
   }
 
-  const { skipped, evaluated } = ctx.reviewCounts;
+  const { skipped, cached, evaluated } = ctx.reviewCounts;
+  const cachedNote = cached > 0 ? `${cached} cached \u00b7 ` : '';
   const tierSummary = ctx.triageEnabled
-    ? ` (${skipped} skipped \u00b7 ${evaluated} evaluated)`
-    : '';
+    ? ` (${cachedNote}${skipped} skipped \u00b7 ${evaluated} evaluated)`
+    : cached > 0 ? ` (${cachedNote}${evaluated} evaluated)` : '';
   const duration = formatDuration(Date.now() - ctx.startTime);
   const rel = (p: string) => relative(process.cwd(), p) || '.';
   const claudeCost = ctx.providerStats.anthropic.costUsd;
@@ -2126,7 +2156,7 @@ function runReportPhase(ctx: RunContext): void {
   log.info({
     runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
     filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
-    cached: ctx.reviewCounts.skipped, skipped: ctx.reviewCounts.skipped,
+    cached: ctx.reviewCounts.cached, skipped: ctx.reviewCounts.skipped,
     errors: ctx.errorCount,
   }, 'run completed');
 
@@ -2183,7 +2213,7 @@ function runReportPhase(ctx: RunContext): void {
     durationMs: totalDurationMs,
     filesReviewed: ctx.filesReviewed,
     evaluated: ctx.reviewCounts.evaluated,
-    cached: ctx.reviewCounts.skipped,
+    cached: ctx.reviewCounts.cached,
     findings: ctx.totalFindings,
     errors: ctx.errorCount,
     errorsByCode: ctx.errorsByCode,
@@ -2216,6 +2246,23 @@ function runReportPhase(ctx: RunContext): void {
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
 
+}
+
+/**
+ * Load a single cached review from the persistent cache directory.
+ * Returns the parsed ReviewFile or undefined if not found / malformed.
+ */
+function loadCachedReview(projectRoot: string, filePath: string): ReviewFile | undefined {
+  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
+  const baseName = toOutputName(filePath);
+  const src = join(cacheReviewsDir, `${baseName}.rev.json`);
+  if (!existsSync(src)) return undefined;
+  try {
+    const raw = JSON.parse(readFileSync(src, 'utf-8'));
+    return ReviewFileSchema.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
