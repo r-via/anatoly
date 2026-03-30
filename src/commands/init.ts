@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
+import { ALL_AXIS_IDS } from '../core/axes/index.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
 
@@ -78,7 +79,7 @@ export function detectApiKey(providerId: string): string | null {
  */
 export function buildInitConfig(
   selections: WizardSelections,
-): { providers: Record<string, ProviderSelection>; models: Record<string, string> } {
+): { providers: Record<string, ProviderSelection>; models: Record<string, string>; axes: Record<string, { enabled: boolean }> } {
   const providers: Record<string, ProviderSelection> = {};
   for (const [id, sel] of selections.providers) {
     const entry: ProviderSelection = { mode: sel.mode };
@@ -96,7 +97,12 @@ export function buildInitConfig(
     models.code_summary = selections.models.code_summary;
   }
 
-  return { providers, models };
+  const axes: Record<string, { enabled: boolean }> = {};
+  for (const id of ALL_AXIS_IDS) {
+    axes[id] = { enabled: true };
+  }
+
+  return { providers, models, axes };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +220,13 @@ async function runInitWizard(io: PromptIO): Promise<WizardSelections> {
 
 function generateExampleConfig(): string {
   const defaults = ConfigSchema.parse({});
-  const yamlStr = yaml.dump(defaults, { lineWidth: 120 });
+  // Inject all axes as enabled so the example config is complete
+  const axes: Record<string, { enabled: boolean }> = {};
+  for (const id of ALL_AXIS_IDS) {
+    axes[id] = { enabled: true };
+  }
+  const withAxes = { ...defaults, axes };
+  const yamlStr = yaml.dump(withAxes, { lineWidth: 120 });
   const commented = yamlStr
     .split('\n')
     .map((line) => (line.trim() === '' ? '' : `# ${line}`))

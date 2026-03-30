@@ -3,7 +3,6 @@
 
 project:
   name: anatoly
-  monorepo: false
 
 scan:
   include:
@@ -52,6 +51,8 @@ axes:
   duplication:
     enabled: true
     model: google/gemini-2.5-flash-lite
+  correction:
+    enabled: true
   overengineering:
     enabled: true
     model: google/gemini-2.5-flash-lite
