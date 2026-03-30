@@ -66,7 +66,6 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   const totalHigh = Object.values(payload.axisScorecard).reduce((s, c) => s + c.high, 0);
   const totalMed = Object.values(payload.axisScorecard).reduce((s, c) => s + c.medium, 0);
   const totalLow = Object.values(payload.axisScorecard).reduce((s, c) => s + c.low, 0);
-  const SEP = '━━━━━━━━━━━━━━━━━━━━';
 
   // ── Intro ──
   const intros: Record<string, string[]> = {
@@ -98,8 +97,6 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     `${e(String(payload.totalFiles))} files reviewed · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
     `🔴 ${e(String(totalHigh))} high · 🟡 ${e(String(totalMed))} med · ⚪ ${e(String(totalLow))} low`,
     ``,
-    SEP,
-    ``,
   ];
 
   // ── Scorecard ── sorted worst-first
@@ -123,7 +120,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   // ── Top findings ──
   if (payload.topFindings.length > 0) {
     lines.push(``);
-    lines.push(SEP);
+
     lines.push(``);
     lines.push(`*Top findings:*`);
 
@@ -135,8 +132,6 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   }
 
   // ── Footer ──
-  lines.push(``);
-  lines.push(SEP);
   lines.push(``);
   if (payload.reportUrl) {
     lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
