@@ -215,10 +215,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         const returned = new Set(data.symbols.map(s => s.name));
         return requiredLlmNames.every(n => returned.has(n));
       },
-      () => {
-        // Computed lazily so the LLM sees exactly which symbols it missed
-        return { message: `Missing required symbols in response. You must include ALL of these symbols: ${requiredLlmNames.join(', ')}` };
-      },
+      `Missing required symbols in response. You must include ALL of these symbols: ${requiredLlmNames.join(', ')}`,
     );
 
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<UtilityResponse>(
