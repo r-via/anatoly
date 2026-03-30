@@ -7,6 +7,7 @@ import { TelegramNotifier, renderTelegramMessage, escapeMarkdownV2 } from './tel
 import type { NotificationPayload } from './index.js';
 
 const basePayload: NotificationPayload = {
+  projectName: 'test-project',
   verdict: 'NEEDS_REFACTOR',
   totalFiles: 42,
   evaluated: 42,
@@ -26,11 +27,6 @@ const basePayload: NotificationPayload = {
     documentation: { high: 0, medium: 0, low: 0, healthPct: 82, label: 'documented' },
     best_practices: { high: 0, medium: 1, low: 0, healthPct: 80, label: 'avg 8.0 / 10' },
   },
-  topFindings: [
-    { file: 'src/core/scanner.ts', axis: 'correction', severity: 'high', detail: 'Null dereference on line 42' },
-    { file: 'src/utils/cache.ts', axis: 'dead', severity: 'high', detail: 'Function buildKey is never imported' },
-    { file: 'src/rag/indexer.ts', axis: 'dead', severity: 'high', detail: 'Function createIndex is never imported' },
-  ],
 };
 
 describe('escapeMarkdownV2', () => {
@@ -74,10 +70,9 @@ describe('renderTelegramMessage', () => {
     expect(idx54).toBeLessThan(idx96);
   });
 
-  it('should show top findings with file paths', () => {
+  it('should include project name in header', () => {
     const msg = renderTelegramMessage(basePayload);
-    expect(msg).toContain('Top findings');
-    expect(msg).toContain('scanner'); // file path from topFindings
+    expect(msg).toContain('test\\-project');
   });
 
   it('should append report URL when provided', () => {

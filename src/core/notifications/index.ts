@@ -13,6 +13,7 @@ import { TelegramNotifier } from './telegram.js';
  * Built from {@link ReportData} + {@link RunStats} in the pipeline.
  */
 export interface NotificationPayload {
+  projectName: string;
   verdict: Verdict;
   totalFiles: number;
   evaluated: number;
@@ -24,7 +25,6 @@ export interface NotificationPayload {
   costUsd: number;
   totalTokens: number;
   axisScorecard: Record<string, { high: number; medium: number; low: number; healthPct: number; label: string }>;
-  topFindings: Array<{ file: string; axis: string; severity: string; detail: string }>;
   reportUrl?: string;
 }
 

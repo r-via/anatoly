@@ -92,7 +92,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   const lines: string[] = [
     intro,
     ``,
-    `${verdictEmoji(payload.verdict)} *Verdict: ${e(payload.verdict)}*`,
+    `${verdictEmoji(payload.verdict)} *Verdict: ${e(payload.verdict)}* — ${e(payload.projectName)}`,
     ``,
     `${e(String(payload.evaluated))} files reviewed${payload.cached > 0 ? ` · ${e(String(payload.cached))} cached` : ''} · ${e(formatTokens(payload.totalTokens))} tokens · ${e(String(durationMin))} min`,
     `🔴 ${e(String(totalHigh))} *H*igh · 🟡 ${e(String(totalMed))} *M*ed · ⚪ ${e(String(totalLow))} *L*ow`,
@@ -118,42 +118,12 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   }
 
   // ── Footer ──
-  const footer = payload.reportUrl
-    ? `📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`
-    : `_Full report in \\.anatoly/runs/latest/report\\.md_`;
-
-  // ── Top findings (budget-aware to fit in 1024 caption) ──
-  // Telegram counts caption limit in UTF-8 bytes, not JS string length
-  const CAPTION_LIMIT = 1024;
-  const byteLen = (s: string) => Buffer.byteLength(s, 'utf8');
-  const footerLen = byteLen(footer) + 2;
-  const bodyLen = byteLen(lines.join('\n'));
-
-  if (payload.topFindings.length > 0) {
-    const headerLine = `*Top findings:*`;
-    let budget = CAPTION_LIMIT - bodyLen - footerLen - byteLen(headerLine) - 4; // margins
-    const findingLines: string[] = [];
-
-    for (const f of payload.topFindings) {
-      const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
-      const emoji = AXIS_EMOJI[f.axis] ?? '•';
-      // Inside backtick code spans, MarkdownV2 does not process escapes — use raw filename
-      const line = `${sev} ${emoji} \`${f.file}\``;
-      const lineBytes = byteLen(line);
-      if (budget - lineBytes - 1 < 0) break;
-      findingLines.push(line);
-      budget -= lineBytes + 1;
-    }
-
-    if (findingLines.length > 0) {
-      lines.push(``);
-      lines.push(headerLine);
-      lines.push(...findingLines);
-    }
-  }
-
   lines.push(``);
-  lines.push(footer);
+  if (payload.reportUrl) {
+    lines.push(`📄 [Full report](${payload.reportUrl.replace(/[)\\]/g, '\\$&')})`);
+  } else {
+    lines.push(`_Full report in \\.anatoly/runs/latest/report\\.md_`);
+  }
 
   let message = lines.join('\n');
 

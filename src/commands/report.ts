@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, relative, dirname, join } from 'node:path';
+import { resolve, relative, dirname, join, basename } from 'node:path';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -134,22 +134,8 @@ export function registerReportCommand(program: Command): void {
           }),
         );
 
-        // Top findings: pick top 2 HIGH/MEDIUM per axis
-        const byAxis = new Map<string, typeof reportData.actions>();
-        for (const a of reportData.actions) {
-          const axis = a.source ?? 'unknown';
-          const list = byAxis.get(axis) ?? [];
-          list.push(a);
-          byAxis.set(axis, list);
-        }
-        const picked: typeof reportData.actions = [];
-        for (const [, actions] of byAxis) {
-          const highFirst = actions.filter(a => a.severity === 'high' || a.severity === 'medium');
-          picked.push(...highFirst.slice(0, 2));
-        }
-        picked.sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
-
         const payload: NotificationPayload = {
+          projectName: config.project.name ?? basename(projectRoot),
           verdict: reportData.globalVerdict,
           totalFiles: reportData.totalFiles,
           evaluated: runStats?.evaluated ?? reportData.totalFiles,
@@ -161,19 +147,15 @@ export function registerReportCommand(program: Command): void {
           costUsd: runStats?.costUsd ?? 0,
           totalTokens: runStats ? Object.values(runStats.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0) : 0,
           axisScorecard,
-          topFindings: picked.slice(0, 14).map(a => ({
-            file: a.file,
-            axis: a.source ?? 'unknown',
-            severity: (a.severity ?? 'medium').toLowerCase(),
-            detail: a.description,
-          })),
           reportUrl: config.notifications?.telegram?.report_url ?? undefined,
         };
 
         if (cmdOpts.debug) {
           console.log(chalk.bold('\n── Notification payload ──\n'));
+          console.log(chalk.dim('project:    ') + payload.projectName);
           console.log(chalk.dim('verdict:    ') + payload.verdict);
-          console.log(chalk.dim('files:      ') + `${payload.totalFiles} total, ${payload.cleanFiles} clean, ${payload.findingFiles} findings, ${payload.errorFiles} errors`);
+          console.log(chalk.dim('files:      ') + `${payload.evaluated} evaluated, ${payload.cached} cached, ${payload.totalFiles} total`);
+          console.log(chalk.dim('tokens:     ') + payload.totalTokens);
           console.log(chalk.dim('duration:   ') + `${Math.round(payload.durationMs / 60_000)} min`);
           console.log(chalk.dim('cost:       ') + `$${payload.costUsd.toFixed(2)}`);
           console.log(chalk.dim('reportUrl:  ') + (payload.reportUrl ?? '(none)'));
@@ -182,12 +164,6 @@ export function registerReportCommand(program: Command): void {
           for (const [axis, c] of Object.entries(payload.axisScorecard)) {
             const parts = [c.high && `${c.high}H`, c.medium && `${c.medium}M`, c.low && `${c.low}L`].filter(Boolean).join(' ');
             console.log(`  ${axis.padEnd(16)} ${String(c.healthPct).padStart(3)}% ${c.label.padEnd(14)} ${parts || '—'}`);
-          }
-          console.log('');
-          console.log(chalk.bold(`Top findings (${payload.topFindings.length}):`));
-          for (const f of payload.topFindings) {
-            const sev = f.severity === 'high' ? chalk.red('HIGH') : chalk.yellow('MED');
-            console.log(`  ${sev}  ${f.axis.padEnd(16)} ${f.file}`);
           }
           console.log('');
         }

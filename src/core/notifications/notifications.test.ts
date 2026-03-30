@@ -9,6 +9,7 @@ import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
 
 const basePayload: NotificationPayload = {
+  projectName: 'test-project',
   verdict: 'CLEAN',
   totalFiles: 10,
   evaluated: 10,
@@ -20,7 +21,6 @@ const basePayload: NotificationPayload = {
   costUsd: 0.5,
   totalTokens: 50_000,
   axisScorecard: {},
-  topFindings: [],
 };
 
 describe('sendNotifications', () => {
