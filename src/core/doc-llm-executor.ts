@@ -39,7 +39,7 @@ export interface ExecuteDocPromptsParams {
   outputDir: string;
   projectRoot: string;
   docsPath?: string;
-  semaphore: Semaphore;
+  semaphore?: Semaphore;
   executor: DocExecutor;
   /** Directory for conversation dumps (scaffolding transcripts). */
   logDir?: string;
@@ -111,14 +111,14 @@ async function executeOnePage(
   outputDir: string,
   projectRoot: string,
   docsPath: string,
-  semaphore: Semaphore,
+  semaphore: Semaphore | undefined,
   executor: DocExecutor,
   logDir?: string,
   onPageStart?: (pagePath: string) => void,
   onPageComplete?: (pagePath: string) => void,
   onPageError?: (pagePath: string, error: Error) => void,
 ): Promise<{ costUsd: number }> {
-  await semaphore.acquire();
+  if (semaphore) await semaphore.acquire();
   const start = Date.now();
   try {
     onPageStart?.(prompt.pagePath);
@@ -182,7 +182,7 @@ async function executeOnePage(
     onPageError?.(prompt.pagePath, error);
     throw error;
   } finally {
-    semaphore.release();
+    if (semaphore) semaphore.release();
   }
 }
 

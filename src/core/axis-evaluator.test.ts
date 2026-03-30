@@ -3,13 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, resolveSemaphore, composeAxisSystemPrompt } from './axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, composeAxisSystemPrompt } from './axis-evaluator.js';
 import type { AxisTiming } from './file-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigSchema } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
-import { Semaphore } from './sdk-semaphore.js';
 import { buildBestPracticesUserMessage } from './axes/best-practices.js';
 import { buildDocumentationUserMessage } from './axes/documentation.js';
 import { buildCorrectionUserMessage } from './axes/correction.js';
@@ -322,45 +321,6 @@ describe('All 7 axes: language/framework injection', () => {
       });
     });
   }
-});
-
-// ---------------------------------------------------------------------------
-// Story 2.2: resolveSemaphore — dual semaphore routing
-// ---------------------------------------------------------------------------
-
-describe('resolveSemaphore', () => {
-  it('returns Claude semaphore for Claude models', () => {
-    const claude = new Semaphore(24);
-    const gemini = new Semaphore(12);
-    expect(resolveSemaphore('claude-sonnet-4-6', claude, gemini)).toBe(claude);
-  });
-
-  it('returns Gemini semaphore for gemini- prefixed models', () => {
-    const claude = new Semaphore(24);
-    const gemini = new Semaphore(12);
-    expect(resolveSemaphore('gemini-2.5-flash', claude, gemini)).toBe(gemini);
-  });
-
-  it('returns Claude semaphore when Gemini semaphore is undefined', () => {
-    const claude = new Semaphore(24);
-    expect(resolveSemaphore('gemini-2.5-flash', claude, undefined)).toBe(claude);
-  });
-
-  it('returns undefined when both are undefined', () => {
-    expect(resolveSemaphore('claude-sonnet-4-6', undefined, undefined)).toBeUndefined();
-  });
-
-  it('returns Claude semaphore for haiku models', () => {
-    const claude = new Semaphore(24);
-    const gemini = new Semaphore(12);
-    expect(resolveSemaphore('claude-haiku-4-5-20251001', claude, gemini)).toBe(claude);
-  });
-
-  it('returns Gemini semaphore for gemini-2.5-flash', () => {
-    const claude = new Semaphore(24);
-    const gemini = new Semaphore(12);
-    expect(resolveSemaphore('gemini-2.5-flash', claude, gemini)).toBe(gemini);
-  });
 });
 
 // ---------------------------------------------------------------------------

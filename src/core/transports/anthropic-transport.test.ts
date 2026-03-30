@@ -5,7 +5,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { z } from 'zod';
 import type { LlmTransport, LlmResponse } from './index.js';
+import { TransportRouter } from './index.js';
 import { AnthropicTransport } from './anthropic-transport.js';
+
+/** Build a minimal mock router that returns the given transport from acquire(). */
+function mockRouter(transport: LlmTransport): TransportRouter {
+  return { acquire: async () => ({ transport, release: () => {} }) } as unknown as TransportRouter;
+}
 
 // ---------------------------------------------------------------------------
 // AC 37.2.1 — AnthropicTransport shape and contract
@@ -70,7 +76,7 @@ describe('runSingleTurnQuery transport integration', () => {
         model: 'test-model',
         projectRoot: '/tmp/test',
         abortController: new AbortController(),
-        transport: mockTransport,
+        router: mockRouter(mockTransport),
       },
       schema,
     );
@@ -123,7 +129,7 @@ describe('runSingleTurnQuery transport integration', () => {
         model: 'test-model',
         projectRoot: '/tmp/test',
         abortController: new AbortController(),
-        transport: mockTransport,
+        router: mockRouter(mockTransport),
       },
       schema,
     );
@@ -176,7 +182,7 @@ describe('runSingleTurnQuery transport integration', () => {
         model: 'test-model',
         projectRoot: '/tmp',
         abortController: new AbortController(),
-        transport: mockTransport,
+        router: mockRouter(mockTransport),
       },
       schema,
     );
@@ -216,7 +222,7 @@ describe('runSingleTurnQuery transport integration', () => {
           model: 'test-model',
           projectRoot: '/tmp',
           abortController: new AbortController(),
-          transport: mockTransport,
+          router: mockRouter(mockTransport),
         },
         schema,
       ),

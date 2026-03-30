@@ -952,7 +952,7 @@
   > AC: Given `src/core/circuit-breaker.ts` exporte `GeminiCircuitBreaker`, When il est renommé en `CircuitBreaker`, Then toutes les importations sont mises à jour, And les commentaires/JSDoc ne mentionnent plus "Gemini" spécifiquement, And les tests dans `circuit-breaker.test.ts` sont mis à jour
   > AC: Given `CircuitBreaker` est utilisé, When il est instancié par le `TransportRouter`, Then la logique closed/open/half-open est inchangée
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-3
-- [ ] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
+- [x] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
   > As a développeur du pipeline
   > I want que les interfaces ne contiennent plus de champs semaphore/breaker, So que la résilience soit entièrement encapsulée dans le router.
   > AC: Given `AxisContext` dans `axis-evaluator.ts`, When les champs `semaphore`, `geminiSemaphore`, `circuitBreaker` sont supprimés, Then seul `router: TransportRouter` reste comme point d'accès au transport

@@ -217,18 +217,18 @@ export class ScreenRenderer {
 
   private renderTasksHeader(): string {
     const title = '  Pipeline';
-    const sem = this.state.semaphore;
-    const gemSem = this.state.geminiSemaphore;
+    const router = this.state.router;
     const isUpsert = this.state.activeTaskId === 'rag-upsert';
-    if (sem && !isUpsert && this.state.phase !== 'summary') {
-      const running = sem.running;
-      const capacity = running + sem.available;
-      if (gemSem) {
-        const gRunning = gemSem.running;
-        const gCapacity = gRunning + gemSem.available;
-        return `${title} ${chalk.dim(`\u2014 Claude ${running}/${capacity} \u00b7 Gemini ${gRunning}/${gCapacity}`)}`;
+    if (router && !isUpsert && this.state.phase !== 'summary') {
+      const stats = router.getSemaphoreStats();
+      const anthropic = stats.get('anthropic');
+      const google = stats.get('google');
+      if (anthropic && google) {
+        return `${title} ${chalk.dim(`\u2014 Claude ${anthropic.active}/${anthropic.total} \u00b7 Gemini ${google.active}/${google.total}`)}`;
       }
-      return `${title} ${chalk.dim(`\u2014 ${running}/${capacity} agents active`)}`;
+      if (anthropic) {
+        return `${title} ${chalk.dim(`\u2014 ${anthropic.active}/${anthropic.total} agents active`)}`;
+      }
     }
     return title;
   }

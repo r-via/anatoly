@@ -35,9 +35,11 @@ describe('CLI program', () => {
         'init',
         'docs',
         'providers',
+        'notifications',
+        'audit',
       ]),
     );
-    expect(commandNames).toHaveLength(15);
+    expect(commandNames).toHaveLength(17);
   });
 
   it('should register all global options', () => {

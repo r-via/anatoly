@@ -30,8 +30,6 @@ import { printBanner } from '../utils/banner.js';
 import { loadConfig } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
-import { Semaphore } from '../core/sdk-semaphore.js';
-import { CircuitBreaker } from '../core/circuit-breaker.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -76,11 +74,6 @@ export interface PipelineContext {
   pkg: Record<string, unknown>;
   docsPath: string;
   profile: ProjectProfile;
-  semaphore: Semaphore;
-  /** Gemini-specific concurrency semaphore — created only when Gemini is enabled. */
-  geminiSemaphore?: Semaphore;
-  /** Circuit breaker for Gemini fallback — created only when Gemini is enabled. */
-  circuitBreaker?: CircuitBreaker;
   executor: DocExecutor;
   state: PipelineState;
   renderer: ScreenRenderer;
@@ -196,21 +189,14 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     providerModes,
   });
 
-  const semaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
-  const geminiSemaphore = googleEnabled
-    ? new Semaphore(config.providers.google!.concurrency)
-    : undefined;
-  const circuitBreaker = googleEnabled
-    ? new CircuitBreaker()
-    : undefined;
-  const executor = createExecutor(projectRoot, semaphore);
+  const executor = createExecutor(projectRoot);
 
   let totalCostUsd = 0;
   const startTime = Date.now();
 
   // Pipeline state + renderer
   const state = new PipelineState();
-  state.setSemaphore(semaphore);
+  state.setRouter(router);
   for (const task of tasks) {
     state.addTask(task.id, task.label);
   }
@@ -235,9 +221,6 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     pkg,
     docsPath,
     profile,
-    semaphore,
-    geminiSemaphore,
-    circuitBreaker,
     executor,
     state,
     renderer,
@@ -298,7 +281,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
  * @param _semaphore - Reserved for future use; concurrency is managed externally.
  * @returns An async executor function conforming to the {@link DocExecutor} contract.
  */
-function createExecutor(projectRoot: string, _semaphore: Semaphore): DocExecutor {
+function createExecutor(projectRoot: string): DocExecutor {
   // Note: semaphore is NOT acquired here — callers (executeDocPrompts, runDocUpdate)
   // handle their own concurrency control. Acquiring here would cause deadlocks.
   return async ({ system, user, model }) => {

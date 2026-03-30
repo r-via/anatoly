@@ -42,8 +42,6 @@ import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
 import { countReviewFindings } from '../utils/format.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
-import { Semaphore } from '../core/sdk-semaphore.js';
-import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { injectBadge } from '../core/badge.js';
@@ -151,12 +149,6 @@ interface RunContext {
   dryRun: boolean;
   /** Badge config for post-report injection */
   badge: { enabled: boolean; verdict: boolean; link?: string };
-  /** Global SDK concurrency semaphore — shared across RAG indexing and review phases */
-  sdkSemaphore: Semaphore;
-  /** Gemini-specific semaphore — created only when Gemini is enabled */
-  geminiSemaphore?: Semaphore;
-  /** Circuit breaker for Gemini fallback — created only when Gemini is enabled */
-  circuitBreaker?: CircuitBreaker;
   /** Pipeline display state — created after setup, shared across rag/review/report */
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
@@ -361,13 +353,6 @@ export function registerRunCommand(program: Command): void {
           verdict: (parentOpts.badgeVerdict as boolean | undefined) ?? config.badge.verdict,
           link: config.badge.link,
         },
-        sdkSemaphore: new Semaphore(config.providers.anthropic?.concurrency ?? 24),
-        geminiSemaphore: googleEnabled
-          ? new Semaphore(config.providers.google!.concurrency)
-          : undefined,
-        circuitBreaker: googleEnabled
-          ? new CircuitBreaker()
-          : undefined,
         isFirstRun: false,
         docsIdentical: false,
         router: _router,
@@ -447,9 +432,8 @@ export function registerRunCommand(program: Command): void {
 
         // Initialize pipeline display
         const pipelineState = new PipelineState();
-        pipelineState.setSemaphore(ctx.sdkSemaphore);
-        if (ctx.geminiSemaphore) {
-          pipelineState.setGeminiSemaphore(ctx.geminiSemaphore);
+        if (ctx.router) {
+          pipelineState.setRouter(ctx.router);
         }
         if (ctx.isFirstRun) {
           pipelineState.addTask('bootstrap-doc', 'First run');
@@ -521,7 +505,8 @@ export function registerRunCommand(program: Command): void {
               queryFn: async (params) => {
                 const start = Date.now();
                 const shardId = `tier3-shard-${Date.now()}`;
-                await ctx.sdkSemaphore.acquire();
+                const _sem = ctx.router?.semaphores.get('anthropic');
+                if (_sem) await _sem.acquire();
                 try {
                   const q = query({
                     prompt: params.userMessage,
@@ -616,7 +601,7 @@ export function registerRunCommand(program: Command): void {
                     transcript: resultText,
                   };
                 } finally {
-                  ctx.sdkSemaphore.release();
+                  _sem?.release();
                 }
               },
               recordFn: (pr, entry) => recordReclassification(pr, entry),
@@ -1117,7 +1102,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       prompts: genResult.prompts,
       outputDir,
       projectRoot: ctx.projectRoot,
-      semaphore: ctx.sdkSemaphore,
+      semaphore: ctx.router?.semaphores.get('anthropic'),
       executor,
       logDir: join(ctx.runDir, 'conversations'),
       onPageComplete: (pagePath) => {
@@ -1176,7 +1161,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           docsPath,
           abortController: ac,
           logDir: coherenceLogDir,
-          semaphore: ctx.sdkSemaphore,
+          semaphore: ctx.router?.semaphores.get('anthropic'),
           callbacks: {
             onToolUse: (_tool, filePath) => {
               const name = filePath.split('/').pop() ?? filePath;
@@ -1418,7 +1403,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
         onLog,
         isInterrupted: () => ctx.interrupted,
         conversationDir: join(ctx.runDir, 'conversations'),
-        semaphore: ctx.sdkSemaphore,
+        router: ctx.router,
         docSource: 'internal',
       });
       onLog(`doc re-index (internal): ${intResult.sections} sections, $${intResult.costUsd.toFixed(4)}`);
@@ -1434,7 +1419,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
         onLog,
         isInterrupted: () => ctx.interrupted,
         conversationDir: join(ctx.runDir, 'conversations'),
-        semaphore: ctx.sdkSemaphore,
+        router: ctx.router,
         docSource: 'project',
       });
       onLog(`doc re-index (project): ${projResult.sections} sections, $${projResult.costUsd.toFixed(4)}`);
@@ -1573,8 +1558,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       onFileDone: (file) => { state.untrackFile(file); },
       isInterrupted: () => ctx.interrupted,
       conversationDir: join(ctx.runDir, 'conversations'),
-      semaphore: ctx.sdkSemaphore,
-      geminiSemaphore: ctx.geminiSemaphore,
       router: ctx.router,
       fileFilter: ctx.fileFilter ?? undefined,
     });
@@ -1781,9 +1764,6 @@ async function runReviewPhase(
               deliberation: ctx.deliberation,
               codeWeight: ctx.config.rag.code_weight,
               conversationDir: join(ctx.runDir, 'conversations'),
-              semaphore: ctx.sdkSemaphore,
-              geminiSemaphore: ctx.geminiSemaphore,
-              circuitBreaker: ctx.circuitBreaker,
               router: ctx.router,
               userInstructions: ctx.userInstructions,
               onAxisComplete: () => {

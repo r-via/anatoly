@@ -11,7 +11,7 @@ import { embedNlpBatch } from './embeddings.js';
 import { extractJson } from '../utils/extract-json.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
-import type { Semaphore } from '../core/sdk-semaphore.js';
+import type { TransportRouter } from '../core/transports/index.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import type { VectorStore } from './vector-store.js';
 
@@ -279,7 +279,7 @@ async function chunkDocWithHaiku(
   projectRoot: string,
   abortController?: AbortController,
   conversationDir?: string,
-  semaphore?: Semaphore,
+  router?: TransportRouter,
 ): Promise<{ sections: DocSection[]; costUsd: number }> {
   const log = contextLogger();
   const ac = abortController ?? new AbortController();
@@ -308,7 +308,7 @@ async function chunkDocWithHaiku(
           abortController: ac,
           conversationDir,
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
-          semaphore,
+          router,
         },
         BatchChunkResponseSchema,
       ));
@@ -364,7 +364,7 @@ async function chunkDocWithHaiku(
           abortController: ac,
           conversationDir,
           conversationPrefix: conversationDir ? `rag__doc-chunk__${docSlug}` : undefined,
-          semaphore,
+          router,
         },
         BatchChunkResponseSchema,
       ));
@@ -713,8 +713,8 @@ export interface DocIndexOptions {
   isInterrupted?: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
-  /** Global SDK concurrency semaphore. */
-  semaphore?: Semaphore;
+  /** Mode-aware transport router for concurrency and transport selection. */
+  router?: TransportRouter;
   /** Max parallel file processing (default 4, should match code indexing concurrency). */
   concurrency?: number;
   /** Doc source discriminator for the vector store. */
@@ -738,7 +738,7 @@ export interface DocIndexResult {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, semaphore, concurrency = 4, docSource = 'project' } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, router, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   const sourceLabel = docSource === 'internal' ? 'internal' : 'project';

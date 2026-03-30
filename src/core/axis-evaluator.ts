@@ -15,8 +15,6 @@ import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { contextLogger } from '../utils/log-context.js';
-import type { Semaphore } from './sdk-semaphore.js';
-import type { CircuitBreaker } from './circuit-breaker.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import type { TransportRouter } from './transports/index.js';
 import { extractProvider } from './transports/index.js';
@@ -96,13 +94,7 @@ export interface AxisContext {
   conversationDir?: string;
   /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */
   conversationFileSlug?: string;
-  /** Global SDK concurrency semaphore — when set, passed to runSingleTurnQuery */
-  semaphore?: Semaphore;
-  /** Gemini-specific SDK concurrency semaphore — used when model starts with `gemini-` */
-  geminiSemaphore?: Semaphore;
-  /** Circuit breaker — when tripped, calls to the affected provider fail fast */
-  circuitBreaker?: CircuitBreaker;
-  /** Mode-aware transport router — when set, passed to runSingleTurnQuery */
+  /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection */
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — loaded once per run, passed to each evaluator */
   userInstructions?: UserInstructions;
@@ -272,29 +264,6 @@ export function resolveAgentModel(phase: 'scaffolding' | 'review', config: Confi
 }
 
 // ---------------------------------------------------------------------------
-// Dual semaphore routing (Story 2.2)
-// ---------------------------------------------------------------------------
-
-/**
- * Select the correct concurrency semaphore based on model prefix.
- * Gemini models (prefixed `gemini-`) use the Gemini semaphore when available;
- * all other models use the Claude semaphore.
- */
-export function resolveSemaphore(
-  model: string,
-  claudeSemaphore: Semaphore | undefined,
-  geminiSemaphore: Semaphore | undefined,
-): Semaphore | undefined {
-  if (extractProvider(model) === 'google') {
-    if (geminiSemaphore) return geminiSemaphore;
-    contextLogger().warn(
-      { event: 'gemini_semaphore_missing', model },
-      'Gemini model requested but no geminiSemaphore configured — falling back to Claude semaphore',
-    );
-  }
-  return claudeSemaphore;
-}
-
 // ---------------------------------------------------------------------------
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------
@@ -310,15 +279,7 @@ export interface SingleTurnQueryParams {
   conversationDir?: string;
   /** Prefix for conversation file naming (e.g. "src-cli__documentation") */
   conversationPrefix?: string;
-  /** Global SDK concurrency semaphore — when set, acquire/release around SDK calls */
-  semaphore?: Semaphore;
-  /** Gemini-specific semaphore — used instead of `semaphore` when model starts with `gemini-` */
-  geminiSemaphore?: Semaphore;
-  /** Circuit breaker — when tripped, calls fail fast instead of silently falling back */
-  circuitBreaker?: CircuitBreaker;
-  /** LLM transport override — defaults to AnthropicTransport when not provided */
-  transport?: LlmTransport;
-  /** Mode-aware transport router — when set, used for automatic transport selection */
+  /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection */
   router?: TransportRouter;
   /** User calibration text from ANATOLY.md (pre-resolved for this axis via forAxis()) */
   userInstructions?: string;
@@ -345,45 +306,26 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, semaphore, geminiSemaphore, circuitBreaker, transport, router, userInstructions } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, router, userInstructions } = params;
 
-  // Circuit breaker: abort early when provider is down (no silent fallback)
-  const isGemini = extractProvider(model) === 'google';
-  if (isGemini && circuitBreaker?.shouldFallback()) {
-    throw new Error(`Provider "google" circuit breaker is open — too many consecutive failures. Wait for recovery or fix your provider configuration.`);
+  // Acquire concurrency slot + transport from router (handles breaker + semaphore)
+  let release: ((opts?: { success: boolean }) => void) | undefined;
+  let effectiveTransport: LlmTransport;
+  if (router) {
+    const acquired = await router.acquire(model, 'single_turn');
+    effectiveTransport = acquired.transport;
+    release = acquired.release;
+  } else {
+    effectiveTransport = new AnthropicTransport();
   }
 
-  // Resolve transport: explicit injection > router > fallback AnthropicTransport
-  const effectiveTransport = transport
-    ?? (router ? router.resolve(model, 'single_turn') : new AnthropicTransport());
-
-  const activeSemaphore = resolveSemaphore(model, semaphore, geminiSemaphore);
-  if (activeSemaphore) {
-    await activeSemaphore.acquire();
-  }
+  let success = false;
   try {
     const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
-
-    if (isGemini && circuitBreaker) {
-      circuitBreaker.recordSuccess();
-    }
-
+    success = true;
     return result;
-  } catch (err) {
-    if (isGemini && circuitBreaker) {
-      circuitBreaker.recordFailure();
-      if (circuitBreaker.consumeWarning()) {
-        contextLogger().warn(
-          { event: 'circuit_breaker_tripped', provider: 'google' },
-          '\u26A0 Google provider circuit breaker tripped — calls will fail until recovery',
-        );
-      }
-    }
-    throw err;
   } finally {
-    if (activeSemaphore) {
-      activeSemaphore.release();
-    }
+    release?.({ success });
   }
 }
 

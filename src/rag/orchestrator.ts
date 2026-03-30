@@ -17,7 +17,6 @@ import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections, areDocTreesIdentical } from './doc-indexer.js';
-import type { Semaphore } from '../core/sdk-semaphore.js';
 import type { TransportRouter } from '../core/transports/index.js';
 
 /**
@@ -65,11 +64,7 @@ export interface RagIndexOptions {
   isInterrupted: () => boolean;
   /** Full path to conversations/ dir for LLM conversation dumps. */
   conversationDir?: string;
-  /** Global SDK concurrency semaphore (Claude). */
-  semaphore?: Semaphore;
-  /** Gemini-specific concurrency semaphore (used when indexModel is a Gemini model). */
-  geminiSemaphore?: Semaphore;
-  /** Mode-aware transport router for provider selection (Gemini, Anthropic, Vercel SDK). */
+  /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection. */
   router?: TransportRouter;
   /** When set, scopes --rebuild-rag to only purge entries matching this glob (instead of dropping the entire table). */
   fileFilter?: string;
@@ -192,8 +187,6 @@ export async function processFileForDualIndex(
   nlpSummaryCache?: NlpSummaryCache,
   deferNlpEmbeddings?: boolean,
   conversationDir?: string,
-  semaphore?: Semaphore,
-  geminiSemaphore?: Semaphore,
   router?: TransportRouter,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
@@ -217,7 +210,7 @@ export async function processFileForDualIndex(
   // Non-deferred path: summarize + embed in one shot
   const { mergedSummaries, nlpCacheUpdates, costUsd: nlpCostUsd } = await summarizeFile(
     built.toIndex, functionBodies, task.file, indexModel, projectRoot,
-    nlpSummaryCache, conversationDir, semaphore, geminiSemaphore, router,
+    nlpSummaryCache, conversationDir, router,
   );
 
   const { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
@@ -246,8 +239,6 @@ async function summarizeFile(
   projectRoot: string,
   nlpSummaryCache?: NlpSummaryCache,
   conversationDir?: string,
-  semaphore?: Semaphore,
-  geminiSemaphore?: Semaphore,
   router?: TransportRouter,
 ): Promise<{
   mergedSummaries: Map<string, import('./nlp-summarizer.js').NlpSummary>;
@@ -278,7 +269,7 @@ async function summarizeFile(
   if (uncachedCards.length > 0) {
     const nlpResult = await generateNlpSummaries(
       uncachedCards, uncachedBodies, filePath, indexModel, projectRoot,
-      conversationDir, semaphore, geminiSemaphore, router,
+      conversationDir, router,
     );
     costUsd = nlpResult.costUsd;
 
@@ -318,8 +309,9 @@ export function ragModeArtifacts(mode: RagMode): { tableName: string; cacheSuffi
 export async function indexProject(options: RagIndexOptions): Promise<RagIndexResult> {
   const { projectRoot, tasks, rebuild, concurrency = 4, onLog, onProgress, onFileStart, onFileDone, onPhase, isInterrupted } = options;
   // Doc chunking is now 1 LLM call per file (batched), so we can process more
-  // files in parallel — let the semaphore be the sole concurrency limiter.
-  const docConcurrency = options.semaphore?.capacity ?? concurrency;
+  // files in parallel — let the router semaphore be the sole concurrency limiter.
+  const anthropicSem = options.router?.semaphores.get('anthropic');
+  const docConcurrency = anthropicSem?.capacity ?? concurrency;
   const effectiveMode = options.ragMode ?? 'lite';
   const { tableName, cacheSuffix } = ragModeArtifacts(effectiveMode);
 
@@ -439,7 +431,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onFileStart?.(task.file);
 
       try {
-        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.semaphore, options.geminiSemaphore, options.router);
+        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.router);
 
         if (result.cards.length > 0) {
           results.push(result);
@@ -477,7 +469,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
         const { mergedSummaries, nlpCacheUpdates, costUsd } = await summarizeFile(
           result.cards, result.functionBodies, result.task.file, options.indexModel,
-          projectRoot, nlpSummaryCache, options.conversationDir, options.semaphore, options.geminiSemaphore, options.router,
+          projectRoot, nlpSummaryCache, options.conversationDir, options.router,
         );
         const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(result.cards, mergedSummaries);
         result.cards = enrichedCards;
@@ -583,7 +575,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileDone,
         isInterrupted,
         conversationDir: options.conversationDir,
-        semaphore: options.semaphore,
+        router: options.router,
         concurrency: docConcurrency,
         docSource: 'internal',
       });
@@ -617,7 +609,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileDone,
         isInterrupted,
         conversationDir: options.conversationDir,
-        semaphore: options.semaphore,
+        router: options.router,
         concurrency: docConcurrency,
         docSource: 'project',
       });
@@ -644,7 +636,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         onFileDone,
         isInterrupted,
         conversationDir: options.conversationDir,
-        semaphore: options.semaphore,
+        router: options.router,
         concurrency: docConcurrency,
         docSource: 'internal',
       });

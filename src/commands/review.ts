@@ -18,8 +18,6 @@ import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { countReviewFindings } from '../utils/format.js';
-import { Semaphore } from '../core/sdk-semaphore.js';
-import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
@@ -116,13 +114,6 @@ export function registerReviewCommand(program: Command): void {
           warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
         }
         const depMeta = loadDependencyMeta(projectRoot);
-        const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
-        const geminiSemaphore = config.providers.google
-          ? new Semaphore(config.providers.google.concurrency)
-          : undefined;
-        const circuitBreaker = config.providers.google
-          ? new CircuitBreaker()
-          : undefined;
         // Build mode-aware transport router
         const _provModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
         for (const [id, prov] of Object.entries(config.providers)) {
@@ -147,7 +138,7 @@ export function registerReviewCommand(program: Command): void {
 
         // Pipeline display
         const state = new PipelineState();
-        state.setSemaphore(sdkSemaphore);
+        state.setRouter(reviewRouter);
         state.addTask('review', 'Reviewing files');
         state.setPhase('review');
         state.startTask('review', `0/${total}`);
@@ -190,9 +181,6 @@ export function registerReviewCommand(program: Command): void {
                 conversationDir,
                 depMeta,
                 deliberation: config.agents.enabled,
-                semaphore: sdkSemaphore,
-                geminiSemaphore,
-                circuitBreaker,
                 router: reviewRouter,
                 userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
                 onAxisComplete: () => {

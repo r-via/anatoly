@@ -17,8 +17,6 @@ import { generateReport } from '../core/reporter.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
-import { Semaphore } from '../core/sdk-semaphore.js';
-import { CircuitBreaker } from '../core/circuit-breaker.js';
 import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
@@ -74,13 +72,6 @@ export function registerWatchCommand(program: Command): void {
 
       // Warn once at startup if any requested axes are config-disabled
       const evaluators = getEnabledEvaluators(config, axesFilter ?? undefined);
-      const sdkSemaphore = new Semaphore(config.providers.anthropic?.concurrency ?? 24);
-      const geminiSemaphore = config.providers.google
-        ? new Semaphore(config.providers.google.concurrency)
-        : undefined;
-      const circuitBreaker = config.providers.google
-        ? new CircuitBreaker()
-        : undefined;
       // Build mode-aware transport router
       const _watchProvModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
       for (const [id, prov] of Object.entries(config.providers)) {
@@ -204,9 +195,6 @@ export function registerWatchCommand(program: Command): void {
             abortController: new AbortController(),
             runDir,
             conversationDir,
-            semaphore: sdkSemaphore,
-            geminiSemaphore,
-            circuitBreaker,
             router: watchRouter,
             userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
           });

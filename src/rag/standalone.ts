@@ -16,7 +16,6 @@ import { startGgufContainers, stopGgufContainers } from './docker-gguf.js';
 import { stopTeiContainers } from './docker-tei.js';
 import { indexProject, type RagIndexResult } from './orchestrator.js';
 import type { Task } from '../schemas/task.js';
-import type { Semaphore } from '../core/sdk-semaphore.js';
 
 export interface StandaloneRagOptions {
   projectRoot: string;
@@ -30,8 +29,7 @@ export interface StandaloneRagOptions {
   onFileDone?: (file: string) => void;
   isInterrupted?: () => boolean;
   conversationDir?: string;
-  semaphore?: Semaphore;
-  geminiSemaphore?: Semaphore;
+  router?: import('../core/transports/index.js').TransportRouter;
 }
 
 /**
@@ -73,7 +71,6 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
     onFileDone,
     isInterrupted = () => false,
     conversationDir,
-    semaphore,
   } = opts;
 
   const config = loadConfig(projectRoot);
@@ -126,8 +123,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       onFileDone,
       isInterrupted,
       conversationDir,
-      semaphore,
-      geminiSemaphore: opts.geminiSemaphore,
+      router: opts.router,
     });
   } finally {
     await stopGgufContainers(onLog);

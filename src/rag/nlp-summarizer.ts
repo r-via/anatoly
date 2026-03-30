@@ -6,7 +6,6 @@ import { z } from 'zod';
 import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
-import type { Semaphore } from '../core/sdk-semaphore.js';
 import type { TransportRouter } from '../core/transports/index.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
@@ -92,8 +91,6 @@ export async function generateNlpSummaries(
   model: string,
   projectRoot: string,
   conversationDir?: string,
-  semaphore?: Semaphore,
-  geminiSemaphore?: Semaphore,
   router?: TransportRouter,
 ): Promise<{ summaries: Map<string, NlpSummary>; costUsd: number }> {
   const summaries = new Map<string, NlpSummary>();
@@ -114,8 +111,6 @@ export async function generateNlpSummaries(
         abortController: new AbortController(),
         conversationDir,
         conversationPrefix: conversationDir ? `rag__nlp-summary__${fileSlug}` : undefined,
-        semaphore,
-        geminiSemaphore,
         router,
       },
       NlpResponseSchema,

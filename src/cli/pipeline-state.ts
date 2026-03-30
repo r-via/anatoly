@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { Semaphore } from '../core/sdk-semaphore.js';
+import type { TransportRouter } from '../core/transports/index.js';
 
 export interface TaskState {
   id: string;
@@ -49,8 +49,7 @@ export class PipelineState {
   readonly tasks: TaskState[] = [];
   readonly activeFiles = new Map<string, FileState>();
   phase: PipelinePhase = 'rag';
-  semaphore?: Semaphore;
-  geminiSemaphore?: Semaphore;
+  router?: TransportRouter;
   summary?: SummaryState;
   /** Optional override for the "In progress" section header. */
   inProgressLabel?: string;
@@ -140,12 +139,8 @@ export class PipelineState {
     }
   }
 
-  setSemaphore(sem: Semaphore): void {
-    this.semaphore = sem;
-  }
-
-  setGeminiSemaphore(sem: Semaphore): void {
-    this.geminiSemaphore = sem;
+  setRouter(router: TransportRouter): void {
+    this.router = router;
   }
 
   setPhase(phase: PipelinePhase): void {

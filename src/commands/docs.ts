@@ -115,7 +115,7 @@ async function runDocUpdate(
       outputDir,
       projectRoot: ctx.projectRoot,
       docsPath: ctx.docsPath,
-      semaphore: ctx.semaphore,
+      semaphore: ctx.router.semaphores.get('anthropic'),
       logDir: structLogDir,
       callbacks: {
         onToolUse: (_tool, filePath) => {
@@ -145,7 +145,7 @@ async function runDocUpdate(
         projectRoot: ctx.projectRoot,
         gapReportText: formatGapReportV2(gapReport),
         logDir: contentLogDir,
-        semaphore: ctx.semaphore,
+        semaphore: ctx.router.semaphores.get('anthropic'),
         callbacks: {
           onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
           onDone: () => {},
@@ -295,7 +295,7 @@ export function registerDocsCommand(program: Command): void {
               prompts: genResult.prompts,
               outputDir,
               projectRoot: ctx.projectRoot,
-              semaphore: ctx.semaphore,
+              semaphore: ctx.router.semaphores.get('anthropic'),
               executor: ctx.executor,
               logDir: scaffoldLogDir,
               onPageComplete: (pagePath) => {
@@ -338,7 +338,7 @@ export function registerDocsCommand(program: Command): void {
               outputDir,
               projectRoot: ctx.projectRoot,
               docsPath: ctx.docsPath,
-              semaphore: ctx.semaphore,
+              semaphore: ctx.router.semaphores.get('anthropic'),
               logDir: coherenceLogDir,
               callbacks: {
                 onToolUse: (_tool, filePath) => {
@@ -373,7 +373,7 @@ export function registerDocsCommand(program: Command): void {
               projectRoot: ctx.projectRoot,
               tasks,
               docsDir: ctx.docsPath,
-              semaphore: ctx.semaphore,
+              router: ctx.router,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
                 if (ragPhase === 'nlp') nlpProcessed = current;
@@ -704,7 +704,7 @@ export function registerDocsCommand(program: Command): void {
               tasks,
               rebuild: opts.rebuild,
               docsDir: ctx.docsPath,
-              semaphore: ctx.semaphore,
+              router: ctx.router,
               onLog: (msg) => ctx.renderer.logPlain(`[rag] ${msg}`),
               onProgress: (current, total) => {
                 if (ragPhase === 'nlp') idxNlpProcessed = current;
