@@ -36,6 +36,9 @@ export interface LlmResponse {
   sessionId: string;
 }
 
+import { Semaphore } from '../sdk-semaphore.js';
+import { GeminiCircuitBreaker, type CircuitState } from '../circuit-breaker.js';
+
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
  */
@@ -97,6 +100,8 @@ export interface ProviderModeConfig {
   mode: 'subscription' | 'api';
   single_turn?: 'subscription' | 'api';
   agents?: 'subscription' | 'api';
+  /** Max concurrent calls for this provider. Defaults to 10. */
+  concurrency?: number;
 }
 
 /** Task type for mode resolution. */
@@ -110,6 +115,8 @@ export interface TransportRouterConfig {
   vercelSdkTransport: LlmTransport;
   /** Provider mode configurations (from config.providers). */
   providerModes: Record<string, ProviderModeConfig>;
+  /** Explicit per-provider concurrency overrides. Takes precedence over providerModes[].concurrency. */
+  providerConcurrency?: Record<string, number>;
 }
 
 /**
@@ -121,15 +128,34 @@ export interface TransportRouterConfig {
  * - subscription → native transport (AnthropicTransport, GeminiTransport)
  * - api → VercelSdkTransport
  */
+/** Default concurrency for providers without an explicit concurrency setting. */
+const DEFAULT_PROVIDER_CONCURRENCY = 10;
+
 export class TransportRouter {
   private readonly nativeTransports: Record<string, LlmTransport>;
   private readonly vercelSdkTransport: LlmTransport;
   private readonly providerModes: Record<string, ProviderModeConfig>;
 
+  /** Per-provider concurrency semaphores. */
+  readonly semaphores: Map<string, Semaphore>;
+  /** Per-provider circuit breakers. */
+  readonly breakers: Map<string, GeminiCircuitBreaker>;
+
   constructor(config: TransportRouterConfig) {
     this.nativeTransports = config.nativeTransports;
     this.vercelSdkTransport = config.vercelSdkTransport;
     this.providerModes = config.providerModes;
+
+    // Create per-provider semaphores and breakers
+    this.semaphores = new Map();
+    this.breakers = new Map();
+    for (const [providerId, providerConfig] of Object.entries(config.providerModes)) {
+      const concurrency = config.providerConcurrency?.[providerId]
+        ?? providerConfig.concurrency
+        ?? DEFAULT_PROVIDER_CONCURRENCY;
+      this.semaphores.set(providerId, new Semaphore(concurrency));
+      this.breakers.set(providerId, new GeminiCircuitBreaker());
+    }
   }
 
   /**
@@ -160,5 +186,68 @@ export class TransportRouter {
 
     // api or fallback → vercel-sdk
     return this.vercelSdkTransport;
+  }
+
+  /**
+   * Acquire a concurrency slot for the given model's provider.
+   * Checks the circuit breaker first; if open, throws immediately.
+   *
+   * @returns An object with a `release` function. Call `release({ success })` in
+   *   a finally block to free the slot and record breaker outcome.
+   */
+  async acquireSlot(model: string): Promise<{ release: (opts?: { success: boolean }) => void }> {
+    const providerId = extractProvider(model);
+    const breaker = this.breakers.get(providerId);
+
+    if (breaker?.shouldFallback()) {
+      throw new Error(`Provider '${providerId}' circuit breaker is open`);
+    }
+
+    const sem = this.semaphores.get(providerId);
+    if (sem) await sem.acquire();
+
+    let released = false;
+    return {
+      release: (opts?: { success: boolean }) => {
+        if (released) return;
+        released = true;
+        if (sem) sem.release();
+        if (breaker) {
+          if (opts?.success === false) {
+            breaker.recordFailure();
+          } else {
+            breaker.recordSuccess();
+          }
+        }
+      },
+    };
+  }
+
+  /**
+   * Acquire a concurrency slot and resolve the transport for the given model.
+   * Checks the circuit breaker first; if open, throws immediately.
+   *
+   * @param model - Model identifier (prefixed or bare)
+   * @param task - Task type for mode resolution (default: 'single_turn')
+   * @returns An object with the resolved `transport` and a `release` function.
+   */
+  async acquire(model: string, task: TaskType = 'single_turn'): Promise<{ transport: LlmTransport; release: (opts?: { success: boolean }) => void }> {
+    const { release } = await this.acquireSlot(model);
+    const transport = this.resolve(model, task);
+    return { transport, release };
+  }
+
+  /** Get semaphore stats (active/total) for all providers. */
+  getSemaphoreStats(): Map<string, { active: number; total: number }> {
+    const stats = new Map<string, { active: number; total: number }>();
+    for (const [providerId, sem] of this.semaphores) {
+      stats.set(providerId, { active: sem.running, total: sem.capacity });
+    }
+    return stats;
+  }
+
+  /** Get the circuit breaker state for a provider. */
+  getBreakerState(providerId: string): CircuitState | undefined {
+    return this.breakers.get(providerId)?.state;
   }
 }
