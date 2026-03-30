@@ -204,6 +204,23 @@ export class UtilityEvaluator implements AxisEvaluator {
       userMessage += '\n' + memorySection;
     }
 
+    // Build a refined schema that checks the LLM returned all non-auto-resolved symbols
+    const autoResolvedNames = new Set(autoResults.map(a => a.name));
+    const requiredLlmNames = ctx.task.symbols
+      .map(s => s.name)
+      .filter(n => !autoResolvedNames.has(n));
+
+    const refinedSchema = UtilityResponseSchema.refine(
+      (data) => {
+        const returned = new Set(data.symbols.map(s => s.name));
+        return requiredLlmNames.every(n => returned.has(n));
+      },
+      () => {
+        // Computed lazily so the LLM sees exactly which symbols it missed
+        return { message: `Missing required symbols in response. You must include ALL of these symbols: ${requiredLlmNames.join(', ')}` };
+      },
+    );
+
     const { data, costUsd, durationMs, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, transcript } = await runSingleTurnQuery<UtilityResponse>(
       {
         systemPrompt,
@@ -216,7 +233,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('utility'),
       },
-      UtilityResponseSchema,
+      refinedSchema,
     );
 
     const llmSymbols: AxisSymbolResult[] = data.symbols.map((s) => ({
