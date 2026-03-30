@@ -364,6 +364,90 @@ describe('Legacy llm section removed (Story 42.4)', () => {
   });
 });
 
+describe('NotificationsConfigSchema — Story 45.1', () => {
+  it('should default notifications to undefined when absent from YAML', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.notifications).toBeUndefined();
+  });
+
+  it('should accept notifications.telegram with enabled and chat_id', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: { enabled: true, chat_id: '-1001234567890' },
+      },
+    });
+    expect(config.notifications!.telegram!.enabled).toBe(true);
+    expect(config.notifications!.telegram!.chat_id).toBe('-1001234567890');
+  });
+
+  it('should default bot_token_env to ANATOLY_TELEGRAM_BOT_TOKEN', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: { enabled: true, chat_id: '-100123' },
+      },
+    });
+    expect(config.notifications!.telegram!.bot_token_env).toBe('ANATOLY_TELEGRAM_BOT_TOKEN');
+  });
+
+  it('should reject telegram.enabled=true without chat_id', () => {
+    const result = ConfigSchema.safeParse({
+      notifications: {
+        telegram: { enabled: true },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject invalid report_url', () => {
+    const result = ConfigSchema.safeParse({
+      notifications: {
+        telegram: { enabled: true, chat_id: '-100123', report_url: 'not-a-url' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept a valid report_url', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: {
+          enabled: true,
+          chat_id: '-100123',
+          report_url: 'https://example.com/report',
+        },
+      },
+    });
+    expect(config.notifications!.telegram!.report_url).toBe('https://example.com/report');
+  });
+
+  it('should default report_url to undefined when absent', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: { enabled: true, chat_id: '-100123' },
+      },
+    });
+    expect(config.notifications!.telegram!.report_url).toBeUndefined();
+  });
+
+  it('should accept custom bot_token_env', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: { enabled: true, chat_id: '-100123', bot_token_env: 'MY_BOT_TOKEN' },
+      },
+    });
+    expect(config.notifications!.telegram!.bot_token_env).toBe('MY_BOT_TOKEN');
+  });
+
+  it('should accept telegram.enabled=false without chat_id', () => {
+    const config = ConfigSchema.parse({
+      notifications: {
+        telegram: { enabled: false },
+      },
+    });
+    expect(config.notifications!.telegram!.enabled).toBe(false);
+  });
+});
+
 describe('Exported schemas', () => {
   it('should export all v1.0 + v2.0 schema names', async () => {
     const mod = await import('./config.js');
@@ -376,5 +460,7 @@ describe('Exported schemas', () => {
     expect(mod.RuntimeConfigSchema).toBeDefined();
     expect(mod.AxisConfigSchema).toBeDefined();
     expect(mod.ConfigSchema).toBeDefined();
+    expect(mod.TelegramNotificationSchema).toBeDefined();
+    expect(mod.NotificationsConfigSchema).toBeDefined();
   });
 });

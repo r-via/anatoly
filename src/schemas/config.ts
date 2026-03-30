@@ -145,6 +145,25 @@ export const SearchConfigSchema = z.object({
   provider: z.enum(['exa', 'brave']).optional(),
 });
 
+// --- Notifications ---
+
+export const TelegramNotificationSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Telegram chat ID (channel, group, or user). Required when enabled. */
+  chat_id: z.string().optional(),
+  /** Environment variable name holding the bot token. Never store tokens in YAML. */
+  bot_token_env: z.string().default('ANATOLY_TELEGRAM_BOT_TOKEN'),
+  /** Optional URL to the published report (appended as link in the message). */
+  report_url: z.string().url().optional(),
+}).refine(
+  (data) => !data.enabled || (data.enabled && data.chat_id),
+  { message: 'chat_id is required when telegram notifications are enabled', path: ['chat_id'] },
+);
+
+export const NotificationsConfigSchema = z.object({
+  telegram: TelegramNotificationSchema.optional(),
+});
+
 // --- Main ConfigSchema ---
 
 export const ConfigSchema = z.object({
@@ -194,6 +213,7 @@ export const ConfigSchema = z.object({
   }),
   documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
   search: SearchConfigSchema.default({}),
+  notifications: NotificationsConfigSchema.optional(),
 });
 
 // --- Exported types ---
@@ -206,4 +226,6 @@ export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
+export type TelegramNotificationConfig = z.infer<typeof TelegramNotificationSchema>;
+export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
