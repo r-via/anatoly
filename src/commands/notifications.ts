@@ -211,7 +211,7 @@ export function registerNotificationsCommand(parent: Command): void {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/banner_telegram.jpg?v=3',
+            photo: `https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/banner_telegram.jpg?v=${Date.now()}`,
             caption: '🧹✨ *Anatoly is in the building\\!*',
             parse_mode: 'MarkdownV2',
           }),
