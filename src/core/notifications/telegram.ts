@@ -59,8 +59,31 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   const totalFindings = Object.values(payload.axisScorecard).reduce((sum, c) => sum + c.high + c.medium + c.low, 0);
   const SEP = '━━━━━━━━━━━━━━━━━━━━';
 
+  // ── Intro ──
+  const intros: Record<string, string[]> = {
+    CLEAN: [
+      '🧹 Houston, the codebase is *spotless*\\. Nothing to report\\.',
+      '🧹 All clear\\. Anatoly swept every corner — not a speck\\.',
+      '🧹 Mission complete\\. Zero findings\\. Go grab a coffee\\. ☕',
+    ],
+    NEEDS_REFACTOR: [
+      '🧹 Anatoly found a few things under the rug\\.',
+      '🧹 Not bad, but Anatoly left some sticky notes\\.',
+      '🧹 Almost clean\\. A few spots need another pass\\.',
+    ],
+    CRITICAL: [
+      '🚨 Anatoly found something nasty\\. You might want to sit down\\.',
+      '🚨 Houston, we have a problem\\.',
+      '🚨 Code red\\. Anatoly is not amused\\.',
+    ],
+  };
+  const pool = intros[payload.verdict] ?? intros.NEEDS_REFACTOR;
+  const intro = pool[Math.floor(Math.random() * pool.length)];
+
   // ── Hero ──
   const lines: string[] = [
+    intro,
+    ``,
     `${verdictEmoji(payload.verdict)} *${e(payload.verdict)}* — Anatoly`,
     ``,
     `${e(String(payload.totalFiles))} files reviewed · \\$${e(payload.costUsd.toFixed(2))} · ${e(String(durationMin))} min`,
@@ -85,8 +108,8 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     const counts = total > 0
       ? `  ${[high > 0 ? `${high}H` : '', medium > 0 ? `${medium}M` : ''].filter(Boolean).join(' ')}`
       : '';
-    lines.push(`${emoji} *${e(name)}* ${e(String(pct))}%${e(counts)}`);
-    lines.push(`${bar}`);
+    lines.push(`${emoji} *${e(name)}*${e(counts)}`);
+    lines.push(`${bar} ${e(String(pct))}%`);
     lines.push(``);
   }
 
