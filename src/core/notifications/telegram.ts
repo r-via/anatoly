@@ -18,11 +18,13 @@ function verdictEmoji(verdict: string): string {
   return '🟡'; // NEEDS_REFACTOR
 }
 
-/** Axis display names (telegram-friendly, no special chars). */
+/** Axis display names — supports both countsKey (dead, duplicate) and AxisId (utility, duplication) formats. */
 const AXIS_DISPLAY: Record<string, string> = {
   correction: '🐛 Correction',
   dead: '♻️ Utility',
+  utility: '♻️ Utility',
   duplicate: '📋 Duplication',
+  duplication: '📋 Duplication',
   overengineering: '🏗️ Overeng',
   tests: '🧪 Tests',
   documentation: '📝 Docs',
@@ -67,7 +69,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
   // ── Axis scorecard with health bars ──
   for (const [axis, counts] of Object.entries(payload.axisScorecard)) {
     const total = counts.high + counts.medium + counts.low;
-    const pct = counts.healthPct;
+    const pct = counts.healthPct ?? 0;
     const name = AXIS_DISPLAY[axis] ?? e(axis);
     const bar = healthBar(Math.max(0, Math.min(100, pct)), counts.high, payload.totalFiles);
     const label = counts.label ? ` ${e(counts.label)}` : '';
@@ -96,7 +98,8 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     }
 
     const axisEmojis: Record<string, string> = {
-      correction: '🐛', dead: '♻️', duplicate: '📋',
+      correction: '🐛', utility: '♻️', dead: '♻️',
+      duplication: '📋', duplicate: '📋',
       overengineering: '🏗️', tests: '🧪', documentation: '📝',
       best_practices: '✅',
     };
@@ -104,7 +107,7 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     for (const [axis, findings] of byAxis) {
       const emoji = axisEmojis[axis] ?? '•';
       for (const f of findings) {
-        const sev = f.severity === 'HIGH' ? '🔴' : '🟡';
+        const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
         lines.push(`${sev} ${emoji} \`${e(f.file)}\``);
       }
     }

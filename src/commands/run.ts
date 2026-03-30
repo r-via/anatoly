@@ -2055,11 +2055,11 @@ function runReportPhase(ctx: RunContext): void {
         }
         const picked: typeof data.actions = [];
         for (const [, actions] of byAxis) {
-          const highFirst = actions.filter(a => a.severity === 'HIGH' || a.severity === 'MEDIUM');
+          const highFirst = actions.filter(a => a.severity === 'high' || a.severity === 'medium');
           picked.push(...highFirst.slice(0, 2));
         }
-        // Sort: HIGH first, then by axis
-        picked.sort((a, b) => (a.severity === 'HIGH' ? 0 : 1) - (b.severity === 'HIGH' ? 0 : 1));
+        // Sort: high first, then by axis
+        picked.sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
         return picked.slice(0, 14).map(a => ({
           file: a.file,
           axis: a.source ?? 'unknown',
