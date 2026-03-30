@@ -253,6 +253,78 @@ logging:
   pretty: false         # Structured output for CI
 ```
 
+## Project instructions (`ANATOLY.md`)
+
+Drop an `ANATOLY.md` file at the root of your project to tell Anatoly about your conventions. No configuration needed -- the file is detected automatically on every `anatoly run`.
+
+### Format
+
+Use `## H2` headings to target specific axes. Content under `## General` is prepended to every axis.
+
+```markdown
+# My Project Instructions
+
+## General
+This is an ESM-only Node.js project with strict TypeScript.
+
+## Documentation
+- We do NOT use JSDoc -- TypeScript types are the documentation.
+- Every module > 100 lines must have a descriptive header comment.
+
+## Best Practices
+- No barrel files (index.ts re-exports) -- direct imports only.
+- Zod is required for all external input validation.
+
+## Correction
+- Race conditions on background workers are known and accepted (ignore).
+
+## Tests
+- Every endpoint must have a supertest integration test.
+- Expected minimum coverage: 80% on services.
+
+## Utility
+- Exports in src/legacy/ are intentionally unused (migration in progress).
+
+## Overengineering
+- The factory pattern in src/providers/ is intentional (not over-engineered).
+
+## Duplication
+- Similar validation logic across controllers is accepted (no shared abstraction).
+```
+
+### Recognized sections
+
+| H2 heading | Target axis | Effect |
+|------------|-------------|--------|
+| `General` | All axes | Content prepended to every axis |
+| `Correction` | `correction` | Calibrate error/fix detection |
+| `Utility` | `utility` | Calibrate dead code detection |
+| `Duplication` | `duplication` | Calibrate duplicate detection |
+| `Overengineering` | `overengineering` | Calibrate complexity detection |
+| `Tests` | `tests` | Calibrate test coverage evaluation |
+| `Best Practices` | `best_practices` | Calibrate coding standards evaluation |
+| `Documentation` | `documentation` | Calibrate documentation evaluation |
+
+Section headings are case-insensitive: `## CORRECTION`, `## correction`, and `## Correction` all work. Unrecognized sections (e.g., `## Deployment`) are silently ignored.
+
+### How calibration works
+
+Your instructions neither override nor replace the standard evaluation rules. They **calibrate** the LLM's judgment:
+
+- If you say "we don't use JSDoc", then absence of JSDoc is not a finding -- but other documentation aspects (header comments, README coverage) are still evaluated.
+- If you add a stricter rule (e.g., "Zod required for all inputs"), it becomes an additional criterion on top of the standard rules.
+- If you say nothing about an axis, it evaluates with the default rules unchanged.
+
+### Section length warning
+
+Keep each section concise. Sections exceeding ~2000 tokens (~8000 characters) trigger a warning:
+
+```
+ANATOLY.md section "best_practices" is very long (~2500 tokens). Long sections may dilute scoring accuracy.
+```
+
+Shorter, focused instructions produce better calibration than exhaustive rulebooks.
+
 ## CLI flags
 
 CLI flags override `.anatoly.yml` values for the current run.

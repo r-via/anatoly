@@ -186,7 +186,7 @@ npx anatoly run --no-rag         # Skip RAG indexing
 npx anatoly run --plain          # Linear output for CI/scripts
 ```
 
-> See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference and all CLI flags.
+> See [Configuration](docs/01-Getting-Started/02-Configuration.md) for the full `.anatoly.yml` reference, all CLI flags, and [`ANATOLY.md` project instructions](docs/01-Getting-Started/02-Configuration.md#project-instructions-anatolymd).
 
 ### Dual Embedding (Code + NLP)
 
