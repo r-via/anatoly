@@ -18,11 +18,11 @@ function verdictEmoji(verdict: string): string {
   return '🟡'; // NEEDS_REFACTOR
 }
 
-/** Axis emoji + short name pairs for severity summary. */
+/** Axis display names. */
 const AXIS_NAME: Record<string, string> = {
-  correction: 'bugs', dead: 'dead', utility: 'dead',
-  duplicate: 'dups', duplication: 'dups', overengineering: 'over',
-  tests: 'tests', documentation: 'docs', best_practices: 'bp',
+  correction: 'Correction', dead: 'Utility', utility: 'Utility',
+  duplicate: 'Duplication', duplication: 'Duplication', overengineering: 'Overengineering',
+  tests: 'Tests', documentation: 'Documentation', best_practices: 'Best Practices',
 };
 
 /** Axis emoji for scorecard lines. */
@@ -125,25 +125,26 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     lines.push(``);
 
     if (totalHigh > 0) {
-      const highParts: string[] = [];
+      lines.push(`🔴 *${e(String(totalHigh))} high*`);
       for (const { axis, high } of entries) {
         if (high > 0) {
+          const emoji = AXIS_EMOJI[axis] ?? '•';
           const name = AXIS_NAME[axis] ?? axis;
-          highParts.push(`${high} ${e(name)}`);
+          lines.push(`  ${emoji} ${e(String(high))} ${e(name)}`);
         }
       }
-      lines.push(`🔴 ${e(String(totalHigh))} high — ${highParts.join(' · ')}`);
     }
 
     if (totalMed > 0) {
-      const medParts: string[] = [];
+      if (totalHigh > 0) lines.push(``);
+      lines.push(`🟡 *${e(String(totalMed))} med*`);
       for (const { axis, medium } of entries) {
         if (medium > 0) {
+          const emoji = AXIS_EMOJI[axis] ?? '•';
           const name = AXIS_NAME[axis] ?? axis;
-          medParts.push(`${medium} ${e(name)}`);
+          lines.push(`  ${emoji} ${e(String(medium))} ${e(name)}`);
         }
       }
-      lines.push(`🟡 ${e(String(totalMed))} med — ${medParts.join(' · ')}`);
     }
   }
 
