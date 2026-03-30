@@ -161,7 +161,30 @@ export class TelegramNotifier implements NotificationChannel {
   ) {}
 
   async send(payload: NotificationPayload): Promise<void> {
-    // Send logo first (fire-and-forget — don't block on failure)
+    const caption = renderTelegramMessage(payload);
+
+    // Single post: banner photo + full report as caption (≤1024 chars)
+    if (caption.length <= 1024) {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: this.chatId,
+          photo: 'https://raw.githubusercontent.com/r-via/anatoly/main/assets/imgs/banner-telegram.jpg?v=2',
+          caption,
+          parse_mode: 'MarkdownV2',
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const desc = (body as Record<string, unknown>).description ?? response.status;
+        throw new Error(`Telegram API error: ${desc}`);
+      }
+      return;
+    }
+
+    // Fallback: photo then message (when caption exceeds 1024 chars)
     try {
       await fetch(`https://api.telegram.org/bot${this.botToken}/sendPhoto`, {
         method: 'POST',
@@ -173,16 +196,12 @@ export class TelegramNotifier implements NotificationChannel {
       });
     } catch { /* non-critical */ }
 
-    // Send report message
-    const text = renderTelegramMessage(payload);
-    const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-
-    const response = await fetch(url, {
+    const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: this.chatId,
-        text,
+        text: caption,
         parse_mode: 'MarkdownV2',
       }),
     });
