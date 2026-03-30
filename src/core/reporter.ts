@@ -27,6 +27,10 @@ export interface RunStats {
   runId: string;
   durationMs: number;
   costUsd: number;
+  /** Number of files actually evaluated (not cached). */
+  evaluated?: number;
+  /** Number of files skipped via SHA cache. */
+  cached?: number;
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   phaseDurations: Record<string, number>;
   degradedReviews: number;

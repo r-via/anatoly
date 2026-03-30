@@ -152,8 +152,8 @@ export function registerReportCommand(program: Command): void {
         const payload: NotificationPayload = {
           verdict: reportData.globalVerdict,
           totalFiles: reportData.totalFiles,
-          evaluated: (runStats as Record<string, unknown>)?.evaluated as number ?? reportData.totalFiles,
-          cached: (runStats as Record<string, unknown>)?.cached as number ?? 0,
+          evaluated: runStats?.evaluated ?? reportData.totalFiles,
+          cached: runStats?.cached ?? 0,
           cleanFiles: reportData.cleanFiles.length,
           findingFiles: reportData.findingFiles.length,
           errorFiles: reportData.errorFiles.length,
@@ -164,7 +164,7 @@ export function registerReportCommand(program: Command): void {
           topFindings: picked.slice(0, 14).map(a => ({
             file: a.file,
             axis: a.source ?? 'unknown',
-            severity: a.severity ?? 'medium',
+            severity: (a.severity ?? 'medium').toLowerCase(),
             detail: a.description,
           })),
           reportUrl: config.notifications?.telegram?.report_url ?? undefined,

@@ -123,22 +123,26 @@ export function renderTelegramMessage(payload: NotificationPayload): string {
     : `_Full report in \\.anatoly/runs/latest/report\\.md_`;
 
   // ── Top findings (budget-aware to fit in 1024 caption) ──
+  // Telegram counts caption limit in UTF-8 bytes, not JS string length
   const CAPTION_LIMIT = 1024;
-  const footerLen = footer.length + 2; // +2 for blank line
-  const bodyLen = lines.join('\n').length;
+  const byteLen = (s: string) => Buffer.byteLength(s, 'utf8');
+  const footerLen = byteLen(footer) + 2;
+  const bodyLen = byteLen(lines.join('\n'));
 
   if (payload.topFindings.length > 0) {
     const headerLine = `*Top findings:*`;
-    let budget = CAPTION_LIMIT - bodyLen - footerLen - headerLine.length - 4; // margins
+    let budget = CAPTION_LIMIT - bodyLen - footerLen - byteLen(headerLine) - 4; // margins
     const findingLines: string[] = [];
 
     for (const f of payload.topFindings) {
       const sev = f.severity.toUpperCase() === 'HIGH' ? '🔴' : '🟡';
       const emoji = AXIS_EMOJI[f.axis] ?? '•';
-      const line = `${sev} ${emoji} \`${e(f.file)}\``;
-      if (budget - line.length - 1 < 0) break;
+      // Inside backtick code spans, MarkdownV2 does not process escapes — use raw filename
+      const line = `${sev} ${emoji} \`${f.file}\``;
+      const lineBytes = byteLen(line);
+      if (budget - lineBytes - 1 < 0) break;
       findingLines.push(line);
-      budget -= line.length + 1;
+      budget -= lineBytes + 1;
     }
 
     if (findingLines.length > 0) {
