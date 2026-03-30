@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { generateText } from 'ai';
+import { generateText, stepCountIs } from 'ai';
 import { getVercelModel } from '../transports/vercel-sdk-transport.js';
 import { createBashTool } from '../tools/bash-tool.js';
 import { getSearchTool } from '../tools/web-search.js';
@@ -72,7 +72,8 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
   const model = getVercelModel(modelId, config);
 
   // Build tools
-  const tools: Record<string, unknown> = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tools: Record<string, any> = {
     bash: createBashTool({ allowWrite, cwd: projectRoot }),
   };
 
@@ -93,7 +94,7 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
       system: systemPrompt,
       prompt: userMessage,
       tools,
-      maxSteps,
+      stopWhen: stepCountIs(maxSteps),
       abortSignal: abortController.signal,
     });
 

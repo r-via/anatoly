@@ -221,13 +221,13 @@ export class ScreenRenderer {
     const isUpsert = this.state.activeTaskId === 'rag-upsert';
     if (router && !isUpsert && this.state.phase !== 'summary') {
       const stats = router.getSemaphoreStats();
-      const anthropic = stats.get('anthropic');
-      const google = stats.get('google');
-      if (anthropic && google) {
-        return `${title} ${chalk.dim(`\u2014 Claude ${anthropic.active}/${anthropic.total} \u00b7 Gemini ${google.active}/${google.total}`)}`;
-      }
-      if (anthropic) {
-        return `${title} ${chalk.dim(`\u2014 ${anthropic.active}/${anthropic.total} agents active`)}`;
+      if (stats.size > 0) {
+        const parts = [...stats.entries()].map(([id, s]) => `${id} ${s.active}/${s.total}`);
+        if (parts.length === 1) {
+          const [s] = stats.values();
+          return `${title} ${chalk.dim(`\u2014 ${s.active}/${s.total} agents active`)}`;
+        }
+        return `${title} ${chalk.dim(`\u2014 ${parts.join(' \u00b7 ')}`)}`;
       }
     }
     return title;
