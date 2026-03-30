@@ -5,6 +5,7 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
+import Table from 'cli-table3';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKResultSuccess, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
 import { loadConfig } from '../utils/config-loader.js';
@@ -98,17 +99,20 @@ export function buildProviderChecks(config: Config): ProviderCheck[] {
  * Format provider check results as a human-readable table string.
  */
 export function formatProvidersTable(results: ProviderCheckResult[]): string {
-  const header = `  ${'Provider'.padEnd(12)} ${'Model'.padEnd(30)} ${'Status'.padEnd(8)} ${'Latency'.padEnd(10)} Auth`;
-  const separator = `  ${'─'.repeat(12)} ${'─'.repeat(30)} ${'─'.repeat(8)} ${'─'.repeat(10)} ${'─'.repeat(20)}`;
-
-  const rows = results.map(r => {
-    const statusIcon = r.status === 'ok' ? chalk.green('✓') : chalk.red('✗');
-    const latency = r.status === 'ok' ? `${r.latencyMs}ms` : '—';
-    const errorSuffix = r.error ? chalk.dim(` (${r.error})`) : '';
-    return `  ${r.provider.padEnd(12)} ${r.model.padEnd(30)} ${statusIcon}${' '.repeat(7)} ${latency.padEnd(10)} ${r.auth}${errorSuffix}`;
+  const table = new Table({
+    chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '  ', 'left-mid': '  ', mid: '─', 'mid-mid': ' ', right: '', 'right-mid': '', middle: ' ' },
+    style: { 'padding-left': 0, 'padding-right': 0, head: ['dim'] },
+    head: ['Provider', 'Model', 'Status', 'Latency', 'Auth'],
   });
 
-  return [header, separator, ...rows].join('\n');
+  for (const r of results) {
+    const statusIcon = r.status === 'ok' ? chalk.green('✓') : chalk.red('✗');
+    const latency = r.status === 'ok' ? `${r.latencyMs}ms` : '—';
+    const auth = r.error ? `${r.auth} ${chalk.dim(`(${r.error})`)}` : r.auth;
+    table.push([r.provider, r.model, statusIcon, latency, auth]);
+  }
+
+  return table.toString();
 }
 
 // ---------------------------------------------------------------------------
@@ -274,17 +278,20 @@ async function stressGemini(model: string, projectRoot: string, n: number, mode:
 }
 
 function formatConcurrencyTable(results: { provider: string; model: string; concurrency: ConcurrencyResult }[]): string {
-  const header = `  ${'Provider'.padEnd(12)} ${'Model'.padEnd(30)} ${'Slots'.padEnd(7)} ${'OK'.padEnd(5)} ${'Fail'.padEnd(6)} Time`;
-  const separator = `  ${'─'.repeat(12)} ${'─'.repeat(30)} ${'─'.repeat(7)} ${'─'.repeat(5)} ${'─'.repeat(6)} ${'─'.repeat(10)}`;
-  const rows = results.map(r => {
-    const c = r.concurrency;
-    const okPad = String(c.succeeded).padEnd(5);
-    const failPad = String(c.failed).padEnd(6);
-    const coloredOk = c.failed === 0 ? chalk.green(okPad) : chalk.yellow(okPad);
-    const coloredFail = c.failed === 0 ? chalk.dim(failPad) : chalk.red(failPad);
-    return `  ${r.provider.padEnd(12)} ${r.model.padEnd(30)} ${String(c.attempted).padEnd(7)} ${coloredOk} ${coloredFail} ${c.totalMs}ms`;
+  const table = new Table({
+    chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '  ', 'left-mid': '  ', mid: '─', 'mid-mid': ' ', right: '', 'right-mid': '', middle: ' ' },
+    style: { 'padding-left': 0, 'padding-right': 0, head: ['dim'] },
+    head: ['Provider', 'Model', 'Slots', 'OK', 'Fail', 'Time'],
   });
-  return [header, separator, ...rows].join('\n');
+
+  for (const r of results) {
+    const c = r.concurrency;
+    const ok = c.failed === 0 ? chalk.green(String(c.succeeded)) : chalk.yellow(String(c.succeeded));
+    const fail = c.failed === 0 ? chalk.dim(String(c.failed)) : chalk.red(String(c.failed));
+    table.push([r.provider, r.model, String(c.attempted), ok, fail, `${c.totalMs}ms`]);
+  }
+
+  return table.toString();
 }
 
 // ---------------------------------------------------------------------------

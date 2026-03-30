@@ -31,24 +31,24 @@ describe('buildProviderChecks', () => {
     const config = makeConfig();
     const checks = buildProviderChecks(config);
     const models = checks.map(c => c.model);
-    expect(models).toContain('claude-sonnet-4-6');
-    expect(models).toContain('claude-opus-4-6');
+    expect(models).toContain('anthropic/claude-sonnet-4-6');
+    expect(models).toContain('anthropic/claude-opus-4-6');
   });
 
   it('should deduplicate models', () => {
     const config = makeConfig({
-      llm: { model: 'claude-sonnet-4-6', deliberation_model: 'claude-sonnet-4-6' },
+      models: { quality: 'anthropic/claude-sonnet-4-6', deliberation: 'anthropic/claude-sonnet-4-6' },
     });
     const checks = buildProviderChecks(config);
-    const sonnetCount = checks.filter(c => c.model === 'claude-sonnet-4-6').length;
+    const sonnetCount = checks.filter(c => c.model === 'anthropic/claude-sonnet-4-6').length;
     expect(sonnetCount).toBe(1);
   });
 
-  it('should include index_model (haiku) in checks', () => {
+  it('should include fast model (haiku) in checks', () => {
     const config = makeConfig();
     const checks = buildProviderChecks(config);
     const models = checks.map(c => c.model);
-    expect(models).toContain('claude-haiku-4-5-20251001');
+    expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
   });
 });
 
