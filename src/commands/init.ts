@@ -3,10 +3,9 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { createInterface } from 'node:readline';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import chalk from 'chalk';
+import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
@@ -34,13 +33,8 @@ export interface WizardSelections {
   };
 }
 
-/** Abstraction for interactive I/O (injectable for testing). */
-export interface PromptIO {
-  select: (message: string, choices: string[]) => Promise<string>;
-  multiSelect: (message: string, choices: string[]) => Promise<string[]>;
-  confirm: (message: string) => Promise<boolean>;
-  input: (message: string, defaultValue?: string) => Promise<string>;
-  print: (message: string) => void;
+function isCancelled(value: unknown): value is symbol {
+  return p.isCancel(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,62 +106,46 @@ export function buildInitConfig(
 // Interactive wizard
 // ---------------------------------------------------------------------------
 
-function createReadlineIO(): PromptIO {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  const ask = (q: string): Promise<string> =>
-    new Promise((resolve) => rl.question(q, (answer) => resolve(answer.trim())));
-
-  return {
-    select: async (message, choices) => {
-      console.log(`\n${message}`);
-      choices.forEach((c, i) => console.log(`  ${i + 1}) ${c}`));
-      const answer = await ask('  Choice: ');
-      const idx = parseInt(answer, 10) - 1;
-      return choices[idx] ?? choices[0];
-    },
-    multiSelect: async (message, choices) => {
-      console.log(`\n${message} (comma-separated numbers, e.g. 1,2,3)`);
-      choices.forEach((c, i) => console.log(`  ${i + 1}) ${c}`));
-      const answer = await ask('  Choices: ');
-      const indices = answer.split(',').map((s) => parseInt(s.trim(), 10) - 1);
-      return indices.filter((i) => i >= 0 && i < choices.length).map((i) => choices[i]);
-    },
-    confirm: async (message) => {
-      const answer = await ask(`${message} (Y/n) `);
-      return answer.toLowerCase() !== 'n';
-    },
-    input: async (message, defaultValue) => {
-      const suffix = defaultValue ? ` [${defaultValue}]` : '';
-      const answer = await ask(`${message}${suffix}: `);
-      return answer || defaultValue || '';
-    },
-    print: (message) => console.log(message),
-  };
+async function selectMode(message: string): Promise<'subscription' | 'api'> {
+  const mode = await p.select({
+    message,
+    options: [
+      { value: 'subscription' as const, label: 'Subscription', hint: 'Anthropic / Google console' },
+      { value: 'api' as const, label: 'API', hint: 'pay-per-token' },
+    ],
+  });
+  if (isCancelled(mode)) { p.cancel('Setup cancelled.'); process.exit(0); }
+  return mode;
 }
 
-async function runInitWizard(io: PromptIO): Promise<WizardSelections> {
+async function runInitWizard(): Promise<WizardSelections> {
   const providerNames = Object.keys(KNOWN_PROVIDERS);
-  const selectedProviders = await io.multiSelect(
-    'Select providers to configure:',
-    [...providerNames, 'Custom'],
-  );
+
+  const selectedProviders = await p.multiselect({
+    message: 'Select providers to configure',
+    options: [
+      ...providerNames.map((name) => ({ value: name, label: name })),
+      { value: '__custom__', label: 'Custom provider' },
+    ],
+    required: true,
+  });
+  if (isCancelled(selectedProviders)) { p.cancel('Setup cancelled.'); process.exit(0); }
 
   const providers = new Map<string, ProviderSelection>();
 
   for (const name of selectedProviders) {
-    const providerId = name === 'Custom'
-      ? await io.input('Enter custom provider name')
-      : name;
+    let providerId = name;
+    if (name === '__custom__') {
+      const custom = await p.text({ message: 'Enter custom provider name' });
+      if (isCancelled(custom)) { p.cancel('Setup cancelled.'); process.exit(0); }
+      providerId = custom;
+    }
 
-    const mode = await io.select(
-      `Mode for ${providerId}:`,
-      ['subscription', 'api'],
-    ) as 'subscription' | 'api';
+    const mode = await selectMode(`Mode for ${providerId}`);
 
     const error = validateProviderMode(providerId, mode);
     if (error) {
-      io.print(chalk.red(error));
+      p.log.error(error);
       continue;
     }
 
@@ -175,36 +153,58 @@ async function runInitWizard(io: PromptIO): Promise<WizardSelections> {
     if (mode === 'api') {
       const detected = detectApiKey(providerId);
       if (detected) {
-        io.print(chalk.green(`  ✓ ${detected} detected`));
+        p.log.success(`${detected} detected`);
       } else {
         const known = KNOWN_PROVIDERS[providerId];
         const envKey = known?.env_key ?? `${providerId.toUpperCase().replace(/-/g, '_')}_API_KEY`;
-        io.print(chalk.yellow(`  ⚠ Set ${envKey} in your environment before running anatoly.`));
+        p.log.warn(`Set ${envKey} in your environment before running anatoly.`);
       }
     }
 
     // Optional split mode
-    const wantSplit = await io.confirm(`  Configure separate modes for single_turn/agents for ${providerId}?`);
+    const wantSplit = await p.confirm({
+      message: `Configure separate modes for single_turn/agents for ${providerId}?`,
+      initialValue: false,
+    });
+    if (isCancelled(wantSplit)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
     const selection: ProviderSelection = { mode };
     if (wantSplit) {
-      selection.single_turn = await io.select(
-        `  single_turn mode for ${providerId}:`,
-        ['subscription', 'api'],
-      ) as 'subscription' | 'api';
-      selection.agents = await io.select(
-        `  agents mode for ${providerId}:`,
-        ['subscription', 'api'],
-      ) as 'subscription' | 'api';
+      selection.single_turn = await selectMode(`single_turn mode for ${providerId}`);
+      selection.agents = await selectMode(`agents mode for ${providerId}`);
     }
 
     providers.set(providerId, selection);
   }
 
   // Model selection
-  const quality = await io.input('Model for quality (axis evaluations)', 'anthropic/claude-sonnet-4-6');
-  const fast = await io.input('Model for fast (triage, code summaries)', 'anthropic/claude-haiku-4-5-20251001');
-  const deliberation = await io.input('Model for deliberation (tier 3)', 'anthropic/claude-opus-4-6');
-  const codeSummary = await io.input('Model for code_summary (optional, press Enter to skip)');
+  const quality = await p.text({
+    message: 'Model for quality (axis evaluations)',
+    defaultValue: 'anthropic/claude-sonnet-4-6',
+    placeholder: 'anthropic/claude-sonnet-4-6',
+  });
+  if (isCancelled(quality)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  const fast = await p.text({
+    message: 'Model for fast (triage, code summaries)',
+    defaultValue: 'anthropic/claude-haiku-4-5-20251001',
+    placeholder: 'anthropic/claude-haiku-4-5-20251001',
+  });
+  if (isCancelled(fast)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  const deliberation = await p.text({
+    message: 'Model for deliberation (tier 3)',
+    defaultValue: 'anthropic/claude-opus-4-6',
+    placeholder: 'anthropic/claude-opus-4-6',
+  });
+  if (isCancelled(deliberation)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  const codeSummary = await p.text({
+    message: 'Model for code_summary (optional, press Enter to skip)',
+    defaultValue: '',
+    placeholder: 'leave empty to skip',
+  });
+  if (isCancelled(codeSummary)) { p.cancel('Setup cancelled.'); process.exit(0); }
 
   return {
     providers,
@@ -255,9 +255,7 @@ export function registerInitCommand(program: Command): void {
 
       // Check for existing config
       if (existsSync(configPath) && !opts.force) {
-        console.error(chalk.yellow(
-          `${CONFIG_FILENAME} already exists. Use --force to overwrite, or edit it directly.`,
-        ));
+        p.log.error(`${CONFIG_FILENAME} already exists. Use --force to overwrite, or edit it directly.`);
         process.exit(1);
       }
 
@@ -265,34 +263,30 @@ export function registerInitCommand(program: Command): void {
       if (opts.defaults) {
         const content = generateExampleConfig();
         writeFileSync(configPath, content);
-        console.log(chalk.green(`${CONFIG_FILENAME} created with all defaults (commented out).`));
+        p.log.success(`${CONFIG_FILENAME} created with all defaults (commented out).`);
         return;
       }
 
       // Interactive wizard
-      const io = createReadlineIO();
-      try {
-        const selections = await runInitWizard(io);
-        const configObj = buildInitConfig(selections);
-        const yamlStr = yaml.dump(configObj, { lineWidth: 120 });
-        const content = `# Anatoly multi-provider configuration (v2)\n# Generated by anatoly init\n\n${yamlStr}`;
+      p.intro('anatoly init');
 
-        io.print(`\n${chalk.bold('Preview:')}\n${content}`);
-        const confirmed = await io.confirm('\nWrite this config?');
-        if (!confirmed) {
-          io.print(chalk.yellow('Aborted.'));
-          return;
-        }
+      const selections = await runInitWizard();
+      const configObj = buildInitConfig(selections);
+      const yamlStr = yaml.dump(configObj, { lineWidth: 120 });
+      const content = `# Anatoly multi-provider configuration (v2)\n# Generated by anatoly init\n\n${yamlStr}`;
 
-        writeFileSync(configPath, content);
-        io.print(chalk.green(`\n✓ ${CONFIG_FILENAME} written.`));
+      p.note(content, 'Preview');
 
-        // Summary
-        io.print(`\n${chalk.bold('Providers:')} ${[...selections.providers.keys()].join(', ')}`);
-        io.print(`${chalk.bold('Models:')} quality=${selections.models.quality}, fast=${selections.models.fast}`);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ERR_USE_AFTER_CLOSE') return;
-        throw err;
+      const confirmed = await p.confirm({ message: 'Write this config?' });
+      if (isCancelled(confirmed) || !confirmed) {
+        p.cancel('Aborted.');
+        return;
       }
+
+      writeFileSync(configPath, content);
+      p.log.success(`${CONFIG_FILENAME} written.`);
+      p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
+      p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
+      p.outro('Done');
     });
 }
