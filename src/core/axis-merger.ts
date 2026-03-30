@@ -442,11 +442,47 @@ function mergeFileLevels(results: AxisResult[]) {
 }
 
 /**
+ * Rules eligible for cross-validation against correction findings.
+ * Each entry maps a best-practices rule_id to the keywords that would
+ * indicate a correction finding overlaps with that rule's domain.
+ *
+ * When best-practices PASSes a rule AND correction flags NEEDS_FIX with
+ * detail matching that rule's keywords, the correction confidence is
+ * downgraded below the 60-threshold (excluded from verdict, still visible).
+ */
+const CONTRADICTION_RULES: ReadonlyArray<{
+  ruleId: number;
+  keywords: readonly string[];
+}> = [
+  {
+    // Rule 12: Async/Promises/Error handling
+    ruleId: 12,
+    keywords: ['async', 'promise', 'try-catch', 'try/catch', 'rejection', 'unhandled', 'await', 'catch block'],
+  },
+  {
+    // Rule 13: Security (no hardcoded secrets, no eval, no command injection)
+    ruleId: 13,
+    keywords: ['injection', 'xss', 'eval', 'secret', 'hardcoded', 'credential', 'sanitiz', 'escap'],
+  },
+  {
+    // Rule 1: Strict mode
+    ruleId: 1,
+    keywords: ['strict mode', 'implicit any', 'noImplicitAny', 'strictNullChecks', 'null check'],
+  },
+  {
+    // Rule 14: Performance
+    ruleId: 14,
+    keywords: ['n+1', 'sync i/o', 'synchronous', 'blocking', 're-render', 'performance'],
+  },
+];
+
+/**
  * Detect contradictions between correction findings and best_practices results.
  * When correction flags NEEDS_FIX on a pattern that best_practices explicitly PASSes,
  * downgrade the correction confidence below the 60-threshold so it is excluded from verdict.
  *
- * Currently handled: async/error handling (Rule 12).
+ * Cross-validates: Rule 12 (async/error), Rule 13 (security), Rule 1 (strict mode),
+ * Rule 14 (performance).
  */
 function detectContradictions(
   symbols: SymbolReview[],
@@ -454,23 +490,23 @@ function detectContradictions(
 ): SymbolReview[] {
   if (!bestPractices) return symbols;
 
-  // Rule 12 = Async/Promises/Error handling
-  const rule12 = bestPractices.rules.find((r) => r.rule_id === 12);
-  if (!rule12 || rule12.status !== 'PASS') return symbols;
+  // Build a set of passing rule IDs with their keyword matchers
+  const activeRules = CONTRADICTION_RULES.filter((rule) => {
+    const bpRule = bestPractices.rules.find((r) => r.rule_id === rule.ruleId);
+    return bpRule?.status === 'PASS';
+  });
+
+  if (activeRules.length === 0) return symbols;
 
   return symbols.map((sym) => {
     if (sym.correction !== 'NEEDS_FIX') return sym;
 
     const detail = sym.detail.toLowerCase();
-    const isAsyncRelated =
-      detail.includes('async') ||
-      detail.includes('promise') ||
-      detail.includes('try-catch') ||
-      detail.includes('try/catch') ||
-      detail.includes('rejection') ||
-      detail.includes('unhandled');
+    const contradicts = activeRules.some((rule) =>
+      rule.keywords.some((kw) => detail.includes(kw)),
+    );
 
-    if (!isAsyncRelated) return sym;
+    if (!contradicts) return sym;
 
     // Downgrade below the reporter's 60 threshold → excluded from verdict
     // but above the 30 discard threshold → still visible in .rev.md

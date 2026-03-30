@@ -67,7 +67,7 @@ export interface RefinementResult {
 export async function runRefinementPhase(ctx: RefinementContext): Promise<RefinementResult> {
   const emptyResult: RefinementResult = {
     skipped: true,
-    tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } },
+    tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } },
     tier2Stats: { resolved: 0, escalated: 0 },
     tier3Stats: { investigated: 0, confirmed: 0, reclassified: 0 },
     totalDurationMs: 0,
@@ -96,7 +96,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     projectRoot: ctx.projectRoot,
   };
 
-  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0 } };
+  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
   const tier1Reviews: ReviewFile[] = [];
 
   for (const review of reviews) {
@@ -120,6 +120,9 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   if (bd.overToLean) parts.push(`${bd.overToLean} OVER→LEAN`);
   if (bd.undocToDoc) parts.push(`${bd.undocToDoc} UNDOC→DOC`);
   if (bd.fixtureSkipped) parts.push(`${bd.fixtureSkipped} fixture`);
+  if (bd.correctionImportResolved) parts.push(`${bd.correctionImportResolved} import→OK`);
+  if (bd.correctionBoundsResolved) parts.push(`${bd.correctionBoundsResolved} bounds→OK`);
+  if (bd.correctionGeneratedDowngraded) parts.push(`${bd.correctionGeneratedDowngraded} generated↓`);
   const breakdownStr = parts.length > 0 ? ` (${parts.join(', ')})` : '';
   ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved} resolved${breakdownStr}`);
 
