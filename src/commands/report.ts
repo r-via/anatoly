@@ -6,7 +6,7 @@ import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, relative, dirname, join } from 'node:path';
-import { generateReport, loadReviews, type AxisReport, type RunStats } from '../core/reporter.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -25,7 +25,8 @@ export function registerReportCommand(program: Command): void {
     .description('Aggregate review results into a structured Markdown report')
     .option('--run <id>', 'generate report from a specific run (default: latest)')
     .option('--notify', 'send notification after report generation')
-    .action(async (cmdOpts: { run?: string; notify?: boolean }) => {
+    .option('--debug', 'print the notification payload before sending')
+    .action(async (cmdOpts: { run?: string; notify?: boolean; debug?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -116,8 +117,38 @@ export function registerReportCommand(program: Command): void {
       }
 
       // Send notification if --notify flag is set
-      if (cmdOpts.notify && reportData) {
+      if ((cmdOpts.notify || cmdOpts.debug) && reportData) {
         const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+
+        // Build scorecard with real health percentages (same source as public_report.md)
+        const countsKey: Record<ReportAxisId, keyof typeof reportData.counts> = {
+          correction: 'correction', utility: 'dead', duplication: 'duplicate',
+          overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+          'best-practices': 'best_practices',
+        };
+        const axisScorecard = Object.fromEntries(
+          REPORT_AXIS_IDS.map((axis) => {
+            const c = reportData!.counts[countsKey[axis]];
+            const { pct, label } = axisHealthPercent(reportData!, axis);
+            return [countsKey[axis], { ...c, healthPct: pct, label }];
+          }),
+        );
+
+        // Top findings: pick top 2 HIGH/MEDIUM per axis
+        const byAxis = new Map<string, typeof reportData.actions>();
+        for (const a of reportData.actions) {
+          const axis = a.source ?? 'unknown';
+          const list = byAxis.get(axis) ?? [];
+          list.push(a);
+          byAxis.set(axis, list);
+        }
+        const picked: typeof reportData.actions = [];
+        for (const [, actions] of byAxis) {
+          const highFirst = actions.filter(a => a.severity === 'high' || a.severity === 'medium');
+          picked.push(...highFirst.slice(0, 2));
+        }
+        picked.sort((a, b) => (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1));
+
         const payload: NotificationPayload = {
           verdict: reportData.globalVerdict,
           totalFiles: reportData.totalFiles,
@@ -126,8 +157,8 @@ export function registerReportCommand(program: Command): void {
           errorFiles: reportData.errorFiles.length,
           durationMs: runStats?.durationMs ?? 0,
           costUsd: runStats?.costUsd ?? 0,
-          axisScorecard: reportData.counts,
-          topFindings: reportData.actions.slice(0, 10).map(a => ({
+          axisScorecard,
+          topFindings: picked.slice(0, 14).map(a => ({
             file: a.file,
             axis: a.source ?? 'unknown',
             severity: a.severity ?? 'medium',
@@ -135,12 +166,37 @@ export function registerReportCommand(program: Command): void {
           })),
           reportUrl: config.notifications?.telegram?.report_url ?? undefined,
         };
-        try {
-          await sendNotifications(config, payload, projectRoot);
-          console.log(chalk.green('✓ Notification sent'));
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(chalk.yellow(`Notification failed: ${msg}`));
+
+        if (cmdOpts.debug) {
+          console.log(chalk.bold('\n── Notification payload ──\n'));
+          console.log(chalk.dim('verdict:    ') + payload.verdict);
+          console.log(chalk.dim('files:      ') + `${payload.totalFiles} total, ${payload.cleanFiles} clean, ${payload.findingFiles} findings, ${payload.errorFiles} errors`);
+          console.log(chalk.dim('duration:   ') + `${Math.round(payload.durationMs / 60_000)} min`);
+          console.log(chalk.dim('cost:       ') + `$${payload.costUsd.toFixed(2)}`);
+          console.log(chalk.dim('reportUrl:  ') + (payload.reportUrl ?? '(none)'));
+          console.log('');
+          console.log(chalk.bold('Axis scorecard:'));
+          for (const [axis, c] of Object.entries(payload.axisScorecard)) {
+            const parts = [c.high && `${c.high}H`, c.medium && `${c.medium}M`, c.low && `${c.low}L`].filter(Boolean).join(' ');
+            console.log(`  ${axis.padEnd(16)} ${String(c.healthPct).padStart(3)}% ${c.label.padEnd(14)} ${parts || '—'}`);
+          }
+          console.log('');
+          console.log(chalk.bold(`Top findings (${payload.topFindings.length}):`));
+          for (const f of payload.topFindings) {
+            const sev = f.severity === 'high' ? chalk.red('HIGH') : chalk.yellow('MED');
+            console.log(`  ${sev}  ${f.axis.padEnd(16)} ${f.file}`);
+          }
+          console.log('');
+        }
+
+        if (cmdOpts.notify) {
+          try {
+            await sendNotifications(config, payload, projectRoot);
+            console.log(chalk.green('✓ Notification sent'));
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(chalk.yellow(`Notification failed: ${msg}`));
+          }
         }
       }
     });
