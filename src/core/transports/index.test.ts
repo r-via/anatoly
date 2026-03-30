@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { TransportRouter, extractProvider } from './index.js';
+import type { CircuitState } from '../circuit-breaker.js';
 
 // ---------------------------------------------------------------------------
 // Stub transports for testing
@@ -286,5 +287,214 @@ describe('extractProvider', () => {
   it('should return anthropic as default for unknown bare names', () => {
     expect(extractProvider('some-unknown-model')).toBe('anthropic');
     expect(extractProvider('llama-3-70b')).toBe('anthropic');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TransportRouter — per-provider semaphores & breakers (Story 46.1)
+// ---------------------------------------------------------------------------
+
+describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
+  const stubVercel = createStubTransport('vercel-sdk', () => true);
+  const stubAnthropic = createStubTransport('anthropic-native', () => true);
+
+  it('should create per-provider semaphores from concurrency config', () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropic },
+      vercelSdkTransport: stubVercel,
+      providerModes: {
+        anthropic: { mode: 'subscription', concurrency: 24 },
+        google: { mode: 'api', concurrency: 10 },
+      },
+    });
+    const stats = router.getSemaphoreStats();
+    expect(stats.get('anthropic')).toEqual({ active: 0, total: 24 });
+    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+  });
+
+  it('should default concurrency to 10 when not specified', () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { ollama: { mode: 'api' } },
+    });
+    const stats = router.getSemaphoreStats();
+    expect(stats.get('ollama')).toEqual({ active: 0, total: 10 });
+  });
+
+  it('should create a circuit breaker for each provider', () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: {
+        anthropic: { mode: 'subscription' },
+        google: { mode: 'api' },
+      },
+    });
+    expect(router.getBreakerState('anthropic')).toBe('closed');
+    expect(router.getBreakerState('google')).toBe('closed');
+  });
+
+  it('getSemaphoreStats() should reflect acquired slots', async () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropic },
+      vercelSdkTransport: stubVercel,
+      providerModes: {
+        anthropic: { mode: 'subscription', concurrency: 24 },
+        google: { mode: 'api', concurrency: 10 },
+      },
+    });
+
+    // Acquire 3 slots on anthropic
+    const sem = router.semaphores.get('anthropic')!;
+    await sem.acquire();
+    await sem.acquire();
+    await sem.acquire();
+
+    const stats = router.getSemaphoreStats();
+    expect(stats.get('anthropic')).toEqual({ active: 3, total: 24 });
+    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+
+    // Cleanup
+    sem.release();
+    sem.release();
+    sem.release();
+  });
+
+  it('getBreakerState() should return undefined for unknown provider', () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription' } },
+    });
+    expect(router.getBreakerState('unknown')).toBeUndefined();
+  });
+
+  it('breakers should track failures and trip', () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { google: { mode: 'api' } },
+    });
+
+    const breaker = router.breakers.get('google')!;
+    expect(router.getBreakerState('google')).toBe('closed');
+
+    // 3 consecutive failures should trip the breaker (default threshold)
+    breaker.recordFailure();
+    breaker.recordFailure();
+    breaker.recordFailure();
+
+    expect(router.getBreakerState('google')).toBe('open');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TransportRouter — acquire / acquireSlot / release (Story 46.2)
+// ---------------------------------------------------------------------------
+
+describe('TransportRouter — acquire / acquireSlot / release (Story 46.2)', () => {
+  const stubVercel = createStubTransport('vercel-sdk', () => true);
+  const stubAnthropic = createStubTransport('anthropic-native', () => true);
+  const stubGoogle = createStubTransport('google-native', () => true);
+
+  it('acquire() returns transport and release when breaker is closed', async () => {
+    const router = new TransportRouter({
+      nativeTransports: { google: stubGoogle },
+      vercelSdkTransport: stubVercel,
+      providerModes: { google: { mode: 'subscription', concurrency: 10 } },
+    });
+    const { transport, release } = await router.acquire('google/gemini-2.5-flash');
+    expect(transport).toBe(stubGoogle);
+    const stats = router.getSemaphoreStats();
+    expect(stats.get('google')!.active).toBe(1);
+    release();
+    expect(router.getSemaphoreStats().get('google')!.active).toBe(0);
+  });
+
+  it('acquire() throws when breaker is open', async () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { google: { mode: 'api', concurrency: 10 } },
+    });
+    // Trip the breaker
+    const breaker = router.breakers.get('google')!;
+    breaker.recordFailure();
+    breaker.recordFailure();
+    breaker.recordFailure();
+
+    await expect(router.acquire('google/gemini-2.5-flash')).rejects.toThrow(
+      "Provider 'google' circuit breaker is open",
+    );
+    // No semaphore slot should be consumed
+    expect(router.getSemaphoreStats().get('google')!.active).toBe(0);
+  });
+
+  it('acquireSlot() returns release function', async () => {
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: stubAnthropic },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 24 } },
+    });
+    const { release } = await router.acquireSlot('anthropic/claude-opus-4-6');
+    expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(1);
+    release();
+    expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(0);
+  });
+
+  it('release({ success: true }) records success on breaker', async () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { google: { mode: 'api', concurrency: 10 } },
+    });
+    // Record a failure first, then succeed
+    const breaker = router.breakers.get('google')!;
+    breaker.recordFailure();
+    const { release } = await router.acquireSlot('google/gemini-2.5-flash');
+    release({ success: true });
+    // Breaker should be closed (success resets counter)
+    expect(router.getBreakerState('google')).toBe('closed');
+  });
+
+  it('release({ success: false }) records failure on breaker', async () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { google: { mode: 'api', concurrency: 10 } },
+    });
+    // 2 prior failures + 1 from release = 3 = trip
+    const breaker = router.breakers.get('google')!;
+    breaker.recordFailure();
+    breaker.recordFailure();
+    const { release } = await router.acquireSlot('google/gemini-2.5-flash');
+    release({ success: false });
+    expect(router.getBreakerState('google')).toBe('open');
+  });
+
+  it('release() without args defaults to success', async () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'api', concurrency: 24 } },
+    });
+    const breaker = router.breakers.get('anthropic')!;
+    breaker.recordFailure();
+    const { release } = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+    release(); // no args = success
+    expect(router.getBreakerState('anthropic')).toBe('closed');
+  });
+
+  it('release() is idempotent (double-release is safe)', async () => {
+    const router = new TransportRouter({
+      nativeTransports: {},
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'api', concurrency: 24 } },
+    });
+    const { release } = await router.acquireSlot('anthropic/claude-sonnet-4-6');
+    release();
+    release(); // should not throw or decrement below 0
+    expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(0);
   });
 });
