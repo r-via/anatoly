@@ -1684,7 +1684,10 @@ async function runReviewPhase(
     return;
   }
 
-  ctx.totalFiles = pending.length;
+  // Count cached files (already reviewed in a previous run)
+  const cachedCount = Object.values(progress.files).filter((f) => f.status === 'DONE' || f.status === 'CACHED').length;
+  ctx.totalFiles = pending.length + cachedCount;
+  ctx.reviewCounts.skipped = cachedCount;
 
   const allTasks = loadTasks(ctx.projectRoot);
   const taskMap = new Map<string, Task>();
