@@ -457,7 +457,7 @@ export function registerRunCommand(program: Command): void {
         }
         pipelineState.addTask('review', 'Reviewing files');
         if (ctx.deliberation) {
-          pipelineState.addTask('refinement', 'Refinement — auto-resolve & verify');
+          pipelineState.addTask('refinement', 'Deliberation');
         }
         pipelineState.addTask('internal-docs', 'Updating internal docs');
         pipelineState.addTask('report', 'Generating report');
@@ -499,7 +499,7 @@ export function registerRunCommand(program: Command): void {
             const refinementStart = Date.now();
             ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'refinement' });
             ctx.pipelineState?.setPhase('refinement');
-            ctx.pipelineState?.startTask('refinement', 'Tier 1 — auto-resolve');
+            ctx.pipelineState?.startTask('refinement', 'auto-resolve');
 
             const refinementResult = await runRefinementPhase({
               projectRoot: ctx.projectRoot,
@@ -622,27 +622,24 @@ export function registerRunCommand(program: Command): void {
                 if (!state) return;
                 switch (event) {
                   case 'tier1-done':
-                    state.updateTask('refinement', `Tier 1 done (${detail})`);
-                    state.relabelTask('refinement', 'Tier 2 — coherence');
+                    state.updateTask('refinement', `auto-resolve done (${detail})`);
                     break;
                   case 'tier2-done':
-                    state.updateTask('refinement', `Tier 2 done (${detail})`);
-                    state.relabelTask('refinement', 'Tier 3 — investigation');
+                    state.updateTask('refinement', `coherence done (${detail})`);
                     break;
                   case 'tier3-shard':
-                    state.updateTask('refinement', `Tier 3 — ${detail}`);
+                    state.updateTask('refinement', detail ?? '');
                     break;
                   case 'tier3-done':
-                    state.completeTask('refinement', `Done — ${detail}`);
+                    state.completeTask('refinement', detail ?? 'done');
                     break;
                 }
                 // Plain mode sequential logging (use logPlain to bypass console.log suppression)
                 if (ctx.plain && event === 'tier3-shard') {
-                  ctx.renderer?.logPlain(`[refinement]   ${detail}`);
+                  ctx.renderer?.logPlain(`[deliberation]   ${detail}`);
                 }
                 if (ctx.plain && event.endsWith('-done')) {
-                  const tier = event.replace('-done', '');
-                  ctx.renderer?.logPlain(`[refinement] \u2714 ${tier} — ${detail}`);
+                  ctx.renderer?.logPlain(`[deliberation] \u2714 ${detail}`);
                 }
               },
             });

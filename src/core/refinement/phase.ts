@@ -188,11 +188,18 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     }
   }
 
-  const t3Parts = [`${tier3Stats.investigated} investigated`];
-  if (tier3Stats.confirmed) t3Parts.push(`${tier3Stats.confirmed} confirmed`);
-  if (tier3Stats.reclassified) t3Parts.push(`${tier3Stats.reclassified} reclassified`);
-  const t3Suffix = tier3DurationMs > 0 ? ` (${(tier3DurationMs / 1000).toFixed(1)}s)` : '';
-  ctx.onProgress?.('tier3-done', t3Parts.join(', ') + t3Suffix);
+  const summaryParts: string[] = [];
+  if (tier1TotalStats.resolved) summaryParts.push(`${tier1TotalStats.resolved} auto-resolved`);
+  if (tier2TotalStats.resolved) summaryParts.push(`${tier2TotalStats.resolved} coherence-resolved`);
+  if (tier3Stats.investigated) {
+    const t3Sub: string[] = [`${tier3Stats.investigated} investigated`];
+    if (tier3Stats.confirmed) t3Sub.push(`${tier3Stats.confirmed} confirmed`);
+    if (tier3Stats.reclassified) t3Sub.push(`${tier3Stats.reclassified} reclassified`);
+    summaryParts.push(t3Sub.join(', '));
+  }
+  if (summaryParts.length === 0) summaryParts.push('no changes');
+  const totalSuffix = tier3DurationMs > 0 ? ` (${(tier3DurationMs / 1000).toFixed(1)}s)` : '';
+  ctx.onProgress?.('tier3-done', summaryParts.join(' · ') + totalSuffix);
 
   // --- Write refined ReviewFiles back to disk ---
   for (const review of finalReviews.values()) {
