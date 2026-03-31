@@ -40,6 +40,7 @@ export interface LlmResponse {
 import { Semaphore } from '../sdk-semaphore.js';
 import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
 import { retryWithBackoff } from '../../utils/rate-limiter.js';
+import { extractJson } from '../../utils/extract-json.js';
 
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
@@ -121,6 +122,9 @@ export interface AgenticRequest extends LlmRequest {
   maxTurns?: number;
   /** Project config — needed for model resolution and tool configuration. */
   config: import('../../schemas/config.js').Config;
+  /** When provided, the response text is validated against this Zod schema.
+   *  On validation failure, the LLM is re-prompted with the error in the same session. */
+  responseSchema?: import('zod').ZodType;
 }
 
 /** Configuration for the mode-aware TransportRouter. */
@@ -279,9 +283,49 @@ export class TransportRouter {
             throw new Error(`Transport '${transport.provider}' does not support agentic queries`);
           }
 
+          // Attempt 1
           const response = await transport.agenticQuery(params);
-          success = true;
-          return response;
+
+          // If no schema to validate, return as-is
+          if (!params.responseSchema) {
+            success = true;
+            return response;
+          }
+
+          // Validate response against schema
+          const v1 = this._tryValidateResponse(response.text, params.responseSchema);
+          if (v1.success) {
+            success = true;
+            return response;
+          }
+
+          // Attempt 2: retry with Zod error feedback in the same session
+          const feedback = `Your JSON output failed validation:\n  ${v1.error}\n\nFix these issues and output ONLY the corrected JSON object. No markdown fences, no explanation.`;
+          const retry = await transport.agenticQuery({
+            ...params,
+            userMessage: feedback,
+            resumeSessionId: response.sessionId,
+            attempt: (params.attempt ?? 1) + 1,
+            retryReason: 'zod_validation_failed',
+          });
+
+          const v2 = this._tryValidateResponse(retry.text, params.responseSchema);
+          if (v2.success) {
+            success = true;
+            // Accumulate metrics from both attempts
+            return {
+              ...retry,
+              costUsd: response.costUsd + retry.costUsd,
+              durationMs: response.durationMs + retry.durationMs,
+              inputTokens: response.inputTokens + retry.inputTokens,
+              outputTokens: response.outputTokens + retry.outputTokens,
+              cacheReadTokens: (response.cacheReadTokens ?? 0) + (retry.cacheReadTokens ?? 0),
+              cacheCreationTokens: (response.cacheCreationTokens ?? 0) + (retry.cacheCreationTokens ?? 0),
+              transcript: response.transcript + '\n---\n[Zod retry]\n' + retry.transcript,
+            };
+          }
+
+          throw new Error(`Agentic validation failed after 2 attempts: ${v2.error}`);
         } finally {
           release({ success });
         }
@@ -294,6 +338,18 @@ export class TransportRouter {
         filePath: `agentic:${params.model}`,
       },
     );
+  }
+
+  /** Validate response text against a Zod schema (extract JSON first). */
+  private _tryValidateResponse(text: string, schema: import('zod').ZodType): { success: true } | { success: false; error: string } {
+    try {
+      const jsonStr = extractJson(text);
+      if (!jsonStr) return { success: false, error: 'No valid JSON found in response' };
+      schema.parse(JSON.parse(jsonStr));
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /** Get semaphore stats (active/total) for all providers. */

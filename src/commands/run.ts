@@ -529,6 +529,7 @@ export function registerRunCommand(program: Command): void {
                   conversationDir: join(ctx.runDir, 'conversations'),
                   conversationPrefix: `tier3-shard-${Date.now()}`,
                   attempt: 1,
+                  responseSchema: DeliberationResponseSchema,
                 });
 
                 const jsonStr = extractJson(response.text);
