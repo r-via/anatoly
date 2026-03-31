@@ -518,107 +518,36 @@ export function registerRunCommand(program: Command): void {
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
               queryFn: async (params) => {
-                const start = Date.now();
-                const shardId = `tier3-shard-${Date.now()}`;
-                const slot = await ctx.router?.acquireSlot(params.model);
-                let success = false;
-                try {
-                  const q = query({
-                    prompt: params.userMessage,
-                    options: {
-                      systemPrompt: params.systemPrompt,
-                      model: params.model,
-                      cwd: params.projectRoot,
-                      allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
-                      permissionMode: 'bypassPermissions' as const,
-                      allowDangerouslySkipPermissions: true,
-                      abortController: params.abortController,
-                    },
-                  });
+                const response = await ctx.router!.agenticQuery({
+                  systemPrompt: params.systemPrompt,
+                  userMessage: params.userMessage,
+                  model: params.model,
+                  projectRoot: params.projectRoot,
+                  abortController: params.abortController,
+                  allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
+                  maxTurns: ctx.config.agents.max_turns,
+                  config: ctx.config,
+                  conversationDir: join(ctx.runDir, 'conversations'),
+                  conversationPrefix: `tier3-shard-${Date.now()}`,
+                  attempt: 1,
+                });
 
-                  let resultText = '';
-                  let costUsd = 0;
-                  let inputTokens = 0;
-                  let outputTokens = 0;
-                  let cacheReadTokens = 0;
-                  let cacheCreationTokens = 0;
-
-                  for await (const message of q) {
-                    if (message.type === 'result') {
-                      if (message.subtype === 'success') {
-                        resultText = (message as { result: string }).result;
-                        costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-                      } else {
-                        const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-                        throw new Error(`Tier 3 SDK error [${message.subtype}]: ${errMsg}`);
-                      }
-                    }
-                    if (message.type === 'usage') {
-                      const u = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }).usage;
-                      if (u) {
-                        inputTokens += u.input_tokens ?? 0;
-                        outputTokens += u.output_tokens ?? 0;
-                        cacheReadTokens += u.cache_read_input_tokens ?? 0;
-                        cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
-                      }
-                    }
-                  }
-
-                  // Extract JSON from the agentic response
-                  const jsonStr = extractJson(resultText);
-                  if (!jsonStr) {
-                    throw new Error('Tier 3: no valid JSON found in agentic response');
-                  }
-                  const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
-
-                  // Dump tier 3 conversation transcript
-                  try {
-                    const convDir = join(ctx.runDir, 'conversations');
-                    mkdirSync(convDir, { recursive: true });
-                    const durationMs = Date.now() - start;
-                    const log = [
-                      `# Tier 3 Investigation — ${shardId}`,
-                      '',
-                      `| Field | Value |`,
-                      `|-------|-------|`,
-                      `| Model | ${params.model} |`,
-                      `| Duration | ${(durationMs / 1000).toFixed(1)}s |`,
-                      `| Cost | $${costUsd.toFixed(4)} |`,
-                      `| Input tokens | ${inputTokens} |`,
-                      `| Output tokens | ${outputTokens} |`,
-                      `| Timestamp | ${new Date().toISOString()} |`,
-                      '',
-                      '## System',
-                      '',
-                      params.systemPrompt,
-                      '',
-                      '## User',
-                      '',
-                      params.userMessage,
-                      '',
-                      '## Agent Response',
-                      '',
-                      resultText,
-                    ].join('\n');
-                    writeFileSync(join(convDir, `${shardId}.md`), log);
-                  } catch {
-                    // non-critical
-                  }
-
-                  success = true;
-                  return {
-                    data: parsed,
-                    costUsd,
-                    durationMs: Date.now() - start,
-                    inputTokens,
-                    outputTokens,
-                    cacheReadTokens,
-                    cacheCreationTokens,
-                    transcript: resultText,
-                  };
-                } finally {
-                  slot?.release({ success });
+                const jsonStr = extractJson(response.text);
+                if (!jsonStr) {
+                  throw new Error('Tier 3: no valid JSON found in agentic response');
                 }
+                const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
+
+                return {
+                  data: parsed,
+                  costUsd: response.costUsd,
+                  durationMs: response.durationMs,
+                  inputTokens: response.inputTokens,
+                  outputTokens: response.outputTokens,
+                  cacheReadTokens: response.cacheReadTokens,
+                  cacheCreationTokens: response.cacheCreationTokens,
+                  transcript: response.transcript,
+                };
               },
               recordFn: (pr, entry) => recordReclassification(pr, entry),
               onProgress: (event, detail) => {

@@ -38,6 +38,7 @@ export interface LlmResponse {
 
 import { Semaphore } from '../sdk-semaphore.js';
 import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
+import { retryWithBackoff } from '../../utils/rate-limiter.js';
 
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
@@ -46,6 +47,8 @@ export interface LlmTransport {
   readonly provider: string;
   supports(model: string): boolean;
   query(params: LlmRequest): Promise<LlmResponse>;
+  /** When implemented, the transport supports agentic multi-turn queries with tools. */
+  agenticQuery?(params: AgenticRequest): Promise<LlmResponse>;
 }
 
 /**
@@ -106,6 +109,18 @@ export interface ProviderModeConfig {
 
 /** Task type for mode resolution. */
 export type TaskType = 'single_turn' | 'agents';
+
+/**
+ * Extended request for agentic (multi-turn, tool-use) queries.
+ */
+export interface AgenticRequest extends LlmRequest {
+  /** Tool names the agent may invoke (e.g. 'Read', 'Grep', 'Glob', 'Bash', 'WebFetch'). */
+  allowedTools: string[];
+  /** Maximum agentic turns. When omitted, uses the provider's default. */
+  maxTurns?: number;
+  /** Project config — needed for model resolution and tool configuration. */
+  config: import('../../schemas/config.js').Config;
+}
 
 /** Configuration for the mode-aware TransportRouter. */
 export interface TransportRouterConfig {
@@ -235,6 +250,121 @@ export class TransportRouter {
     const { release } = await this.acquireSlot(model);
     const transport = this.resolve(model, task);
     return { transport, release };
+  }
+
+  /**
+   * Run an agentic query (multi-turn with tools) through the appropriate backend.
+   *
+   * - subscription + anthropic → AnthropicTransport._callSdk() with tools (Claude Code subprocess)
+   * - api (any provider)       → runVercelAgent() with bash tool (Vercel AI SDK)
+   *
+   * Handles slot acquisition, circuit breaker, and release automatically.
+   */
+  async agenticQuery(params: AgenticRequest): Promise<LlmResponse> {
+    return retryWithBackoff(
+      async () => {
+        const { release } = await this.acquireSlot(params.model);
+        let success = false;
+        try {
+          const providerId = extractProvider(params.model);
+          const providerConfig = this.providerModes[providerId];
+
+          // Determine effective mode for agentic calls
+          let effectiveMode: 'subscription' | 'api' = providerConfig?.mode ?? 'api';
+          if (providerConfig?.agents) {
+            effectiveMode = providerConfig.agents;
+          }
+
+          let response: LlmResponse;
+
+          if (effectiveMode === 'subscription') {
+            const native = this.nativeTransports[providerId];
+            if (native?.agenticQuery) {
+              response = await native.agenticQuery(params);
+            } else {
+              process.stderr.write(`⚠ ${providerId}: subscription agentic not available — falling back to API\n`);
+              response = await this._runVercelAgent(params);
+            }
+          } else {
+            response = await this._runVercelAgent(params);
+          }
+
+          success = true;
+          return response;
+        } finally {
+          release({ success });
+        }
+      },
+      {
+        maxRetries: 3,
+        baseDelayMs: 5000,
+        maxDelayMs: 60_000,
+        jitterFactor: 0.2,
+        filePath: `agentic:${params.model}`,
+      },
+    );
+  }
+
+  /**
+   * Run agentic query via Vercel AI SDK (api mode fallback).
+   * Lazy-imports runVercelAgent to avoid circular dependencies.
+   */
+  private async _runVercelAgent(params: AgenticRequest): Promise<LlmResponse> {
+    const { runVercelAgent } = await import('../agents/vercel-agent.js');
+    const { initConvDump, appendAssistant, appendResult, appendError } = await import('./conversation-dump.js');
+
+    // Conversation dump setup (same as AnthropicTransport)
+    const convDump = params.conversationDir && params.conversationPrefix != null && params.attempt != null
+      ? initConvDump({
+          conversationDir: params.conversationDir,
+          conversationPrefix: params.conversationPrefix,
+          attempt: params.attempt,
+          model: params.model,
+          provider: 'vercel',
+          systemPrompt: params.systemPrompt,
+          userMessage: params.userMessage,
+        })
+      : undefined;
+
+    try {
+      const result = await runVercelAgent({
+        systemPrompt: params.systemPrompt,
+        userMessage: params.userMessage,
+        model: params.model,
+        projectRoot: params.projectRoot,
+        config: params.config,
+        abortController: params.abortController,
+        maxSteps: params.maxTurns ?? params.config.agents.max_turns,
+        allowWrite: false,
+        allowSearch: params.allowedTools.includes('WebSearch'),
+      });
+
+      if (convDump) {
+        appendAssistant(convDump, result.text);
+        appendResult(convDump, {
+          durationMs: result.durationMs,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          success: true,
+        });
+      }
+
+      return {
+        text: result.text,
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        transcript: result.text,
+        sessionId: '',
+      };
+    } catch (err) {
+      if (convDump) appendError(convDump, err);
+      throw err;
+    }
   }
 
   /** Get semaphore stats (active/total) for all providers. */

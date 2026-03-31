@@ -84,7 +84,30 @@ export class AnthropicTransport implements LlmTransport {
     return extractProvider(model) !== 'google';
   }
 
+  /**
+   * Single-turn query: no tools, maxTurns=2.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
+    return this._callSdk(params, { allowedTools: [], maxTurns: 2 });
+  }
+
+  /**
+   * Agentic query: tools + multi-turn. Used by TransportRouter.agenticQuery().
+   */
+  async agenticQuery(params: import('./index.js').AgenticRequest): Promise<LlmResponse> {
+    return this._callSdk(params, {
+      allowedTools: params.allowedTools,
+      maxTurns: params.maxTurns ?? params.config.agents.max_turns,
+    });
+  }
+
+  /**
+   * Shared SDK call logic for both single-turn and agentic modes.
+   */
+  private async _callSdk(
+    params: LlmRequest,
+    opts: { allowedTools: string[]; maxTurns: number },
+  ): Promise<LlmResponse> {
     const {
       userMessage,
       systemPrompt,
@@ -118,8 +141,8 @@ export class AnthropicTransport implements LlmTransport {
         ...(systemPrompt ? { systemPrompt } : {}),
         model,
         cwd: projectRoot,
-        allowedTools: [],
-        maxTurns: 2,
+        allowedTools: opts.allowedTools,
+        maxTurns: opts.maxTurns,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         abortController,

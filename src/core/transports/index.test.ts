@@ -498,3 +498,125 @@ describe('TransportRouter — acquire / acquireSlot / release (Story 46.2)', () 
     expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TransportRouter — agenticQuery dispatch
+// ---------------------------------------------------------------------------
+
+describe('TransportRouter — agenticQuery dispatch', () => {
+  const mockConfig = {
+    agents: { enabled: true, max_turns: 30 },
+    providers: { anthropic: { mode: 'subscription' as const, concurrency: 24 } },
+    models: { quality: 'anthropic/claude-sonnet-4-6', fast: 'anthropic/claude-haiku-4-5', deliberation: 'anthropic/claude-opus-4-6' },
+    runtime: { timeout_per_file: 600, max_retries: 3, concurrency: 8, min_confidence: 70, max_stop_iterations: 3 },
+    axes: {},
+  } as import('../../schemas/config.js').Config;
+
+  const agenticResponse: LlmResponse = {
+    text: 'agentic result',
+    costUsd: 0.05,
+    durationMs: 5000,
+    inputTokens: 1000,
+    outputTokens: 500,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    transcript: '## Agent transcript',
+    sessionId: 'agent-sess',
+  };
+
+  function createAgenticTransport(): LlmTransport {
+    return {
+      provider: 'anthropic',
+      supports: () => true,
+      query: async () => agenticResponse,
+      agenticQuery: async () => agenticResponse,
+    };
+  }
+
+  const baseParams = {
+    systemPrompt: 'You are an investigator.',
+    userMessage: 'Investigate this finding.',
+    model: 'anthropic/claude-opus-4-6',
+    projectRoot: '/tmp/test',
+    abortController: new AbortController(),
+    allowedTools: ['Read', 'Grep', 'Bash'],
+    config: mockConfig,
+  };
+
+  it('routes subscription mode to native agenticQuery', async () => {
+    const agenticTransport = createAgenticTransport();
+    const stubVercel = createStubTransport('vercel-sdk', () => true);
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: agenticTransport },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 24 } },
+    });
+
+    const result = await router.agenticQuery(baseParams);
+    expect(result.text).toBe('agentic result');
+    expect(result.costUsd).toBe(0.05);
+  });
+
+  it('falls back to Vercel when native transport has no agenticQuery', async () => {
+    const plainTransport = createStubTransport('anthropic', () => true);
+    // plainTransport has no agenticQuery — should fallback
+    const stubVercel = createStubTransport('vercel-sdk', () => true);
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: plainTransport },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 24 } },
+    });
+
+    // _runVercelAgent will be called — this will fail because runVercelAgent
+    // needs real Vercel setup. We test by catching the import error.
+    await expect(router.agenticQuery(baseParams)).rejects.toThrow();
+  });
+
+  it('throws when circuit breaker is open', async () => {
+    const agenticTransport = createAgenticTransport();
+    const stubVercel = createStubTransport('vercel-sdk', () => true);
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: agenticTransport },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 24 } },
+    });
+
+    // Trip the breaker
+    const breaker = router.breakers.get('anthropic')!;
+    for (let i = 0; i < 10; i++) breaker.recordFailure();
+
+    await expect(router.agenticQuery(baseParams)).rejects.toThrow('circuit breaker is open');
+  });
+
+  it('releases slot on success', async () => {
+    const agenticTransport = createAgenticTransport();
+    const stubVercel = createStubTransport('vercel-sdk', () => true);
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: agenticTransport },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 2 } },
+    });
+
+    await router.agenticQuery(baseParams);
+    expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(0);
+  });
+
+  it('releases slot on failure', async () => {
+    const failTransport: LlmTransport = {
+      provider: 'anthropic',
+      supports: () => true,
+      query: async () => { throw new Error('boom'); },
+      agenticQuery: async () => { throw new Error('boom'); },
+    };
+    const stubVercel = createStubTransport('vercel-sdk', () => true);
+    const router = new TransportRouter({
+      nativeTransports: { anthropic: failTransport },
+      vercelSdkTransport: stubVercel,
+      providerModes: { anthropic: { mode: 'subscription', concurrency: 2 } },
+    });
+
+    // retryWithBackoff will exhaust retries then throw
+    await expect(router.agenticQuery(baseParams)).rejects.toThrow('boom');
+    expect(router.getSemaphoreStats().get('anthropic')!.active).toBe(0);
+  });
+});

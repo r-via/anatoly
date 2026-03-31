@@ -96,6 +96,8 @@ export const AgentsConfigSchema = z.object({
   scaffolding: z.string().optional(),
   review: z.string().optional(),
   deliberation: z.string().optional(),
+  /** Maximum agentic turns for multi-turn tool-use queries (tier 3, doc generation). */
+  max_turns: z.int().min(1).max(200).default(30),
 });
 
 // --- v1.0 Runtime ---
@@ -189,7 +191,7 @@ export const ConfigSchema = z.object({
     fast: 'anthropic/claude-haiku-4-5-20251001',
     deliberation: 'anthropic/claude-opus-4-6',
   }),
-  agents: AgentsConfigSchema.default({ enabled: true }),
+  agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
   runtime: RuntimeConfigSchema.default({
     timeout_per_file: 600,
     max_retries: 3,
