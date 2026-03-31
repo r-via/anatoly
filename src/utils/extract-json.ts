@@ -7,10 +7,19 @@
  * Returns the raw JSON string or null if no valid JSON structure is found.
  */
 export function extractJson(text: string): string | null {
-  // Try extracting from markdown code fences first
-  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
+  // Try extracting from explicitly tagged ```json fences first (not ```rust, ```ts, etc.)
+  const jsonFenceMatch = text.match(/```json\s*\n([\s\S]*?)\n```/);
+  if (jsonFenceMatch) {
+    return jsonFenceMatch[1].trim();
+  }
+
+  // Try untagged ``` fences only if content starts with { or [
+  const bareFenceMatch = text.match(/```\s*\n([\s\S]*?)\n```/);
+  if (bareFenceMatch) {
+    const content = bareFenceMatch[1].trim();
+    if (content.startsWith('{') || content.startsWith('[')) {
+      return content;
+    }
   }
 
   // Find the first { or [ and track nesting to find its matching closer
