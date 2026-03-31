@@ -30,6 +30,8 @@ export interface RefinementContext {
   abortController: AbortController;
   deliberation: boolean;
   plain: boolean;
+  /** Files that were freshly reviewed (not cached) in this run — their deliberation cache entries are invalidated. */
+  freshFiles?: Set<string>;
   /** Progress callback for UI updates. */
   onProgress?: (event: ProgressEvent, detail?: string) => void;
   /** Injectable loadReviews for testability. */
@@ -149,7 +151,8 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   allEscalated.push(...crossFileFindings);
   tier2TotalStats.escalated += crossFileFindings.length;
 
-  const t2Detail = `${tier2TotalStats.resolved}/${tier1Remaining} resolved, ${tier2TotalStats.escalated} escalated` +
+  const tier2Confirmed = tier1Remaining - tier2TotalStats.resolved - tier2TotalStats.escalated;
+  const t2Detail = `${tier2TotalStats.resolved}/${tier1Remaining} resolved, ${tier2TotalStats.escalated} escalated, ${tier2Confirmed} confirmed` +
     (crossFileFindings.length > 0 ? ` (${crossFileFindings.length} systemic)` : '');
   ctx.onProgress?.('tier2-done', t2Detail);
 
@@ -171,9 +174,14 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
       abortController: ctx.abortController,
       reviewsByFile: finalReviews,
       budgetUsd: 30,
+      freshFiles: ctx.freshFiles,
       queryFn: ctx.queryFn,
       recordFn: ctx.recordFn,
       onShardDone: (idx, total, result) => {
+        if (result.status === 'cached') {
+          ctx.onProgress?.('tier3-shard', `[CACHED] shard ${idx}/${total} ${result.module} — ${result.investigated} findings`);
+          return;
+        }
         const status = result.status === 'ok'
           ? `${result.confirmed} confirmed, ${result.reclassified} reclassified`
           : result.error ? `${result.status}: ${result.error}` : result.status;

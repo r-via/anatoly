@@ -2,6 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   buildShards,
@@ -178,6 +180,8 @@ describe('buildShards', () => {
 describe('runTier3', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Clear any stale global cache from previous test runs
+    try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinement-cache.json'), { force: true }); } catch { /* ok */ }
   });
 
   // --- AC: Agent investigates and produces confirmed/reclassified verdicts ---

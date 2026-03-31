@@ -64,6 +64,7 @@ import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type Pro
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { runRefinementPhase, type RefinementResult } from '../core/refinement/phase.js';
+import { clearRefinementCache } from '../core/refinement/tier3.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -115,6 +116,8 @@ interface RunContext {
   totalFiles: number;
   /** Count of skipped (triage), cached (previous run), and evaluated files */
   reviewCounts: { skipped: number; cached: number; evaluated: number };
+  /** Files freshly reviewed (not cached) this run — used to invalidate deliberation cache */
+  freshFiles: Set<string>;
   /** Epoch timestamp when the run started */
   startTime: number;
   /** All loaded tasks — set during setup phase, used in report phase for time estimation */
@@ -348,6 +351,7 @@ export function registerRunCommand(program: Command): void {
         totalFindings: 0,
         totalFiles: 0,
         reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },
+        freshFiles: new Set<string>(),
         startTime: Date.now(),
         allTasks: [],
         triageMap: new Map(),
@@ -513,6 +517,7 @@ export function registerRunCommand(program: Command): void {
               preResolvedRag: new Map(), // RAG results are per-file, not cached globally
               abortController: (() => { const ac = new AbortController(); ctx.activeAborts.add(ac); return ac; })(),
               deliberation: ctx.deliberation,
+              freshFiles: ctx.freshFiles,
               plain: ctx.plain,
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
@@ -1559,6 +1564,7 @@ async function runReviewPhase(
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
     }
+    clearRefinementCache(ctx.projectRoot);
   }
 
   let pending = pm.getPendingFiles();
@@ -1740,6 +1746,7 @@ async function runReviewPhase(
         pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
         ctx.filesReviewed++;
         ctx.reviewCounts.evaluated++;
+        ctx.freshFiles.add(filePath);
         completedCount++;
         ctx.totalFindings += countReviewFindings(result.review, 60);
         ctx.totalCostUsd += result.costUsd;

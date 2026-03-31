@@ -2,8 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { dirname, join } from 'node:path';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import type { ReviewFile } from '../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
 import {
@@ -55,6 +55,8 @@ export interface Tier3Context {
   queryFn: (params: QueryParams) => Promise<QueryResult>;
   /** Injectable record function for testability. Default: recordReclassification. */
   recordFn?: (projectRoot: string, entry: Omit<ReclassificationEntry, 'recorded_at'>) => void;
+  /** Files freshly reviewed this run — their cache entries are evicted. */
+  freshFiles?: Set<string>;
   /** Progress callback fired after each shard completes. */
   onShardDone?: (shardIndex: number, totalShards: number, result: ShardResult) => void;
 }
@@ -80,7 +82,7 @@ export interface QueryResult {
 
 export interface ShardResult {
   module: string;
-  status: 'ok' | 'failed' | 'skipped';
+  status: 'ok' | 'failed' | 'skipped' | 'cached';
   investigated: number;
   confirmed: number;
   reclassified: number;
@@ -109,23 +111,28 @@ function findingCacheKey(file: string, symbol: string, axis: string): string {
   return `${file}::${symbol}::${axis}`;
 }
 
-function cachePath(runDir: string): string {
-  return join(runDir, 'refinement-cache.json');
+function cachePath(projectRoot: string): string {
+  return resolve(projectRoot, '.anatoly', 'cache', 'refinement-cache.json');
 }
 
-export function loadRefinementCache(runDir: string): RefinementCache {
+export function loadRefinementCache(projectRoot: string): RefinementCache {
   try {
-    const raw = readFileSync(cachePath(runDir), 'utf-8');
+    const raw = readFileSync(cachePath(projectRoot), 'utf-8');
     return JSON.parse(raw) as RefinementCache;
   } catch {
     return { investigated: {} };
   }
 }
 
-function saveRefinementCache(runDir: string, cache: RefinementCache): void {
+export function clearRefinementCache(projectRoot: string): void {
+  try { rmSync(cachePath(projectRoot), { force: true }); } catch { /* ok */ }
+}
+
+function saveRefinementCache(projectRoot: string, cache: RefinementCache): void {
   try {
-    mkdirSync(dirname(cachePath(runDir)), { recursive: true });
-    writeFileSync(cachePath(runDir), JSON.stringify(cache, null, 2) + '\n');
+    const dir = resolve(projectRoot, '.anatoly', 'cache');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(cachePath(projectRoot), JSON.stringify(cache, null, 2) + '\n');
   } catch {
     // non-critical
   }
@@ -196,8 +203,22 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   let totalDurationMs = 0;
   let budgetExceeded = false;
 
-  // Load refinement cache — skip findings already investigated in a previous run/attempt
-  const cache = ctx.runDir ? loadRefinementCache(ctx.runDir) : { investigated: {} };
+  // Load refinement cache — skip findings already investigated in a previous run
+  const cache = loadRefinementCache(ctx.projectRoot);
+
+  // Evict cache entries for files that were freshly reviewed (their findings may have changed)
+  if (ctx.freshFiles && ctx.freshFiles.size > 0) {
+    let evicted = 0;
+    for (const key of Object.keys(cache.investigated)) {
+      const file = key.split('::')[0];
+      if (ctx.freshFiles.has(file)) {
+        delete cache.investigated[key];
+        evicted++;
+      }
+    }
+    if (evicted > 0) saveRefinementCache(ctx.projectRoot, cache);
+  }
+
   let cacheHits = 0;
 
   // Filter already-cached findings from shards and apply cached results
@@ -227,6 +248,19 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
     }
     if (uncached.length > 0) {
       filteredShards.push({ module: shard.module, findings: uncached });
+    } else {
+      // Entire shard was cached — report it
+      const cachedResult: ShardResult = {
+        module: shard.module,
+        status: 'cached',
+        investigated: shard.findings.length,
+        confirmed: shard.findings.length,
+        reclassified: 0,
+        costUsd: 0,
+        durationMs: 0,
+      };
+      shardResults.push(cachedResult);
+      ctx.onShardDone?.(shardResults.length, shards.length, cachedResult);
     }
   }
 
@@ -245,7 +279,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         error: `Budget exceeded ($${totalCostUsd.toFixed(2)} >= $${ctx.budgetUsd})`,
       };
       shardResults.push(skipped);
-      ctx.onShardDone?.(shardResults.length, filteredShards.length, skipped);
+      ctx.onShardDone?.(shardResults.length, shards.length, skipped);
       continue;
     }
 
@@ -254,10 +288,10 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
       totalCostUsd += result.costUsd;
       totalDurationMs += result.durationMs;
       shardResults.push(result);
-      ctx.onShardDone?.(shardResults.length, filteredShards.length, result);
+      ctx.onShardDone?.(shardResults.length, shards.length, result);
 
       // Persist each investigated finding to cache immediately
-      if (ctx.runDir && result.deliberation) {
+      if (result.deliberation) {
         for (const sym of result.deliberation.symbols) {
           for (const axis of DELIBERATION_AXES) {
             const orig = sym.original[axis];
@@ -274,7 +308,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
             };
           }
         }
-        saveRefinementCache(ctx.runDir, cache);
+        saveRefinementCache(ctx.projectRoot, cache);
       }
     } catch (err) {
       const failed: ShardResult = {
@@ -288,7 +322,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         error: err instanceof Error ? err.message : String(err),
       };
       shardResults.push(failed);
-      ctx.onShardDone?.(shardResults.length, filteredShards.length, failed);
+      ctx.onShardDone?.(shardResults.length, shards.length, failed);
     }
   }
 
