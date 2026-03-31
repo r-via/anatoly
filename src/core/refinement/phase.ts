@@ -86,8 +86,10 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     return { ...emptyResult, skipped: false };
   }
 
+  const totalFindings = reviews.reduce((sum, r) => sum + r.symbols.length, 0);
+
   // --- Tier 1: Deterministic auto-resolve ---
-  ctx.onProgress?.('tier1-start', `${reviews.length} files`);
+  ctx.onProgress?.('tier1-start', `${reviews.length} files, ${totalFindings} findings`);
 
   const tier1Ctx: Tier1Context = {
     usageGraph: ctx.usageGraph ?? { usages: new Map(), typeOnlyUsages: new Map(), intraFileRefs: new Map(), noImportFiles: new Set() },
@@ -124,10 +126,11 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   if (bd.correctionBoundsResolved) parts.push(`${bd.correctionBoundsResolved} bounds→OK`);
   if (bd.correctionGeneratedDowngraded) parts.push(`${bd.correctionGeneratedDowngraded} generated↓`);
   const breakdownStr = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved} resolved${breakdownStr}`);
+  const tier1Remaining = totalFindings - tier1TotalStats.resolved;
+  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved}/${totalFindings} resolved, ${tier1Remaining} remaining${breakdownStr}`);
 
   // --- Tier 2: Inter-axis coherence ---
-  ctx.onProgress?.('tier2-start', `${tier1Reviews.length} files`);
+  ctx.onProgress?.('tier2-start', `${tier1Reviews.length} files, ${tier1Remaining} findings`);
 
   const tier2TotalStats: Tier2Stats = { resolved: 0, escalated: 0 };
   const allEscalated: EscalatedFinding[] = [];
@@ -146,7 +149,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   allEscalated.push(...crossFileFindings);
   tier2TotalStats.escalated += crossFileFindings.length;
 
-  const t2Detail = `${tier2TotalStats.resolved} resolved, ${tier2TotalStats.escalated} escalated` +
+  const t2Detail = `${tier2TotalStats.resolved}/${tier1Remaining} resolved, ${tier2TotalStats.escalated} escalated` +
     (crossFileFindings.length > 0 ? ` (${crossFileFindings.length} systemic)` : '');
   ctx.onProgress?.('tier2-done', t2Detail);
 
