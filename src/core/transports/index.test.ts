@@ -557,9 +557,8 @@ describe('TransportRouter — agenticQuery dispatch', () => {
     expect(result.costUsd).toBe(0.05);
   });
 
-  it('falls back to Vercel when native transport has no agenticQuery', async () => {
+  it('throws when native transport has no agenticQuery', async () => {
     const plainTransport = createStubTransport('anthropic', () => true);
-    // plainTransport has no agenticQuery — should fallback
     const stubVercel = createStubTransport('vercel-sdk', () => true);
     const router = new TransportRouter({
       nativeTransports: { anthropic: plainTransport },
@@ -567,9 +566,7 @@ describe('TransportRouter — agenticQuery dispatch', () => {
       providerModes: { anthropic: { mode: 'subscription', concurrency: 24 } },
     });
 
-    // _runVercelAgent will be called — this will fail because runVercelAgent
-    // needs real Vercel setup. We test by catching the import error.
-    await expect(router.agenticQuery(baseParams)).rejects.toThrow();
+    await expect(router.agenticQuery(baseParams)).rejects.toThrow('does not support agentic queries');
   });
 
   it('throws when circuit breaker is open', async () => {

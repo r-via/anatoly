@@ -88,23 +88,23 @@ export class AnthropicTransport implements LlmTransport {
    * Single-turn query: no tools, maxTurns=2.
    */
   async query(params: LlmRequest): Promise<LlmResponse> {
-    return this._callSdk(params, { allowedTools: [], maxTurns: 2 });
+    return this._execute(params, { allowedTools: [], maxTurns: 2 });
   }
 
   /**
-   * Agentic query: tools + multi-turn. Used by TransportRouter.agenticQuery().
+   * Agentic query: tools + multi-turn via Claude Code subprocess.
    */
   async agenticQuery(params: import('./index.js').AgenticRequest): Promise<LlmResponse> {
-    return this._callSdk(params, {
+    return this._execute(params, {
       allowedTools: params.allowedTools,
       maxTurns: params.maxTurns ?? params.config.agents.max_turns,
     });
   }
 
   /**
-   * Shared SDK call logic for both single-turn and agentic modes.
+   * Shared SDK execution logic for both single-turn and agentic modes.
    */
-  private async _callSdk(
+  private async _execute(
     params: LlmRequest,
     opts: { allowedTools: string[]; maxTurns: number },
   ): Promise<LlmResponse> {

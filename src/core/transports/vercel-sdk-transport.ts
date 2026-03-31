@@ -7,7 +7,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
+import type { LlmTransport, LlmRequest, LlmResponse, AgenticRequest } from './index.js';
 import { extractProvider } from './index.js';
 import { resolveProvider } from '../providers/known-providers.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
@@ -79,6 +79,9 @@ export class VercelSdkTransport implements LlmTransport {
     return true;
   }
 
+  /**
+   * Single-turn query: no tools.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
     const { systemPrompt, userMessage, model: modelId, abortController, conversationDir, conversationPrefix, attempt } = params;
     const start = Date.now();
@@ -173,6 +176,107 @@ export class VercelSdkTransport implements LlmTransport {
           },
         },
         'LLM call failed',
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Agentic query: tools + multi-turn via Vercel AI SDK generateText() with tools.
+   */
+  async agenticQuery(params: AgenticRequest): Promise<LlmResponse> {
+    const { runVercelAgent } = await import('../agents/vercel-agent.js');
+    const start = Date.now();
+    const providerId = extractProvider(params.model);
+
+    const dump = (params.conversationDir && params.conversationPrefix != null && params.attempt != null)
+      ? initConvDump({
+          conversationDir: params.conversationDir,
+          conversationPrefix: params.conversationPrefix,
+          attempt: params.attempt,
+          model: params.model,
+          provider: `vercel-sdk (${providerId})`,
+          systemPrompt: params.systemPrompt,
+          userMessage: params.userMessage,
+        })
+      : undefined;
+
+    try {
+      const result = await runVercelAgent({
+        systemPrompt: params.systemPrompt,
+        userMessage: params.userMessage,
+        model: params.model,
+        projectRoot: params.projectRoot,
+        config: params.config,
+        abortController: params.abortController,
+        maxSteps: params.maxTurns ?? params.config.agents.max_turns,
+        allowWrite: false,
+        allowSearch: params.allowedTools.includes('WebSearch'),
+      });
+
+      if (dump) {
+        appendAssistant(dump, result.text);
+        appendResult(dump, {
+          durationMs: result.durationMs,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          success: true,
+        });
+      }
+
+      contextLogger().info(
+        {
+          event: 'llm_call',
+          provider: providerId,
+          model: params.model,
+          attempt: params.attempt,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          cacheHitRate: 0,
+          costUsd: result.costUsd,
+          durationMs: result.durationMs,
+          success: true,
+        },
+        'LLM call complete (agentic)',
+      );
+
+      return {
+        text: result.text,
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        transcript: result.text,
+        sessionId: '',
+      };
+    } catch (err) {
+      if (dump) appendError(dump, err);
+
+      contextLogger().info(
+        {
+          event: 'llm_call',
+          provider: providerId,
+          model: params.model,
+          attempt: params.attempt,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          cacheHitRate: 0,
+          costUsd: 0,
+          durationMs: Date.now() - start,
+          success: false,
+          error: {
+            code: 'VERCEL_SDK_ERROR',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        'LLM call failed (agentic)',
       );
       throw err;
     }

@@ -9,7 +9,7 @@ import {
   createSessionId,
 } from '@google/gemini-cli-core';
 import type { GeminiClient } from '@google/gemini-cli-core';
-import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
+import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse, type AgenticRequest } from './index.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, type ConvDump } from './conversation-dump.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
@@ -99,7 +99,25 @@ export class GeminiTransport implements LlmTransport {
     }
   }
 
+  /**
+   * Single-turn query: no tools.
+   */
   async query(params: LlmRequest): Promise<LlmResponse> {
+    return this._execute(params);
+  }
+
+  /**
+   * Agentic query: tools + multi-turn via Gemini CLI.
+   * Currently delegates to single-turn (Gemini CLI tool support is future work).
+   */
+  async agenticQuery(params: AgenticRequest): Promise<LlmResponse> {
+    return this._execute(params);
+  }
+
+  /**
+   * Shared execution logic for Gemini CLI queries.
+   */
+  private async _execute(params: LlmRequest): Promise<LlmResponse> {
     await this.ensureInitialized();
     const client = this.client!;
     const start = Date.now();
@@ -107,9 +125,8 @@ export class GeminiTransport implements LlmTransport {
 
     suppressConsole();
     try {
-      return await this._doQuery(client, params, start, transcriptLines);
+      return await this._stream(client, params, start, transcriptLines);
     } catch (err) {
-      // Emit structured llm_call event for failure
       contextLogger().info(
         {
           event: 'llm_call',
@@ -138,7 +155,7 @@ export class GeminiTransport implements LlmTransport {
     }
   }
 
-  private async _doQuery(
+  private async _stream(
     client: GeminiClient,
     params: LlmRequest,
     start: number,
