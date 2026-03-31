@@ -33,7 +33,8 @@ export interface LlmResponse {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   transcript: string;
-  sessionId: string;
+  /** Session ID for resume support. Undefined when the transport has no session concept. */
+  sessionId?: string;
 }
 
 import { Semaphore } from '../sdk-semaphore.js';
@@ -259,7 +260,10 @@ export class TransportRouter {
    * with an agents-specific override. Each transport owns its agentic implementation:
    * - AnthropicTransport → Claude Code subprocess with tools
    * - VercelSdkTransport → Vercel AI SDK generateText() with tools
-   * - GeminiTransport    → Gemini CLI (tools support is future work)
+   * - GeminiTransport    → Gemini CLI (falls back to single-turn, tools not yet supported)
+   *
+   * **Retry contract:** This method manages retry/backoff internally (3 retries, 5s base,
+   * 60s max, jitter 0.2). Callers MUST NOT wrap calls in their own retryWithBackoff.
    *
    * Handles slot acquisition, circuit breaker, retry/backoff, and release.
    */

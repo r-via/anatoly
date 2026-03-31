@@ -108,9 +108,13 @@ export class GeminiTransport implements LlmTransport {
 
   /**
    * Agentic query: tools + multi-turn via Gemini CLI.
-   * Currently delegates to single-turn (Gemini CLI tool support is future work).
+   * Currently delegates to single-turn — Gemini CLI tool support is future work.
    */
   async agenticQuery(params: AgenticRequest): Promise<LlmResponse> {
+    contextLogger().warn(
+      { event: 'agentic_fallback', provider: 'gemini', tools: params.allowedTools },
+      'gemini: agenticQuery called but tool support not implemented — running as single-turn',
+    );
     return this._execute(params);
   }
 
@@ -252,7 +256,7 @@ export class GeminiTransport implements LlmTransport {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       transcript: transcriptLines.join('\n'),
-      sessionId: '',
+      sessionId: undefined,
     };
   }
 }

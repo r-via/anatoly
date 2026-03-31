@@ -13,6 +13,7 @@ import { resolveProvider } from '../providers/known-providers.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, appendError } from './conversation-dump.js';
+import { runVercelAgent } from '../agents/vercel-agent.js';
 import type { Config } from '../../schemas/config.js';
 
 /**
@@ -150,7 +151,7 @@ export class VercelSdkTransport implements LlmTransport {
         cacheReadTokens,
         cacheCreationTokens: 0,
         transcript: transcriptLines.join('\n'),
-        sessionId: '',
+        sessionId: undefined,
       };
     } catch (err) {
       if (dump) appendError(dump, err);
@@ -185,7 +186,6 @@ export class VercelSdkTransport implements LlmTransport {
    * Agentic query: tools + multi-turn via Vercel AI SDK generateText() with tools.
    */
   async agenticQuery(params: AgenticRequest): Promise<LlmResponse> {
-    const { runVercelAgent } = await import('../agents/vercel-agent.js');
     const start = Date.now();
     const providerId = extractProvider(params.model);
 
@@ -252,7 +252,7 @@ export class VercelSdkTransport implements LlmTransport {
         cacheReadTokens: 0,
         cacheCreationTokens: 0,
         transcript: result.text,
-        sessionId: '',
+        sessionId: undefined,
       };
     } catch (err) {
       if (dump) appendError(dump, err);

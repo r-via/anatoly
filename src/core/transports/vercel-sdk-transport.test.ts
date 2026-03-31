@@ -16,6 +16,7 @@ const {
   mockOpenaiFactory,
   mockCompatibleModelFn,
   mockCreateOpenAICompatible,
+  mockRunVercelAgent,
 } = vi.hoisted(() => {
   const mockCompatibleModelFn = vi.fn().mockReturnValue('compatible-model-ref');
   return {
@@ -25,6 +26,7 @@ const {
     mockOpenaiFactory: vi.fn().mockReturnValue('openai-model-ref'),
     mockCompatibleModelFn,
     mockCreateOpenAICompatible: vi.fn().mockReturnValue(mockCompatibleModelFn),
+    mockRunVercelAgent: vi.fn(),
   };
 });
 
@@ -33,6 +35,7 @@ vi.mock('@ai-sdk/anthropic', () => ({ anthropic: mockAnthropicFactory }));
 vi.mock('@ai-sdk/google', () => ({ google: mockGoogleFactory }));
 vi.mock('@ai-sdk/openai', () => ({ openai: mockOpenaiFactory }));
 vi.mock('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible: mockCreateOpenAICompatible }));
+vi.mock('../agents/vercel-agent.js', () => ({ runVercelAgent: mockRunVercelAgent }));
 
 // Import after mocks
 import { VercelSdkTransport, getVercelModel } from './vercel-sdk-transport.js';
@@ -177,7 +180,7 @@ describe('VercelSdkTransport', () => {
     expect(response.costUsd).toBeGreaterThan(0);
     expect(response.durationMs).toBeGreaterThanOrEqual(0);
     expect(typeof response.transcript).toBe('string');
-    expect(typeof response.sessionId).toBe('string');
+    expect(response.sessionId).toBeUndefined();
   });
 
   it('query() should map usage fields correctly', async () => {
@@ -238,5 +241,82 @@ describe('VercelSdkTransport', () => {
 
     const transport = new VercelSdkTransport(makeConfig());
     await expect(transport.query(makeRequest('anthropic/claude-sonnet-4-6'))).rejects.toThrow('Rate limited');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VercelSdkTransport — agenticQuery
+// ---------------------------------------------------------------------------
+
+describe('VercelSdkTransport — agenticQuery', () => {
+  beforeEach(() => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+    mockRunVercelAgent.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  it('should delegate to runVercelAgent and return LlmResponse', async () => {
+    mockRunVercelAgent.mockResolvedValue({
+      text: 'investigation result',
+      costUsd: 0.10,
+      durationMs: 3000,
+      inputTokens: 500,
+      outputTokens: 200,
+    });
+
+    const config = makeConfig();
+    const transport = new VercelSdkTransport(config);
+    const response = await transport.agenticQuery!({
+      systemPrompt: 'Investigate.',
+      userMessage: 'Check this finding.',
+      model: 'anthropic/claude-opus-4-6',
+      projectRoot: '/tmp/test',
+      abortController: new AbortController(),
+      allowedTools: ['Read', 'Grep', 'Bash'],
+      config,
+    });
+
+    expect(response.text).toBe('investigation result');
+    expect(response.costUsd).toBe(0.10);
+    expect(response.inputTokens).toBe(500);
+    expect(response.outputTokens).toBe(200);
+    expect(response.cacheReadTokens).toBe(0);
+    expect(response.sessionId).toBeUndefined();
+    expect(response.transcript).toBe('investigation result');
+    expect(mockRunVercelAgent).toHaveBeenCalledOnce();
+  });
+
+  it('should pass maxTurns from config when not specified', async () => {
+    mockRunVercelAgent.mockResolvedValue({
+      text: 'ok', costUsd: 0, durationMs: 100, inputTokens: 10, outputTokens: 5,
+    });
+
+    const config = makeConfig({ agents: { max_turns: 42 } });
+    const transport = new VercelSdkTransport(config);
+    await transport.agenticQuery!({
+      systemPrompt: '', userMessage: '', model: 'anthropic/claude-opus-4-6',
+      projectRoot: '/tmp/test', abortController: new AbortController(),
+      allowedTools: [], config,
+    });
+
+    expect(mockRunVercelAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ maxSteps: 42 }),
+    );
+  });
+
+  it('should propagate errors from runVercelAgent', async () => {
+    mockRunVercelAgent.mockRejectedValue(new Error('Agent crashed'));
+
+    const config = makeConfig();
+    const transport = new VercelSdkTransport(config);
+    await expect(transport.agenticQuery!({
+      systemPrompt: '', userMessage: '', model: 'anthropic/claude-opus-4-6',
+      projectRoot: '/tmp/test', abortController: new AbortController(),
+      allowedTools: [], config,
+    })).rejects.toThrow('Agent crashed');
   });
 });

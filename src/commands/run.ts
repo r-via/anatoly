@@ -63,7 +63,6 @@ import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/se
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { runRefinementPhase, type RefinementResult } from '../core/refinement/phase.js';
 
 /**
@@ -830,7 +829,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'estimate' });
   log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
-  allTasks = loadTasks(ctx.projectRoot);
+  const rawTasks = loadTasks(ctx.projectRoot);
+  // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
+  const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
+  allTasks = scannedFileSet ? rawTasks.filter((t) => scannedFileSet.has(t.file)) : rawTasks;
   const estimateTasks = ctx.fileFilter
     ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
     : allTasks;
@@ -978,66 +980,22 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
   ctx.pipelineState?.startTask(taskId, startDetail);
 
   let completed = 0;
-  const executor: DocExecutor = ({ system, user, model }) => {
-    return retryWithBackoff(
-      async () => {
-        const q = query({
-          prompt: user,
-          options: {
-            systemPrompt: system,
-            model,
-            cwd: ctx.projectRoot,
-            allowedTools: ['Read'],
-            permissionMode: 'bypassPermissions' as const,
-            allowDangerouslySkipPermissions: true,
-            maxTurns: 200,
-            abortController: ac,
-          },
-        });
-
-        let resultText = '';
-        let costUsd = 0;
-        let rateLimitResetsAt: number | undefined;
-
-        for await (const message of q) {
-          // Detect tier-level rate limit event
-          if (message.type === 'rate_limit_event') {
-            const info = (message as Record<string, unknown>).rate_limit_info as
-              { status?: string; resetsAt?: number } | undefined;
-            if (info?.status === 'rejected' && typeof info.resetsAt === 'number') {
-              rateLimitResetsAt = info.resetsAt * 1000;
-            }
-          }
-
-          if (message.type === 'result') {
-            if (message.subtype === 'success') {
-              resultText = (message as { result: string }).result;
-              costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
-            } else {
-              const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
-              if (rateLimitResetsAt) {
-                const { RateLimitStandbyError } = await import('../utils/rate-limiter.js');
-                throw new RateLimitStandbyError(rateLimitResetsAt);
-              }
-              throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
-            }
-          }
-        }
-
-        return { text: resultText, costUsd };
-      },
-      {
-        maxRetries: 3,
-        baseDelayMs: 5_000,
-        maxDelayMs: 60_000,
-        jitterFactor: 0.2,
-        filePath: 'doc-gen',
-        isInterrupted: () => ctx.interrupted,
-        onRetry: (attempt, delayMs) => {
-          log.warn({ attempt, delayMs }, 'doc generation retrying');
-        },
-      },
-    );
+  const executor: DocExecutor = async ({ system, user, model }) => {
+    // Doc generation uses agentic query with Read tool for file access
+    const response = await ctx.router!.agenticQuery({
+      systemPrompt: system,
+      userMessage: user,
+      model,
+      projectRoot: ctx.projectRoot,
+      abortController: ac,
+      allowedTools: ['Read'],
+      maxTurns: ctx.config.agents.max_turns,
+      config: ctx.config,
+      conversationDir: join(ctx.runDir, 'conversations'),
+      conversationPrefix: `doc-gen-${Date.now()}`,
+      attempt: 1,
+    });
+    return { text: response.text, costUsd: response.costUsd };
   };
 
   try {

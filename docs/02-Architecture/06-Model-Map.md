@@ -40,7 +40,7 @@ Max turns for tier 3: `config.agents.max_turns` (default: 30).
 
 | Stage | Model | Task type | Transport |
 |-------|-------|-----------|-----------|
-| Doc Generation | `config.models.quality` | **Agentic** (Read tool) | Claude SDK `query()` |
+| Doc Generation | `config.models.quality` | **Agentic** (Read tool) | `router.agenticQuery()` |
 | Doc Coherence Review | `config.models.quality` | Single-turn | Per provider mode |
 | Doc Content Review | `config.models.deliberation` | Single-turn | Per provider mode |
 | Doc Update (Gap Filler) | `config.models.quality` | Single-turn | Per provider mode |
@@ -72,19 +72,19 @@ Requires `setup-embeddings`, Docker, NVIDIA Container Toolkit, and 12 GB+ VRAM.
 | Etape | Modele | Mode |
 |-------|--------|------|
 | Doc Chunking | _none_ (programmatic) | Smart H2+H3+paragraph splitter |
-| NLP Summarization (docs) | `claude-haiku-4-5` | Single-turn |
+| NLP Summarization (docs) | `config.models.fast` | Single-turn |
 
 Doc chunking no longer uses an LLM. The `smartChunkDoc()` programmatic chunker splits on H2/H3 heading hierarchy with paragraph-level splitting for large sections, producing chunk distributions comparable to the former Haiku semantic chunker (benchmarked at ~300 chars avg embedText, <1% oversized sections).
 
 ## Summary by Model
 
-| Modele | Role |
-|--------|------|
-| **Claude Haiku 4.5** | Fast/lightweight tasks: utility, duplication, summarization |
-| **Claude Sonnet 4.6** | Deep evaluations: correction, tests, best practices, docs, overengineering, doc generation |
-| **Claude Opus 4.6** | Highest quality: deliberation (reconciliation), doc content review |
-| **Jina v2 / MiniLM** | Local ONNX embeddings (lite backend, CPU) |
-| **Nomic Embed Code / Qwen3 8B** | Local GGUF embeddings (advanced backend, Docker GPU) |
+| Model | Config key | Role |
+|-------|-----------|------|
+| `anthropic/claude-haiku-4-5` | `models.fast` | Fast tasks: utility, duplication, overengineering, NLP summarization |
+| `anthropic/claude-sonnet-4-6` | `models.quality` | Deep evaluations: correction, tests, best practices, documentation, doc generation |
+| `anthropic/claude-opus-4-6` | `models.deliberation` | Tier 3 investigation, doc content review |
+| Jina v2 / MiniLM | `rag.code_model` / `rag.nlp_model` | Local ONNX embeddings (lite backend, CPU) |
+| Nomic Embed Code / Qwen3 8B | `rag.code_model` / `rag.nlp_model` | Local GGUF embeddings (advanced backend, Docker GPU) |
 
 ## Config Defaults (v2 format)
 

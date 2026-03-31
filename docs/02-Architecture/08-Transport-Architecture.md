@@ -85,14 +85,16 @@ Each transport follows the same internal pattern:
 
 ## TransportRouter
 
-The router is a **pure dispatcher** — it resolves the transport, manages concurrency, and delegates. It contains no transport logic.
+The router is a **dispatcher with built-in resilience**. It resolves the transport, manages concurrency, and delegates execution to the transport.
 
 ### Responsibilities
 
 1. **Mode resolution** — `resolve(model, taskType)` returns the correct transport
 2. **Concurrency** — per-provider `Semaphore` (configurable via `providers.<id>.concurrency`)
 3. **Circuit breaking** — per-provider `CircuitBreaker` (trips after consecutive failures, auto-resets)
-4. **Retry/backoff** — `agenticQuery()` wraps calls in `retryWithBackoff` (3 retries, 5s base, 60s max, jitter 0.2)
+4. **Retry/backoff (agentic only)** — `agenticQuery()` wraps calls in `retryWithBackoff` (3 retries, 5s base, 60s max, jitter 0.2). Single-turn retry is managed by the caller (axis evaluator).
+
+> **Retry contract:** `agenticQuery()` manages retry internally — callers MUST NOT add their own retry wrapper. For single-turn calls via `acquire()`, the caller is responsible for retry.
 
 ### Key Methods
 
