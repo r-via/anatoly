@@ -203,13 +203,18 @@ LOW_VALUE symbols no longer keep debatable findings (OVER, UNDOCUMENTED). These 
 
 `applyTier1` now checks `getTypeOnlySymbolUsage` in addition to `getSymbolUsage` and `getTransitiveUsage`. Exported types with type-only importers are auto-resolved to USED.
 
-### Tier 3 — switch to agentic mode
+### Tier 3 — agentic mode via TransportRouter
 
-**Status**: DONE (commit a0f7045)
+**Status**: DONE (commit a0f7045, refactored 55d9e59 + 7db429f)
 
-Replaced `runSingleTurnQuery` in `run.ts` queryFn with full `query()` SDK call:
-- `allowedTools: ['Read', 'Grep', 'Glob']` (Bash removed for security — see sandboxed Bash section above)
-- JSON extracted from agentic response via `extractJson` + Zod validation
+Tier 3 investigation now routes through `TransportRouter.agenticQuery()`:
+- Subscription mode: Claude Code subprocess with full tool access (Read, Grep, Glob, Bash, WebFetch)
+- API mode: Vercel AI SDK agent with bash tool
+- Built-in retry/backoff (3 retries, 5s base, 60s max) and circuit breaker per provider
+- Conversation dumps via shared helpers (all providers)
+- `config.agents.max_turns` configurable (default: 30)
+
+See [Transport Architecture](docs/02-Architecture/08-Transport-Architecture.md) for the full dispatch matrix.
 
 ### Epic 43 — Multi-provider migration & Vercel AI SDK
 
@@ -244,16 +249,19 @@ Post-run summary sent to Telegram as a single photo+caption message with:
 - Username-to-chat-id resolution with caching
 - Non-blocking, graceful degradation if token is missing
 
-### Epic 46 — Transport-level resilience
+### Epic 46 — Transport-level resilience + agentic dispatch
 
-**Status**: DONE (commits 73a0418 → 0cdb3f1, 9d2fb32 tests)
-**Impact**: Cleaner architecture, consistent concurrency/resilience across all LLM calls
+**Status**: DONE (commits 73a0418 → 0cdb3f1, 9d2fb32 tests, refactored 55d9e59 + 7db429f)
+**Impact**: Unified transport layer with consistent concurrency/resilience for all LLM calls
 
-Centralized per-provider semaphores and circuit breakers in `TransportRouter`:
-- `CircuitBreaker` (renamed from `GeminiCircuitBreaker`) — now provider-agnostic
-- `acquire()` / `acquireSlot()` / `release()` APIs replace manual propagation
-- Removed 40+ files of boilerplate (semaphore/breaker threading through interfaces)
-- Agentic calls migrated to `acquireSlot()` (Story 46.5)
+`TransportRouter` handles single-turn and agentic dispatch for all providers:
+- `CircuitBreaker` — per-provider, trips after consecutive failures
+- `acquire()` / `acquireSlot()` / `release()` for single-turn calls
+- `agenticQuery()` for agentic calls (slot + retry + breaker managed internally)
+- Four backends: Anthropic Agent, Gemini Agent, Vercel API via SDK, Vercel Agent via SDK
+- Each transport implements `query()` + optional `agenticQuery()` with unified `_execute()` pattern
+
+See [Transport Architecture](docs/02-Architecture/08-Transport-Architecture.md) for details.
 
 ### Triage — skip review enhancements
 

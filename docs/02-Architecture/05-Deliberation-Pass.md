@@ -74,6 +74,10 @@ A full Opus agent with tool access investigates the findings escalated by tier 2
 
 **Tools available:** Read, Grep, Glob, Bash, WebFetch
 
+**Transport:** Tier 3 uses `TransportRouter.agenticQuery()` which routes to the appropriate backend based on provider mode. In subscription mode, the Claude Code subprocess runs with full tool access. In API mode, the Vercel AI SDK agent runs with bash (and future custom tools). See [Transport Architecture](./08-Transport-Architecture.md) for the full dispatch matrix.
+
+**Retry/backoff:** Built into `agenticQuery()` — 3 retries with exponential backoff (5s base, 60s max). Failures trip the per-provider circuit breaker to prevent cascade.
+
 **Process:**
 1. Escalated findings are grouped into shards by module/directory
 2. For each shard, the agent receives only the list of claims to verify (not the source code)

@@ -200,7 +200,7 @@ All axes implement `evaluate(ctx: AxisContext, abort: AbortController): Promise<
 | `correction` | `axes/correction.ts` | Sonnet | Bugs, type errors, logic errors |
 | `best_practices` | `axes/best-practices.ts` | Sonnet | Language-specific rules |
 
-Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which invokes `query()` from `@anthropic-ai/claude-agent-sdk`, extracts JSON from the response, and validates it against an axis-specific Zod schema. A global `Semaphore` in `src/core/sdk-semaphore.ts` caps total in-flight SDK calls across all workers and axes.
+Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which routes through the `TransportRouter` to the appropriate backend (Anthropic Agent, Gemini Agent, or Vercel API via SDK — see [Transport Architecture](./08-Transport-Architecture.md)). The response is parsed for JSON and validated against an axis-specific Zod schema. Per-provider `Semaphore` instances in the router cap concurrent calls, and `CircuitBreaker` instances prevent cascade failures.
 
 ### 3. Result Merging (`src/core/axis-merger.ts`)
 
@@ -211,9 +211,9 @@ Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which in
 - Actions are de-duplicated, sorted by severity, and assigned sequential IDs.
 - File verdict: `CRITICAL` if any symbol has a high-confidence error; `NEEDS_REFACTOR` if any actionable issue exists; `CLEAN` otherwise.
 
-### 4. Optional Deliberation (`src/core/deliberation.ts`)
+### 4. Optional Refinement (`src/core/refinement/phase.ts`)
 
-When `llm.deliberation: true`, `applyDeliberation()` sends the merged `ReviewFile` to Claude Opus for a coherence review. Findings below 85% confidence may be reclassified. Results are stored in `ReviewFile.deliberation`.
+When deliberation is enabled, a 3-tier refinement pipeline runs after all files are reviewed: deterministic auto-resolve (tier 1), inter-axis coherence rules (tier 2), and agentic investigation via `TransportRouter.agenticQuery()` (tier 3). See [Deliberation Pass](./05-Deliberation-Pass.md) and [Transport Architecture](./08-Transport-Architecture.md) for details.
 
 ### 5. Output
 
@@ -251,8 +251,10 @@ Two independent limits prevent resource exhaustion:
 
 | Setting | Config Key | Default | Controls |
 |---------|------------|---------|----------|
-| File concurrency | `llm.concurrency` | `4` | Files evaluated in parallel |
-| SDK concurrency | `llm.sdk_concurrency` | `8` | Max in-flight Claude API calls (global, across all files × axes) |
+| File concurrency | `runtime.concurrency` | `8` | Files evaluated in parallel (1-10) |
+| Provider concurrency | `providers.<id>.concurrency` | `24` (Anthropic), `10` (Google) | Max in-flight calls per provider |
+
+The `TransportRouter` manages per-provider `Semaphore` instances (caps concurrent calls) and `CircuitBreaker` instances (trips after consecutive failures). See [Transport Architecture](./08-Transport-Architecture.md).
 
 Each in-flight call is paired with an `AbortController` stored in `RunContext.activeAborts`. On `SIGINT`, all controllers are triggered and Docker containers are stopped before process exit.
 
@@ -367,5 +369,6 @@ for (const action of review.actions) {
 - [Architecture Overview](./01-Pipeline-Overview.md) — component map and design principles.
 - [Seven-Axis System](./02-Seven-Axis-System.md) — per-axis prompt design, verdict semantics, and coherence rules.
 - [RAG Engine](./03-RAG-Engine.md) — embedding models, LanceDB schema, and hybrid search internals.
-- [Deliberation Pass](./05-Deliberation-Pass.md) — Opus coherence review and confidence reclassification.
+- [Deliberation Pass](./05-Deliberation-Pass.md) — 3-tier refinement pipeline with agentic investigation.
+- [Transport Architecture](./08-Transport-Architecture.md) — provider dispatch, backends, concurrency, and circuit breaking.
 - [Configuration Reference](../04-Reference/01-Configuration.md) — all `.anatoly.yml` keys with defaults.

@@ -1,7 +1,9 @@
-# Gemini Provider — Multi-Provider LLM Transport
+# Gemini Provider — Spike & Integration Notes
 
 > Spike validé le 2026-03-27. Package: `@google/gemini-cli-core@0.35.2`.
 > Auth: Google OAuth (Gemini Code Assist subscription). Billing: $0/token.
+>
+> For the current transport architecture and dispatch matrix, see [Transport Architecture](./08-Transport-Architecture.md). This page documents the spike results and integration decisions.
 
 ## Motivation
 
@@ -131,19 +133,25 @@ for await (const event of stream) {
 }
 ```
 
-## Configuration
+## Configuration (v2 format)
 
 ```yaml
 # .anatoly.yml
-llm:
-  gemini:
-    enabled: false              # opt-in explicite
-    flash_model: gemini-2.5-flash   # axes review (utility, duplication, overengineering)
-    nlp_model: gemini-2.5-flash           # RAG NLP summarization (2.4x faster than 3-flash on this task)
-    sdk_concurrency: 12                   # semaphore dédié (séparé de Claude)
+providers:
+  google:
+    mode: api           # or 'subscription' for gemini-cli-core
+    concurrency: 10
+
+axes:
+  utility:
+    model: google/gemini-2.5-flash-lite
+  duplication:
+    model: google/gemini-2.5-flash-lite
+  overengineering:
+    model: google/gemini-2.5-flash-lite
 ```
 
-> **Note :** Deux modèles Flash distincts — `gemini-2.5-flash` pour les axes (0 thought tokens, plus rapide) et `gemini-2.5-flash` pour le NLP (14s vs 34s). Quand `gemini-3-flash` sera stable (pas preview), migrer le `flash_model`.
+In subscription mode, calls route through `GeminiTransport` (gemini-cli-core stream). In API mode, calls route through `VercelSdkTransport` (Vercel AI SDK HTTP). See [Transport Architecture](./08-Transport-Architecture.md).
 
 ## Modèles non retenus
 

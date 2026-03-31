@@ -1,40 +1,49 @@
 # Model Map
 
-Complete reference of every model used across Anatoly's pipelines, their role, and execution mode.
+Complete reference of every model used across Anatoly's pipelines, their role, execution mode, and transport backend.
 
 ## Review Pipeline
 
-| Phase | Axe | Modele par defaut | Valeurs | Mode |
-|-------|-----|-------------------|---------|------|
-| 1 - Scanning | Utility | `claude-haiku-4-5` | USED / DEAD / LOW_VALUE | Single-turn |
-| 1 - Scanning | Duplication | `claude-haiku-4-5` | UNIQUE / DUPLICATE | Single-turn |
-| 1 - Scanning | Overengineering | `claude-sonnet-4-6` | LEAN / OVER / ACCEPTABLE | Single-turn |
-| 2 - Deep Review | Correction | `claude-sonnet-4-6` | OK / NEEDS_FIX / ERROR | Single-turn (2 passes) |
-| 2 - Deep Review | Tests | `claude-sonnet-4-6` | GOOD / WEAK / NONE | Single-turn |
-| 2 - Deep Review | Best Practices | `claude-sonnet-4-6` | Score 0-10 (17 rules) | Single-turn |
-| 2 - Deep Review | Documentation | `claude-sonnet-4-6` | DOCUMENTED / PARTIAL / UNDOCUMENTED | Single-turn |
-| 3 - Reconciliation | Deliberation | `claude-opus-4-6` | Reclassifies borderline findings | Single-turn |
+| Axis | Default model | Verdicts | Task type | Transport |
+|------|---------------|----------|-----------|-----------|
+| Utility | `config.models.fast` | USED / DEAD / LOW_VALUE | Single-turn | Per provider mode |
+| Duplication | `config.models.fast` | UNIQUE / DUPLICATE | Single-turn | Per provider mode |
+| Overengineering | `config.models.fast` | LEAN / OVER / ACCEPTABLE | Single-turn | Per provider mode |
+| Correction | `config.models.quality` | OK / NEEDS_FIX / ERROR | Single-turn | Per provider mode |
+| Tests | `config.models.quality` | GOOD / WEAK / NONE | Single-turn | Per provider mode |
+| Best Practices | `config.models.quality` | Score 0-10 (17 rules) | Single-turn | Per provider mode |
+| Documentation | `config.models.quality` | DOCUMENTED / PARTIAL / UNDOCUMENTED | Single-turn | Per provider mode |
+
+Transport is resolved by the `TransportRouter` based on the model's provider and configured mode. See [Transport Architecture](./08-Transport-Architecture.md) for the full dispatch matrix.
 
 ### Model Resolution
 
 Axis models are resolved via `resolveAxisModel()`:
 
-1. `config.llm.axes.<axis>.model` override (if set)
-2. If the evaluator's `defaultModel === 'haiku'` → `config.llm.fast_model` ?? `config.llm.index_model`
-3. Otherwise → `config.llm.model` (default: `claude-sonnet-4-6`)
+1. `config.axes.<axis>.model` override (if set and provider is configured)
+2. If the evaluator's `defaultModel === 'haiku'` → `config.models.fast`
+3. Otherwise → `config.models.quality` (default: `anthropic/claude-sonnet-4-6`)
 
-Deliberation model: `config.llm.deliberation_model` (default: `claude-opus-4-6`).
+Deliberation model: `config.models.deliberation` (default: `anthropic/claude-opus-4-6`).
+
+## Refinement Pipeline
+
+| Tier | Model | Task type | Tools | Transport |
+|------|-------|-----------|-------|-----------|
+| Tier 1 — Auto-resolve | *none (deterministic)* | — | — | — |
+| Tier 2 — Coherence | *none (deterministic)* | — | — | — |
+| Tier 3 — Investigation | `config.models.deliberation` | **Agentic** | Read, Grep, Glob, Bash, WebFetch | `router.agenticQuery()` |
+
+Max turns for tier 3: `config.agents.max_turns` (default: 30).
 
 ## Documentation Pipeline
 
-| Etape | Modele | Mode |
-|-------|--------|------|
-| Doc Generation | `claude-sonnet-4-6` | **Agent** (file read, grep tools) when `agentic_tools: true` |
-| Doc Coherence Review | `claude-sonnet-4-6` | Single-turn |
-| Doc Content Review | `claude-opus-4-6` | Single-turn |
-| Doc Update (Gap Filler) | `claude-sonnet-4-6` | Single-turn |
-
-Doc generation is the only stage that uses agent mode with tools. All other stages are pure single-turn prompts.
+| Stage | Model | Task type | Transport |
+|-------|-------|-----------|-----------|
+| Doc Generation | `config.models.quality` | **Agentic** (Read tool) | Claude SDK `query()` |
+| Doc Coherence Review | `config.models.quality` | Single-turn | Per provider mode |
+| Doc Content Review | `config.models.deliberation` | Single-turn | Per provider mode |
+| Doc Update (Gap Filler) | `config.models.quality` | Single-turn | Per provider mode |
 
 ## RAG / Embeddings Pipeline
 
@@ -77,19 +86,30 @@ Doc chunking no longer uses an LLM. The `smartChunkDoc()` programmatic chunker s
 | **Jina v2 / MiniLM** | Local ONNX embeddings (lite backend, CPU) |
 | **Nomic Embed Code / Qwen3 8B** | Local GGUF embeddings (advanced backend, Docker GPU) |
 
-## Config Defaults
+## Config Defaults (v2 format)
 
 ```yaml
-llm:
-  model: claude-sonnet-4-6           # Primary model (sonnet-defaulting axes)
-  index_model: claude-haiku-4-5      # Fallback for haiku-defaulting axes
-  fast_model: ~                      # Optional override for haiku axes
-  deliberation_model: claude-opus-4-6
-  agentic_tools: true                # Doc generation uses tools
-  max_stop_iterations: 3             # Max agentic iterations
+providers:
+  anthropic:
+    mode: subscription
+    concurrency: 24
+  google:
+    mode: api
+    concurrency: 10
+
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5
+  deliberation: anthropic/claude-opus-4-6
+
+agents:
+  enabled: true
+  max_turns: 30                      # Max agentic turns (tier 3, doc generation)
 
 rag:
   code_model: auto                   # 'auto' = detect hardware
   nlp_model: auto
   code_weight: 0.6                   # 60% code / 40% NLP in hybrid search
 ```
+
+See [Transport Architecture](./08-Transport-Architecture.md) for how models are routed to backends.
