@@ -8,14 +8,34 @@ import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
-import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (utility axis only)
+//
+// Uses a token-optimized format: structured JSON evidence fields + an
+// optional telegraphic note. The prose `detail` field common to other axes
+// is replaced here by `evidence` + `note`, then serialized back to a terse
+// `detail` string before entering the merger.
 // ---------------------------------------------------------------------------
 
-const UtilitySymbolSchema = BaseSymbolSchema.extend({
+const UtilityEvidenceSchema = z.object({
+  runtime_importers: z.int().min(0),
+  type_importers: z.int().min(0),
+  local_refs: z.int().min(0),
+  transitive: z.boolean(),
+  exported: z.boolean(),
+});
+
+type UtilityEvidence = z.infer<typeof UtilityEvidenceSchema>;
+
+const UtilitySymbolSchema = z.object({
+  name: z.string(),
+  line_start: z.int().min(1),
+  line_end: z.int().min(1),
   utility: z.enum(['USED', 'DEAD', 'LOW_VALUE']),
+  confidence: z.int().min(0).max(100),
+  evidence: UtilityEvidenceSchema,
+  note: z.string(),
 });
 
 export const UtilityResponseSchema = z.object({
@@ -23,6 +43,43 @@ export const UtilityResponseSchema = z.object({
 });
 
 type UtilityResponse = z.infer<typeof UtilityResponseSchema>;
+
+/**
+ * Serialize structured utility evidence + telegraphic note into a terse
+ * detail string compatible with the downstream pipe-delimited format used
+ * by the axis merger, reporter, and review writer.
+ *
+ * Keeps the downstream contract unchanged: consumers still receive a string,
+ * but it is significantly shorter than the previous prose format.
+ *
+ * @param evidence - The structured evidence fields from the LLM response.
+ * @param note - Optional telegraphic note (empty for clear USED verdicts).
+ * @returns A terse period-separated string (e.g. "0 importers. exported.").
+ */
+export function serializeUtilityDetail(evidence: UtilityEvidence, note: string): string {
+  const parts: string[] = [];
+
+  if (evidence.exported) {
+    if (evidence.runtime_importers > 0) {
+      parts.push(`${evidence.runtime_importers} runtime imp`);
+    }
+    if (evidence.type_importers > 0) {
+      parts.push(`${evidence.type_importers} type imp`);
+    }
+    if (evidence.runtime_importers === 0 && evidence.type_importers === 0) {
+      parts.push('0 importers');
+    }
+  } else {
+    parts.push(`${evidence.local_refs} local refs`);
+  }
+
+  if (evidence.transitive) parts.push('transitive');
+
+  const trimmedNote = note.trim();
+  if (trimmedNote) parts.push(trimmedNote);
+
+  return parts.join('. ') || 'no evidence';
+}
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -119,7 +176,16 @@ function autoResolveSymbol(
     return {
       value: 'USED',
       confidence: 95,
-      detail: `Runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`,
+      detail: serializeUtilityDetail(
+        {
+          runtime_importers: importers.length,
+          type_importers: typeImporters.length,
+          local_refs: 0,
+          transitive: false,
+          exported: true,
+        },
+        '',
+      ),
     };
   }
 
@@ -127,7 +193,16 @@ function autoResolveSymbol(
     return {
       value: 'USED',
       confidence: 95,
-      detail: `Type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')}`,
+      detail: serializeUtilityDetail(
+        {
+          runtime_importers: 0,
+          type_importers: typeImporters.length,
+          local_refs: 0,
+          transitive: false,
+          exported: true,
+        },
+        '',
+      ),
     };
   }
 
@@ -136,7 +211,16 @@ function autoResolveSymbol(
     return {
       value: 'USED',
       confidence: 95,
-      detail: `Transitively used by ${transitiveRefs.join(', ')}`,
+      detail: serializeUtilityDetail(
+        {
+          runtime_importers: 0,
+          type_importers: 0,
+          local_refs: 0,
+          transitive: true,
+          exported: true,
+        },
+        `via ${transitiveRefs.join(', ')}`,
+      ),
     };
   }
 
@@ -144,7 +228,16 @@ function autoResolveSymbol(
   return {
     value: 'DEAD',
     confidence: 95,
-    detail: 'Exported but imported by 0 files',
+    detail: serializeUtilityDetail(
+      {
+        runtime_importers: 0,
+        type_importers: 0,
+        local_refs: 0,
+        transitive: false,
+        exported: true,
+      },
+      'exported. no consumers.',
+    ),
   };
 }
 
@@ -239,7 +332,7 @@ export class UtilityEvaluator implements AxisEvaluator {
       line_end: s.line_end,
       value: s.utility,
       confidence: s.confidence,
-      detail: s.detail,
+      detail: serializeUtilityDetail(s.evidence, s.note),
     }));
 
     // Merge: LLM results take precedence, auto-results fill in the rest

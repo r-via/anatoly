@@ -26,7 +26,41 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
       "line_end": 10,
       "utility": "USED | DEAD | LOW_VALUE",
       "confidence": 95,
-      "detail": "Explanation (min 10 chars)"
+      "evidence": {
+        "runtime_importers": 0,
+        "type_importers": 0,
+        "local_refs": 0,
+        "transitive": false,
+        "exported": true
+      },
+      "note": ""
     }
   ]
 }
+
+## Evidence field rules
+
+- `runtime_importers`: count of files that runtime-import this symbol (from Pre-computed Import Analysis)
+- `type_importers`: count of files that type-only-import this symbol (from Pre-computed Import Analysis)
+- `local_refs`: count of local references within the file (for non-exported symbols; 0 for exported)
+- `transitive`: true if used transitively (imported by a symbol that is itself imported)
+- `exported`: true if the symbol is exported
+
+## Note field rules
+
+- Empty string `""` for USED symbols with clear evidence (the evidence speaks for itself)
+- REQUIRED for DEAD and LOW_VALUE findings (min 5 chars)
+- Telegraphic style: no articles, no auxiliaries, no hedging
+- Short clauses separated by periods
+- Max 15 words
+- The note adds information NOT already in the evidence fields — don't restate counts
+
+### Note examples
+
+- `"no importers. no local refs. safe to remove."`
+- `"only used in dead function X. transitively dead."`
+- `"trivial wrapper around String.trim. no added value."`
+- `"exported but 0 consumers across entire codebase."`
+- `"type-only import keeps compilation. not dead."`
+- `"identity function. caller could inline."`
+- `"duplicates logic in utils.ts. consider consolidation."`

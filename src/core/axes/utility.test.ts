@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { buildUtilitySystemPrompt, buildUtilityUserMessage } from './utility.js';
+import { buildUtilitySystemPrompt, buildUtilityUserMessage, serializeUtilityDetail, UtilityResponseSchema } from './utility.js';
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { UsageGraph } from '../usage-graph.js';
@@ -54,7 +54,143 @@ describe('buildUtilitySystemPrompt', () => {
     expect(prompt).toContain('LOW_VALUE');
     expect(prompt).not.toContain('correction');
     expect(prompt).not.toContain('overengineering');
-    expect(prompt.split('\n').length).toBeLessThan(50);
+  });
+
+  it('should describe the structured evidence + telegraphic note format', () => {
+    const prompt = buildUtilitySystemPrompt();
+    expect(prompt).toContain('evidence');
+    expect(prompt).toContain('runtime_importers');
+    expect(prompt).toContain('type_importers');
+    expect(prompt).toContain('transitive');
+    expect(prompt).toContain('note');
+    expect(prompt).toContain('Telegraphic');
+  });
+});
+
+describe('serializeUtilityDetail', () => {
+  it('should format exported symbol with runtime importers', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 3, type_importers: 0, local_refs: 0, transitive: false, exported: true },
+      '',
+    );
+    expect(result).toBe('3 runtime imp');
+  });
+
+  it('should format exported symbol with both runtime and type importers', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 2, type_importers: 1, local_refs: 0, transitive: false, exported: true },
+      '',
+    );
+    expect(result).toBe('2 runtime imp. 1 type imp');
+  });
+
+  it('should format exported symbol with only type importers', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 0, type_importers: 1, local_refs: 0, transitive: false, exported: true },
+      '',
+    );
+    expect(result).toBe('1 type imp');
+  });
+
+  it('should format dead exported symbol', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 0, type_importers: 0, local_refs: 0, transitive: false, exported: true },
+      'exported. no consumers.',
+    );
+    expect(result).toBe('0 importers. exported. no consumers.');
+  });
+
+  it('should format non-exported symbol with local refs', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 0, type_importers: 0, local_refs: 2, transitive: false, exported: false },
+      '',
+    );
+    expect(result).toBe('2 local refs');
+  });
+
+  it('should include transitive marker when set', () => {
+    const result = serializeUtilityDetail(
+      { runtime_importers: 0, type_importers: 0, local_refs: 0, transitive: true, exported: true },
+      'via foo, bar',
+    );
+    expect(result).toBe('0 importers. transitive. via foo, bar');
+  });
+
+  it('should produce short strings compared to prose baseline', () => {
+    const prose = 'Runtime-imported by 3 files: foo.ts, bar.ts, baz.ts';
+    const terse = serializeUtilityDetail(
+      { runtime_importers: 3, type_importers: 0, local_refs: 0, transitive: false, exported: true },
+      '',
+    );
+    expect(terse.length).toBeLessThan(prose.length / 3);
+  });
+});
+
+describe('UtilityResponseSchema', () => {
+  it('should parse a valid LLM response with evidence and empty note', () => {
+    const response = {
+      symbols: [
+        {
+          name: 'formatNumber',
+          line_start: 1,
+          line_end: 10,
+          utility: 'USED',
+          confidence: 95,
+          evidence: {
+            runtime_importers: 2,
+            type_importers: 0,
+            local_refs: 0,
+            transitive: false,
+            exported: true,
+          },
+          note: '',
+        },
+      ],
+    };
+    const parsed = UtilityResponseSchema.parse(response);
+    expect(parsed.symbols[0].utility).toBe('USED');
+    expect(parsed.symbols[0].evidence.runtime_importers).toBe(2);
+  });
+
+  it('should parse a dead-code finding with telegraphic note', () => {
+    const response = {
+      symbols: [
+        {
+          name: 'deadHelper',
+          line_start: 15,
+          line_end: 25,
+          utility: 'DEAD',
+          confidence: 95,
+          evidence: {
+            runtime_importers: 0,
+            type_importers: 0,
+            local_refs: 0,
+            transitive: false,
+            exported: true,
+          },
+          note: 'no importers. no local refs. safe to remove.',
+        },
+      ],
+    };
+    const parsed = UtilityResponseSchema.parse(response);
+    expect(parsed.symbols[0].utility).toBe('DEAD');
+    expect(parsed.symbols[0].note).toContain('safe to remove');
+  });
+
+  it('should reject response missing evidence field', () => {
+    const response = {
+      symbols: [
+        {
+          name: 'x',
+          line_start: 1,
+          line_end: 2,
+          utility: 'USED',
+          confidence: 95,
+          note: '',
+        },
+      ],
+    };
+    expect(() => UtilityResponseSchema.parse(response)).toThrow();
   });
 });
 
