@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
@@ -59,6 +60,28 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
     parts.push(`- ${s.exported ? 'export ' : ''}${s.kind} ${s.name} (L${s.line_start}–L${s.line_end})`);
   }
   parts.push('');
+
+  // Usage analysis: classes/types with ≤1 importer are candidates for
+  // over-abstraction (factory/strategy/emitter built for a single client).
+  // We expose raw counts so the LLM can judge — promotion is then backed
+  // deterministically in tier1.
+  if (ctx.usageGraph && ctx.task.symbols.length > 0) {
+    const abstractionKinds = new Set(['class', 'type']);
+    const abstractionSymbols = ctx.task.symbols.filter((s) => s.exported && abstractionKinds.has(s.kind));
+    if (abstractionSymbols.length > 0) {
+      parts.push('## Pre-computed Usage Analysis');
+      parts.push('');
+      parts.push('_Importer counts for exported abstractions. ≤1 importer is a strong signal of over-abstraction (abstraction built for a single client)._');
+      parts.push('');
+      for (const sym of abstractionSymbols) {
+        const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        const total = importers.length + typeImporters.length;
+        parts.push(`- ${sym.kind} ${sym.name}: ${importers.length} runtime + ${typeImporters.length} type-only = ${total} importer${total === 1 ? '' : 's'}`);
+      }
+      parts.push('');
+    }
+  }
 
   if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
     const MAX_DEPS = 40;

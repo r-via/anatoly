@@ -41,6 +41,14 @@ export const SymbolReviewSchema = z.object({
   duplicate_target: DuplicateTargetSchema.nullable()
     .optional()
     .transform((v) => v ?? undefined),
+}).transform((sym) => {
+  // Invariant: duplicate_target populated ⇒ duplication = DUPLICATE.
+  // A populated target without the matching verdict is an incoherent state;
+  // promote the verdict to preserve the downstream evidence.
+  if (sym.duplicate_target && sym.duplication !== 'DUPLICATE' && sym.duplication !== '-') {
+    return { ...sym, duplication: 'DUPLICATE' as const };
+  }
+  return sym;
 });
 
 export const EffortSchema = z.enum(['trivial', 'small', 'large']);
@@ -222,6 +230,24 @@ export type Effort = z.infer<typeof EffortSchema>;
 export type Category = z.infer<typeof CategorySchema>;
 export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
 export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
+
+/**
+ * Enforces the invariant: `duplicate_target` populated ⇒ `duplication === 'DUPLICATE'`.
+ *
+ * A populated target without the matching verdict is an incoherent state that
+ * downstream consumers (scorer, TUI, bench) should never have to disambiguate.
+ * We promote the verdict rather than clearing the target: the evidence (similarity,
+ * matched file/symbol) came from deeper analysis (deliberation / cross-file pass)
+ * than the auto-resolve that set the verdict, so it should win.
+ */
+export function enforceDuplicationInvariant<
+  T extends { duplication: 'UNIQUE' | 'DUPLICATE' | '-'; duplicate_target?: DuplicateTarget | undefined },
+>(sym: T): T {
+  if (sym.duplicate_target && sym.duplication !== 'DUPLICATE' && sym.duplication !== '-') {
+    return { ...sym, duplication: 'DUPLICATE' };
+  }
+  return sym;
+}
 export type Action = z.infer<typeof ActionSchema>;
 export type FileLevel = z.infer<typeof FileLevelSchema>;
 export type BestPracticesRule = z.infer<typeof BestPracticesRuleSchema>;

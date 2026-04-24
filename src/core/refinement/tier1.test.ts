@@ -8,6 +8,7 @@ import type { Tier1Context } from './tier1.js';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
 import type { UsageGraph } from '../usage-graph.js';
 import type { PreResolvedRag } from '../axis-evaluator.js';
+import type { FunctionCard } from '../../rag/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,7 +124,7 @@ describe('applyTier1', () => {
   it('AC: reclassifies DUPLICATE→UNIQUE when no RAG candidate (score < 0.68)', () => {
     const ragMap = new Map<string, PreResolvedRag>();
     ragMap.set('src/core/example.ts', [
-      { symbolName: 'doWork', lineStart: 1, lineEnd: 20, results: [{ card: {} as any, score: 0.55 }] },
+      { symbolName: 'doWork', lineStart: 1, lineEnd: 20, results: [{ card: {} as unknown as FunctionCard, score: 0.55 }] },
     ]);
     const review = makeReview({
       symbols: [{ name: 'doWork', duplication: 'DUPLICATE', confidence: 70, detail: 'Possible duplicate' }],
@@ -151,7 +152,7 @@ describe('applyTier1', () => {
   it('AC: reclassifies DUPLICATE→UNIQUE when function is ≤2 lines', () => {
     const ragMap = new Map<string, PreResolvedRag>();
     ragMap.set('src/core/example.ts', [
-      { symbolName: 'doWork', lineStart: 1, lineEnd: 2, results: [{ card: {} as any, score: 0.85 }] },
+      { symbolName: 'doWork', lineStart: 1, lineEnd: 2, results: [{ card: {} as unknown as FunctionCard, score: 0.85 }] },
     ]);
     const review = makeReview({
       symbols: [{
@@ -170,7 +171,7 @@ describe('applyTier1', () => {
   it('should NOT reclassify DUPLICATE when RAG score ≥ 0.68 and function > 2 lines', () => {
     const ragMap = new Map<string, PreResolvedRag>();
     ragMap.set('src/core/example.ts', [
-      { symbolName: 'doWork', lineStart: 1, lineEnd: 20, results: [{ card: {} as any, score: 0.80 }] },
+      { symbolName: 'doWork', lineStart: 1, lineEnd: 20, results: [{ card: {} as unknown as FunctionCard, score: 0.80 }] },
     ]);
     const review = makeReview({
       symbols: [{ name: 'doWork', duplication: 'DUPLICATE', confidence: 70, detail: 'Possible duplicate' }],
@@ -220,6 +221,107 @@ describe('applyTier1', () => {
     });
     const result = applyTier1(review, makeContext());
     expect(result.symbols[0].overengineering).toBe('OVER');
+  });
+
+  // --- Overengineering axis: LEAN → OVER (usage-graph promotion) ---
+
+  it('promotes LEAN→OVER when exported class has 0 importers', () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'SpinEventEmitter', kind: 'class', exported: true,
+        line_start: 1, line_end: 30,
+        overengineering: 'LEAN', confidence: 80, detail: 'Clean structure',
+      }],
+    });
+    const result = applyTier1(review, makeContext());
+    expect(result.symbols[0].overengineering).toBe('OVER');
+    expect(result.symbols[0].detail).toContain('imported by 0 files');
+    expect(result.actions).toHaveLength(1);
+    expect(result.actions[0].source).toBe('overengineering');
+    expect(result.actions[0].target_symbol).toBe('SpinEventEmitter');
+  });
+
+  it('promotes LEAN→OVER when exported class has exactly 1 importer', () => {
+    const graph = makeUsageGraph({
+      usages: new Map([['AbstractFactory::src/core/example.ts', new Set(['src/main.ts'])]]),
+    });
+    const review = makeReview({
+      symbols: [{
+        name: 'AbstractFactory', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Looks fine',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ usageGraph: graph }));
+    expect(result.symbols[0].overengineering).toBe('OVER');
+    expect(result.symbols[0].detail).toContain('imported by 1 file');
+  });
+
+  it('does NOT promote LEAN→OVER when class has ≥2 importers', () => {
+    const graph = makeUsageGraph({
+      usages: new Map([['Widget::src/core/example.ts', new Set(['src/a.ts', 'src/b.ts'])]]),
+    });
+    const review = makeReview({
+      symbols: [{
+        name: 'Widget', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Looks fine',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ usageGraph: graph }));
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+  });
+
+  it('does NOT promote LEAN→OVER when class is under 15 lines', () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'Tiny', kind: 'class', exported: true,
+        line_start: 1, line_end: 10,
+        overengineering: 'LEAN', confidence: 80, detail: 'Looks fine',
+      }],
+    });
+    const result = applyTier1(review, makeContext());
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+  });
+
+  it('does NOT promote entry-point classes (main/app/bootstrap) even with ≤1 importer', () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'App', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'App class',
+      }],
+    });
+    const result = applyTier1(review, makeContext());
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+  });
+
+  it('does NOT promote non-exported classes', () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'InternalHelper', kind: 'class', exported: false,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Helper',
+      }],
+    });
+    const result = applyTier1(review, makeContext());
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+  });
+
+  it('counts type-only importers when deciding promotion', () => {
+    const graph = makeUsageGraph({
+      typeOnlyUsages: new Map([['Strategy::src/core/example.ts', new Set(['src/impl.ts'])]]),
+    });
+    const review = makeReview({
+      symbols: [{
+        name: 'Strategy', kind: 'class', exported: true,
+        line_start: 1, line_end: 30,
+        overengineering: 'LEAN', confidence: 80, detail: 'Looks fine',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ usageGraph: graph }));
+    expect(result.symbols[0].overengineering).toBe('OVER');
+    expect(result.symbols[0].detail).toContain('imported by 1 file');
   });
 
   // --- Documentation axis: UNDOCUMENTED → DOCUMENTED ---
@@ -328,7 +430,7 @@ describe('applyTier1', () => {
     const symbols = Array.from({ length: 200 }, (_, i) =>
       makeSymbol({ name: `symbol_${i}`, utility: 'DEAD', confidence: 70, detail: `No importers for ${i}` }),
     );
-    const review = makeReview({ symbols } as any);
+    const review = makeReview({ symbols } as unknown as Parameters<typeof makeReview>[0]);
     const ctx = makeContext();
 
     const start = Date.now();

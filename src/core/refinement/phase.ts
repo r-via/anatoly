@@ -9,7 +9,7 @@ import { resolveDeliberationModel, type PreResolvedRag } from '../axis-evaluator
 import type { ReclassificationEntry } from '../correction-memory.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
-import { buildShards, runTier3, type Tier3Context, type Tier3Result } from './tier3.js';
+import { buildShards, runTier3, type Tier3Context } from './tier3.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,7 +69,7 @@ export interface RefinementResult {
 export async function runRefinementPhase(ctx: RefinementContext): Promise<RefinementResult> {
   const emptyResult: RefinementResult = {
     skipped: true,
-    tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } },
+    tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, leanToOver: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } },
     tier2Stats: { resolved: 0, escalated: 0 },
     tier3Stats: { investigated: 0, confirmed: 0, reclassified: 0 },
     totalDurationMs: 0,
@@ -100,7 +100,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     projectRoot: ctx.projectRoot,
   };
 
-  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
+  const tier1TotalStats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, leanToOver: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
   const tier1Reviews: ReviewFile[] = [];
 
   for (const review of reviews) {
@@ -113,6 +113,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
       }
     }
     // Strip internal stat marker before passing downstream
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _tier1Stats, ...clean } = result;
     tier1Reviews.push(clean as ReviewFile);
   }
@@ -122,6 +123,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   if (bd.deadToUsed) parts.push(`${bd.deadToUsed} DEAD→USED`);
   if (bd.duplicateToUnique) parts.push(`${bd.duplicateToUnique} DUP→UNIQUE`);
   if (bd.overToLean) parts.push(`${bd.overToLean} OVER→LEAN`);
+  if (bd.leanToOver) parts.push(`${bd.leanToOver} LEAN→OVER`);
   if (bd.undocToDoc) parts.push(`${bd.undocToDoc} UNDOC→DOC`);
   if (bd.fixtureSkipped) parts.push(`${bd.fixtureSkipped} fixture`);
   if (bd.correctionImportResolved) parts.push(`${bd.correctionImportResolved} import→OK`);

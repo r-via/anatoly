@@ -124,6 +124,27 @@ describe('ReviewFileSchema', () => {
     }
   });
 
+  it('should promote duplication to DUPLICATE when duplicate_target is populated but verdict says UNIQUE', () => {
+    // Regression: the duplication axis (auto-resolve or deliberation) could
+    // emit an incoherent state where duplicate_target is populated at 95%
+    // similarity but verdict stays UNIQUE. Consumers must see one truth.
+    const incoherent = {
+      ...validSymbol,
+      duplication: 'UNIQUE' as const,
+      duplicate_target: {
+        file: 'src/paytable.ts',
+        symbol: 'lineWins',
+        similarity: '95% identical logic',
+      },
+    };
+    const result = SymbolReviewSchema.safeParse(incoherent);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.duplication).toBe('DUPLICATE');
+      expect(result.data.duplicate_target?.symbol).toBe('lineWins');
+    }
+  });
+
   it('should reject confidence outside 0-100 range', () => {
     const result = SymbolReviewSchema.safeParse({ ...validSymbol, confidence: 101 });
     expect(result.success).toBe(false);

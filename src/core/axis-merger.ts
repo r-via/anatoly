@@ -4,6 +4,7 @@
 
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { ReviewFile, SymbolReview, Action, BestPractices } from '../schemas/review.js';
+import { enforceDuplicationInvariant } from '../schemas/review.js';
 import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
 import { contextLogger } from '../utils/log-context.js';
 
@@ -198,7 +199,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     return validateEnum(result?.value ?? AXIS_DEFAULTS[id], allowed, fallback);
   };
 
-  return {
+  return enforceDuplicationInvariant({
     name: sym.name,
     kind: sym.kind,
     exported: sym.exported,
@@ -213,7 +214,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,
-  };
+  });
 }
 
 /**

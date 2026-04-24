@@ -257,15 +257,21 @@ export class DuplicationEvaluator implements AxisEvaluator {
       DuplicationResponseSchema,
     );
 
-    const symbols: AxisSymbolResult[] = data.symbols.map((s) => ({
-      name: s.name,
-      line_start: s.line_start,
-      line_end: s.line_end,
-      value: s.duplication,
-      confidence: s.confidence,
-      detail: s.detail,
-      duplicate_target: s.duplicate_target ?? undefined,
-    }));
+    const symbols: AxisSymbolResult[] = data.symbols.map((s) => {
+      // Invariant: if the LLM populated duplicate_target, the verdict must be
+      // DUPLICATE — we trust the evidence over the label.
+      const target = s.duplicate_target ?? undefined;
+      const value = target && s.duplication !== 'DUPLICATE' ? 'DUPLICATE' : s.duplication;
+      return {
+        name: s.name,
+        line_start: s.line_start,
+        line_end: s.line_end,
+        value,
+        confidence: s.confidence,
+        detail: s.detail,
+        duplicate_target: target,
+      };
+    });
 
     return {
       axisId: 'duplication',
