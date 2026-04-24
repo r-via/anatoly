@@ -1967,16 +1967,25 @@ function runReportPhase(ctx: RunContext): void {
       costUsd: ctx.totalCostUsd,
       totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0),
       axisScorecard: Object.fromEntries(
-        REPORT_AXIS_IDS.map((axis) => {
-          const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
-            correction: 'correction', utility: 'dead', duplication: 'duplicate',
-            overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-            'best-practices': 'best_practices',
-          };
-          const c = data.counts[countsKey[axis]];
-          const { pct, label } = axisHealthPercent(data, axis);
-          return [countsKey[axis], { ...c, healthPct: pct, label }];
-        }),
+        REPORT_AXIS_IDS
+          .filter((axis) => {
+            const configAxisKey: Record<ReportAxisId, keyof typeof ctx.config.axes> = {
+              correction: 'correction', utility: 'utility', duplication: 'duplication',
+              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+              'best-practices': 'best_practices',
+            };
+            return ctx.config.axes[configAxisKey[axis]]?.enabled !== false;
+          })
+          .map((axis) => {
+            const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
+              correction: 'correction', utility: 'dead', duplication: 'duplicate',
+              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+              'best-practices': 'best_practices',
+            };
+            const c = data.counts[countsKey[axis]];
+            const { pct, label } = axisHealthPercent(data, axis);
+            return [countsKey[axis], { ...c, healthPct: pct, label }];
+          }),
       ),
       reportUrl: ctx.config.notifications?.telegram?.report_url ?? undefined,
     };

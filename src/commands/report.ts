@@ -126,12 +126,19 @@ export function registerReportCommand(program: Command): void {
           overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
           'best-practices': 'best_practices',
         };
+        const configAxisKey: Record<ReportAxisId, keyof typeof config.axes> = {
+          correction: 'correction', utility: 'utility', duplication: 'duplication',
+          overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+          'best-practices': 'best_practices',
+        };
         const axisScorecard = Object.fromEntries(
-          REPORT_AXIS_IDS.map((axis) => {
-            const c = reportData!.counts[countsKey[axis]];
-            const { pct, label } = axisHealthPercent(reportData!, axis);
-            return [countsKey[axis], { ...c, healthPct: pct, label }];
-          }),
+          REPORT_AXIS_IDS
+            .filter((axis) => config.axes[configAxisKey[axis]]?.enabled !== false)
+            .map((axis) => {
+              const c = reportData!.counts[countsKey[axis]];
+              const { pct, label } = axisHealthPercent(reportData!, axis);
+              return [countsKey[axis], { ...c, healthPct: pct, label }];
+            }),
         );
 
         const payload: NotificationPayload = {
