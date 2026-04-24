@@ -183,6 +183,71 @@ describe('applyTier1', () => {
     expect(result.symbols[0].duplication).toBe('DUPLICATE');
   });
 
+  it('should NOT reclassify DUPLICATE when duplicate_target is populated, even if RAG score < 0.68', () => {
+    // Regression: the duplication LLM previously pointed at a concrete
+    // match (e.g. rng.ts::weightedPick ↔ reels.ts::pickFromWeighted at
+    // 99% semantic similarity) while the underlying RAG embedding score
+    // stayed below 0.68 — exactly the case where embeddings diverge from
+    // semantic equivalence (renamed variables, different generics). The
+    // tier-1 RAG-threshold heuristic was stripping the verdict anyway,
+    // erasing the LLM's evidence. A populated target is committed
+    // evidence and must not be overridden by a cheap post-hoc heuristic.
+    const ragMap = new Map<string, PreResolvedRag>();
+    ragMap.set('src/rng.ts', [
+      { symbolName: 'weightedPick', lineStart: 5, lineEnd: 16, results: [{ card: {} as unknown as FunctionCard, score: 0.42 }] },
+    ]);
+    const review = makeReview({
+      file: 'src/rng.ts',
+      symbols: [{
+        name: 'weightedPick',
+        line_start: 5,
+        line_end: 16,
+        duplication: 'DUPLICATE',
+        confidence: 95,
+        detail: 'Identical weighted random selection algorithm.',
+        duplicate_target: {
+          file: 'src/reels.ts',
+          symbol: 'pickFromWeighted',
+          similarity: '99% identical logic',
+        },
+      }],
+    });
+    const ctx = makeContext({ preResolvedRag: ragMap });
+
+    const result = applyTier1(review, ctx);
+
+    expect(result.symbols[0].duplication).toBe('DUPLICATE');
+    expect(result.symbols[0].duplicate_target?.symbol).toBe('pickFromWeighted');
+    expect(result.symbols[0].detail).toBe('Identical weighted random selection algorithm.');
+  });
+
+  it('should NOT reclassify DUPLICATE when duplicate_target is populated on a trivial (≤2 line) function', () => {
+    // Same principle as the RAG-score case: a committed target wins over
+    // the trivial-function heuristic. The LLM asserted a specific match;
+    // we trust that evidence over a cheap length-based rule.
+    const review = makeReview({
+      symbols: [{
+        name: 'getCount',
+        line_start: 1,
+        line_end: 2,
+        duplication: 'DUPLICATE',
+        confidence: 95,
+        detail: 'Identical to getSize.',
+        duplicate_target: {
+          file: 'src/other.ts',
+          symbol: 'getSize',
+          similarity: '100% identical',
+        },
+      }],
+    });
+    const ctx = makeContext();
+
+    const result = applyTier1(review, ctx);
+
+    expect(result.symbols[0].duplication).toBe('DUPLICATE');
+    expect(result.symbols[0].duplicate_target?.symbol).toBe('getSize');
+  });
+
   // --- Overengineering axis: OVER → LEAN ---
 
   it('AC: reclassifies OVER→LEAN when kind = interface', () => {

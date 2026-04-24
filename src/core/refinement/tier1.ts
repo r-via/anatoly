@@ -208,13 +208,23 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
     }
 
     // --- Duplication: DUPLICATE → UNIQUE ---
-    if (s.duplication === 'DUPLICATE') {
+    //
+    // Tier-1 heuristics only downgrade a DUPLICATE verdict when the
+    // upstream evaluator did NOT commit to specific evidence. A populated
+    // `duplicate_target` means the semantic-analysis phase (LLM) pointed
+    // at a concrete match; cheap post-hoc heuristics (function length, RAG
+    // embedding score) must not override that. In particular, the
+    // RAG-threshold rule would otherwise silently discard the LLM's
+    // verdict on exactly the cases where embeddings underperform semantic
+    // analysis — refactors where the two sides share algorithmic intent
+    // but textually diverge (renamed variables, different generics,
+    // different idioms). Those are the cases the LLM is *most* useful for.
+    if (s.duplication === 'DUPLICATE' && !s.duplicate_target) {
       const symLines = s.line_end - s.line_start + 1;
 
       // Rule: trivial function (≤ 2 lines) → always unique
       if (symLines <= TRIVIAL_FUNCTION_MAX_LINES) {
         s.duplication = 'UNIQUE';
-        s.duplicate_target = undefined;
         s.detail = `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`;
         s.confidence = 90;
         downgradedDuplication.add(s.name);
@@ -228,7 +238,6 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
         if (topScore < RAG_DUPLICATE_THRESHOLD) {
           s.duplication = 'UNIQUE';
-          s.duplicate_target = undefined;
           s.confidence = 90;
           s.detail = `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`;
           downgradedDuplication.add(s.name);
