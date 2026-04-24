@@ -34,6 +34,7 @@ export interface Tier1Stats {
     deadToUsed: number;
     duplicateToUnique: number;
     overToLean: number;
+    leanToOver: number;
     undocToDoc: number;
     fixtureSkipped: number;
     correctionImportResolved: number;
@@ -51,6 +52,10 @@ const TRIVIAL_FUNCTION_MAX_LINES = 2;
 const SMALL_FUNCTION_MAX_LINES = 5;
 const JSDOC_MIN_LENGTH = 20;
 const TYPE_KINDS: ReadonlySet<string> = new Set(['type', 'enum']);
+/** Minimum size for an abstraction to be a credible over-engineering target. */
+const OVER_ABSTRACTION_MIN_LINES = 15;
+/** Names that are legitimately imported from a single site (entry points). */
+const ENTRY_POINT_NAMES: ReadonlySet<string> = new Set(['main', 'index', 'app', 'bootstrap', 'setup', 'init', 'run', 'start']);
 const FIXTURE_PATTERNS = ['__gold-set__', '__fixtures__'];
 const GENERATED_MARKERS = ['@generated', 'DO NOT EDIT', 'AUTO-GENERATED', 'BEGIN GENERATED', 'auto-generated'];
 const MISSING_IMPORT_PATTERNS = /\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b.*\b(?:function|import|module|export|method|symbol)\b|\b(?:function|import|module|export|method|symbol)\b.*\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b/i;
@@ -73,7 +78,7 @@ const BOUNDS_PATTERNS = /\b(?:out[- ]of[- ]bounds|array.*(?:has|only|contains)\s
  * Zero network calls. Returns a new ReviewFile (input not mutated).
  */
 export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & { _tier1Stats?: Tier1Stats } {
-  const stats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
+  const stats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, leanToOver: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
   const isFixture = FIXTURE_PATTERNS.some((p) => review.file.includes(p));
 
   // Detect generated files: check for markers in file content
@@ -85,6 +90,15 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
     } catch { /* file may have been deleted */ }
   }
   const isGenerated = fileContent ? GENERATED_MARKERS.some((m) => fileContent!.includes(m)) : false;
+
+  // Track symbols whose axis verdict was downgraded → used to purge stale
+  // synthesized actions (duplicate_target, overengineering) that were created
+  // before tier1 ran. Invariant: no action with source=X should survive
+  // for a symbol whose axis X verdict no longer justifies it.
+  const downgradedDuplication = new Set<string>();
+  const downgradedOverengineering = new Set<string>();
+  /** Symbols promoted LEAN → OVER by the usage-graph rule (need action synthesis). */
+  const promotedOverengineering: SymbolReview[] = [];
 
   const newSymbols = review.symbols.map((sym) => {
     const s = { ...sym };
@@ -200,8 +214,10 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       // Rule: trivial function (≤ 2 lines) → always unique
       if (symLines <= TRIVIAL_FUNCTION_MAX_LINES) {
         s.duplication = 'UNIQUE';
+        s.duplicate_target = undefined;
         s.detail = `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`;
         s.confidence = 90;
+        downgradedDuplication.add(s.name);
         stats.resolved++;
         stats.breakdown.duplicateToUnique++;
       } else {
@@ -212,8 +228,10 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
         if (topScore < RAG_DUPLICATE_THRESHOLD) {
           s.duplication = 'UNIQUE';
+          s.duplicate_target = undefined;
           s.confidence = 90;
           s.detail = `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`;
+          downgradedDuplication.add(s.name);
           stats.resolved++;
           stats.breakdown.duplicateToUnique++;
         }
@@ -227,13 +245,38 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (TYPE_KINDS.has(s.kind)) {
         s.overengineering = 'LEAN';
         s.detail = `Auto-resolved: ${s.kind} cannot be over-engineered`;
+        downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
       } else if (symLines <= SMALL_FUNCTION_MAX_LINES) {
         s.overengineering = 'LEAN';
         s.detail = `Auto-resolved: function ≤ ${SMALL_FUNCTION_MAX_LINES} lines`;
+        downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
+      }
+    }
+
+    // --- Overengineering: LEAN → OVER based on low importer count ---
+    // An exported class with ≤1 importer is almost always an abstraction
+    // built for a single client (factory, strategy, emitter). The LLM often
+    // misses this because each piece looks well-structured in isolation;
+    // only the usage count exposes the waste. We exclude entry-point names
+    // and symbols below OVER_ABSTRACTION_MIN_LINES to cut trivial noise.
+    if (s.overengineering === 'LEAN' && s.exported && s.kind === 'class') {
+      const symLines = s.line_end - s.line_start + 1;
+      if (symLines >= OVER_ABSTRACTION_MIN_LINES && !ENTRY_POINT_NAMES.has(s.name.toLowerCase())) {
+        const importers = getSymbolUsage(ctx.usageGraph, s.name, review.file);
+        const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
+        const totalImporters = importers.length + typeImporters.length;
+        if (totalImporters <= 1) {
+          s.overengineering = 'OVER';
+          s.confidence = 80;
+          s.detail = `Auto-promoted: exported class imported by ${totalImporters} file${totalImporters === 1 ? '' : 's'} — abstraction built for a single client`;
+          promotedOverengineering.push(s);
+          stats.resolved++;
+          stats.breakdown.leanToOver++;
+        }
       }
     }
 
@@ -277,9 +320,39 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
   // Recalculate verdict based on reclassified symbols
   const newVerdict = computeVerdict(newSymbols);
 
+  // Purge synthesized actions that no longer match a symbol verdict.
+  // Invariant: an action with source=X targeting symbol S requires that
+  // S's X-axis verdict still justifies the action.
+  const purgedActions = (downgradedDuplication.size > 0 || downgradedOverengineering.size > 0)
+    ? review.actions.filter((a) => {
+        if (!a.target_symbol) return true;
+        if (a.source === 'duplication' && downgradedDuplication.has(a.target_symbol)) return false;
+        if (a.source === 'overengineering' && downgradedOverengineering.has(a.target_symbol)) return false;
+        return true;
+      })
+    : review.actions;
+
+  // Synthesize actions for LEAN → OVER promotions (axis-merger ran before
+  // tier1 so these symbols had no OVER action at merge time).
+  const nextId = purgedActions.reduce((max, a) => Math.max(max, a.id), 0) + 1;
+  const promotedActions = promotedOverengineering.map((s, i) => ({
+    id: nextId + i,
+    description: `Simplify: \`${s.name}\` is over-engineered`,
+    severity: 'medium' as const,
+    effort: 'small' as const,
+    category: 'hygiene' as const,
+    source: 'overengineering' as const,
+    target_symbol: s.name,
+    target_lines: `L${s.line_start}-L${s.line_end}`,
+  }));
+  const newActions = promotedActions.length > 0
+    ? [...purgedActions, ...promotedActions]
+    : purgedActions;
+
   return {
     ...review,
     symbols: newSymbols,
+    actions: newActions,
     verdict: newVerdict,
     _tier1Stats: stats,
   };

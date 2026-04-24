@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
@@ -475,11 +475,11 @@ export function buildAxisReports(data: ReportData): AxisReport[] {
   const reports: AxisReport[] = [];
 
   for (const axis of REPORT_AXIS_IDS) {
-    const files = data.reviews.filter((r) => hasAxisFinding(r, axis));
-    if (files.length === 0) continue;
-
     const axisId = toAxisId(axis);
     const actions = data.actions.filter((a) => a.source === axisId);
+    const actionFiles = new Set(actions.map((a) => a.file));
+    const files = data.reviews.filter((r) => hasAxisFinding(r, axis) || actionFiles.has(r.file));
+    if (files.length === 0) continue;
     const sorted = sortFindingFiles(files);
 
     const shards: ShardInfo[] = [];

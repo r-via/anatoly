@@ -197,14 +197,27 @@ export class TestsEvaluator implements AxisEvaluator {
       TestsResponseSchema,
     );
 
-    const symbols: AxisSymbolResult[] = data.symbols.map((s) => ({
-      name: s.name,
-      line_start: s.line_start,
-      line_end: s.line_end,
-      value: s.tests,
-      confidence: s.confidence,
-      detail: s.detail,
-    }));
+    // Invariant: WEAK requires actual test cases to exist. If no test file
+    // is present, any WEAK verdict is logically impossible (there is nothing
+    // to be "weak") and must be reclassified to NONE.
+    const hasTestFile = Boolean(ctx.testFileContent && ctx.testFileContent.trim().length > 0);
+
+    const symbols: AxisSymbolResult[] = data.symbols.map((s) => {
+      let value: string = s.tests;
+      let detail = s.detail;
+      if (!hasTestFile && value === 'WEAK') {
+        value = 'NONE';
+        detail = `Reclassified WEAK → NONE: no test file exists | ${detail}`;
+      }
+      return {
+        name: s.name,
+        line_start: s.line_start,
+        line_end: s.line_end,
+        value,
+        confidence: s.confidence,
+        detail,
+      };
+    });
 
     return {
       axisId: 'tests',

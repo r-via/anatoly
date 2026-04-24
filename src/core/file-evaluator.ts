@@ -19,7 +19,7 @@ import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
-import { resolveRelevantDocs, resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
+import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveAxisModel } from './axis-evaluator.js';
 
@@ -189,6 +189,29 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
         testFileName = testsDir.name;
       }
     }
+
+    // Strategy 6: scan nearby test directories for any *.test.* / *.spec.*
+    // file that imports this source file (catches non-conventional names
+    // like `basic.test.ts` importing from `reels.ts`). Test files are
+    // typically excluded from the task set / usage graph, so we scan on demand.
+    if (!testFileContent) {
+      const discovered = discoverImportingTestFiles(projectRoot, task.file, base);
+      if (discovered.length > 0) {
+        const parts: string[] = [];
+        for (const rel of discovered) {
+          try {
+            const content = readFileSync(resolve(projectRoot, rel), 'utf-8');
+            parts.push(`// ---- ${rel} ----\n${content}`);
+          } catch (err) {
+            contextLogger().debug({ rel, err }, 'failed to read discovered test file');
+          }
+        }
+        if (parts.length > 0) {
+          testFileContent = parts.join('\n\n');
+          testFileName = discovered.length === 1 ? discovered[0] : `${discovered.length} test files (import-discovered)`;
+        }
+      }
+    }
   }
 
   // Resolve relevant docs for documentation axis
@@ -337,15 +360,15 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }
   }
 
-  let totalCost = successResults.reduce((sum, r) => sum + r.costUsd, 0);
-  let totalInputTokens = successResults.reduce((sum, r) => sum + r.inputTokens, 0);
-  let totalOutputTokens = successResults.reduce((sum, r) => sum + r.outputTokens, 0);
-  let totalCacheReadTokens = successResults.reduce((sum, r) => sum + r.cacheReadTokens, 0);
-  let totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
+  const totalCost = successResults.reduce((sum, r) => sum + r.costUsd, 0);
+  const totalInputTokens = successResults.reduce((sum, r) => sum + r.inputTokens, 0);
+  const totalOutputTokens = successResults.reduce((sum, r) => sum + r.outputTokens, 0);
+  const totalCacheReadTokens = successResults.reduce((sum, r) => sum + r.cacheReadTokens, 0);
+  const totalCacheCreationTokens = successResults.reduce((sum, r) => sum + r.cacheCreationTokens, 0);
 
   const enabledAxes = opts.evaluators.map((e) => e.id);
   // Config-skipped axes produce '-' markers (same as disabled axes) — don't treat as failures
-  let review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes, docsCoverage);
+  const review = mergeAxisResults(task, successResults, bestPractices, failedAxes, enabledAxes, docsCoverage);
 
   // Per-file deliberation removed (Story 41.1) — verdict comes from merge logic.
   // Refinement tiers (41.2–41.4) will post-process ReviewFiles after the review phase.
@@ -441,6 +464,101 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
  */
 // Cache directory listings to avoid repeated readdirSync on the hot path
 const dirListingCache = new Map<string, string[]>();
+/**
+ * Scan test directories (`__tests__/`, `tests/`, `test/`) anywhere between
+ * the source file's dir and the project root for test files that import
+ * this source file. Matches import paths ending with the source's basename
+ * (with or without extension). Handles:
+ * - sibling test dirs (JS/TS: `src/__tests__/basic.test.ts`)
+ * - project-root test dirs (Python: `tests/test_payments.py` testing `src/foo/payments.py`)
+ * - non-conventional test file names (test file name ≠ source basename)
+ */
+function discoverImportingTestFiles(
+  projectRoot: string,
+  sourceRelPath: string,
+  sourceBase: string,
+): string[] {
+  const testDirNames = ['__tests__', 'tests', 'test'];
+  // Matches JS/TS `import ... from '...'` / `require('...')` and Python `from x import`/`import x`.
+  const importRegex = /(?:import\s[^;]*?from\s+|require\s*\(\s*)['"]([^'"]+)['"]|from\s+([\w.]+)\s+import|import\s+([\w.]+)/g;
+  const results = new Set<string>();
+
+  // Collect all candidate test directories: walk up from sourceDir to project root.
+  const candidateDirs = new Set<string>();
+  let cur = dirname(sourceRelPath);
+  // Include project root itself (represented as '.').
+  while (true) {
+    for (const td of testDirNames) {
+      const rel = cur === '.' ? td : `${cur}/${td}`;
+      candidateDirs.add(rel);
+    }
+    if (cur === '.' || cur === '') break;
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+
+  for (const relDir of candidateDirs) {
+    const absDir = resolve(projectRoot, relDir);
+    let entries: string[];
+    try {
+      entries = cachedReaddirSync(absDir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!isTestFilePath(entry)) continue;
+      const relPath = `${relDir}/${entry}`;
+
+      // --- Match A: filename convention ---
+      // `<base>.test.*`, `<base>.spec.*`, `<base>_test.*`, `test_<base>.*`
+      const entryNoExt = entry.replace(/\.[^.]+$/, '');
+      const conventionMatch =
+        entryNoExt === `${sourceBase}.test` ||
+        entryNoExt === `${sourceBase}.spec` ||
+        entryNoExt === `${sourceBase}_test` ||
+        entryNoExt === `test_${sourceBase}`;
+      if (conventionMatch) {
+        results.add(relPath);
+        continue;
+      }
+
+      // --- Match B: import-based ---
+      let content: string;
+      try {
+        content = readFileSync(resolve(projectRoot, relPath), 'utf-8');
+      } catch {
+        continue;
+      }
+      for (const m of content.matchAll(importRegex)) {
+        const importPath = m[1] ?? m[2] ?? m[3];
+        if (!importPath) continue;
+        const normalized = importPath.replace(/\.(?:js|ts|mjs|cjs|jsx|tsx|py)$/, '');
+        // Match on any path segment (handles `from pkg.sub.foo import` / `'../foo'` / `'pkg/sub/foo'`).
+        const segments = normalized.split(/[/.]/);
+        if (segments.includes(sourceBase)) {
+          results.add(relPath);
+          break;
+        }
+      }
+    }
+  }
+  return [...results];
+}
+
+function isTestFilePath(relPath: string): boolean {
+  const lower = relPath.toLowerCase();
+  return (
+    lower.includes('.test.') ||
+    lower.includes('.spec.') ||
+    lower.includes('_test.') ||
+    lower.includes('/test_') ||
+    lower.startsWith('test_') ||
+    lower.includes('/__tests__/') ||
+    lower.includes('/tests/')
+  );
+}
+
 function cachedReaddirSync(absDir: string): string[] {
   const cached = dirListingCache.get(absDir);
   if (cached) return cached;

@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, copyFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync, readdirSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync, readdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -51,19 +51,19 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, runSingleTurnQuery, buildProviderStats, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, type AxisId } from '../core/axis-evaluator.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import { DeliberationResponseSchema, type DeliberationResponse } from '../core/deliberation.js';
+import { DeliberationResponseSchema } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
-import { renderSetupTable, shortModelName, type SetupTableData } from '../cli/setup-table.js';
+import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
-import { runRefinementPhase, type RefinementResult } from '../core/refinement/phase.js';
+import { runRefinementPhase } from '../core/refinement/phase.js';
 import { clearRefinementCache } from '../core/refinement/tier3.js';
 
 /**
@@ -454,7 +454,7 @@ export function registerRunCommand(program: Command): void {
           pipelineState.setRouter(ctx.router);
         }
         if (ctx.isFirstRun) {
-          pipelineState.addTask('bootstrap-doc', 'First run');
+          pipelineState.addTask('bootstrap-doc', 'Bootstrapping internal docs');
         }
         if (ctx.enableRag) {
           pipelineState.addTask('rag-code', 'Embedding code');
@@ -1632,7 +1632,7 @@ async function runReviewPhase(
 
       // Handle cached files: load existing review, count findings, display [CACHED]
       if (cached) {
-        const cachedReview = loadCachedReview(ctx.projectRoot, filePath);
+        const cachedReview = loadCachedReview(ctx.projectRoot, filePath, evaluators.map((e) => e.id));
         if (cachedReview) {
           // Copy into current run dir so the report is complete
           writeReviewOutput(ctx.projectRoot, cachedReview, ctx.runDir);
@@ -2146,59 +2146,59 @@ function runReportPhase(ctx: RunContext): void {
 /**
  * Load a single cached review from the persistent cache directory.
  * Returns the parsed ReviewFile or undefined if not found / malformed.
+ *
+ * When `enabledAxes` is provided, filters out stale data for axes that are
+ * no longer enabled in the current config: per-symbol verdicts are blanked
+ * to '-' and actions whose `source` matches a disabled axis are removed.
+ * This prevents stale cache from an old run (where an axis was enabled)
+ * from leaking into the current run's report.
  */
-function loadCachedReview(projectRoot: string, filePath: string): ReviewFile | undefined {
+function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: AxisId[]): ReviewFile | undefined {
   const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
   const baseName = toOutputName(filePath);
   const src = join(cacheReviewsDir, `${baseName}.rev.json`);
   if (!existsSync(src)) return undefined;
   try {
     const raw = JSON.parse(readFileSync(src, 'utf-8'));
-    return ReviewFileSchema.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
+    const review = ReviewFileSchema.parse(raw);
+    if (!enabledAxes) return review;
 
-/**
- * Copy .rev.json and .rev.md files for CACHED files from the accumulative cache
- * into the current runDir/reviews directory.
- *
- * This ensures the report always reflects the full project state, not just
- * the files that were re-reviewed in this run.
- *
- * @param projectRoot Absolute path to the project root.
- * @param currentRunDir Absolute path to the current run output directory.
- * @param pm Progress manager holding the cached-file manifest.
- */
-function copyCachedReviews(projectRoot: string, currentRunDir: string, pm: ProgressManager): void {
-  const progress = pm.getProgress();
-  const cachedFiles = Object.values(progress.files).filter((f) => f.status === 'CACHED');
-  if (cachedFiles.length === 0) return;
+    const enabledSet = new Set<AxisId>(enabledAxes);
+    const disabledSymbolAxes: Array<{ key: keyof import('../schemas/review.js').SymbolReview; axis: AxisId }> = [
+      { key: 'correction', axis: 'correction' },
+      { key: 'utility', axis: 'utility' },
+      { key: 'duplication', axis: 'duplication' },
+      { key: 'overengineering', axis: 'overengineering' },
+      { key: 'tests', axis: 'tests' },
+      { key: 'documentation', axis: 'documentation' },
+    ];
 
-  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
-  const currentReviewsDir = join(currentRunDir, 'reviews');
-
-  let copied = 0;
-  for (const fp of cachedFiles) {
-    const baseName = toOutputName(fp.file);
-    // Copy both .rev.json and .rev.md (human-readable review)
-    for (const ext of ['.rev.json', '.rev.md']) {
-      const src = join(cacheReviewsDir, `${baseName}${ext}`);
-      const dst = join(currentReviewsDir, `${baseName}${ext}`);
-      if (existsSync(src) && !existsSync(dst)) {
-        try {
-          copyFileSync(src, dst);
-          if (ext === '.rev.json') copied++;
-        } catch (err) {
-          getLogger().debug({ src, err }, 'failed to copy cached review (non-fatal)');
+    const filteredSymbols = review.symbols.map((s) => {
+      const next = { ...s };
+      for (const { key, axis } of disabledSymbolAxes) {
+        if (!enabledSet.has(axis) && next[key] !== '-') {
+          (next as Record<string, unknown>)[key] = '-';
         }
       }
-    }
-  }
+      if (!enabledSet.has('duplication')) next.duplicate_target = undefined;
+      return next;
+    });
 
-  if (copied > 0) {
-    getLogger().info({ copied }, 'copied cached reviews into current run');
+    // Map ReportAxisId <-> AxisId for best-practices source tag.
+    const disabledActionSources = new Set<string>();
+    for (const axis of ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation', 'best_practices'] as AxisId[]) {
+      if (!enabledSet.has(axis)) disabledActionSources.add(axis);
+    }
+    // Action source can also be the hyphenated form for best-practices.
+    if (!enabledSet.has('best_practices')) disabledActionSources.add('best-practices');
+
+    const filteredActions = review.actions.filter((a) => !a.source || !disabledActionSources.has(a.source));
+
+    const bestPractices = enabledSet.has('best_practices') ? review.best_practices : undefined;
+
+    return { ...review, symbols: filteredSymbols, actions: filteredActions, best_practices: bestPractices };
+  } catch {
+    return undefined;
   }
 }
 
