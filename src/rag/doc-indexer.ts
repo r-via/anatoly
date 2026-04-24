@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { z } from 'zod';
 import { embedNlpBatch } from './embeddings.js';
-import { extractJson } from '../utils/extract-json.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { TransportRouter } from '../core/transports/index.js';
@@ -272,7 +271,8 @@ export function splitIntoBatches(
  * refining eligible sections with Haiku in a single batched call per file
  * (or per sub-batch for very large documents).
  */
-async function chunkDocWithHaiku(
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _chunkDocWithHaiku(
   filePath: string,
   source: string,
   model: string,
@@ -738,7 +738,7 @@ export interface DocIndexResult {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', chunkModel, onLog, onProgress, onFileStart, onFileDone, isInterrupted, conversationDir, router, concurrency = 4, docSource = 'project' } = options;
+  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, concurrency = 4, docSource = 'project' } = options;
 
   const absDocsDir = resolve(projectRoot, docsDir);
   const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
@@ -805,7 +805,7 @@ export async function indexDocSections(options: DocIndexOptions): Promise<DocInd
   onLog(`processing ${changedFiles.length} ${sourceLabel} doc files via smart-chunk (${cachedCount} cached)`);
 
   let totalIndexed = 0;
-  let totalCostUsd = 0;
+  const totalCostUsd = 0;
   let docFileCounter = 0;
 
   // Phase 1: Chunk all files (smart programmatic chunker or chunk cache)

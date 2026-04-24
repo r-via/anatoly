@@ -279,7 +279,7 @@ export interface ResolvedModels {
  */
 export function determineBackend(
   flag: EmbeddingsReadyFlag | null,
-  hardware: HardwareProfile,
+  _hardware: HardwareProfile,
 ): EmbeddingBackend {
   // Explicit backend from setup
   if (flag?.backend) {

@@ -7,6 +7,7 @@ import { resolve, dirname } from 'node:path';
 import type { Config } from '../../schemas/config.js';
 import type { Verdict } from '../../schemas/review.js';
 import { TelegramNotifier } from './telegram.js';
+import { getLogger } from '../../utils/logger.js';
 
 /**
  * Payload passed to every notification channel after a run completes.
@@ -113,7 +114,7 @@ export async function sendNotifications(config: Config, payload: NotificationPay
   const botToken = process.env[tokenEnv];
 
   if (!botToken) {
-    console.warn(`Telegram bot token not found in env (${tokenEnv})`);
+    getLogger().warn(`Telegram bot token not found in env (${tokenEnv})`);
     return;
   }
 
@@ -123,13 +124,13 @@ export async function sendNotifications(config: Config, payload: NotificationPay
     const root = projectRoot ?? process.cwd();
     chatId = await resolveUsernameToChatId(botToken, telegram.username, root) ?? undefined;
     if (!chatId) {
-      console.warn(`Could not resolve Telegram username @${telegram.username}. Send /start to the bot first.`);
+      getLogger().warn(`Could not resolve Telegram username @${telegram.username}. Send /start to the bot first.`);
       return;
     }
   }
 
   if (!chatId) {
-    console.warn('No chat_id or username configured for Telegram notifications');
+    getLogger().warn('No chat_id or username configured for Telegram notifications');
     return;
   }
 
@@ -138,6 +139,6 @@ export async function sendNotifications(config: Config, payload: NotificationPay
     await notifier.send(payload);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`Telegram notification failed: ${msg}`);
+    getLogger().warn(`Telegram notification failed: ${msg}`);
   }
 }

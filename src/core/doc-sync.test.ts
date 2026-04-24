@@ -72,7 +72,7 @@ describe('syncDocs', () => {
       },
     ];
 
-    const report = syncDocs(recs, fs);
+    syncDocs(recs, fs);
 
     const written = fs.store['docs/start/overview.md'];
     expect(written).toContain('docs/02-Architecture/01-System-Overview.md');
@@ -154,7 +154,7 @@ describe('syncDocs', () => {
       },
     ];
 
-    const report = syncDocs(recs, fs);
+    syncDocs(recs, fs);
 
     const updated = fs.store['docs/guide.md'];
     // Original content untouched
@@ -308,7 +308,7 @@ describe('syncDocs', () => {
       },
     ];
 
-    const report = syncDocs(recs, fs, { docsPath: 'documentation' });
+    syncDocs(recs, fs, { docsPath: 'documentation' });
 
     const written = fs.store['documentation/start/overview.md'];
     expect(written).toContain('documentation/02-Architecture/01-System-Overview.md');
@@ -330,7 +330,7 @@ describe('syncDocs', () => {
       },
     ];
 
-    const report = syncDocs(recs, fs);
+    syncDocs(recs, fs);
 
     expect(fs.store['docs/page.md']).toContain('docs/05-Modules/rag.md');
   });

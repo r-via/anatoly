@@ -32,7 +32,6 @@ type ActiveModel = 'code' | 'nlp' | null;
 let activeModel: ActiveModel = null;
 let modelsDirectory: string | null = null;
 let logFn: ((message: string) => void) | undefined;
-let progressFn: ((elapsed: number) => void) | undefined;
 let dockerVerified = false;
 
 // ---------------------------------------------------------------------------
@@ -193,11 +192,10 @@ export function activePort(): number {
 export async function startGgufContainers(
   projectRoot: string,
   onLog?: (message: string) => void,
-  onProgress?: (elapsed: number) => void,
+  _onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
   modelsDirectory = resolve(homedir(), '.anatoly', 'models');
   logFn = onLog;
-  progressFn = onProgress;
 
   // Verify model files exist
   const codeModelPath = resolve(modelsDirectory, GGUF_CODE_MODEL_FILE);

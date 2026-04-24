@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { executeDocPrompts, type DocPrompt, type DocLlmResult } from './doc-llm-executor.js';
+import { executeDocPrompts, type DocPrompt } from './doc-llm-executor.js';
 import { TransportRouter, type LlmTransport, type LlmResponse } from './transports/index.js';
 
 /** Build a mock TransportRouter with a given concurrency for the anthropic provider. */
@@ -26,7 +26,7 @@ function mockRouter(concurrency: number): TransportRouter {
  * and writes the LLM response to .anatoly/docs/.
  */
 
-function makePrompt(pagePath: string, content = 'Test content'): DocPrompt {
+function makePrompt(pagePath: string, _content = 'Test content'): DocPrompt {
   return {
     pagePath,
     system: 'You are a documentation writer.',

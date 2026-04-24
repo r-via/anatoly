@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { LlmTransport, LlmResponse } from './index.js';
+import type { LlmTransport } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Mock @google/gemini-cli-core

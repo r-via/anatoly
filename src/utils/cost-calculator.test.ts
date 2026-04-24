@@ -25,7 +25,7 @@ describe('MODEL_PRICING', () => {
   });
 
   it('should have input and output pricing for every entry', () => {
-    for (const [model, pricing] of Object.entries(MODEL_PRICING)) {
+    for (const [, pricing] of Object.entries(MODEL_PRICING)) {
       expect(typeof pricing.input).toBe('number');
       expect(typeof pricing.output).toBe('number');
       expect(pricing.input).toBeGreaterThanOrEqual(0);

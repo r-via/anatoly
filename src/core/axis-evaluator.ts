@@ -14,7 +14,6 @@ import { resolveSystemPrompt } from './prompt-resolver.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
-import { contextLogger } from '../utils/log-context.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import type { TransportRouter } from './transports/index.js';
 import { extractProvider } from './transports/index.js';

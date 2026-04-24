@@ -4,7 +4,6 @@
 
 import { describe, it, expect } from 'vitest';
 import { applyTier2, detectCrossFilePatterns } from './tier2.js';
-import type { EscalatedFinding } from './tier2.js';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
 
 // ---------------------------------------------------------------------------

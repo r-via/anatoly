@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -106,7 +106,7 @@ describe('runDocScaffold', () => {
     const pkg = { name: 'test' };
     const tasks: Task[] = [];
 
-    const result1 = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
+    runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
     const result2 = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
     // Second run should skip all previously created pages (except index.md which is always regenerated)

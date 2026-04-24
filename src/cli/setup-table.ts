@@ -173,7 +173,6 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
         rightPart = `${rightItem.key.padEnd(rKeyW)}${' '.repeat(gap)}${rightItem.value}`;
       }
       // Pad the full row to innerWidth
-      const rawContent = leftPart + sep + rightPart;
       // We need to account for the chalk dim chars in sep for padding
       const visibleLength = leftPart.length + 3 + rightPart.length;
       const padding = Math.max(0, innerWidth - visibleLength);

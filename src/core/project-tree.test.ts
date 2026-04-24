@@ -25,7 +25,6 @@ describe('buildProjectTree', () => {
     ]);
     const lines = tree.split('\n');
     // src/ should be listed, inside it core/ and utils/ (dirs) before index.ts (file)
-    const srcChildren = lines.filter((l) => l.startsWith('    ') || l.startsWith('│'));
     // Directories first
     const coreIdx = lines.findIndex((l) => l.includes('core/'));
     const utilsIdx = lines.findIndex((l) => l.includes('utils/'));

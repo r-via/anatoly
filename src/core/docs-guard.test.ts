@@ -127,7 +127,6 @@ describe('scaffolder docs/ invariant (integration)', () => {
     scaffoldDocs(outputDir, ['Library'], { name: 'test' });
 
     // docs/ must NOT have been created
-    const docsDir = join(tmpDir, 'docs');
     const exists = readdirSync(tmpDir).includes('docs');
     expect(exists).toBe(false);
   });

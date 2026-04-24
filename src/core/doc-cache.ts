@@ -133,7 +133,8 @@ export function removeDocCacheEntry(
   cache: DocCache,
   pagePath: string,
 ): DocCache {
-  const { [pagePath]: _, ...rest } = cache.pages;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { [pagePath]: _omitted, ...rest } = cache.pages;
   return { ...cache, pages: rest };
 }
 

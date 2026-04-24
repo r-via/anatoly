@@ -96,7 +96,7 @@ vi.mock('../core/worker-pool.js', () => ({
 }));
 
 import { indexProject, ragModeArtifacts } from './orchestrator.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
+import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/worker-pool.js';
 import type { FunctionCard } from './types.js';

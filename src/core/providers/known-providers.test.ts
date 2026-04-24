@@ -6,7 +6,6 @@ import { describe, it, expect } from 'vitest';
 import {
   KNOWN_PROVIDERS,
   resolveProvider,
-  type KnownProviderEntry,
 } from './known-providers.js';
 
 // --- AC: KNOWN_PROVIDERS registry contents ---
@@ -32,7 +31,7 @@ describe('KNOWN_PROVIDERS registry', () => {
   });
 
   it('should have base_url, env_key, and type on every entry', () => {
-    for (const [id, entry] of Object.entries(KNOWN_PROVIDERS)) {
+    for (const [, entry] of Object.entries(KNOWN_PROVIDERS)) {
       expect(entry).toHaveProperty('base_url');
       expect(entry).toHaveProperty('env_key');
       expect(entry).toHaveProperty('type');

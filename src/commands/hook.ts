@@ -219,7 +219,7 @@ export function registerHookCommand(program: Command): void {
       // Collect findings from completed reviews
       const findings: Array<{ file: string; symbols: ReviewFile['symbols']; verdict: string }> = [];
 
-      for (const [file, review] of Object.entries(state.reviews)) {
+      for (const [, review] of Object.entries(state.reviews)) {
         if (review.status !== 'done' && review.status !== 'running') continue;
 
         // Check if process has actually finished

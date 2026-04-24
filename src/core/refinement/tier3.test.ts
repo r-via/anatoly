@@ -10,8 +10,6 @@ import {
   runTier3,
   type Shard,
   type Tier3Context,
-  type Tier3Result,
-  type ShardResult,
 } from './tier3.js';
 import type { EscalatedFinding } from './tier2.js';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';

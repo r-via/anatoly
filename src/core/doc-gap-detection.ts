@@ -542,6 +542,6 @@ export async function detectDocGaps(vectorStore: VectorStore, options?: { scope?
   return { totalFunctions: v2.domains.reduce((s, d) => s + d.functionCount, 0), totalDocSections: 0, notFound, lowRelevance: [], covered: [], orphans: [], byPage: new Map() };
 }
 /** @deprecated Use formatGapReportV2 instead */
-export function formatGapSummary(result: GapDetectionResult, _scope?: GapDetectionScope, _docsPath?: string): string {
+export function formatGapSummary(_result: GapDetectionResult, _scope?: GapDetectionScope, _docsPath?: string): string {
   return `(v1 deprecated — use v2 report)`;
 }

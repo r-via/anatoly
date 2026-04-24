@@ -3,15 +3,14 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { resolve, join } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
-import { globSync } from 'tinyglobby';
+import { readFileSync } from 'node:fs';
 import picomatch from 'picomatch';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
 import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
 import type { NlpSummaryCache } from './indexer.js';
-import { embedCode, embedNlp, setEmbeddingLogger, configureModels } from './embeddings.js';
+import { embedCode, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
@@ -369,7 +368,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveDc(projectRoot, `${cacheSuffix}-internal`, {});
   }
 
-  let cache = loadRagCache(projectRoot, cacheSuffix);
+  const cache = loadRagCache(projectRoot, cacheSuffix);
 
   // Pre-warm code embedding model (always needed, starts the GGUF code container)
   // Use a non-empty string — nomic-embed-code crashes on empty input

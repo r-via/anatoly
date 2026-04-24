@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { scaffoldDocs, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
+import { scaffoldDocs, type PageDef } from './doc-scaffolder.js';
 import type { ProjectType } from './language-detect.js';
 
 /**
@@ -54,7 +54,7 @@ const BASE_PAGES_NO_MODULES = [
 describe('scaffoldDocs', () => {
   describe('base structure (Library / default)', () => {
     it('creates all base pages for a Library project (no modules → 05-Development)', () => {
-      const result = scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
 
       for (const page of BASE_PAGES_NO_MODULES) {
         expect(existsSync(join(outputDir, page)), `Missing: ${page}`).toBe(true);
@@ -382,7 +382,7 @@ describe('scaffoldDocs', () => {
 
     it('AC2: no 05-Modules/ created and 06-Development renumbered to 05-Development when no modules', () => {
       // Library has no type-specific module pages, and no dynamic modules passed
-      const result = scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
+      scaffoldDocs(outputDir, ['Library'], { name: 'my-lib' });
 
       // 05-Modules/ should NOT exist
       expect(existsSync(join(outputDir, '05-Modules'))).toBe(false);
@@ -402,7 +402,7 @@ describe('scaffoldDocs', () => {
 
     it('AC2: CLI without modules also renumbers to 05-Development', () => {
       // CLI type has no type-specific module pages (only CLI-Reference in 04-API-Reference)
-      const result = scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' });
+      scaffoldDocs(outputDir, ['CLI'], { name: 'my-cli' });
 
       expect(existsSync(join(outputDir, '05-Modules'))).toBe(false);
       expect(existsSync(join(outputDir, '05-Development/01-Source-Tree.md'))).toBe(true);

@@ -5,7 +5,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sendNotifications } from './index.js';
 import type { NotificationPayload } from './index.js';
-import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
 
 const basePayload: NotificationPayload = {

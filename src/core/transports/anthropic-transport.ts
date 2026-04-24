@@ -16,7 +16,7 @@ import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type 
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
-import { initConvDump, appendAssistant, appendResult, appendError, type ConvDump } from './conversation-dump.js';
+import { initConvDump, appendResult, appendError, type ConvDump } from './conversation-dump.js';
 
 // ---------------------------------------------------------------------------
 // Transcript formatting (extracted from axis-evaluator.ts)

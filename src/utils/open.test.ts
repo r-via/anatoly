@@ -52,7 +52,7 @@ describe('openFile', () => {
 
   it('should log error on failure without throwing', async () => {
     vi.mocked(platform).mockReturnValue('linux');
-    vi.mocked(execFile).mockImplementation(((_cmd: string, _args: string[], cb: Function) => {
+    vi.mocked(execFile).mockImplementation(((_cmd: string, _args: string[], cb: (...args: unknown[]) => unknown) => {
       if (typeof cb === 'function') cb(new Error('not found'), '', '');
     }) as never);
     const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

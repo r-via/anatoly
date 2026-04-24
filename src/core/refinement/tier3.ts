@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import type { ReviewFile } from '../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
@@ -219,8 +219,6 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
     if (evicted > 0) saveRefinementCache(ctx.projectRoot, cache);
   }
 
-  let cacheHits = 0;
-
   // Filter already-cached findings from shards and apply cached results
   const filteredShards: Shard[] = [];
   for (const shard of shards) {
@@ -229,7 +227,6 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
       const key = findingCacheKey(f.file, f.symbolName, f.axis);
       const cached = cache.investigated[key];
       if (cached) {
-        cacheHits++;
         // Apply cached deliberation to the review
         const review = updatedReviews.get(f.file) ?? ctx.reviewsByFile.get(f.file);
         if (review) {
@@ -354,7 +351,6 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
 // ---------------------------------------------------------------------------
 
 const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation'] as const;
-type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 
 /**
  * Investigate a single shard — build prompt, call LLM, apply results.

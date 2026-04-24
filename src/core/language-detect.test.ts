@@ -26,7 +26,7 @@ vi.mock('node:fs', () => ({
 }));
 
 import { getGitTrackedFiles } from '../utils/git.js';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 const mockedGit = vi.mocked(getGitTrackedFiles);
 const mockedReadFile = vi.mocked(readFileSync);

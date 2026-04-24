@@ -6,8 +6,6 @@ import { describe, it, expect } from 'vitest';
 import {
   ConfigSchema,
   AxisConfigSchema,
-  AnthropicProviderConfigSchema,
-  GoogleProviderConfigSchema,
   GenericProviderConfigSchema,
 } from './config.js';
 

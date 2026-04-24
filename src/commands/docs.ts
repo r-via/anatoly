@@ -401,7 +401,6 @@ export function registerDocsCommand(program: Command): void {
             });
 
             // Complete final RAG task
-            const finalTaskId = ragPhaseToTaskId[ragPhase];
             // Ensure all tasks are completed with meaningful details
             if (ctx.state.tasks.find(t => t.id === 'rag-code' && t.status !== 'done'))
               ctx.state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);

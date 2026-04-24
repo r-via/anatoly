@@ -6,7 +6,6 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDocRecommendations,
   type DocGap,
-  type DocRecommendation,
 } from './doc-recommendations.js';
 import type { UserDocPlan } from './user-doc-plan.js';
 

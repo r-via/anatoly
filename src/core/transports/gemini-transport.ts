@@ -20,6 +20,7 @@ import { calculateCost } from '../../utils/cost-calculator.js';
  * the count transitions 0→1 or 1→0.
  */
 let _suppressCount = 0;
+/* eslint-disable no-console */
 let _origLog: typeof console.log;
 let _origDebug: typeof console.debug;
 let _origWarn: typeof console.warn;
@@ -48,6 +49,7 @@ function restoreConsole(): void {
     console.error = _origError;
   }
 }
+/* eslint-enable no-console */
 
 /**
  * LlmTransport implementation for Google Gemini models.

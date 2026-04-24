@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
-import { VectorStore, getCodeModelId, getNlpModelId, ragModeArtifacts } from '../rag/index.js';
+import { VectorStore, ragModeArtifacts } from '../rag/index.js';
 import type { RagMode } from '../rag/index.js';
 import type { RagStats } from '../rag/types.js';
 import { loadConfig } from '../utils/config-loader.js';

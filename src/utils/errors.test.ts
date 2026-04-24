@@ -100,8 +100,6 @@ describe('AnatolyError', () => {
     });
 
     it('should omit hint when it is empty', () => {
-      // Create with explicit empty hint
-      const err = new AnatolyError('bad config', ERROR_CODES.CONFIG_INVALID, false);
       // CONFIG_INVALID has a default hint, so it won't be empty — use a code without default
       const errNoHint = new AnatolyError('unknown', ERROR_CODES.WRITE_ERROR, false);
       const obj = errNoHint.toLogObject();

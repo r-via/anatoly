@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { renderDocReferenceSection, type DocReportStats } from './doc-report-section.js';
+import { renderDocReferenceSection } from './doc-report-section.js';
 
 /**
  * Story 29.11: Documentation Reference Section in Report

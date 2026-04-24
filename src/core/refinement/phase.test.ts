@@ -6,7 +6,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   runRefinementPhase,
   type RefinementContext,
-  type RefinementResult,
 } from './phase.js';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
 import type { UsageGraph } from '../usage-graph.js';

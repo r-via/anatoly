@@ -271,13 +271,13 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
   }
 
   // Migrate v1 config (bare model names) to v2 (prefixed)
-  if (isV1Config(configObj as Record<string, any>)) {
+  if (isV1Config(configObj as Record<string, unknown>)) {
     process.stderr.write(
       '\n⚠ .anatoly.yml uses bare model names (v1 format).\n' +
       '  Add provider prefixes (e.g. google/gemini-2.5-flash, anthropic/claude-sonnet-4-6).\n' +
       '  Bare model names supported until v3.0.\n\n',
     );
-    configObj = migrateConfigV1toV2(configObj as Record<string, any>);
+    configObj = migrateConfigV1toV2(configObj as Record<string, unknown>);
   }
 
   const result = ConfigSchema.safeParse(configObj);

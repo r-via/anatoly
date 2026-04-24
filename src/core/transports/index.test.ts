@@ -5,7 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import type { LlmTransport, LlmRequest, LlmResponse } from './index.js';
 import { TransportRouter, extractProvider } from './index.js';
-import type { CircuitState } from '../circuit-breaker.js';
 
 // ---------------------------------------------------------------------------
 // Stub transports for testing

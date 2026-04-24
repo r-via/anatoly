@@ -23,7 +23,6 @@ import {
   makeActId,
   hasAxisFinding,
   type TriageStats,
-  type ReportAxisId,
 } from './reporter.js';
 
 function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
