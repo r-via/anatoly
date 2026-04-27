@@ -21,3 +21,4 @@ spike/
 .githooks/
 .moltbook/
 scripts/setup-discord.mjs
+.ralph/logs/
