@@ -32,7 +32,7 @@ import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import { triageFile, generateSkipReview, type TriageResult } from '../core/triage.js';
+import { triageFile, generateSkipReview, evaluatorAxesForSkip, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
@@ -1651,10 +1651,27 @@ async function runReviewPhase(
 
       const triage = triageMap.get(filePath);
 
-      // Handle skip-tier files: generate synthetic review, no API call
-      if (ctx.triageEnabled && triage?.tier === 'skip') {
+      // Determine which evaluators actually run for this file. Skip-tier
+      // files used to bypass every axis with blanket safe defaults; we
+      // now apply per-skip-reason policy: trivial files still get
+      // correction/duplication/utility (small surface, real signal),
+      // while barrel-export / type-only / constants-only fall through
+      // to the pure synthetic-review path.
+      const isSkipTier = ctx.triageEnabled && triage?.tier === 'skip';
+      const partialAxesOnSkip = isSkipTier
+        ? evaluatorAxesForSkip(triage.reason)
+        : null;
+      const fileEvaluators = partialAxesOnSkip
+        ? evaluators.filter((e) => partialAxesOnSkip.has(e.id))
+        : evaluators;
+
+      // Pure-skip path: triage decided no axis should run on this file.
+      // Generate a synthetic review; the usage graph still resolves the
+      // utility verdict per symbol so unused type/constant exports
+      // surface as DEAD instead of blanket USED.
+      if (isSkipTier && fileEvaluators.length === 0) {
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
-        const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter);
+        const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter, usageGraph);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         cacheReview(ctx.projectRoot, skipReview);
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
@@ -1664,10 +1681,12 @@ async function runReviewPhase(
         return;
       }
 
-      // Evaluate tier: run all axis evaluators in parallel
+      // Evaluate tier (or skip tier with a partial axis set): run the
+      // selected axis evaluators. Axes not in fileEvaluators are filled
+      // with '-' by the merger (axes-not-evaluated semantic).
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
       state.trackFile(filePath, { axesTotal });
-      rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: evaluators.map((e) => e.id) }, 'file review started');
+      rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: fileEvaluators.map((e) => e.id), partialSkip: isSkipTier }, 'file review started');
       ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
 
       let currentAbort = new AbortController();
@@ -1691,7 +1710,7 @@ async function runReviewPhase(
               projectRoot: ctx.projectRoot,
               task,
               config: ctx.config,
-              evaluators,
+              evaluators: fileEvaluators,
               abortController: currentAbort,
               runDir: ctx.runDir,
               usageGraph,
@@ -1741,8 +1760,8 @@ async function runReviewPhase(
         cacheReview(ctx.projectRoot, result.review);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
-          ? evaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
-          : evaluators.map(e => e.id);
+          ? fileEvaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
+          : fileEvaluators.map(e => e.id);
         pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
         ctx.filesReviewed++;
         ctx.reviewCounts.evaluated++;

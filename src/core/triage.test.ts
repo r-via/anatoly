@@ -3,9 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { triageFile, generateSkipReview } from './triage.js';
+import { triageFile, generateSkipReview, evaluatorAxesForSkip } from './triage.js';
 import type { Task } from '../schemas/task.js';
 import { ReviewFileSchema } from '../schemas/review.js';
+import type { UsageGraph } from './usage-graph.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -232,5 +233,110 @@ describe('generateSkipReview', () => {
     const review = generateSkipReview(task, 'barrel-export');
     expect(review.language).toBeUndefined();
     expect(review.parse_method).toBeUndefined();
+  });
+
+  // --- Regression: usage graph consulted for skipped files ---
+  // Previously generateSkipReview blanket-classified every symbol as USED
+  // for skipped files. A type-only file containing an exported but unused
+  // type alias slipped through with utility=USED. With the usage graph
+  // passed in, the unused export is correctly classified DEAD.
+
+  function emptyUsageGraph(): UsageGraph {
+    return {
+      usages: new Map(),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map(),
+      noImportFiles: new Set(),
+    };
+  }
+
+  it('marks unused exported types as DEAD when usage graph is provided', () => {
+    const task = makeTask({
+      file: 'src/types.ts',
+      symbols: [
+        makeSymbol({ name: 'UsedType', kind: 'type', line_start: 1, line_end: 5 }),
+        makeSymbol({ name: 'OrphanType', kind: 'type', line_start: 7, line_end: 10 }),
+      ],
+    });
+    const graph = emptyUsageGraph();
+    graph.usages.set('UsedType::src/types.ts', new Set(['src/consumer.ts']));
+
+    const review = generateSkipReview(task, 'type-only', undefined, graph);
+
+    const used = review.symbols.find((s) => s.name === 'UsedType');
+    const orphan = review.symbols.find((s) => s.name === 'OrphanType');
+    expect(used?.utility).toBe('USED');
+    expect(orphan?.utility).toBe('DEAD');
+    expect(orphan?.detail).toBe('Exported but imported by 0 files');
+    expect(review.verdict).toBe('NEEDS_REFACTOR');
+  });
+
+  it('falls back to USED on type-only file when no usage graph is supplied', () => {
+    const task = makeTask({
+      file: 'src/types.ts',
+      symbols: [makeSymbol({ name: 'OrphanType', kind: 'type' })],
+    });
+    const review = generateSkipReview(task, 'type-only');
+    expect(review.symbols[0].utility).toBe('USED');
+  });
+
+  it('respects the type-only-imported path on the usage graph', () => {
+    const task = makeTask({
+      file: 'src/types.ts',
+      symbols: [makeSymbol({ name: 'TypeUsedAsType', kind: 'type' })],
+    });
+    const graph = emptyUsageGraph();
+    graph.typeOnlyUsages.set('TypeUsedAsType::src/types.ts', new Set(['src/consumer.ts']));
+    const review = generateSkipReview(task, 'type-only', undefined, graph);
+    expect(review.symbols[0].utility).toBe('USED');
+    expect(review.symbols[0].detail).toContain('Type-only imported');
+  });
+
+  it('skips utility resolution when the utility axis is filtered out', () => {
+    const task = makeTask({
+      file: 'src/types.ts',
+      symbols: [makeSymbol({ name: 'OrphanType', kind: 'type' })],
+    });
+    const graph = emptyUsageGraph(); // would mark OrphanType DEAD if utility were active
+    const review = generateSkipReview(
+      task,
+      'type-only',
+      ['correction', 'duplication'], // utility not enabled
+      graph,
+    );
+    expect(review.symbols[0].utility).toBe('-');
+    expect(review.verdict).toBe('CLEAN');
+  });
+});
+
+describe('evaluatorAxesForSkip', () => {
+  it('returns empty for barrel-export (no symbols anywhere)', () => {
+    expect(evaluatorAxesForSkip('barrel-export').size).toBe(0);
+  });
+
+  it('returns empty for type-only (utility recovered via skip path)', () => {
+    expect(evaluatorAxesForSkip('type-only').size).toBe(0);
+  });
+
+  it('returns empty for constants-only', () => {
+    expect(evaluatorAxesForSkip('constants-only').size).toBe(0);
+  });
+
+  it('returns {correction, duplication, utility} for trivial files', () => {
+    // Regression: a tiny file (e.g. a 4-line wild-bonus helper) can carry a
+    // business-logic bug or duplicate another helper. The previous policy
+    // skipped every axis and silently classified such files as CLEAN.
+    const set = evaluatorAxesForSkip('trivial');
+    expect(set.has('correction')).toBe(true);
+    expect(set.has('duplication')).toBe(true);
+    expect(set.has('utility')).toBe(true);
+    expect(set.has('overengineering')).toBe(false);
+    expect(set.has('tests')).toBe(false);
+    expect(set.has('documentation')).toBe(false);
+    expect(set.has('best_practices')).toBe(false);
+  });
+
+  it('returns empty for unknown reasons (safe default)', () => {
+    expect(evaluatorAxesForSkip('mystery').size).toBe(0);
   });
 });

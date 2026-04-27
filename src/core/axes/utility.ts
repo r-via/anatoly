@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
@@ -110,42 +110,8 @@ function autoResolveSymbol(
   sym: { name: string; exported: boolean },
   ctx: AxisContext,
 ): AutoVerdict {
-  if (!ctx.usageGraph || !sym.exported) return null;
-
-  const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
-  const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
-
-  if (importers.length > 0) {
-    return {
-      value: 'USED',
-      confidence: 95,
-      detail: `Runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`,
-    };
-  }
-
-  if (typeImporters.length > 0) {
-    return {
-      value: 'USED',
-      confidence: 95,
-      detail: `Type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')}`,
-    };
-  }
-
-  const transitiveRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
-  if (transitiveRefs.length > 0) {
-    return {
-      value: 'USED',
-      confidence: 95,
-      detail: `Transitively used by ${transitiveRefs.join(', ')}`,
-    };
-  }
-
-  // Exported with 0 importers of any kind → DEAD
-  return {
-    value: 'DEAD',
-    confidence: 95,
-    detail: 'Exported but imported by 0 files',
-  };
+  if (!ctx.usageGraph) return null;
+  return resolveExportedSymbolUtility(sym, ctx.usageGraph, ctx.task.file);
 }
 
 // ---------------------------------------------------------------------------

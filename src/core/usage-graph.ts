@@ -677,3 +677,57 @@ export function getTransitiveUsage(
     return graph.usages.has(refKey) || graph.typeOnlyUsages.has(refKey);
   }).sort();
 }
+
+/**
+ * Pure utility-axis verdict from the usage graph alone — no LLM call.
+ *
+ * Returns:
+ * - `USED` when the symbol has runtime, type-only, or transitive importers
+ * - `DEAD` when the symbol is exported with zero importers of any kind
+ * - `null` for non-exported symbols (graph alone cannot decide; needs
+ *   intra-file analysis or LLM)
+ *
+ * Shared between the `utility` axis evaluator (which uses it as a fast
+ * pre-LLM resolver) and triage (which uses it to give skipped files an
+ * accurate utility verdict instead of a blanket `USED`).
+ */
+export function resolveExportedSymbolUtility(
+  sym: { name: string; exported: boolean },
+  graph: UsageGraph,
+  ownFile: string,
+): { value: 'USED' | 'DEAD'; confidence: number; detail: string } | null {
+  if (!sym.exported) return null;
+
+  const importers = getSymbolUsage(graph, sym.name, ownFile);
+  if (importers.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Runtime-imported by ${importers.length} file${importers.length > 1 ? 's' : ''}: ${importers.join(', ')}`,
+    };
+  }
+
+  const typeImporters = getTypeOnlySymbolUsage(graph, sym.name, ownFile);
+  if (typeImporters.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')}`,
+    };
+  }
+
+  const transitiveRefs = getTransitiveUsage(graph, sym.name, ownFile);
+  if (transitiveRefs.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 95,
+      detail: `Transitively used by ${transitiveRefs.join(', ')}`,
+    };
+  }
+
+  return {
+    value: 'DEAD',
+    confidence: 95,
+    detail: 'Exported but imported by 0 files',
+  };
+}
