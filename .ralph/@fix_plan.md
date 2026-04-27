@@ -126,64 +126,78 @@
 ### Transport-Level Resilience — Semaphores & circuit breakers dans le router
 
 - [x] Story 46.1: TransportRouter — semaphores et breakers par provider
-  > As a développeur du pipeline
-  > I want que le TransportRouter gère les semaphores et breakers par provider
-  > So that la concurrence et la résilience ne soient plus propagées manuellement dans toute la stack.
-  > AC: Given `TransportRouter` est instancié avec `config`, When `config.providers` contient `anthropic: { concurrency: 24 }` et `google: { concurrency: 10 }`, Then `router.semaphores` contient `Map { "anthropic" → Semaphore(24), "google" → Semaphore(10) }`
-  > AC: Given un provider n'a pas de `concurrency` dans la config, When le router est construit, Then le semaphore est créé avec `concurrency: 10` (default)
-  > AC: Given `TransportRouter` est instancié, When `config.providers` contient des providers, Then un `CircuitBreaker` est créé pour chaque provider
-  > AC: Given `router.getSemaphoreStats()` est appelé, When 3 slots sont acquis sur "anthropic", Then il retourne `Map { "anthropic" → { active: 3, total: 24 }, "google" → { active: 0, total: 10 } }`
-  > AC: Given `router.getBreakerState("google")` est appelé, When le breaker Google est fermé, Then il retourne `'closed'`
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-1
 - [x] Story 46.2: API acquire / acquireSlot / release
-  > As a développeur du pipeline
-  > I want une API unifiée pour acquérir un slot de concurrence avec gestion du breaker
-  > So that l'appelant n'ait qu'un seul point d'entrée et que le cleanup soit garanti.
-  > AC: Given `router.acquire("google/gemini-2.5-flash")` est appelé, When le breaker Google est fermé et un slot est disponible, Then il retourne `{ transport: LlmTransport, release: Function }`, And le semaphore Google a un slot de moins
-  > AC: Given `router.acquire("google/gemini-2.5-flash")` est appelé, When le breaker Google est ouvert, Then il throw `Error("Provider 'google' circuit breaker is open")`, And aucun slot de semaphore n'est consommé
-  > AC: Given `router.acquireSlot("anthropic/claude-opus-4-6")` est appelé, When le breaker Anthropic est fermé, Then il retourne `{ release: Function }`, And le semaphore Anthropic a un slot de moins
-  > AC: Given `release({ success: true })` est appelé, When après un appel réussi, Then le semaphore est libéré, And `circuitBreaker.recordSuccess()` est appelé
-  > AC: Given `release({ success: false, error })` est appelé, When après un appel en échec, Then le semaphore est libéré, And `circuitBreaker.recordFailure()` est appelé
-  > AC: Given `release()` est appelé sans argument, When en mode implicite, Then le comportement est identique à `release({ success: true })`
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-2
 - [x] Story 46.3: Renommage GeminiCircuitBreaker → CircuitBreaker
-  > As a développeur
-  > I want que le circuit breaker soit provider-agnostique
-  > So that tout provider puisse en bénéficier.
-  > AC: Given `src/core/circuit-breaker.ts` exporte `GeminiCircuitBreaker`, When il est renommé en `CircuitBreaker`, Then toutes les importations sont mises à jour, And les commentaires/JSDoc ne mentionnent plus "Gemini" spécifiquement, And les tests dans `circuit-breaker.test.ts` sont mis à jour
-  > AC: Given `CircuitBreaker` est utilisé, When il est instancié par le `TransportRouter`, Then la logique closed/open/half-open est inchangée
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-3
 - [x] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
-  > As a développeur du pipeline
-  > I want que les interfaces ne contiennent plus de champs semaphore/breaker, So que la résilience soit entièrement encapsulée dans le router.
-  > AC: Given `AxisContext` dans `axis-evaluator.ts`, When les champs `semaphore`, `geminiSemaphore`, `circuitBreaker` sont supprimés, Then seul `router: TransportRouter` reste comme point d'accès au transport
-  > AC: Given `SingleTurnQueryParams` dans `axis-evaluator.ts`, When les champs `semaphore`, `geminiSemaphore`, `circuitBreaker`, `transport` sont supprimés, Then seul `router: TransportRouter` reste, And `runSingleTurnQuery` utilise `router.acquire(model)` en interne
-  > AC: Given `EvaluateFileOptions` dans `file-evaluator.ts`, When `geminiSemaphore` et `circuitBreaker` sont supprimés, Then le fichier propage uniquement le `router`
-  > AC: Given `RunContext` / `PipelineState`, When `sdkSemaphore`, `geminiSemaphore`, `circuitBreaker` sont supprimés, Then seul le `router` est conservé
-  > AC: Given les 7 axes dans `src/core/axes/*.ts`, When les spreads `geminiSemaphore: ctx.geminiSemaphore` et `circuitBreaker: ctx.circuitBreaker` sont supprimés, Then seul `router: ctx.router` est propagé
-  > AC: Given `resolveSemaphore()` dans `axis-evaluator.ts`, When il est supprimé, Then aucun code ne le référence
-  > AC: Given les params dans `rag/orchestrator.ts`, `rag/nlp-summarizer.ts`, `rag/standalone.ts`, When `geminiSemaphore` est supprimé des signatures, Then seul le `router` est passé
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-4
 - [x] Story 46.5: Migration appels agentic vers acquireSlot
-  > As a développeur du pipeline
-  > I want que les appels agentic (Tier 3, doc gen, Vercel Agent) utilisent `acquireSlot()`, So que la concurrence et le breaker couvrent tous les chemins LLM.
-  > AC: Given Tier 3 correction dans `run.ts` (direct `query()` Claude SDK), When `ctx.sdkSemaphore.acquire()` est remplacé par `router.acquireSlot(model)`, Then le semaphore est géré par le router, And `release({ success })` est appelé en finally, And le breaker est vérifié avant l'appel
-  > AC: Given Doc gen Sonnet coherence dans `doc-llm-executor.ts`, When `if (semaphore) await semaphore.acquire()` est remplacé par `router.acquireSlot(model)`, Then le router est injecté dans `doc-llm-executor`, And `release({ success })` est appelé en finally
-  > AC: Given Doc gen Opus review dans `doc-llm-executor.ts`, When le semaphore manuel est remplacé par `router.acquireSlot(model)`, Then même pattern que Sonnet coherence
-  > AC: Given Doc gen pages dans `run.ts`, When il n'a actuellement ni semaphore ni breaker, Then `router.acquireSlot(model)` est ajouté avec `release({ success })` en finally
-  > AC: Given `vercel-agent.ts`, When il n'a actuellement ni semaphore ni breaker, Then le router est injecté et `acquireSlot(model)` est ajouté avec `release({ success })` en finally
-  > AC: Given `screen-renderer.ts` affiche les stats semaphore, When il accédait directement aux semaphores, Then il utilise `router.getSemaphoreStats()`
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-5
 - [x] Story 46.6: Tests d'intégration et validation
-  > As a mainteneur d'anatoly
-  > I want valider que la migration n'a introduit aucune régression
-  > So that les appels LLM fonctionnent identiquement avec le nouveau router.
-  > AC: Given les tests existants du circuit breaker, When ils sont exécutés avec `CircuitBreaker` (renommé), Then tous passent sans modification de logique
-  > AC: Given les tests existants de `runSingleTurnQuery`, When ils sont adaptés pour mocker `router.acquire()` au lieu de semaphores séparés, Then le comportement est identique
-  > AC: Given un test d'intégration du router, When `acquire()` est appelé N+1 fois (N = concurrency), Then le N+1ème appel attend jusqu'à ce qu'un `release()` libère un slot
-  > AC: Given un test breaker + acquire, When 3 `release({ success: false })` consécutifs sont appelés, Then le prochain `acquire()` throw immédiatement (breaker ouvert)
-  > AC: Given un test acquireSlot + release, When `acquireSlot()` est appelé et `release({ success: true })` en finally, Then le semaphore est libéré et le breaker reçoit le success
-  > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-6
+### 
+
+- [ ] Story 47.1: Gestion des Git Worktrees
+  > As a developer d'Anatoly
+  > I want un module qui cree et nettoie des git worktrees
+  > So that les reviews puissent tourner sur un snapshot isole du code.
+  > AC: Given un repertoire git valide, When `WorktreeManager.create(runId)` est appele, Then un worktree est cree dans `.anatoly/worktrees/<runId>/`, And le worktree pointe sur le commit HEAD actuel (detached HEAD), And le chemin absolu du worktree est retourne
+  > AC: Given un worktree existant, When `WorktreeManager.remove(runId)` est appele, Then le worktree est supprime via `git worktree remove`, And le repertoire `.anatoly/worktrees/<runId>/` n'existe plus
+  > AC: Given un worktree dont la suppression echoue (fichiers lockes), When `WorktreeManager.remove(runId)` est appele, Then une erreur est loggee mais ne crash pas le processus, And un flag `needsCleanup` est persiste pour nettoyage ulterieur
+  > AC: Given le repertoire n'est pas un repo git, When `WorktreeManager.create()` est appele, Then une erreur explicite est levee : "Not a git repository"
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-1
+- [ ] Story 47.2: Resolution de chemins relative au worktree
+  > As a developer d'Anatoly
+  > I want que le pipeline de review puisse fonctionner avec un repertoire source different du CWD
+  > So that les fichiers soient lus depuis le worktree mais les resultats ecrits dans le repo principal.
+  > AC: Given un run lance avec un `sourceRoot` different du `outputRoot`, When le file-evaluator lit un fichier source, Then il le lit depuis `sourceRoot` (worktree)
+  > AC: Given un run avec `sourceRoot` et `outputRoot` distincts, When les reviews sont ecrites, Then elles sont ecrites dans `outputRoot/.anatoly/runs/<runId>/`
+  > AC: Given un run normal (sans `--background`), When le pipeline s'execute, Then `sourceRoot === outputRoot === CWD` (comportement identique a aujourd'hui)
+  > AC: Given un evaluateur qui resout des chemins relatifs (tests, docs, deps), When il cherche un fichier associe, Then il le cherche dans `sourceRoot`, pas dans `outputRoot`
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-2
+- [ ] Story 47.3: Lancement en arriere-plan (fork de processus)
+  > As a user d'Anatoly
+  > I want lancer une review avec `--background` et recuperer mon terminal immediatement
+  > So that je puisse continuer a coder pendant que la review tourne.
+  > AC: Given l'utilisateur lance `anatoly run --background`, When la commande demarre, Then un worktree est cree pour le run, And un processus fils detache est fork, And le terminal affiche le `runId` et rend la main en < 3 secondes, And le message affiche : "Review started in background (run: <runId>). Use `anatoly status` to check progress."
+  > AC: Given un run background en cours, When l'utilisateur ferme son terminal, Then le processus detache continue de tourner
+  > AC: Given un run background termine, When le processus se termine, Then le worktree est automatiquement nettoye, And le status du run est persiste dans `.anatoly/runs/<runId>/run-status.json`
+  > AC: Given un run background qui crash, When une erreur non-rattrapee se produit, Then l'erreur est loggee dans `.anatoly/runs/<runId>/error.log`, And le worktree est nettoye malgre l'erreur, And le status est marque comme `failed`
+  > AC: Given l'utilisateur lance `anatoly run --background` sans git, When la creation du worktree echoue, Then le run tombe en fallback sur le mode foreground classique, And un warning est affiche
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-3
+- [ ] Story 47.4: Commande `anatoly status`
+  > As a user d'Anatoly
+  > I want voir l'etat de mes reviews en cours et passees
+  > So that je puisse suivre la progression sans chercher dans les fichiers.
+  > AC: Given un ou plusieurs runs background en cours, When l'utilisateur lance `anatoly status`, Then un tableau s'affiche avec : runId, status (running/done/failed), progression (X/Y fichiers), duree, branch/commit
+  > AC: Given aucun run en cours ou recent, When l'utilisateur lance `anatoly status`, Then le message affiche : "No recent reviews found."
+  > AC: Given un run background termine avec succes, When l'utilisateur lance `anatoly status`, Then le run apparait avec status `done` et un lien vers le rapport HTML
+  > AC: Given un run marque comme `running` mais dont le PID n'existe plus, When `anatoly status` est lance, Then le status est corrige en `crashed` et un warning est affiche
+  > AC: Given l'utilisateur veut plus de details sur un run specifique, When il lance `anatoly status <runId>`, Then le detail complet du run s'affiche : config, fichiers traites, findings, couts
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-4
+- [ ] Story 47.5: Notification de fin de review
+  > As a user d'Anatoly
+  > I want etre notifie quand ma review background est terminee
+  > So that je n'aie pas a poll manuellement avec `anatoly status`.
+  > AC: Given un run background qui se termine avec succes, When le processus complete la review, Then une notification systeme est envoyee (via `notify-send` sur Linux, `osascript` sur macOS), And la notification contient : "Review complete — X findings in Y files"
+  > AC: Given un run background qui echoue, When le processus crash ou echoue, Then une notification est envoyee avec le message d'erreur
+  > AC: Given un systeme sans outil de notification disponible, When le run se termine, Then aucune erreur n'est levee, la notification est silencieusement ignoree, And le status est quand meme persiste dans `run-status.json`
+  > AC: Given l'utilisateur a configure `--notify=false`, When le run se termine, Then aucune notification n'est envoyee
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-5
+- [ ] Story 47.6: Support du lock multi-run
+  > As a user d'Anatoly
+  > I want pouvoir lancer plusieurs reviews background en parallele
+  > So that je puisse auditer differentes branches ou configs simultanement.
+  > AC: Given un run background deja en cours, When l'utilisateur lance un second `anatoly run --background`, Then le second run demarre normalement dans son propre worktree, And les deux runs ecrivent dans des `runId` differents sans conflit
+  > AC: Given deux runs background en cours, When l'utilisateur lance `anatoly status`, Then les deux runs apparaissent dans la liste avec leurs progressions respectives
+  > AC: Given un run foreground (sans `--background`) en cours (lock actif), When l'utilisateur lance `anatoly run --background`, Then le run background demarre normalement (pas de conflit de lock)
+  > AC: Given un run foreground est lance pendant qu'un background tourne, When le foreground demarre, Then il s'execute normalement, les deux runs sont independants
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-6
+- [ ] Story 47.7: Nettoyage et robustesse
+  > As a user d'Anatoly
+  > I want que les worktrees orphelins soient nettoyes automatiquement
+  > So that mon disque ne se remplisse pas de snapshots oublies.
+  > AC: Given des worktrees orphelins dans `.anatoly/worktrees/`, When l'utilisateur lance n'importe quelle commande `anatoly`, Then les worktrees dont le run associe est termine ou crash sont supprimes, And un message discret est affiche : "Cleaned up N orphaned worktree(s)"
+  > AC: Given un worktree orphelin dont le `git worktree remove` echoue, When le cleanup s'execute, Then un `git worktree remove --force` est tente, And si ca echoue encore, le worktree est ignore avec un warning
+  > AC: Given un worktree actif (run en cours), When le cleanup s'execute, Then le worktree n'est pas supprime
+  > AC: Given l'utilisateur lance `anatoly cleanup` explicitement, When la commande s'execute, Then tous les worktrees orphelins sont supprimes, And les `run-status.json` marques `running` avec PID mort sont corriges en `crashed`
+  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-7
 
 ## Completed
 
