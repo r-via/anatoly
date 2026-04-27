@@ -3,10 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeRunStatus, readRunStatus, type RunStatus } from './run-status.js';
+import { writeRunStatus, readRunStatus, listRunStatuses, isProcessAlive, type RunStatus } from './run-status.js';
 
 describe('run-status', () => {
   let tempDir: string;
@@ -94,5 +94,57 @@ describe('run-status', () => {
     const result = readRunStatus(deepDir);
 
     expect(result).toEqual(status);
+  });
+
+  describe('listRunStatuses', () => {
+    it('should return statuses for all runs that have run-status.json', () => {
+      const projectRoot = tempDir;
+      const runsDir = join(projectRoot, '.anatoly', 'runs');
+
+      // Create two runs with status files
+      writeRunStatus(join(runsDir, 'run-001'), makeStatus({ runId: 'run-001', status: 'done' }));
+      writeRunStatus(join(runsDir, 'run-002'), makeStatus({ runId: 'run-002', status: 'running' }));
+
+      // Create a run directory without a status file
+      mkdirSync(join(runsDir, 'run-003'), { recursive: true });
+
+      const statuses = listRunStatuses(projectRoot);
+      expect(statuses).toHaveLength(2);
+      expect(statuses[0].runId).toBe('run-001');
+      expect(statuses[1].runId).toBe('run-002');
+    });
+
+    it('should return empty array when no runs directory exists', () => {
+      const statuses = listRunStatuses(join(tempDir, 'nonexistent'));
+      expect(statuses).toEqual([]);
+    });
+
+    it('should skip the latest symlink entry', () => {
+      const projectRoot = tempDir;
+      const runsDir = join(projectRoot, '.anatoly', 'runs');
+
+      writeRunStatus(join(runsDir, 'run-001'), makeStatus({ runId: 'run-001' }));
+      // Simulate a 'latest' file — listRunStatuses should not try to read it
+      writeFileSync(join(runsDir, 'latest'), 'run-001');
+
+      const statuses = listRunStatuses(projectRoot);
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].runId).toBe('run-001');
+    });
+  });
+
+  describe('isProcessAlive', () => {
+    it('should return true for the current process PID', () => {
+      expect(isProcessAlive(process.pid)).toBe(true);
+    });
+
+    it('should return false for a non-existent PID', () => {
+      // PID 99999999 is extremely unlikely to exist
+      expect(isProcessAlive(99999999)).toBe(false);
+    });
+
+    it('should return false for PID 0', () => {
+      expect(isProcessAlive(0)).toBe(false);
+    });
   });
 });

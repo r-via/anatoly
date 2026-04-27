@@ -137,16 +137,7 @@
 - [x] Story 47.1: Gestion des Git Worktrees
 - [x] Story 47.2: Resolution de chemins relative au worktree
 - [x] Story 47.3: Lancement en arriere-plan (fork de processus)
-  > As a user d'Anatoly
-  > I want lancer une review avec `--background` et recuperer mon terminal immediatement
-  > So that je puisse continuer a coder pendant que la review tourne.
-  > AC: Given l'utilisateur lance `anatoly run --background`, When la commande demarre, Then un worktree est cree pour le run, And un processus fils detache est fork, And le terminal affiche le `runId` et rend la main en < 3 secondes, And le message affiche : "Review started in background (run: <runId>). Use `anatoly status` to check progress."
-  > AC: Given un run background en cours, When l'utilisateur ferme son terminal, Then le processus detache continue de tourner
-  > AC: Given un run background termine, When le processus se termine, Then le worktree est automatiquement nettoye, And le status du run est persiste dans `.anatoly/runs/<runId>/run-status.json`
-  > AC: Given un run background qui crash, When une erreur non-rattrapee se produit, Then l'erreur est loggee dans `.anatoly/runs/<runId>/error.log`, And le worktree est nettoye malgre l'erreur, And le status est marque comme `failed`
-  > AC: Given l'utilisateur lance `anatoly run --background` sans git, When la creation du worktree echoue, Then le run tombe en fallback sur le mode foreground classique, And un warning est affiche
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-3
-- [ ] Story 47.4: Commande `anatoly status`
+- [x] Story 47.4: Commande `anatoly status`
   > As a user d'Anatoly
   > I want voir l'etat de mes reviews en cours et passees
   > So that je puisse suivre la progression sans chercher dans les fichiers.

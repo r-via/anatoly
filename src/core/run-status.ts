@@ -9,8 +9,8 @@
  * Used by background runs to communicate status and by `anatoly status` to display it.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 export type RunStatusState = 'running' | 'done' | 'failed' | 'crashed';
@@ -48,6 +48,41 @@ export function readRunStatus(runDir: string): RunStatus | undefined {
     return JSON.parse(readFileSync(statusPath, 'utf-8')) as RunStatus;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * List all run statuses from `.anatoly/runs/` that have a `run-status.json`.
+ * Returns statuses sorted by runId (chronological for timestamp-based IDs).
+ */
+export function listRunStatuses(projectRoot: string): RunStatus[] {
+  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  let entries: string[];
+  try {
+    entries = readdirSync(runsDir).filter((e) => e !== 'latest').sort();
+  } catch {
+    return [];
+  }
+
+  const statuses: RunStatus[] = [];
+  for (const entry of entries) {
+    const status = readRunStatus(join(runsDir, entry));
+    if (status) statuses.push(status);
+  }
+  return statuses;
+}
+
+/**
+ * Check whether a process with the given PID is still alive.
+ * Uses `process.kill(pid, 0)` which checks existence without sending a signal.
+ */
+export function isProcessAlive(pid: number): boolean {
+  if (pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
