@@ -18,6 +18,7 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
+import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
@@ -211,6 +212,7 @@ export function registerRunCommand(program: Command): void {
     .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--background', 'run audit in background via git worktree snapshot (returns immediately)')
+    .option('--no-notify', 'disable desktop notification on background run completion')
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
@@ -218,7 +220,7 @@ export function registerRunCommand(program: Command): void {
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
-      background?: boolean; sourceRoot?: string;
+      background?: boolean; notify?: boolean; sourceRoot?: string;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -690,6 +692,14 @@ export function registerRunCommand(program: Command): void {
         runReportPhase(ctx);
         });
 
+        // Desktop notification for background runs (Story 47.5)
+        if (process.env.ANATOLY_BACKGROUND_MODE && cmdOpts.notify !== false) {
+          sendDesktopNotification(
+            'Anatoly',
+            `Review complete — ${ctx.totalFindings} finding${ctx.totalFindings !== 1 ? 's' : ''} in ${ctx.totalFiles} file${ctx.totalFiles !== 1 ? 's' : ''}`,
+          );
+        }
+
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         ctx.lockPath = undefined;
         });
@@ -716,11 +726,16 @@ export function registerRunCommand(program: Command): void {
           };
           writeRunStatus(ctx.runDir, failedStatus);
 
-          // Write error.log for background runs
+          // Write error.log and send desktop notification for background runs
           if (process.env.ANATOLY_BACKGROUND_MODE) {
             try {
               writeFileSync(join(ctx.runDir, 'error.log'), `${new Date().toISOString()} ${errMsg}\n${error instanceof Error ? error.stack ?? '' : ''}\n`);
             } catch { /* best-effort */ }
+
+            // Desktop notification (Story 47.5)
+            if (cmdOpts.notify !== false) {
+              sendDesktopNotification('Anatoly', `Review failed: ${errMsg}`);
+            }
           }
         }
 

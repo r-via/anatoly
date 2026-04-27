@@ -117,6 +117,7 @@ export function buildForwardedArgs(cmdOpts: Record<string, unknown>): string[] {
   if (cmdOpts.badge === false) args.push('--no-badge');
   if (cmdOpts.badgeVerdict) args.push('--badge-verdict');
   if (cmdOpts.flushMemory) args.push('--flush-memory');
+  if (cmdOpts.notify === false) args.push('--no-notify');
 
   return args;
 }

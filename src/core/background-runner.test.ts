@@ -162,5 +162,15 @@ describe('background-runner', () => {
       });
       expect(args).toEqual([]);
     });
+
+    it('should forward --no-notify when notify is false', () => {
+      const args = buildForwardedArgs({ notify: false });
+      expect(args).toEqual(['--no-notify']);
+    });
+
+    it('should not forward --no-notify when notify is true or undefined', () => {
+      expect(buildForwardedArgs({ notify: true })).toEqual([]);
+      expect(buildForwardedArgs({ notify: undefined })).toEqual([]);
+    });
   });
 });

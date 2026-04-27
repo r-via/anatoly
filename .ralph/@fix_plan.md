@@ -138,16 +138,7 @@
 - [x] Story 47.2: Resolution de chemins relative au worktree
 - [x] Story 47.3: Lancement en arriere-plan (fork de processus)
 - [x] Story 47.4: Commande `anatoly status`
-  > As a user d'Anatoly
-  > I want voir l'etat de mes reviews en cours et passees
-  > So that je puisse suivre la progression sans chercher dans les fichiers.
-  > AC: Given un ou plusieurs runs background en cours, When l'utilisateur lance `anatoly status`, Then un tableau s'affiche avec : runId, status (running/done/failed), progression (X/Y fichiers), duree, branch/commit
-  > AC: Given aucun run en cours ou recent, When l'utilisateur lance `anatoly status`, Then le message affiche : "No recent reviews found."
-  > AC: Given un run background termine avec succes, When l'utilisateur lance `anatoly status`, Then le run apparait avec status `done` et un lien vers le rapport HTML
-  > AC: Given un run marque comme `running` mais dont le PID n'existe plus, When `anatoly status` est lance, Then le status est corrige en `crashed` et un warning est affiche
-  > AC: Given l'utilisateur veut plus de details sur un run specifique, When il lance `anatoly status <runId>`, Then le detail complet du run s'affiche : config, fichiers traites, findings, couts
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-4
-- [ ] Story 47.5: Notification de fin de review
+- [x] Story 47.5: Notification de fin de review
   > As a user d'Anatoly
   > I want etre notifie quand ma review background est terminee
   > So that je n'aie pas a poll manuellement avec `anatoly status`.
