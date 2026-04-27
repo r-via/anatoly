@@ -134,7 +134,7 @@
 ### Background Worktree Review — Review en arrière-plan via Git Worktree
 > Goal: ---
 
-- [ ] Story 47.1: Gestion des Git Worktrees
+- [x] Story 47.1: Gestion des Git Worktrees
   > As a developer d'Anatoly
   > I want un module qui cree et nettoie des git worktrees
   > So that les reviews puissent tourner sur un snapshot isole du code.
