@@ -515,7 +515,11 @@ export function registerRunCommand(program: Command): void {
         ctx.renderer = renderer;
         renderer.start();
 
-        ctx.lockPath = acquireLock(projectRoot);
+        // Background runs skip the global lock — they run in isolated worktrees
+        // and use per-run status files for coordination (Story 47.6)
+        if (!process.env.ANATOLY_BACKGROUND_MODE) {
+          ctx.lockPath = acquireLock(projectRoot);
+        }
 
         // --- Phase: bootstrap doc (first run only) — Story 29.21 ---
         if (ctx.isFirstRun && !ctx.interrupted) {

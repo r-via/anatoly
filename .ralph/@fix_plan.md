@@ -139,15 +139,7 @@
 - [x] Story 47.3: Lancement en arriere-plan (fork de processus)
 - [x] Story 47.4: Commande `anatoly status`
 - [x] Story 47.5: Notification de fin de review
-  > As a user d'Anatoly
-  > I want etre notifie quand ma review background est terminee
-  > So that je n'aie pas a poll manuellement avec `anatoly status`.
-  > AC: Given un run background qui se termine avec succes, When le processus complete la review, Then une notification systeme est envoyee (via `notify-send` sur Linux, `osascript` sur macOS), And la notification contient : "Review complete — X findings in Y files"
-  > AC: Given un run background qui echoue, When le processus crash ou echoue, Then une notification est envoyee avec le message d'erreur
-  > AC: Given un systeme sans outil de notification disponible, When le run se termine, Then aucune erreur n'est levee, la notification est silencieusement ignoree, And le status est quand meme persiste dans `run-status.json`
-  > AC: Given l'utilisateur a configure `--notify=false`, When le run se termine, Then aucune notification n'est envoyee
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-5
-- [ ] Story 47.6: Support du lock multi-run
+- [x] Story 47.6: Support du lock multi-run
   > As a user d'Anatoly
   > I want pouvoir lancer plusieurs reviews background en parallele
   > So that je puisse auditer differentes branches ou configs simultanement.
