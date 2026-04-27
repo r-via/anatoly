@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 // --- Types ---
 
@@ -79,7 +79,7 @@ export function createWorktreeManager(projectRoot: string): WorktreeManager {
 
       mkdirSync(worktreesBase, { recursive: true });
 
-      execSync(`git worktree add --detach "${wtPath}" HEAD`, {
+      execFileSync('git', ['worktree', 'add', '--detach', wtPath, 'HEAD'], {
         cwd: root,
         stdio: 'ignore',
       });
@@ -91,7 +91,7 @@ export function createWorktreeManager(projectRoot: string): WorktreeManager {
       const wtPath = join(worktreesBase, runId);
 
       try {
-        execSync(`git worktree remove "${wtPath}"`, {
+        execFileSync('git', ['worktree', 'remove', wtPath], {
           cwd: root,
           stdio: 'ignore',
         });
@@ -99,7 +99,7 @@ export function createWorktreeManager(projectRoot: string): WorktreeManager {
         // If the worktree directory still exists, try force removal
         if (existsSync(wtPath)) {
           try {
-            execSync(`git worktree remove --force "${wtPath}"`, {
+            execFileSync('git', ['worktree', 'remove', '--force', wtPath], {
               cwd: root,
               stdio: 'ignore',
             });

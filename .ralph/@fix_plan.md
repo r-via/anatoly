@@ -135,24 +135,8 @@
 > Goal: ---
 
 - [x] Story 47.1: Gestion des Git Worktrees
-  > As a developer d'Anatoly
-  > I want un module qui cree et nettoie des git worktrees
-  > So that les reviews puissent tourner sur un snapshot isole du code.
-  > AC: Given un repertoire git valide, When `WorktreeManager.create(runId)` est appele, Then un worktree est cree dans `.anatoly/worktrees/<runId>/`, And le worktree pointe sur le commit HEAD actuel (detached HEAD), And le chemin absolu du worktree est retourne
-  > AC: Given un worktree existant, When `WorktreeManager.remove(runId)` est appele, Then le worktree est supprime via `git worktree remove`, And le repertoire `.anatoly/worktrees/<runId>/` n'existe plus
-  > AC: Given un worktree dont la suppression echoue (fichiers lockes), When `WorktreeManager.remove(runId)` est appele, Then une erreur est loggee mais ne crash pas le processus, And un flag `needsCleanup` est persiste pour nettoyage ulterieur
-  > AC: Given le repertoire n'est pas un repo git, When `WorktreeManager.create()` est appele, Then une erreur explicite est levee : "Not a git repository"
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-1
 - [x] Story 47.2: Resolution de chemins relative au worktree
-  > As a developer d'Anatoly
-  > I want que le pipeline de review puisse fonctionner avec un repertoire source different du CWD
-  > So that les fichiers soient lus depuis le worktree mais les resultats ecrits dans le repo principal.
-  > AC: Given un run lance avec un `sourceRoot` different du `outputRoot`, When le file-evaluator lit un fichier source, Then il le lit depuis `sourceRoot` (worktree)
-  > AC: Given un run avec `sourceRoot` et `outputRoot` distincts, When les reviews sont ecrites, Then elles sont ecrites dans `outputRoot/.anatoly/runs/<runId>/`
-  > AC: Given un run normal (sans `--background`), When le pipeline s'execute, Then `sourceRoot === outputRoot === CWD` (comportement identique a aujourd'hui)
-  > AC: Given un evaluateur qui resout des chemins relatifs (tests, docs, deps), When il cherche un fichier associe, Then il le cherche dans `sourceRoot`, pas dans `outputRoot`
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-2
-- [ ] Story 47.3: Lancement en arriere-plan (fork de processus)
+- [x] Story 47.3: Lancement en arriere-plan (fork de processus)
   > As a user d'Anatoly
   > I want lancer une review avec `--background` et recuperer mon terminal immediatement
   > So that je puisse continuer a coder pendant que la review tourne.

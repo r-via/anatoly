@@ -66,6 +66,9 @@ import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
 import { clearRefinementCache } from '../core/refinement/tier3.js';
 import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
+import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
+import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
+import { createWorktreeManager } from '../core/worktree-manager.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -207,12 +210,15 @@ export function registerRunCommand(program: Command): void {
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
+    .option('--background', 'run audit in background via git worktree snapshot (returns immediately)')
+    .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
       cache?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
+      background?: boolean; sourceRoot?: string;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -244,6 +250,35 @@ export function registerRunCommand(program: Command): void {
         console.error(`anatoly — error: invalid --run-id "${cmdOpts.runId}" (use alphanumeric, dashes, underscores)`);
         process.exitCode = 2;
         return;
+      }
+
+      // --- Background mode: spawn detached child and return immediately ---
+      if (cmdOpts.background) {
+        const runDir = createRunDir(projectRoot, runId);
+        const forwardedArgs = buildForwardedArgs(cmdOpts);
+
+        // Try to create a worktree for source isolation
+        let worktreeCreated = false;
+        try {
+          const wm = createWorktreeManager(projectRoot);
+          const wtPath = await wm.create(runId);
+          forwardedArgs.push('--source-root', wtPath);
+          worktreeCreated = true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(chalk.yellow(`warning: worktree creation failed (${msg}) — running in foreground`));
+          // Fallback: run in foreground mode without --background
+          cmdOpts.background = false;
+        }
+
+        if (cmdOpts.background) {
+          const { pid } = launchBackgroundRun(projectRoot, runId, runDir, forwardedArgs);
+          console.log(`Review started in background (run: ${runId}). Use \`anatoly status\` to check progress.`);
+          if (pid > 0) {
+            getLogger().info({ runId, pid, worktreeCreated }, 'background run launched');
+          }
+          return;
+        }
       }
 
       // Warn about empty (phantom) runs
@@ -332,6 +367,7 @@ export function registerRunCommand(program: Command): void {
 
       const ctx: RunContext = {
         projectRoot,
+        sourceRoot: cmdOpts.sourceRoot ? resolve(cmdOpts.sourceRoot) : undefined,
         config,
         runId,
         runDir: dryRun ? '' : createRunDir(projectRoot, runId),
@@ -665,6 +701,29 @@ export function registerRunCommand(program: Command): void {
         } else {
           console.error(`anatoly — error: ${String(error)}`);
         }
+
+        // Persist failed status for background run tracking (Story 47.3)
+        if (ctx.runDir) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          const failedStatus: RunStatus = {
+            runId: ctx.runId,
+            pid: process.pid,
+            status: 'failed',
+            startedAt: new Date(ctx.startTime).toISOString(),
+            completedAt: new Date().toISOString(),
+            error: errMsg,
+            background: !!process.env.ANATOLY_BACKGROUND_MODE,
+          };
+          writeRunStatus(ctx.runDir, failedStatus);
+
+          // Write error.log for background runs
+          if (process.env.ANATOLY_BACKGROUND_MODE) {
+            try {
+              writeFileSync(join(ctx.runDir, 'error.log'), `${new Date().toISOString()} ${errMsg}\n${error instanceof Error ? error.stack ?? '' : ''}\n`);
+            } catch { /* best-effort */ }
+          }
+        }
+
         process.exitCode = 2;
       } finally {
         ctx.renderer?.stop();
@@ -672,6 +731,14 @@ export function registerRunCommand(program: Command): void {
         await stopTeiContainers(); // no-op if no containers running
         flushFileLogger();
         process.removeListener('SIGINT', onSigint);
+
+        // Cleanup worktree on error for background runs (Story 47.3)
+        if (process.env.ANATOLY_BACKGROUND_MODE && ctx.sourceRoot) {
+          try {
+            const wm = createWorktreeManager(ctx.projectRoot);
+            await wm.remove(ctx.runId);
+          } catch { /* best-effort cleanup */ }
+        }
       }
     });
 }
@@ -2173,6 +2240,34 @@ function runReportPhase(ctx: RunContext): void {
     log.debug({ calibration: updatedCalibration.axes }, 'calibration updated');
   } catch (err) {
     log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
+  }
+
+  // Persist run-status.json for background run tracking (Story 47.3)
+  if (ctx.runDir) {
+    const gitInfo = getGitInfo(ctx.projectRoot);
+    const runStatus: RunStatus = {
+      runId: ctx.runId,
+      pid: process.pid,
+      status: 'done',
+      startedAt: new Date(ctx.startTime).toISOString(),
+      completedAt: new Date().toISOString(),
+      branch: gitInfo.branch,
+      commit: gitInfo.commit,
+      background: !!process.env.ANATOLY_BACKGROUND_MODE,
+    };
+    writeRunStatus(ctx.runDir, runStatus);
+  }
+
+  // Cleanup worktree for background runs (fire-and-forget — errors logged only)
+  if (process.env.ANATOLY_BACKGROUND_MODE && ctx.sourceRoot) {
+    try {
+      const wm = createWorktreeManager(ctx.projectRoot);
+      void wm.remove(ctx.runId).catch((wtErr) => {
+        log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
+      });
+    } catch (wtErr) {
+      log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
+    }
   }
 
   process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
