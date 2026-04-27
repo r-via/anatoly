@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, CorrectionResponseSchema } from './correction.js';
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
@@ -42,7 +42,7 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).toContain('actions');
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(50);
+    expect(prompt.split('\n').length).toBeLessThan(80);
   });
 });
 
@@ -156,5 +156,77 @@ describe('extractVerificationKeywords', () => {
     };
     const keywords = extractVerificationKeywords(findings);
     expect(keywords).toHaveLength(0);
+  });
+});
+
+describe('CorrectionResponseSchema with multi-defect findings', () => {
+  it('accepts a symbol with no findings (single-defect, backward-compatible)', () => {
+    const raw = {
+      symbols: [
+        {
+          name: 'paginate',
+          line_start: 1,
+          line_end: 10,
+          correction: 'NEEDS_FIX' as const,
+          confidence: 90,
+          detail: 'Off-by-one in slice bounds.',
+        },
+      ],
+      actions: [],
+    };
+    const parsed = CorrectionResponseSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.symbols[0].findings).toBeUndefined();
+    }
+  });
+
+  it('accepts a symbol with multiple distinct findings on different lines', () => {
+    // Regression: a function carrying both a wrong-sign multiplier and a
+    // Math.ceil-instead-of-floor bug used to collapse into a single
+    // detail paragraph; consumers had no way to count the second defect.
+    // The findings array now lets the LLM enumerate them separately.
+    const raw = {
+      symbols: [
+        {
+          name: 'computePayout',
+          line_start: 101,
+          line_end: 111,
+          correction: 'NEEDS_FIX' as const,
+          confidence: 95,
+          detail: 'Two independent defects: wrong-sign house edge and ceil rounding.',
+          findings: [
+            {
+              line_start: 105,
+              line_end: 105,
+              detail: 'House edge applied as (1 + HOUSE_EDGE) instead of (1 - HOUSE_EDGE).',
+            },
+            {
+              line_start: 109,
+              line_end: 109,
+              detail: 'Math.ceil rounds payouts up; should be Math.floor for the house to keep the remainder.',
+            },
+          ],
+        },
+      ],
+      actions: [],
+    };
+    const parsed = CorrectionResponseSchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.symbols[0].findings).toHaveLength(2);
+      expect(parsed.data.symbols[0].findings?.[0].line_start).toBe(105);
+      expect(parsed.data.symbols[0].findings?.[1].line_start).toBe(109);
+    }
+  });
+});
+
+describe('buildCorrectionSystemPrompt — multi-defect guidance', () => {
+  it('includes the findings-array instruction so the LLM knows to enumerate distinct defects', () => {
+    const prompt = buildCorrectionSystemPrompt();
+    // The prompt must mention the findings array and instruct the model
+    // not to collapse multiple defects into a single detail paragraph.
+    expect(prompt).toMatch(/findings/);
+    expect(prompt.toLowerCase()).toContain('one finding per defect');
   });
 });

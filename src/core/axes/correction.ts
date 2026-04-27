@@ -15,8 +15,29 @@ import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 // Zod schema for LLM response (correction axis only)
 // ---------------------------------------------------------------------------
 
+/**
+ * One distinct defect on a symbol. Use the `findings` array on
+ * `CorrectionSymbolSchema` when a single symbol carries several
+ * independent issues (e.g. a function with both a wrong-sign
+ * multiplier and a Math.ceil rounding bug).
+ */
+const CorrectionFindingSchema = z.object({
+  line_start: z.int().min(1),
+  line_end: z.int().min(1),
+  detail: z.string().min(10),
+});
+
 const CorrectionSymbolSchema = BaseSymbolSchema.extend({
   correction: z.enum(['OK', 'NEEDS_FIX', 'ERROR']),
+  /**
+   * Optional list of distinct defects on this symbol. Leave empty for
+   * OK symbols or single-defect symbols (use the top-level `detail`).
+   * Populate with one entry per independent defect when the symbol
+   * carries several — they will surface as separate rows in the
+   * markdown report and as separate findings in downstream consumers
+   * (e.g. anatoly-bench).
+   */
+  findings: z.array(CorrectionFindingSchema).optional(),
 });
 
 const CorrectionActionSchema = z.object({
@@ -364,6 +385,13 @@ export class CorrectionEvaluator implements AxisEvaluator {
       value: s.correction,
       confidence: s.confidence,
       detail: s.detail,
+      findings: s.findings && s.findings.length > 0
+        ? s.findings.map((f) => ({
+            line_start: f.line_start,
+            line_end: f.line_end,
+            detail: f.detail,
+          }))
+        : undefined,
     }));
 
     const severityMapping: Record<string, { severity: 'high' | 'medium' | 'low'; effort: 'large' | 'small' | 'trivial'; category: 'refactor' | 'quickwin' | 'hygiene' }> = {

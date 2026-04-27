@@ -20,3 +20,4 @@ spike/
 .env
 .githooks/
 .moltbook/
+scripts/setup-discord.mjs

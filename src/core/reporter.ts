@@ -904,8 +904,21 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
       lines.push(`|--------|-------|${'-'.repeat(axisDisplayName(axis).length + 2)}|-------|--------|`);
       for (const s of actionable) {
         const value = axisSymbolValue(s, axis);
-        const detail = axisDetail(s, axis);
-        lines.push(`| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${verdictEmoji(value)} ${value} | ${s.confidence}% | ${detail} |`);
+        // When the symbol carries multiple distinct defects on this axis,
+        // emit one table row per defect — same symbol name, different
+        // line range and detail per row. Downstream consumers (incl. the
+        // anatoly-bench scorer) treat each row as an independent finding.
+        const axisFindings = (s.findings ?? []).filter((f) => f.axis === axis);
+        if (axisFindings.length > 0) {
+          for (const f of axisFindings) {
+            const range = f.line_start === f.line_end ? `L${f.line_start}` : `L${f.line_start}–L${f.line_end}`;
+            const safeDetail = f.detail.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+            lines.push(`| \`${s.name}\` | ${range} | ${verdictEmoji(value)} ${value} | ${s.confidence}% | ${safeDetail} |`);
+          }
+        } else {
+          const detail = axisDetail(s, axis);
+          lines.push(`| \`${s.name}\` | L${s.line_start}–L${s.line_end} | ${verdictEmoji(value)} ${value} | ${s.confidence}% | ${detail} |`);
+        }
       }
       lines.push('');
     }

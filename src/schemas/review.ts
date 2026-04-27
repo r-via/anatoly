@@ -15,6 +15,25 @@ export const DuplicateTargetSchema = z.object({
 });
 
 /**
+ * One distinct defect on a symbol, addressed at a specific line range.
+ *
+ * Symbols that carry several independent defects (e.g. a function with
+ * both a wrong-sign multiplier and a Math.ceil-rounding bug) populate
+ * the `findings` array on `SymbolReviewSchema` with one entry per
+ * defect. Single-defect symbols leave `findings` empty and rely on the
+ * top-level `detail` string.
+ *
+ * Findings are currently emitted only by the `correction` axis; other
+ * axes may opt in later.
+ */
+export const SymbolFindingSchema = z.object({
+  axis: z.enum(['correction', 'overengineering', 'utility', 'duplication', 'tests', 'documentation', 'best_practices']).default('correction'),
+  line_start: z.int().min(1),
+  line_end: z.int().min(1),
+  detail: z.string().min(10),
+});
+
+/**
  * Zod schema for a single symbol-level review entry.
  *
  * Each axis field (correction, overengineering, utility, duplication, tests,
@@ -41,6 +60,11 @@ export const SymbolReviewSchema = z.object({
   duplicate_target: DuplicateTargetSchema.nullable()
     .optional()
     .transform((v) => v ?? undefined),
+  // When a symbol carries multiple independent defects (typically on
+  // the correction axis), each defect is recorded here with its own
+  // line range and detail. Empty / absent means "single defect, see
+  // top-level detail" — fully backward-compatible.
+  findings: z.array(SymbolFindingSchema).optional(),
 }).transform((sym) => {
   // Invariant: duplicate_target populated ⇒ duplication = DUPLICATE.
   // A populated target without the matching verdict is an incoherent state;
@@ -229,6 +253,7 @@ export type Severity = z.infer<typeof SeveritySchema>;
 export type Effort = z.infer<typeof EffortSchema>;
 export type Category = z.infer<typeof CategorySchema>;
 export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
+export type SymbolFinding = z.infer<typeof SymbolFindingSchema>;
 export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
 
 /**

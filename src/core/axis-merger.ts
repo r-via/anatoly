@@ -199,6 +199,20 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     return validateEnum(result?.value ?? AXIS_DEFAULTS[id], allowed, fallback);
   };
 
+  // Collect per-axis multi-defect findings (currently only correction).
+  // Each entry is tagged with the originating axis so the markdown
+  // writer can route it back to the correct table.
+  const findings: Array<{ axis: 'correction' | 'overengineering' | 'utility' | 'duplication' | 'tests' | 'documentation' | 'best_practices'; line_start: number; line_end: number; detail: string }> = [];
+  const axisFindingPairs: Array<{ axis: 'correction'; result: AxisSymbolResult | undefined }> = [
+    { axis: 'correction', result: correction },
+  ];
+  for (const { axis, result } of axisFindingPairs) {
+    if (!result?.findings) continue;
+    for (const f of result.findings) {
+      findings.push({ axis, line_start: f.line_start, line_end: f.line_end, detail: f.detail });
+    }
+  }
+
   return enforceDuplicationInvariant({
     name: sym.name,
     kind: sym.kind,
@@ -214,6 +228,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,
+    findings,
   });
 }
 

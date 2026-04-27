@@ -117,6 +117,14 @@ export interface AxisSymbolResult {
   detail: string;
   /** For duplication axis only */
   duplicate_target?: { file: string; symbol: string; similarity: string };
+  /**
+   * One entry per distinct defect when a symbol carries several
+   * independent issues (typically on the `correction` axis: a function
+   * with both a wrong-sign computation and a Math.ceil rounding bug).
+   * Empty/absent means "single defect, see `detail`" — backward-
+   * compatible with axes that emit one finding per symbol.
+   */
+  findings?: Array<{ line_start: number; line_end: number; detail: string }>;
 }
 
 /** Complete result of one axis evaluation run, including per-symbol verdicts, actions, and cost metrics. */
