@@ -65,6 +65,7 @@ import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocC
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
 import { clearRefinementCache } from '../core/refinement/tier3.js';
+import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -74,6 +75,8 @@ import { clearRefinementCache } from '../core/refinement/tier3.js';
 interface RunContext {
   /** Absolute path to the project being audited */
   projectRoot: string;
+  /** Absolute path to the source tree (worktree snapshot). When set, source files are read from here. Defaults to projectRoot. */
+  sourceRoot?: string;
   /** Parsed anatoly configuration (anatoly.config.json) */
   config: Config;
   /** Unique identifier for this run (timestamp-based or user-supplied) */
@@ -446,7 +449,7 @@ export function registerRunCommand(program: Command): void {
         }
 
         // Detect first run — Story 29.21
-        ctx.isFirstRun = needsBootstrap(ctx.projectRoot);
+        ctx.isFirstRun = needsBootstrap(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
 
         // Initialize pipeline display
         const pipelineState = new PipelineState();
@@ -712,6 +715,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const rl = ctx.runLog;
   printBanner();
 
+  // sourceRoot is the directory from which source files are read (worktree or projectRoot)
+  const srcRoot = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
+
   let estimateFiles = 0;
   const triageMap = new Map<string, TriageResult>();
   let allTasks: Task[] = [];
@@ -721,7 +727,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // --- Read project info from package.json ---
   let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined;
   try {
-    const pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+    const pkg = JSON.parse(readFileSync(resolve(srcRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
     if (typeof pkg.name === 'string' && typeof pkg.version === 'string') {
       projectInfo = { name: pkg.name, version: pkg.version };
     }
@@ -730,7 +736,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // Detect languages & frameworks for project info display
-  const profile = detectProjectProfile(ctx.projectRoot);
+  const profile = detectProjectProfile(srcRoot);
   ctx.profile = profile;
   const langLine = formatLanguageLine(profile.languages.languages);
   const fwLine = formatFrameworkLine(profile.frameworks);
@@ -781,7 +787,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.fileFilter) configRows.push({ key: 'filter', value: ctx.fileFilter });
   if (ctx.userInstructions) configRows.push({ key: 'custom rules', value: ctx.userInstructions.recognizedSections.join(', ') });
   configRows.push({ key: 'run', value: ctx.runId });
-  const depMeta = loadDependencyMeta(ctx.projectRoot);
+  const depMeta = loadDependencyMeta(srcRoot);
 
   // --- Build models rows (left: axes, right: embeddings/chunking/summarization) ---
   const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
@@ -810,7 +816,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'scan' });
   log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
-  const scanResult = await scanProject(ctx.projectRoot, ctx.config, evaluators.map(e => e.id));
+  const scanResult = await scanProject(srcRoot, ctx.config, evaluators.map(e => e.id));
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
@@ -820,8 +826,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.enableRag) {
     const ragSuffix = ctx.resolvedRagMode ?? 'lite';
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-    docScanProject = countChangedDocs(ctx.projectRoot, docsPath, ragSuffix);
-    docScanInternal = countChangedDocs(ctx.projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
+    docScanProject = countChangedDocs(srcRoot, docsPath, ragSuffix);
+    docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
   }
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
@@ -835,14 +841,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'estimate' });
   log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
   rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
-  const rawTasks = loadTasks(ctx.projectRoot);
+  const rawTasks = loadTasks(srcRoot);
   // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
   const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
   allTasks = scannedFileSet ? rawTasks.filter((t) => scannedFileSet.has(t.file)) : rawTasks;
   const estimateTasks = ctx.fileFilter
     ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
     : allTasks;
-  const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, estimateTasks);
+  const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, estimateTasks);
   estimateFiles = estimateTasks.length;
   // estimateTokenLabel is built after triage so it reflects evalFileCount
   ctx.phaseDurations.estimate = Date.now() - estStart;
@@ -863,7 +869,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       : allTasks;
 
     for (const task of triageTasks) {
-      const absPath = resolve(ctx.projectRoot, task.file);
+      const absPath = resolve(srcRoot, task.file);
       let source: string;
       try {
         source = readFileSync(absPath, 'utf-8');
@@ -897,15 +903,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // --- Phase: usage graph ---
-  const usageGraph = buildUsageGraph(ctx.projectRoot, allTasks);
+  const usageGraph = buildUsageGraph(srcRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
-  const docsTree = buildDocsTree(ctx.projectRoot, ctx.config.documentation?.docs_path ?? 'docs');
-  const internalDocsDir = resolve(ctx.projectRoot, '.anatoly', 'docs');
-  const internalDocsTree = buildDocsTree(ctx.projectRoot, join('.anatoly', 'docs'));
+  const docsTree = buildDocsTree(srcRoot, ctx.config.documentation?.docs_path ?? 'docs');
+  const internalDocsDir = resolve(srcRoot, '.anatoly', 'docs');
+  const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'docs'));
   pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
   // --- Phase: internal docs status (Story 29.21 — scaffold moved to post-review) ---
-  const bootstrapNeeded = needsBootstrap(ctx.projectRoot);
+  const bootstrapNeeded = needsBootstrap(srcRoot);
   if (bootstrapNeeded) {
     pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
   } else if (docScanInternal) {
@@ -937,7 +943,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // Dry-run: show summary and exit before review
   if (ctx.dryRun) {
     const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
-    const { inputTokens, outputTokens } = estimateTasksTokens(ctx.projectRoot, allTasks);
+    const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, allTasks);
     const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
 
     console.log('');
@@ -1110,12 +1116,13 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   const taskId = 'bootstrap-doc';
   const log = getLogger();
   const rl = ctx.runLog;
+  const srcRoot = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
 
   try {
     let pkg: Record<string, unknown> = {};
     try {
-      pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+      pkg = JSON.parse(readFileSync(resolve(srcRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
     } catch { /* no package.json — non-JS project */ }
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
@@ -1167,7 +1174,7 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   try {
     let pkg: Record<string, unknown> = {};
     try {
-      pkg = JSON.parse(readFileSync(resolve(ctx.projectRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
+      pkg = JSON.parse(readFileSync(resolve(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), 'package.json'), 'utf-8')) as Record<string, unknown>;
     } catch { /* no package.json — non-JS project */ }
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
 
@@ -1586,7 +1593,7 @@ async function runReviewPhase(
 
   ctx.totalFiles = pending.length + cachedFiles.length;
 
-  const allTasks = loadTasks(ctx.projectRoot);
+  const allTasks = loadTasks(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
   const taskMap = new Map<string, Task>();
   for (const t of allTasks) taskMap.set(t.file, t);
 
@@ -1708,6 +1715,7 @@ async function runReviewPhase(
 
             return evaluateFile({
               projectRoot: ctx.projectRoot,
+              sourceRoot: ctx.sourceRoot,
               task,
               config: ctx.config,
               evaluators: fileEvaluators,

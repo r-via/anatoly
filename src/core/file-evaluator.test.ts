@@ -211,6 +211,34 @@ describe('evaluateFile', () => {
     querySpy.mockRestore();
   });
 
+  it('should read file from sourceRoot when provided instead of projectRoot', async () => {
+    const opts = makeOptions({
+      projectRoot: '/output/project',
+      sourceRoot: '/worktree/snapshot',
+    });
+    await evaluateFile(opts);
+
+    // File should be read from sourceRoot, not projectRoot
+    expect(readFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('/worktree/snapshot/'),
+      'utf-8',
+    );
+    expect(readFileSync).not.toHaveBeenCalledWith(
+      expect.stringContaining('/output/project/'),
+      'utf-8',
+    );
+  });
+
+  it('should default sourceRoot to projectRoot when not provided', async () => {
+    const opts = makeOptions({ projectRoot: '/my/project' });
+    await evaluateFile(opts);
+
+    expect(readFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('/my/project/'),
+      'utf-8',
+    );
+  });
+
   it('should produce raw ReviewFile with merge-computed verdict (no reclassification)', async () => {
     // Evaluator returns findings — previously this would trigger deliberation
     const findingEvaluator = makeMockEvaluator('utility', {

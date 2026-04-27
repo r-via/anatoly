@@ -143,7 +143,7 @@
   > AC: Given un worktree dont la suppression echoue (fichiers lockes), When `WorktreeManager.remove(runId)` est appele, Then une erreur est loggee mais ne crash pas le processus, And un flag `needsCleanup` est persiste pour nettoyage ulterieur
   > AC: Given le repertoire n'est pas un repo git, When `WorktreeManager.create()` est appele, Then une erreur explicite est levee : "Not a git repository"
   > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-1
-- [ ] Story 47.2: Resolution de chemins relative au worktree
+- [x] Story 47.2: Resolution de chemins relative au worktree
   > As a developer d'Anatoly
   > I want que le pipeline de review puisse fonctionner avec un repertoire source different du CWD
   > So that les fichiers soient lus depuis le worktree mais les resultats ecrits dans le repo principal.

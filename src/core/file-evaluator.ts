@@ -22,6 +22,7 @@ import { buildFunctionId } from '../rag/indexer.js';
 import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveAxisModel } from './axis-evaluator.js';
+import { getEffectiveSourceRoot } from './worktree-path-resolution.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,8 +34,10 @@ import { resolveAxisModel } from './axis-evaluator.js';
  * optional RAG/dependency/deliberation features, and progress callbacks.
  */
 export interface EvaluateFileOptions {
-  /** Absolute path to the project root. */
+  /** Absolute path to the project root (used for outputs and as default source). */
   projectRoot: string;
+  /** Absolute path to the source tree (worktree). When set, source files are read from here instead of projectRoot. */
+  sourceRoot?: string;
   /** The scanned task describing the file and its symbols. */
   task: Task;
   /** Resolved project configuration (model, axes, thresholds, etc.). */
@@ -123,9 +126,10 @@ export interface EvaluateFileResult {
  */
 export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateFileResult> {
   const { projectRoot, task, config, evaluators, abortController, usageGraph, onAxisComplete } = opts;
+  const effectiveSourceRoot = getEffectiveSourceRoot(projectRoot, opts.sourceRoot);
 
   return runWithContext({ file: task.file }, async () => {
-  const fileContent = readFileSync(resolve(projectRoot, task.file), 'utf-8');
+  const fileContent = readFileSync(resolve(effectiveSourceRoot, task.file), 'utf-8');
 
   // Pre-resolve RAG for duplication axis
   const preResolvedRag = await preResolveRag(task, opts);
@@ -168,7 +172,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     );
 
     for (const relTestPath of candidates) {
-      const testPath = resolve(projectRoot, relTestPath);
+      const testPath = resolve(effectiveSourceRoot, relTestPath);
       if (existsSync(testPath)) {
         try {
           testFileContent = readFileSync(testPath, 'utf-8');
@@ -183,7 +187,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     // Strategy 5: tests/ directory at crate/package root (Rust, Python, etc.)
     // For src/lib.rs → look at ../tests/, for src/foo.rs → ../tests/foo.rs
     if (!testFileContent) {
-      const testsDir = resolveTestsDirectory(dir, base, ext, lang, projectRoot);
+      const testsDir = resolveTestsDirectory(dir, base, ext, lang, effectiveSourceRoot);
       if (testsDir) {
         testFileContent = testsDir.content;
         testFileName = testsDir.name;
@@ -195,12 +199,12 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     // like `basic.test.ts` importing from `reels.ts`). Test files are
     // typically excluded from the task set / usage graph, so we scan on demand.
     if (!testFileContent) {
-      const discovered = discoverImportingTestFiles(projectRoot, task.file, base);
+      const discovered = discoverImportingTestFiles(effectiveSourceRoot, task.file, base);
       if (discovered.length > 0) {
         const parts: string[] = [];
         for (const rel of discovered) {
           try {
-            const content = readFileSync(resolve(projectRoot, rel), 'utf-8');
+            const content = readFileSync(resolve(effectiveSourceRoot, rel), 'utf-8');
             parts.push(`// ---- ${rel} ----\n${content}`);
           } catch (err) {
             contextLogger().debug({ rel, err }, 'failed to read discovered test file');
@@ -221,11 +225,11 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   let docResolveMethod: 'rag' | 'convention' | 'none' = 'none';
   if (opts.ragEnabled && opts.vectorStore) {
     try {
-      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, projectRoot, config.models.quality);
+      relevantDocs = await resolveRelevantDocsViaRag(task.file, opts.vectorStore, effectiveSourceRoot, config.models.quality);
       docResolveMethod = 'rag';
     } catch {
       // Fall back to convention-based matching on RAG failure
-      relevantDocs = resolveAllRelevantDocs(task.file, config, projectRoot, {
+      relevantDocs = resolveAllRelevantDocs(task.file, config, effectiveSourceRoot, {
         docsTree: opts.docsTree ?? null,
         internalDocsTree: opts.internalDocsTree ?? null,
         internalDocsDir: opts.internalDocsDir ?? '',
@@ -233,7 +237,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
       docResolveMethod = relevantDocs.length > 0 ? 'convention' : 'none';
     }
   } else {
-    relevantDocs = resolveAllRelevantDocs(task.file, config, projectRoot, {
+    relevantDocs = resolveAllRelevantDocs(task.file, config, effectiveSourceRoot, {
       docsTree: opts.docsTree ?? null,
       internalDocsTree: opts.internalDocsTree ?? null,
       internalDocsDir: opts.internalDocsDir ?? '',
