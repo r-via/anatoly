@@ -135,7 +135,7 @@
   > AC: Given `router.getSemaphoreStats()` est appelé, When 3 slots sont acquis sur "anthropic", Then il retourne `Map { "anthropic" → { active: 3, total: 24 }, "google" → { active: 0, total: 10 } }`
   > AC: Given `router.getBreakerState("google")` est appelé, When le breaker Google est fermé, Then il retourne `'closed'`
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-1
-- [ ] Story 46.2: API acquire / acquireSlot / release
+- [x] Story 46.2: API acquire / acquireSlot / release
   > As a développeur du pipeline
   > I want une API unifiée pour acquérir un slot de concurrence avec gestion du breaker
   > So that l'appelant n'ait qu'un seul point d'entrée et que le cleanup soit garanti.
@@ -146,14 +146,14 @@
   > AC: Given `release({ success: false, error })` est appelé, When après un appel en échec, Then le semaphore est libéré, And `circuitBreaker.recordFailure()` est appelé
   > AC: Given `release()` est appelé sans argument, When en mode implicite, Then le comportement est identique à `release({ success: true })`
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-2
-- [ ] Story 46.3: Renommage GeminiCircuitBreaker → CircuitBreaker
+- [x] Story 46.3: Renommage GeminiCircuitBreaker → CircuitBreaker
   > As a développeur
   > I want que le circuit breaker soit provider-agnostique
   > So that tout provider puisse en bénéficier.
   > AC: Given `src/core/circuit-breaker.ts` exporte `GeminiCircuitBreaker`, When il est renommé en `CircuitBreaker`, Then toutes les importations sont mises à jour, And les commentaires/JSDoc ne mentionnent plus "Gemini" spécifiquement, And les tests dans `circuit-breaker.test.ts` sont mis à jour
   > AC: Given `CircuitBreaker` est utilisé, When il est instancié par le `TransportRouter`, Then la logique closed/open/half-open est inchangée
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-3
-- [ ] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
+- [x] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
   > As a développeur du pipeline
   > I want que les interfaces ne contiennent plus de champs semaphore/breaker, So que la résilience soit entièrement encapsulée dans le router.
   > AC: Given `AxisContext` dans `axis-evaluator.ts`, When les champs `semaphore`, `geminiSemaphore`, `circuitBreaker` sont supprimés, Then seul `router: TransportRouter` reste comme point d'accès au transport
@@ -164,7 +164,7 @@
   > AC: Given `resolveSemaphore()` dans `axis-evaluator.ts`, When il est supprimé, Then aucun code ne le référence
   > AC: Given les params dans `rag/orchestrator.ts`, `rag/nlp-summarizer.ts`, `rag/standalone.ts`, When `geminiSemaphore` est supprimé des signatures, Then seul le `router` est passé
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-4
-- [ ] Story 46.5: Migration appels agentic vers acquireSlot
+- [x] Story 46.5: Migration appels agentic vers acquireSlot
   > As a développeur du pipeline
   > I want que les appels agentic (Tier 3, doc gen, Vercel Agent) utilisent `acquireSlot()`, So que la concurrence et le breaker couvrent tous les chemins LLM.
   > AC: Given Tier 3 correction dans `run.ts` (direct `query()` Claude SDK), When `ctx.sdkSemaphore.acquire()` est remplacé par `router.acquireSlot(model)`, Then le semaphore est géré par le router, And `release({ success })` est appelé en finally, And le breaker est vérifié avant l'appel
@@ -174,7 +174,7 @@
   > AC: Given `vercel-agent.ts`, When il n'a actuellement ni semaphore ni breaker, Then le router est injecté et `acquireSlot(model)` est ajouté avec `release({ success })` en finally
   > AC: Given `screen-renderer.ts` affiche les stats semaphore, When il accédait directement aux semaphores, Then il utilise `router.getSemaphoreStats()`
   > Spec: specs/planning-artifacts/epic-46-transport-resilience.md#story-46-5
-- [ ] Story 46.6: Tests d'intégration et validation
+- [x] Story 46.6: Tests d'intégration et validation
   > As a mainteneur d'anatoly
   > I want valider que la migration n'a introduit aucune régression
   > So that les appels LLM fonctionnent identiquement avec le nouveau router.
