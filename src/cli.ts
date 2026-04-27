@@ -25,6 +25,8 @@ import {
   registerProvidersCommand,
   registerNotificationsCommand,
   registerAuditCommand,
+  registerCleanupCommand,
+  runAutoCleanup,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -84,6 +86,9 @@ export function createProgram(): Command {
       logFile: opts.logFile as string | undefined,
       pretty: opts.color === false ? false : undefined,
     });
+
+    // Auto-cleanup orphaned worktrees before any command (Story 47.7)
+    runAutoCleanup(process.cwd());
   });
 
   registerScanCommand(program);
@@ -114,6 +119,8 @@ export function createProgram(): Command {
 
   // Parent "runs" command with subcommands: list, remove
   registerAuditCommand(program);
+
+  registerCleanupCommand(program);
 
   return program;
 }

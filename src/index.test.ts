@@ -37,9 +37,10 @@ describe('CLI program', () => {
         'providers',
         'notifications',
         'audit',
+        'cleanup',
       ]),
     );
-    expect(commandNames).toHaveLength(17);
+    expect(commandNames).toHaveLength(18);
   });
 
   it('should register all global options', () => {

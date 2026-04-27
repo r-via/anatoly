@@ -22,3 +22,4 @@ export { registerDocsCommand } from './docs.js';
 export { registerProvidersCommand } from './providers.js';
 export { registerNotificationsCommand } from './notifications.js';
 export { registerAuditCommand } from './runs.js';
+export { registerCleanupCommand, runAutoCleanup } from './cleanup.js';

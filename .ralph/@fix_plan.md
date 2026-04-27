@@ -140,15 +140,7 @@
 - [x] Story 47.4: Commande `anatoly status`
 - [x] Story 47.5: Notification de fin de review
 - [x] Story 47.6: Support du lock multi-run
-  > As a user d'Anatoly
-  > I want pouvoir lancer plusieurs reviews background en parallele
-  > So that je puisse auditer differentes branches ou configs simultanement.
-  > AC: Given un run background deja en cours, When l'utilisateur lance un second `anatoly run --background`, Then le second run demarre normalement dans son propre worktree, And les deux runs ecrivent dans des `runId` differents sans conflit
-  > AC: Given deux runs background en cours, When l'utilisateur lance `anatoly status`, Then les deux runs apparaissent dans la liste avec leurs progressions respectives
-  > AC: Given un run foreground (sans `--background`) en cours (lock actif), When l'utilisateur lance `anatoly run --background`, Then le run background demarre normalement (pas de conflit de lock)
-  > AC: Given un run foreground est lance pendant qu'un background tourne, When le foreground demarre, Then il s'execute normalement, les deux runs sont independants
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-6
-- [ ] Story 47.7: Nettoyage et robustesse
+- [x] Story 47.7: Nettoyage et robustesse
   > As a user d'Anatoly
   > I want que les worktrees orphelins soient nettoyes automatiquement
   > So that mon disque ne se remplisse pas de snapshots oublies.
