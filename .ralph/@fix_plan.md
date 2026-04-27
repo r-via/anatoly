@@ -131,7 +131,8 @@
 - [x] Story 46.4: Nettoyage interfaces — suppression semaphore/breaker manuels
 - [x] Story 46.5: Migration appels agentic vers acquireSlot
 - [x] Story 46.6: Tests d'intégration et validation
-### 
+### Background Worktree Review — Review en arrière-plan via Git Worktree
+> Goal: ---
 
 - [ ] Story 47.1: Gestion des Git Worktrees
   > As a developer d'Anatoly
