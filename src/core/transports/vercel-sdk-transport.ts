@@ -8,7 +8,7 @@ import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LlmTransport, LlmRequest, LlmResponse, AgenticRequest } from './index.js';
-import { extractProvider } from './index.js';
+import { extractProvider, EVALUATOR_TEMPERATURE } from './index.js';
 import { resolveProvider } from '../providers/known-providers.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { contextLogger } from '../../utils/log-context.js';
@@ -105,6 +105,11 @@ export class VercelSdkTransport implements LlmTransport {
         model,
         system: systemPrompt || undefined,
         prompt: userMessage,
+        // Pin temperature for run-to-run reproducibility on evaluator
+        // pipelines. Without this, the SDK inherits its provider's
+        // default (~1.0 across @ai-sdk/anthropic, @ai-sdk/google,
+        // @ai-sdk/openai), which made bench measurements noisy.
+        temperature: params.temperature ?? EVALUATOR_TEMPERATURE,
         abortSignal: abortController.signal,
       });
 

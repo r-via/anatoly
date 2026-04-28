@@ -9,6 +9,7 @@ import { getSearchTool } from '../tools/web-search.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import type { Config } from '../../schemas/config.js';
 import type { TransportRouter } from '../transports/index.js';
+import { EVALUATOR_TEMPERATURE } from '../transports/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,6 +96,8 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
       prompt: userMessage,
       tools,
       stopWhen: stepCountIs(maxSteps),
+      // Same reproducibility constraint as the single-turn transport.
+      temperature: EVALUATOR_TEMPERATURE,
       abortSignal: abortController.signal,
     });
 

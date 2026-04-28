@@ -19,7 +19,24 @@ export interface LlmRequest {
   attempt?: number;
   /** Reason for retry (for structured logging) */
   retryReason?: string;
+  /**
+   * Sampling temperature. Defaults to {@link EVALUATOR_TEMPERATURE} (0)
+   * for the evaluator pipeline so identical inputs produce identical
+   * verdicts run-to-run. Override only for cases where mild diversity
+   * is desirable (none today).
+   */
+  temperature?: number;
 }
+
+/**
+ * Default sampling temperature for evaluator transports. Set to 0 to
+ * minimize run-to-run variance: same source code + same prompt should
+ * produce the same verdict, otherwise bench measurements lose meaning
+ * and a single fix becomes hard to attribute. Providers may still have
+ * sub-temperature non-determinism (batching, GPU kernels) but we
+ * eliminate the dominant sampling source.
+ */
+export const EVALUATOR_TEMPERATURE = 0;
 
 /**
  * Response from an LLM transport call.

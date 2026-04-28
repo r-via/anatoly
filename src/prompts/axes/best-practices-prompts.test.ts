@@ -318,4 +318,15 @@ describe('best-practices.system.md — TypeScript base — domain-awareness guid
     expect(prompt.toLowerCase()).toContain('confident');
     expect(prompt.toLowerCase()).toMatch(/silence|do not flag|do not speculate/);
   });
+
+  it('instructs the LLM to flag rule violations at the source file, not at consumers', () => {
+    // Same anti-collapse principle as the correction and overengineering
+    // axes: a rule violation has exactly one canonical home — where the
+    // violating code is defined. Importers / callers should not see the
+    // rule fire on their review. Without this, run-to-run results flap
+    // between consumer-side and source-side findings.
+    expect(prompt.toLowerCase()).toMatch(/owns the violation|defines|canonical home|source file/);
+    expect(prompt.toLowerCase()).toMatch(/consumer|importer|caller/);
+    expect(prompt.toLowerCase()).toMatch(/aggreg|collaps|flap|unstable/);
+  });
 });
