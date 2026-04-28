@@ -48,6 +48,19 @@ describe('buildOverengineeringSystemPrompt', () => {
     expect(prompt).toContain('NIH');
     expect(prompt).toContain('Installed dep reimplemented');
   });
+
+  it('instructs the LLM to flag over-engineering at its source pattern, not at the consumer', () => {
+    // Regression mitigation: a file that USES several over-engineered
+    // helpers defined elsewhere should keep its own verdict LEAN. The
+    // OVER verdict belongs on the file that DEFINES the abstraction —
+    // otherwise the same architectural defect flips between consumer
+    // and source from one run to the next, blowing precision and
+    // recall in alternation.
+    const prompt = buildOverengineeringSystemPrompt();
+    expect(prompt.toLowerCase()).toMatch(/source pattern|abstraction.*own file|defines the abstraction|where.*defined/);
+    expect(prompt.toLowerCase()).toMatch(/consumer|call(er|ed)/);
+    expect(prompt.toLowerCase()).toMatch(/unstable|run-to-run|stable/);
+  });
 });
 
 describe('buildOverengineeringUserMessage', () => {

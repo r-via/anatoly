@@ -246,3 +246,16 @@ describe('buildCorrectionSystemPrompt — domain-awareness guidance', () => {
     expect(prompt.toLowerCase()).toMatch(/silence|do not flag|do not speculate/);
   });
 });
+
+describe('buildCorrectionSystemPrompt — anti-collapse / source-not-consumer guidance', () => {
+  it('instructs the LLM to flag the defect at its source file, not at the consumer', () => {
+    // Regression mitigation for the LLM-variance pattern observed on
+    // engine.ts::spin (which calls three helpers): some runs the model
+    // emits one finding on the caller, other runs three findings on the
+    // sources. We want the source behavior, deterministically.
+    const prompt = buildCorrectionSystemPrompt();
+    expect(prompt.toLowerCase()).toMatch(/source.*defect|defect.*source|where.*defined|canonical home/);
+    expect(prompt.toLowerCase()).toMatch(/consumer|caller/);
+    expect(prompt.toLowerCase()).toMatch(/aggreg|collaps|burie/);
+  });
+});

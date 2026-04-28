@@ -32,7 +32,8 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     deducted from wins" and code rounds wins UP via Math.ceil) is a
     NEEDS_FIX or ERROR finding. Cite the source page path in the
     finding `detail` (e.g. "violates RTP=95% target [.anatoly/docs/01-Getting-Started/01-Overview.md]").
-11. **Apply industry-specific correctness rules from your pretrained
+11. **Flag the source of a defect, not its consumer.** When a defect lives in a function/class defined in ANOTHER file and is merely USED in the current file, do NOT emit the finding on the current file's caller. Wait for that other file to be evaluated and flag it there. Aggregating "this caller depends on three buggy helpers" into a single finding on the caller buries the per-defect signal and produces unstable, run-to-run-flapping verdicts (one run flags the caller, the next flags the three sources). Each defect has exactly one canonical home: where it is DEFINED. Stay there.
+12. **Apply industry-specific correctness rules from your pretrained
     knowledge.** When you can confidently infer the project's
     domain (gambling/casino, finance, healthcare, payments,
     cryptography, real-time systems, gaming RNG, etc.) from

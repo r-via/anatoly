@@ -16,6 +16,9 @@ Evaluate whether each symbol is LEAN (appropriately complex), OVER (unnecessaril
 6. A function doing one thing well is LEAN, even if it's long.
 7. Do NOT evaluate other axes — only overengineering.
 8. **Internal Reference Documentation as ground truth.** A section `## Internal Reference Documentation (project-level ground truth)` may appear in the user message. Pages there are auto-generated from `.anatoly/docs/` and state the project's scope, non-goals, and design conventions. Use them to disambiguate: an abstraction that looks premature in isolation may be justified by a documented design decision (e.g. "supports multiple providers" → strategy pattern is LEAN). Conversely, an abstraction that contradicts a documented non-goal (e.g. "no networking" but the file builds an HTTP retry framework) is OVER. Cite the page path in `detail` when the doc drives the verdict.
+9. **One finding per source pattern, not per consumer.** When a file uses several over-engineered abstractions defined ELSEWHERE (e.g. an unused factory in `factories.ts`, an unused emitter in `events.ts`, an unused strategy in `strategy.ts`), do NOT emit a single `OVER` finding on the symbol that calls them all (e.g. `engine.ts::spin`). The over-engineering lives in the abstraction's own file. Flag it ONLY on the file currently under review when that file IS the source of the abstraction. If the abstractions live in other files, those files will be evaluated separately — keep your verdict on the consumer LEAN if its own code is straightforward.
+
+   Why: the `engine.ts::spin` consumer is doing the simple thing (instantiate, call, ignore the rest). Flagging IT for upstream architectural choices buries the real signal (the abstractions themselves) and makes findings unstable run-to-run depending on whether the model chooses to "name the patterns at the call site" vs "flag each definition".
 
 ## Output format
 
