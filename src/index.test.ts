@@ -37,7 +37,7 @@ describe('CLI program', () => {
         'providers',
         'notifications',
         'audit',
-        'cleanup',
+        'git',
       ]),
     );
     expect(commandNames).toHaveLength(18);

@@ -7,9 +7,10 @@ import { readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { listRuns, readLatestPointer, updateLatestPointer } from '../utils/run-id.js';
+import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir } from '../utils/run-id.js';
 import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
+import { listRunStatuses, isProcessAlive, writeRunStatus } from '../core/run-status.js';
 
 interface RunInfo {
   id: string;
@@ -68,7 +69,7 @@ function formatSize(kb: number): string {
 export function registerAuditCommand(program: Command): void {
   const auditCmd = program
     .command('audit')
-    .description('Manage audit runs (list, remove)');
+    .description('Manage audit runs (list, remove, repair)');
 
   // --- anatoly runs list ---
   auditCmd
@@ -123,18 +124,27 @@ export function registerAuditCommand(program: Command): void {
       console.log(`  ${infos.length} run(s)${emptyCount > 0 ? `, ${chalk.yellow(`${emptyCount} empty`)}` : ''}`);
     });
 
-  // --- anatoly runs remove ---
+  // --- anatoly audit remove ---
   auditCmd
     .command('remove')
-    .description('Remove runs (by ID or all empty/phantom runs)')
+    .description('Remove runs (by ID, --empty, --all, or --keep N)')
     .option('--empty', 'remove all empty (phantom) runs with 0 reviews')
+    .option('--all', 'remove all runs')
+    .option('--keep <n>', 'remove all runs except the N most recent', parseInt)
     .option('-y, --yes', 'skip confirmation prompt')
     .argument('[runIds...]', 'specific run IDs to remove')
-    .action(async (runIds: string[], opts: { empty?: boolean; yes?: boolean }) => {
+    .action(async (runIds: string[], opts: { empty?: boolean; all?: boolean; keep?: number; yes?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
         console.error(chalk.red('A run is currently in progress. Wait for it to finish before removing runs.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const modes = [opts.empty, opts.all, opts.keep !== undefined, runIds.length > 0].filter(Boolean).length;
+      if (modes > 1) {
+        console.error(chalk.red('Specify only one of: --empty, --all, --keep, or run IDs.'));
         process.exitCode = 1;
         return;
       }
@@ -147,6 +157,11 @@ export function registerAuditCommand(program: Command): void {
       if (opts.empty) {
         const infos = allRuns.map((id) => getRunInfo(runsDir, id));
         toDelete = infos.filter(isEmpty).map((i) => i.id);
+      } else if (opts.all) {
+        toDelete = allRuns;
+      } else if (opts.keep !== undefined) {
+        const keep = Math.max(0, opts.keep);
+        toDelete = allRuns.slice(0, Math.max(0, allRuns.length - keep));
       } else if (runIds.length > 0) {
         // Validate provided IDs exist
         const invalid = runIds.filter((id) => !allRuns.includes(id));
@@ -157,16 +172,18 @@ export function registerAuditCommand(program: Command): void {
         }
         toDelete = runIds;
       } else {
-        console.error('Specify run IDs to remove or use --empty to remove all phantom runs.');
+        console.error('Specify run IDs to remove or use --empty / --all / --keep N.');
         console.error('  Usage: anatoly audit remove <runId...>');
         console.error('  Usage: anatoly audit remove --empty');
+        console.error('  Usage: anatoly audit remove --all');
+        console.error('  Usage: anatoly audit remove --keep 5');
         process.exitCode = 1;
         return;
       }
 
       if (toDelete.length === 0) {
         console.log('anatoly — audit remove');
-        console.log('  No empty runs to remove.');
+        console.log('  Nothing to remove.');
         return;
       }
 
@@ -212,5 +229,36 @@ export function registerAuditCommand(program: Command): void {
       }
 
       console.log(`  Deleted ${chalk.bold(String(toDelete.length))} run(s).`);
+    });
+
+  // --- anatoly audit repair ---
+  auditCmd
+    .command('repair')
+    .description('Fix stale run statuses (PID dead → crashed)')
+    .action(() => {
+      const projectRoot = process.cwd();
+
+      console.log(chalk.bold('anatoly — audit repair'));
+      console.log('');
+
+      let fixedCount = 0;
+      const statuses = listRunStatuses(projectRoot);
+      for (const status of statuses) {
+        if (status.status === 'running' && !isProcessAlive(status.pid)) {
+          status.status = 'crashed';
+          status.completedAt = new Date().toISOString();
+          const dir = resolveRunDir(projectRoot, status.runId);
+          if (dir) {
+            writeRunStatus(dir, status);
+            fixedCount++;
+          }
+        }
+      }
+
+      if (fixedCount > 0) {
+        console.log(`  Fixed ${fixedCount} stale run status(es) → crashed`);
+      } else {
+        console.log('  Nothing to repair.');
+      }
     });
 }

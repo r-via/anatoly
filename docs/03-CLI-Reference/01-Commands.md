@@ -359,38 +359,44 @@ anatoly rag-status --all --json
 
 ---
 
-## clean runs
+## audit remove
 
 Delete run directories from `.anatoly/runs/`.
 
 ```
-anatoly clean runs [--keep <n>] [-y|--yes]
+anatoly audit remove [runIds...] [--empty | --all | --keep <n>] [-y|--yes]
 ```
 
 ### Options
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `--keep <n>` | integer | Keep the N most recent runs. Deletes the rest. Defaults to 0 (delete all). |
+| `[runIds...]` | string | Specific run IDs to remove. |
+| `--empty` | boolean | Remove only empty (phantom) runs with 0 reviews. |
+| `--all` | boolean | Remove all runs. |
+| `--keep <n>` | integer | Remove all runs except the N most recent. |
 | `-y, --yes` | boolean | Skip the confirmation prompt. Required for non-interactive environments (CI). |
 
 ### Behavior
 
-- When `--keep 0` or no `--keep` is specified, prompts for confirmation before deleting all runs.
+- Modes are mutually exclusive: pick one of `runIds`, `--empty`, `--all`, or `--keep N`.
+- Prompts for confirmation before deleting.
 - In non-interactive mode without `--yes`, exits with code 1.
-- Also cleans up legacy flat `.anatoly/logs/` if no run directories are found.
 
 ### Examples
 
 ```bash
+# Remove only empty/phantom runs
+anatoly audit remove --empty
+
 # Delete all runs (with confirmation)
-anatoly clean runs
+anatoly audit remove --all
 
 # Keep the 3 most recent, delete the rest
-anatoly clean runs --keep 3
+anatoly audit remove --keep 3
 
 # CI: delete all runs without prompting
-anatoly clean runs --yes
+anatoly audit remove --all --yes
 ```
 
 ---

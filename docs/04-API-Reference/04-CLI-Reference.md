@@ -213,17 +213,20 @@ anatoly reset [options]
 
 ---
 
-### `clean runs`
+### `audit remove`
 
-Deletes run directories from `.anatoly/runs/`. Also removes the legacy `.anatoly/logs/` directory if present. Without `--keep`, all runs are removed.
+Deletes run directories from `.anatoly/runs/`. Modes are mutually exclusive.
 
 ```bash
-anatoly clean runs [options]
+anatoly audit remove [runIds...] [options]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--keep <n>` | Keep the N most recent runs; delete the rest |
+| `[runIds...]` | Specific run IDs to remove |
+| `--empty` | Remove only empty (phantom) runs with 0 reviews |
+| `--all` | Remove all runs |
+| `--keep <n>` | Remove all runs except the N most recent |
 | `--yes` | Skip the interactive confirmation prompt |
 
 ---
@@ -429,7 +432,7 @@ npx anatoly reset --keep-rag --yes
 ### Keep only the three most recent runs
 
 ```bash
-npx anatoly clean runs --keep 3 --yes
+npx anatoly audit remove --keep 3 --yes
 ```
 
 ### Autonomous remediation loop

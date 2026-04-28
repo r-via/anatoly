@@ -5,14 +5,12 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { cleanupOrphanedWorktrees } from '../core/worktree-cleanup.js';
-import { listRunStatuses, isProcessAlive, writeRunStatus } from '../core/run-status.js';
-import { resolveRunDir } from '../utils/run-id.js';
 
 /**
  * Run auto-cleanup silently before any command.
  * Called from the CLI preAction hook. Only logs when worktrees were actually cleaned.
  */
-export function runAutoCleanup(projectRoot: string): void {
+export function runAutoGitCleanup(projectRoot: string): void {
   try {
     const result = cleanupOrphanedWorktrees(projectRoot);
     if (result.cleaned > 0) {
@@ -23,37 +21,21 @@ export function runAutoCleanup(projectRoot: string): void {
   }
 }
 
-/** Registers the `cleanup` CLI sub-command. */
-export function registerCleanupCommand(program: Command): void {
-  program
+/** Registers the `git` CLI command group with subcommand `cleanup`. */
+export function registerGitCommand(program: Command): void {
+  const gitCmd = program
+    .command('git')
+    .description('Git-related housekeeping (worktrees)');
+
+  gitCmd
     .command('cleanup')
-    .description('Remove orphaned worktrees and fix stale run statuses')
+    .description('Remove orphaned anatoly worktrees')
     .action(() => {
       const projectRoot = process.cwd();
 
-      console.log(chalk.bold('anatoly — cleanup'));
+      console.log(chalk.bold('anatoly — git cleanup'));
       console.log('');
 
-      // 1. Fix stale running statuses (PID dead → crashed)
-      let fixedCount = 0;
-      const statuses = listRunStatuses(projectRoot);
-      for (const status of statuses) {
-        if (status.status === 'running' && !isProcessAlive(status.pid)) {
-          status.status = 'crashed';
-          status.completedAt = new Date().toISOString();
-          const dir = resolveRunDir(projectRoot, status.runId);
-          if (dir) {
-            writeRunStatus(dir, status);
-            fixedCount++;
-          }
-        }
-      }
-
-      if (fixedCount > 0) {
-        console.log(`  Fixed ${fixedCount} stale run status(es) → crashed`);
-      }
-
-      // 2. Clean orphaned worktrees
       const result = cleanupOrphanedWorktrees(projectRoot);
 
       if (result.cleaned > 0) {
@@ -66,7 +48,7 @@ export function registerCleanupCommand(program: Command): void {
         console.log(chalk.dim(`  Skipped ${result.skipped} active worktree(s)`));
       }
 
-      if (fixedCount === 0 && result.cleaned === 0 && result.failed === 0) {
+      if (result.cleaned === 0 && result.failed === 0) {
         console.log('  Nothing to clean up.');
       }
     });

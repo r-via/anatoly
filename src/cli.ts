@@ -12,7 +12,6 @@ import {
   registerRunCommand,
   registerWatchCommand,
   registerStatusCommand,
-  registerCleanRunsCommand,
   registerResetCommand,
   registerRagStatusCommand,
   registerHookCommand,
@@ -25,8 +24,8 @@ import {
   registerProvidersCommand,
   registerNotificationsCommand,
   registerAuditCommand,
-  registerCleanupCommand,
-  runAutoCleanup,
+  registerGitCommand,
+  runAutoGitCleanup,
 } from './commands/index.js';
 import { pkgVersion } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
@@ -88,7 +87,7 @@ export function createProgram(): Command {
     });
 
     // Auto-cleanup orphaned worktrees before any command (Story 47.7)
-    runAutoCleanup(process.cwd());
+    runAutoGitCleanup(process.cwd());
   });
 
   registerScanCommand(program);
@@ -98,12 +97,11 @@ export function createProgram(): Command {
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);
-  // Parent "clean" command with subcommands: generate, run, sync, runs
-  const cleanCmd = program.command('clean').description('Clean loop commands (generate, run, sync, runs)');
+  // Parent "clean" command with subcommands: generate, run, sync
+  const cleanCmd = program.command('clean').description('Clean loop commands (generate, run, sync)');
   registerCleanCommand(cleanCmd);
   registerCleanRunCommand(cleanCmd);
   registerCleanSyncCommand(cleanCmd);
-  registerCleanRunsCommand(cleanCmd);
 
   registerResetCommand(program);
   registerRagStatusCommand(program);
@@ -117,10 +115,11 @@ export function createProgram(): Command {
   const notificationsCmd = program.command('notifications').description('Telegram notification setup and testing');
   registerNotificationsCommand(notificationsCmd);
 
-  // Parent "runs" command with subcommands: list, remove
+  // Parent "audit" command with subcommands: list, remove, repair
   registerAuditCommand(program);
 
-  registerCleanupCommand(program);
+  // Parent "git" command with subcommands: cleanup
+  registerGitCommand(program);
 
   return program;
 }
