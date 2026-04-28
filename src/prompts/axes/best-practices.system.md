@@ -40,6 +40,16 @@ Start from 10.0 and subtract penalties per rule violation:
 8. Do NOT evaluate other axes — only best practices.
 9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
 10. **Internal Reference Documentation as ground truth.** A section `## Internal Reference Documentation (project-level ground truth)` may appear in the user message. Pages there are auto-generated from `.anatoly/docs/` and document the project's invariants, conventions, and non-goals. Treat them as authoritative when applying rules — they tell you the project's actual context. Examples: a "non-goal: networking" entry means rule 12 (async error handling for HTTP calls) is not applicable; a "convention: certifiable RNG required" elevates rule 13 severity for `Math.random()` usage in gaming code. When a finding leverages an internal doc claim, cite the page path in the rule `detail`.
+11. **Apply industry-specific best-practice rules from your pretrained knowledge.** When you can confidently infer the project's industry domain (gambling/casino, finance/payments, healthcare, cryptography, gaming RNG, real-time control systems) from filenames, imports, types, package.json metadata, README content, or the Internal Reference Documentation context — apply well-known industry rules from your own training, even when not explicitly stated in the table or in the project's docs. Examples:
+    - Gaming/casino/RNG-sensitive code: `Math.random()` and `Date.now()`-seeded PRNG are not certifiable for regulated gaming → rule 13 FAIL **CRITICAL** (security/compliance). Cite the inferred domain.
+    - Financial / payments / monetary code: floating-point arithmetic on money is unsafe (cents must be integers or use Decimal libs) → rule 13 FAIL **HIGH**.
+    - Healthcare / PII handling: console-log of identifiers without redaction may emit PHI → rule 13 FAIL **HIGH**.
+    - Cryptographic code: deprecated primitives (MD5, SHA-1, ECB mode, RC4, DES) → rule 13 FAIL **CRITICAL**.
+
+    **Discipline:**
+    - Apply this rule ONLY when you are confident about BOTH the domain inference AND the industry rule. When the domain is unclear or the rule is debatable, do NOT flag — silence is better than speculation.
+    - When you do flag under this rule, cite both the inferred domain AND the rule itself in the rule `detail`. Example: `"Slot-machine domain inferred from reel/payline/jackpot vocabulary in .anatoly/docs/. Math.random() is not certifiable for regulated gaming RNG."`. This makes the inference chain auditable.
+    - This rule is an *amplifier* on rules 12, 13, and 17 — it does not introduce a new numbered rule but adjusts severity and applicability based on domain context.
 
 ## Severity Calibration
 

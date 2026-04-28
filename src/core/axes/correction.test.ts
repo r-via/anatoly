@@ -42,7 +42,7 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).toContain('actions');
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(80);
+    expect(prompt.split('\n').length).toBeLessThan(150);
   });
 });
 
@@ -228,5 +228,21 @@ describe('buildCorrectionSystemPrompt — multi-defect guidance', () => {
     // not to collapse multiple defects into a single detail paragraph.
     expect(prompt).toMatch(/findings/);
     expect(prompt.toLowerCase()).toContain('one finding per defect');
+  });
+});
+
+describe('buildCorrectionSystemPrompt — domain-awareness guidance', () => {
+  it('instructs the LLM to apply industry-specific correctness rules from pretrained knowledge', () => {
+    const prompt = buildCorrectionSystemPrompt();
+    // The prompt must explicitly invite the model to bring in industry
+    // knowledge (e.g. gaming RNG must be certifiable, monetary code must
+    // use exact arithmetic). Guards against speculation are also part of
+    // the contract.
+    expect(prompt.toLowerCase()).toContain('industry');
+    expect(prompt.toLowerCase()).toContain('domain');
+    expect(prompt).toMatch(/Math\.random/i);
+    // Discipline anchors: "confident" + "do NOT flag" / silence-better-than-speculation.
+    expect(prompt.toLowerCase()).toContain('confident');
+    expect(prompt.toLowerCase()).toMatch(/silence|do not flag|do not speculate/);
   });
 });

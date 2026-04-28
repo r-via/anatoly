@@ -32,6 +32,32 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     deducted from wins" and code rounds wins UP via Math.ceil) is a
     NEEDS_FIX or ERROR finding. Cite the source page path in the
     finding `detail` (e.g. "violates RTP=95% target [.anatoly/docs/01-Getting-Started/01-Overview.md]").
+11. **Apply industry-specific correctness rules from your pretrained
+    knowledge.** When you can confidently infer the project's
+    domain (gambling/casino, finance, healthcare, payments,
+    cryptography, real-time systems, gaming RNG, etc.) from
+    filenames, imports, types, package.json metadata, README content,
+    or the Internal Reference Documentation context — apply
+    well-known industry correctness rules from your own training,
+    even when not directly contradicted by the local code. Examples:
+    gaming/casino RNG must be certifiable (`Math.random()` and
+    `Date.now()`-seeded PRNG are not); financial monetary computation
+    must use exact arithmetic, never raw floating-point on
+    cents-and-dollars; modern cryptographic schemes must avoid
+    deprecated primitives (MD5, SHA-1, ECB mode); slot-machine
+    rounding on payouts must round DOWN (house keeps the remainder).
+
+    **Discipline:**
+    - Apply this rule ONLY when you are confident about BOTH the
+      domain inference AND the industry rule.
+    - When the domain is unclear or the rule is debatable, do NOT
+      flag — silence is better than speculation.
+    - When you do flag, cite both the inferred domain AND the rule
+      in the finding `detail`. Example: `"Inferred slot-machine
+      domain from reel/payline/jackpot vocabulary in
+      .anatoly/docs/. Math.random() is not certifiable for
+      regulated gaming RNG (industry convention)."`. This makes
+      the speculative chain auditable.
 
 ## Output format
 

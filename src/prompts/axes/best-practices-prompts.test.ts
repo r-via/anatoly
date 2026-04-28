@@ -292,3 +292,30 @@ describe('all language prompts use same output schema', () => {
     }
   });
 });
+
+describe('best-practices.system.md — TypeScript base — domain-awareness guidance', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    _resetPromptRegistry();
+    prompt = resolveSystemPrompt('best_practices');
+  });
+
+  it('instructs the LLM to apply industry-specific best-practice rules from pretrained knowledge', () => {
+    // Domain awareness must be activated even when the project's docs do
+    // not explicitly state the relevant rule (e.g. gaming RNG rules are
+    // industry common knowledge, not project-specific).
+    expect(prompt.toLowerCase()).toContain('industry');
+    expect(prompt.toLowerCase()).toContain('domain');
+    // Concrete signals the prompt names known industry rules.
+    expect(prompt).toMatch(/Math\.random/i);
+  });
+
+  it('includes a discipline clause to prevent speculation', () => {
+    // The model must hold back when it cannot confidently identify the
+    // domain — silence is preferred over guessing. This guards against
+    // FP inflation on generic codebases.
+    expect(prompt.toLowerCase()).toContain('confident');
+    expect(prompt.toLowerCase()).toMatch(/silence|do not flag|do not speculate/);
+  });
+});
