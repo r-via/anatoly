@@ -141,14 +141,6 @@
 - [x] Story 47.5: Notification de fin de review
 - [x] Story 47.6: Support du lock multi-run
 - [x] Story 47.7: Nettoyage et robustesse
-  > As a user d'Anatoly
-  > I want que les worktrees orphelins soient nettoyes automatiquement
-  > So that mon disque ne se remplisse pas de snapshots oublies.
-  > AC: Given des worktrees orphelins dans `.anatoly/worktrees/`, When l'utilisateur lance n'importe quelle commande `anatoly`, Then les worktrees dont le run associe est termine ou crash sont supprimes, And un message discret est affiche : "Cleaned up N orphaned worktree(s)"
-  > AC: Given un worktree orphelin dont le `git worktree remove` echoue, When le cleanup s'execute, Then un `git worktree remove --force` est tente, And si ca echoue encore, le worktree est ignore avec un warning
-  > AC: Given un worktree actif (run en cours), When le cleanup s'execute, Then le worktree n'est pas supprime
-  > AC: Given l'utilisateur lance `anatoly cleanup` explicitement, When la commande s'execute, Then tous les worktrees orphelins sont supprimes, And les `run-status.json` marques `running` avec PID mort sont corriges en `crashed`
-  > Spec: specs/planning-artifacts/epic-47-background-worktree-review.md#story-47-7
 
 ## Completed
 

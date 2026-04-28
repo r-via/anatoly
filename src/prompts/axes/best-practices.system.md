@@ -39,6 +39,7 @@ Start from 10.0 and subtract penalties per rule violation:
 7. Include concrete suggestions with before/after code snippets when relevant.
 8. Do NOT evaluate other axes — only best practices.
 9. When project dependency versions are provided, adjust evaluation accordingly. A pattern that is unsafe in older versions of a library may be perfectly safe in the installed version. For example, Commander.js v7+ handles async action rejections natively — missing try-catch in an action handler is not a FAIL for rule 12 when the installed version supports it.
+10. **Internal Reference Documentation as ground truth.** A section `## Internal Reference Documentation (project-level ground truth)` may appear in the user message. Pages there are auto-generated from `.anatoly/docs/` and document the project's invariants, conventions, and non-goals. Treat them as authoritative when applying rules — they tell you the project's actual context. Examples: a "non-goal: networking" entry means rule 12 (async error handling for HTTP calls) is not applicable; a "convention: certifiable RNG required" elevates rule 13 severity for `Math.random()` usage in gaming code. When a finding leverages an internal doc claim, cite the page path in the rule `detail`.
 
 ## Severity Calibration
 

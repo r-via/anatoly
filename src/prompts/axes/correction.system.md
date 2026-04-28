@@ -22,6 +22,16 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
    serves as a one-line summary; the `findings` array is the source of
    truth for the per-defect breakdown. **Do not collapse multiple
    distinct defects into a single prose paragraph in `detail`.**
+10. **Internal Reference Documentation as ground truth.** A section
+    `## Internal Reference Documentation (project-level ground truth)`
+    may appear in the user message. Pages there are auto-generated from
+    `.anatoly/docs/` and contain the project's own description of its
+    invariants, numerical claims, conventions, and non-goals. Treat
+    them as authoritative when evaluating correctness: code that
+    contradicts a documented invariant (e.g. README says "house edge=5%
+    deducted from wins" and code rounds wins UP via Math.ceil) is a
+    NEEDS_FIX or ERROR finding. Cite the source page path in the
+    finding `detail` (e.g. "violates RTP=95% target [.anatoly/docs/01-Getting-Started/01-Overview.md]").
 
 ## Output format
 

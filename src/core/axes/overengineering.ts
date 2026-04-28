@@ -9,6 +9,7 @@ import { getSymbolUsage, getTypeOnlySymbolUsage } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
+import { renderInternalDocsContext } from './internal-docs-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (overengineering axis only)
@@ -60,6 +61,11 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
     parts.push(`- ${s.exported ? 'export ' : ''}${s.kind} ${s.name} (L${s.line_start}–L${s.line_end})`);
   }
   parts.push('');
+
+  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs);
+  if (internalDocsSection) {
+    parts.push(internalDocsSection);
+  }
 
   // Usage analysis: classes/types with ≤1 importer are candidates for
   // over-abstraction (factory/strategy/emitter built for a single client).

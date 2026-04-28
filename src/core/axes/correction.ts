@@ -10,6 +10,7 @@ import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
+import { renderInternalDocsContext } from './internal-docs-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (correction axis only)
@@ -81,6 +82,11 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
     parts.push(`- ${s.exported ? 'export ' : ''}${s.kind} ${s.name} (L${s.line_start}–L${s.line_end})`);
   }
   parts.push('');
+
+  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs);
+  if (internalDocsSection) {
+    parts.push(internalDocsSection);
+  }
 
   if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
     parts.push('## Project Dependencies (imported in this file)');

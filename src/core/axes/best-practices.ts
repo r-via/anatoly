@@ -7,6 +7,7 @@ import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.j
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { renderInternalDocsContext } from './internal-docs-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
@@ -111,6 +112,11 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`- Symbols: ${ctx.task.symbols.length}`);
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
+
+  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs);
+  if (internalDocsSection) {
+    parts.push(internalDocsSection);
+  }
 
   if (ctx.fileDeps && ctx.fileDeps.deps.length > 0) {
     parts.push('## Project Dependencies (imported in this file)');
