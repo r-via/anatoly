@@ -1698,10 +1698,21 @@ async function runReviewPhase(
   if (ctx.axesFilter) {
     warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
   }
+  // A file counts toward evaluateTotal when at least one axis evaluator
+  // actually runs on it. Skip-tier files with a partial-axes policy
+  // (e.g. trivial files keeping correction/duplication/utility via
+  // evaluatorAxesForSkip) DO trigger completedCount++ in the handler,
+  // so they must be included here — otherwise completedCount can exceed
+  // evaluateTotal and produce displays like "13/12".
   const evaluateTotal = reviewItems.filter((item) => {
     if (item.cached) return false;
-    if (ctx.triageEnabled && triageMap.get(item.filePath)?.tier === 'skip') return false;
-    return true;
+    if (!ctx.triageEnabled) return true;
+    const triage = triageMap.get(item.filePath);
+    if (triage?.tier !== 'skip') return true;
+    // Skip-tier file: include only if the partial-axes policy keeps at
+    // least one axis running for this skip reason.
+    const partialAxes = evaluatorAxesForSkip(triage.reason);
+    return evaluators.some((e) => partialAxes.has(e.id));
   }).length;
   const state = ctx.pipelineState!;
   const axesTotal = evaluators.length;
