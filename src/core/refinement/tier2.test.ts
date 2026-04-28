@@ -85,20 +85,33 @@ describe('applyTier2', () => {
     expect(result.review.symbols[0].overengineering).toBe('-');
   });
 
-  // --- DEAD + DUPLICATE → duplication = skip ---
+  // --- DEAD + DUPLICATE → preserved (NOT silenced) ---
+  //
+  // Regression: a dead symbol that duplicates a live one is the most
+  // actionable shape of dead code. Suppressing the duplication verdict
+  // strips the single fact that makes the cleanup safe — the maintainer
+  // would no longer know where the surviving copy lives.
 
-  it('AC: DEAD + DUPLICATE → duplication reclassified to skip', async () => {
+  it('AC: DEAD + DUPLICATE preserves the duplication verdict and target', async () => {
     const review = makeReview({
       symbols: [{
         name: 'deadFunc',
-        utility: 'DEAD', duplication: 'DUPLICATE',
-        confidence: 85, detail: 'Dead and duplicate',
+        utility: 'DEAD',
+        duplication: 'DUPLICATE',
+        duplicate_target: {
+          file: 'src/live.ts',
+          symbol: 'liveFunc',
+          similarity: '95% identical logic',
+        },
+        confidence: 85,
+        detail: 'Dead and duplicate',
       }],
     });
 
     const result = await applyTier2(review);
 
-    expect(result.review.symbols[0].duplication).toBe('-');
+    expect(result.review.symbols[0].duplication).toBe('DUPLICATE');
+    expect(result.review.symbols[0].duplicate_target?.symbol).toBe('liveFunc');
   });
 
   // --- DEAD + WEAK/NONE → tests = skip ---
@@ -170,7 +183,10 @@ describe('applyTier2', () => {
     expect(sym.utility).toBe('DEAD'); // Unchanged
     expect(sym.correction).toBe('OK');
     expect(sym.overengineering).toBe('-');
-    expect(sym.duplication).toBe('-');
+    // duplication intentionally preserved on DEAD symbols (see the
+    // dedicated regression test above) — the maintainer benefits from
+    // knowing where the surviving copy lives.
+    expect(sym.duplication).toBe('DUPLICATE');
     expect(sym.tests).toBe('-');
     expect(sym.documentation).toBe('-');
   });

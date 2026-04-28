@@ -62,9 +62,13 @@ const BEHAVIORAL_KEYWORDS = [
  * Deterministic rules (no LLM needed for the enumerated patterns):
  * - DEAD + NEEDS_FIX → correction = OK
  * - DEAD + OVER → overengineering = skip
- * - DEAD + DUPLICATE → duplication = skip
  * - DEAD + WEAK/NONE → tests = skip
  * - DEAD + UNDOCUMENTED → documentation = skip
+ * - DEAD + DUPLICATE → **kept**. A dead symbol that duplicates a live
+ *   one is the most actionable shape of dead code: the maintainer
+ *   knows where the surviving copy lives and can delete the dead
+ *   one without losing functionality. Suppressing it strips the
+ *   single fact that makes the cleanup safe.
  * - ERROR → always escalated to tier 3
  * - NEEDS_FIX confidence < 75 isolated → escalated
  * - Behavioral/config changes → escalated
@@ -91,6 +95,13 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
     }
 
     // --- Coherence: DEAD + other findings → moot ---
+    // Dead code does not need correctness fixes, complexity reductions,
+    // tests, or documentation — those axes are silenced. Duplication is
+    // explicitly NOT silenced: knowing that a dead symbol duplicates a
+    // live one tells the maintainer where the surviving copy lives, so
+    // the dead one can be removed without losing functionality. That is
+    // exactly the action the bench wants surfaced (cf. DUP-PAYOUT on
+    // legacy.ts → engine.ts in the slot-engine fixture).
     if (s.utility === 'DEAD') {
       if (s.correction === 'NEEDS_FIX') {
         s.correction = 'OK';
@@ -101,11 +112,7 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
         s.overengineering = '-';
         stats.resolved++;
       }
-      if (s.duplication === 'DUPLICATE') {
-        s.duplication = '-';
-        s.duplicate_target = undefined;
-        stats.resolved++;
-      }
+      // Intentionally preserve s.duplication and s.duplicate_target.
       if (s.tests === 'WEAK' || s.tests === 'NONE') {
         s.tests = '-';
         stats.resolved++;
