@@ -42,7 +42,7 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).toContain('actions');
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(150);
+    expect(prompt.split('\n').length).toBeLessThan(220);
   });
 });
 
@@ -257,5 +257,25 @@ describe('buildCorrectionSystemPrompt — anti-collapse / source-not-consumer gu
     expect(prompt.toLowerCase()).toMatch(/source.*defect|defect.*source|where.*defined|canonical home/);
     expect(prompt.toLowerCase()).toMatch(/consumer|caller/);
     expect(prompt.toLowerCase()).toMatch(/aggreg|collaps|burie/);
+  });
+});
+
+describe('buildCorrectionSystemPrompt — numerical-claim verification with self-validation', () => {
+  it('instructs the LLM to derive numerical claims forward AND backward and sanity-check before flagging', () => {
+    // LLMs are unreliable at arithmetic without scaffolding. The rule
+    // forces a forward derivation (code → implied value), a backward
+    // derivation (target → expected constants), and a self-consistency
+    // check (backward then forward should return the target). Without
+    // the sanity check passing, the LLM must abstain — silence beats
+    // confident-but-wrong math.
+    const prompt = buildCorrectionSystemPrompt();
+    expect(prompt.toLowerCase()).toMatch(/forward.*derivation|derive.*forward/);
+    expect(prompt.toLowerCase()).toMatch(/backward.*derivation|derive.*backward/);
+    expect(prompt.toLowerCase()).toMatch(/sanity check|self-consistency/);
+    // Order-of-magnitude bias: prompt should explicitly favor bounds
+    // over precise values, and discipline should require abstaining
+    // when the sanity check fails.
+    expect(prompt.toLowerCase()).toMatch(/order.of.magnitude|order-of-magnitude|bound/);
+    expect(prompt.toLowerCase()).toMatch(/silence|do not flag|abstain/);
   });
 });

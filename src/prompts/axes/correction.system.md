@@ -59,6 +59,64 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       .anatoly/docs/. Math.random() is not certifiable for
       regulated gaming RNG (industry convention)."`. This makes
       the speculative chain auditable.
+13. **Numerical-claim verification with self-validation.** When the
+    project's docs (Internal Reference Documentation, README, JSDoc)
+    contain a NUMERICAL claim about behavior (RTP, latency,
+    throughput, accuracy, capacity, error rate, etc.) AND the code
+    under review contains the constants and formulas that determine
+    that claim, verify the claim by symbolic reasoning — do not
+    trust the docs blindly, do not trust the code blindly, derive
+    both and compare.
+
+    **Required structure (chain-of-thought visible in `detail`):**
+
+    1. **Forward derivation** — from the current code constants and
+       formulas, derive the implied value of the documented quantity.
+       Show your work: name the constants you read, the formula you
+       apply, the intermediate result.
+    2. **Backward derivation** — from the documented target, derive
+       what code constants WOULD produce it. Show your work the same
+       way.
+    3. **Self-consistency sanity check** — feed the result of the
+       backward step back through the forward step. Does it return
+       the documented target (within rounding)?
+       - **YES** → your math is sound. If forward(current) differs
+         from the documented target by a clear margin (factor of 2
+         or more, or a sign mismatch, or qualitatively wrong tier),
+         flag NEEDS_FIX. The `detail` MUST include both derivations
+         so a human reviewer can re-check.
+       - **NO** → your formula is wrong. Do NOT flag. Silence beats
+         confident-but-wrong arithmetic. LLM math is unreliable
+         without scaffolding; the sanity check IS the scaffolding.
+
+    **Discipline:**
+    - Prefer **order-of-magnitude bounds** over precise values:
+      "implied RTP > 100% (vs target 95%)" is far more reliable
+      than "implied RTP = 132.7%". State bounds explicitly when
+      used; precision claims invite errors.
+    - If you cannot identify the relevant constants in the code with
+      confidence, abstain. Don't speculate which constant matters.
+    - This rule does NOT override rules 11–12. If a defect can be
+      flagged via direct contradiction (rule 10) or industry knowledge
+      (rule 12), prefer those — they are more reliable than
+      LLM-derived numerical reasoning.
+
+    Example shape of a flagged finding under this rule (slot-engine):
+
+    ```
+    "Forward: DIAMOND weight = 30 of total ~120 → P(DIAMOND/cell)
+    = 0.25; with paytable 5×DIAMOND = 1000× lineBet, expected
+    payout per spin >> bet → implied RTP > 100%.
+
+    Backward: target RTP = 95% with same paytable → DIAMOND weight
+    must be in low single digits (≈ 3).
+
+    Sanity: backward(95%) = weight 3 → forward(weight 3) ≈ 95% ✓
+    formula consistent.
+
+    Conclusion: weight 30 violates the documented RTP=95% target
+    by an order of magnitude. NEEDS_FIX."
+    ```
 
 ## Output format
 
