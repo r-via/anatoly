@@ -112,11 +112,13 @@ The `.anatoly/` directory is fully local and safe to `.gitignore`. On subsequent
 
 ### Subsequent runs
 
+`anatoly run` is **always incremental** — only files whose content has changed since the previous run get re-reviewed. Use `--no-cache` to force a full re-review of the entire codebase.
+
 ```bash
-anatoly run                  # Only reviews changed files (cache hit on unchanged)
-anatoly run --no-cache       # Reset CACHED files to PENDING (DONE files only re-review on hash change)
+anatoly run                       # Always incremental — only changed files
+anatoly run --no-cache            # Force a full re-review of every file
 anatoly run --file "src/core/**"  # Review only matching files
-anatoly run --run-id v1.2    # Custom run ID instead of timestamp
+anatoly run --run-id v1.2         # Custom run ID instead of timestamp
 ```
 
 ## Verify it works

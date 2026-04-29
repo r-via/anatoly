@@ -18,23 +18,77 @@ npx anatoly run   # one command, full codebase audit
 
 ---
 
-> **Fair warning:** This project is context-and-time-hungry by design. Dream-quality code doesn't come cheap -- it takes serious effort (and tokens) to get there.
-
----
-
 ## What is Anatoly?
 
 <p align="center">
   <img src="assets/anims/demo.gif" alt="Anatoly demo"/>
 </p>
 
-Anatoly is an **autonomous AI agent augmented by semantic RAG** that walks through every file in your codebase, investigates it with full project context, and delivers a surgical audit report.
+You run:
 
-Supports **TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON** — with auto-detection of languages and frameworks (React, Next.js, etc.). AST-driven parsing via tree-sitter for each language.
+```bash
+npx anatoly run
+```
 
-This is not a linter. This is not a static analysis rule set. Anatoly is a **Claude agent with read access to your entire codebase and a semantic vector index**. The agent can grep for usages across the project, read other files to verify dead code, query a local RAG index to surface semantically similar functions, and cross-reference exports, imports, and test coverage -- then it must **prove** each finding with evidence before reporting it.
+A few minutes later, you get a report like this:
+
+> **15 files reviewed in 10 min — $6.13 in AI analysis so you don't have to.**
+> Verdict: **NEEDS_REFACTOR** · 26 findings in 11 files
+>
+> | Axis | Health |
+> |------|--------|
+> | Correction      | 🟥🟥🟥🟥🟥🟥🟥🟥🟥⬜ 93% OK |
+> | Utility         | 🟥🟥🟥🟥🟥🟥🟥🟥⬜⬜ 83% used |
+> | Duplication     | 🟥🟥🟥🟥🟥🟥🟥🟥🟥⬜ 90% unique |
+> | Overengineering | 🟩🟩🟩🟩🟩🟩🟩🟩🟩⬜ 90% lean |
+> | Best Practices  | 🟥🟥🟥🟥🟥🟥🟥⬜⬜⬜ avg 7.4 / 10 |
+
+And findings like these — each one with file+line, a verdict, and the evidence that produced it:
+
+- 🐛 **`src/engine.ts` `computePayout`** — the house-edge multiplier sign is inverted: it *boosts* payout instead of reducing it. RTP is broken.
+- 🐛 **`src/rng.ts` `weightedPick`** — `Math.random()` used as the RNG source in a function whose own docstring says *"suitable for gaming RNG applications"*.
+- ♻️ **`src/types.ts` `LegacySpinResult`** — exported, imported by 0 files.
+- 📋 **`src/engine.ts` `checkLine`** ⇄ **`src/paytable.ts` `lineWins`** — semantically identical (RAG cosine 0.852): same WILD-skip, same consecutive-match loop, different names. A textual diff would never see it.
+- 🏗️ **`src/engine.ts` `EngineContainer`** — bespoke IoC container backed by a stringly-typed `Map<string, unknown>`, holding three values.
+
+### How it actually works
+
+Anatoly is a Claude agent with read access to your whole repo, plus a local semantic index (LanceDB + code embeddings, $0/run after the first build). Before reporting anything, it must **prove** it: grep the codebase for usages, read the consumers, query the RAG index for semantic twins, cross-reference imports and tests. Seven axes run in parallel per file (correction, utility, duplication, overengineering, tests, best practices, documentation), each crash-isolated.
 
 **One command. Full codebase. Evidence-backed findings. No code modified.**
+
+Languages: TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON — auto-detected, AST-parsed via tree-sitter.
+
+## Run and walk away
+
+A 15-file audit takes ~10 minutes. You don't sit through it — Anatoly pings you when it's done.
+
+<p align="center">
+  <img src="assets/imgs/banner_telegram.jpg" width="600" alt="Telegram notification" />
+</p>
+
+```bash
+anatoly notifications create-bot   # one-time wizard, ~2 min
+```
+
+The wizard creates a bot, saves the token, registers your Telegram username. On every `anatoly run`, you get a message with the verdict, per-axis scorecard, top findings, and a link to the full report.
+
+**One bot, whole team.** Other developers just add their username to `.anatoly.yml` — Anatoly resolves it to a chat ID on first run and caches it. No per-user token setup.
+
+**Fire-and-forget.** Missing token, unresolved username, Telegram API down — the run logs a warning and produces the report anyway. Notifications never block the pipeline.
+
+Two siblings cover the same async philosophy:
+
+- **Watch mode** (`anatoly watch`) — daemon that re-audits incrementally on file change.
+- **Claude Code hook** — write → audit → fix loop (PostToolUse + Stop hooks with anti-loop protection), so the audit fires inside your editor session.
+
+See [Telegram setup](docs/05-Integration/04-Telegram-Notifications.md), [Watch Mode](docs/05-Integration/03-Watch-Mode.md), and [Claude Code Hooks](docs/05-Integration/01-Claude-Code-Hooks.md).
+
+---
+
+> **Fair warning:** This project is context-and-time-hungry by design. Dream-quality code doesn't come cheap -- it takes serious effort (and tokens) to get there.
+
+---
 
 ## The Problem
 
@@ -65,7 +119,6 @@ Traditional linters catch syntax issues but miss architectural rot. Manual code 
 - **Dry-run mode** — `--dry-run` simulates the full pipeline (scan, estimate, triage, cost) without API calls. Uses calibrated per-axis timing from past runs
 - **Watch mode** — daemon that monitors file changes and triggers incremental re-review + report regeneration
 - **CI-friendly** — exit codes `0`/`1`/`2`, `--plain` mode for non-interactive pipelines, colored cost display
-- **Telegram notifications** — automatic audit summary to a Telegram channel/group after each run. Fire-and-forget: delivery failures never break the pipeline. See [setup guide](docs/05-Integration/04-Telegram-Notifications.md)
 - **Multi-provider LLM** (experimental) — Gemini 2.5 Flash routes utility, duplication, overengineering axes and NLP summarization at $0/token via Google OAuth. Circuit breaker auto-falls back to Claude on failure. Reduces Claude API calls by ~69%
 
 > See [Pipeline Overview](docs/02-Architecture/01-Pipeline-Overview.md) for the full pipeline details, and [Seven-Axis System](docs/02-Architecture/02-Seven-Axis-System.md) for the evaluation axes.

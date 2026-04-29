@@ -4,15 +4,15 @@ Anatoly evaluates every file through seven independent axis evaluators, each foc
 
 ## Axes at a Glance
 
-| Axis | ID | Default Model | Verdicts | Purpose |
-|------|----|---------------|----------|---------|
+| Axis | ID | Recommended Model | Verdicts | Purpose |
+|------|----|-------------------|----------|---------|
 | Utility | `utility` | Haiku | `USED`, `DEAD`, `LOW_VALUE` | Detect dead or low-value code |
 | Duplication | `duplication` | Haiku | `UNIQUE`, `DUPLICATE` | Find semantically duplicated functions |
 | Correction | `correction` | Sonnet | `OK`, `NEEDS_FIX`, `ERROR` | Identify bugs and logic errors |
-| Overengineering | `overengineering` | Haiku | `LEAN`, `OVER`, `ACCEPTABLE` | Flag excessive complexity |
-| Tests | `tests` | Haiku | `GOOD`, `WEAK`, `NONE` | Assess test coverage quality |
-| Best Practices | `best_practices` | Sonnet | Score 0-10, 17 rules | Evaluate adherence to TypeScript best practices |
-| Documentation | `documentation` | Haiku | `DOCUMENTED`, `PARTIAL`, `UNDOCUMENTED` | Detect JSDoc gaps and /docs/ desynchronization |
+| Overengineering | `overengineering` | Sonnet | `LEAN`, `OVER`, `ACCEPTABLE` | Flag excessive complexity |
+| Tests | `tests` | Sonnet | `GOOD`, `WEAK`, `NONE` | Assess test coverage quality |
+| Best Practices | `best_practices` | Sonnet | Score 0-10, 17 rules | Evaluate adherence to language-specific best practices |
+| Documentation | `documentation` | Sonnet | `DOCUMENTED`, `PARTIAL`, `UNDOCUMENTED` | Detect JSDoc gaps and /docs/ desynchronization |
 
 ## Per-Axis Details
 
@@ -72,7 +72,7 @@ Detects JSDoc documentation gaps on exported symbols and evaluates concept cover
 - **Output:** per-symbol verdict (`DOCUMENTED` / `PARTIAL` / `UNDOCUMENTED`), confidence 0-100, detail string, optional `docs_coverage` with per-concept status (`COVERED` / `PARTIAL` / `MISSING` / `OUTDATED`)
 - **Key feature:** two-level evaluation: (1) JSDoc inline per symbol — checks for description, params, return type; (2) `/docs/` concept coverage — matches source module to documentation pages via `documentation.module_mapping` config or directory name convention. Gracefully degrades when no `/docs/` directory exists (evaluates JSDoc only).
 
-> **Note:** The documentation *axis* (Haiku) **evaluates** existing documentation quality. It is distinct from the doc-generation *pipeline* (`anatoly docs`, Sonnet), which **writes** `.anatoly/docs/` pages from source code context. The axis reads docs; the pipeline creates them.
+> **Note:** The documentation *axis* (Sonnet) **evaluates** existing documentation quality. It is distinct from the doc-generation *pipeline* (`anatoly docs`, Sonnet), which **writes** `.anatoly/docs/` pages from source code context. The axis reads docs; the pipeline creates them.
 
 ## Scoring Model
 

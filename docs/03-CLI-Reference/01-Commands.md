@@ -14,6 +14,8 @@ Execute the full audit pipeline: scan, estimate, triage, RAG index, review, and 
 anatoly run [--run-id <id>] [--axes <list>]
 ```
 
+> **Incremental by default.** `anatoly run` only re-reviews files whose content has changed since the previous run (SHA-256 cache). Pass `--no-cache` to force a full re-review of the entire codebase.
+
 ### Options
 
 | Flag | Type | Description |
