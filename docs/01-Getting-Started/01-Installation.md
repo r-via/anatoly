@@ -3,13 +3,23 @@
 ## Prerequisites
 
 - **Node.js >= 20.19** -- Anatoly uses modern Node.js APIs (ES modules, native fetch). Check your version with `node --version`.
-- **ANTHROPIC_API_KEY** -- Set your Anthropic API key as an environment variable. Anatoly uses the Claude Agent SDK to run its review agents.
+- **An LLM auth path** -- Anatoly is multi-provider and supports four modes. Pick one:
+
+  | Mode | Setup | Cost | When to pick |
+  |------|-------|------|--------------|
+  | **Subscription** *(default)* | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed + logged in | Your Claude.ai (Pro / Max) subscription | Most users — **no API key needed** |
+  | **Subscription (Google)** | Google OAuth via [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Your Code Assist subscription, $0/token | Cost-optimize lightweight axes |
+  | **BYOK API** | Set `ANTHROPIC_API_KEY` *(or `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.)* | Per-token billing | No subscription, or pay-as-you-go preferred |
+  | **Local** | Run Ollama / LM Studio / vLLM | Free | Code that cannot leave your network |
+
+By default Anatoly assumes **subscription mode** for `anthropic` and `google` providers — the configured `.anatoly.yml` lists these as `mode: subscription`. If you prefer API mode, set the relevant env var and switch the provider's `mode` to `api`:
 
 ```bash
+# Only needed for BYOK API mode
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-You can add this to your shell profile (`~/.bashrc`, `~/.zshrc`) or use a `.env` manager. Anatoly reads the key from the environment at runtime.
+See [Configuration → providers](./02-Configuration.md#providers-v2) for the full provider config and [Recommended LLM Setup](./03-Recommended-LLM-Setup.md) for tuning per axis.
 
 ## Install
 

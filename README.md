@@ -156,8 +156,13 @@ Senior developers, Tech Leads, and teams working in TypeScript, Python, Rust, Go
 ## Prerequisites
 
 - Node.js >= 20.19
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
-- (Optional) Google OAuth for Gemini Code Assist — enables Gemini 2.5 Flash routing at $0/token
+- **One LLM auth path** — Anatoly works with any of:
+  - **Subscription (default)** — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed + logged in. Drives Anatoly via your Claude.ai subscription. **No API key needed.**
+  - **Subscription (Google)** — Google OAuth via [Gemini CLI](https://github.com/google-gemini/gemini-cli). Routes axes to Gemini at $0/token. No API key needed.
+  - **BYOK API** — set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.) and flip the provider's `mode: api` in `.anatoly.yml`.
+  - **Local** — Ollama, LM Studio, vLLM, or any OpenAI-compatible local server. Zero data leaves your network.
+
+  See [Recommended LLM Setup](docs/01-Getting-Started/03-Recommended-LLM-Setup.md) for per-tier model picks and [Installation](docs/01-Getting-Started/01-Installation.md#prerequisites) for the auth-mode matrix.
 
 ### Optional but recommended: GPU-accelerated embeddings
 
