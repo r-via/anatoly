@@ -34,6 +34,7 @@ import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
+import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
@@ -143,6 +144,27 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   }
   const docsPath = config.documentation?.docs_path ?? 'docs';
   const profile = detectProjectProfile(projectRoot);
+
+  // Validate Anthropic provider auth — fail fast if misconfigured.
+  // Without this probe, a missing `claude` CLI (subscription mode) or
+  // missing ANTHROPIC_API_KEY (api mode) would only surface several
+  // seconds in, deep inside the first axis evaluator, as an opaque
+  // "spawn failed" or 401 error. Caught early here with a clear message.
+  if (config.providers.anthropic) {
+    const anthropicConfig = config.providers.anthropic;
+    const result = checkAnthropicAuth(anthropicConfig.mode);
+    if (!result.ok) {
+      const fix = anthropicConfig.mode === 'api'
+        ? 'set ANTHROPIC_API_KEY in your environment, or switch the provider to mode: subscription'
+        : 'install Claude Code (https://docs.anthropic.com/en/docs/claude-code) and run `claude /login`, or switch the provider to mode: api with ANTHROPIC_API_KEY';
+      throw new AnatolyError(
+        `Anthropic provider configured (${anthropicConfig.mode}) but ${result.reason}.`,
+        ERROR_CODES.PROVIDER_AUTH_FAILED,
+        false,
+        fix,
+      );
+    }
+  }
 
   // Validate Google provider auth — fail fast if misconfigured
   if (config.providers.google) {

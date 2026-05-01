@@ -51,6 +51,7 @@ import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../cor
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
+import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, type AxisId } from '../core/axis-evaluator.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
@@ -321,6 +322,26 @@ export function registerRunCommand(program: Command): void {
       if (cmdOpts.flushMemory) {
         saveDeliberationMemory(projectRoot, { version: 2, false_positives: [] });
         console.log(chalk.dim('deliberation memory flushed'));
+      }
+
+      // Validate Anthropic provider auth — fail fast if misconfigured.
+      // Catches missing `claude` CLI (subscription) or missing
+      // ANTHROPIC_API_KEY (api) before the first axis call would
+      // surface an opaque crash deep in the pipeline.
+      if (config.providers.anthropic) {
+        const anthropic = config.providers.anthropic;
+        const result = checkAnthropicAuth(anthropic.mode);
+        if (!result.ok) {
+          const fix = anthropic.mode === 'api'
+            ? 'set ANTHROPIC_API_KEY in your environment, or switch the provider to mode: subscription'
+            : 'install Claude Code (https://docs.anthropic.com/en/docs/claude-code) and run `claude /login`, or switch the provider to mode: api with ANTHROPIC_API_KEY';
+          throw new AnatolyError(
+            `Anthropic provider configured (${anthropic.mode}) but ${result.reason}.`,
+            ERROR_CODES.PROVIDER_AUTH_FAILED,
+            false,
+            fix,
+          );
+        }
       }
 
       // Validate Google provider auth — fail fast if misconfigured
