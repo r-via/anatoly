@@ -61,6 +61,20 @@ To pre-download the model out of band (e.g. CI image build), run the bundled scr
 node ./node_modules/@r-via/anatoly/scripts/download-model.js
 ```
 
+### Install from source (debug unpublished commits)
+
+To test changes from a branch or unpublished commit, **do not use** `npm install -g github:r-via/anatoly` — it hits two reproducible npm/WSL bugs (NPM_CONFIG_GLOBAL inheritance breaks devDeps install in pacote, and ext4 races on tarball extract during the outer global install). Use the bundled `Makefile` instead:
+
+```bash
+git clone https://github.com/r-via/anatoly      # or -b <branch>
+cd anatoly
+make install                                     # deps + build + global symlink
+make doctor                                      # verify environment
+anatoly --version                                # confirm
+```
+
+`make help` lists every target. To remove later: `make uninstall`.
+
 ### WSL2 users
 
 If `anatoly run` exits with an error like:
