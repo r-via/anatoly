@@ -54,6 +54,26 @@ npx anatoly run
 
 On first install, a `postinstall` script downloads the default embedding model (Jina Embeddings V2 Base Code, ONNX). This is a one-time download.
 
+### WSL2 users
+
+If `anatoly run` exits with an error like:
+
+```
+/mnt/c/nvm4w/nodejs/anatoly: 15: exec: node: Permission denied
+```
+
+…your Node.js is installed on the **Windows side** (typically nvm-windows / `nvm4w`) and is being picked up from the WSL `PATH`. Linux can't execute the Windows `node.exe` from a WSL shim. Install Node.js *inside* the distribution and re-install Anatoly:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+exec $SHELL
+nvm install 20.19
+which node                          # must NOT be under /mnt/c/...
+npm install -g @r-via/anatoly
+```
+
+Anatoly also fails fast at startup if it detects it is running under a Windows-installed Node from inside WSL (via `binfmt_misc`), so you should never end up with cross-OS path semantics silently degrading the run.
+
 ### Optional: GPU-accelerated embeddings
 
 If you have an NVIDIA GPU with >= 12 GB VRAM and Docker installed, you can use GGUF-quantized models in Docker llama.cpp containers for higher-quality embeddings:
