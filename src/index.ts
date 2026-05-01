@@ -6,6 +6,7 @@ import { release } from 'node:os';
 import 'dotenv/config';
 import chalk from 'chalk';
 import { createProgram } from './cli.js';
+import { AnatolyError } from './utils/errors.js';
 
 // Early WSL-with-Windows-Node guard: when anatoly is launched inside WSL
 // but the resolved Node interpreter lives on a Windows mount
@@ -49,7 +50,12 @@ const program = createProgram();
 const keepAlive = setInterval(() => {}, 60_000);
 program.parseAsync()
   .catch((err: unknown) => {
-    console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    if (err instanceof AnatolyError) {
+      // Include the recovery hint (`  → ...`) when present
+      console.error(chalk.red(err.formatForDisplay()));
+    } else {
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+    }
     process.exitCode = 1;
   })
   .finally(() => clearInterval(keepAlive));
