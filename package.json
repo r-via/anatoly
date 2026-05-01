@@ -21,7 +21,7 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/download-model.js",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "tsup"
   },
   "repository": {
     "type": "git",
