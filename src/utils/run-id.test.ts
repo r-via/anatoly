@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readlinkSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -14,6 +14,8 @@ import {
   resolveRunDir,
   listRuns,
   purgeRuns,
+  removeRunIfEmpty,
+  readLatestPointer,
 } from './run-id.js';
 
 describe('run-id', () => {
@@ -189,6 +191,48 @@ describe('run-id', () => {
       const deleted = purgeRuns(tmpDir, 0);
       expect(deleted).toBe(4);
       expect(listRuns(tmpDir)).toEqual([]);
+    });
+  });
+
+  describe('removeRunIfEmpty', () => {
+    it('removes the run dir when reviews/ is empty', () => {
+      const runDir = createRunDir(tmpDir, 'run-a');
+      expect(existsSync(runDir)).toBe(true);
+
+      const removed = removeRunIfEmpty(tmpDir, 'run-a');
+      expect(removed).toBe(true);
+      expect(existsSync(runDir)).toBe(false);
+    });
+
+    it('keeps the run dir when reviews/ contains at least one file', () => {
+      const runDir = createRunDir(tmpDir, 'run-a');
+      writeFileSync(join(runDir, 'reviews', 'file.json'), '{}');
+
+      const removed = removeRunIfEmpty(tmpDir, 'run-a');
+      expect(removed).toBe(false);
+      expect(existsSync(runDir)).toBe(true);
+    });
+
+    it('repoints latest to the previous run when removing the latest', () => {
+      createRunDir(tmpDir, 'run-a');
+      createRunDir(tmpDir, 'run-b'); // becomes latest
+
+      removeRunIfEmpty(tmpDir, 'run-b');
+
+      const runsDir = join(tmpDir, '.anatoly', 'runs');
+      expect(readLatestPointer(runsDir)).toBe('run-a');
+    });
+
+    it('removes the latest pointer when no runs remain', () => {
+      createRunDir(tmpDir, 'run-a');
+      removeRunIfEmpty(tmpDir, 'run-a');
+
+      const runsDir = join(tmpDir, '.anatoly', 'runs');
+      expect(() => lstatSync(join(runsDir, 'latest'))).toThrow();
+    });
+
+    it('returns false for a non-existent run', () => {
+      expect(removeRunIfEmpty(tmpDir, 'nope')).toBe(false);
     });
   });
 });
