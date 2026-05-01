@@ -20,7 +20,7 @@
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "prepare": "tsup"
+    "prepare": "npx --yes tsup"
   },
   "repository": {
     "type": "git",
