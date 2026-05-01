@@ -32,12 +32,13 @@ M := \033[35m
 N := \033[0m
 
 .DEFAULT_GOAL := help
-.PHONY: help install install-deps install-global uninstall build rebuild test lint typecheck clean doctor
+.PHONY: help install install-deps install-global update uninstall build rebuild test lint typecheck clean doctor
 
 help:
 	@printf '$(B)$(M)anatoly$(N) $(D)— dev Makefile$(N)\n\n'
 	@printf '$(D)Run from a fresh `git clone https://github.com/r-via/anatoly`:$(N)\n\n'
 	@printf '  $(C)make install$(N)        $(D)complete dev install (deps + build + global symlink)$(N)\n'
+	@printf '  $(C)make update$(N)         $(D)git pull origin main, then reinstall$(N)\n'
 	@printf '  $(C)make build$(N)          $(D)build dist/ via tsup$(N)\n'
 	@printf '  $(C)make rebuild$(N)        $(D)clean + build$(N)\n'
 	@printf '  $(C)make install-global$(N) $(D)link this clone as the global anatoly bin$(N)\n'
@@ -67,6 +68,26 @@ install-global:
 	@printf '$(B)[2/2]$(N) $(C)installing global bin from this clone$(N)\n'
 	@$(NPM) install -g . --no-audit --no-fund --no-progress
 	@printf '$(G)  ✔$(N) global bin linked\n'
+
+update:
+	@printf '$(B)→$(N) $(C)fetching origin/main$(N)\n'
+	@git fetch origin main
+	@before=$$(git rev-parse HEAD); \
+	 git pull --ff-only origin main; rc=$$?; \
+	 if [ $$rc -ne 0 ]; then \
+	   printf '$(R)✗$(N) pull failed — local commits or divergence on this clone\n'; \
+	   printf '  $(D)resolve manually (git status / git log) before retrying$(N)\n'; \
+	   exit $$rc; \
+	 fi; \
+	 after=$$(git rev-parse HEAD); \
+	 if [ "$$before" = "$$after" ]; then \
+	   printf '$(G)  ✔$(N) already up to date — nothing to reinstall\n'; \
+	   exit 0; \
+	 fi; \
+	 printf '\n$(B)→$(N) $(C)changes pulled, reinstalling$(N)\n'; \
+	 git --no-pager log --oneline "$$before..$$after" | head -10; \
+	 printf '\n'
+	@$(MAKE) --no-print-directory install
 
 build:
 	@printf '$(B)→$(N) $(C)building dist/$(N)\n'
