@@ -98,33 +98,24 @@ export function renderProviderAuthBox(
   out.push(`${bar}  but ${reason}.`);
   out.push(bar);
 
-  const renderInstall = () => {
-    out.push(`${bar}  Install ${info.subscription.cliName} ${dim(`(uses your ${info.display} subscription)`)}`);
+  if (mode === 'subscription') {
+    out.push(`${bar}  ${bold('A.')} Install ${info.subscription.cliName} ${dim(`(uses your ${info.display} subscription)`)}`);
     for (const step of info.subscription.install) {
       const trail = step.comment ? ' ' + dim(step.comment) : '';
       out.push(`${bar}     ${cyan(step.cmd)}${trail}`);
     }
-  };
-  const renderApiKey = () => {
-    out.push(`${bar}  Set the API key ${dim('(per-token billing)')}`);
+    out.push(bar);
+    out.push(`${bar}  ${bold('B.')} Or switch to API mode ${dim('(per-token billing)')}`);
+    out.push(`${bar}     ${cyan(`export ${info.api.keyVar}=${info.api.keyExample}`)}`);
+    out.push(`${bar}     ${dim(`# then in .anatoly.yml: providers.${provider}.mode: api`)}`);
+  } else {
+    out.push(`${bar}  ${bold('A.')} Set the API key ${dim('(per-token billing)')}`);
     out.push(`${bar}     ${cyan(`export ${info.api.keyVar}=${info.api.keyExample}`)}`);
     if (info.api.altVars?.length) {
       out.push(`${bar}     ${dim(`# alternative env vars: ${info.api.altVars.join(', ')}`)}`);
     }
-  };
-
-  if (mode === 'subscription') {
-    out.push(`${bar}  ${bold('A.')}`);
-    renderInstall();
     out.push(bar);
-    out.push(`${bar}  ${bold('B.')} Or switch to API mode`);
-    out.push(`${bar}     ${cyan(`export ${info.api.keyVar}=${info.api.keyExample}`)}`);
-    out.push(`${bar}     ${dim(`# then in .anatoly.yml: providers.${provider}.mode: api`)}`);
-  } else {
-    out.push(`${bar}  ${bold('A.')}`);
-    renderApiKey();
-    out.push(bar);
-    out.push(`${bar}  ${bold('B.')} Or use ${info.subscription.cliName}`);
+    out.push(`${bar}  ${bold('B.')} Or use ${info.subscription.cliName} ${dim(`(free with your ${info.display} subscription)`)}`);
     for (const step of info.subscription.install) {
       out.push(`${bar}     ${cyan(step.cmd)}`);
     }
