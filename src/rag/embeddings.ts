@@ -105,9 +105,31 @@ async function embedViaOnnx(text: string): Promise<number[]> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadOnnxModel(modelId: string): Promise<any> {
-  onLog(`loading ONNX embedding model ${modelId}...`);
+  onLog(`loading ONNX embedding model ${modelId} (first time: ~50-150 MB download from HuggingFace, cached locally afterwards)...`);
   const { pipeline } = await import('@huggingface/transformers');
-  const model = await pipeline('feature-extraction', modelId);
+
+  // Throttle per-file progress so we surface the download without flooding logs.
+  const lastBucket = new Map<string, number>();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const model = await pipeline('feature-extraction', modelId, {
+    progress_callback: (info: unknown) => {
+      const evt = info as { status?: string; file?: string; progress?: number };
+      if (!evt.file) return;
+      if (evt.status === 'initiate') {
+        onLog(`  ↓ ${evt.file} (starting…)`);
+      } else if (evt.status === 'progress' && typeof evt.progress === 'number') {
+        const bucket = Math.floor(evt.progress / 10) * 10;
+        if (bucket > 0 && bucket < 100 && (lastBucket.get(evt.file) ?? -1) < bucket) {
+          lastBucket.set(evt.file, bucket);
+          onLog(`  ↓ ${evt.file}: ${bucket}%`);
+        }
+      } else if (evt.status === 'done') {
+        onLog(`  ✓ ${evt.file}`);
+      }
+    },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
   onLog(`embedding model ready: ${modelId}`);
   return model;
 }

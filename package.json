@@ -20,7 +20,6 @@
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "postinstall": "node scripts/download-model.js",
     "prepare": "tsup"
   },
   "repository": {

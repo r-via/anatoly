@@ -53,7 +53,13 @@ npm install -D @r-via/anatoly
 npx anatoly run
 ```
 
-On first install, a `postinstall` script downloads the default embedding model (Jina Embeddings V2 Base Code, ONNX). This is a one-time download.
+The first time `anatoly run` indexes a project, the default embedding model (Jina Embeddings V2 Base Code, ONNX, ~150 MB) is downloaded from HuggingFace and cached under `~/.cache/huggingface/`. Progress is reported in the run log. Subsequent runs reuse the cached model.
+
+To pre-download the model out of band (e.g. CI image build), run the bundled script:
+
+```bash
+node ./node_modules/@r-via/anatoly/scripts/download-model.js
+```
 
 ### WSL2 users
 
