@@ -61,6 +61,7 @@ import { DeliberationResponseSchema } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
+import { runHints } from '../cli/hint-detector.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -835,8 +836,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // --- Phase: config ---
+  let hardware: ReturnType<typeof detectHardware> | undefined;
   if (ctx.enableRag) {
-    const hardware = detectHardware();
+    hardware = detectHardware();
 
     if (ctx.ragMode === 'lite') {
       if (ctx.config.rag.code_model === 'auto') {
@@ -1022,6 +1024,17 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const calLabel = hasCal ? 'calibrated' : 'default';
   const estimateTokenLabel = `${evalFileCount} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
   pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
+
+  // Surface actionable hints (missing init, lite RAG on capable hardware, …) before the summary.
+  // Skip in dry-run / non-TTY / plain mode where interactive prompts make no sense.
+  if (!ctx.dryRun && !ctx.plain && process.stdin.isTTY) {
+    await runHints({
+      projectRoot: ctx.projectRoot,
+      ragEnabled: ctx.enableRag,
+      resolvedRagMode: ctx.resolvedRagMode,
+      hardware,
+    });
+  }
 
   // Render setup summary table
   renderSetupTable({ project: projectInfo, config: configRows, models: modelsLeft, modelsRight, pipeline: pipelineRows }, ctx.plain);
