@@ -355,6 +355,25 @@ else
     read -r -p "  Install Docker + NVIDIA Container Toolkit now? (requires sudo) [y/N] " INSTALL_DOCKER
     if [[ "${INSTALL_DOCKER,,}" == "y" ]]; then
       install_docker
+
+      # `sudo usermod -aG docker $USER` updates /etc/group, but the new group
+      # membership only takes effect on the next login — so the current shell
+      # (and this script) still can't talk to the docker socket without sudo.
+      # Re-exec under `sg docker -c` to activate the group in-process so the
+      # rest of the script (docker pull, docker run, smoke tests) works as the
+      # user, no logout required. Guarded with ANATOLY_DOCKER_GROUP_REEXEC to
+      # avoid infinite loops.
+      if ! has_docker \
+         && [[ "${ANATOLY_DOCKER_GROUP_REEXEC:-}" != "1" ]] \
+         && command -v sg &>/dev/null \
+         && id -nG "$USER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+        log info "Activating docker group in current shell (no logout required)..."
+        log info "Tip: for future shells, run 'newgrp docker' or log out/in once."
+        export ANATOLY_DOCKER_GROUP_REEXEC=1
+        REEXEC_CMD=$(printf '%q ' "$0" "$@")
+        exec sg docker -c "$REEXEC_CMD"
+      fi
+
       if has_docker; then
         DOCKER_OK="true"
         if has_nvidia_container_toolkit; then
@@ -362,7 +381,7 @@ else
         fi
       else
         log warn "Docker installed but not available yet."
-        log info "You may need to log out and log back in (for docker group), then re-run setup."
+        log info "Run 'newgrp docker' (or log out/in) then re-run: npx anatoly setup-embeddings"
       fi
     else
       log info "Skipping Docker install. Using lite mode (ONNX CPU)."
