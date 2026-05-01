@@ -347,14 +347,14 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       }
     }
     saveRagCache(projectRoot, cache, cacheSuffix);
-    const nlpCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+    const nlpCache = loadNlpSummaryCache(projectRoot);
     if (nlpCache) {
       for (const key of Object.keys(nlpCache.entries)) {
         if (isMatch(key.split('::')[0])) {
           delete nlpCache.entries[key];
         }
       }
-      saveNlpSummaryCache(projectRoot, nlpCache, cacheSuffix);
+      saveNlpSummaryCache(projectRoot, nlpCache);
     }
     onLog?.(`rebuild (scoped): purged ${purgedCount} files matching ${options.fileFilter}`);
   } else if (rebuild) {
@@ -415,7 +415,8 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   );
 
   // Load NLP summary cache for per-function body-hash caching
-  const nlpSummaryCache = loadNlpSummaryCache(projectRoot, cacheSuffix);
+  // (mode-agnostic — same content regardless of lite/advanced backend)
+  const nlpSummaryCache = loadNlpSummaryCache(projectRoot);
 
   // GC orphaned NLP summary entries too
   let gcNlpCount = 0;
@@ -424,7 +425,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   }
   if (gcNlpCount > 0) {
     onLog(`gc: removed ${gcNlpCount} orphaned NLP summary cache entries`);
-    saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
+    saveNlpSummaryCache(projectRoot, nlpSummaryCache);
   }
 
   // Filter out files where all function cards are already cached for the current hash
@@ -570,7 +571,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         Object.assign(nlpSummaryCache.entries, result.nlpCacheUpdates);
       }
     }
-    saveNlpSummaryCache(projectRoot, nlpSummaryCache, cacheSuffix);
+    saveNlpSummaryCache(projectRoot, nlpSummaryCache);
   }
 
   // Index doc sections from /docs/ (project) and .anatoly/docs/ (internal)

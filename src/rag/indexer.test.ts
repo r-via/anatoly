@@ -360,7 +360,7 @@ describe('loadNlpSummaryCache', () => {
   });
 
   it('returns empty cache when file does not exist', () => {
-    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    const cache = loadNlpSummaryCache(tmpRoot);
     expect(cache.entries).toEqual({});
   });
 
@@ -374,22 +374,55 @@ describe('loadNlpSummaryCache', () => {
       },
     };
     writeFileSync(
-      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json'),
+      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json'),
       JSON.stringify(data),
     );
 
-    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    const cache = loadNlpSummaryCache(tmpRoot);
     expect(cache.entries['abc123'].bodyHash).toBe('deadbeef01234567');
     expect(cache.entries['abc123'].summary.summary).toBe('Adds two numbers');
   });
 
   it('returns empty cache for corrupted file', () => {
     writeFileSync(
-      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json'),
+      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json'),
       'not json',
     );
-    const cache = loadNlpSummaryCache(tmpRoot, 'advanced');
+    const cache = loadNlpSummaryCache(tmpRoot);
     expect(cache.entries).toEqual({});
+  });
+
+  it('migrates legacy mode-suffixed caches into the unified file (newest wins)', async () => {
+    const liteData: NlpSummaryCache = {
+      entries: {
+        fnA: { bodyHash: 'h1', summary: { summary: 'lite-only', docSummary: '', keyConcepts: ['a'], behavioralProfile: 'pure' } },
+        fnShared: { bodyHash: 'h2-lite', summary: { summary: 'from lite', docSummary: '', keyConcepts: ['x'], behavioralProfile: 'pure' } },
+      },
+    };
+    const advancedData: NlpSummaryCache = {
+      entries: {
+        fnB: { bodyHash: 'h3', summary: { summary: 'advanced-only', docSummary: '', keyConcepts: ['b'], behavioralProfile: 'utility' } },
+        fnShared: { bodyHash: 'h2-advanced', summary: { summary: 'from advanced', docSummary: '', keyConcepts: ['y'], behavioralProfile: 'utility' } },
+      },
+    };
+    const ragDir = resolve(tmpRoot, '.anatoly', 'rag');
+    writeFileSync(resolve(ragDir, 'nlp_summary_cache_lite.json'), JSON.stringify(liteData));
+    // Ensure the advanced file has a strictly later mtime than the lite file
+    await new Promise((r) => setTimeout(r, 20));
+    writeFileSync(resolve(ragDir, 'nlp_summary_cache_advanced.json'), JSON.stringify(advancedData));
+
+    const cache = loadNlpSummaryCache(tmpRoot);
+
+    // Both unique entries are preserved
+    expect(cache.entries['fnA'].summary.summary).toBe('lite-only');
+    expect(cache.entries['fnB'].summary.summary).toBe('advanced-only');
+    // On collision the most recently modified file wins (advanced was written later)
+    expect(cache.entries['fnShared'].summary.summary).toBe('from advanced');
+
+    // Unified file written, legacy files removed
+    expect(existsSync(resolve(ragDir, 'nlp_summary_cache.json'))).toBe(true);
+    expect(existsSync(resolve(ragDir, 'nlp_summary_cache_lite.json'))).toBe(false);
+    expect(existsSync(resolve(ragDir, 'nlp_summary_cache_advanced.json'))).toBe(false);
   });
 });
 
@@ -405,7 +438,7 @@ describe('saveNlpSummaryCache', () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('saves to nlp_summary_cache_<suffix>.json', () => {
+  it('saves to nlp_summary_cache.json', () => {
     const cache: NlpSummaryCache = {
       entries: {
         fn1: {
@@ -414,12 +447,12 @@ describe('saveNlpSummaryCache', () => {
         },
       },
     };
-    saveNlpSummaryCache(tmpRoot, cache, 'advanced');
+    saveNlpSummaryCache(tmpRoot, cache);
 
-    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache_advanced.json');
+    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json');
     expect(existsSync(filePath)).toBe(true);
 
-    const loaded = loadNlpSummaryCache(tmpRoot, 'advanced');
+    const loaded = loadNlpSummaryCache(tmpRoot);
     expect(loaded.entries['fn1'].summary.summary).toBe('test');
   });
 
@@ -436,8 +469,8 @@ describe('saveNlpSummaryCache', () => {
         },
       },
     };
-    saveNlpSummaryCache(tmpRoot, cache, 'lite');
-    const loaded = loadNlpSummaryCache(tmpRoot, 'lite');
+    saveNlpSummaryCache(tmpRoot, cache);
+    const loaded = loadNlpSummaryCache(tmpRoot);
     expect(loaded).toEqual(cache);
   });
 });
