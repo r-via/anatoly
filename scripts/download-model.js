@@ -21,7 +21,7 @@ async function main() {
   ];
 
   try {
-    const { pipeline, env } = await import('@xenova/transformers');
+    const { pipeline, env } = await import('@huggingface/transformers');
     const cacheDir = env.cacheDir || '~/.cache/huggingface';
 
     for (const model of models) {

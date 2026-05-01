@@ -223,7 +223,7 @@ export interface ModelInfo {
  * are detected at runtime from the first embedding output.
  */
 export const MODEL_REGISTRY: Record<string, ModelInfo> = {
-  // ONNX models (CPU, in-process via @xenova/transformers)
+  // ONNX models (CPU, in-process via @huggingface/transformers)
   'jinaai/jina-embeddings-v2-base-code': {
     dim: 768,
     runtime: 'onnx',

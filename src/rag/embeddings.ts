@@ -106,7 +106,7 @@ async function embedViaOnnx(text: string): Promise<number[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadOnnxModel(modelId: string): Promise<any> {
   onLog(`loading ONNX embedding model ${modelId}...`);
-  const { pipeline } = await import('@xenova/transformers');
+  const { pipeline } = await import('@huggingface/transformers');
   const model = await pipeline('feature-extraction', modelId);
   onLog(`embedding model ready: ${modelId}`);
   return model;
