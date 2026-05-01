@@ -171,40 +171,6 @@ export function updateLatestPointer(runsDir: string, runId: string): void {
 }
 
 /**
- * Remove a run directory if it has no review output (zero files in `reviews/`).
- * Repairs the `latest` pointer when it referred to the removed run.
- * Returns true when the directory was removed.
- */
-export function removeRunIfEmpty(projectRoot: string, runId: string): boolean {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
-  const runDir = join(runsDir, runId);
-  const reviewsDir = join(runDir, 'reviews');
-
-  try { lstatSync(runDir); } catch { return false; }
-
-  let reviewCount = 0;
-  try { reviewCount = readdirSync(reviewsDir).length; } catch { /* no reviews dir */ }
-  if (reviewCount > 0) return false;
-
-  try {
-    rmSync(runDir, { recursive: true, force: true });
-  } catch {
-    return false;
-  }
-
-  if (readLatestPointer(runsDir) === runId) {
-    const remaining = listRuns(projectRoot);
-    if (remaining.length > 0) {
-      updateLatestPointer(runsDir, remaining[remaining.length - 1]);
-    } else {
-      try { unlinkSync(join(runsDir, 'latest')); } catch { /* none */ }
-    }
-  }
-
-  return true;
-}
-
-/**
  * Read the `latest` pointer — resolves both symlinks and plain text files.
  */
 export function readLatestPointer(runsDir: string): string | null {

@@ -25,7 +25,7 @@ import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, in
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns, removeRunIfEmpty } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
@@ -395,7 +395,9 @@ export function registerRunCommand(program: Command): void {
         sourceRoot: cmdOpts.sourceRoot ? resolve(cmdOpts.sourceRoot) : undefined,
         config,
         runId,
-        runDir: dryRun ? '' : createRunDir(projectRoot, runId),
+        // Created lazily after the user confirms the pipeline summary so that
+        // bailing at the prompt does not leave a phantom audit behind.
+        runDir: '',
         concurrency,
         plain,
         verbose: parentOpts.verbose as boolean | undefined,
@@ -450,13 +452,12 @@ export function registerRunCommand(program: Command): void {
         coreEvents.setMaxListeners(Math.max(coreEvents.getMaxListeners(), maxConcurrency + 10));
       } catch { /* gemini-cli-core not installed — no-op */ }
 
-      // Create per-run ndjson log file at debug level (skip in dry-run)
-      if (!ctx.dryRun) {
+      const initRunDir = () => {
+        ctx.runDir = createRunDir(projectRoot, runId);
         const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
         ctx.runLog = createFileLogger(runLogPath);
         ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
 
-        // Dump run configuration for traceability
         const runConfig = {
           runId,
           timestamp: new Date().toISOString(),
@@ -482,7 +483,7 @@ export function registerRunCommand(program: Command): void {
           },
         };
         writeFileSync(join(ctx.runDir, 'run-config.json'), JSON.stringify(runConfig, null, 2));
-      }
+      };
 
       const onSigint = async () => {
         if (ctx.interrupted) {
@@ -508,6 +509,9 @@ export function registerRunCommand(program: Command): void {
           console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatDuration(Date.now() - ctx.startTime)}`);
           return;
         }
+
+        // User confirmed the pipeline summary — materialize the run dir now.
+        initRunDir();
 
         // Detect first run — Story 29.21
         ctx.isFirstRun = needsBootstrap(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
@@ -780,13 +784,6 @@ export function registerRunCommand(program: Command): void {
             const wm = createWorktreeManager(ctx.projectRoot);
             await wm.remove(ctx.runId);
           } catch { /* best-effort cleanup */ }
-        }
-
-        // Remove the run dir when interrupted before any review was written —
-        // avoids littering .anatoly/runs/ with phantom audits when the user
-        // bails out at the "press enter to proceed" prompt.
-        if (ctx.interrupted && !ctx.dryRun && ctx.runDir && ctx.filesReviewed === 0) {
-          try { removeRunIfEmpty(ctx.projectRoot, ctx.runId); } catch { /* best-effort */ }
         }
       }
     });
