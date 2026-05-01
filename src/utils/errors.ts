@@ -51,6 +51,13 @@ export class AnatolyError extends Error {
   public readonly hint: string;
   /** Verbose payload (partial transcript, full stack, etc.) kept out of console output. */
   public readonly detail: string | undefined;
+  /**
+   * When true, the throw site has already produced a fully styled, multi-line
+   * message (e.g. a help box with concrete commands). The CLI catch handler
+   * should print {@link message} verbatim and skip the `error:` prefix and
+   * the chalk.red wrapping that would clash with the embedded styling.
+   */
+  public readonly preformatted: boolean;
 
   constructor(
     message: string,
@@ -58,19 +65,24 @@ export class AnatolyError extends Error {
     public readonly recoverable: boolean,
     hint?: string,
     detail?: string,
+    preformatted?: boolean,
   ) {
     super(message);
     this.name = 'AnatolyError';
     this.hint = hint ?? DEFAULT_HINTS[code] ?? '';
     this.detail = detail;
+    this.preformatted = preformatted ?? false;
   }
 
   /**
    * Format the error for terminal display:
    *   error: <message>
    *     → <recovery step>
+   *
+   * When `preformatted` is true, returns {@link message} as-is.
    */
   formatForDisplay(): string {
+    if (this.preformatted) return this.message;
     const lines = [`error: ${this.message}`];
     if (this.hint) {
       lines.push(`  → ${this.hint}`);

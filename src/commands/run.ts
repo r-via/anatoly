@@ -25,7 +25,7 @@ import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, in
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns, removeRunIfEmpty } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { runWithContext } from '../utils/log-context.js';
@@ -52,6 +52,7 @@ import { aggregateDocReport, type DocReportResult } from '../core/doc-report-agg
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
+import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, type AxisId } from '../core/axis-evaluator.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
@@ -332,14 +333,13 @@ export function registerRunCommand(program: Command): void {
         const anthropic = config.providers.anthropic;
         const result = checkAnthropicAuth(anthropic.mode);
         if (!result.ok) {
-          const fix = anthropic.mode === 'api'
-            ? 'set ANTHROPIC_API_KEY in your environment, or switch the provider to mode: subscription'
-            : 'install Claude Code (https://docs.anthropic.com/en/docs/claude-code) and run `claude /login`, or switch the provider to mode: api with ANTHROPIC_API_KEY';
           throw new AnatolyError(
-            `Anthropic provider configured (${anthropic.mode}) but ${result.reason}.`,
+            renderProviderAuthBox('anthropic', anthropic.mode, result.reason ?? 'auth check failed'),
             ERROR_CODES.PROVIDER_AUTH_FAILED,
             false,
-            fix,
+            undefined,
+            undefined,
+            true,
           );
         }
       }
@@ -347,23 +347,24 @@ export function registerRunCommand(program: Command): void {
       // Validate Google provider auth — fail fast if misconfigured
       if (config.providers.google) {
         const google = config.providers.google;
+        let reason: string | null = null;
         if (google.mode === 'subscription') {
           const googleModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
           const authOk = await checkGeminiAuth(projectRoot, googleModel);
           if (!authOk) {
-            throw new AnatolyError(
-              'Google provider configured (subscription) but auth failed.',
-              ERROR_CODES.PROVIDER_AUTH_FAILED,
-              false,
-              'run `gemini auth login` first',
-            );
+            reason = 'Gemini CLI auth failed (not logged in or session expired)';
           }
         } else if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
+          reason = 'neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set in the environment';
+        }
+        if (reason) {
           throw new AnatolyError(
-            'Google provider configured (api) but neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set.',
+            renderProviderAuthBox('google', google.mode, reason),
             ERROR_CODES.PROVIDER_AUTH_FAILED,
             false,
-            'set GOOGLE_GENERATIVE_AI_API_KEY in your environment',
+            undefined,
+            undefined,
+            true,
           );
         }
       }
@@ -780,6 +781,13 @@ export function registerRunCommand(program: Command): void {
             await wm.remove(ctx.runId);
           } catch { /* best-effort cleanup */ }
         }
+
+        // Remove the run dir when interrupted before any review was written —
+        // avoids littering .anatoly/runs/ with phantom audits when the user
+        // bails out at the "press enter to proceed" prompt.
+        if (ctx.interrupted && !ctx.dryRun && ctx.runDir && ctx.filesReviewed === 0) {
+          try { removeRunIfEmpty(ctx.projectRoot, ctx.runId); } catch { /* best-effort */ }
+        }
       }
     });
 }
@@ -792,16 +800,33 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function waitForEnter(): Promise<void> {
+function waitForEnter(ctx: RunContext): Promise<void> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(chalk.dim('  press enter to proceed '), () => {
+    let confirmed = false;
+
+    // Ctrl+C while readline is active: mark interrupted and unblock the prompt
+    // so the caller can bail out cleanly instead of forcing a second SIGINT.
+    rl.on('SIGINT', () => {
+      ctx.interrupted = true;
       rl.close();
-      // Clear entire screen, move cursor to top, reprint the MOTD banner
-      process.stdout.write('\x1b[2J\x1b[H');
-      console.log('');
-      printBanner('The weight is good !');
+    });
+
+    rl.once('close', () => {
+      if (confirmed) {
+        // Clear entire screen, move cursor to top, reprint the MOTD banner
+        process.stdout.write('\x1b[2J\x1b[H');
+        console.log('');
+        printBanner('The weight is good !');
+      } else {
+        process.stdout.write('\n');
+      }
       resolve();
+    });
+
+    rl.question(chalk.dim('  press enter to proceed '), () => {
+      confirmed = true;
+      rl.close();
     });
   });
 }
@@ -1080,7 +1105,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // Wait for confirmation before proceeding to review
   if (process.stdin.isTTY && !ctx.plain && !ctx.interrupted) {
-    await waitForEnter();
+    await waitForEnter(ctx);
   }
 
   ctx.allTasks = allTasks;

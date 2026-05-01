@@ -35,6 +35,7 @@ import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.j
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
+import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
@@ -154,14 +155,13 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     const anthropicConfig = config.providers.anthropic;
     const result = checkAnthropicAuth(anthropicConfig.mode);
     if (!result.ok) {
-      const fix = anthropicConfig.mode === 'api'
-        ? 'set ANTHROPIC_API_KEY in your environment, or switch the provider to mode: subscription'
-        : 'install Claude Code (https://docs.anthropic.com/en/docs/claude-code) and run `claude /login`, or switch the provider to mode: api with ANTHROPIC_API_KEY';
       throw new AnatolyError(
-        `Anthropic provider configured (${anthropicConfig.mode}) but ${result.reason}.`,
+        renderProviderAuthBox('anthropic', anthropicConfig.mode, result.reason ?? 'auth check failed'),
         ERROR_CODES.PROVIDER_AUTH_FAILED,
         false,
-        fix,
+        undefined,
+        undefined,
+        true,
       );
     }
   }
@@ -170,25 +170,26 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   if (config.providers.google) {
     const googleConfig = config.providers.google;
     const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
+    let reason: string | null = null;
     if (googleConfig.mode === 'api') {
       if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
-        throw new AnatolyError(
-          'Google provider configured (api) but neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set.',
-          ERROR_CODES.PROVIDER_AUTH_FAILED,
-          false,
-          'set GOOGLE_GENERATIVE_AI_API_KEY in your environment',
-        );
+        reason = 'neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set in the environment';
       }
     } else {
       const authOk = await checkGeminiAuth(projectRoot, geminiModel);
       if (!authOk) {
-        throw new AnatolyError(
-          'Google provider configured (subscription) but auth failed.',
-          ERROR_CODES.PROVIDER_AUTH_FAILED,
-          false,
-          'run `gemini auth login` first',
-        );
+        reason = 'Gemini CLI auth failed (not logged in or session expired)';
       }
+    }
+    if (reason) {
+      throw new AnatolyError(
+        renderProviderAuthBox('google', googleConfig.mode, reason),
+        ERROR_CODES.PROVIDER_AUTH_FAILED,
+        false,
+        undefined,
+        undefined,
+        true,
+      );
     }
   }
 

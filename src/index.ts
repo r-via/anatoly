@@ -51,8 +51,14 @@ const keepAlive = setInterval(() => {}, 60_000);
 program.parseAsync()
   .catch((err: unknown) => {
     if (err instanceof AnatolyError) {
-      // Include the recovery hint (`  → ...`) when present
-      console.error(chalk.red(err.formatForDisplay()));
+      if (err.preformatted) {
+        // Already styled by the throw site (e.g. a yellow help box).
+        // Print verbatim — wrapping in chalk.red would clash with the
+        // embedded ANSI codes.
+        console.error(err.formatForDisplay());
+      } else {
+        console.error(chalk.red(err.formatForDisplay()));
+      }
     } else {
       console.error(chalk.red(err instanceof Error ? err.message : String(err)));
     }
