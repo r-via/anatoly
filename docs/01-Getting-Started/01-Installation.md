@@ -65,9 +65,16 @@ If `anatoly run` exits with an error like:
 …your Node.js is installed on the **Windows side** (typically nvm-windows / `nvm4w`) and is being picked up from the WSL `PATH`. Linux can't execute the Windows `node.exe` from a WSL shim. Install Node.js *inside* the distribution and re-install Anatoly:
 
 ```bash
+# 1. Install nvm into the WSL distribution
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-exec $SHELL
+
+# 2. Load nvm into the *current* shell (DO NOT use `exec $SHELL` here —
+#    it replaces the process and discards any commands queued after it)
+. "$HOME/.nvm/nvm.sh"
+
+# 3. Install Node and re-install anatoly
 nvm install 20.19
+nvm use 20.19
 which node                          # must NOT be under /mnt/c/...
 npm install -g @r-via/anatoly
 ```
