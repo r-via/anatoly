@@ -48,7 +48,7 @@
     "@ai-sdk/openai-compatible": "^2.0.37",
     "@anthropic-ai/claude-agent-sdk": "^0.2.52",
     "@clack/prompts": "^1.1.0",
-    "@google/gemini-cli-core": "^0.35.2",
+    "@google/gemini-cli-core": "^0.40.1",
     "@huggingface/transformers": "^4.2.0",
     "@lancedb/lancedb": "^0.26.2",
     "ai": "^6.0.141",
