@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - **Node.js >= 20.19** -- Anatoly uses modern Node.js APIs (ES modules, native fetch). Check your version with `node --version`.
+- **Windows users**: install and run Anatoly **only inside WSL** (Ubuntu / Debian). Anatoly depends on native modules (ONNX Runtime, tree-sitter, LanceDB) and on POSIX shell semantics for its bash tool, which the Windows-native Node runtime does not provide. Do **not** install Node.js on the Windows side: a Windows install ends up on the WSL `$PATH` (typically via `nvm-for-windows` or the Node MSI) and silently shadows your WSL Node, leading to confusing crashes. Use [`nvm`](https://github.com/nvm-sh/nvm) inside WSL to manage Node, and ensure `which node` resolves to a Linux path (`/home/<you>/.nvm/...`), never to `/mnt/c/...`.
 - **An LLM auth path** -- Anatoly is multi-provider and supports four modes. Pick one:
 
   | Mode | Setup | Cost | When to pick |
