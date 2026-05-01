@@ -66,6 +66,7 @@ node ./node_modules/@r-via/anatoly/scripts/download-model.js
 To test changes from a branch or unpublished commit, **do not use** `npm install -g github:r-via/anatoly` — it hits two reproducible npm/WSL bugs (NPM_CONFIG_GLOBAL inheritance breaks devDeps install in pacote, and ext4 races on tarball extract during the outer global install). Use the bundled `Makefile` instead:
 
 ```bash
+# prerequisite: GNU make (usually preinstalled; on minimal distros: sudo apt install -y make)
 git clone https://github.com/r-via/anatoly      # or -b <branch>
 cd anatoly
 make install                                     # deps + build + global symlink
