@@ -70,24 +70,23 @@ install-global:
 	@printf '$(G)  ✔$(N) global bin linked\n'
 
 update:
-	@printf '$(B)→$(N) $(C)fetching origin/main$(N)\n'
-	@git fetch origin main
-	@before=$$(git rev-parse HEAD); \
-	 git pull --ff-only origin main; rc=$$?; \
-	 if [ $$rc -ne 0 ]; then \
+	@printf '$(B)→$(N) $(C)fetching origin/main$(N)\n'; \
+	 git fetch origin main; \
+	 before=$$(git rev-parse HEAD); \
+	 if ! git pull --ff-only origin main; then \
 	   printf '$(R)✗$(N) pull failed — local commits or divergence on this clone\n'; \
 	   printf '  $(D)resolve manually (git status / git log) before retrying$(N)\n'; \
-	   exit $$rc; \
+	   exit 1; \
 	 fi; \
 	 after=$$(git rev-parse HEAD); \
 	 if [ "$$before" = "$$after" ]; then \
 	   printf '$(G)  ✔$(N) already up to date — nothing to reinstall\n'; \
 	   exit 0; \
 	 fi; \
-	 printf '\n$(B)→$(N) $(C)changes pulled, reinstalling$(N)\n'; \
-	 git --no-pager log --oneline "$$before..$$after" | head -10; \
-	 printf '\n'
-	@$(MAKE) --no-print-directory install
+	 printf '\n$(B)→$(N) $(C)new commits pulled:$(N)\n'; \
+	 git --no-pager log --oneline "$$before..$$after" | head -10 | sed 's/^/  /'; \
+	 printf '\n'; \
+	 $(MAKE) --no-print-directory install
 
 build:
 	@printf '$(B)→$(N) $(C)building dist/$(N)\n'
