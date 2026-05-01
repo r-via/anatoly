@@ -3,9 +3,22 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendNotifications } from './index.js';
-import type { NotificationPayload } from './index.js';
 import { ConfigSchema } from '../../schemas/config.js';
+
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock('../../utils/logger.js', () => ({
+  getLogger: () => ({
+    warn: warnSpy,
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    trace: vi.fn(),
+    fatal: vi.fn(),
+  }),
+}));
+
+const { sendNotifications } = await import('./index.js');
+type NotificationPayload = Parameters<typeof sendNotifications>[1];
 
 const basePayload: NotificationPayload = {
   projectName: 'test-project',
@@ -30,6 +43,7 @@ describe('sendNotifications', () => {
     fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
     vi.stubGlobal('fetch', fetchMock);
     process.env = { ...originalEnv };
+    warnSpy.mockClear();
   });
 
   afterEach(() => {
@@ -65,11 +79,9 @@ describe('sendNotifications', () => {
     const config = ConfigSchema.parse({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await sendNotifications(config, basePayload);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('bot token'));
-    warnSpy.mockRestore();
   });
 
   it('should warn and skip when bot token env var is empty', async () => {
@@ -77,11 +89,9 @@ describe('sendNotifications', () => {
     const config = ConfigSchema.parse({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await sendNotifications(config, basePayload);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   it('should warn but not crash when Telegram API errors', async () => {
@@ -94,11 +104,9 @@ describe('sendNotifications', () => {
     const config = ConfigSchema.parse({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Should NOT throw — fire-and-forget with warning
     await sendNotifications(config, basePayload);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram'));
-    warnSpy.mockRestore();
   });
 
   it('should warn but not crash on network failure', async () => {
@@ -107,10 +115,8 @@ describe('sendNotifications', () => {
     const config = ConfigSchema.parse({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await sendNotifications(config, basePayload);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('ECONNREFUSED'));
-    warnSpy.mockRestore();
   });
 
   it('should use custom bot_token_env when specified', async () => {

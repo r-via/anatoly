@@ -10,12 +10,13 @@ import { ConfigSchema } from '../../schemas/config.js';
 // Mock generateText + getVercelModel
 // ---------------------------------------------------------------------------
 
-const { mockGenerateText, mockGetVercelModel } = vi.hoisted(() => ({
+const { mockGenerateText, mockGetVercelModel, mockStepCountIs } = vi.hoisted(() => ({
   mockGenerateText: vi.fn(),
   mockGetVercelModel: vi.fn().mockReturnValue('mock-model-ref'),
+  mockStepCountIs: vi.fn((n: number) => ({ __stepCount: n })),
 }));
 
-vi.mock('ai', () => ({ generateText: mockGenerateText }));
+vi.mock('ai', () => ({ generateText: mockGenerateText, stepCountIs: mockStepCountIs }));
 vi.mock('../transports/vercel-sdk-transport.js', () => ({
   getVercelModel: mockGetVercelModel,
 }));
@@ -68,7 +69,7 @@ describe('runVercelAgent', () => {
     await runVercelAgent(makeParams());
 
     expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.objectContaining({ maxSteps: 20 }),
+      expect.objectContaining({ stopWhen: { __stepCount: 20 } }),
     );
   });
 
@@ -76,7 +77,7 @@ describe('runVercelAgent', () => {
     await runVercelAgent(makeParams({ maxSteps: 100 }));
 
     expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.objectContaining({ maxSteps: 100 }),
+      expect.objectContaining({ stopWhen: { __stepCount: 100 } }),
     );
   });
 

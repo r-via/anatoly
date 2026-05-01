@@ -49,11 +49,14 @@ describe('CLI program', () => {
       expect.arrayContaining([
         '--config',
         '--verbose',
-        '--no-cache',
-        '--file',
         '--plain',
         '--no-color',
+        '--no-rag',
+        '--rag-lite',
+        '--rag-advanced',
         '--open',
+        '--log-level',
+        '--log-file',
       ]),
     );
   });
