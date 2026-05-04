@@ -319,6 +319,90 @@ describe('runFirstRunWizard', () => {
       expect(transparencyNote).toBeDefined();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // savedPreference integration (Story 49.2)
+  // ---------------------------------------------------------------------------
+
+  describe('savedPreference', () => {
+    // AC2: preference=advanced + capable hardware + no CLI override → skip prompt, return advanced
+    it('skips tier prompt when savedPreference is advanced and hardware is capable', async () => {
+      selectMock.mockResolvedValueOnce('quick-win'); // mode prompt only
+
+      const result = await runFirstRunWizard(baseOpts({
+        hardware: capableHardware,
+        savedPreference: 'advanced',
+      }));
+
+      expect(result.tier).toBe('advanced');
+      // Tier select should NOT be called — only mode select
+      expect(selectMock).toHaveBeenCalledTimes(1);
+      expect(selectMock.mock.calls[0]![0].message).toContain('mode');
+    });
+
+    // AC3: preference=advanced + incapable hardware → show note, fall through to prompt
+    it('shows fallback note and re-displays tier prompt when hardware is incapable', async () => {
+      selectMock.mockResolvedValueOnce('lite'); // tier prompt (re-shown)
+      selectMock.mockResolvedValueOnce('full-run'); // mode prompt
+
+      const result = await runFirstRunWizard(baseOpts({
+        hardware: incapableHardware,
+        savedPreference: 'advanced',
+      }));
+
+      expect(result.tier).toBe('lite');
+      // Should have shown a note about preference not supported
+      const fallbackNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('saved preference'),
+      );
+      expect(fallbackNote).toBeDefined();
+      // Tier select should be called (re-shown)
+      expect(selectMock).toHaveBeenCalledTimes(2);
+    });
+
+    // AC4: CLI override set → ignore preferences
+    it('ignores savedPreference when cliTierOverride is true', async () => {
+      selectMock.mockResolvedValueOnce('lite'); // tier prompt
+      selectMock.mockResolvedValueOnce('full-run'); // mode prompt
+
+      const result = await runFirstRunWizard(baseOpts({
+        hardware: capableHardware,
+        savedPreference: 'advanced',
+        cliTierOverride: true,
+      }));
+
+      expect(result.tier).toBe('lite');
+      // Tier prompt SHOULD be shown (preference ignored)
+      expect(selectMock).toHaveBeenCalledTimes(2);
+    });
+
+    // AC3: preference=advanced + low VRAM hardware → show note, fall through
+    it('shows fallback note when hardware has low VRAM', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      await runFirstRunWizard(baseOpts({
+        hardware: lowVramHardware,
+        savedPreference: 'advanced',
+      }));
+
+      const fallbackNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('saved preference'),
+      );
+      expect(fallbackNote).toBeDefined();
+    });
+
+    // No preference → normal flow (select tier)
+    it('shows tier prompt normally when no savedPreference', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
+
+      // 2 select calls: tier + mode
+      expect(selectMock).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -24,6 +24,10 @@ export interface WizardOptions {
   isTTY: boolean;
   defaultsSettings: boolean;
   quickWin: boolean;
+  /** Tier preference loaded from ~/.anatoly/preferences.yml (Story 49.2). */
+  savedPreference?: 'lite' | 'advanced';
+  /** True if --rag-lite or --rag-advanced was passed on CLI (ignores preferences). */
+  cliTierOverride?: boolean;
 }
 
 export interface WizardResult {
@@ -71,49 +75,64 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   }
 
   // -----------------------------------------------------------------------
-  // Tier prompt
+  // Tier resolution: saved preference → prompt
   // -----------------------------------------------------------------------
   const advanced = canRunAdvanced(opts.hardware);
+  type TierValue = 'lite' | 'advanced';
+  let tier: TierValue;
 
-  // Privacy / transparency notice
-  p.note(
-    chalk.dim('Anatoly sends code chunks to your configured LLM provider only. No telemetry.'),
-    'Embeddings tier',
-  );
-
-  if (advanced) {
-    // Show comparison table
-    p.note(buildComparisonTable(), 'Comparison');
+  // Story 49.2: apply saved preference when no CLI override
+  const pref = (!opts.cliTierOverride && opts.savedPreference) ? opts.savedPreference : undefined;
+  if (pref === 'advanced' && advanced) {
+    // AC2: skip prompt, apply silently
+    getLogger().info('Using saved preference: advanced (override with --rag-lite)');
+    tier = 'advanced';
   } else {
-    // Explain why advanced is unavailable
+    // AC3: preference not supported on this hardware → inform and re-show prompt
+    if (pref === 'advanced' && !advanced) {
+      p.note(
+        'Your saved preference (advanced) isn\'t supported here \u2014 falling back to default.',
+        'Embeddings tier',
+      );
+    }
+
+    // Privacy / transparency notice
     p.note(
-      chalk.dim('Advanced not available \u2014 needs CUDA GPU + 12 GB VRAM'),
+      chalk.dim('Anatoly sends code chunks to your configured LLM provider only. No telemetry.'),
       'Embeddings tier',
     );
-  }
 
-  type TierValue = 'lite' | 'advanced';
-  const tierOptions: Array<{ value: TierValue; label: string; hint?: string }> = [
-    { value: 'lite', label: 'Default \u2014 fast setup, works everywhere', hint: 'ONNX CPU, ~150 MB' },
-  ];
-  if (advanced) {
-    tierOptions.push({
-      value: 'advanced',
-      label: 'Advanced \u2014 higher recall, needs GPU',
-      hint: 'GGUF GPU, ~15 GB',
+    if (advanced) {
+      p.note(buildComparisonTable(), 'Comparison');
+    } else {
+      p.note(
+        chalk.dim('Advanced not available \u2014 needs CUDA GPU + 12 GB VRAM'),
+        'Embeddings tier',
+      );
+    }
+
+    const tierOptions: Array<{ value: TierValue; label: string; hint?: string }> = [
+      { value: 'lite', label: 'Default \u2014 fast setup, works everywhere', hint: 'ONNX CPU, ~150 MB' },
+    ];
+    if (advanced) {
+      tierOptions.push({
+        value: 'advanced',
+        label: 'Advanced \u2014 higher recall, needs GPU',
+        hint: 'GGUF GPU, ~15 GB',
+      });
+    }
+
+    const tierChoice = await p.select({
+      message: 'Which embedding backend?',
+      options: tierOptions,
     });
-  }
 
-  const tierChoice = await p.select({
-    message: 'Which embedding backend?',
-    options: tierOptions,
-  });
-
-  if (p.isCancel(tierChoice)) {
-    p.cancel('Aborted.');
-    process.exit(0);
+    if (p.isCancel(tierChoice)) {
+      p.cancel('Aborted.');
+      process.exit(0);
+    }
+    tier = tierChoice as TierValue;
   }
-  const tier = tierChoice as TierValue;
 
   // -----------------------------------------------------------------------
   // Mode prompt (skipped if --quick-win)

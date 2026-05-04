@@ -67,6 +67,7 @@ import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
+import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -258,11 +259,17 @@ export function registerRunCommand(program: Command): void {
       let wizardResult: WizardResult | undefined;
       if (!existsSync(resolve(projectRoot, '.anatoly.yml'))) {
         const hardware = detectHardware();
+        const cliTierOverride = Boolean(parentOpts.ragLite || parentOpts.ragAdvanced);
+        const prefs = loadPreferences();
+        const savedPreference = prefs?.embeddings?.prefer as 'lite' | 'advanced' | undefined;
+
         wizardResult = await runFirstRunWizard({
           hardware,
           isTTY: process.stdin.isTTY === true,
           defaultsSettings: useDefaults,
           quickWin: cmdOpts.quickWin === true,
+          savedPreference,
+          cliTierOverride,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
@@ -349,6 +356,13 @@ export function registerRunCommand(program: Command): void {
           config = loadConfig(projectRoot);
         } catch (err) {
           getLogger().warn({ err }, 'failed to write .anatoly.yml — continuing with defaults');
+        }
+
+        // Story 49.2: save tier preference for future projects (best-effort).
+        // Only saved when (a) tier is advanced AND downloads+setup succeeded,
+        // and (b) the user didn't use --rag-lite / --rag-advanced (AC4).
+        if (wizardResult.tier === 'advanced' && !cliTierOverride) {
+          savePreferences({ embeddings: { prefer: 'advanced' } });
         }
       }
 

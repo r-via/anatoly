@@ -154,17 +154,7 @@
 ### First-run Polish
 
 - [x] Story 49.1: Recovery messages actionnables pour failures de download
-  > As a utilisateur dont le download échoue
-  > I want comprendre **pourquoi** ça a échoué et avoir une voie de sortie immédiate
-  > So that je ne suis pas bloqué avec un stack trace cryptique.
-  > AC: Given un download (lite ou GGUF) échoue avec une erreur classée comme "network", When le handler de recovery est invoqué, Then un `p.note` affiche : `"Network unreachable. Anatoly couldn't download embedding models."`, And un `p.select` propose : `"Retry download"` / `"Continue in lite mode (skip advanced)"` / `"Quit"`
-  > AC: Given une erreur ENOSPC (disk full) est détectée, When le handler de recovery est invoqué, Then le message indique l'espace nécessaire vs disponible (`"Need ~15 GB in ~/.anatoly/models — currently 3 GB free"`), And les choix sont : `"I freed space — retry"` / `"Continue in lite mode"` / `"Quit"`
-  > AC: Given Docker est installé mais le daemon ne répond pas (subprocess setup-embeddings advanced), When le handler détecte l'erreur Docker, Then le message propose : `"Docker daemon not running. Try: sudo systemctl start docker"`, And les choix sont : `"Retry"` / `"Continue in lite mode"` / `"Quit"`
-  > AC: Given un SHA256 mismatch est détecté après download, When le handler de recovery est invoqué, Then le fichier corrompu est supprimé automatiquement, And un `p.confirm` propose : `"File corrupt. Re-download?"`
-  > AC: Given le user choisit "Continue in lite mode" sur n'importe quel scenario, When la wizard reprend la main, Then `tier` est forcé à `'lite'`, And `prefetchLiteModels()` est tenté (si pas déjà fait), And le run continue
-  > AC: Given `--defaults-settings` est set, When un download échoue, Then aucun prompt n'est affiché, And le fallback automatique vers lite est appliqué (avec warn loggé)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-1
-- [ ] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
+- [x] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
   > As a user qui audite plusieurs projets
   > I want que mon choix lite/advanced soit mémorisé entre projets
   > So that je ne ré-réponde pas la même question à chaque nouveau repo.
