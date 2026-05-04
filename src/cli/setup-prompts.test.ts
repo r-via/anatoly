@@ -168,16 +168,16 @@ describe('runFirstRunWizard', () => {
       expect(tierCall.options[1]!.value).toBe('external');
     });
 
-    it('shows a note explaining why advanced is unavailable', async () => {
+    it('does not render the Comparison table when advanced is not available', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
 
-      expect(noteMock).toHaveBeenCalledWith(
-        expect.stringContaining('Advanced not available'),
-        expect.any(String),
+      const comparisonNote = noteMock.mock.calls.find(
+        (call: unknown[]) => call[1] === 'Comparison',
       );
+      expect(comparisonNote).toBeUndefined();
     });
   });
 
@@ -479,15 +479,16 @@ describe('runFirstRunWizard', () => {
       expect(allOutput).toContain('GGUF GPU');
     });
 
-    // AC1: plain table includes "(recommended for this hardware)"
-    it('annotates advanced line with "(recommended for this hardware)"', async () => {
+    it('lists all three tiers (lite/advanced/external) when capable hardware is detected', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
 
       const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-      expect(allOutput).toContain('recommended for this hardware');
+      expect(allOutput).toContain('ONNX CPU');
+      expect(allOutput).toContain('GGUF GPU');
+      expect(allOutput).toContain('third-party');
     });
 
     // AC1: no ANSI escape sequences in plain table output
@@ -559,11 +560,31 @@ describe('runFirstRunWizard', () => {
 // ---------------------------------------------------------------------------
 
 describe('runFirstRunWizard — external tier (Story 50.6)', () => {
+  // Save and clear all known external-provider API keys before each test, then
+  // set the ones the tests under this suite expect (voyage + openrouter). The
+  // wizard now hard-aborts when a chosen provider's API key is missing, so the
+  // env must be primed before exercising the external flow.
+  const PROVIDER_KEYS = ['VOYAGE_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'COHERE_API_KEY', 'MISTRAL_API_KEY'];
+  const savedKeys: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     selectMock.mockReset();
     textMock.mockReset();
     noteMock.mockReset();
     cancelMock.mockReset();
+    for (const k of PROVIDER_KEYS) {
+      savedKeys[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env.VOYAGE_API_KEY = 'test-voyage-key';
+    process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+  });
+
+  afterEach(() => {
+    for (const k of PROVIDER_KEYS) {
+      if (savedKeys[k] !== undefined) process.env[k] = savedKeys[k];
+      else delete process.env[k];
+    }
   });
 
   // Helper: mock the full external flow (voyage code, same NLP, full-run mode)
@@ -751,25 +772,27 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     }
   });
 
-  // AC: env key detection — key absent
-  it('shows ⚠ warning when env key is absent', async () => {
-    const origKey = process.env.VOYAGE_API_KEY;
+  // The wizard now hard-aborts when the chosen provider's API key is missing,
+  // rather than emitting a warning and continuing — writing .anatoly.yml with
+  // a provider whose key isn't exported only defers a runtime failure.
+  it('aborts the wizard with exit code 2 when env key is absent', async () => {
     delete process.env.VOYAGE_API_KEY;
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit');
+    }) as never);
     try {
       mockExternalVoyageSame();
-      await runFirstRunWizard(baseOpts());
-
-      const warning = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('⚠ VOYAGE_API_KEY not set'),
-      );
-      expect(warning).toBeDefined();
+      await expect(runFirstRunWizard(baseOpts())).rejects.toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(2);
+      expect(cancelMock).toHaveBeenCalledWith(expect.stringContaining('VOYAGE_API_KEY'));
     } finally {
-      if (origKey !== undefined) process.env.VOYAGE_API_KEY = origKey;
+      exitSpy.mockRestore();
     }
   });
 
   // AC: Custom provider flow — 4 text prompts
   it('prompts 4 text inputs for custom code provider', async () => {
+    process.env.HF_INTERNAL_TOKEN = 'test-hf-token';
     selectMock
       .mockResolvedValueOnce('external')     // tier
       .mockResolvedValueOnce('custom')        // code provider = custom

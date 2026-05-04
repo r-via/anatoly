@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
+import type { HardwareProfile } from '../rag/hardware-detect.js';
 
 const DISMISS_FILE = join('.anatoly', 'hints-dismissed.json');
 
@@ -35,7 +35,7 @@ export interface Hint {
 export interface HintContext {
   projectRoot: string;
   ragEnabled: boolean;
-  resolvedRagMode?: 'lite' | 'advanced';
+  resolvedRagMode?: 'lite' | 'advanced' | 'external';
   hardware?: HardwareProfile;
   /** Whether `notifications.telegram.enabled` is true in the loaded config. */
   telegramEnabled: boolean;
@@ -71,33 +71,14 @@ export function saveDismissedHint(projectRoot: string, hintId: string): void {
 /**
  * Build the list of hints applicable to the current context.
  * Pure: only reads the project root state passed in via {@link HintContext}.
+ *
+ * The first-run wizard's Comparison table is now the only educational surface
+ * for embedding tier choice — no runtime "lite can upgrade" hint is emitted
+ * here, since that information is already presented before the user picks a
+ * tier.
  */
 export function detectHints(ctx: HintContext): Hint[] {
   const hints: Hint[] = [];
-
-  // no-init hint removed — the first-run wizard (Story 48.1+) writes
-  // .anatoly.yml automatically, so a missing config is handled at startup.
-
-  const hw = ctx.hardware;
-  if (
-    ctx.ragEnabled &&
-    ctx.resolvedRagMode === 'lite' &&
-    hw?.hasGpu &&
-    hw.gpuType === 'cuda' &&
-    (hw.vramGB ?? 0) >= GGUF_MIN_VRAM_GB
-  ) {
-    hints.push({
-      id: 'lite-rag-can-upgrade',
-      title: 'Lite RAG active — your hardware can run the advanced backend',
-      body:
-        `Detected an NVIDIA GPU with ${hw.vramGB}GB VRAM (>= ${GGUF_MIN_VRAM_GB}GB required).\n` +
-        'You can switch to the advanced GGUF embedding backend (nomic-embed-code + Qwen3-8B) for higher recall.\n' +
-        'Disk usage: ~10 GB for the GGUF models + ~5 GB for the llama.cpp CUDA Docker image (~15 GB total).\n' +
-        '`anatoly setup-embeddings` walks you through installing Docker / the NVIDIA toolkit if needed,\n' +
-        'downloads the GGUF models, and starts the containers.',
-      command: { label: 'Run anatoly setup-embeddings', argv: ['setup-embeddings'] },
-    });
-  }
 
   if (!ctx.telegramEnabled) {
     hints.push({
@@ -112,57 +93,6 @@ export function detectHints(ctx: HintContext): Hint[] {
   }
 
   return hints;
-}
-
-// ---------------------------------------------------------------------------
-// Post-audit education hint (Story 49.4)
-// ---------------------------------------------------------------------------
-
-/** Context needed to decide whether to show the post-audit education hint. */
-export interface EducationHintContext {
-  projectRoot: string;
-  resolvedRagMode?: 'lite' | 'advanced';
-  hardware?: HardwareProfile;
-  interrupted: boolean;
-  plain: boolean;
-  defaultsSettings: boolean;
-}
-
-const EDUCATION_HINT_ID = 'lite-rag-can-upgrade-post-audit';
-
-const EDUCATION_HINT_TEXT =
-  'Your hardware could run advanced embeddings (~30% better recall, ~15 GB disk).\n' +
-  'Run `anatoly setup-embeddings` when you want to try it.';
-
-/**
- * Show a one-shot education hint after a successful lite-mode audit on
- * hardware that supports advanced embeddings. Dismissed after first display.
- *
- * - Interactive: renders via `p.note`.
- * - Non-interactive (`--defaults-settings` / `--plain`): logs via `console.log`.
- */
-export function maybeShowEducationHint(ctx: EducationHintContext): void {
-  // Gate: successful audit only
-  if (ctx.interrupted) return;
-
-  // Gate: must be lite mode with capable hardware
-  if (ctx.resolvedRagMode !== 'lite') return;
-  const hw = ctx.hardware;
-  if (!hw?.hasGpu || hw.gpuType !== 'cuda' || (hw.vramGB ?? 0) < GGUF_MIN_VRAM_GB) return;
-
-  // Gate: not already dismissed
-  const dismissed = loadDismissedHints(ctx.projectRoot);
-  if (dismissed.has(EDUCATION_HINT_ID)) return;
-
-  // Show the hint
-  if (ctx.plain || ctx.defaultsSettings) {
-    console.log(`\u{1F4A1} ${EDUCATION_HINT_TEXT.replace('\n', ' ')}`);
-  } else {
-    p.note(EDUCATION_HINT_TEXT, '\u{1F4A1} Upgrade available');
-  }
-
-  // Dismiss so it only shows once
-  saveDismissedHint(ctx.projectRoot, EDUCATION_HINT_ID);
 }
 
 // ---------------------------------------------------------------------------

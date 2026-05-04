@@ -40,8 +40,15 @@ export function resolveRagTableName(projectRoot: string): string {
   const hardware = detectHardware();
   const readyFlag = readEmbeddingsReadyFlag(projectRoot);
   const backend = determineBackend(readyFlag, hardware);
-  const mode = backend === 'advanced-gguf' ? 'advanced' : 'lite';
+  const mode = backendToRagMode(backend);
   return `function_cards_${mode}`;
+}
+
+/** Map an embedding backend to its corresponding RAG indexing mode. */
+function backendToRagMode(backend: EmbeddingBackend): 'lite' | 'advanced' | 'external' {
+  if (backend === 'advanced-gguf') return 'advanced';
+  if (backend === 'external') return 'external';
+  return 'lite';
 }
 
 /**
@@ -104,7 +111,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
     : { device: 'cpu', backend: effectiveBackend } as EmbeddingsReadyFlag;
   const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag);
 
-  const ragMode = effectiveBackend === 'advanced-gguf' ? 'advanced' : 'lite';
+  const ragMode = backendToRagMode(effectiveBackend);
 
   try {
     return await indexProject({
@@ -114,7 +121,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       concurrency: config.runtime.concurrency,
       indexModel: config.models.fast,
       resolvedModels,
-      ragMode: ragMode as 'lite' | 'advanced',
+      ragMode,
       docsDir: docsDir ?? config.documentation?.docs_path ?? 'docs',
       onLog,
       onProgress,

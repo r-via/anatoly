@@ -129,3 +129,47 @@ export function resolveEmbeddingProvider(
     default_nlp_model: '',
   };
 }
+
+/** A missing API-key env var, with the axis that needs it. */
+export interface MissingEmbeddingEnvKey {
+  axis: 'code' | 'nlp';
+  provider: string;
+  envKey: string;
+}
+
+/**
+ * Resolve the env_key for a configured external embedding axis (config
+ * override > registry default). Returns null when no key is required.
+ */
+function resolveEnvKey(
+  cfg: { provider: string; env_key?: string } | undefined,
+): string | null {
+  if (!cfg) return null;
+  if (cfg.env_key) return cfg.env_key;
+  return KNOWN_EMBEDDING_PROVIDERS[cfg.provider]?.env_key ?? null;
+}
+
+/**
+ * For a `rag.embedding` config block, return every env var that is required
+ * but missing from `process.env`. Used by the first-run wizard and `anatoly
+ * run` to fail fast when the user picked an external provider whose API key
+ * was never exported.
+ */
+export function findMissingEmbeddingEnvKeys(
+  embedding: {
+    code?: { provider: string; env_key?: string };
+    nlp?: { provider: string; env_key?: string };
+  } | undefined,
+): MissingEmbeddingEnvKey[] {
+  if (!embedding) return [];
+  const missing: MissingEmbeddingEnvKey[] = [];
+  for (const axis of ['code', 'nlp'] as const) {
+    const cfg = embedding[axis];
+    if (!cfg) continue;
+    const envKey = resolveEnvKey(cfg);
+    if (envKey && !process.env[envKey]) {
+      missing.push({ axis, provider: cfg.provider, envKey });
+    }
+  }
+  return missing;
+}

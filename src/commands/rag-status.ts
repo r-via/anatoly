@@ -75,7 +75,7 @@ export function registerRagStatusCommand(program: Command): void {
       // Determine which mode(s) to show
       const modes: RagMode[] = ragLite ? ['lite']
         : ragAdvanced ? ['advanced']
-        : ['lite', 'advanced'];
+        : ['lite', 'advanced', 'external'];
 
       // For function search, --all, or --docs, use the first available mode
       if (functionName || opts.all || opts.docs) {

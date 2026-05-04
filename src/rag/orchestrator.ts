@@ -20,10 +20,11 @@ import type { TransportRouter } from '../core/transports/index.js';
 
 /**
  * RAG indexing mode. Determines the LanceDB table name and cache file suffix
- * used for vector storage. `'lite'` uses lightweight code-only embeddings;
- * `'advanced'` adds NLP summaries and hybrid search capabilities.
+ * used for vector storage. `'lite'` uses local ONNX embeddings; `'advanced'`
+ * uses local GGUF Docker embeddings; `'external'` routes embeddings through
+ * a third-party SDK provider (OpenAI, Mistral, OpenRouter, etc.).
  */
-export type RagMode = 'lite' | 'advanced';
+export type RagMode = 'lite' | 'advanced' | 'external';
 
 /**
  * Configuration options for the RAG indexing pipeline. Controls which files

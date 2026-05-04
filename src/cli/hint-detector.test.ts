@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,20 +10,7 @@ import {
   detectHints,
   loadDismissedHints,
   saveDismissedHint,
-  maybeShowEducationHint,
-  type EducationHintContext,
 } from './hint-detector.js';
-import type { HardwareProfile } from '../rag/hardware-detect.js';
-
-const capableHardware: HardwareProfile = {
-  totalMemoryGB: 64,
-  cpuCores: 16,
-  hasGpu: true,
-  gpuType: 'cuda',
-  vramGB: 24,
-  hasDocker: true,
-  hasNvidiaContainerToolkit: true,
-};
 
 describe('detectHints', () => {
   let projectRoot: string;
@@ -42,78 +29,18 @@ describe('detectHints', () => {
     expect(hints.map((h) => h.id)).not.toContain('no-init');
   });
 
-  it('emits lite-rag-can-upgrade hint when hardware supports advanced backend', () => {
+  // Lite-can-upgrade hint and the post-audit education hint were removed: the
+  // first-run wizard's Comparison table is now the single educational surface
+  // for embedding tier choice.
+  it('does not emit lite-rag-can-upgrade hint anymore', () => {
     writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
     const hints = detectHints({
       projectRoot,
       ragEnabled: true,
       resolvedRagMode: 'lite',
-      hardware: capableHardware,
-      telegramEnabled: true,
-    });
-    expect(hints.map((h) => h.id)).toContain('lite-rag-can-upgrade');
-    const upgrade = hints.find((h) => h.id === 'lite-rag-can-upgrade');
-    expect(upgrade?.command?.argv).toEqual(['setup-embeddings']);
-  });
-
-  it('omits lite-rag hint when already on advanced backend', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({
-      projectRoot,
-      ragEnabled: true,
-      resolvedRagMode: 'advanced',
-      hardware: capableHardware,
       telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
-  });
-
-  it('omits lite-rag hint when RAG is disabled', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({
-      projectRoot,
-      ragEnabled: false,
-      resolvedRagMode: 'lite',
-      hardware: capableHardware,
-      telegramEnabled: true,
-    });
-    expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
-  });
-
-  it('omits lite-rag hint when GPU is missing', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({
-      projectRoot,
-      ragEnabled: true,
-      resolvedRagMode: 'lite',
-      hardware: { ...capableHardware, hasGpu: false, gpuType: undefined, vramGB: undefined },
-      telegramEnabled: true,
-    });
-    expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
-  });
-
-  it('omits lite-rag hint when VRAM is below threshold', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({
-      projectRoot,
-      ragEnabled: true,
-      resolvedRagMode: 'lite',
-      hardware: { ...capableHardware, vramGB: 8 },
-      telegramEnabled: true,
-    });
-    expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
-  });
-
-  it('still emits lite-rag hint when Docker / NVIDIA toolkit are missing (deps are installed via setup-embeddings)', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({
-      projectRoot,
-      ragEnabled: true,
-      resolvedRagMode: 'lite',
-      hardware: { ...capableHardware, hasDocker: false, hasNvidiaContainerToolkit: false },
-      telegramEnabled: true,
-    });
-    expect(hints.map((h) => h.id)).toContain('lite-rag-can-upgrade');
   });
 
   it('emits no-telegram-bot hint when Telegram notifications are disabled', () => {
@@ -167,111 +94,3 @@ describe('hint dismissal persistence', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// maybeShowEducationHint (Story 49.4)
-// ---------------------------------------------------------------------------
-
-describe('maybeShowEducationHint', () => {
-  let projectRoot: string;
-  let logged: string[];
-
-  function baseCtx(overrides?: Partial<EducationHintContext>): EducationHintContext {
-    return {
-      projectRoot,
-      resolvedRagMode: 'lite',
-      hardware: capableHardware,
-      interrupted: false,
-      plain: false,
-      defaultsSettings: false,
-      ...overrides,
-    };
-  }
-
-  beforeEach(() => {
-    projectRoot = mkdtempSync(join(tmpdir(), 'anatoly-edu-'));
-    logged = [];
-    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-      logged.push(args.map(String).join(' '));
-    });
-  });
-
-  afterEach(() => {
-    rmSync(projectRoot, { recursive: true, force: true });
-    vi.restoreAllMocks();
-  });
-
-  // AC1: successful audit + lite + capable hardware + not dismissed → show hint
-  // p.note writes directly to stdout (not console.log), so we verify the
-  // function executed by checking the dismissal was saved. Text output is
-  // verified via the plain/defaultsSettings tests below.
-  it('shows education hint and dismisses it when all conditions are met', () => {
-    maybeShowEducationHint(baseCtx());
-
-    const dismissed = loadDismissedHints(projectRoot);
-    expect(dismissed.has('lite-rag-can-upgrade-post-audit')).toBe(true);
-  });
-
-  // Negative: hint is NOT dismissed when conditions aren't met
-  it('does not dismiss when interrupted (hint was never shown)', () => {
-    maybeShowEducationHint(baseCtx({ interrupted: true }));
-
-    const dismissed = loadDismissedHints(projectRoot);
-    expect(dismissed.has('lite-rag-can-upgrade-post-audit')).toBe(false);
-  });
-
-  // AC2: interrupted audit → no hint
-  it('does not show hint when audit was interrupted', () => {
-    maybeShowEducationHint(baseCtx({ interrupted: true }));
-
-    const output = logged.join('\n');
-    expect(output).not.toContain('advanced embeddings');
-  });
-
-  // AC3: already dismissed → no hint
-  it('does not show hint when already dismissed', () => {
-    saveDismissedHint(projectRoot, 'lite-rag-can-upgrade-post-audit');
-
-    maybeShowEducationHint(baseCtx());
-
-    const output = logged.join('\n');
-    expect(output).not.toContain('advanced embeddings');
-  });
-
-  // Not lite mode → no hint
-  it('does not show hint when resolvedRagMode is advanced', () => {
-    maybeShowEducationHint(baseCtx({ resolvedRagMode: 'advanced' }));
-
-    const output = logged.join('\n');
-    expect(output).not.toContain('advanced embeddings');
-  });
-
-  // No capable hardware → no hint
-  it('does not show hint when hardware is incapable', () => {
-    const weakHardware: HardwareProfile = {
-      totalMemoryGB: 16,
-      cpuCores: 8,
-      hasGpu: false,
-    };
-    maybeShowEducationHint(baseCtx({ hardware: weakHardware }));
-
-    const output = logged.join('\n');
-    expect(output).not.toContain('advanced embeddings');
-  });
-
-  // AC4: --defaults-settings → log info, not p.note
-  it('uses console.log (not p.note) when defaultsSettings is true', () => {
-    maybeShowEducationHint(baseCtx({ defaultsSettings: true }));
-
-    const output = logged.join('\n');
-    // Should still contain the message (as log info)
-    expect(output).toContain('advanced embeddings');
-  });
-
-  // AC4: --plain → log info, not p.note
-  it('uses console.log (not p.note) when plain is true', () => {
-    maybeShowEducationHint(baseCtx({ plain: true }));
-
-    const output = logged.join('\n');
-    expect(output).toContain('advanced embeddings');
-  });
-});
