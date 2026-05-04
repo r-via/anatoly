@@ -1310,6 +1310,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     totalFiles: allTasks.length,
     axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, ctx.config) })),
     ...(embedForecast ? { embed: embedForecast } : {}),
+    ...(ctx.enableRag ? { summaryModel: resolveCodeSummaryModel(ctx.config) } : {}),
     calibration,
     concurrency: ctx.concurrency,
     ragEnabled: ctx.enableRag,
