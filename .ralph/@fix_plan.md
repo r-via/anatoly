@@ -163,19 +163,7 @@
 
 - [x] Story 50.1: Schema Zod section `embedding` + backward-compat resolver
 - [x] Story 50.2: Registre `KNOWN_EMBEDDING_PROVIDERS` + entrée `anatoly-local` avec hook ensureModel
-  > As a développeur d'anatoly
-  > I want un registre centralisé des providers d'embedding avec leurs URLs, env vars, contraintes batch et hooks
-  > So that ajouter un provider d'embedding nécessite une seule entrée dans le registre, pas un nouveau fichier transport.
-  > AC: Given `src/rag/known-embedding-providers.ts` existe, When il est importé, Then `KNOWN_EMBEDDING_PROVIDERS` contient au minimum les entrées : `openai`, `voyage`, `qwen`, `cohere`, `mistral`, `anatoly-local`, And chaque entrée a la forme `{ base_url: string | null | ((kind) => string), env_key: string | null, type: 'native' | 'openai-compatible', max_per_call?: number, supports_parallel?: boolean, default_code_model?: string, default_nlp_model?: string, pre_hook?: (kind) => Promise<void> }`
-  > AC: Given l'entrée `openai`, When elle est lue, Then `base_url: null` (SDK natif), And `env_key: 'OPENAI_API_KEY'`, And `type: 'native'`, And `default_code_model: 'text-embedding-3-large'`, And `default_nlp_model: 'text-embedding-3-large'`, And pas de `max_per_call` ni `supports_parallel` (= défauts SDK 2048/true)
-  > AC: Given l'entrée `voyage`, When elle est lue, Then `base_url: 'https://api.voyageai.com/v1'`, And `env_key: 'VOYAGE_API_KEY'`, And `type: 'openai-compatible'`, And `default_code_model: 'voyage-code-3'` (référence code retrieval, SOTA sur CoIR), And `default_nlp_model: 'voyage-3-large'`
-  > AC: Given l'entrée `qwen`, When elle est lue, Then `base_url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'` (réutilise littéralement la valeur d'`KNOWN_PROVIDERS['qwen']` LLM d'Epic 43, [src/core/providers/known-providers.ts:38-42](src/core/providers/known-providers.ts#L38-L42)), And `env_key: 'DASHSCOPE_API_KEY'` (idem Epic 43), And `type: 'openai-compatible'`, And `default_code_model: 'text-embedding-v4'` (à vérifier empiriquement avant freeze — voir note d'implémentation Story 50.2 ci-dessous), And `default_nlp_model: 'text-embedding-v4'` (parité avec mode advanced GGUF Qwen3-Embedding-8B en open weights)
-  > AC: Given l'entrée `anatoly-local`, When elle est lue, Then `base_url: (kind) => kind === 'code' ? 'http://127.0.0.1:11437/v1' : 'http://127.0.0.1:11438/v1'`, And `env_key: null` (pas de clé requise), And `type: 'openai-compatible'`, And `max_per_call: 16` (= ancien `MAX_GGUF_BATCH_SIZE`, évite OOM container), And `supports_parallel: false` (single container actif, hot-swap exclusif), And `default_code_model: 'nomic-embed-code'` (chaîne arbitraire — llama.cpp ignore le field `model`), And `default_nlp_model: 'qwen3-embedding-8b'`, And `pre_hook: async (kind) => ensureModel(kind)` (déclenche le hot-swap docker)
-  > AC: Given `resolveEmbeddingProvider(providerId, configOverrides)` est implémenté, When `providerId` est dans le registre, Then il retourne l'entrée mergée avec les overrides (config YAML > registre)
-  > AC: Given `providerId` n'est PAS dans le registre, When appelé, Then si `configOverrides.base_url` est fourni, traité comme `openai-compatible` avec env_key `{PROVIDER}_API_KEY` par défaut, And sinon une erreur claire est levée : `Unknown embedding provider "X" — add base_url in .anatoly.yml`
-  > AC: Given un test du registre vérifie qu'aucun bug d'orthographe, When la table est validée, Then chaque `env_key` ne contient que `[A-Z0-9_]`, And chaque `base_url` (si non-null et non-fonction) est une URL valide se terminant par `/v1`
-  > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-2
-- [ ] Story 50.3: Factory `getVercelEmbeddingModel` + probe dim runtime + cache signature
+- [x] Story 50.3: Factory `getVercelEmbeddingModel` + probe dim runtime + cache signature
   > As a développeur du pipeline d'embedding
   > I want une factory unique qui retourne un `EmbeddingModelV3` du Vercel AI SDK pour n'importe quel provider connu ou custom
   > So that le call-site `embeddings.ts` ne connaît qu'une API uniforme et le routing par provider est centralisé.
