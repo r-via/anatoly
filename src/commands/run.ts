@@ -65,6 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
+import { runFirstRunWizard, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -217,6 +218,7 @@ export function registerRunCommand(program: Command): void {
     .option('--dry-run', 'simulate the run: scan, estimate, triage, then show what would happen')
     .option('--background', 'run audit in background via git worktree snapshot (returns immediately)')
     .option('--no-notify', 'disable desktop notification on background run completion')
+    .option('--quick-win', 'run with reduced axis set (utility + duplication + correction, no doc scaffold)')
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
@@ -225,6 +227,7 @@ export function registerRunCommand(program: Command): void {
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
       background?: boolean; notify?: boolean; sourceRoot?: string;
+      quickWin?: boolean;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -234,6 +237,22 @@ export function registerRunCommand(program: Command): void {
       // standardised notice underneath, instead of ad-hoc lines drifting
       // above and below the banner.
       printBanner();
+
+      // First-run wizard: when no .anatoly.yml exists, prompt the user for
+      // embedding tier (lite/advanced) and audit mode (quick-win/full-run).
+      // The result is stored for downstream stories (config write in 48.5,
+      // runtime filter in 48.8). No config file is written here.
+      let wizardResult: WizardResult | undefined;
+      if (!existsSync(resolve(projectRoot, '.anatoly.yml'))) {
+        const hardware = detectHardware();
+        wizardResult = await runFirstRunWizard({
+          hardware,
+          isTTY: process.stdin.isTTY === true,
+          defaultsSettings: false, // Story 48.7 adds the CLI flag
+          quickWin: cmdOpts.quickWin === true,
+        });
+        getLogger().info({ wizardResult }, 'first-run wizard completed');
+      }
 
       const cliConcurrency = cmdOpts.concurrency;
       const concurrency = cliConcurrency ?? config.runtime.concurrency;

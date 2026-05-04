@@ -141,6 +141,150 @@
 - [x] Story 47.5: Notification de fin de review
 - [x] Story 47.6: Support du lock multi-run
 - [x] Story 47.7: Nettoyage et robustesse
+### First-run Unified Onboarding
+
+- [x] Story 48.1: Hardware-aware tier prompt + mode (Quick Win / Full Run) prompt
+  > As a utilisateur lançant `anatoly run` pour la première fois
+  > I want voir deux prompts courts me demandant (1) lite ou advanced et (2) quick win ou full run, avec leurs tradeoffs
+  > So that je peux faire deux choix éclairés en 10 secondes sans aller chercher la doc, et avoir un premier audit rapide qui me convainc.
+  > AC: Given `anatoly run` est invoqué dans un projet sans `.anatoly.yml`, And `process.stdin.isTTY === true`, And `--defaults-settings` n'est pas set, When la phase config démarre, Then `detectHardware()` est appelé une seule fois, And le tier prompt est affiché (Default/Advanced ou Default seul selon hardware), And après confirmation tier, le mode prompt est affiché (Quick Win / Full Run)
+  > AC: Given le hardware a un GPU CUDA + ≥ 12 GB VRAM, When le tier prompt s'affiche, Then les deux options sont présentées avec un tableau côte-à-côte (engine, disque, temps, recall), And "Default — fast setup, works everywhere" est pré-sélectionné
+  > AC: Given le hardware n'a pas de GPU CUDA OU < 12 GB VRAM, When le tier prompt s'affiche, Then seule l'option Default est présentée, And une note grise explique pourquoi (`"Advanced not available — needs CUDA GPU + 12 GB VRAM"`)
+  > AC: Given le user a confirmé un tier, When le mode prompt s'affiche, Then un `p.select` propose deux options avec descriptions courtes :, `"Quick Win — utility + duplication + correction, no doc scaffold (~30s)"` (pré-sélectionné), `"Full Run — all 7 axes + doc scaffold (several minutes)"`
+  > AC: Given le user appuie sur Enter immédiatement sur les deux prompts, When la wizard termine, Then un objet `{ tier: 'lite', mode: 'quick-win' }` est retourné, And le run continue
+  > AC: Given `--defaults-settings` est set OU `process.stdin.isTTY === false`, When la phase config démarre, Then ni le tier prompt ni le mode prompt ne sont affichés, And un objet `{ tier: 'lite', mode: 'full-run' }` est retourné silencieusement (CI veut un audit complet, pas un quick win)
+  > AC: Given `--quick-win` est passé en CLI, When la wizard termine, Then le mode prompt est skippé (mode forcé à `'quick-win'`), And le tier prompt s'affiche normalement (sauf si `--defaults-settings` aussi)
+  > AC: Given le user fait Ctrl+C pendant un des deux prompts, When `p.isCancel(choice)` retourne `true`, Then le process exit 0, And aucun `.anatoly.yml` n'est écrit (le YAML write est dans la story 48.5, après confirmation)
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-1
+- [ ] Story 48.2: Inline lite ONNX prefetch avec progress bar
+  > As a utilisateur en first-run
+  > I want voir une vraie progress bar pendant le download des modèles ONNX
+  > So that je sais que ça avance et combien de temps ça va prendre.
+  > AC: Given la story 48.1 a retourné un tier (lite ou advanced), When `prefetchLiteModels()` est appelé, Then les deux modèles ONNX (Jina v2 + MiniLM-L6) sont téléchargés via `pipeline('feature-extraction', modelId)` dans `~/.cache/huggingface/`, And `progress_callback` est branché sur une `p.spinner()` (ou `p.progress()` si dispo) avec format `↓ {file}: {percent}%`
+  > AC: Given les modèles sont déjà en cache HuggingFace, When `prefetchLiteModels()` est appelé, Then le callback ne fire pas (transformers détecte le cache et skip), And le spinner affiche `"Embeddings (lite) ready (cached)"` puis se ferme
+  > AC: Given le download échoue (réseau), When `pipeline()` throw, Then un warn est loggé avec le message d'erreur, And le run continue (sera retenté lazily au moment de l'embedding) — recovery détaillée en Epic 49
+  > AC: Given `--defaults-settings` est set, When `prefetchLiteModels()` est appelé, Then le spinner est remplacé par un log linéaire (`"downloading lite embedding models..."`) — pas d'animation TTY
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-2
+- [ ] Story 48.3: Inline GGUF download (advanced) avec SHA verify
+  > As a utilisateur ayant choisi advanced
+  > I want que les modèles GGUF soient téléchargés dans la commande `run` en cours
+  > So that je n'ai pas à lancer une seconde commande et que je vois la progression.
+  > AC: Given le tier choisi est `advanced`, When `prefetchGgufModels()` est appelé, Then les deux fichiers `nomic-embed-code.Q5_K_M.gguf` et `Qwen3-Embedding-8B-Q5_K_M.gguf` sont téléchargés depuis HuggingFace dans `~/.anatoly/models/`, And une progress bar par fichier affiche `↓ {filename}: {downloaded}/{total} MB ({percent}%)`
+  > AC: Given un fichier GGUF existe déjà dans `~/.anatoly/models/` avec le bon SHA256, When `prefetchGgufModels()` vérifie l'intégrité avant download, Then le download est skippé, And un log `"GGUF model verified: {filename}"` est affiché
+  > AC: Given un fichier GGUF existe avec un SHA256 incorrect, When la vérification échoue, Then le fichier est supprimé, And le download recommence
+  > AC: Given le download GGUF échoue (réseau, disque plein), When `prefetchGgufModels()` throw, Then un warn est loggé, And le tier est forcé à `lite` pour la suite du run (fallback), And `.anatoly.yml` ultérieurement écrit reflète le fallback (pas advanced)
+  > AC: Given le path `~/.anatoly/models/` n'existe pas, When `prefetchGgufModels()` est appelé, Then le directory est créé via `mkdirSync(path, { recursive: true })`
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-3
+- [ ] Story 48.4: Subprocess `setup-embeddings` + reload de l'état
+  > As a utilisateur ayant choisi advanced
+  > I want que le setup Docker (image pull + containers up) se fasse automatiquement après le download des modèles
+  > So that mon run continue en mode advanced sans intervention.
+  > AC: Given la story 48.3 a download les modèles GGUF avec succès, When `runSetupEmbeddingsSubprocess()` est appelé, Then `spawnSync('anatoly', ['setup-embeddings'], { stdio: 'inherit' })` est exécuté, And l'utilisateur voit les logs du script bash en temps réel (Docker pull, container start)
+  > AC: Given le subprocess `setup-embeddings` exit code 0, When le parent reprend la main, Then `readEmbeddingsReadyFlag()` est appelé pour relire `.anatoly/embeddings-ready.json`, And `ctx.resolvedRagMode` est mis à jour à `'advanced'`, And le run continue
+  > AC: Given le subprocess exit avec un code non-zero, When le parent reprend la main, Then un warn est loggé (`"setup-embeddings failed (exit {code}) — falling back to lite"`), And `ctx.resolvedRagMode` est forcé à `'lite'`, And le run continue
+  > AC: Given `process.argv[0]` ou `process.argv[1]` est `undefined`, When `runSetupEmbeddingsSubprocess()` tente de spawn, Then une `AnatolyError` claire est throw (`"Cannot resolve anatoly CLI binary path"`)
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-4
+- [ ] Story 48.5: Always-write `.anatoly.yml` avec defaults sains
+  > As a utilisateur
+  > I want qu'à la fin du first-run, j'aie toujours un `.anatoly.yml` réutilisable sur disque
+  > So that le projet est prêt pour les runs suivants et je peux tweaker la config si je veux.
+  > AC: Given la story 48.1 a retourné un tier, And les modèles correspondants ont été téléchargés, When `writeFirstRunConfig(tier)` est appelé, Then un `.anatoly.yml` est écrit à la racine du projet avec :, `providers.anthropic: { mode: 'subscription' }` (subscription par défaut, fallback API si key détectée), `models: { quality: 'anthropic/claude-sonnet-4-6', fast: 'anthropic/claude-haiku-4-5-20251001', deliberation: 'anthropic/claude-opus-4-7' }`, `axes`: tous activés (`{ utility: { enabled: true }, ... }`), `rag.code_model: 'auto'` (le résolveur runtime pickera selon `embeddings-ready.json`), And un commentaire en tête `"# Anatoly configuration — generated by first-run wizard. Edit freely."`
+  > AC: Given un `.anatoly.yml` existe déjà à la racine, When `runFirstRunWizard()` démarre, Then la wizard ne s'exécute pas (le first-run unifié se déclenche uniquement si pas de YAML), And le run continue avec la config existante (comportement actuel inchangé)
+  > AC: Given `--defaults-settings` est set, When `writeFirstRunConfig()` est appelé, Then le YAML est écrit avec les mêmes defaults (subscription anthropic, sonnet/haiku/opus, tous axes)
+  > AC: Given un `ANTHROPIC_API_KEY` est détecté dans l'env, When `writeFirstRunConfig()` construit la config, Then `providers.anthropic.mode` est `'api'` au lieu de `'subscription'`
+  > AC: Given `Ctrl+C` est appuyé pendant le prompt tier, When la wizard termine sans confirmation, Then aucun `.anatoly.yml` n'est écrit
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-5
+- [ ] Story 48.6: End-of-setup 3-choice prompt
+  > As a utilisateur
+  > I want à la fin du setup phase pouvoir relire ma config avant de lancer un audit qui coûte du LLM
+  > So that je peux corriger une typo ou changer d'avis sans frais.
+  > AC: Given le setup phase est terminé (scan/estimate/triage done), And `process.stdin.isTTY === true`, And `--defaults-settings` n'est pas set, When le `waitForEnter()` actuel serait appelé, Then à la place, un `p.select` est affiché avec 3 options :, "Proceed with audit" (pré-sélectionné), "Open `.anatoly.yml`", "Quit"
+  > AC: Given "Proceed with audit" est choisi, When la wizard termine, Then le run continue normalement (review phase démarre)
+  > AC: Given "Open `.anatoly.yml`" est choisi, When la wizard termine, Then `openFile(resolve(projectRoot, '.anatoly.yml'))` est appelé (utilitaire existant [src/utils/open.ts](src/utils/open.ts)), And si `openFile()` réussit, un message `"Opened in editor — run anatoly run again when ready"` est affiché, And si `openFile()` échoue (pas d'éditeur configuré, env headless), le path est imprimé + le contenu du YAML cat à stdout, And le process exit 0
+  > AC: Given "Quit" est choisi, When la wizard termine, Then un message `"Configuration saved to .anatoly.yml — run anatoly run when ready"` est affiché, And le process exit 0
+  > AC: Given `--defaults-settings` est set OU non-TTY, When le setup phase est terminé, Then le prompt n'est pas affiché, And le run continue directement vers review (auto-proceed)
+  > AC: Given `Ctrl+C` est appuyé sur le prompt, When `p.isCancel(choice)` retourne `true`, Then le process exit 0 (équivalent Quit)
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-6
+- [ ] Story 48.7: `--defaults-settings` flag + cleanup hint detector
+  > As a utilisateur en CI ou en script
+  > I want pouvoir lancer `anatoly run` sans aucun prompt
+  > So that mon pipeline ne bloque pas en attente d'input.
+  > AC: Given `--defaults-settings` est passé à `anatoly run`, When le run démarre, Then `runFirstRunWizard()` skip le prompt tier (auto-pick lite), And `runEndOfSetupPrompt()` skip le 3-choice (auto-proceed), And un log info `"running with default settings (no prompts)"` est émis
+  > AC: Given `process.stdin.isTTY === false`, When le run démarre, Then le comportement est identique à `--defaults-settings` (implicit)
+  > AC: Given la nouvelle wizard est en place, When le hint detector est appelé ([src/cli/hint-detector.ts:79-88](src/cli/hint-detector.ts#L79-L88)), Then la condition `no-init` est retirée, And les tests associés dans [src/cli/hint-detector.test.ts](src/cli/hint-detector.test.ts) sont supprimés ou adaptés
+  > AC: Given un `.anatoly/hints-dismissed.json` contient `"no-init"` (legacy), When le hint detector charge les dismissals, Then l'entrée est ignorée silencieusement (pas d'erreur, pas de migration)
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-7
+- [ ] Story 48.8: Quick Win runtime filter + summary suggestion
+  > As a utilisateur ayant choisi Quick Win
+  > I want que mon premier audit soit rapide en limitant les axes et en sautant la bootstrap doc
+  > So that je vois un premier résultat en moins d'une minute et je décide ensuite si je veux le full run.
+  > AC: Given `runFirstRunWizard()` retourne `{ mode: 'quick-win' }` (story 48.1), When la phase setup termine et le run continue vers review, Then `ctx.axesFilter` est forcé à `['utility', 'duplication', 'correction']` (override l'éventuel `--axes` CLI), And `ctx.skipDocBootstrap = true` (champ ajouté à `RunContext`)
+  > AC: Given `ctx.skipDocBootstrap === true`, When le code consomme `needsBootstrap(srcRoot)` ([src/commands/run.ts:490](src/commands/run.ts#L490)), Then la bootstrap doc phase est court-circuitée (treated as if `needsBootstrap` returned false), And la pipeline row `internal docs` affiche `'skipped (quick-win mode)'`
+  > AC: Given un run Quick Win se termine avec succès, When la summary CLI est rendue ([src/commands/run.ts:2182](src/commands/run.ts#L2182)), Then une ligne supplémentaire est imprimée :, ```, 💡 Ran in quick-win mode (3 axes, no docs)., Run `anatoly run` again for the full audit (7 axes + doc analysis)., ```, And la ligne est en couleur dim (chalk.dim)
+  > AC: Given `--quick-win` est passé en CLI sur un projet déjà configuré (avec `.anatoly.yml`), When le run démarre, Then la wizard est skippée (déjà configuré), And `ctx.axesFilter` et `ctx.skipDocBootstrap` sont forcés comme en first-run quick-win, And la summary suggestion s'affiche également
+  > AC: Given le mode est `'full-run'`, When le run continue, Then aucun override n'est appliqué (`ctx.axesFilter` respecte le CLI / config, `ctx.skipDocBootstrap = false`), And la summary ne contient pas la suggestion quick→full
+  > AC: Given un run Quick Win échoue (interrupt, crash), When la summary serait affichée, Then la suggestion quick→full n'est pas affichée (réservée aux runs réussis pour ne pas bruiter la trace d'erreur)
+  > AC: Given la combinaison `--quick-win --no-triage`, When le run démarre, Then la combinaison est tolérée (les deux flags s'appliquent indépendamment)
+  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-8
+### First-run Polish
+
+- [ ] Story 49.1: Recovery messages actionnables pour failures de download
+  > As a utilisateur dont le download échoue
+  > I want comprendre **pourquoi** ça a échoué et avoir une voie de sortie immédiate
+  > So that je ne suis pas bloqué avec un stack trace cryptique.
+  > AC: Given un download (lite ou GGUF) échoue avec une erreur classée comme "network", When le handler de recovery est invoqué, Then un `p.note` affiche : `"Network unreachable. Anatoly couldn't download embedding models."`, And un `p.select` propose : `"Retry download"` / `"Continue in lite mode (skip advanced)"` / `"Quit"`
+  > AC: Given une erreur ENOSPC (disk full) est détectée, When le handler de recovery est invoqué, Then le message indique l'espace nécessaire vs disponible (`"Need ~15 GB in ~/.anatoly/models — currently 3 GB free"`), And les choix sont : `"I freed space — retry"` / `"Continue in lite mode"` / `"Quit"`
+  > AC: Given Docker est installé mais le daemon ne répond pas (subprocess setup-embeddings advanced), When le handler détecte l'erreur Docker, Then le message propose : `"Docker daemon not running. Try: sudo systemctl start docker"`, And les choix sont : `"Retry"` / `"Continue in lite mode"` / `"Quit"`
+  > AC: Given un SHA256 mismatch est détecté après download, When le handler de recovery est invoqué, Then le fichier corrompu est supprimé automatiquement, And un `p.confirm` propose : `"File corrupt. Re-download?"`
+  > AC: Given le user choisit "Continue in lite mode" sur n'importe quel scenario, When la wizard reprend la main, Then `tier` est forcé à `'lite'`, And `prefetchLiteModels()` est tenté (si pas déjà fait), And le run continue
+  > AC: Given `--defaults-settings` est set, When un download échoue, Then aucun prompt n'est affiché, And le fallback automatique vers lite est appliqué (avec warn loggé)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-1
+- [ ] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
+  > As a user qui audite plusieurs projets
+  > I want que mon choix lite/advanced soit mémorisé entre projets
+  > So that je ne ré-réponde pas la même question à chaque nouveau repo.
+  > AC: Given un user choisit "Advanced" pour la première fois, When la story 48.1 termine avec succès (downloads + setup OK), Then `~/.anatoly/preferences.yml` est écrit avec `embeddings: { prefer: 'advanced' }`
+  > AC: Given `~/.anatoly/preferences.yml` contient `embeddings.prefer: 'advanced'`, And le hardware actuel a un GPU CUDA + ≥ 12 GB VRAM, When un nouveau first-run démarre dans un autre projet, Then le prompt tier est skippé, And un log info `"Using saved preference: advanced (override with --rag-lite)"` est émis, And le tier `advanced` est appliqué silencieusement
+  > AC: Given la préférence est `'advanced'`, And le hardware actuel n'a pas de GPU CUDA (ou < 12 GB VRAM), When un new first-run démarre, Then le prompt tier est ré-affiché, And une note explique : `"Your saved preference (advanced) isn't supported here — falling back to default."`
+  > AC: Given `--rag-lite` ou `--rag-advanced` est passé en CLI, When un first-run démarre, Then la préférence est ignorée pour ce run (le flag prime), And la préférence n'est pas ré-écrite (elle reste celle du choix initial)
+  > AC: Given `~/.anatoly/preferences.yml` est corrompu (YAML invalide), When la wizard tente de le lire, Then un warn est loggé, And le fichier est ignoré (le prompt tier est ré-affiché)
+  > AC: Given la wizard veut écrire la préférence, When `mkdirSync(homedir() + '/.anatoly', { recursive: true })` échoue, Then un warn est loggé (`"Could not save preference"`), And le run continue normalement (best-effort)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-2
+- [ ] Story 49.3: Transition visuelle setup → audit
+  > As a utilisateur qui passe du setup à l'audit
+  > I want voir une démarcation claire entre les deux phases
+  > So that je sais que l'onboarding est terminé et que les LLM calls vont démarrer.
+  > AC: Given le user choisit "Proceed with audit" dans le 3-choice, When la wizard termine, Then un séparateur visuel est imprimé (`────────────────────────────`), And sur la ligne suivante, un banner court est affiché : `"The weight is good !  Starting audit..."`, And une ligne vide est ajoutée avant le démarrage de la review phase
+  > AC: Given `--defaults-settings` est set, When le setup termine et le run continue, Then la transition visuelle est tout de même affichée (sauf si `--plain`, voir Story 49.6)
+  > AC: Given `--plain` est set, When la transition serait affichée, Then un simple `"--- starting audit ---"` est imprimé à la place du séparateur graphique
+  > AC: Given la fonction `printBanner('The weight is good !')` existe déjà ([src/utils/banner.ts](src/utils/banner.ts)), When la transition est implémentée, Then elle réutilise `printBanner` pour cohérence visuelle (pas de duplication de l'ASCII art)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-3
+- [ ] Story 49.4: Post-audit progressive education hint
+  > As a user qui vient de finir son premier audit en mode lite sur du hardware capable d'advanced
+  > I want apprendre que je peux faire mieux la prochaine fois
+  > So that je découvre l'option advanced **après** avoir vu la valeur d'un audit complet, pas avant.
+  > AC: Given un audit s'est terminé avec succès (pas d'interrupt, pas de crash), And `ctx.resolvedRagMode === 'lite'`, And le hardware a un GPU CUDA + ≥ 12 GB VRAM, And le hint `lite-rag-can-upgrade-post-audit` n'est pas dans `.anatoly/hints-dismissed.json`, When `generateReport()` termine, Then un `p.note` est affiché juste avant le summary CLI :, ```, 💡 Your hardware could run advanced embeddings (~30% better recall, ~15 GB disk)., Run `anatoly setup-embeddings` when you want to try it., ```, And le hint est marqué dismissed dans `hints-dismissed.json`
+  > AC: Given l'audit a crashé ou a été interrupt, When le post-audit handler tourne, Then le hint d'éducation n'est pas affiché
+  > AC: Given le user a déjà vu le hint une fois (dismissed.json contient l'entrée), When un nouvel audit termine, Then le hint n'est pas re-affiché
+  > AC: Given `--defaults-settings` ou `--plain`, When l'audit termine, Then le hint est affiché en log info (pas de `p.note`)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-4
+- [ ] Story 49.5: Privacy/transparency notice dans le prompt tier
+  > As a user privacy-conscious
+  > I want savoir où vont mes données avant de cliquer sur "Default"
+  > So that je peux décider en connaissance de cause sans aller fouiller la doc.
+  > AC: Given la story 48.1 affiche le prompt tier, When le rendu est construit, Then une ligne de transparence est ajoutée juste au-dessus du `p.select` :, ```, ℹ Anatoly sends code chunks to your configured LLM provider only. No telemetry., ```, And la ligne est en couleur dim (gris discret, pas dominant)
+  > AC: Given la ligne de transparence est affichée, When un test snapshot est lancé sur le rendu du prompt, Then le snapshot contient la ligne textuelle (pas de regression silencieuse)
+  > AC: Given `--plain` ou `NO_COLOR`, When le prompt est rendu, Then la ligne reste affichée (sans `chalk.dim`)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-5
+- [ ] Story 49.6: Plain-mode parity pour le tableau comparatif tier
+  > As a CI ou un user en environnement headless / piped
+  > I want que la sortie reste lisible quand box-drawing chars et ANSI sont indésirables
+  > So that mes logs CI sont copy-pasteables et mon screen reader fonctionne.
+  > AC: Given `--plain` est set OU `NO_COLOR` est dans l'env OU `process.stdout.isTTY === false`, When le tableau comparatif tier est rendu, Then le tableau utilise du texte simple sans box-drawing :, ```, Embeddings setup:, default   ONNX CPU       150 MB    instant   good recall, advanced  GGUF GPU       15 GB     2-5 min   best recall (recommended for this hardware), ```, And aucun caractère Unicode autre que ASCII n'est utilisé, And aucun escape ANSI n'est émis
+  > AC: Given le mode TTY-color normal, When le tableau est rendu, Then le tableau Unicode existant (avec box chars + couleurs) est utilisé (comportement Story 48.1 inchangé)
+  > AC: Given un test pipe la sortie : `anatoly run | cat`, When le snapshot est comparé, Then la sortie reste lisible et structurée (pas de chars cassés, pas de séquences ANSI résiduelles)
+  > AC: Given un screen reader est utilisé, When le tableau plain est lu, Then chaque ligne est interprétable indépendamment (clé/valeurs séparées par espaces, pas de chars décoratifs)
+  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-6
 
 ## Completed
 
