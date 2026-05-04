@@ -10,11 +10,13 @@
 
 Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) who politely asks *"Can I clean here?"* — then deadlifts the entire rack.
 
-[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
+[![Website](https://img.shields.io/badge/website-anatoly.cloud-1f6feb)](https://anatoly.cloud/) [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-blueviolet)](https://docs.anthropic.com)
 
 ```bash
 npx anatoly run   # one command, full codebase audit
 ```
+
+This program is entirely free — don't forget to leave a ⭐ on the [repo](https://github.com/r-via/anatoly) to help it get started.
 
 ---
 
@@ -356,6 +358,7 @@ Anatoly is dual-licensed:
 
 ## Contact & Support
 
+- Website: [anatoly.cloud](https://anatoly.cloud/)
 - Issues: [github.com/r-via/anatoly/issues](https://github.com/r-via/anatoly/issues)
 - Repository: [github.com/r-via/anatoly](https://github.com/r-via/anatoly)
 
