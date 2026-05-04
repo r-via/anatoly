@@ -6,6 +6,7 @@ import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { KNOWN_EMBEDDING_PROVIDERS } from './known-embedding-providers.js';
 
 // ---------------------------------------------------------------------------
 // Hardware detection
@@ -131,11 +132,12 @@ export function detectNvidiaContainerToolkit(): boolean {
 // ---------------------------------------------------------------------------
 
 /** Embedding backend type — determines runtime embedding strategy. */
-export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf';
+export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf' | 'external';
 
-// Legacy alias: advanced-fp16 is no longer used at runtime (TEI replaced it),
-// but the type is kept for backwards-compatible config reads.
-// At runtime, only 'lite' and 'advanced-gguf' are active backends.
+// 'advanced-gguf' is a legacy label preserved for traceability — mapped
+// internally to provider: 'anatoly-local' + runtime: 'sdk'.
+// 'advanced-fp16' is no longer used at runtime (TEI replaced it) — treated as 'lite'.
+// 'external' means a third-party embedding provider configured via .anatoly.yml.
 
 /**
  * Shape of the `.anatoly/embeddings-ready.json` flag file written by
@@ -172,6 +174,10 @@ export interface EmbeddingsReadyFlag {
   docker_image?: string;
   /** ISO timestamp of last A/B test. */
   ab_test_at?: string;
+  /** Embedding provider for external backend (e.g. 'openai', 'voyage'). */
+  embedding_provider?: string;
+  /** SHA256 signature of the embedding config (for dim cache invalidation). */
+  embedding_signature?: string;
 }
 
 /**
@@ -267,6 +273,18 @@ export interface ResolvedModels {
   nlpDim: number;
   nlpRuntime: 'onnx' | 'gguf' | 'sdk';
   backend: EmbeddingBackend;
+  /** Provider identifier for code embeddings (set when runtime is 'sdk'). */
+  codeProvider?: string;
+  /** Base URL for code embedding API (absent for native SDK providers like openai). */
+  codeBaseUrl?: string;
+  /** Environment variable name for code embedding API key. null = no key needed. */
+  codeEnvKey?: string | null;
+  /** Provider identifier for NLP embeddings (set when runtime is 'sdk'). */
+  nlpProvider?: string;
+  /** Base URL for NLP embedding API. */
+  nlpBaseUrl?: string;
+  /** Environment variable name for NLP embedding API key. null = no key needed. */
+  nlpEnvKey?: string | null;
 }
 
 /**
@@ -292,29 +310,132 @@ export function determineBackend(
   return 'lite';
 }
 
+/** Embedding provider config from .anatoly.yml (per-axis). */
+interface EmbeddingAxisConfig {
+  provider: string;
+  model?: string;
+  base_url?: string;
+  env_key?: string;
+}
+
 /**
  * Resolve embedding models based on config and hardware.
  *
- * When config value is 'auto', picks the best model the hardware can run:
- * - If backend is advanced-gguf → use GGUF Docker containers
- * - Otherwise → fall back to Jina v2 (ONNX, CPU)
+ * Routes to one of three strategies:
+ * - `lite` → ONNX CPU (in-process @huggingface/transformers)
+ * - `advanced-gguf` → SDK via anatoly-local Docker containers
+ * - `external` → SDK via third-party provider (OpenAI, Voyage, etc.)
  */
 export async function resolveEmbeddingModels(
-  config: { code_model: string; nlp_model: string },
+  config: {
+    code_model: string;
+    nlp_model: string;
+    embedding?: { code?: EmbeddingAxisConfig; nlp?: EmbeddingAxisConfig };
+  },
   hardware: HardwareProfile,
   onLog?: (message: string) => void,
   readyFlag?: EmbeddingsReadyFlag | null,
 ): Promise<ResolvedModels> {
   const backend = determineBackend(readyFlag ?? null, hardware);
-  const codeModel = resolveCodeModel(config.code_model, hardware, onLog, backend);
+
+  if (backend === 'advanced-gguf') {
+    return resolveAdvancedGguf(onLog);
+  }
+
+  if (backend === 'external') {
+    return resolveExternalBackend(config, readyFlag ?? null, onLog);
+  }
+
+  // lite backend — ONNX path (unchanged)
+  return resolveLiteBackend(config, hardware, onLog);
+}
+
+/** Resolve for lite (ONNX) backend. */
+function resolveLiteBackend(
+  config: { code_model: string; nlp_model: string },
+  hardware: HardwareProfile,
+  onLog?: (message: string) => void,
+): ResolvedModels {
+  const codeModel = resolveCodeModel(config.code_model, hardware, onLog, 'lite');
   const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? 768;
-  const codeRuntime: 'onnx' | 'gguf' = backend === 'advanced-gguf' && config.code_model === 'auto' ? 'gguf' : (MODEL_REGISTRY[codeModel]?.runtime ?? 'onnx');
-
-  const nlpModel = resolveNlpModel(config.nlp_model, codeRuntime, onLog);
+  const nlpModel = resolveNlpModel(config.nlp_model, 'onnx', onLog);
   const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? 384;
-  const nlpRuntime: 'onnx' | 'gguf' = backend === 'advanced-gguf' && config.nlp_model === 'auto' ? 'gguf' : (MODEL_REGISTRY[nlpModel]?.runtime ?? 'onnx');
+  return { codeModel, codeDim, codeRuntime: 'onnx', nlpModel, nlpDim, nlpRuntime: 'onnx', backend: 'lite' };
+}
 
-  return { codeModel, codeDim, codeRuntime, nlpModel, nlpDim, nlpRuntime, backend };
+/** Resolve for advanced-gguf backend (SDK via anatoly-local Docker). */
+function resolveAdvancedGguf(onLog?: (message: string) => void): ResolvedModels {
+  const provider = KNOWN_EMBEDDING_PROVIDERS['anatoly-local']!;
+  const codeModel = provider.default_code_model;
+  const nlpModel = provider.default_nlp_model;
+  const codeDim = MODEL_REGISTRY['nomic-embed-code-gguf']?.dim ?? 3584;
+  const nlpDim = MODEL_REGISTRY['qwen3-embedding-8b-gguf']?.dim ?? 4096;
+  const codeBaseUrl = typeof provider.base_url === 'function' ? provider.base_url('code') : provider.base_url;
+  const nlpBaseUrl = typeof provider.base_url === 'function' ? provider.base_url('nlp') : provider.base_url;
+
+  onLog?.(`backend: advanced-gguf → SDK via anatoly-local (${codeModel} + ${nlpModel})`);
+
+  return {
+    codeModel, codeDim, codeRuntime: 'sdk',
+    nlpModel, nlpDim, nlpRuntime: 'sdk',
+    backend: 'advanced-gguf',
+    codeProvider: 'anatoly-local',
+    codeBaseUrl: codeBaseUrl ?? undefined,
+    codeEnvKey: null,
+    nlpProvider: 'anatoly-local',
+    nlpBaseUrl: nlpBaseUrl ?? undefined,
+    nlpEnvKey: null,
+  };
+}
+
+/** Resolve for external backend (SDK via third-party provider). */
+function resolveExternalBackend(
+  config: {
+    code_model: string;
+    nlp_model: string;
+    embedding?: { code?: EmbeddingAxisConfig; nlp?: EmbeddingAxisConfig };
+  },
+  readyFlag: EmbeddingsReadyFlag | null,
+  onLog?: (message: string) => void,
+): ResolvedModels {
+  const embConfig = config.embedding;
+
+  // Determine providers: config > flag > default
+  const codeProvider = embConfig?.code?.provider ?? readyFlag?.embedding_provider ?? 'openai';
+  const nlpProvider = embConfig?.nlp?.provider ?? codeProvider;
+
+  const codeEntry = KNOWN_EMBEDDING_PROVIDERS[codeProvider];
+  const nlpEntry = KNOWN_EMBEDDING_PROVIDERS[nlpProvider];
+
+  // Determine models: config > registry defaults
+  const codeModel = embConfig?.code?.model ?? codeEntry?.default_code_model ?? '';
+  const nlpModel = embConfig?.nlp?.model ?? nlpEntry?.default_nlp_model ?? '';
+
+  // Resolve base URLs: config > registry
+  const codeBaseUrl = embConfig?.code?.base_url
+    ?? (typeof codeEntry?.base_url === 'function' ? codeEntry.base_url('code') : codeEntry?.base_url)
+    ?? undefined;
+  const nlpBaseUrl = embConfig?.nlp?.base_url
+    ?? (typeof nlpEntry?.base_url === 'function' ? nlpEntry.base_url('nlp') : nlpEntry?.base_url)
+    ?? undefined;
+
+  // Resolve env keys: config > registry
+  const codeEnvKey = embConfig?.code?.env_key ?? codeEntry?.env_key ?? null;
+  const nlpEnvKey = embConfig?.nlp?.env_key ?? nlpEntry?.env_key ?? null;
+
+  // Dims: from MODEL_REGISTRY if known, otherwise sentinel -1 (probe via ensureEmbeddingDims)
+  const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? -1;
+  const nlpDim = MODEL_REGISTRY[nlpModel]?.dim ?? -1;
+
+  onLog?.(`backend: external → ${codeProvider}/${codeModel} (code), ${nlpProvider}/${nlpModel} (nlp)`);
+
+  return {
+    codeModel, codeDim, codeRuntime: 'sdk',
+    nlpModel, nlpDim, nlpRuntime: 'sdk',
+    backend: 'external',
+    codeProvider, codeBaseUrl: codeBaseUrl ?? undefined, codeEnvKey,
+    nlpProvider, nlpBaseUrl: nlpBaseUrl ?? undefined, nlpEnvKey,
+  };
 }
 
 function resolveCodeModel(
@@ -343,12 +464,12 @@ function resolveCodeModel(
 
 function resolveNlpModel(
   configured: string,
-  codeRuntime: 'onnx' | 'gguf',
+  codeRuntime: 'onnx' | 'gguf' | 'sdk',
   onLog?: (message: string) => void,
 ): string {
   if (configured !== 'auto') return configured;
 
-  // GGUF Docker backend — use GGUF NLP model
+  // GGUF Docker backend — use GGUF NLP model (legacy path for direct GGUF callers)
   if (codeRuntime === 'gguf') {
     onLog?.(`NLP model: ${MODEL_REGISTRY['qwen3-embedding-8b-gguf']!.description} (Docker)`);
     return 'qwen3-embedding-8b-gguf';

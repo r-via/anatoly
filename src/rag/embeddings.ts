@@ -76,13 +76,19 @@ export function configureModels(resolved: ResolvedModels): void {
   nlpSdkModel = null;
 
   // Instantiate SDK models when runtime is 'sdk'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const config = (resolved as any)._config;
-  if (codeRuntime === 'sdk' && config) {
-    codeSdkModel = getVercelEmbeddingModel('code', codeModelId, config);
+  if (codeRuntime === 'sdk' && resolved.codeProvider) {
+    codeSdkModel = getVercelEmbeddingModel('code', codeModelId, {
+      provider: resolved.codeProvider,
+      base_url: resolved.codeBaseUrl,
+      env_key: resolved.codeEnvKey ?? undefined,
+    });
   }
-  if (nlpRuntime === 'sdk' && config) {
-    nlpSdkModel = getVercelEmbeddingModel('nlp', nlpModelId, config);
+  if (nlpRuntime === 'sdk' && resolved.nlpProvider) {
+    nlpSdkModel = getVercelEmbeddingModel('nlp', nlpModelId, {
+      provider: resolved.nlpProvider,
+      base_url: resolved.nlpBaseUrl,
+      env_key: resolved.nlpEnvKey ?? undefined,
+    });
   }
 }
 

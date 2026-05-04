@@ -63,25 +63,26 @@ describe('embeddings.ts — SDK runtime (Story 50.4)', () => {
   const sdkResolved: ResolvedModels = {
     codeModel: 'text-embedding-3-large',
     codeDim: 3072,
-    codeRuntime: 'sdk' as any,
+    codeRuntime: 'sdk',
     nlpModel: 'text-embedding-3-large',
     nlpDim: 3072,
-    nlpRuntime: 'sdk' as any,
-    backend: 'advanced-gguf' as any,
-    _config: { provider: 'openai' },
-  } as any;
+    nlpRuntime: 'sdk',
+    backend: 'advanced-gguf',
+    codeProvider: 'openai',
+    nlpProvider: 'openai',
+  };
 
   it('should configure SDK models when codeRuntime is sdk', () => {
     configureModels(sdkResolved);
     expect(mockGetVercelEmbeddingModel).toHaveBeenCalledWith(
       'code',
       'text-embedding-3-large',
-      { provider: 'openai' },
+      expect.objectContaining({ provider: 'openai' }),
     );
     expect(mockGetVercelEmbeddingModel).toHaveBeenCalledWith(
       'nlp',
       'text-embedding-3-large',
-      { provider: 'openai' },
+      expect.objectContaining({ provider: 'openai' }),
     );
   });
 
@@ -177,7 +178,7 @@ describe('embeddings.ts — Runtime type is onnx | sdk', () => {
   it('should not contain gguf references in runtime type', async () => {
     // Verify the module source uses 'sdk' not 'gguf' in its runtime type.
     // We check this by configuring with sdk runtime and verifying it works.
-    const sdkResolved = {
+    const sdkResolved: ResolvedModels = {
       codeModel: 'test-model',
       codeDim: 512,
       codeRuntime: 'sdk',
@@ -185,8 +186,9 @@ describe('embeddings.ts — Runtime type is onnx | sdk', () => {
       nlpDim: 512,
       nlpRuntime: 'sdk',
       backend: 'external',
-      _config: { provider: 'openai' },
-    } as any;
+      codeProvider: 'openai',
+      nlpProvider: 'openai',
+    };
     configureModels(sdkResolved);
     mockSdkEmbed.mockResolvedValueOnce({ embedding: [1, 2, 3] });
     const result = await embedCode('test');

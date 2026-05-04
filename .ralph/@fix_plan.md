@@ -165,19 +165,7 @@
 - [x] Story 50.2: Registre `KNOWN_EMBEDDING_PROVIDERS` + entrée `anatoly-local` avec hook ensureModel
 - [x] Story 50.3: Factory `getVercelEmbeddingModel` + probe dim runtime + cache signature
 - [x] Story 50.4: Refacto `embeddings.ts` runtime `'sdk'` + suppression code legacy GGUF + parsing 3-formats
-  > As a mainteneur d'anatoly
-  > I want que `embeddings.ts` ait un seul chemin SDK pour advanced+external (et l'ONNX intact pour lite)
-  > So that ~140 lignes de fetch + retry + parsing manuel disparaissent et que les futurs providers se branchent sans toucher `embeddings.ts`.
-  > AC: Given `src/rag/embeddings.ts` est refactoré, When le module est lu, Then le type `Runtime` interne est `'onnx' | 'sdk'` (au lieu de `'onnx' | 'gguf'`), And les fonctions `embedViaGguf` (lignes 187-232), `embedBatchViaGgufSingle` (241-277), `embedBatchViaGguf` (283-295) sont supprimées, And les constantes `MAX_GGUF_CHARS` (172) et `MAX_GGUF_BATCH_SIZE` (235) sont supprimées (les valeurs migrent dans le registre via `max_per_call`), And l'import de `ensureModel` de `./docker-gguf.js` (ligne 6) est supprimé (le pre_hook est dans `sdk-embedding.ts`)
-  > AC: Given `configureModels(resolved)` est étendu, When `resolved.codeRuntime === 'sdk'`, Then un `EmbeddingModelV3` est instancié via `getVercelEmbeddingModel('code', resolved.codeModel, resolved._config)` et caché en module-state (variable `codeSdkModel`), When `resolved.codeRuntime === 'onnx'`, Then le comportement actuel est strictement préservé (pas de SDK)
-  > AC: Given `embedCode(text)` est appelé avec `codeRuntime === 'sdk'`, When la fonction s'exécute, Then elle appelle `await embed({ model: codeSdkModel, value: text })` du package `ai`, And retourne `embedding` (number[]) tel quel
-  > AC: Given `embedCodeBatch(texts)` est appelé avec `codeRuntime === 'sdk'`, When la fonction s'exécute, Then elle appelle `await embedMany({ model: codeSdkModel, values: texts })` du package `ai`, And retourne `embeddings` (number[][]), And le SDK gère le chunking automatique selon `maxEmbeddingsPerCall` du registre
-  > AC: Given `embedNlp` et `embedNlpBatch` (mêmes patterns), When elles sont appelées avec `nlpRuntime === 'sdk'`, Then elles utilisent `nlpSdkModel` (cache séparé du code)
-  > AC: Given un `text` est trop long pour le modèle external, When `embedCode(text)` est appelé, Then la troncation actuelle (`MAX_CODE_CHARS = 1500` ligne 21) est conservée — c'est une troncation par-modèle-quelconque, And la troncation `MAX_GGUF_CHARS = 8000` est supprimée (l'équivalent passe par les limites du provider)
-  > AC: Given la suppression de `embedViaOnnx` n'est PAS faite, When le module est lu, Then la branche `embedViaOnnx` reste intacte (NFR9 — lite n'est pas touché)
-  > AC: Given la nouvelle implémentation est en place, When un test unit mock `embed`/`embedMany` du SDK, Then `embedCode("test")` produit le bon vecteur, And `embedCodeBatch(["a","b","c"])` produit 3 vecteurs dans l'ordre
-  > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-4
-- [ ] Story 50.5: `resolveEmbeddingModels` enrichi + `EmbeddingBackend` `'external'` + mapping legacy
+- [x] Story 50.5: `resolveEmbeddingModels` enrichi + `EmbeddingBackend` `'external'` + mapping legacy
   > As a développeur du pipeline
   > I want que la résolution des modèles d'embedding produise toutes les infos nécessaires (provider, base_url, env_key, runtime, dims) en un seul objet
   > So that `embeddings.ts` n'a plus à interroger `MODEL_REGISTRY` ni à recouper avec `embeddings-ready.json`.
