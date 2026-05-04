@@ -262,10 +262,10 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
 export interface ResolvedModels {
   codeModel: string;
   codeDim: number;
-  codeRuntime: 'onnx' | 'gguf';
+  codeRuntime: 'onnx' | 'gguf' | 'sdk';
   nlpModel: string;
   nlpDim: number;
-  nlpRuntime: 'onnx' | 'gguf';
+  nlpRuntime: 'onnx' | 'gguf' | 'sdk';
   backend: EmbeddingBackend;
 }
 

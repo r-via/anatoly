@@ -206,27 +206,33 @@ describe('probeEmbeddingDim', () => {
 
 describe('getEmbeddingSignature', () => {
   it('should return an 8-char hex SHA256 hash', () => {
-    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
+    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
     expect(sig).toHaveLength(8);
     expect(sig).toMatch(/^[0-9a-f]{8}$/);
   });
 
   it('should produce consistent results for same inputs', () => {
-    const a = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
-    const b = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
+    const a = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
+    const b = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
     expect(a).toBe(b);
   });
 
   it('should produce different results for different inputs', () => {
-    const a = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
-    const b = getEmbeddingSignature('voyage', 'voyage-code-3', 'voyage-3-large');
+    const a = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
+    const b = getEmbeddingSignature('voyage', 'voyage-code-3', 'voyage', 'voyage-3-large');
+    expect(a).not.toBe(b);
+  });
+
+  it('should produce different signature when only nlpProvider changes', () => {
+    const a = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
+    const b = getEmbeddingSignature('openai', 'text-embedding-3-large', 'voyage', 'text-embedding-3-large');
     expect(a).not.toBe(b);
   });
 
   it('should match manual SHA256 computation', () => {
-    const input = 'openai|text-embedding-3-large|text-embedding-3-large';
+    const input = 'openai|text-embedding-3-large|openai|text-embedding-3-large';
     const expected = createHash('sha256').update(input).digest('hex').slice(0, 8);
-    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
+    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
     expect(sig).toBe(expected);
   });
 });
@@ -241,7 +247,7 @@ describe('ensureEmbeddingDims', () => {
   });
 
   it('should use cached dims when signature matches', async () => {
-    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'text-embedding-3-large');
+    const sig = getEmbeddingSignature('openai', 'text-embedding-3-large', 'openai', 'text-embedding-3-large');
     const flag = {
       device: 'cpu',
       dim_code: 3072,

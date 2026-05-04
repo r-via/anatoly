@@ -137,11 +137,12 @@ export async function probeEmbeddingDim(
  * require re-probing dimensions.
  */
 export function getEmbeddingSignature(
-  provider: string,
+  codeProvider: string,
   codeModel: string,
+  nlpProvider: string,
   nlpModel: string,
 ): string {
-  const input = `${provider}|${codeModel}|${nlpModel}`;
+  const input = `${codeProvider}|${codeModel}|${nlpProvider}|${nlpModel}`;
   return createHash('sha256').update(input).digest('hex').slice(0, 8);
 }
 
@@ -182,6 +183,7 @@ export async function ensureEmbeddingDims(
   const sig = getEmbeddingSignature(
     resolved.codeProvider,
     resolved.codeModel,
+    resolved.nlpProvider,
     resolved.nlpModel,
   );
 

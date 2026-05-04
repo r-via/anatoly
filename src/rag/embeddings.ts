@@ -63,8 +63,8 @@ export function setEmbeddingLogger(logger: (message: string) => void): void {
 export function configureModels(resolved: ResolvedModels): void {
   codeModelId = resolved.codeModel;
   nlpModelId = resolved.nlpModel;
-  codeRuntime = resolved.codeRuntime as 'onnx' | 'sdk';
-  nlpRuntime = resolved.nlpRuntime as 'onnx' | 'sdk';
+  codeRuntime = resolved.codeRuntime === 'gguf' ? 'sdk' : resolved.codeRuntime;
+  nlpRuntime = resolved.nlpRuntime === 'gguf' ? 'sdk' : resolved.nlpRuntime;
   codeDim = resolved.codeDim;
   nlpDim = resolved.nlpDim;
 
