@@ -168,14 +168,14 @@ describe('runFirstRunWizard', () => {
       expect(tierCall.options[1]!.value).toBe('external');
     });
 
-    it('does not render the Comparison table when advanced is not available', async () => {
+    it('does not render the comparison table when advanced is not available', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
 
       const comparisonNote = noteMock.mock.calls.find(
-        (call: unknown[]) => call[1] === 'Comparison',
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('ONNX CPU'),
       );
       expect(comparisonNote).toBeUndefined();
     });
@@ -310,52 +310,52 @@ describe('runFirstRunWizard', () => {
     });
   });
 
-  // Story 49.5: Privacy/transparency notice
-  describe('transparency notice', () => {
+  // Story 49.5: Value notice
+  describe('value notice', () => {
     // AC2: snapshot-style test verifying exact text content
-    it('renders note with exact transparency text', async () => {
+    it('renders note with exact value text', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
 
-      const transparencyNote = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
+      const valueNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Embeddings power'),
       );
-      expect(transparencyNote).toBeDefined();
+      expect(valueNote).toBeDefined();
       // Snapshot: exact text content (may include ANSI from chalk.dim)
-      expect(transparencyNote![0]).toContain(
-        'Anatoly sends code chunks to your configured LLM provider only. No telemetry.',
+      expect(valueNote![0]).toContain(
+        'Embeddings power Anatoly\'s retrieval — better recall means sharper, more grounded findings.',
       );
     });
 
     // AC3: --plain → note is shown without chalk.dim wrapping
-    it('renders transparency note without chalk.dim when plain is true', async () => {
+    it('renders value note without chalk.dim when plain is true', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
 
-      const transparencyNote = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
+      const valueNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Embeddings power'),
       );
-      expect(transparencyNote).toBeDefined();
+      expect(valueNote).toBeDefined();
       // In plain mode, the text should be passed without ANSI escapes
-      const text = transparencyNote![0] as string;
-      expect(text).toBe('Anatoly sends code chunks to your configured LLM provider only. No telemetry.');
+      const text = valueNote![0] as string;
+      expect(text).toBe('Embeddings power Anatoly\'s retrieval — better recall means sharper, more grounded findings.');
     });
 
     // AC1: notice is shown on incapable hardware too (always before select)
-    it('shows transparency notice even on incapable hardware', async () => {
+    it('shows value notice even on incapable hardware', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('full-run');
 
       await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
 
-      const transparencyNote = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
+      const valueNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Embeddings power'),
       );
-      expect(transparencyNote).toBeDefined();
+      expect(valueNote).toBeDefined();
     });
   });
 
@@ -547,9 +547,9 @@ describe('runFirstRunWizard', () => {
       expect(allOutput).toContain('Embeddings setup:');
 
       const lines = allOutput.split('\n');
-      const defaultLine = lines.find((l: string) => /^default\s/.test(l));
+      const liteLine = lines.find((l: string) => /^lite\s/.test(l));
       const advancedLine = lines.find((l: string) => /^advanced\s/.test(l));
-      expect(defaultLine).toBeDefined();
+      expect(liteLine).toBeDefined();
       expect(advancedLine).toBeDefined();
     });
   });

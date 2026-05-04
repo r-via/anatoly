@@ -68,7 +68,7 @@ function buildComparisonTable(plain: boolean): string {
   if (plain) {
     return [
       'Embeddings setup:',
-      'default   ONNX CPU       150 MB    instant   good recall',
+      'lite      ONNX CPU       150 MB    instant   good recall',
       'advanced  GGUF GPU       15 GB     2-5 min   best recall',
       'external  third-party    ~0 MB     instant   depends on provider',
     ].join('\n');
@@ -76,7 +76,7 @@ function buildComparisonTable(plain: boolean): string {
   return [
     '  Embeddings setup:',
     '',
-    '  default    ONNX CPU       ~150 MB     instant     good recall',
+    '  lite       ONNX CPU       ~150 MB     instant     good recall',
     '  advanced   GGUF GPU       ~15 GB      2-5 min     best recall',
     '  external   third-party    ~0 MB       instant     depends on provider',
   ].join('\n');
@@ -121,23 +121,21 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
       );
     }
 
-    // Privacy / transparency notice (Story 49.5: plain mode strips chalk.dim)
-    const transparencyText = 'Anatoly sends code chunks to your configured LLM provider only. No telemetry.';
-    p.note(
-      opts.plain ? transparencyText : chalk.dim(transparencyText),
-      'Embeddings tier',
-    );
+    // Value notice + comparison table unified into a single block (Story 49.5)
+    const transparencyText = 'Embeddings power Anatoly\'s retrieval — better recall means sharper, more grounded findings.';
+    const styledNotice = opts.plain ? transparencyText : chalk.dim(transparencyText);
 
-    if (advanced) {
-      if (opts.plain) {
+    if (advanced && !opts.plain) {
+      p.note(`${styledNotice}\n\n${buildComparisonTable(false)}`, 'Embeddings tier');
+    } else {
+      p.note(styledNotice, 'Embeddings tier');
+      if (advanced && opts.plain) {
         console.log(buildComparisonTable(true));
-      } else {
-        p.note(buildComparisonTable(false), 'Comparison');
       }
     }
 
     const tierOptions: Array<{ value: TierValue; label: string; hint?: string }> = [
-      { value: 'lite', label: 'Default \u2014 fast setup, works everywhere', hint: 'ONNX CPU, ~150 MB' },
+      { value: 'lite', label: 'Lite \u2014 fast setup, works everywhere', hint: 'ONNX CPU, ~150 MB' },
     ];
     if (advanced) {
       tierOptions.push({
