@@ -144,57 +144,11 @@
 ### First-run Unified Onboarding
 
 - [x] Story 48.1: Hardware-aware tier prompt + mode (Quick Win / Full Run) prompt
-  > As a utilisateur lançant `anatoly run` pour la première fois
-  > I want voir deux prompts courts me demandant (1) lite ou advanced et (2) quick win ou full run, avec leurs tradeoffs
-  > So that je peux faire deux choix éclairés en 10 secondes sans aller chercher la doc, et avoir un premier audit rapide qui me convainc.
-  > AC: Given `anatoly run` est invoqué dans un projet sans `.anatoly.yml`, And `process.stdin.isTTY === true`, And `--defaults-settings` n'est pas set, When la phase config démarre, Then `detectHardware()` est appelé une seule fois, And le tier prompt est affiché (Default/Advanced ou Default seul selon hardware), And après confirmation tier, le mode prompt est affiché (Quick Win / Full Run)
-  > AC: Given le hardware a un GPU CUDA + ≥ 12 GB VRAM, When le tier prompt s'affiche, Then les deux options sont présentées avec un tableau côte-à-côte (engine, disque, temps, recall), And "Default — fast setup, works everywhere" est pré-sélectionné
-  > AC: Given le hardware n'a pas de GPU CUDA OU < 12 GB VRAM, When le tier prompt s'affiche, Then seule l'option Default est présentée, And une note grise explique pourquoi (`"Advanced not available — needs CUDA GPU + 12 GB VRAM"`)
-  > AC: Given le user a confirmé un tier, When le mode prompt s'affiche, Then un `p.select` propose deux options avec descriptions courtes :, `"Quick Win — utility + duplication + correction, no doc scaffold (~30s)"` (pré-sélectionné), `"Full Run — all 7 axes + doc scaffold (several minutes)"`
-  > AC: Given le user appuie sur Enter immédiatement sur les deux prompts, When la wizard termine, Then un objet `{ tier: 'lite', mode: 'quick-win' }` est retourné, And le run continue
-  > AC: Given `--defaults-settings` est set OU `process.stdin.isTTY === false`, When la phase config démarre, Then ni le tier prompt ni le mode prompt ne sont affichés, And un objet `{ tier: 'lite', mode: 'full-run' }` est retourné silencieusement (CI veut un audit complet, pas un quick win)
-  > AC: Given `--quick-win` est passé en CLI, When la wizard termine, Then le mode prompt est skippé (mode forcé à `'quick-win'`), And le tier prompt s'affiche normalement (sauf si `--defaults-settings` aussi)
-  > AC: Given le user fait Ctrl+C pendant un des deux prompts, When `p.isCancel(choice)` retourne `true`, Then le process exit 0, And aucun `.anatoly.yml` n'est écrit (le YAML write est dans la story 48.5, après confirmation)
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-1
-- [ ] Story 48.2: Inline lite ONNX prefetch avec progress bar
-  > As a utilisateur en first-run
-  > I want voir une vraie progress bar pendant le download des modèles ONNX
-  > So that je sais que ça avance et combien de temps ça va prendre.
-  > AC: Given la story 48.1 a retourné un tier (lite ou advanced), When `prefetchLiteModels()` est appelé, Then les deux modèles ONNX (Jina v2 + MiniLM-L6) sont téléchargés via `pipeline('feature-extraction', modelId)` dans `~/.cache/huggingface/`, And `progress_callback` est branché sur une `p.spinner()` (ou `p.progress()` si dispo) avec format `↓ {file}: {percent}%`
-  > AC: Given les modèles sont déjà en cache HuggingFace, When `prefetchLiteModels()` est appelé, Then le callback ne fire pas (transformers détecte le cache et skip), And le spinner affiche `"Embeddings (lite) ready (cached)"` puis se ferme
-  > AC: Given le download échoue (réseau), When `pipeline()` throw, Then un warn est loggé avec le message d'erreur, And le run continue (sera retenté lazily au moment de l'embedding) — recovery détaillée en Epic 49
-  > AC: Given `--defaults-settings` est set, When `prefetchLiteModels()` est appelé, Then le spinner est remplacé par un log linéaire (`"downloading lite embedding models..."`) — pas d'animation TTY
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-2
-- [ ] Story 48.3: Inline GGUF download (advanced) avec SHA verify
-  > As a utilisateur ayant choisi advanced
-  > I want que les modèles GGUF soient téléchargés dans la commande `run` en cours
-  > So that je n'ai pas à lancer une seconde commande et que je vois la progression.
-  > AC: Given le tier choisi est `advanced`, When `prefetchGgufModels()` est appelé, Then les deux fichiers `nomic-embed-code.Q5_K_M.gguf` et `Qwen3-Embedding-8B-Q5_K_M.gguf` sont téléchargés depuis HuggingFace dans `~/.anatoly/models/`, And une progress bar par fichier affiche `↓ {filename}: {downloaded}/{total} MB ({percent}%)`
-  > AC: Given un fichier GGUF existe déjà dans `~/.anatoly/models/` avec le bon SHA256, When `prefetchGgufModels()` vérifie l'intégrité avant download, Then le download est skippé, And un log `"GGUF model verified: {filename}"` est affiché
-  > AC: Given un fichier GGUF existe avec un SHA256 incorrect, When la vérification échoue, Then le fichier est supprimé, And le download recommence
-  > AC: Given le download GGUF échoue (réseau, disque plein), When `prefetchGgufModels()` throw, Then un warn est loggé, And le tier est forcé à `lite` pour la suite du run (fallback), And `.anatoly.yml` ultérieurement écrit reflète le fallback (pas advanced)
-  > AC: Given le path `~/.anatoly/models/` n'existe pas, When `prefetchGgufModels()` est appelé, Then le directory est créé via `mkdirSync(path, { recursive: true })`
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-3
-- [ ] Story 48.4: Subprocess `setup-embeddings` + reload de l'état
-  > As a utilisateur ayant choisi advanced
-  > I want que le setup Docker (image pull + containers up) se fasse automatiquement après le download des modèles
-  > So that mon run continue en mode advanced sans intervention.
-  > AC: Given la story 48.3 a download les modèles GGUF avec succès, When `runSetupEmbeddingsSubprocess()` est appelé, Then `spawnSync('anatoly', ['setup-embeddings'], { stdio: 'inherit' })` est exécuté, And l'utilisateur voit les logs du script bash en temps réel (Docker pull, container start)
-  > AC: Given le subprocess `setup-embeddings` exit code 0, When le parent reprend la main, Then `readEmbeddingsReadyFlag()` est appelé pour relire `.anatoly/embeddings-ready.json`, And `ctx.resolvedRagMode` est mis à jour à `'advanced'`, And le run continue
-  > AC: Given le subprocess exit avec un code non-zero, When le parent reprend la main, Then un warn est loggé (`"setup-embeddings failed (exit {code}) — falling back to lite"`), And `ctx.resolvedRagMode` est forcé à `'lite'`, And le run continue
-  > AC: Given `process.argv[0]` ou `process.argv[1]` est `undefined`, When `runSetupEmbeddingsSubprocess()` tente de spawn, Then une `AnatolyError` claire est throw (`"Cannot resolve anatoly CLI binary path"`)
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-4
-- [ ] Story 48.5: Always-write `.anatoly.yml` avec defaults sains
-  > As a utilisateur
-  > I want qu'à la fin du first-run, j'aie toujours un `.anatoly.yml` réutilisable sur disque
-  > So that le projet est prêt pour les runs suivants et je peux tweaker la config si je veux.
-  > AC: Given la story 48.1 a retourné un tier, And les modèles correspondants ont été téléchargés, When `writeFirstRunConfig(tier)` est appelé, Then un `.anatoly.yml` est écrit à la racine du projet avec :, `providers.anthropic: { mode: 'subscription' }` (subscription par défaut, fallback API si key détectée), `models: { quality: 'anthropic/claude-sonnet-4-6', fast: 'anthropic/claude-haiku-4-5-20251001', deliberation: 'anthropic/claude-opus-4-7' }`, `axes`: tous activés (`{ utility: { enabled: true }, ... }`), `rag.code_model: 'auto'` (le résolveur runtime pickera selon `embeddings-ready.json`), And un commentaire en tête `"# Anatoly configuration — generated by first-run wizard. Edit freely."`
-  > AC: Given un `.anatoly.yml` existe déjà à la racine, When `runFirstRunWizard()` démarre, Then la wizard ne s'exécute pas (le first-run unifié se déclenche uniquement si pas de YAML), And le run continue avec la config existante (comportement actuel inchangé)
-  > AC: Given `--defaults-settings` est set, When `writeFirstRunConfig()` est appelé, Then le YAML est écrit avec les mêmes defaults (subscription anthropic, sonnet/haiku/opus, tous axes)
-  > AC: Given un `ANTHROPIC_API_KEY` est détecté dans l'env, When `writeFirstRunConfig()` construit la config, Then `providers.anthropic.mode` est `'api'` au lieu de `'subscription'`
-  > AC: Given `Ctrl+C` est appuyé pendant le prompt tier, When la wizard termine sans confirmation, Then aucun `.anatoly.yml` n'est écrit
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-5
-- [ ] Story 48.6: End-of-setup 3-choice prompt
+- [x] Story 48.2: Inline lite ONNX prefetch avec progress bar
+- [x] Story 48.3: Inline GGUF download (advanced) avec SHA verify
+- [x] Story 48.4: Subprocess `setup-embeddings` + reload de l'état
+- [x] Story 48.5: Always-write `.anatoly.yml` avec defaults sains
+- [x] Story 48.6: End-of-setup 3-choice prompt
   > As a utilisateur
   > I want à la fin du setup phase pouvoir relire ma config avant de lancer un audit qui coûte du LLM
   > So that je peux corriger une typo ou changer d'avis sans frais.

@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, type WizardOptions, type WizardResult } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type WizardResult, type EndOfSetupOptions } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,6 +92,12 @@ vi.mock('../utils/logger.js', () => ({
 const spawnSyncMock = vi.fn();
 vi.mock('node:child_process', () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+}));
+
+// Mock tryOpenFile from ../utils/open.js
+const tryOpenFileMock = vi.fn<(path: string) => Promise<boolean>>();
+vi.mock('../utils/open.js', () => ({
+  tryOpenFile: (path: string) => tryOpenFileMock(path),
 }));
 
 // ---------------------------------------------------------------------------
@@ -637,5 +643,125 @@ describe('writeFirstRunConfig', () => {
     expect(parsed.providers).toBeDefined();
     expect(parsed.models).toBeDefined();
     expect(parsed.axes).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runEndOfSetupPrompt tests
+// ---------------------------------------------------------------------------
+
+describe('runEndOfSetupPrompt', () => {
+  let dir: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'end-of-setup-'));
+    selectMock.mockReset();
+    noteMock.mockReset();
+    tryOpenFileMock.mockReset();
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit');
+    }) as never);
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    exitSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  function baseSetupOpts(overrides?: Partial<EndOfSetupOptions>): EndOfSetupOptions {
+    return {
+      isTTY: true,
+      defaultsSettings: false,
+      projectRoot: dir,
+      ...overrides,
+    };
+  }
+
+  // AC: Given --defaults-settings set, Then auto-proceed (no prompt)
+  it('auto-proceeds when defaultsSettings is true', async () => {
+    await runEndOfSetupPrompt(baseSetupOpts({ defaultsSettings: true }));
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  // AC: Given non-TTY, Then auto-proceed (no prompt)
+  it('auto-proceeds when isTTY is false', async () => {
+    await runEndOfSetupPrompt(baseSetupOpts({ isTTY: false }));
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  // AC: Given "Proceed with audit" is chosen, Then run continues normally
+  it('returns normally when proceed is chosen', async () => {
+    selectMock.mockResolvedValueOnce('proceed');
+    await runEndOfSetupPrompt(baseSetupOpts());
+    expect(selectMock).toHaveBeenCalledTimes(1);
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  // AC: p.select is called with 3 options: proceed (first), open-config, quit
+  it('shows 3 options with proceed as first', async () => {
+    selectMock.mockResolvedValueOnce('proceed');
+    await runEndOfSetupPrompt(baseSetupOpts());
+
+    const callArgs = selectMock.mock.calls[0]![0]!;
+    expect(callArgs.options).toHaveLength(3);
+    expect(callArgs.options[0]!.value).toBe('proceed');
+    expect(callArgs.options[1]!.value).toBe('open-config');
+    expect(callArgs.options[2]!.value).toBe('quit');
+  });
+
+  // AC: Given "Open .anatoly.yml" and openFile succeeds, Then message + exit 0
+  it('opens config in editor and exits when tryOpenFile succeeds', async () => {
+    selectMock.mockResolvedValueOnce('open-config');
+    tryOpenFileMock.mockResolvedValueOnce(true);
+
+    await expect(runEndOfSetupPrompt(baseSetupOpts())).rejects.toThrow('process.exit');
+
+    expect(tryOpenFileMock).toHaveBeenCalledWith(join(dir, '.anatoly.yml'));
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    // Verify message shown
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Opened in editor'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('run anatoly run again when ready'));
+  });
+
+  // AC: Given "Open .anatoly.yml" and openFile fails, Then path + YAML content printed + exit 0
+  it('prints path and YAML content when tryOpenFile fails', async () => {
+    // Write a config file so it can be read
+    const { writeFileSync: realWriteFileSync } = await import('node:fs');
+    realWriteFileSync(join(dir, '.anatoly.yml'), 'providers:\n  anthropic:\n    mode: subscription\n', 'utf-8');
+
+    selectMock.mockResolvedValueOnce('open-config');
+    tryOpenFileMock.mockResolvedValueOnce(false);
+
+    await expect(runEndOfSetupPrompt(baseSetupOpts())).rejects.toThrow('process.exit');
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    // Should print the path
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('.anatoly.yml'));
+    // Should print YAML content
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('mode: subscription'));
+  });
+
+  // AC: Given "Quit" is chosen, Then message + exit 0
+  it('shows message and exits when quit is chosen', async () => {
+    selectMock.mockResolvedValueOnce('quit');
+
+    await expect(runEndOfSetupPrompt(baseSetupOpts())).rejects.toThrow('process.exit');
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Configuration saved to .anatoly.yml'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('run anatoly run when ready'));
+  });
+
+  // AC: Given Ctrl+C, Then exit 0 (equivalent to Quit)
+  it('exits on Ctrl+C (cancel)', async () => {
+    selectMock.mockResolvedValueOnce(Symbol('cancel'));
+
+    await expect(runEndOfSetupPrompt(baseSetupOpts())).rejects.toThrow('process.exit');
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

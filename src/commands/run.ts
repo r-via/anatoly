@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync, readdirSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
@@ -65,7 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -912,37 +912,6 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function waitForEnter(ctx: RunContext): Promise<void> {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    let confirmed = false;
-
-    // Ctrl+C while readline is active: mark interrupted and unblock the prompt
-    // so the caller can bail out cleanly instead of forcing a second SIGINT.
-    rl.on('SIGINT', () => {
-      ctx.interrupted = true;
-      rl.close();
-    });
-
-    rl.once('close', () => {
-      if (confirmed) {
-        // Clear entire screen, move cursor to top, reprint the MOTD banner
-        process.stdout.write('\x1b[2J\x1b[H');
-        console.log('');
-        printBanner('The weight is good !');
-      } else {
-        process.stdout.write('\n');
-      }
-      resolve();
-    });
-
-    rl.question(chalk.dim('  press enter to proceed '), () => {
-      confirmed = true;
-      rl.close();
-    });
-  });
-}
-
 interface SetupResult {
   files: number;
   tasks: Task[];
@@ -1230,9 +1199,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir };
   }
 
-  // Wait for confirmation before proceeding to review
-  if (process.stdin.isTTY && !ctx.plain && !ctx.interrupted) {
-    await waitForEnter(ctx);
+  // 3-choice prompt: proceed / open config / quit
+  if (!ctx.interrupted) {
+    await runEndOfSetupPrompt({
+      isTTY: process.stdin.isTTY === true,
+      defaultsSettings: false, // Story 48.7 adds the CLI flag
+      projectRoot: ctx.projectRoot,
+    });
   }
 
   ctx.allTasks = allTasks;

@@ -32,3 +32,30 @@ export function openFile(filePath: string): void {
     }
   });
 }
+
+/**
+ * Try to open a file with the system's default application.
+ * Returns `true` if the command succeeded, `false` on error.
+ */
+export function tryOpenFile(filePath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const plt = platform();
+    let cmd: string;
+    let args: string[];
+
+    if (plt === 'darwin') {
+      cmd = 'open';
+      args = [filePath];
+    } else if (plt === 'win32') {
+      cmd = 'cmd';
+      args = ['/c', 'start', '', filePath];
+    } else {
+      cmd = 'xdg-open';
+      args = [filePath];
+    }
+
+    execFile(cmd, args, (error) => {
+      resolve(!error);
+    });
+  });
+}

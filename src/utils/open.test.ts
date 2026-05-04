@@ -64,3 +64,42 @@ describe('openFile', () => {
     stderrSpy.mockRestore();
   });
 });
+
+describe('tryOpenFile', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('resolves true when execFile succeeds', async () => {
+    vi.mocked(platform).mockReturnValue('linux');
+    vi.mocked(execFile).mockImplementation(((_cmd: string, _args: string[], cb: (...args: unknown[]) => unknown) => {
+      if (typeof cb === 'function') cb(null, '', '');
+    }) as never);
+
+    const { tryOpenFile } = await import('./open.js');
+    await expect(tryOpenFile('/tmp/config.yml')).resolves.toBe(true);
+    expect(execFile).toHaveBeenCalledWith('xdg-open', ['/tmp/config.yml'], expect.any(Function));
+  });
+
+  it('resolves false when execFile fails', async () => {
+    vi.mocked(platform).mockReturnValue('linux');
+    vi.mocked(execFile).mockImplementation(((_cmd: string, _args: string[], cb: (...args: unknown[]) => unknown) => {
+      if (typeof cb === 'function') cb(new Error('no editor'), '', '');
+    }) as never);
+
+    const { tryOpenFile } = await import('./open.js');
+    await expect(tryOpenFile('/tmp/config.yml')).resolves.toBe(false);
+  });
+
+  it('uses platform-specific command', async () => {
+    vi.mocked(platform).mockReturnValue('darwin');
+    vi.mocked(execFile).mockImplementation(((_cmd: string, _args: string[], cb: (...args: unknown[]) => unknown) => {
+      if (typeof cb === 'function') cb(null, '', '');
+    }) as never);
+
+    const { tryOpenFile } = await import('./open.js');
+    await tryOpenFile('/tmp/config.yml');
+    expect(execFile).toHaveBeenCalledWith('open', ['/tmp/config.yml'], expect.any(Function));
+  });
+});
