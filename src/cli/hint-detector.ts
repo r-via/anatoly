@@ -6,10 +6,9 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
 
-const CONFIG_FILENAME = '.anatoly.yml';
 const DISMISS_FILE = join('.anatoly', 'hints-dismissed.json');
 
 /** Command attached to a hint that the user can launch directly from the prompt. */
@@ -76,16 +75,8 @@ export function saveDismissedHint(projectRoot: string, hintId: string): void {
 export function detectHints(ctx: HintContext): Hint[] {
   const hints: Hint[] = [];
 
-  if (!existsSync(resolve(ctx.projectRoot, CONFIG_FILENAME))) {
-    hints.push({
-      id: 'no-init',
-      title: `No ${CONFIG_FILENAME} detected — running with built-in defaults`,
-      body:
-        `Anatoly will use built-in defaults because no ${CONFIG_FILENAME} was found in this project.\n` +
-        '`anatoly init` lets you pick providers (subscription/API), models, and which axes to enable.',
-      command: { label: 'Run anatoly init', argv: ['init'] },
-    });
-  }
+  // no-init hint removed — the first-run wizard (Story 48.1+) writes
+  // .anatoly.yml automatically, so a missing config is handled at startup.
 
   const hw = ctx.hardware;
   if (

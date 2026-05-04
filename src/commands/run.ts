@@ -184,6 +184,8 @@ interface RunContext {
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — loaded once per run */
   userInstructions?: import('../utils/user-instructions.js').UserInstructions;
+  /** Skip all interactive prompts and use built-in defaults (--defaults-settings / non-TTY) */
+  defaultsSettings: boolean;
 }
 
 /**
@@ -219,6 +221,7 @@ export function registerRunCommand(program: Command): void {
     .option('--background', 'run audit in background via git worktree snapshot (returns immediately)')
     .option('--no-notify', 'disable desktop notification on background run completion')
     .option('--quick-win', 'run with reduced axis set (utility + duplication + correction, no doc scaffold)')
+    .option('--defaults-settings', 'skip all interactive prompts, use built-in defaults (CI/scripts)')
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
@@ -227,7 +230,7 @@ export function registerRunCommand(program: Command): void {
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
       background?: boolean; notify?: boolean; sourceRoot?: string;
-      quickWin?: boolean;
+      quickWin?: boolean; defaultsSettings?: boolean;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -237,6 +240,11 @@ export function registerRunCommand(program: Command): void {
       // standardised notice underneath, instead of ad-hoc lines drifting
       // above and below the banner.
       printBanner();
+
+      const useDefaults = cmdOpts.defaultsSettings === true;
+      if (useDefaults) {
+        getLogger().info('running with default settings (no prompts)');
+      }
 
       // First-run wizard: when no .anatoly.yml exists, prompt the user for
       // embedding tier (lite/advanced) and audit mode (quick-win/full-run).
@@ -248,7 +256,7 @@ export function registerRunCommand(program: Command): void {
         wizardResult = await runFirstRunWizard({
           hardware,
           isTTY: process.stdin.isTTY === true,
-          defaultsSettings: false, // Story 48.7 adds the CLI flag
+          defaultsSettings: useDefaults,
           quickWin: cmdOpts.quickWin === true,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
@@ -257,7 +265,7 @@ export function registerRunCommand(program: Command): void {
         // Cached models resolve instantly; failures are warned but non-fatal.
         await runLitePrefetch({
           isTTY: process.stdin.isTTY === true,
-          defaultsSettings: false, // Story 48.7 adds the CLI flag
+          defaultsSettings: useDefaults,
         });
 
         // Advanced tier: also download GGUF models with SHA-256 verification.
@@ -265,7 +273,7 @@ export function registerRunCommand(program: Command): void {
         if (wizardResult.tier === 'advanced') {
           const ggufOk = await runGgufPrefetch({
             isTTY: process.stdin.isTTY === true,
-            defaultsSettings: false, // Story 48.7 adds the CLI flag
+            defaultsSettings: useDefaults,
           });
           if (!ggufOk) {
             wizardResult = { ...wizardResult, tier: 'lite' };
@@ -544,6 +552,7 @@ export function registerRunCommand(program: Command): void {
         docsIdentical: false,
         router: _router,
         userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
+        defaultsSettings: useDefaults,
       };
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -1203,7 +1212,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (!ctx.interrupted) {
     await runEndOfSetupPrompt({
       isTTY: process.stdin.isTTY === true,
-      defaultsSettings: false, // Story 48.7 adds the CLI flag
+      defaultsSettings: ctx.defaultsSettings,
       projectRoot: ctx.projectRoot,
     });
   }

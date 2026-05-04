@@ -149,17 +149,7 @@
 - [x] Story 48.4: Subprocess `setup-embeddings` + reload de l'état
 - [x] Story 48.5: Always-write `.anatoly.yml` avec defaults sains
 - [x] Story 48.6: End-of-setup 3-choice prompt
-  > As a utilisateur
-  > I want à la fin du setup phase pouvoir relire ma config avant de lancer un audit qui coûte du LLM
-  > So that je peux corriger une typo ou changer d'avis sans frais.
-  > AC: Given le setup phase est terminé (scan/estimate/triage done), And `process.stdin.isTTY === true`, And `--defaults-settings` n'est pas set, When le `waitForEnter()` actuel serait appelé, Then à la place, un `p.select` est affiché avec 3 options :, "Proceed with audit" (pré-sélectionné), "Open `.anatoly.yml`", "Quit"
-  > AC: Given "Proceed with audit" est choisi, When la wizard termine, Then le run continue normalement (review phase démarre)
-  > AC: Given "Open `.anatoly.yml`" est choisi, When la wizard termine, Then `openFile(resolve(projectRoot, '.anatoly.yml'))` est appelé (utilitaire existant [src/utils/open.ts](src/utils/open.ts)), And si `openFile()` réussit, un message `"Opened in editor — run anatoly run again when ready"` est affiché, And si `openFile()` échoue (pas d'éditeur configuré, env headless), le path est imprimé + le contenu du YAML cat à stdout, And le process exit 0
-  > AC: Given "Quit" est choisi, When la wizard termine, Then un message `"Configuration saved to .anatoly.yml — run anatoly run when ready"` est affiché, And le process exit 0
-  > AC: Given `--defaults-settings` est set OU non-TTY, When le setup phase est terminé, Then le prompt n'est pas affiché, And le run continue directement vers review (auto-proceed)
-  > AC: Given `Ctrl+C` est appuyé sur le prompt, When `p.isCancel(choice)` retourne `true`, Then le process exit 0 (équivalent Quit)
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-6
-- [ ] Story 48.7: `--defaults-settings` flag + cleanup hint detector
+- [x] Story 48.7: `--defaults-settings` flag + cleanup hint detector
   > As a utilisateur en CI ou en script
   > I want pouvoir lancer `anatoly run` sans aucun prompt
   > So that mon pipeline ne bloque pas en attente d'input.

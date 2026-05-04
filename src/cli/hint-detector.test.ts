@@ -34,15 +34,8 @@ describe('detectHints', () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('emits no-init hint when .anatoly.yml is missing', () => {
-    const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
-    expect(hints.map((h) => h.id)).toContain('no-init');
-    const noInit = hints.find((h) => h.id === 'no-init');
-    expect(noInit?.command?.argv).toEqual(['init']);
-  });
-
-  it('omits no-init hint when .anatoly.yml exists', () => {
-    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
+  // Story 48.7: no-init hint removed — first-run wizard handles missing config now
+  it('does not emit no-init hint even when .anatoly.yml is missing', () => {
     const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
     expect(hints.map((h) => h.id)).not.toContain('no-init');
   });
