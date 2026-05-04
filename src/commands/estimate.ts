@@ -17,6 +17,7 @@ import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { detectHardware, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
 import { countChangedDocs } from '../rag/doc-indexer.js';
+import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
@@ -142,6 +143,13 @@ export function registerEstimateCommand(program: Command): void {
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
         pipelineRows.push({ phase: 'rag', detail: `${ragFiles} files` });
+
+        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const embed = estimateEmbedTokens(projectRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
+        pipelineRows.push({
+          phase: 'embed',
+          detail: `${formatTokenCount(embed.codeTokens)} code (${embed.codeUnits} fns) · ${formatTokenCount(embed.nlpTokens)} nlp (${embed.nlpUnits} chunks)`,
+        });
       }
 
       // usage graph
