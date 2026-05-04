@@ -1161,12 +1161,17 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       router: ctx.router,
       executor,
       logDir: join(ctx.runDir, 'conversations'),
+      onPageStart: (pagePath) => {
+        ctx.pipelineState?.trackFile(pagePath);
+      },
       onPageComplete: (pagePath) => {
         completed++;
+        ctx.pipelineState?.untrackFile(pagePath);
         ctx.pipelineState?.updateTask(taskId, `${completed}/${total} pages updated`);
         ctx.renderer?.logPlain(`[${taskId}] ${completed}/${total} ${pagePath}`);
       },
       onPageError: (pagePath, err) => {
+        ctx.pipelineState?.untrackFile(pagePath);
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
       },
     });
