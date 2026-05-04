@@ -150,15 +150,7 @@
 - [x] Story 48.5: Always-write `.anatoly.yml` avec defaults sains
 - [x] Story 48.6: End-of-setup 3-choice prompt
 - [x] Story 48.7: `--defaults-settings` flag + cleanup hint detector
-  > As a utilisateur en CI ou en script
-  > I want pouvoir lancer `anatoly run` sans aucun prompt
-  > So that mon pipeline ne bloque pas en attente d'input.
-  > AC: Given `--defaults-settings` est passé à `anatoly run`, When le run démarre, Then `runFirstRunWizard()` skip le prompt tier (auto-pick lite), And `runEndOfSetupPrompt()` skip le 3-choice (auto-proceed), And un log info `"running with default settings (no prompts)"` est émis
-  > AC: Given `process.stdin.isTTY === false`, When le run démarre, Then le comportement est identique à `--defaults-settings` (implicit)
-  > AC: Given la nouvelle wizard est en place, When le hint detector est appelé ([src/cli/hint-detector.ts:79-88](src/cli/hint-detector.ts#L79-L88)), Then la condition `no-init` est retirée, And les tests associés dans [src/cli/hint-detector.test.ts](src/cli/hint-detector.test.ts) sont supprimés ou adaptés
-  > AC: Given un `.anatoly/hints-dismissed.json` contient `"no-init"` (legacy), When le hint detector charge les dismissals, Then l'entrée est ignorée silencieusement (pas d'erreur, pas de migration)
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-7
-- [ ] Story 48.8: Quick Win runtime filter + summary suggestion
+- [x] Story 48.8: Quick Win runtime filter + summary suggestion
   > As a utilisateur ayant choisi Quick Win
   > I want que mon premier audit soit rapide en limitant les axes et en sautant la bootstrap doc
   > So that je vois un premier résultat en moins d'une minute et je décide ensuite si je veux le full run.

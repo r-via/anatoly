@@ -172,6 +172,10 @@ interface RunContext {
   renderer?: ScreenRenderer;
   /** Whether this is a first run requiring bootstrap doc phase */
   isFirstRun: boolean;
+  /** Skip doc bootstrap phase (quick-win mode) */
+  skipDocBootstrap: boolean;
+  /** Quick-win mode active — reduced axes, no doc bootstrap */
+  quickWin: boolean;
   /** Unified project profile — set during setup, used by doc pipeline */
   profile?: ProjectProfile;
   /** Doc pipeline result — set after doc scaffold + generation phases */
@@ -242,7 +246,7 @@ export function registerRunCommand(program: Command): void {
       printBanner();
 
       const useDefaults = cmdOpts.defaultsSettings === true;
-      if (useDefaults) {
+      if (useDefaults || !process.stdin.isTTY) {
         getLogger().info('running with default settings (no prompts)');
       }
 
@@ -549,11 +553,23 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         isFirstRun: false,
+        skipDocBootstrap: false,
+        quickWin: false,
         docsIdentical: false,
         router: _router,
         userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
         defaultsSettings: useDefaults,
       };
+
+      // Quick-win mode: restrict to 3 axes and skip doc bootstrap.
+      // Activated by wizard choice (first-run) or --quick-win CLI flag.
+      const quickWinActive = wizardResult?.mode === 'quick-win' || cmdOpts.quickWin === true;
+      if (quickWinActive) {
+        ctx.quickWin = true;
+        ctx.axesFilter = ['utility', 'duplication', 'correction'] as AxisId[];
+        ctx.skipDocBootstrap = true;
+        getLogger().info('quick-win mode: 3 axes, no doc bootstrap');
+      }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
       // and gemini-cli-core Config instances that each add a model-changed listener
@@ -633,7 +649,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.router) {
           pipelineState.setRouter(ctx.router);
         }
-        if (ctx.isFirstRun) {
+        if (ctx.isFirstRun && !ctx.skipDocBootstrap) {
           pipelineState.addTask('bootstrap-doc', 'Bootstrapping internal docs');
         }
         if (ctx.enableRag) {
@@ -660,8 +676,8 @@ export function registerRunCommand(program: Command): void {
           ctx.lockPath = acquireLock(projectRoot);
         }
 
-        // --- Phase: bootstrap doc (first run only) — Story 29.21 ---
-        if (ctx.isFirstRun && !ctx.interrupted) {
+        // --- Phase: bootstrap doc (first run only, skipped in quick-win) — Story 29.21 ---
+        if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
           await runWithContext({ phase: 'bootstrap-doc' }, async () => {
             await runDocBootstrap(ctx, setup.tasks);
           });
@@ -1150,7 +1166,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // --- Phase: internal docs status (Story 29.21 — scaffold moved to post-review) ---
   const bootstrapNeeded = needsBootstrap(srcRoot);
-  if (bootstrapNeeded) {
+  if (ctx.skipDocBootstrap && bootstrapNeeded) {
+    pipelineRows.push({ phase: 'internal docs', detail: 'skipped (quick-win mode)' });
+  } else if (bootstrapNeeded) {
     pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
   } else if (docScanInternal) {
     pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
@@ -2342,6 +2360,13 @@ function runReportPhase(ctx: RunContext): void {
     console.log('');
     console.log(`  ${costLine}`);
     if (quotaLine) console.log(`  ${quotaLine}`);
+  }
+
+  // Quick-win suggestion (Story 48.8) — only on successful runs
+  if (ctx.quickWin && !ctx.interrupted) {
+    console.log('');
+    console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
+    console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
   }
 
   if (ctx.shouldOpen) openFile(reportPath);
