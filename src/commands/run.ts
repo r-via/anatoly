@@ -65,7 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -270,6 +270,23 @@ export function registerRunCommand(program: Command): void {
           if (!ggufOk) {
             wizardResult = { ...wizardResult, tier: 'lite' };
             getLogger().warn('GGUF download failed — tier forced to lite for this run');
+          } else {
+            // GGUF models downloaded — run setup-embeddings to pull Docker
+            // image and start containers. User sees logs in real time.
+            const setupResult = runSetupEmbeddingsSubprocess(projectRoot);
+            if (setupResult.ok) {
+              // Re-read the flag that setup-embeddings.sh wrote
+              const flag = readEmbeddingsReadyFlag(projectRoot);
+              if (flag) {
+                getLogger().info({ backend: flag.backend }, 'setup-embeddings completed — advanced mode ready');
+              }
+            } else {
+              wizardResult = { ...wizardResult, tier: 'lite' };
+              getLogger().warn(
+                { exitCode: setupResult.exitCode },
+                `setup-embeddings failed (exit ${setupResult.exitCode}) — falling back to lite`,
+              );
+            }
           }
         }
       }

@@ -4,9 +4,11 @@
 
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
+import { spawnSync } from 'node:child_process';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
 import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefetch.js';
+import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -271,4 +273,43 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
   }
 
   return !hadError;
+}
+
+// ---------------------------------------------------------------------------
+// Setup-embeddings subprocess (advanced tier Docker setup)
+// ---------------------------------------------------------------------------
+
+export interface SetupEmbeddingsResult {
+  ok: boolean;
+  exitCode: number;
+}
+
+/**
+ * Run `anatoly setup-embeddings` as a child process with stdio inherited
+ * so the user sees Docker pull / container start logs in real time.
+ *
+ * @param projectRoot — passed as `ANATOLY_PROJECT_ROOT` env var.
+ * @returns `{ ok: true, exitCode: 0 }` on success, `{ ok: false, exitCode }` on failure.
+ * @throws {AnatolyError} if `process.argv[0]` or `process.argv[1]` is undefined.
+ */
+export function runSetupEmbeddingsSubprocess(projectRoot: string): SetupEmbeddingsResult {
+  const argv0 = process.argv[0];
+  const argv1 = process.argv[1];
+
+  if (!argv0 || !argv1) {
+    throw new AnatolyError(
+      'Cannot resolve anatoly CLI binary path',
+      ERROR_CODES.FILE_NOT_FOUND,
+      false,
+      'Ensure anatoly is invoked via its CLI entry point (e.g. npx anatoly run)',
+    );
+  }
+
+  const result = spawnSync(argv0, [argv1, 'setup-embeddings'], {
+    stdio: 'inherit',
+    env: { ...process.env, ANATOLY_PROJECT_ROOT: projectRoot },
+  });
+
+  const exitCode = result.status ?? -1;
+  return { ok: exitCode === 0, exitCode };
 }
