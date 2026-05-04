@@ -10,6 +10,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LlmTransport, LlmRequest, LlmResponse, AgenticRequest } from './index.js';
 import { extractProvider, EVALUATOR_TEMPERATURE } from './index.js';
 import { resolveProvider } from '../providers/known-providers.js';
+import { getProviderHeaders } from '../providers/attribution.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, appendError } from './conversation-dump.js';
@@ -58,6 +59,7 @@ export function getVercelModel(
     baseURL: providerConfig.base_url!,
     name: providerId,
     apiKey: apiKey ?? '',
+    headers: getProviderHeaders(providerId),
   });
   return provider(bareModel) as ReturnType<typeof anthropic>;
 }

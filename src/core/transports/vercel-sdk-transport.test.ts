@@ -107,6 +107,29 @@ describe('getVercelModel', () => {
     expect(mockCompatibleModelFn).toHaveBeenCalledWith('llama-3-70b');
   });
 
+  it('should NOT pass attribution headers for non-openrouter compatible providers', () => {
+    const config = makeConfig({ providers: { groq: {} } });
+    getVercelModel('groq/llama-3-70b', config);
+    const settings = mockCreateOpenAICompatible.mock.calls[0]![0];
+    expect(settings.headers).toBeUndefined();
+  });
+
+  it('should pass OpenRouter attribution headers when provider is openrouter', () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+    const config = makeConfig({ providers: { openrouter: {} } });
+    getVercelModel('openrouter/openai/gpt-4o', config);
+    expect(mockCreateOpenAICompatible).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'openrouter',
+        headers: {
+          'HTTP-Referer': 'https://anatoly.cloud',
+          'X-OpenRouter-Title': 'Anatoly',
+          'X-OpenRouter-Categories': 'cli-agent',
+        },
+      }),
+    );
+  });
+
   it('should throw when API key is missing for non-ollama provider', () => {
     vi.unstubAllEnvs();
     const config = makeConfig({ providers: { groq: {} } });

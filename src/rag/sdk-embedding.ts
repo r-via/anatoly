@@ -15,6 +15,7 @@ import { embed } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { resolveEmbeddingProvider } from './known-embedding-providers.js';
+import { getProviderHeaders } from '../core/providers/attribution.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import type { EmbeddingsReadyFlag } from './hardware-detect.js';
 import type { EmbeddingModelV3 } from '@ai-sdk/provider';
@@ -76,6 +77,7 @@ export function getVercelEmbeddingModel(
       baseURL: baseUrl!,
       name: config.provider,
       apiKey: apiKey ?? '',
+      headers: getProviderHeaders(config.provider),
     });
     sdkModel = provider.textEmbeddingModel(modelId);
   }
