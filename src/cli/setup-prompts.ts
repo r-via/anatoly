@@ -49,14 +49,20 @@ function canRunAdvanced(hw: HardwareProfile): boolean {
 // Comparison table (shown when advanced is available)
 // ---------------------------------------------------------------------------
 
-function buildComparisonTable(): string {
-  const lines = [
+function buildComparisonTable(plain: boolean): string {
+  if (plain) {
+    return [
+      'Embeddings setup:',
+      'default   ONNX CPU       150 MB    instant   good recall',
+      'advanced  GGUF GPU       15 GB     2-5 min   best recall (recommended for this hardware)',
+    ].join('\n');
+  }
+  return [
     '  Embeddings setup:',
     '',
     '  default    ONNX CPU       ~150 MB     instant     good recall',
     '  advanced   GGUF GPU       ~15 GB      2-5 min     best recall',
-  ];
-  return lines.join('\n');
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +112,11 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
     );
 
     if (advanced) {
-      p.note(buildComparisonTable(), 'Comparison');
+      if (opts.plain) {
+        console.log(buildComparisonTable(true));
+      } else {
+        p.note(buildComparisonTable(false), 'Comparison');
+      }
     } else {
       const unavailableText = 'Advanced not available \u2014 needs CUDA GPU + 12 GB VRAM';
       p.note(

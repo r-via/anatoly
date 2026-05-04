@@ -270,7 +270,7 @@ export function registerRunCommand(program: Command): void {
           quickWin: cmdOpts.quickWin === true,
           savedPreference,
           cliTierOverride,
-          plain: (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY,
+          plain: Boolean(parentOpts.plain) || 'NO_COLOR' in process.env || !process.stdout.isTTY,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
@@ -459,7 +459,7 @@ export function registerRunCommand(program: Command): void {
       }
 
       const dryRun = cmdOpts.dryRun ?? false;
-      const plain = (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY;
+      const plain = Boolean(parentOpts.plain) || 'NO_COLOR' in process.env || !process.stdout.isTTY;
 
       // Validate --lite / --advanced mutual exclusivity
       if (parentOpts.ragLite && parentOpts.ragAdvanced) {

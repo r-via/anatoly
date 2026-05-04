@@ -165,7 +165,7 @@
   > AC: Given la ligne de transparence est affichée, When un test snapshot est lancé sur le rendu du prompt, Then le snapshot contient la ligne textuelle (pas de regression silencieuse)
   > AC: Given `--plain` ou `NO_COLOR`, When le prompt est rendu, Then la ligne reste affichée (sans `chalk.dim`)
   > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-5
-- [ ] Story 49.6: Plain-mode parity pour le tableau comparatif tier
+- [x] Story 49.6: Plain-mode parity pour le tableau comparatif tier
   > As a CI ou un user en environnement headless / piped
   > I want que la sortie reste lisible quand box-drawing chars et ANSI sont indésirables
   > So that mes logs CI sont copy-pasteables et mon screen reader fonctionne.

@@ -436,6 +436,117 @@ describe('runFirstRunWizard', () => {
       expect(selectMock).toHaveBeenCalledTimes(2);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Story 49.6: Plain-mode parity for comparison table
+  // ---------------------------------------------------------------------------
+
+  describe('plain-mode comparison table (Story 49.6)', () => {
+    let logSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      selectMock.mockReset();
+      noteMock.mockReset();
+      logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      logSpy.mockRestore();
+    });
+
+    // AC1: plain → comparison table rendered via console.log, not p.note
+    it('renders comparison table via console.log (not p.note) in plain mode', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      // p.note should NOT be called with comparison table content
+      const comparisonNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('ONNX'),
+      );
+      expect(comparisonNote).toBeUndefined();
+
+      // console.log should contain the plain comparison table
+      const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(allOutput).toContain('ONNX CPU');
+      expect(allOutput).toContain('GGUF GPU');
+    });
+
+    // AC1: plain table includes "(recommended for this hardware)"
+    it('annotates advanced line with "(recommended for this hardware)"', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(allOutput).toContain('recommended for this hardware');
+    });
+
+    // AC1: no ANSI escape sequences in plain table output
+    it('contains no ANSI escape sequences in plain mode', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      const tableLines = allOutput.split('\n').filter(
+        (l: string) => l.includes('ONNX') || l.includes('GGUF') || l.includes('Embeddings setup'),
+      );
+      for (const line of tableLines) {
+        // eslint-disable-next-line no-control-regex
+        expect(line).not.toMatch(/\x1b\[/);
+      }
+    });
+
+    // AC1: no Unicode beyond ASCII in plain table
+    it('uses only ASCII characters in plain table', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      const tableLines = allOutput.split('\n').filter(
+        (l: string) => l.includes('ONNX') || l.includes('GGUF') || l.includes('Embeddings setup'),
+      );
+      for (const line of tableLines) {
+        expect(line).toMatch(/^[\x20-\x7E]*$/); // printable ASCII only
+      }
+    });
+
+    // AC2: normal TTY mode → existing p.note behavior unchanged
+    it('renders comparison table via p.note in normal mode (unchanged)', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
+
+      const comparisonNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('ONNX'),
+      );
+      expect(comparisonNote).toBeDefined();
+    });
+
+    // AC3/AC4: structured readable lines (header + two data lines)
+    it('plain table has header and two independently parseable data lines', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      const allOutput = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+      expect(allOutput).toContain('Embeddings setup:');
+
+      const lines = allOutput.split('\n');
+      const defaultLine = lines.find((l: string) => /^default\s/.test(l));
+      const advancedLine = lines.find((l: string) => /^advanced\s/.test(l));
+      expect(defaultLine).toBeDefined();
+      expect(advancedLine).toBeDefined();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
