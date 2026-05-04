@@ -371,4 +371,84 @@ describe('forecastRun', () => {
     });
     expect(result.llm.costByModel['haiku-4-5']).toBeUndefined();
   });
+
+  // ---------------------------------------------------------------------
+  // Pass 2 — embed cost (external SDK models)
+  // ---------------------------------------------------------------------
+
+  it('computes embed cost when codeModel/nlpModel are external (priced) models', () => {
+    seedPricing({
+      'anthropic/claude-sonnet-4-6': { input: 3, output: 15 },
+      'voyage/voyage-code-3': { input: 0.18, output: 0 },
+      'mistral/codestral-embed-2505': { input: 0.15, output: 0 },
+    });
+    const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+    const result = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: {
+        codeTokens: 1_000_000, codeUnits: 100,
+        nlpTokens: 500_000, nlpUnits: 50,
+        codeModel: 'voyage/voyage-code-3',
+        nlpModel: 'mistral/codestral-embed-2505',
+      },
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+
+    // 1M code-embed tokens × $0.18/M = $0.18 ; 0.5M nlp-embed × $0.15/M = $0.075.
+    const expectedEmbedCost = 0.18 + 0.075;
+    expect(result.totalCostUsd).toBeCloseTo(result.llm.costUsd + expectedEmbedCost, 6);
+    expect(result.totalCostUsd - result.llm.costUsd).toBeCloseTo(expectedEmbedCost, 6);
+  });
+
+  it('reports embed cost = 0 when codeModel/nlpModel are local (no pricing entry)', () => {
+    seedPricing({ 'anthropic/claude-sonnet-4-6': { input: 3, output: 15 } });
+    const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+    const result = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: {
+        codeTokens: 1_000_000, codeUnits: 100,
+        nlpTokens: 500_000, nlpUnits: 50,
+        // Local model ids — absent from the seeded pricing, so calculateCost
+        // returns 0 (correct: ONNX/GGUF embeddings have no API price).
+        codeModel: 'jinaai/jina-embeddings-v2-base-code',
+        nlpModel: 'Xenova/all-MiniLM-L6-v2',
+      },
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+    expect(result.totalCostUsd).toBeCloseTo(result.llm.costUsd, 6);
+  });
+
+  it('reports embed cost = 0 when codeModel/nlpModel are omitted (Pass 1 backwards-compat)', () => {
+    seedPricing({
+      'anthropic/claude-sonnet-4-6': { input: 3, output: 15 },
+      'voyage/voyage-code-3': { input: 0.18, output: 0 },
+    });
+    const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+    const result = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: { codeTokens: 1_000_000, codeUnits: 100, nlpTokens: 500_000, nlpUnits: 50 },
+      // codeModel / nlpModel intentionally omitted — even with priced models
+      // available in the cache, no model id ⇒ no embed cost computed.
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+    expect(result.totalCostUsd).toBeCloseTo(result.llm.costUsd, 6);
+  });
 });

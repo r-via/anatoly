@@ -18,7 +18,7 @@ import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
-import { detectHardware, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
+import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
 import { countChangedDocs } from '../rag/doc-indexer.js';
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
@@ -36,10 +36,32 @@ export function registerEstimateCommand(program: Command): void {
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const concurrency = config.runtime.concurrency;
 
+      // Resolve the embedding tier eagerly so the active-models list passed
+      // to the pricing gate includes any external SDK models the user only
+      // identified by `provider` (no explicit `model` in `.anatoly.yml`).
+      // For local tiers (ONNX / GGUF) the runtime is non-`sdk`, the resolved
+      // ids stay out of the active list, and pricing isn't required.
+      let resolvedEmbed: ResolvedModels | undefined;
+      if (config.rag.enabled) {
+        const hardware = detectHardware();
+        const readyFlag = readEmbeddingsReadyFlag(projectRoot);
+        resolvedEmbed = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag);
+      }
+
+      // Augment active models for the pricing gate ONLY when the resolved
+      // backend is 'external' (third-party SDK with per-token billing).
+      // 'lite' (ONNX) and 'advanced-gguf' (anatoly-local Docker) are local —
+      // their model ids are absent from upstream pricing registries by design,
+      // so adding them here would falsely trigger PRICING_INCOMPLETE.
+      const activeModels = enumerateActiveModels(config);
+      if (resolvedEmbed?.backend === 'external') {
+        activeModels.push(resolvedEmbed.codeModel, resolvedEmbed.nlpModel);
+      }
+
       // Hydrate pricing cache before any forecast computation. strict: true so
       // estimate refuses to run with an incomplete pricing table — same rule
       // as `anatoly run` (a $0 forecast for an unpriced model would mislead).
-      await ensurePricing(enumerateActiveModels(config), projectRoot, {
+      await ensurePricing([...new Set(activeModels)], projectRoot, {
         log: (level, message) => getLogger()[level](message),
         strict: true,
       });
@@ -193,12 +215,22 @@ export function registerEstimateCommand(program: Command): void {
           return true; // unreadable file: treat as evaluate (matches triage fallback)
         }
       });
+      // Only attach embedding model ids when the resolved backend is
+      // 'external' — local backends have no API price, so passing their ids
+      // would just hit a missing-pricing path that returns 0 anyway.
+      const externalEmbed = resolvedEmbed?.backend === 'external' ? resolvedEmbed : undefined;
+      const embedWithModels = embedForecast
+        ? {
+            ...embedForecast,
+            ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
+          }
+        : undefined;
       const forecast = forecastRun({
         projectRoot,
         evalTasks,
         totalFiles: allTasks.length,
         axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
-        ...(embedForecast ? { embed: embedForecast } : {}),
+        ...(embedWithModels ? { embed: embedWithModels } : {}),
         ...(enableRag ? { summaryModel: resolveCodeSummaryModel(config) } : {}),
         calibration,
         concurrency,

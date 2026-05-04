@@ -260,12 +260,26 @@ export interface ForecastInputs {
   /** Active axis evaluators with their resolved model id. */
   axes: ReadonlyArray<{ id: string; model: string }>;
   /**
-   * Embed forecast bundle when RAG is enabled. Token counts are surfaced
-   * to the user; embed cost is not modeled in this first cut (lite mode is
-   * local and free; external mode requires per-axis embedding model
-   * resolution which is async and hardware-dependent — see follow-up).
+   * Embed forecast bundle when RAG is enabled.
+   *
+   * `codeModel` / `nlpModel` are optional: when set, the corresponding
+   * embedding cost is computed via {@link calculateCost} against the
+   * pricing cache. Local models (ONNX / GGUF) have no entry in the cache,
+   * so `calculateCost` returns 0 — exactly the right answer for free local
+   * embeddings. External SDK models (Voyage, OpenRouter, Mistral, …) get
+   * costed at their per-token rate.
+   *
+   * When the models are omitted, the forecast surfaces token counts but
+   * leaves embed cost at 0 — matches the original Pass 1 behavior.
    */
-  embed?: { codeTokens: number; codeUnits: number; nlpTokens: number; nlpUnits: number };
+  embed?: {
+    codeTokens: number;
+    codeUnits: number;
+    nlpTokens: number;
+    nlpUnits: number;
+    codeModel?: string;
+    nlpModel?: string;
+  };
   /**
    * NLP-summarizer model id (typically Haiku via {@link resolveCodeSummaryModel}).
    * When set together with a non-empty `embed`, the forecast adds the
@@ -303,16 +317,23 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     llmCost += c;
   }
 
-  // Embed tokens are surfaced; cost remains 0 in this first cut (see
-  // ForecastInputs.embed jsdoc).
+  // Embed tokens are surfaced. Cost is computed when codeModel / nlpModel
+  // are provided — local models return 0 from calculateCost (no pricing
+  // entry → free), external SDK models return their per-token rate.
   let embedTokens = 0;
-  const embedCost = 0;
+  let embedCost = 0;
   let codeUnits = 0;
   let nlpUnits = 0;
   if (embed) {
     embedTokens = embed.codeTokens + embed.nlpTokens;
     codeUnits = embed.codeUnits;
     nlpUnits = embed.nlpUnits;
+    if (embed.codeModel && embed.codeTokens > 0) {
+      embedCost += calculateCost(embed.codeModel, embed.codeTokens, 0, projectRoot);
+    }
+    if (embed.nlpModel && embed.nlpTokens > 0) {
+      embedCost += calculateCost(embed.nlpModel, embed.nlpTokens, 0, projectRoot);
+    }
   }
 
   // NLP summarizer cost: one LLM call per file with functions. We approximate

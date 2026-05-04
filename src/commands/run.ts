@@ -292,8 +292,12 @@ export function registerRunCommand(program: Command): void {
         enableDeliberation: cmdOpts.deliberation !== false,
         axesFilter: pricingAxesFilter,
       });
-      if (resolvedEmbedForPricing?.codeRuntime === 'sdk') activeModels.push(resolvedEmbedForPricing.codeModel);
-      if (resolvedEmbedForPricing?.nlpRuntime === 'sdk') activeModels.push(resolvedEmbedForPricing.nlpModel);
+      // Only `external` backend models are billable per token; `lite` /
+      // `advanced-gguf` route through the SDK to local servers and have no
+      // upstream pricing — adding them would falsely trigger PRICING_INCOMPLETE.
+      if (resolvedEmbedForPricing?.backend === 'external') {
+        activeModels.push(resolvedEmbedForPricing.codeModel, resolvedEmbedForPricing.nlpModel);
+      }
       const dedupedActiveModels = [...new Set(activeModels)];
       const strictPricing = !cmdOpts.dryRun && !cmdOpts.allowMissingPricing;
       try {
@@ -1395,11 +1399,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const evalTasks = ctx.triageEnabled
     ? estimateTasks.filter(t => triageMap.get(t.file)?.tier === 'evaluate')
     : estimateTasks;
+  // Only attach embedding model ids when the resolved backend is
+  // 'external' — local backends have no API price.
+  const externalEmbed = ctx.resolvedModels?.backend === 'external' ? ctx.resolvedModels : undefined;
   const embedWithModels = embedForecast
     ? {
         ...embedForecast,
-        ...(ctx.resolvedModels?.codeModel ? { codeModel: ctx.resolvedModels.codeModel } : {}),
-        ...(ctx.resolvedModels?.nlpModel ? { nlpModel: ctx.resolvedModels.nlpModel } : {}),
+        ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
       }
     : undefined;
   const forecast = forecastRun({
