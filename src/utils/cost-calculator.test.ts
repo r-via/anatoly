@@ -17,7 +17,7 @@ import { PRICING_PATHS, _resetPricingCache } from './pricing-cache.js';
 
 let projectRoot: string;
 
-function seedPricing(models: Record<string, { input: number; output: number; source?: string }>): void {
+function seedPricing(models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number; source?: string }>): void {
   mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
   writeFileSync(
     resolve(projectRoot, PRICING_PATHS.normalized),
@@ -85,5 +85,52 @@ describe('calculateCost', () => {
     expect(
       calculateCost('openrouter/qwen/qwen3-embedding-8b', 1_000_000, 0, projectRoot),
     ).toBeCloseTo(0.01, 6);
+  });
+
+  describe('cache token pricing', () => {
+    it('applies the model-specific cache rates when the registry has them', () => {
+      // Anthropic-style rates: cache_read = 10% of input, cache_creation = 125% of input
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': {
+          input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75,
+        },
+      });
+      // 100K new input * $3/M  +  50K output * $15/M  +  1M cache_read * $0.3/M  +  10K cache_creation * $3.75/M
+      // = 0.3 + 0.75 + 0.3 + 0.0375 = 1.3875
+      const cost = calculateCost(
+        'anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot,
+        { read: 1_000_000, creation: 10_000 },
+      );
+      expect(cost).toBeCloseTo(1.3875, 6);
+    });
+
+    it('falls back to the input rate for cache tokens when the model has no cache rates', () => {
+      // Non-Anthropic model from a registry that doesn't expose cache rates: cache tokens
+      // get costed at the input rate (over-estimates rather than dropping the contribution).
+      seedPricing({
+        'openrouter/some/model': { input: 2, output: 8, source: 'openrouter' },
+      });
+      // 100K input * $2/M  +  50K output * $8/M  +  500K cache_read * $2/M  +  0 creation
+      // = 0.2 + 0.4 + 1.0 = 1.6
+      const cost = calculateCost(
+        'openrouter/some/model', 100_000, 50_000, projectRoot,
+        { read: 500_000 },
+      );
+      expect(cost).toBeCloseTo(1.6, 6);
+    });
+
+    it('is identical to the no-cache call when cacheTokens is omitted', () => {
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': {
+          input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75,
+        },
+      });
+      const without = calculateCost('anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot);
+      const withZero = calculateCost(
+        'anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot,
+        { read: 0, creation: 0 },
+      );
+      expect(withZero).toBe(without);
+    });
   });
 });

@@ -30,6 +30,7 @@ import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
+import { enterLlmCallSink } from '../utils/llm-calls-sink.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
@@ -285,12 +286,15 @@ export function registerRunCommand(program: Command): void {
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
-        // Prefetch lite ONNX embedding models (always, regardless of tier).
-        // Cached models resolve instantly; failures are warned but non-fatal.
-        await runLitePrefetch({
-          isTTY: process.stdin.isTTY === true,
-          defaultsSettings: useDefaults,
-        });
+        // Prefetch lite ONNX embedding models when the user picked lite or
+        // advanced (advanced still benefits from a lite fallback if GGUF setup
+        // later fails). External tier bypasses ONNX entirely — no prefetch.
+        if (wizardResult.tier !== 'external') {
+          await runLitePrefetch({
+            isTTY: process.stdin.isTTY === true,
+            defaultsSettings: useDefaults,
+          });
+        }
 
         // Advanced tier: download GGUF models with SHA-256 verification.
         // On failure, show actionable recovery prompt (Story 49.1).
@@ -705,6 +709,10 @@ export function registerRunCommand(program: Command): void {
         // User confirmed the pipeline summary — materialize the run dir now.
         initRunDir();
 
+        // Open the per-call LLM sink for the remainder of the run. Transports
+        // emit records via recordLlmCall(), persisted to llm-calls.ndjson.
+        enterLlmCallSink(join(ctx.runDir, 'llm-calls.ndjson'));
+
         // Detect first run — Story 29.21
         ctx.isFirstRun = needsBootstrap(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
 
@@ -1068,9 +1076,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     // Embedding containers are NOT started yet — that happens in runRagPhase.
     const embeddingsReady = readEmbeddingsReadyFlag(ctx.projectRoot);
     const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
+    const isExternalReady = embeddingsReady?.backend === 'external';
     const needsSidecar = ctx.ragMode === 'advanced'
-      || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
-    ctx.resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
+      || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto' && embeddingsReady?.backend !== 'external');
+    if (isExternalReady && ctx.ragMode === 'auto') {
+      ctx.resolvedRagMode = 'external';
+    } else {
+      ctx.resolvedRagMode = needsSidecar ? 'advanced' : 'lite';
+    }
 
     rl?.info({
       hardware: {
@@ -1082,9 +1095,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     }, 'hardware detection');
   }
 
-  const ragLabel = ctx.enableRag
-    ? ctx.resolvedRagMode === 'advanced' ? 'advanced' : 'lite'
-    : 'off';
+  const ragLabel = ctx.enableRag ? (ctx.resolvedRagMode ?? 'lite') : 'off';
   configRows.push(
     { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
     { key: 'rag', value: ragLabel },
@@ -1109,6 +1120,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     if (ctx.resolvedRagMode === 'advanced') {
       modelsRight.push({ key: 'embeddings/code', value: 'nomic-embed-code Q5_K_M' });
       modelsRight.push({ key: 'embeddings/nlp', value: 'Qwen3-8B Q5_K_M' });
+    } else if (ctx.resolvedRagMode === 'external') {
+      const emb = ctx.config.rag.embedding;
+      const codeLabel = emb?.code?.model ? shortModelName(emb.code.model) : 'external (code)';
+      const nlpLabel = emb?.nlp?.model ? shortModelName(emb.nlp.model) : 'external (nlp)';
+      modelsRight.push({ key: 'embeddings/code', value: codeLabel });
+      modelsRight.push({ key: 'embeddings/nlp', value: nlpLabel });
     } else {
       modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
       modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
@@ -1621,7 +1638,7 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
  */
 async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore): Promise<void> {
   const log = getLogger();
-  const cacheSuffix = ctx.resolvedRagMode!; // 'lite' or 'advanced'
+  const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
   const internalDocsDir = join('.anatoly', 'docs');
   const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
 

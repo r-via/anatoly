@@ -12,6 +12,7 @@ import { extractProvider, EVALUATOR_TEMPERATURE } from './index.js';
 import { resolveProvider } from '../providers/known-providers.js';
 import { getProviderHeaders } from '../providers/attribution.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
+import { recordLlmCall } from '../../utils/llm-calls-sink.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, appendError } from './conversation-dump.js';
 import { runVercelAgent } from '../agents/vercel-agent.js';
@@ -121,7 +122,15 @@ export class VercelSdkTransport implements LlmTransport {
       const rawCached = (result.usage as Record<string, unknown>)?.cachedInputTokens;
       const cacheReadTokens = typeof rawCached === 'number' ? rawCached : 0;
       const durationMs = Date.now() - start;
-      const costUsd = calculateCost(modelId, inputTokens, outputTokens, params.projectRoot);
+      // Vercel AI SDK's unified usage shape doesn't expose cache_creation
+      // tokens (only cache_read via `cachedInputTokens`), so we pass `read`
+      // only. The cache_creation contribution is implicitly folded into the
+      // `inputTokens` count, which means underlying Anthropic-routed calls
+      // get costed at the input rate for those tokens — close enough until
+      // Vercel SDK exposes the full cache breakdown.
+      const costUsd = calculateCost(modelId, inputTokens, outputTokens, params.projectRoot, {
+        read: cacheReadTokens,
+      });
 
       transcriptLines.push(`## Assistant\n\n${text}\n`);
 
@@ -130,6 +139,19 @@ export class VercelSdkTransport implements LlmTransport {
         appendResult(dump, { durationMs, costUsd, inputTokens, outputTokens, success: true });
       }
 
+      recordLlmCall({
+        provider: providerId,
+        model: modelId,
+        ...(attempt != null ? { attempt } : {}),
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens: 0,
+        costUsd,
+        durationMs,
+        success: true,
+        ...(params.retryReason ? { retryReason: params.retryReason } : {}),
+      });
       contextLogger().info(
         {
           event: 'llm_call',
@@ -163,6 +185,25 @@ export class VercelSdkTransport implements LlmTransport {
     } catch (err) {
       if (dump) appendError(dump, err);
 
+      const failureError = {
+        code: 'VERCEL_SDK_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      };
+      const failureDuration = Date.now() - start;
+      recordLlmCall({
+        provider: providerId,
+        model: modelId,
+        ...(attempt != null ? { attempt } : {}),
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+        durationMs: failureDuration,
+        success: false,
+        ...(params.retryReason ? { retryReason: params.retryReason } : {}),
+        error: failureError,
+      });
       contextLogger().info(
         {
           event: 'llm_call',
@@ -175,13 +216,10 @@ export class VercelSdkTransport implements LlmTransport {
           cacheCreationTokens: 0,
           cacheHitRate: 0,
           costUsd: 0,
-          durationMs: Date.now() - start,
+          durationMs: failureDuration,
           success: false,
           ...(params.retryReason ? { retryReason: params.retryReason } : {}),
-          error: {
-            code: 'VERCEL_SDK_ERROR',
-            message: err instanceof Error ? err.message : String(err),
-          },
+          error: failureError,
         },
         'LLM call failed',
       );
@@ -232,6 +270,18 @@ export class VercelSdkTransport implements LlmTransport {
         });
       }
 
+      recordLlmCall({
+        provider: providerId,
+        model: params.model,
+        ...(params.attempt != null ? { attempt: params.attempt } : {}),
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+        success: true,
+      });
       contextLogger().info(
         {
           event: 'llm_call',
@@ -264,6 +314,24 @@ export class VercelSdkTransport implements LlmTransport {
     } catch (err) {
       if (dump) appendError(dump, err);
 
+      const failureError = {
+        code: 'VERCEL_SDK_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      };
+      const failureDuration = Date.now() - start;
+      recordLlmCall({
+        provider: providerId,
+        model: params.model,
+        ...(params.attempt != null ? { attempt: params.attempt } : {}),
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+        durationMs: failureDuration,
+        success: false,
+        error: failureError,
+      });
       contextLogger().info(
         {
           event: 'llm_call',
@@ -276,12 +344,9 @@ export class VercelSdkTransport implements LlmTransport {
           cacheCreationTokens: 0,
           cacheHitRate: 0,
           costUsd: 0,
-          durationMs: Date.now() - start,
+          durationMs: failureDuration,
           success: false,
-          error: {
-            code: 'VERCEL_SDK_ERROR',
-            message: err instanceof Error ? err.message : String(err),
-          },
+          error: failureError,
         },
         'LLM call failed (agentic)',
       );

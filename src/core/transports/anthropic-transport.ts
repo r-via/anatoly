@@ -13,6 +13,8 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import { appendFileSync } from 'node:fs';
 import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
+import { calculateCost } from '../../utils/cost-calculator.js';
+import { recordLlmCall } from '../../utils/llm-calls-sink.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
@@ -195,17 +197,25 @@ export class AnthropicTransport implements LlmTransport {
           if (message.subtype === 'success') {
             const success = message as SDKResultSuccess;
             resultText = success.result;
-            costUsd = success.total_cost_usd ?? 0;
             durationMs = success.duration_ms ?? 0;
             sessionId = success.session_id;
 
             if (success.usage) {
-              const u = success.usage as Record<string, number>;
-              inputTokens += u.input_tokens ?? 0;
-              outputTokens += u.output_tokens ?? 0;
-              cacheReadTokens += u.cache_read_input_tokens ?? 0;
-              cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+              const u = success.usage;
+              inputTokens += u.inputTokens ?? 0;
+              outputTokens += u.outputTokens ?? 0;
+              cacheReadTokens += u.cacheReadInputTokens ?? 0;
+              cacheCreationTokens += u.cacheCreationInputTokens ?? 0;
             }
+
+            // Prefer the SDK's precise cost (accounts for cache discount and
+            // creation premium); fall back to our own table only when the
+            // SDK omits it.
+            costUsd = success.total_cost_usd
+              ?? calculateCost(rawModel, inputTokens, outputTokens, projectRoot, {
+                read: cacheReadTokens,
+                creation: cacheCreationTokens,
+              });
           } else {
             const errorResult = message as SDKResultError;
             const details =
@@ -225,6 +235,11 @@ export class AnthropicTransport implements LlmTransport {
       }
 
       // Emit llm_call event for failed call
+      const failureError = {
+        code:
+          err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN',
+        message: err instanceof Error ? err.message : String(err),
+      };
       contextLogger().info(
         {
           event: 'llm_call',
@@ -240,17 +255,30 @@ export class AnthropicTransport implements LlmTransport {
           durationMs,
           success: false,
           ...(retryReason ? { retryReason } : {}),
-          error: {
-            code:
-              err instanceof AnatolyError ? (err as AnatolyError).code : 'UNKNOWN',
-            message: err instanceof Error ? err.message : String(err),
-          },
+          error: failureError,
           ...(convDump?.fileName
             ? { conversationFile: `conversations/${convDump?.fileName}` }
             : {}),
         },
         'LLM call failed',
       );
+      recordLlmCall({
+        provider: 'anthropic',
+        model,
+        ...(attempt != null ? { attempt } : {}),
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        costUsd,
+        durationMs,
+        success: false,
+        ...(retryReason ? { retryReason } : {}),
+        error: failureError,
+        ...(convDump?.fileName
+          ? { conversationFile: `conversations/${convDump.fileName}` }
+          : {}),
+      });
 
       if (err instanceof AnatolyError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
@@ -287,6 +315,22 @@ export class AnthropicTransport implements LlmTransport {
     }
 
     // Emit structured llm_call event
+    recordLlmCall({
+      provider: 'anthropic',
+      model,
+      ...(attempt != null ? { attempt } : {}),
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      costUsd,
+      durationMs,
+      success: true,
+      ...(retryReason ? { retryReason } : {}),
+      ...(convDump?.fileName
+        ? { conversationFile: `conversations/${convDump.fileName}` }
+        : {}),
+    });
     contextLogger().info(
       {
         event: 'llm_call',

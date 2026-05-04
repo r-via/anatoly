@@ -13,6 +13,7 @@ import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type 
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendAssistant, appendResult, type ConvDump } from './conversation-dump.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
+import { recordLlmCall } from '../../utils/llm-calls-sink.js';
 
 /**
  * Reference-counted console suppression for gemini-cli-core noise.
@@ -133,6 +134,25 @@ export class GeminiTransport implements LlmTransport {
     try {
       return await this._stream(client, params, start, transcriptLines);
     } catch (err) {
+      const failureError = {
+        code: 'GEMINI_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      };
+      const failureDuration = Date.now() - start;
+      recordLlmCall({
+        provider: 'gemini',
+        model: params.model,
+        ...(params.attempt != null ? { attempt: params.attempt } : {}),
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        costUsd: 0,
+        durationMs: failureDuration,
+        success: false,
+        ...(params.retryReason ? { retryReason: params.retryReason } : {}),
+        error: failureError,
+      });
       contextLogger().info(
         {
           event: 'llm_call',
@@ -145,13 +165,10 @@ export class GeminiTransport implements LlmTransport {
           cacheCreationTokens: 0,
           cacheHitRate: 0,
           costUsd: 0,
-          durationMs: Date.now() - start,
+          durationMs: failureDuration,
           success: false,
           ...(params.retryReason ? { retryReason: params.retryReason } : {}),
-          error: {
-            code: 'GEMINI_ERROR',
-            message: err instanceof Error ? err.message : String(err),
-          },
+          error: failureError,
         },
         'LLM call failed',
       );
@@ -230,6 +247,19 @@ export class GeminiTransport implements LlmTransport {
     }
 
     // Emit structured llm_call event
+    recordLlmCall({
+      provider: 'gemini',
+      model: params.model,
+      ...(params.attempt != null ? { attempt: params.attempt } : {}),
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      costUsd,
+      durationMs,
+      success: true,
+      ...(params.retryReason ? { retryReason: params.retryReason } : {}),
+    });
     contextLogger().info(
       {
         event: 'llm_call',

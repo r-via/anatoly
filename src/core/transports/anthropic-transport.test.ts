@@ -2,11 +2,19 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi, type Mock } from 'vitest';
 import { z } from 'zod';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { LlmTransport, LlmResponse } from './index.js';
 import { TransportRouter } from './index.js';
 import { AnthropicTransport } from './anthropic-transport.js';
+import { withLlmCallSink } from '../../utils/llm-calls-sink.js';
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(),
+}));
 
 /** Build a minimal mock router that returns the given transport from acquire(). */
 function mockRouter(transport: LlmTransport): TransportRouter {
@@ -229,5 +237,142 @@ describe('runSingleTurnQuery transport integration', () => {
     ).rejects.toThrow(/validation failed after 2 attempts/i);
 
     expect(mockTransport.query).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: SDK→LlmResponse token extraction
+//
+// The Claude Agent SDK exposes usage fields in camelCase (inputTokens,
+// outputTokens, cacheReadInputTokens, cacheCreationInputTokens). An earlier
+// version of the transport read snake_case keys, silently zeroing every
+// token count on every Anthropic call. This test guards against any future
+// rename or accidental cast that would re-introduce the same silent miss.
+// ---------------------------------------------------------------------------
+
+describe('AnthropicTransport — SDK usage extraction', () => {
+  it('extracts camelCase token fields from SDKResultSuccess.usage into LlmResponse', async () => {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    const mockedQuery = sdk.query as unknown as Mock;
+
+    async function* messageStream() {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'response text',
+        session_id: 'session-test',
+        total_cost_usd: 0.0123,
+        duration_ms: 1500,
+        usage: {
+          inputTokens: 100,
+          outputTokens: 200,
+          cacheReadInputTokens: 1500,
+          cacheCreationInputTokens: 50,
+        },
+      };
+    }
+    mockedQuery.mockReturnValueOnce(messageStream());
+
+    const transport = new AnthropicTransport();
+    const response = await transport.query({
+      systemPrompt: 'sys',
+      userMessage: 'msg',
+      model: 'anthropic/claude-sonnet-4-6',
+      projectRoot: '/tmp',
+      abortController: new AbortController(),
+    });
+
+    expect(response.inputTokens).toBe(100);
+    expect(response.outputTokens).toBe(200);
+    expect(response.cacheReadTokens).toBe(1500);
+    expect(response.cacheCreationTokens).toBe(50);
+    expect(response.costUsd).toBe(0.0123);
+    expect(response.sessionId).toBe('session-test');
+  });
+
+  describe('end-to-end: per-call sink', () => {
+    let dir: string;
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'anatoly-sink-itest-')); });
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    it('writes one llm_call record per query when run inside withLlmCallSink', async () => {
+      const sdk = await import('@anthropic-ai/claude-agent-sdk');
+      const mockedQuery = sdk.query as unknown as Mock;
+
+      async function* messageStream() {
+        yield {
+          type: 'result', subtype: 'success', result: 'ok',
+          session_id: 'sess', total_cost_usd: 0.01, duration_ms: 100,
+          usage: {
+            inputTokens: 50, outputTokens: 25,
+            cacheReadInputTokens: 1000, cacheCreationInputTokens: 10,
+          },
+        };
+      }
+      mockedQuery.mockReturnValueOnce(messageStream());
+
+      const sinkPath = join(dir, 'llm-calls.ndjson');
+      const transport = new AnthropicTransport();
+      await withLlmCallSink(sinkPath, async () => {
+        await transport.query({
+          systemPrompt: 'sys',
+          userMessage: 'msg',
+          model: 'anthropic/claude-sonnet-4-6',
+          projectRoot: dir,
+          abortController: new AbortController(),
+        });
+      });
+
+      const lines = readFileSync(sinkPath, 'utf-8').trim().split('\n');
+      expect(lines).toHaveLength(1);
+      const event = JSON.parse(lines[0]);
+      expect(event.provider).toBe('anthropic');
+      // model on the record is the stripped form passed to the SDK
+      expect(event.model).toBe('claude-sonnet-4-6');
+      expect(event.inputTokens).toBe(50);
+      expect(event.outputTokens).toBe(25);
+      expect(event.cacheReadTokens).toBe(1000);
+      expect(event.cacheCreationTokens).toBe(10);
+      expect(event.success).toBe(true);
+      expect(event.schemaVersion).toBe(1);
+    });
+  });
+
+  it('returns 0 tokens when SDK returns snake_case keys (defensive — proves the previous bug shape)', async () => {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    const mockedQuery = sdk.query as unknown as Mock;
+
+    async function* messageStream() {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'response text',
+        session_id: 'session-legacy',
+        total_cost_usd: 0.005,
+        duration_ms: 1000,
+        usage: {
+          input_tokens: 100,
+          output_tokens: 200,
+          cache_read_input_tokens: 1500,
+          cache_creation_input_tokens: 50,
+        },
+      };
+    }
+    mockedQuery.mockReturnValueOnce(messageStream());
+
+    const transport = new AnthropicTransport();
+    const response = await transport.query({
+      systemPrompt: 'sys',
+      userMessage: 'msg',
+      model: 'anthropic/claude-sonnet-4-6',
+      projectRoot: '/tmp',
+      abortController: new AbortController(),
+    });
+
+    expect(response.inputTokens).toBe(0);
+    expect(response.outputTokens).toBe(0);
+    expect(response.cacheReadTokens).toBe(0);
+    expect(response.cacheCreationTokens).toBe(0);
+    expect(response.costUsd).toBe(0.005);
   });
 });

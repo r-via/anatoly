@@ -35,6 +35,15 @@ export interface ModelPricing {
   readonly input: number;
   /** Cost per 1M output/completion tokens (0 for embedding models). */
   readonly output: number;
+  /**
+   * Cost per 1M cache-read input tokens. Undefined when the upstream registry
+   * doesn't expose a separate cache-read rate (e.g. most non-Anthropic models,
+   * current OpenRouter shape). Callers should fall back to {@link input} in
+   * that case so the cache contribution isn't silently dropped.
+   */
+  readonly cacheReadInput?: number;
+  /** Cost per 1M cache-creation input tokens. Optional, same fallback policy. */
+  readonly cacheCreationInput?: number;
 }
 
 /** Origin of a pricing entry — used for traceability in the on-disk file. */
@@ -157,6 +166,8 @@ function ensureDir(path: string): void {
 interface LitellmEntry {
   input_cost_per_token?: number;
   output_cost_per_token?: number;
+  cache_read_input_token_cost?: number;
+  cache_creation_input_token_cost?: number;
 }
 type LitellmRaw = Record<string, LitellmEntry>;
 
@@ -229,6 +240,12 @@ function resolveLitellmPricing(modelId: string, raw: LitellmRaw): ModelPricing |
     return {
       input: entry.input_cost_per_token * 1_000_000,
       output: (entry.output_cost_per_token ?? 0) * 1_000_000,
+      ...(typeof entry.cache_read_input_token_cost === 'number'
+        ? { cacheReadInput: entry.cache_read_input_token_cost * 1_000_000 }
+        : {}),
+      ...(typeof entry.cache_creation_input_token_cost === 'number'
+        ? { cacheCreationInput: entry.cache_creation_input_token_cost * 1_000_000 }
+        : {}),
     };
   }
   return null;
@@ -335,16 +352,25 @@ export function lookupPrice(modelId: string, projectRoot?: string): ModelPricing
   if (!memoryCache) return null;
 
   const direct = memoryCache[modelId];
-  if (direct) return { input: direct.input, output: direct.output };
+  if (direct) return toPricing(direct);
 
   // Tolerate minor drift between the active-model list at ensure-time and the
   // live model id at call-time (e.g. an unconfigured fallback). Walk the keys
   // looking for a stripped-prefix match before giving up.
   const bare = stripPrefix(modelId);
   for (const [key, entry] of Object.entries(memoryCache)) {
-    if (stripPrefix(key) === bare) return { input: entry.input, output: entry.output };
+    if (stripPrefix(key) === bare) return toPricing(entry);
   }
   return null;
+}
+
+function toPricing(entry: NormalizedEntry): ModelPricing {
+  return {
+    input: entry.input,
+    output: entry.output,
+    ...(entry.cacheReadInput != null ? { cacheReadInput: entry.cacheReadInput } : {}),
+    ...(entry.cacheCreationInput != null ? { cacheCreationInput: entry.cacheCreationInput } : {}),
+  };
 }
 
 function hydrateFromDisk(projectRoot: string): void {
