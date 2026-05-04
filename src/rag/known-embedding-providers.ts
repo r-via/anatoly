@@ -17,7 +17,7 @@ export interface KnownEmbeddingProviderEntry {
   /**
    * Base URL for the embedding API.
    * - `null` for native SDK providers (openai).
-   * - `string` for fixed-URL providers (voyage, qwen, cohere, mistral).
+   * - `string` for fixed-URL providers (voyage, openrouter, cohere, mistral).
    * - `(kind) => string` for providers with per-axis URLs (anatoly-local).
    */
   readonly base_url: string | null | ((kind: 'code' | 'nlp') => string);
@@ -52,12 +52,17 @@ export const KNOWN_EMBEDDING_PROVIDERS: Readonly<Record<string, KnownEmbeddingPr
     default_code_model: 'voyage-code-3',
     default_nlp_model: 'voyage-3-large',
   },
-  qwen: {
-    base_url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    env_key: 'DASHSCOPE_API_KEY',
+  openrouter: {
+    // OpenRouter is the canonical aggregator route for Qwen3-Embedding-8B
+    // (dim 4096, parity with the local advanced GGUF tier). Empirically
+    // verified 2026-05-04: response is OpenAI-strict, batch ordering preserved,
+    // pricing ~$0.01/1M tokens. Reuses the same base_url + env_key as the LLM
+    // KNOWN_PROVIDERS.openrouter entry from Epic 43.
+    base_url: 'https://openrouter.ai/api/v1',
+    env_key: 'OPENROUTER_API_KEY',
     type: 'openai-compatible',
-    default_code_model: 'text-embedding-v4',
-    default_nlp_model: 'text-embedding-v4',
+    default_code_model: 'qwen/qwen3-embedding-8b',
+    default_nlp_model: 'qwen/qwen3-embedding-8b',
   },
   cohere: {
     base_url: 'https://api.cohere.com/v1',

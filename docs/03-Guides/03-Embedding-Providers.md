@@ -10,7 +10,7 @@ Anatoly produces two embedding vectors for every indexed function — a **code**
 |---|---|---|---|---|---|---|
 | **`lite`** | ONNX in-process via `@huggingface/transformers` | None (auto on first run) | CPU only | Good | Free | Default. Works everywhere, no external services. |
 | **`advanced`** | GGUF llama.cpp Docker container (`anatoly-local`) | Run `anatoly setup-embeddings` once | NVIDIA GPU + ≥ 12 GB VRAM + Docker | Best | Free (after model download, ~10 GB) | Local power users with a capable GPU who want maximum quality without sending code to a third party. |
-| **`external`** | Vercel AI SDK → any OpenAI-compatible API (OpenAI, Voyage, Qwen, Cohere, Mistral, custom) | Set provider + API key in `.anatoly.yml` | None (CPU only) | Provider-dependent | Per-token billed by the provider | Cloud-friendly, zero local infra. Best when you have a Voyage/OpenAI account or a corporate inference endpoint. |
+| **`external`** | Vercel AI SDK → any OpenAI-compatible API (OpenAI, Voyage, OpenRouter, Cohere, Mistral, custom) | Set provider + API key in `.anatoly.yml` | None (CPU only) | Provider-dependent | Per-token billed by the provider | Cloud-friendly, zero local infra. Best when you have a Voyage/OpenRouter/OpenAI account or a corporate inference endpoint. |
 
 The active tier is selected at first run via the embedded wizard or by editing `.anatoly.yml` directly. The CLI flags `--rag-lite` and `--rag-advanced` override the persisted choice for a single run; the `external` tier requires an explicit YAML config.
 
@@ -31,8 +31,8 @@ rag:
       base_url: https://...         # optional, registry default applies for known providers
       env_key: VOYAGE_API_KEY       # optional, registry default applies for known providers
     nlp:
-      provider: qwen
-      model: text-embedding-v4
+      provider: openrouter
+      model: qwen/qwen3-embedding-8b
 ```
 
 Both `code` and `nlp` sections are independently optional. If only one is set, the other duplicates it at runtime. If both are absent, Anatoly falls back to `lite` or `advanced` based on `.anatoly/embeddings-ready.json`.
@@ -83,24 +83,26 @@ rag:
     nlp:  { provider: voyage, model: voyage-3-large }
 ```
 
-### `qwen` (Alibaba DashScope)
+### `openrouter`
 
-Hosted Qwen3-Embedding family via DashScope international. Direct parity with the open-weights Qwen3-Embedding-8B used by the local `advanced` tier on the NLP axis.
+Aggregator route to the open-weights Qwen3-Embedding-8B (4096d, **strict parity** with the local `advanced` GGUF tier on the NLP axis). Empirically verified 2026-05-04: response is OpenAI-strict, batch ordering preserved, pricing trivial (~$0.01 per 1M tokens). Reuses the same env var as the LLM `openrouter` entry from Epic 43, so users who already authenticate against OpenRouter for completions get embeddings out of the box.
 
 | Field | Value |
 |---|---|
-| `base_url` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
-| `env_key` | `DASHSCOPE_API_KEY` |
-| Default code model | `text-embedding-v4` |
-| Default NLP model | `text-embedding-v4` |
-| Notes | The DashScope model ID that exposes Qwen3-Embedding-8B has not yet been validated empirically against the `text-embedding-v4` vs `qwen3-embedding-N` SKU split. Adjust `model:` if your account exposes a different ID. The runtime dim probe (cached in `.anatoly/embeddings-ready.json`) absorbs any mismatch. |
+| `base_url` | `https://openrouter.ai/api/v1` |
+| `env_key` | `OPENROUTER_API_KEY` |
+| Default code model | `qwen/qwen3-embedding-8b` (4096d) |
+| Default NLP model | `qwen/qwen3-embedding-8b` (4096d) |
+| Notes | OpenRouter exposes other embedding models too (e.g. `openai/text-embedding-3-large` routed via OpenRouter). Override `model:` to use them. The Qwen3-8B route is preferred for parity with the local advanced tier. |
 
 ```yaml
 rag:
   embedding:
-    code: { provider: qwen, model: text-embedding-v4 }
-    nlp:  { provider: qwen, model: text-embedding-v4 }
+    code: { provider: openrouter, model: qwen/qwen3-embedding-8b }
+    nlp:  { provider: openrouter, model: qwen/qwen3-embedding-8b }
 ```
+
+Direct DashScope routing (`base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1`, `env_key: DASHSCOPE_API_KEY`) remains available as a custom provider — see the [Custom provider](#custom-provider) section.
 
 ### `cohere`
 
@@ -129,7 +131,7 @@ rag:
 
 ## Recommended combo — best-of-breed quality
 
-For users who want the highest semantic recall **without** running a local GPU, mix Voyage for code with Qwen for NLP:
+For users who want the highest semantic recall **without** running a local GPU, mix Voyage for code with OpenRouter-routed Qwen3-8B for NLP:
 
 ```yaml
 # .anatoly.yml
@@ -139,18 +141,18 @@ rag:
       provider: voyage
       model: voyage-code-3
     nlp:
-      provider: qwen
-      model: text-embedding-v4
+      provider: openrouter
+      model: qwen/qwen3-embedding-8b
 ```
 
 | Axis | Provider/Model | Why |
 |---|---|---|
-| Code | `voyage/voyage-code-3` | SOTA on CoIR for code retrieval, ~13% above OpenAI text-embedding-3-large on aggregate |
-| NLP | `qwen/text-embedding-v4` | Direct hosted variant of the Qwen3-Embedding family used by the local `advanced` tier |
+| Code | `voyage/voyage-code-3` (1024d) | SOTA on CoIR for code retrieval, ~13% above OpenAI text-embedding-3-large on aggregate |
+| NLP | `openrouter/qwen/qwen3-embedding-8b` (4096d) | Same open-weights model as the local `advanced` GGUF tier — bit-comparable recall, no GPU required |
 
-Required env vars: `VOYAGE_API_KEY` and `DASHSCOPE_API_KEY`.
+Required env vars: `VOYAGE_API_KEY` and `OPENROUTER_API_KEY`.
 
-This combo is the closest cloud-friendly equivalent to running the GGUF `advanced` tier locally — no GPU required, comparable F1 on `anatoly-bench`.
+This combo is the closest cloud-friendly equivalent to running the GGUF `advanced` tier locally — no GPU required, parity dim/recall on the NLP axis, and OpenRouter pricing on Qwen3-8B is roughly **$0.01 per 1M tokens** (negligible at typical audit scale).
 
 ---
 

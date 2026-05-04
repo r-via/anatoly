@@ -44,7 +44,7 @@
 | Document | Description |
 |----------|-------------|
 | [Advanced Configuration](03-Guides/02-Advanced-Configuration.md) | Complete `.anatoly.yml` schema reference, CLI overrides, env vars |
-| [Embedding Providers](03-Guides/03-Embedding-Providers.md) | Choose lite/advanced/external tier; configure OpenAI, Voyage, Qwen, Cohere, Mistral, or custom OpenAI-compatible endpoints; enterprise dedicated deployment patterns |
+| [Embedding Providers](03-Guides/03-Embedding-Providers.md) | Choose lite/advanced/external tier; configure OpenAI, Voyage, OpenRouter (Qwen3-8B), Cohere, Mistral, or custom OpenAI-compatible endpoints; enterprise dedicated deployment patterns |
 
 ---
 

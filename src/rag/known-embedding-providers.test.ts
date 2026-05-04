@@ -14,7 +14,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('KNOWN_EMBEDDING_PROVIDERS registry', () => {
-  const expectedIds = ['openai', 'voyage', 'qwen', 'cohere', 'mistral', 'anatoly-local'];
+  const expectedIds = ['openai', 'voyage', 'openrouter', 'cohere', 'mistral', 'anatoly-local'];
 
   it('should contain all 6 expected embedding provider entries', () => {
     for (const id of expectedIds) {
@@ -96,14 +96,14 @@ describe('voyage embedding provider', () => {
   });
 });
 
-describe('qwen embedding provider', () => {
-  it('should reuse the same base_url as LLM KNOWN_PROVIDERS qwen', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS.qwen;
-    expect(entry.base_url).toBe('https://dashscope-intl.aliyuncs.com/compatible-mode/v1');
-    expect(entry.env_key).toBe('DASHSCOPE_API_KEY');
+describe('openrouter embedding provider', () => {
+  it('should route Qwen3-Embedding-8B via OpenRouter aggregator', () => {
+    const entry = KNOWN_EMBEDDING_PROVIDERS.openrouter;
+    expect(entry.base_url).toBe('https://openrouter.ai/api/v1');
+    expect(entry.env_key).toBe('OPENROUTER_API_KEY');
     expect(entry.type).toBe('openai-compatible');
-    expect(entry.default_code_model).toBe('text-embedding-v4');
-    expect(entry.default_nlp_model).toBe('text-embedding-v4');
+    expect(entry.default_code_model).toBe('qwen/qwen3-embedding-8b');
+    expect(entry.default_nlp_model).toBe('qwen/qwen3-embedding-8b');
   });
 });
 
