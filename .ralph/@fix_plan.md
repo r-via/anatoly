@@ -151,20 +151,9 @@
 - [x] Story 48.6: End-of-setup 3-choice prompt
 - [x] Story 48.7: `--defaults-settings` flag + cleanup hint detector
 - [x] Story 48.8: Quick Win runtime filter + summary suggestion
-  > As a utilisateur ayant choisi Quick Win
-  > I want que mon premier audit soit rapide en limitant les axes et en sautant la bootstrap doc
-  > So that je vois un premier résultat en moins d'une minute et je décide ensuite si je veux le full run.
-  > AC: Given `runFirstRunWizard()` retourne `{ mode: 'quick-win' }` (story 48.1), When la phase setup termine et le run continue vers review, Then `ctx.axesFilter` est forcé à `['utility', 'duplication', 'correction']` (override l'éventuel `--axes` CLI), And `ctx.skipDocBootstrap = true` (champ ajouté à `RunContext`)
-  > AC: Given `ctx.skipDocBootstrap === true`, When le code consomme `needsBootstrap(srcRoot)` ([src/commands/run.ts:490](src/commands/run.ts#L490)), Then la bootstrap doc phase est court-circuitée (treated as if `needsBootstrap` returned false), And la pipeline row `internal docs` affiche `'skipped (quick-win mode)'`
-  > AC: Given un run Quick Win se termine avec succès, When la summary CLI est rendue ([src/commands/run.ts:2182](src/commands/run.ts#L2182)), Then une ligne supplémentaire est imprimée :, ```, 💡 Ran in quick-win mode (3 axes, no docs)., Run `anatoly run` again for the full audit (7 axes + doc analysis)., ```, And la ligne est en couleur dim (chalk.dim)
-  > AC: Given `--quick-win` est passé en CLI sur un projet déjà configuré (avec `.anatoly.yml`), When le run démarre, Then la wizard est skippée (déjà configuré), And `ctx.axesFilter` et `ctx.skipDocBootstrap` sont forcés comme en first-run quick-win, And la summary suggestion s'affiche également
-  > AC: Given le mode est `'full-run'`, When le run continue, Then aucun override n'est appliqué (`ctx.axesFilter` respecte le CLI / config, `ctx.skipDocBootstrap = false`), And la summary ne contient pas la suggestion quick→full
-  > AC: Given un run Quick Win échoue (interrupt, crash), When la summary serait affichée, Then la suggestion quick→full n'est pas affichée (réservée aux runs réussis pour ne pas bruiter la trace d'erreur)
-  > AC: Given la combinaison `--quick-win --no-triage`, When le run démarre, Then la combinaison est tolérée (les deux flags s'appliquent indépendamment)
-  > Spec: specs/planning-artifacts/epic-48-first-run-unified-onboarding.md#story-48-8
 ### First-run Polish
 
-- [ ] Story 49.1: Recovery messages actionnables pour failures de download
+- [x] Story 49.1: Recovery messages actionnables pour failures de download
   > As a utilisateur dont le download échoue
   > I want comprendre **pourquoi** ça a échoué et avoir une voie de sortie immédiate
   > So that je ne suis pas bloqué avec un stack trace cryptique.

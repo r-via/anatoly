@@ -66,6 +66,7 @@ import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
+import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -272,33 +273,70 @@ export function registerRunCommand(program: Command): void {
           defaultsSettings: useDefaults,
         });
 
-        // Advanced tier: also download GGUF models with SHA-256 verification.
-        // On failure, fall back to lite tier for this run.
+        // Advanced tier: download GGUF models with SHA-256 verification.
+        // On failure, show actionable recovery prompt (Story 49.1).
         if (wizardResult.tier === 'advanced') {
-          const ggufOk = await runGgufPrefetch({
-            isTTY: process.stdin.isTTY === true,
-            defaultsSettings: useDefaults,
-          });
-          if (!ggufOk) {
-            wizardResult = { ...wizardResult, tier: 'lite' };
-            getLogger().warn('GGUF download failed — tier forced to lite for this run');
-          } else {
-            // GGUF models downloaded — run setup-embeddings to pull Docker
-            // image and start containers. User sees logs in real time.
-            const setupResult = runSetupEmbeddingsSubprocess(projectRoot);
-            if (setupResult.ok) {
-              // Re-read the flag that setup-embeddings.sh wrote
-              const flag = readEmbeddingsReadyFlag(projectRoot);
-              if (flag) {
-                getLogger().info({ backend: flag.backend }, 'setup-embeddings completed — advanced mode ready');
+          const isTTY = process.stdin.isTTY === true;
+          let advancedReady = false;
+
+          // GGUF download with retry loop
+          let ggufDone = false;
+          while (!ggufDone) {
+            const ggufResult = await runGgufPrefetch({ isTTY, defaultsSettings: useDefaults });
+            if (ggufResult.ok) {
+              ggufDone = true;
+
+              // GGUF models downloaded — run setup-embeddings to pull Docker
+              // image and start containers. User sees logs in real time.
+              let setupDone = false;
+              while (!setupDone) {
+                const setupResult = runSetupEmbeddingsSubprocess(projectRoot);
+                if (setupResult.ok) {
+                  setupDone = true;
+                  const flag = readEmbeddingsReadyFlag(projectRoot);
+                  if (flag) {
+                    getLogger().info({ backend: flag.backend }, 'setup-embeddings completed — advanced mode ready');
+                  }
+                  advancedReady = true;
+                } else {
+                  const setupError = new Error(`setup-embeddings failed (exit ${setupResult.exitCode})`);
+                  const kind = classifyDownloadError(setupError);
+                  const choice: RecoveryChoice = await promptDownloadRecovery({
+                    kind,
+                    error: setupError,
+                    isTTY,
+                    defaultsSettings: useDefaults,
+                  });
+                  if (choice === 'retry') continue;
+                  if (choice === 'quit') {
+                    process.exit(0);
+                  }
+                  // continue-lite
+                  setupDone = true;
+                }
               }
             } else {
-              wizardResult = { ...wizardResult, tier: 'lite' };
-              getLogger().warn(
-                { exitCode: setupResult.exitCode },
-                `setup-embeddings failed (exit ${setupResult.exitCode}) — falling back to lite`,
-              );
+              const dlError = ggufResult.lastError ?? new Error('GGUF download failed');
+              const kind = classifyDownloadError(dlError);
+              const choice: RecoveryChoice = await promptDownloadRecovery({
+                kind,
+                error: dlError,
+                isTTY,
+                defaultsSettings: useDefaults,
+                neededGB: 15,
+              });
+              if (choice === 'retry') continue;
+              if (choice === 'quit') {
+                process.exit(0);
+              }
+              // continue-lite
+              ggufDone = true;
             }
+          }
+
+          if (!advancedReady) {
+            wizardResult = { ...wizardResult, tier: 'lite' };
+            getLogger().warn('advanced setup incomplete — tier forced to lite for this run');
           }
         }
 

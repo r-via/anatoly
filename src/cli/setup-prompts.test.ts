@@ -404,25 +404,26 @@ describe('runGgufPrefetch', () => {
 
     expect(spinnerStartMock).toHaveBeenCalledWith(expect.stringContaining('GGUF'));
     expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('ready'));
-    expect(result).toBe(true);
+    expect(result).toEqual({ ok: true, lastError: undefined });
   });
 
-  // AC: returns true on success
-  it('returns true when all downloads succeed', async () => {
+  // AC: returns ok:true on success
+  it('returns ok:true when all downloads succeed', async () => {
     ggufPrefetchMock.mockResolvedValue(undefined);
 
     const result = await runGgufPrefetch({ isTTY: false, defaultsSettings: false });
-    expect(result).toBe(true);
+    expect(result).toEqual({ ok: true, lastError: undefined });
   });
 
-  // AC: returns false when a download fails
-  it('returns false when a download error event fires', async () => {
+  // AC: returns ok:false with lastError when a download fails
+  it('returns ok:false with lastError when a download error event fires', async () => {
+    const dlError = new Error('Network error');
     ggufPrefetchMock.mockImplementation(async (opts) => {
-      opts?.onProgress?.({ kind: 'error', filename: 'model.gguf', error: new Error('Network error') });
+      opts?.onProgress?.({ kind: 'error', filename: 'model.gguf', error: dlError });
     });
 
     const result = await runGgufPrefetch({ isTTY: true, defaultsSettings: false });
-    expect(result).toBe(false);
+    expect(result).toEqual({ ok: false, lastError: dlError });
     expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('failed'));
   });
 

@@ -219,9 +219,16 @@ export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: 
  *
  * On failure, warns and returns `false` — the caller forces tier to lite.
  */
-export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: boolean }): Promise<boolean> {
+export interface GgufPrefetchResult {
+  ok: boolean;
+  /** The last error encountered during GGUF download, if any. */
+  lastError?: Error;
+}
+
+export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: boolean }): Promise<GgufPrefetchResult> {
   const log = getLogger();
   let hadError = false;
+  let lastError: Error | undefined;
 
   if (opts.isTTY && !opts.defaultsSettings) {
     // Interactive: spinner
@@ -245,13 +252,14 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
             break;
           case 'error':
             hadError = true;
+            lastError = ev.error;
             log.warn({ filename: ev.filename, err: ev.error.message }, 'GGUF model download failed');
             break;
         }
       },
     });
 
-    spinner.stop(hadError ? 'GGUF download failed — falling back to lite' : 'GGUF models ready');
+    spinner.stop(hadError ? 'GGUF download failed' : 'GGUF models ready');
   } else {
     // Non-interactive: linear log
     log.info('downloading GGUF embedding models…');
@@ -264,19 +272,20 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
           log.info({ filename: ev.filename }, 'GGUF model ready');
         } else if (ev.kind === 'error') {
           hadError = true;
+          lastError = ev.error;
           log.warn({ filename: ev.filename, err: ev.error.message }, 'GGUF model download failed');
         }
       },
     });
 
     if (hadError) {
-      log.warn('GGUF download failed — falling back to lite');
+      log.warn('GGUF download failed');
     } else {
       log.info('GGUF embedding models ready');
     }
   }
 
-  return !hadError;
+  return { ok: !hadError, lastError };
 }
 
 // ---------------------------------------------------------------------------
