@@ -35,7 +35,7 @@ describe('detectHints', () => {
   });
 
   it('emits no-init hint when .anatoly.yml is missing', () => {
-    const hints = detectHints({ projectRoot, ragEnabled: false });
+    const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
     expect(hints.map((h) => h.id)).toContain('no-init');
     const noInit = hints.find((h) => h.id === 'no-init');
     expect(noInit?.command?.argv).toEqual(['init']);
@@ -43,7 +43,7 @@ describe('detectHints', () => {
 
   it('omits no-init hint when .anatoly.yml exists', () => {
     writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
-    const hints = detectHints({ projectRoot, ragEnabled: false });
+    const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
     expect(hints.map((h) => h.id)).not.toContain('no-init');
   });
 
@@ -54,6 +54,7 @@ describe('detectHints', () => {
       ragEnabled: true,
       resolvedRagMode: 'lite',
       hardware: capableHardware,
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).toContain('lite-rag-can-upgrade');
     const upgrade = hints.find((h) => h.id === 'lite-rag-can-upgrade');
@@ -67,6 +68,7 @@ describe('detectHints', () => {
       ragEnabled: true,
       resolvedRagMode: 'advanced',
       hardware: capableHardware,
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
   });
@@ -78,6 +80,7 @@ describe('detectHints', () => {
       ragEnabled: false,
       resolvedRagMode: 'lite',
       hardware: capableHardware,
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
   });
@@ -89,6 +92,7 @@ describe('detectHints', () => {
       ragEnabled: true,
       resolvedRagMode: 'lite',
       hardware: { ...capableHardware, hasGpu: false, gpuType: undefined, vramGB: undefined },
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
   });
@@ -100,6 +104,7 @@ describe('detectHints', () => {
       ragEnabled: true,
       resolvedRagMode: 'lite',
       hardware: { ...capableHardware, vramGB: 8 },
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).not.toContain('lite-rag-can-upgrade');
   });
@@ -111,8 +116,23 @@ describe('detectHints', () => {
       ragEnabled: true,
       resolvedRagMode: 'lite',
       hardware: { ...capableHardware, hasDocker: false, hasNvidiaContainerToolkit: false },
+      telegramEnabled: true,
     });
     expect(hints.map((h) => h.id)).toContain('lite-rag-can-upgrade');
+  });
+
+  it('emits no-telegram-bot hint when Telegram notifications are disabled', () => {
+    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
+    const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: false });
+    expect(hints.map((h) => h.id)).toContain('no-telegram-bot');
+    const bot = hints.find((h) => h.id === 'no-telegram-bot');
+    expect(bot?.command?.argv).toEqual(['notifications', 'create-bot']);
+  });
+
+  it('omits no-telegram-bot hint when Telegram notifications are enabled', () => {
+    writeFileSync(join(projectRoot, '.anatoly.yml'), 'providers: {}\n');
+    const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
+    expect(hints.map((h) => h.id)).not.toContain('no-telegram-bot');
   });
 });
 

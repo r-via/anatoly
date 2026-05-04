@@ -1076,6 +1076,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       ragEnabled: ctx.enableRag,
       resolvedRagMode: ctx.resolvedRagMode,
       hardware,
+      telegramEnabled: ctx.config.notifications?.telegram?.enabled === true,
     });
   }
 

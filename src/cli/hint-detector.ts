@@ -38,6 +38,8 @@ export interface HintContext {
   ragEnabled: boolean;
   resolvedRagMode?: 'lite' | 'advanced';
   hardware?: HardwareProfile;
+  /** Whether `notifications.telegram.enabled` is true in the loaded config. */
+  telegramEnabled: boolean;
 }
 
 interface DismissalFile {
@@ -99,9 +101,22 @@ export function detectHints(ctx: HintContext): Hint[] {
       body:
         `Detected an NVIDIA GPU with ${hw.vramGB}GB VRAM (>= ${GGUF_MIN_VRAM_GB}GB required).\n` +
         'You can switch to the advanced GGUF embedding backend (nomic-embed-code + Qwen3-8B) for higher recall.\n' +
+        'Disk usage: ~10 GB for the GGUF models + ~5 GB for the llama.cpp CUDA Docker image (~15 GB total).\n' +
         '`anatoly setup-embeddings` walks you through installing Docker / the NVIDIA toolkit if needed,\n' +
         'downloads the GGUF models, and starts the containers.',
       command: { label: 'Run anatoly setup-embeddings', argv: ['setup-embeddings'] },
+    });
+  }
+
+  if (!ctx.telegramEnabled) {
+    hints.push({
+      id: 'no-telegram-bot',
+      title: 'Telegram notifications not configured',
+      body:
+        "You won't get a ping when an audit finishes — useful for long runs.\n" +
+        '`anatoly notifications create-bot` walks you through creating a Telegram bot via @BotFather,\n' +
+        'saves the token to .env, and writes the username into .anatoly.yml.',
+      command: { label: 'Run anatoly notifications create-bot', argv: ['notifications', 'create-bot'] },
     });
   }
 
