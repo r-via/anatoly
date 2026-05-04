@@ -2,8 +2,10 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { MODEL_REGISTRY, GGUF_CODE_PORT, GGUF_NLP_PORT, type ResolvedModels } from './hardware-detect.js';
-import { ensureModel } from './docker-gguf.js';
+import { embed as aiEmbed, embedMany as aiEmbedMany } from 'ai';
+import type { EmbeddingModelV3 } from '@ai-sdk/provider';
+import { MODEL_REGISTRY, type ResolvedModels } from './hardware-detect.js';
+import { getVercelEmbeddingModel } from './sdk-embedding.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -26,8 +28,8 @@ const MAX_CODE_CHARS = 1500;
 
 let codeModelId = DEFAULT_CODE_MODEL;
 let nlpModelId = DEFAULT_NLP_MODEL;
-let codeRuntime: 'onnx' | 'gguf' = 'onnx';
-let nlpRuntime: 'onnx' | 'gguf' = 'onnx';
+let codeRuntime: 'onnx' | 'sdk' = 'onnx';
+let nlpRuntime: 'onnx' | 'sdk' = 'onnx';
 let codeDim = MODEL_REGISTRY[DEFAULT_CODE_MODEL]?.dim ?? 768;
 let nlpDim = MODEL_REGISTRY[DEFAULT_NLP_MODEL]?.dim ?? 384;
 
@@ -35,6 +37,10 @@ let nlpDim = MODEL_REGISTRY[DEFAULT_NLP_MODEL]?.dim ?? 384;
 let codeEmbedderPromise: Promise<any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let nlpEmbedderPromise: Promise<any> | null = null;
+
+// SDK model instances (populated by configureModels when runtime is 'sdk')
+let codeSdkModel: EmbeddingModelV3 | null = null;
+let nlpSdkModel: EmbeddingModelV3 | null = null;
 
 let onLog: (message: string) => void = () => {};
 
@@ -57,15 +63,27 @@ export function setEmbeddingLogger(logger: (message: string) => void): void {
 export function configureModels(resolved: ResolvedModels): void {
   codeModelId = resolved.codeModel;
   nlpModelId = resolved.nlpModel;
-  codeRuntime = resolved.codeRuntime;
-  nlpRuntime = resolved.nlpRuntime;
+  codeRuntime = resolved.codeRuntime as 'onnx' | 'sdk';
+  nlpRuntime = resolved.nlpRuntime as 'onnx' | 'sdk';
   codeDim = resolved.codeDim;
   nlpDim = resolved.nlpDim;
 
-  // Reset cached embedders so new models are loaded
+  // Reset cached embedders
   codeEmbedderPromise = null;
   nlpEmbedderPromise = null;
   onnxFallbackPromise = null;
+  codeSdkModel = null;
+  nlpSdkModel = null;
+
+  // Instantiate SDK models when runtime is 'sdk'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const config = (resolved as any)._config;
+  if (codeRuntime === 'sdk' && config) {
+    codeSdkModel = getVercelEmbeddingModel('code', codeModelId, config);
+  }
+  if (nlpRuntime === 'sdk' && config) {
+    nlpSdkModel = getVercelEmbeddingModel('nlp', nlpModelId, config);
+  }
 }
 
 /** Current code embedding model ID. */
@@ -161,147 +179,37 @@ function getNlpEmbedder(): Promise<any> {
 }
 
 // ---------------------------------------------------------------------------
+// SDK embedding helpers (Vercel AI SDK)
+// ---------------------------------------------------------------------------
+
+/**
+ * Embed a single text via the Vercel AI SDK.
+ */
+async function embedViaSdk(text: string, model: EmbeddingModelV3): Promise<number[]> {
+  const { embedding } = await aiEmbed({ model, value: text });
+  return embedding;
+}
+
+/**
+ * Embed multiple texts via the Vercel AI SDK.
+ */
+async function embedBatchViaSdk(texts: string[], model: EmbeddingModelV3): Promise<number[][]> {
+  const { embeddings } = await aiEmbedMany({ model, values: texts });
+  return embeddings;
+}
+
+// ---------------------------------------------------------------------------
 // Embedding functions
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// GGUF Docker embedding via HTTP API (llama.cpp server-cuda)
-// ---------------------------------------------------------------------------
-
-const MAX_GGUF_CHARS = 8000;
-
-/**
- * Embed a single text via a GGUF llama.cpp Docker container's HTTP API.
- *
- * Truncates input to {@link MAX_GGUF_CHARS} to avoid OOM in the container.
- * Retries on transient failures with a 2-second backoff between attempts.
- * Handles multiple llama.cpp response formats (nested array, flat array,
- * and legacy `results` wrapper).
- *
- * @param text - The text to embed.
- * @param port - Host port of the running llama.cpp container.
- * @param retries - Number of retry attempts on failure (default: 2).
- * @returns The embedding vector as a number array.
- */
-async function embedViaGguf(text: string, port: number, retries = 2): Promise<number[]> {
-  // Truncate to avoid OOM in llama.cpp container
-  if (text.length > MAX_GGUF_CHARS) {
-    text = text.slice(0, MAX_GGUF_CHARS);
-  }
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/embedding`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: text }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`GGUF container failed (${res.status}): ${await res.text()}`);
-      }
-
-      const data = await res.json() as unknown;
-
-      // llama.cpp returns: [{index: 0, embedding: [[...floats...]]}]
-      if (Array.isArray(data) && data[0]?.embedding) {
-        const emb = data[0].embedding;
-        // embedding is [[...floats...]] (nested) or [...floats...]
-        return Array.isArray(emb[0]) ? emb[0] : emb;
-      }
-      // Older format: {results: [{embedding: [...]}]}
-      const obj = data as { results?: Array<{ embedding: number[][] | number[] }>; embedding?: number[][] | number[] };
-      if (obj.results?.[0]?.embedding) {
-        const emb = obj.results[0].embedding;
-        return Array.isArray(emb[0]) ? emb[0] as number[] : emb as number[];
-      }
-      if (obj.embedding) {
-        const emb = obj.embedding;
-        return Array.isArray(emb[0]) ? emb[0] as number[] : emb as number[];
-      }
-      throw new Error('GGUF container returned unexpected response format');
-    } catch (err) {
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('embedViaGguf: unreachable');
-}
-
-/** Max texts per GGUF batch request to avoid exceeding context window. */
-const MAX_GGUF_BATCH_SIZE = 16;
-
-/**
- * Embed a single batch of texts via GGUF (llama.cpp batch API).
- * Callers should chunk into groups of MAX_GGUF_BATCH_SIZE first.
- */
-async function embedBatchViaGgufSingle(texts: string[], port: number, retries = 2): Promise<number[][]> {
-  const truncated = texts.map((t) => t.length > MAX_GGUF_CHARS ? t.slice(0, MAX_GGUF_CHARS) : t);
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/embedding`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input: truncated }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`GGUF container failed (${res.status}): ${await res.text()}`);
-      }
-
-      const data = await res.json() as unknown;
-
-      // llama.cpp returns: [{index: 0, embedding: [[...]]}, {index: 1, embedding: [[...]]}]
-      if (Array.isArray(data)) {
-        // Sort by index to ensure correct order
-        const sorted = [...data].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-        return sorted.map((item) => {
-          const emb = item.embedding;
-          return Array.isArray(emb[0]) ? emb[0] : emb;
-        });
-      }
-      throw new Error('GGUF batch returned unexpected response format');
-    } catch (err) {
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('embedBatchViaGgufSingle: unreachable');
-}
-
-/**
- * Embed multiple texts via GGUF, automatically chunking into batches
- * of MAX_GGUF_BATCH_SIZE to avoid exceeding llama.cpp's context window.
- */
-async function embedBatchViaGguf(texts: string[], port: number): Promise<number[][]> {
-  if (texts.length <= MAX_GGUF_BATCH_SIZE) {
-    return embedBatchViaGgufSingle(texts, port);
-  }
-
-  const results: number[][] = [];
-  for (let i = 0; i < texts.length; i += MAX_GGUF_BATCH_SIZE) {
-    const chunk = texts.slice(i, i + MAX_GGUF_BATCH_SIZE);
-    const batch = await embedBatchViaGgufSingle(chunk, port);
-    results.push(...batch);
-  }
-  return results;
-}
-
 /**
  * Embed multiple code texts in a single batch request.
- * Falls back to sequential embedCode() for ONNX runtime.
+ * Uses SDK embedMany for 'sdk' runtime, sequential ONNX for 'onnx'.
  */
 export async function embedCodeBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (codeRuntime === 'gguf') {
-    await ensureModel('code');
-    return embedBatchViaGguf(texts, GGUF_CODE_PORT);
+  if (codeRuntime === 'sdk' && codeSdkModel) {
+    return embedBatchViaSdk(texts, codeSdkModel);
   }
   // ONNX fallback: sequential
   const results: number[][] = [];
@@ -313,13 +221,12 @@ export async function embedCodeBatch(texts: string[]): Promise<number[][]> {
 
 /**
  * Embed multiple NLP texts in a single batch request.
- * Falls back to sequential embedNlp() for ONNX runtime.
+ * Uses SDK embedMany for 'sdk' runtime, sequential ONNX for 'onnx'.
  */
 export async function embedNlpBatch(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
-  if (nlpRuntime === 'gguf') {
-    await ensureModel('nlp');
-    return embedBatchViaGguf(texts, GGUF_NLP_PORT);
+  if (nlpRuntime === 'sdk' && nlpSdkModel) {
+    return embedBatchViaSdk(texts, nlpSdkModel);
   }
   // ONNX fallback: sequential
   const results: number[][] = [];
@@ -333,24 +240,22 @@ export async function embedNlpBatch(texts: string[]): Promise<number[][]> {
 
 /**
  * Generate a code embedding vector for the given text.
- * Routes to GGUF Docker or ONNX based on configured runtime.
+ * Routes to SDK or ONNX based on configured runtime.
  */
 export async function embedCode(text: string): Promise<number[]> {
-  if (codeRuntime === 'gguf') {
-    await ensureModel('code');
-    return embedViaGguf(text, GGUF_CODE_PORT);
+  if (codeRuntime === 'sdk' && codeSdkModel) {
+    return embedViaSdk(text, codeSdkModel);
   }
   return embedViaOnnx(text);
 }
 
 /**
  * Generate an NLP embedding vector for the given text.
- * Routes to GGUF Docker or ONNX based on configured runtime.
+ * Routes to SDK or ONNX based on configured runtime.
  */
 export async function embedNlp(text: string): Promise<number[]> {
-  if (nlpRuntime === 'gguf') {
-    await ensureModel('nlp');
-    return embedViaGguf(text, GGUF_NLP_PORT);
+  if (nlpRuntime === 'sdk' && nlpSdkModel) {
+    return embedViaSdk(text, nlpSdkModel);
   }
   const model = await getNlpEmbedder();
   const output = await model(text, { pooling: 'mean', normalize: true });

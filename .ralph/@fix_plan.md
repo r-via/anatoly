@@ -164,19 +164,7 @@
 - [x] Story 50.1: Schema Zod section `embedding` + backward-compat resolver
 - [x] Story 50.2: Registre `KNOWN_EMBEDDING_PROVIDERS` + entrée `anatoly-local` avec hook ensureModel
 - [x] Story 50.3: Factory `getVercelEmbeddingModel` + probe dim runtime + cache signature
-  > As a développeur du pipeline d'embedding
-  > I want une factory unique qui retourne un `EmbeddingModelV3` du Vercel AI SDK pour n'importe quel provider connu ou custom
-  > So that le call-site `embeddings.ts` ne connaît qu'une API uniforme et le routing par provider est centralisé.
-  > AC: Given `src/rag/sdk-embedding.ts` est créé, When `getVercelEmbeddingModel(kind, modelId, config)` est appelé avec `kind: 'code' | 'nlp'`, Then il extrait le provider du modelId (via `extractProvider` de `core/transports/index.ts`, réutilisé), And il résout le provider via `resolveEmbeddingProvider`, And pour `type: 'native'` + `provider === 'openai'` → retourne `openai.textEmbedding(modelId)` de `@ai-sdk/openai`, And pour `type: 'openai-compatible'` → retourne `createOpenAICompatible({ baseURL, name, apiKey, headers? }).textEmbeddingModel(modelId)` avec `maxEmbeddingsPerCall` et `supportsParallelCalls` du registre passés via `providerOptions` au call-site
-  > AC: Given le provider a `base_url` sous forme de fonction (cas `anatoly-local`), When la factory est appelée avec `kind: 'code'`, Then `baseURL: 'http://127.0.0.1:11437/v1'`, When appelée avec `kind: 'nlp'`, Then `baseURL: 'http://127.0.0.1:11438/v1'`
-  > AC: Given le provider a un `pre_hook`, When un wrapper `EmbeddingModel` est retourné, Then son `doEmbed` exécute `await pre_hook(kind)` avant de déléguer au modèle SDK sous-jacent, And si le hook throw, l'erreur remonte sans appeler le SDK
-  > AC: Given la clé API est requise (`env_key !== null`) et absente, When la factory est appelée, Then une `AnatolyError` claire est throw : `No API key for embedding provider "X". Set {ENV_KEY} in your environment.`
-  > AC: Given la clé API n'est PAS requise (`env_key === null`, cas `anatoly-local`), When la factory est appelée, Then `apiKey: ''` est passé au SDK (placeholder accepté par `createOpenAICompatible`)
-  > AC: Given `probeEmbeddingDim(model, kind)` est implémenté, When appelé avec un modèle dont la dim n'est pas dans `MODEL_REGISTRY`, Then il appelle `embed({ model, value: 'anatoly probe ' + kind })` du SDK, And retourne `embedding.length`
-  > AC: Given `getEmbeddingSignature(provider, codeModel, nlpModel)` est implémenté, When appelé, Then retourne un hash SHA256 court (8 hex) de `${provider}|${codeModel}|${nlpModel}`
-  > AC: Given `ensureEmbeddingDims(resolved, ctx)` est implémenté, When un `embeddings-ready.json` existe avec `embedding_signature` matchant la config courante, Then les `dim_code`/`dim_nlp` du flag sont utilisés directement (skip probe), When la signature ne match pas (config changée) ou est absente, Then `probeEmbeddingDim` est appelé pour code et nlp, And le flag est mis à jour avec les nouvelles `dim_code`, `dim_nlp` et `embedding_signature`, And un log info indique le probe : `"embedding dims probed: code=N, nlp=M (signature=XXXXXXXX)"`
-  > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-3
-- [ ] Story 50.4: Refacto `embeddings.ts` runtime `'sdk'` + suppression code legacy GGUF + parsing 3-formats
+- [x] Story 50.4: Refacto `embeddings.ts` runtime `'sdk'` + suppression code legacy GGUF + parsing 3-formats
   > As a mainteneur d'anatoly
   > I want que `embeddings.ts` ait un seul chemin SDK pour advanced+external (et l'ONNX intact pour lite)
   > So that ~140 lignes de fetch + retry + parsing manuel disparaissent et que les futurs providers se branchent sans toucher `embeddings.ts`.

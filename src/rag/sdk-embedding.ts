@@ -17,7 +17,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { resolveEmbeddingProvider } from './known-embedding-providers.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import type { EmbeddingsReadyFlag } from './hardware-detect.js';
-import type { EmbeddingModelV1 } from 'ai';
+import type { EmbeddingModelV3 } from '@ai-sdk/provider';
 
 /** Minimal config shape needed to resolve an embedding provider. */
 export interface EmbeddingModelConfig {
@@ -44,7 +44,7 @@ export function getVercelEmbeddingModel(
   kind: 'code' | 'nlp',
   modelId: string,
   config: EmbeddingModelConfig,
-): EmbeddingModelV1<string> {
+): EmbeddingModelV3 {
   const resolved = resolveEmbeddingProvider(config.provider, {
     base_url: config.base_url,
     env_key: config.env_key,
@@ -67,7 +67,7 @@ export function getVercelEmbeddingModel(
     ? resolved.base_url(kind)
     : resolved.base_url;
 
-  let sdkModel: EmbeddingModelV1<string>;
+  let sdkModel: EmbeddingModelV3;
 
   if (resolved.type === 'native' && config.provider === 'openai') {
     sdkModel = openai.textEmbeddingModel(modelId);
@@ -94,14 +94,14 @@ export function getVercelEmbeddingModel(
  * before delegating to the underlying model.
  */
 function wrapWithPreHook(
-  inner: EmbeddingModelV1<string>,
+  inner: EmbeddingModelV3,
   kind: 'code' | 'nlp',
   hook: (kind: 'code' | 'nlp') => Promise<void>,
-): EmbeddingModelV1<string> {
+): EmbeddingModelV3 {
   return {
     ...inner,
     // Override doEmbed to run the hook first
-    doEmbed: async (params: Parameters<EmbeddingModelV1<string>['doEmbed']>[0]) => {
+    doEmbed: async (params: Parameters<EmbeddingModelV3['doEmbed']>[0]) => {
       await hook(kind);
       return inner.doEmbed(params);
     },
@@ -117,7 +117,7 @@ function wrapWithPreHook(
  * Used when the model's dim is not in `MODEL_REGISTRY`.
  */
 export async function probeEmbeddingDim(
-  model: EmbeddingModelV1<string>,
+  model: EmbeddingModelV3,
   kind: 'code' | 'nlp',
 ): Promise<number> {
   const { embedding } = await embed({
@@ -152,8 +152,8 @@ export function getEmbeddingSignature(
 /** Context for ensureEmbeddingDims — injection points for testing. */
 export interface EnsureDimsContext {
   readyFlag?: EmbeddingsReadyFlag | null;
-  getCodeModel?: () => EmbeddingModelV1<string>;
-  getNlpModel?: () => EmbeddingModelV1<string>;
+  getCodeModel?: () => EmbeddingModelV3;
+  getNlpModel?: () => EmbeddingModelV3;
   onLog?: (message: string) => void;
 }
 
