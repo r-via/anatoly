@@ -149,20 +149,16 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   }
 
   // -----------------------------------------------------------------------
-  // External tier: no provider/model sub-prompts. The wizard writes a yaml
-  // template with a commented `rag.embedding` reference block (Mistral for
-  // code + Qwen3 via OpenRouter for NLP). The user uncomments + edits to
-  // pick a provider; `anatoly run` halts via findExternalConfigIssues until
-  // the section is filled in and the matching API keys live in `.env`.
+  // External tier: no provider/model sub-prompts and no audit-mode prompt.
+  // The wizard writes a yaml template with a commented `rag.embedding`
+  // reference block (Mistral for code + Qwen3 via OpenRouter for NLP); the
+  // caller (run.ts) writes the config, prints a final guidance message,
+  // and exits \u2014 there's no point asking the user to pick an audit mode
+  // when the audit can't start until they edit the yaml + .env. Mode is
+  // returned only to keep the type stable; it won't be used.
   // -----------------------------------------------------------------------
   if (tier === 'external') {
-    p.note(
-      'Edit `.anatoly.yml > rag.embedding` to pick your provider \u2014 a\n' +
-      'commented reference block (Mistral + OpenRouter Qwen3) is written\n' +
-      'for you. Then add the matching API keys to your project `.env`.\n' +
-      'The audit halts until both files are ready.',
-      'External embeddings \u2014 yaml configured',
-    );
+    return { tier, mode: 'full-run' };
   }
 
   // -----------------------------------------------------------------------

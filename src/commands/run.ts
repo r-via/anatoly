@@ -270,14 +270,34 @@ export function registerRunCommand(program: Command): void {
       // won't actually be invoked this run.
       const pricingAxesFilter = parseAxesOption(cmdOpts.axes);
       if (pricingAxesFilter === null) return;
+      const ragForPricing = parentOpts.rag !== false && config.rag.enabled;
+
+      // Resolve the embedding tier eagerly so external SDK models (Voyage,
+      // OpenRouter, …) the user identified by `provider` only — without an
+      // explicit `model` in `.anatoly.yml` — still flow into the strict
+      // pricing gate. Local tiers (ONNX / GGUF) resolve to non-`sdk`
+      // runtimes and stay out of the active list, which is the right
+      // outcome (no API price to check).
+      let resolvedEmbedForPricing: ResolvedModels | undefined;
+      if (ragForPricing) {
+        const earlyHardware = detectHardware();
+        const earlyReadyFlag = readEmbeddingsReadyFlag(projectRoot);
+        resolvedEmbedForPricing = await resolveEmbeddingModels(
+          config.rag, earlyHardware, undefined, earlyReadyFlag,
+        );
+      }
+
       const activeModels = enumerateActiveModels(config, {
-        enableRag: parentOpts.rag !== false && config.rag.enabled,
+        enableRag: ragForPricing,
         enableDeliberation: cmdOpts.deliberation !== false,
         axesFilter: pricingAxesFilter,
       });
+      if (resolvedEmbedForPricing?.codeRuntime === 'sdk') activeModels.push(resolvedEmbedForPricing.codeModel);
+      if (resolvedEmbedForPricing?.nlpRuntime === 'sdk') activeModels.push(resolvedEmbedForPricing.nlpModel);
+      const dedupedActiveModels = [...new Set(activeModels)];
       const strictPricing = !cmdOpts.dryRun && !cmdOpts.allowMissingPricing;
       try {
-        await ensurePricing(activeModels, projectRoot, {
+        await ensurePricing(dedupedActiveModels, projectRoot, {
           log: (level, message) => getLogger()[level](message),
           strict: strictPricing,
         });
@@ -417,6 +437,29 @@ export function registerRunCommand(program: Command): void {
         // and (b) the user didn't use --rag-lite / --rag-advanced (AC4).
         if (wizardResult.tier === 'advanced' && !cliTierOverride) {
           savePreferences({ embeddings: { prefer: 'advanced' } });
+        }
+
+        // External tier just landed: yaml + ready-flag are on disk but
+        // `rag.embedding` is still commented and the API keys aren't
+        // exported. Running the validation+pipeline now would fail
+        // every time — exit cleanly with a guidance message instead.
+        // The user edits the two files and re-runs (wizard skipped,
+        // run proceeds normally or halts via findExternalConfigIssues
+        // if anything is still missing).
+        if (wizardResult.tier === 'external') {
+          const yamlPath = resolve(projectRoot, '.anatoly.yml');
+          const envPath = resolve(projectRoot, '.env');
+          printNotice({
+            kind: 'info',
+            title: 'External embedding setup written',
+            hint:
+              `Next steps:\n`
+              + `  1. Open ${yamlPath} and uncomment the \`rag.embedding\` block\n`
+              + `     (Mistral mistral-embed + OpenRouter Qwen3 by default — swap to your provider).\n`
+              + `  2. Add the matching API keys to ${envPath} (auto-loaded by Anatoly).\n`
+              + `  3. Re-run \`anatoly run\`.`,
+          });
+          return;
         }
       }
 
@@ -643,6 +686,7 @@ export function registerRunCommand(program: Command): void {
         projectRoot,
         sourceRoot: cmdOpts.sourceRoot ? resolve(cmdOpts.sourceRoot) : undefined,
         config,
+        ...(resolvedEmbedForPricing ? { resolvedModels: resolvedEmbedForPricing } : {}),
         runId,
         // Created lazily after the user confirms the pipeline summary so that
         // bailing at the prompt does not leave a phantom audit behind.
@@ -1351,12 +1395,19 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const evalTasks = ctx.triageEnabled
     ? estimateTasks.filter(t => triageMap.get(t.file)?.tier === 'evaluate')
     : estimateTasks;
+  const embedWithModels = embedForecast
+    ? {
+        ...embedForecast,
+        ...(ctx.resolvedModels?.codeModel ? { codeModel: ctx.resolvedModels.codeModel } : {}),
+        ...(ctx.resolvedModels?.nlpModel ? { nlpModel: ctx.resolvedModels.nlpModel } : {}),
+      }
+    : undefined;
   const forecast = forecastRun({
     projectRoot: ctx.projectRoot,
     evalTasks,
     totalFiles: allTasks.length,
     axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, ctx.config) })),
-    ...(embedForecast ? { embed: embedForecast } : {}),
+    ...(embedWithModels ? { embed: embedWithModels } : {}),
     ...(ctx.enableRag ? { summaryModel: resolveCodeSummaryModel(ctx.config) } : {}),
     calibration,
     concurrency: ctx.concurrency,
