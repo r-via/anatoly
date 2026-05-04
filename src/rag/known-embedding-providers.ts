@@ -130,46 +130,73 @@ export function resolveEmbeddingProvider(
   };
 }
 
-/** A missing API-key env var, with the axis that needs it. */
-export interface MissingEmbeddingEnvKey {
-  axis: 'code' | 'nlp';
-  provider: string;
-  envKey: string;
+/**
+ * One reason an external embedding setup is not ready to run. Used to drive
+ * a single actionable error message at the top of `anatoly run`.
+ */
+export interface ExternalConfigIssue {
+  /** Discriminator for callers that want to format issues differently. */
+  kind: 'missing-section' | 'missing-axis' | 'empty-field' | 'missing-env';
+  /** Human-readable description, embedded as-is in the run-blocking notice. */
+  message: string;
 }
 
 /**
- * Resolve the env_key for a configured external embedding axis (config
- * override > registry default). Returns null when no key is required.
+ * Validate a `rag.embedding` block for the external backend, surfacing every
+ * reason it isn't ready to run: section missing entirely, an axis missing,
+ * an empty `provider`/`model`, or a required API-key env var absent from
+ * `process.env`. The first-run wizard writes a commented reference block;
+ * this helper is what halts the run until the user uncomments + fills it
+ * in and exports the keys in `.env`.
+ *
+ * Returns `[]` when the block is fully ready.
  */
-function resolveEnvKey(
-  cfg: { provider: string; env_key?: string } | undefined,
-): string | null {
-  if (!cfg) return null;
-  if (cfg.env_key) return cfg.env_key;
-  return KNOWN_EMBEDDING_PROVIDERS[cfg.provider]?.env_key ?? null;
-}
-
-/**
- * For a `rag.embedding` config block, return every env var that is required
- * but missing from `process.env`. Used by the first-run wizard and `anatoly
- * run` to fail fast when the user picked an external provider whose API key
- * was never exported.
- */
-export function findMissingEmbeddingEnvKeys(
+export function findExternalConfigIssues(
   embedding: {
-    code?: { provider: string; env_key?: string };
-    nlp?: { provider: string; env_key?: string };
+    code?: { provider?: string; model?: string; env_key?: string };
+    nlp?: { provider?: string; model?: string; env_key?: string };
   } | undefined,
-): MissingEmbeddingEnvKey[] {
-  if (!embedding) return [];
-  const missing: MissingEmbeddingEnvKey[] = [];
+): ExternalConfigIssue[] {
+  if (!embedding || (!embedding.code && !embedding.nlp)) {
+    return [{
+      kind: 'missing-section',
+      message:
+        '`rag.embedding` is missing — uncomment the reference block in ' +
+        '.anatoly.yml (Mistral + OpenRouter Qwen3) or write your own.',
+    }];
+  }
+
+  const issues: ExternalConfigIssue[] = [];
   for (const axis of ['code', 'nlp'] as const) {
     const cfg = embedding[axis];
-    if (!cfg) continue;
-    const envKey = resolveEnvKey(cfg);
+    if (!cfg) {
+      issues.push({
+        kind: 'missing-axis',
+        message: `\`rag.embedding.${axis}\` is missing — both code and nlp axes must be configured.`,
+      });
+      continue;
+    }
+    if (!cfg.provider) {
+      issues.push({
+        kind: 'empty-field',
+        message: `\`rag.embedding.${axis}.provider\` is empty — set it to mistral / openrouter / voyage / openai / cohere / <custom>.`,
+      });
+    }
+    if (!cfg.model) {
+      issues.push({
+        kind: 'empty-field',
+        message: `\`rag.embedding.${axis}.model\` is empty — pick a model name supported by the provider.`,
+      });
+    }
+    if (!cfg.provider) continue; // can't resolve env_key without a provider
+
+    const envKey = cfg.env_key ?? KNOWN_EMBEDDING_PROVIDERS[cfg.provider]?.env_key ?? null;
     if (envKey && !process.env[envKey]) {
-      missing.push({ axis, provider: cfg.provider, envKey });
+      issues.push({
+        kind: 'missing-env',
+        message: `${envKey} is missing — add it to the project \`.env\` file (auto-loaded by Anatoly).`,
+      });
     }
   }
-  return missing;
+  return issues;
 }

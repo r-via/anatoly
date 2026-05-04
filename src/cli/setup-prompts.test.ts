@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type EndOfSetupOptions, type ExternalAxisConfig } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type EndOfSetupOptions } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -555,361 +555,6 @@ describe('runFirstRunWizard', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// External wizard flow tests (Story 50.6)
-// ---------------------------------------------------------------------------
-
-describe('runFirstRunWizard — external tier (Story 50.6)', () => {
-  // Save and clear all known external-provider API keys before each test, then
-  // set the ones the tests under this suite expect (voyage + openrouter). The
-  // wizard now hard-aborts when a chosen provider's API key is missing, so the
-  // env must be primed before exercising the external flow.
-  const PROVIDER_KEYS = ['VOYAGE_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'COHERE_API_KEY', 'MISTRAL_API_KEY'];
-  const savedKeys: Record<string, string | undefined> = {};
-
-  beforeEach(() => {
-    selectMock.mockReset();
-    textMock.mockReset();
-    noteMock.mockReset();
-    cancelMock.mockReset();
-    for (const k of PROVIDER_KEYS) {
-      savedKeys[k] = process.env[k];
-      delete process.env[k];
-    }
-    process.env.VOYAGE_API_KEY = 'test-voyage-key';
-    process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
-  });
-
-  afterEach(() => {
-    for (const k of PROVIDER_KEYS) {
-      if (savedKeys[k] !== undefined) process.env[k] = savedKeys[k];
-      else delete process.env[k];
-    }
-  });
-
-  // Helper: mock the full external flow (voyage code, same NLP, full-run mode)
-  function mockExternalVoyageSame() {
-    selectMock
-      .mockResolvedValueOnce('external')     // tier
-      .mockResolvedValueOnce('voyage')        // code provider
-      .mockResolvedValueOnce('same')          // NLP provider = same as code
-      .mockResolvedValueOnce('full-run');     // mode
-    textMock
-      .mockResolvedValueOnce('voyage-code-3'); // code model
-  }
-
-  // Helper: mock the full external flow (voyage code, openrouter NLP, full-run mode)
-  function mockExternalVoyageQwen() {
-    selectMock
-      .mockResolvedValueOnce('external')     // tier
-      .mockResolvedValueOnce('voyage')        // code provider
-      .mockResolvedValueOnce('openrouter')    // NLP provider
-      .mockResolvedValueOnce('full-run');     // mode
-    textMock
-      .mockResolvedValueOnce('voyage-code-3')             // code model
-      .mockResolvedValueOnce('qwen/qwen3-embedding-8b');  // NLP model
-  }
-
-  // AC: tier options always contain External
-  it('includes External tier option on incapable hardware', async () => {
-    selectMock.mockResolvedValueOnce('lite');
-    selectMock.mockResolvedValueOnce('quick-win');
-
-    await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
-
-    const tierCall = selectMock.mock.calls[0]![0];
-    const externalOpt = tierCall.options.find((o: { value: string }) => o.value === 'external');
-    expect(externalOpt).toBeDefined();
-    expect(externalOpt!.label).toContain('External');
-  });
-
-  it('includes External tier option on capable hardware', async () => {
-    selectMock.mockResolvedValueOnce('lite');
-    selectMock.mockResolvedValueOnce('quick-win');
-
-    await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
-
-    const tierCall = selectMock.mock.calls[0]![0];
-    const externalOpt = tierCall.options.find((o: { value: string }) => o.value === 'external');
-    expect(externalOpt).toBeDefined();
-  });
-
-  // AC: non-interactive returns lite, not external
-  it('returns lite/full-run when defaultsSettings is true (no external auto)', async () => {
-    const result = await runFirstRunWizard(baseOpts({ defaultsSettings: true }));
-    expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
-    expect(result.external).toBeUndefined();
-  });
-
-  // AC: code provider select shows registry providers + Custom
-  it('shows code provider select with registry providers and Custom', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    // Second select call = code provider
-    const codeProviderCall = selectMock.mock.calls[1]![0];
-    const providerValues = codeProviderCall.options.map((o: { value: string }) => o.value);
-    expect(providerValues).toContain('openai');
-    expect(providerValues).toContain('voyage');
-    expect(providerValues).toContain('openrouter');
-    expect(providerValues).toContain('cohere');
-    expect(providerValues).toContain('mistral');
-    expect(providerValues).toContain('custom');
-    // anatoly-local should NOT be in external providers
-    expect(providerValues).not.toContain('anatoly-local');
-  });
-
-  // AC: voyage is pre-selected (first option) for code
-  it('lists voyage as first code provider option', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    const codeProviderCall = selectMock.mock.calls[1]![0];
-    expect(codeProviderCall.options[0]!.value).toBe('voyage');
-  });
-
-  // AC: each code provider option shows default_code_model as hint
-  it('shows default_code_model as hint for each code provider', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    const codeProviderCall = selectMock.mock.calls[1]![0];
-    const voyageOpt = codeProviderCall.options.find((o) => o.value === 'voyage');
-    expect(voyageOpt!.hint).toBe('voyage-code-3');
-    const openaiOpt = codeProviderCall.options.find((o) => o.value === 'openai');
-    expect(openaiOpt!.hint).toBe('text-embedding-3-large');
-  });
-
-  // AC: code model text prompt pre-filled with default
-  it('prompts for code model with default pre-filled', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    expect(textMock).toHaveBeenCalledWith(
-      expect.objectContaining({ initialValue: 'voyage-code-3' }),
-    );
-  });
-
-  // AC: NLP provider select has "Same as code" as first option
-  it('shows "Same as code" as first NLP provider option', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    // Third select call = NLP provider
-    const nlpProviderCall = selectMock.mock.calls[2]![0];
-    expect(nlpProviderCall.options[0]!.value).toBe('same');
-    expect(nlpProviderCall.options[0]!.label).toContain('Voyage');
-  });
-
-  // AC: "Same as code" duplicates code config to NLP
-  it('duplicates code config to NLP when "Same as code" is chosen', async () => {
-    mockExternalVoyageSame();
-    const result = await runFirstRunWizard(baseOpts());
-
-    expect(result.tier).toBe('external');
-    expect(result.external).toBeDefined();
-    expect(result.external!.code).toEqual({ provider: 'voyage', model: 'voyage-code-3', env_key: 'VOYAGE_API_KEY' });
-    expect(result.external!.nlp).toEqual(result.external!.code);
-  });
-
-  // AC: "Same as code" → no NLP model prompt
-  it('skips NLP model prompt when "Same as code" is chosen', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    // Only one text call (code model), not two
-    expect(textMock).toHaveBeenCalledTimes(1);
-  });
-
-  // AC: distinct NLP provider → NLP model prompt shown
-  it('prompts for NLP model when distinct provider is chosen', async () => {
-    mockExternalVoyageQwen();
-    await runFirstRunWizard(baseOpts());
-
-    // Two text calls: code model + NLP model
-    expect(textMock).toHaveBeenCalledTimes(2);
-    expect(textMock).toHaveBeenNthCalledWith(2,
-      expect.objectContaining({ initialValue: 'qwen/qwen3-embedding-8b' }),
-    );
-  });
-
-  // AC: WizardResult shape for external with distinct providers
-  it('returns correct WizardResult for distinct code/NLP providers', async () => {
-    mockExternalVoyageQwen();
-    const result = await runFirstRunWizard(baseOpts());
-
-    expect(result.tier).toBe('external');
-    expect(result.mode).toBe('full-run');
-    expect(result.external).toEqual({
-      code: { provider: 'voyage', model: 'voyage-code-3', env_key: 'VOYAGE_API_KEY' },
-      nlp: { provider: 'openrouter', model: 'qwen/qwen3-embedding-8b', env_key: 'OPENROUTER_API_KEY' },
-    });
-  });
-
-  // AC: WizardResult.external is undefined for lite tier
-  it('has undefined external for lite tier', async () => {
-    selectMock.mockResolvedValueOnce('lite');
-    selectMock.mockResolvedValueOnce('full-run');
-    const result = await runFirstRunWizard(baseOpts());
-    expect(result.external).toBeUndefined();
-  });
-
-  // AC: env key detection — key present
-  it('shows ✓ note when env key is present', async () => {
-    const origKey = process.env.VOYAGE_API_KEY;
-    process.env.VOYAGE_API_KEY = 'test-key';
-    try {
-      mockExternalVoyageSame();
-      await runFirstRunWizard(baseOpts());
-
-      const detected = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('✓ VOYAGE_API_KEY detected'),
-      );
-      expect(detected).toBeDefined();
-    } finally {
-      if (origKey !== undefined) process.env.VOYAGE_API_KEY = origKey;
-      else delete process.env.VOYAGE_API_KEY;
-    }
-  });
-
-  // The wizard now hard-aborts when the chosen provider's API key is missing,
-  // rather than emitting a warning and continuing — writing .anatoly.yml with
-  // a provider whose key isn't exported only defers a runtime failure.
-  it('aborts the wizard with exit code 2 when env key is absent', async () => {
-    delete process.env.VOYAGE_API_KEY;
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process.exit');
-    }) as never);
-    try {
-      mockExternalVoyageSame();
-      await expect(runFirstRunWizard(baseOpts())).rejects.toThrow('process.exit');
-      expect(exitSpy).toHaveBeenCalledWith(2);
-      expect(cancelMock).toHaveBeenCalledWith(expect.stringContaining('VOYAGE_API_KEY'));
-    } finally {
-      exitSpy.mockRestore();
-    }
-  });
-
-  // AC: Custom provider flow — 4 text prompts
-  it('prompts 4 text inputs for custom code provider', async () => {
-    process.env.HF_INTERNAL_TOKEN = 'test-hf-token';
-    selectMock
-      .mockResolvedValueOnce('external')     // tier
-      .mockResolvedValueOnce('custom')        // code provider = custom
-      .mockResolvedValueOnce('same')          // NLP = same as code
-      .mockResolvedValueOnce('full-run');     // mode
-    textMock
-      .mockResolvedValueOnce('hf-internal')   // provider name
-      .mockResolvedValueOnce('https://abc.endpoints.huggingface.cloud/v1') // base_url
-      .mockResolvedValueOnce('HF_INTERNAL_TOKEN') // env_key
-      .mockResolvedValueOnce('nomic-embed-code');  // model
-
-    const result = await runFirstRunWizard(baseOpts());
-
-    expect(result.external!.code).toEqual({
-      provider: 'hf-internal',
-      model: 'nomic-embed-code',
-      base_url: 'https://abc.endpoints.huggingface.cloud/v1',
-      env_key: 'HF_INTERNAL_TOKEN',
-    });
-    // Same as code → NLP is duplicated
-    expect(result.external!.nlp).toEqual(result.external!.code);
-    // 4 text prompts for custom
-    expect(textMock).toHaveBeenCalledTimes(4);
-  });
-
-  // AC: Ctrl+C in code provider select → process.exit(0)
-  it('exits on Ctrl+C during code provider select', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process.exit');
-    }) as never);
-    selectMock
-      .mockResolvedValueOnce('external')                          // tier
-      .mockResolvedValueOnce(Symbol('cancel') as unknown as string); // code provider cancel
-
-    await expect(runFirstRunWizard(baseOpts())).rejects.toThrow('process.exit');
-
-    expect(cancelMock).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
-  });
-
-  // AC: Ctrl+C in code model text → process.exit(0)
-  it('exits on Ctrl+C during code model text input', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process.exit');
-    }) as never);
-    selectMock
-      .mockResolvedValueOnce('external')     // tier
-      .mockResolvedValueOnce('voyage');       // code provider
-    textMock
-      .mockResolvedValueOnce(Symbol('cancel') as unknown as string); // code model cancel
-
-    await expect(runFirstRunWizard(baseOpts())).rejects.toThrow('process.exit');
-
-    expect(cancelMock).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
-  });
-
-  // AC: Ctrl+C in NLP provider select → process.exit(0)
-  it('exits on Ctrl+C during NLP provider select', async () => {
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process.exit');
-    }) as never);
-    selectMock
-      .mockResolvedValueOnce('external')                          // tier
-      .mockResolvedValueOnce('voyage')                            // code provider
-      .mockResolvedValueOnce(Symbol('cancel') as unknown as string); // NLP provider cancel
-    textMock
-      .mockResolvedValueOnce('voyage-code-3');                    // code model
-
-    await expect(runFirstRunWizard(baseOpts())).rejects.toThrow('process.exit');
-
-    expect(cancelMock).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(0);
-    exitSpy.mockRestore();
-  });
-
-  // AC: --quick-win with external tier → mode is quick-win
-  it('returns quick-win mode when --quick-win flag is set', async () => {
-    selectMock
-      .mockResolvedValueOnce('external')     // tier
-      .mockResolvedValueOnce('voyage')        // code provider
-      .mockResolvedValueOnce('same');         // NLP provider = same
-    textMock
-      .mockResolvedValueOnce('voyage-code-3'); // code model
-
-    const result = await runFirstRunWizard(baseOpts({ quickWin: true }));
-
-    expect(result.tier).toBe('external');
-    expect(result.mode).toBe('quick-win');
-    // Mode prompt should not be called (3 selects: tier + code provider + NLP provider)
-    expect(selectMock).toHaveBeenCalledTimes(3);
-  });
-
-  // AC: NLP select shows openrouter (Qwen3-8B) as recommended (after "Same as code")
-  it('lists openrouter as first distinct NLP provider option (after Same)', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    const nlpProviderCall = selectMock.mock.calls[2]![0];
-    // Index 0 = "Same as code", Index 1 = openrouter (recommended for NLP — routes Qwen3-8B at 4096d)
-    expect(nlpProviderCall.options[1]!.value).toBe('openrouter');
-  });
-
-  // AC: NLP provider options show default_nlp_model as hint
-  it('shows default_nlp_model as hint for NLP provider options', async () => {
-    mockExternalVoyageSame();
-    await runFirstRunWizard(baseOpts());
-
-    const nlpProviderCall = selectMock.mock.calls[2]![0];
-    const voyageOpt = nlpProviderCall.options.find((o) => o.value === 'voyage');
-    expect(voyageOpt!.hint).toBe('voyage-3-large');
-    const openrouterOpt = nlpProviderCall.options.find((o) => o.value === 'openrouter');
-    expect(openrouterOpt!.hint).toBe('qwen/qwen3-embedding-8b');
-  });
-});
 
 // ---------------------------------------------------------------------------
 // runLitePrefetch tests
@@ -1237,72 +882,51 @@ describe('writeFirstRunConfig', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Story 50.6: writeFirstRunConfig with external embedding config
+  // External tier — template yaml + ready flag
   // -------------------------------------------------------------------------
 
-  // AC: external tier → rag.embedding section written with code + nlp
-  it('writes rag.embedding section for external tier (Story 50.6)', async () => {
-    writeFirstRunConfig(dir, {
-      external: {
-        code: { provider: 'voyage', model: 'voyage-code-3' },
-        nlp: { provider: 'openrouter', model: 'qwen/qwen3-embedding-8b' },
-      },
-    });
+  it('writes a commented Mistral+OpenRouter reference block for external tier', () => {
+    writeFirstRunConfig(dir, { tier: 'external' });
+
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toContain('rag:');
+    expect(content).toContain('code_model: auto');
+    // Reference block is COMMENTED so the run halts until the user uncomments
+    expect(content).toContain('# embedding:');
+    expect(content).toContain('#     provider: mistral');
+    expect(content).toContain('#     model: mistral-embed');
+    expect(content).toContain('#     env_key: MISTRAL_API_KEY');
+    expect(content).toContain('#     provider: openrouter');
+    expect(content).toContain('#     model: qwen/qwen3-embedding-8b');
+    expect(content).toContain('#     env_key: OPENROUTER_API_KEY');
+  });
+
+  it('parses to a yaml without rag.embedding when external is freshly written (block is commented)', async () => {
+    writeFirstRunConfig(dir, { tier: 'external' });
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     const yaml = await import('js-yaml');
-    const parsed = yaml.load(content) as { rag: { embedding: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } } };
-    expect(parsed.rag.embedding).toBeDefined();
-    expect(parsed.rag.embedding.code.provider).toBe('voyage');
-    expect(parsed.rag.embedding.code.model).toBe('voyage-code-3');
-    expect(parsed.rag.embedding.nlp.provider).toBe('openrouter');
-    expect(parsed.rag.embedding.nlp.model).toBe('qwen/qwen3-embedding-8b');
+    const parsed = yaml.load(content) as { rag: { embedding?: unknown } };
+    expect(parsed.rag.embedding).toBeUndefined();
   });
 
-  // AC: "Same as code" → both sections written explicitly
-  it('writes both code and nlp sections explicitly for "Same as code" (Story 50.6)', async () => {
-    writeFirstRunConfig(dir, {
-      external: {
-        code: { provider: 'openai', model: 'text-embedding-3-large' },
-        nlp: { provider: 'openai', model: 'text-embedding-3-large' },
-      },
-    });
+  it('writes embeddings-ready.json with backend:external for external tier', () => {
+    writeFirstRunConfig(dir, { tier: 'external' });
 
-    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
-    const yaml = await import('js-yaml');
-    const parsed = yaml.load(content) as { rag: { embedding: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } } };
-    expect(parsed.rag.embedding.code).toEqual({ provider: 'openai', model: 'text-embedding-3-large' });
-    expect(parsed.rag.embedding.nlp).toEqual({ provider: 'openai', model: 'text-embedding-3-large' });
+    const flagPath = join(dir, '.anatoly', 'embeddings-ready.json');
+    expect(existsSync(flagPath)).toBe(true);
+    const flag = JSON.parse(readFileSync(flagPath, 'utf-8')) as { backend?: string };
+    expect(flag.backend).toBe('external');
   });
 
-  // AC: custom provider → base_url and env_key written
-  it('writes base_url and env_key for custom providers (Story 50.6)', async () => {
-    writeFirstRunConfig(dir, {
-      external: {
-        code: {
-          provider: 'hf-internal',
-          model: 'nomic-embed-code',
-          base_url: 'https://abc.endpoints.huggingface.cloud/v1',
-          env_key: 'HF_INTERNAL_TOKEN',
-        },
-        nlp: {
-          provider: 'hf-internal',
-          model: 'nomic-embed-code',
-          base_url: 'https://abc.endpoints.huggingface.cloud/v1',
-          env_key: 'HF_INTERNAL_TOKEN',
-        },
-      },
-    });
+  it('does not write embeddings-ready.json for lite tier', () => {
+    writeFirstRunConfig(dir);
 
-    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
-    const yaml = await import('js-yaml');
-    const parsed = yaml.load(content) as { rag: { embedding: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } } };
-    expect(parsed.rag.embedding.code.base_url).toBe('https://abc.endpoints.huggingface.cloud/v1');
-    expect(parsed.rag.embedding.code.env_key).toBe('HF_INTERNAL_TOKEN');
+    const flagPath = join(dir, '.anatoly', 'embeddings-ready.json');
+    expect(existsSync(flagPath)).toBe(false);
   });
 
-  // AC: lite tier → no rag.embedding section
-  it('does not write rag.embedding section for lite tier (Story 50.6)', async () => {
+  it('does not write rag.embedding section for lite tier', async () => {
     writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');

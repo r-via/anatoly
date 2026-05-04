@@ -25,7 +25,7 @@ import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
-import { findMissingEmbeddingEnvKeys } from '../rag/known-embedding-providers.js';
+import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
@@ -234,6 +234,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-notify', 'disable desktop notification on background run completion')
     .option('--quick-win', 'run with reduced axis set (utility + duplication + correction, no doc scaffold)')
     .option('--defaults-settings', 'skip all interactive prompts, use built-in defaults (CI/scripts)')
+    .option('--allow-missing-pricing', 'continue when one or more models have no pricing entry (their cost reports as $0)')
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
@@ -243,26 +244,58 @@ export function registerRunCommand(program: Command): void {
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
       background?: boolean; notify?: boolean; sourceRoot?: string;
       quickWin?: boolean; defaultsSettings?: boolean;
+      allowMissingPricing?: boolean;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       let config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
-      // Refresh provider pricing for the active model set. First-run downloads
-      // the litellm + (when applicable) OpenRouter snapshots; subsequent runs
-      // do conditional GETs and almost always fall through to a cached copy.
-      // strict: true — refuse to start a run if any configured model has no
-      // pricing entry. Silent zero-cost reports would be misleading and break
-      // the per-call replay contract; we'd rather surface the gap immediately.
-      await ensurePricing(enumerateActiveModels(config), projectRoot, {
-        log: (level, message) => getLogger()[level](message),
-        strict: true,
-      });
-
       // Banner first — every launch-time message below is printed as a
       // standardised notice underneath, instead of ad-hoc lines drifting
       // above and below the banner.
       printBanner();
+
+      // Refresh provider pricing for the active model set. First-run downloads
+      // the litellm + (when applicable) OpenRouter snapshots; subsequent runs
+      // do conditional GETs and almost always fall through to a cached copy.
+      //
+      // strict mode refuses to start when any configured model has no pricing
+      // entry. We disable it on `--dry-run` (no calls billed) and when the
+      // user opts out via `--allow-missing-pricing` — surfacing
+      // PRICING_INCOMPLETE as an actionable notice instead of a stack trace.
+      //
+      // Scoping: pass the *resolved run shape* (--no-rag drops embeddings,
+      // --no-deliberation drops the deliberation tier, --axes restricts axis
+      // overrides) so the gate doesn't refuse to start over a model that
+      // won't actually be invoked this run.
+      const pricingAxesFilter = parseAxesOption(cmdOpts.axes);
+      if (pricingAxesFilter === null) return;
+      const activeModels = enumerateActiveModels(config, {
+        enableRag: parentOpts.rag !== false && config.rag.enabled,
+        enableDeliberation: cmdOpts.deliberation !== false,
+        axesFilter: pricingAxesFilter,
+      });
+      const strictPricing = !cmdOpts.dryRun && !cmdOpts.allowMissingPricing;
+      try {
+        await ensurePricing(activeModels, projectRoot, {
+          log: (level, message) => getLogger()[level](message),
+          strict: strictPricing,
+        });
+      } catch (err) {
+        if (err instanceof AnatolyError && err.code === ERROR_CODES.PRICING_INCOMPLETE) {
+          printNotice({
+            kind: 'error',
+            title: 'Pricing data incomplete',
+            hint:
+              `${err.message}\n\n` +
+              'Refresh the pricing snapshot with `anatoly providers`,\n' +
+              'or pass `--allow-missing-pricing` to continue (their cost reports as $0).',
+          });
+          process.exitCode = 2;
+          return;
+        }
+        throw err;
+      }
 
       const useDefaults = cmdOpts.defaultsSettings === true;
       if (useDefaults || !process.stdin.isTTY) {
@@ -370,7 +403,7 @@ export function registerRunCommand(program: Command): void {
 
         // Write .anatoly.yml so subsequent runs skip the wizard
         try {
-          writeFirstRunConfig(projectRoot, { external: wizardResult.external });
+          writeFirstRunConfig(projectRoot, { tier: wizardResult.tier });
           getLogger().info({ tier: wizardResult.tier }, 'first-run config written to .anatoly.yml');
           // Reload config from the file we just wrote so the rest of the run
           // uses the new settings instead of the bare defaults.
@@ -387,24 +420,28 @@ export function registerRunCommand(program: Command): void {
         }
       }
 
-      // External embedding providers need their API keys before any work
-      // happens — the wizard only warns, this is the canonical halt point
-      // (also covers subsequent runs where the wizard is skipped because
-      // .anatoly.yml already exists). Anatoly auto-loads the project `.env`
-      // via dotenv/config, so the user just adds the variable and re-runs.
-      if (parentOpts.rag !== false && config.rag.enabled) {
-        const missingKeys = findMissingEmbeddingEnvKeys(config.rag.embedding);
-        if (missingKeys.length > 0) {
-          const lines = missingKeys.map(
-            (m) => `  ${m.envKey}=...     # ${m.axis} embeddings via ${m.provider}`,
-          );
+      // External embedding mode requires `rag.embedding.{code,nlp}` to be
+      // filled in and the matching API keys exported in `.env`. The wizard
+      // only writes a commented reference template; this is the canonical
+      // halt point that blocks the run until the yaml is uncommented + the
+      // env is set. Anatoly auto-loads the project `.env` via dotenv/config,
+      // so the user adds the variable and re-runs.
+      const externalReadyFlag = readEmbeddingsReadyFlag(projectRoot);
+      if (
+        parentOpts.rag !== false
+        && config.rag.enabled
+        && externalReadyFlag?.backend === 'external'
+      ) {
+        const issues = findExternalConfigIssues(config.rag.embedding);
+        if (issues.length > 0) {
+          const yamlPath = resolve(projectRoot, '.anatoly.yml');
           const envPath = resolve(projectRoot, '.env');
           printNotice({
             kind: 'error',
-            title: 'External embedding API key(s) missing',
+            title: 'External embedding setup is incomplete',
             hint:
-              `Add the variable(s) to ${envPath} (auto-loaded by Anatoly), then re-run \`anatoly run\`:\n` +
-              lines.join('\n'),
+              `Sync ${yamlPath} and ${envPath}, then re-run \`anatoly run\`:\n`
+              + issues.map((i) => `  - ${i.message}`).join('\n'),
           });
           process.exitCode = 2;
           return;
@@ -1103,11 +1140,21 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
     // Determine the effective RAG mode from CLI flags + hardware + readiness flag.
     // Embedding containers are NOT started yet — that happens in runRagPhase.
+    //
+    // External-tier inference: if the user added `rag.embedding` to their
+    // .anatoly.yml outside the wizard flow, no readiness flag was ever
+    // written. Honour the config anyway so the runtime tier matches what
+    // resolveEmbeddingModels will route to (otherwise embeddings silently
+    // fall back to ONNX lite while the user thinks they're on external).
     const embeddingsReady = readEmbeddingsReadyFlag(ctx.projectRoot);
-    const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
-    const isExternalReady = embeddingsReady?.backend === 'external';
+    const hasExternalConfig = Boolean(
+      ctx.config.rag.embedding?.code?.provider
+      || ctx.config.rag.embedding?.nlp?.provider
+    );
+    const isExternalReady = embeddingsReady?.backend === 'external' || hasExternalConfig;
+    const canAdvanced = hardware.hasGpu && embeddingsReady !== null && !isExternalReady;
     const needsSidecar = ctx.ragMode === 'advanced'
-      || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto' && embeddingsReady?.backend !== 'external');
+      || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
     if (isExternalReady && ctx.ragMode === 'auto') {
       ctx.resolvedRagMode = 'external';
     } else {
@@ -1774,7 +1821,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const hardware = detectHardware();
   const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
+  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware, ctx.config);
 
   // Start the appropriate embedding backend based on detected tier
   if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {

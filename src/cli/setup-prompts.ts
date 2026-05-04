@@ -9,7 +9,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
-import { KNOWN_EMBEDDING_PROVIDERS } from '../rag/known-embedding-providers.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
 import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefetch.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
@@ -34,22 +33,9 @@ export interface WizardOptions {
   plain?: boolean;
 }
 
-/** Per-axis external embedding provider config (returned by the wizard). */
-export interface ExternalAxisConfig {
-  provider: string;
-  model: string;
-  base_url?: string;
-  env_key?: string;
-}
-
 export interface WizardResult {
   tier: 'lite' | 'advanced' | 'external';
   mode: 'quick-win' | 'full-run';
-  /** Set when tier is 'external'. Both axes always present (NLP duplicated from code when "Same as code"). */
-  external?: {
-    code: ExternalAxisConfig;
-    nlp: ExternalAxisConfig;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -163,18 +149,27 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   }
 
   // -----------------------------------------------------------------------
-  // External sub-prompts (Story 50.6)
+  // External tier: no provider/model sub-prompts. The wizard writes a yaml
+  // template with a commented `rag.embedding` reference block (Mistral for
+  // code + Qwen3 via OpenRouter for NLP). The user uncomments + edits to
+  // pick a provider; `anatoly run` halts via findExternalConfigIssues until
+  // the section is filled in and the matching API keys live in `.env`.
   // -----------------------------------------------------------------------
-  let externalConfig: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } | undefined;
   if (tier === 'external') {
-    externalConfig = await promptExternalEmbeddings();
+    p.note(
+      'Edit `.anatoly.yml > rag.embedding` to pick your provider \u2014 a\n' +
+      'commented reference block (Mistral + OpenRouter Qwen3) is written\n' +
+      'for you. Then add the matching API keys to your project `.env`.\n' +
+      'The audit halts until both files are ready.',
+      'External embeddings \u2014 yaml configured',
+    );
   }
 
   // -----------------------------------------------------------------------
   // Mode prompt (skipped if --quick-win)
   // -----------------------------------------------------------------------
   if (opts.quickWin) {
-    return { tier, mode: 'quick-win', external: externalConfig };
+    return { tier, mode: 'quick-win' };
   }
 
   type ModeValue = 'quick-win' | 'full-run';
@@ -197,189 +192,7 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
     process.exit(0);
   }
 
-  return { tier, mode: modeChoice as ModeValue, external: externalConfig };
-}
-
-// ---------------------------------------------------------------------------
-// External embedding provider sub-prompts (Story 50.6)
-// ---------------------------------------------------------------------------
-
-/** External providers from registry (exclude anatoly-local — that's the advanced-gguf backend). */
-const EXTERNAL_PROVIDERS = Object.entries(KNOWN_EMBEDDING_PROVIDERS)
-  .filter(([id]) => id !== 'anatoly-local');
-
-/** Friendly display name for a provider id; falls back to capitalisation. */
-function displayProviderName(id: string): string {
-  const overrides: Record<string, string> = {
-    openai: 'OpenAI',
-    openrouter: 'OpenRouter (Qwen3-8B)',
-  };
-  return overrides[id] ?? (id.charAt(0).toUpperCase() + id.slice(1));
-}
-
-/**
- * Verify that the API-key env var for an external provider is exported.
- *
- * - No key required → no-op.
- * - Key present → "✓ KEY detected".
- * - Key absent → render an error block and exit the wizard. We refuse to
- *   write `.anatoly.yml` with a provider whose key isn't set, because the
- *   first run would otherwise fail loudly inside the embedding phase after
- *   the user already invested setup time.
- */
-function requireEnvKey(envKey: string | undefined): void {
-  if (!envKey) return;
-  if (process.env[envKey]) {
-    p.note(`✓ ${envKey} detected`, 'API key');
-    return;
-  }
-  p.cancel(
-    `${envKey} is not set in your environment.\n\n` +
-    `  Export it and re-run \`anatoly run\`:\n` +
-    `      export ${envKey}=...\n\n` +
-    `  Or pick another embedding provider.`,
-  );
-  process.exit(2);
-}
-
-/**
- * Prompt for a custom provider (4 text inputs: name, base_url, env_key, model).
- */
-async function promptCustomProvider(kind: 'code' | 'nlp'): Promise<ExternalAxisConfig> {
-  const label = kind === 'code' ? 'Code' : 'NLP';
-
-  const providerName = await p.text({ message: `${label} provider name:` });
-  if (p.isCancel(providerName)) { p.cancel('Aborted.'); process.exit(0); }
-
-  const baseUrl = await p.text({
-    message: `${label} base URL:`,
-    validate: (value) => {
-      if (!value) return 'URL is required';
-      try { new URL(value); return undefined; } catch { return 'Please enter a valid URL'; }
-    },
-  });
-  if (p.isCancel(baseUrl)) { p.cancel('Aborted.'); process.exit(0); }
-
-  const envKey = await p.text({
-    message: `${label} environment variable name (API key):`,
-    validate: (value) => {
-      if (!value) return 'Variable name is required';
-      return /^[A-Z0-9_]+$/.test(value) ? undefined : 'Must match [A-Z0-9_]+';
-    },
-  });
-  if (p.isCancel(envKey)) { p.cancel('Aborted.'); process.exit(0); }
-
-  const model = await p.text({ message: `${label} model name:` });
-  if (p.isCancel(model)) { p.cancel('Aborted.'); process.exit(0); }
-
-  return {
-    provider: providerName as string,
-    model: model as string,
-    base_url: baseUrl as string,
-    env_key: envKey as string,
-  };
-}
-
-/**
- * Interactive sub-prompts for external embedding provider selection.
- * Prompts for code provider/model, then NLP provider/model (or "Same as code").
- */
-async function promptExternalEmbeddings(): Promise<{ code: ExternalAxisConfig; nlp: ExternalAxisConfig }> {
-  // --- Code provider ---
-  const codeProviderOptions: Array<{ value: string; label: string; hint?: string }> = EXTERNAL_PROVIDERS.map(
-    ([id, entry]) => ({
-      value: id,
-      label: displayProviderName(id),
-      hint: entry.default_code_model,
-    }),
-  );
-  codeProviderOptions.push({ value: 'custom', label: 'Custom (manual)', hint: 'enter URL, key, and model' });
-
-  // Put voyage first (recommended for code retrieval)
-  const voyageIdx = codeProviderOptions.findIndex((o) => o.value === 'voyage');
-  if (voyageIdx > 0) {
-    const [voyage] = codeProviderOptions.splice(voyageIdx, 1);
-    codeProviderOptions.unshift(voyage!);
-  }
-
-  const codeProviderChoice = await p.select({
-    message: 'Code embedding provider:',
-    options: codeProviderOptions,
-  });
-  if (p.isCancel(codeProviderChoice)) { p.cancel('Aborted.'); process.exit(0); }
-
-  let codeConfig: ExternalAxisConfig;
-  if (codeProviderChoice === 'custom') {
-    codeConfig = await promptCustomProvider('code');
-  } else {
-    const providerId = codeProviderChoice as string;
-    const entry = KNOWN_EMBEDDING_PROVIDERS[providerId]!;
-
-    const codeModel = await p.text({
-      message: 'Code embedding model:',
-      initialValue: entry.default_code_model,
-    });
-    if (p.isCancel(codeModel)) { p.cancel('Aborted.'); process.exit(0); }
-
-    codeConfig = { provider: providerId, model: codeModel as string };
-    if (entry.env_key) {
-      codeConfig.env_key = entry.env_key;
-    }
-  }
-
-  requireEnvKey(codeConfig.env_key);
-
-  // --- NLP provider ---
-  const nlpProviderOptions: Array<{ value: string; label: string; hint?: string }> = [
-    { value: 'same', label: `Same as code (use ${displayProviderName(codeConfig.provider)} for both)` },
-    ...EXTERNAL_PROVIDERS.map(([id, entry]) => ({
-      value: id,
-      label: displayProviderName(id),
-      hint: entry.default_nlp_model,
-    })),
-    { value: 'custom', label: 'Custom (manual)', hint: 'enter URL, key, and model' },
-  ];
-
-  // Put openrouter as first distinct option (after "Same as code") — recommended for NLP
-  // (OpenRouter routes Qwen3-Embedding-8B at 4096d, parity with the local advanced GGUF tier)
-  const providerStartIdx = 1; // after 'same'
-  const openrouterIdx = nlpProviderOptions.findIndex((o, i) => i >= providerStartIdx && o.value === 'openrouter');
-  if (openrouterIdx > providerStartIdx) {
-    const [openrouter] = nlpProviderOptions.splice(openrouterIdx, 1);
-    nlpProviderOptions.splice(providerStartIdx, 0, openrouter!);
-  }
-
-  const nlpProviderChoice = await p.select({
-    message: 'NLP embedding provider:',
-    options: nlpProviderOptions,
-  });
-  if (p.isCancel(nlpProviderChoice)) { p.cancel('Aborted.'); process.exit(0); }
-
-  let nlpConfig: ExternalAxisConfig;
-  if (nlpProviderChoice === 'same') {
-    // Duplicate code config
-    nlpConfig = { ...codeConfig };
-  } else if (nlpProviderChoice === 'custom') {
-    nlpConfig = await promptCustomProvider('nlp');
-    requireEnvKey(nlpConfig.env_key);
-  } else {
-    const providerId = nlpProviderChoice as string;
-    const entry = KNOWN_EMBEDDING_PROVIDERS[providerId]!;
-
-    const nlpModel = await p.text({
-      message: 'NLP embedding model:',
-      initialValue: entry.default_nlp_model,
-    });
-    if (p.isCancel(nlpModel)) { p.cancel('Aborted.'); process.exit(0); }
-
-    nlpConfig = { provider: providerId, model: nlpModel as string };
-    if (entry.env_key) {
-      nlpConfig.env_key = entry.env_key;
-    }
-    requireEnvKey(nlpConfig.env_key);
-  }
-
-  return { code: codeConfig, nlp: nlpConfig };
+  return { tier, mode: modeChoice as ModeValue };
 }
 
 // ---------------------------------------------------------------------------
@@ -580,45 +393,30 @@ const AXIS_IDS = [
  * - Detects `ANTHROPIC_API_KEY` in env to choose `api` vs `subscription` mode.
  * - All 7 axes are enabled.
  * - `rag.code_model` is set to `'auto'` so runtime resolution picks the right backend.
- * - When `opts.external` is provided (tier 'external'), writes `rag.embedding`
- *   section AND `.anatoly/embeddings-ready.json` with `backend: 'external'` so
- *   the runtime routes embeddings through the configured SDK provider instead
- *   of falling back to ONNX lite.
+ * - For tier 'external', also writes `.anatoly/embeddings-ready.json` with
+ *   `backend: 'external'` so determineBackend() returns 'external' and
+ *   resolveEmbeddingModels() honours `rag.embedding.*` instead of falling
+ *   back to ONNX lite. The .anatoly.yml carries a commented-out reference
+ *   block (Mistral mistral-embed for code + OpenRouter Qwen3 for NLP); the
+ *   user uncomments / edits it and exports the matching API keys in `.env`.
+ *   `anatoly run` halts via `findExternalConfigIssues` until both files
+ *   are filled in.
  *
  * @param projectRoot — the project root where `.anatoly.yml` will be written.
- * @param opts — optional external embedding config from the wizard.
+ * @param opts — `tier` decides which template variant gets written.
  */
 export function writeFirstRunConfig(
   projectRoot: string,
-  opts?: { external?: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } },
+  opts?: { tier?: 'lite' | 'advanced' | 'external' },
 ): void {
+  const tier = opts?.tier ?? 'lite';
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const providerMode = hasApiKey ? 'api' : 'subscription';
 
-  const ragSection: Record<string, unknown> = {
-    code_model: 'auto',
-  };
-
-  // Story 50.6: add embedding section for external tier
-  if (opts?.external) {
-    const codeEntry: Record<string, string> = {
-      provider: opts.external.code.provider,
-      model: opts.external.code.model,
-    };
-    if (opts.external.code.base_url) codeEntry.base_url = opts.external.code.base_url;
-    if (opts.external.code.env_key) codeEntry.env_key = opts.external.code.env_key;
-
-    const nlpEntry: Record<string, string> = {
-      provider: opts.external.nlp.provider,
-      model: opts.external.nlp.model,
-    };
-    if (opts.external.nlp.base_url) nlpEntry.base_url = opts.external.nlp.base_url;
-    if (opts.external.nlp.env_key) nlpEntry.env_key = opts.external.nlp.env_key;
-
-    ragSection.embedding = { code: codeEntry, nlp: nlpEntry };
-  }
-
-  const config: Record<string, unknown> = {
+  // Build everything except the rag block via js-yaml — it dumps cleanly
+  // and stays in sync with schema changes. The rag block is appended as a
+  // hand-crafted string so we can inject comments, which js-yaml strips.
+  const baseConfig: Record<string, unknown> = {
     providers: {
       anthropic: {
         mode: providerMode,
@@ -631,31 +429,53 @@ export function writeFirstRunConfig(
       deliberation: DEFAULT_MODELS.deliberation,
     },
     axes: Object.fromEntries(AXIS_IDS.map((id) => [id, { enabled: true }])),
-    rag: ragSection,
   };
 
-  const yamlStr = yaml.dump(config, { lineWidth: 120 });
+  const yamlBase = yaml.dump(baseConfig, { lineWidth: 120 });
+  const ragBlock = tier === 'external' ? buildExternalRagBlock() : 'rag:\n  code_model: auto\n';
   const header = '# Anatoly configuration — generated by first-run wizard. Edit freely.\n\n';
-  writeFileSync(resolve(projectRoot, '.anatoly.yml'), header + yamlStr, 'utf-8');
+  writeFileSync(resolve(projectRoot, '.anatoly.yml'), header + yamlBase + ragBlock, 'utf-8');
 
-  // External tier: write the embeddings-ready flag so determineBackend()
-  // returns 'external' and resolveEmbeddingModels() honours rag.embedding.*
-  // instead of falling back to ONNX lite.
-  if (opts?.external) {
-    writeExternalReadyFlag(projectRoot, opts.external);
-  }
+  if (tier === 'external') writeExternalReadyFlag(projectRoot);
 }
 
-function writeExternalReadyFlag(
-  projectRoot: string,
-  external: { code: ExternalAxisConfig; nlp: ExternalAxisConfig },
-): void {
+/**
+ * Hand-crafted yaml block for `rag:` with a commented reference embedding
+ * block. The reference combo is Mistral mistral-embed for code + OpenRouter
+ * Qwen3-Embedding-8B for NLP — the user can uncomment as-is or replace
+ * either side with another provider from the registry.
+ */
+function buildExternalRagBlock(): string {
+  return [
+    'rag:',
+    '  code_model: auto',
+    '  # External embedding mode is active (.anatoly/embeddings-ready.json',
+    '  # records backend: external). Uncomment the block below to use the',
+    '  # reference combo, or swap either side with any registry provider',
+    '  # (voyage / openai / cohere / mistral / openrouter) or a custom',
+    '  # OpenAI-compatible endpoint by adding `base_url:`.',
+    '  #',
+    '  # Required env vars (auto-loaded from project `.env`):',
+    '  #     MISTRAL_API_KEY=...',
+    '  #     OPENROUTER_API_KEY=...',
+    '  #',
+    '  # embedding:',
+    '  #   code:',
+    '  #     provider: mistral',
+    '  #     model: mistral-embed',
+    '  #     env_key: MISTRAL_API_KEY',
+    '  #   nlp:',
+    '  #     provider: openrouter',
+    '  #     model: qwen/qwen3-embedding-8b',
+    '  #     env_key: OPENROUTER_API_KEY',
+    '',
+  ].join('\n');
+}
+
+function writeExternalReadyFlag(projectRoot: string): void {
   const flag = {
     device: 'cpu',
     backend: 'external' as const,
-    embedding_provider: external.code.provider,
-    code_model: external.code.model,
-    nlp_model: external.nlp.model,
     setup_at: new Date().toISOString(),
   };
   const dir = resolve(projectRoot, '.anatoly');
