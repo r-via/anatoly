@@ -3,8 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
+import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
 
 // ---------------------------------------------------------------------------
 // Mock generateText + getVercelModel
@@ -31,12 +35,27 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
   return ConfigSchema.parse(overrides);
 }
 
+let testProjectRoot = '/tmp/test-project';
+
+function seedPricingFor(root: string): void {
+  mkdirSync(resolve(root, '.anatoly'), { recursive: true });
+  writeFileSync(
+    resolve(root, PRICING_PATHS.normalized),
+    JSON.stringify({
+      generated_at: new Date().toISOString(),
+      models: {
+        'anthropic/claude-sonnet-4-6': { input: 3, output: 15, source: 'litellm' },
+      },
+    }),
+  );
+}
+
 function makeParams(overrides: Partial<VercelAgentParams> = {}): VercelAgentParams {
   return {
     systemPrompt: 'You are an investigator.',
     userMessage: 'Investigate this code.',
     model: 'anthropic/claude-sonnet-4-6',
-    projectRoot: '/tmp/test-project',
+    projectRoot: testProjectRoot,
     config: makeConfig(),
     abortController: new AbortController(),
     ...overrides,
@@ -58,11 +77,16 @@ describe('runVercelAgent', () => {
       usage: { inputTokens: 500, outputTokens: 200 },
       steps: [],
     });
+    testProjectRoot = mkdtempSync(join(tmpdir(), 'anatoly-vagent-'));
+    seedPricingFor(testProjectRoot);
+    _resetPricingCache();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
+    rmSync(testProjectRoot, { recursive: true, force: true });
+    _resetPricingCache();
   });
 
   it('calls generateText with maxSteps defaulting to 20', async () => {

@@ -104,7 +104,7 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
     const inputTokens = result.usage?.inputTokens ?? 0;
     const outputTokens = result.usage?.outputTokens ?? 0;
     const durationMs = Date.now() - start;
-    const costUsd = calculateCost(modelId, inputTokens, outputTokens);
+    const costUsd = calculateCost(modelId, inputTokens, outputTokens, projectRoot);
 
     success = true;
     return {

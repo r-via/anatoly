@@ -2,74 +2,88 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect } from 'vitest';
-import { calculateCost, MODEL_PRICING } from './cost-calculator.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { calculateCost } from './cost-calculator.js';
+import { PRICING_PATHS, _resetPricingCache } from './pricing-cache.js';
 
 // ---------------------------------------------------------------------------
-// MODEL_PRICING registry
+// `calculateCost` is a thin sync facade over `pricing-cache.lookupPrice`.
+// We seed `.anatoly/pricing.json` directly to avoid mocking fetch — that
+// path is exercised by pricing-cache.test.ts.
 // ---------------------------------------------------------------------------
 
-describe('MODEL_PRICING', () => {
-  it('should contain Gemini models consolidated from gemini-genai-transport', () => {
-    expect(MODEL_PRICING['gemini-2.5-flash-lite']).toEqual({ input: 0.075, output: 0.30 });
-    expect(MODEL_PRICING['gemini-2.5-flash']).toEqual({ input: 0.15, output: 0.60 });
-    expect(MODEL_PRICING['gemini-2.5-pro']).toEqual({ input: 1.25, output: 10.00 });
-  });
+let projectRoot: string;
 
-  it('should contain Anthropic models', () => {
-    expect(MODEL_PRICING['claude-sonnet-4-6']).toBeDefined();
-    expect(MODEL_PRICING['claude-sonnet-4-20250514']).toBeDefined();
-    expect(MODEL_PRICING['claude-haiku-4-5-20251001']).toBeDefined();
-    expect(MODEL_PRICING['claude-opus-4-6']).toBeDefined();
-    expect(MODEL_PRICING['claude-opus-4-20250514']).toBeDefined();
-  });
+function seedPricing(models: Record<string, { input: number; output: number; source?: string }>): void {
+  mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
+  writeFileSync(
+    resolve(projectRoot, PRICING_PATHS.normalized),
+    JSON.stringify({
+      generated_at: new Date().toISOString(),
+      models: Object.fromEntries(
+        Object.entries(models).map(([k, v]) => [k, { ...v, source: v.source ?? 'litellm' }]),
+      ),
+    }),
+  );
+}
 
-  it('should have input and output pricing for every entry', () => {
-    for (const [, pricing] of Object.entries(MODEL_PRICING)) {
-      expect(typeof pricing.input).toBe('number');
-      expect(typeof pricing.output).toBe('number');
-      expect(pricing.input).toBeGreaterThanOrEqual(0);
-      expect(pricing.output).toBeGreaterThanOrEqual(0);
-    }
-  });
+beforeEach(() => {
+  projectRoot = mkdtempSync(join(tmpdir(), 'anatoly-cost-'));
+  _resetPricingCache();
 });
 
-// ---------------------------------------------------------------------------
-// calculateCost
-// ---------------------------------------------------------------------------
+afterEach(() => {
+  vi.unstubAllGlobals();
+  rmSync(projectRoot, { recursive: true, force: true });
+});
 
 describe('calculateCost', () => {
-  it('should calculate cost for a known Gemini model', () => {
-    // gemini-2.5-flash: $0.15/M input, $0.60/M output
-    const cost = calculateCost('gemini-2.5-flash', 1_000_000, 500_000);
-    // (1M * 0.15 + 500K * 0.60) / 1M = 0.15 + 0.30 = 0.45
-    expect(cost).toBeCloseTo(0.45, 6);
-  });
-
-  it('should calculate cost for a known Anthropic model', () => {
-    // claude-sonnet-4-6: $3/M input, $15/M output
-    const cost = calculateCost('claude-sonnet-4-6', 100_000, 50_000);
-    // (100K * 3 + 50K * 15) / 1M = 0.3 + 0.75 = 1.05
+  it('computes cost for a known model from the on-disk registry', () => {
+    seedPricing({
+      'anthropic/claude-sonnet-4-6': { input: 3, output: 15 },
+    });
+    // 100K input * $3/M + 50K output * $15/M = 0.3 + 0.75 = 1.05
+    const cost = calculateCost('anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot);
     expect(cost).toBeCloseTo(1.05, 6);
   });
 
-  it('should return 0 for an unknown model', () => {
-    expect(calculateCost('unknown-model-xyz', 100_000, 50_000)).toBe(0);
+  it('returns 0 when the model is not in the registry', () => {
+    seedPricing({ 'anthropic/claude-sonnet-4-6': { input: 3, output: 15 } });
+    expect(calculateCost('unknown/whatever', 1_000, 1_000, projectRoot)).toBe(0);
   });
 
-  it('should return 0 for zero tokens', () => {
-    expect(calculateCost('gemini-2.5-flash', 0, 0)).toBe(0);
+  it('returns 0 when no registry file exists yet (cold first call)', () => {
+    expect(calculateCost('anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot)).toBe(0);
   });
 
-  it('should handle prefixed model names by stripping provider prefix', () => {
-    const bare = calculateCost('gemini-2.5-flash', 1_000_000, 500_000);
-    const prefixed = calculateCost('google/gemini-2.5-flash', 1_000_000, 500_000);
-    expect(prefixed).toBe(bare);
+  it('returns 0 for zero tokens', () => {
+    seedPricing({ 'anthropic/claude-sonnet-4-6': { input: 3, output: 15 } });
+    expect(calculateCost('anthropic/claude-sonnet-4-6', 0, 0, projectRoot)).toBe(0);
   });
 
-  it('should handle Anthropic prefixed model names', () => {
-    const bare = calculateCost('claude-sonnet-4-6', 100_000, 50_000);
-    const prefixed = calculateCost('anthropic/claude-sonnet-4-6', 100_000, 50_000);
-    expect(prefixed).toBe(bare);
+  it('handles a stripped-prefix call when the registry holds the prefixed key', () => {
+    seedPricing({ 'anthropic/claude-sonnet-4-6': { input: 3, output: 15 } });
+    // calculateCost with the bare name should still resolve via lookupPrice's prefix-tolerant fallback.
+    const bare = calculateCost('claude-sonnet-4-6', 100_000, 50_000, projectRoot);
+    const prefixed = calculateCost('anthropic/claude-sonnet-4-6', 100_000, 50_000, projectRoot);
+    expect(bare).toBe(prefixed);
+  });
+
+  it('computes cost for an embedding model (output_per_mtok = 0)', () => {
+    seedPricing({ 'voyage/voyage-code-3': { input: 0.18, output: 0 } });
+    // 1M input tokens * $0.18/M + 0 output * $0/M = $0.18
+    expect(calculateCost('voyage/voyage-code-3', 1_000_000, 0, projectRoot)).toBeCloseTo(0.18, 6);
+  });
+
+  it('computes cost for an OpenRouter model fetched from the openrouter source', () => {
+    seedPricing({
+      'openrouter/qwen/qwen3-embedding-8b': { input: 0.01, output: 0, source: 'openrouter' },
+    });
+    expect(
+      calculateCost('openrouter/qwen/qwen3-embedding-8b', 1_000_000, 0, projectRoot),
+    ).toBeCloseTo(0.01, 6);
   });
 });

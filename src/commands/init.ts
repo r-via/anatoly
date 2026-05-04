@@ -11,6 +11,9 @@ import { ConfigSchema } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { DEFAULT_MODELS } from '../core/default-models.js';
+import { ensurePricing } from '../utils/pricing-cache.js';
+import { enumerateActiveModels } from '../utils/active-models.js';
+import { loadConfig } from '../utils/config-loader.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
 
@@ -288,6 +291,17 @@ export function registerInitCommand(program: Command): void {
       p.log.success(`${CONFIG_FILENAME} written.`);
       p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
       p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
+
+      // Pre-warm the pricing registry so the first `anatoly run` doesn't pay
+      // a cold-fetch on top of its actual work. Best-effort — failures are
+      // silent here because the file was just written successfully.
+      try {
+        const config = loadConfig(projectRoot, configPath);
+        await ensurePricing(enumerateActiveModels(config), projectRoot);
+      } catch {
+        // No-op: the run command will retry on next invocation.
+      }
+
       p.outro('Done');
     });
 }

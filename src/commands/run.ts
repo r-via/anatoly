@@ -9,6 +9,8 @@ import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
 import { loadConfig } from '../utils/config-loader.js';
+import { ensurePricing } from '../utils/pricing-cache.js';
+import { enumerateActiveModels } from '../utils/active-models.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
@@ -242,6 +244,14 @@ export function registerRunCommand(program: Command): void {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       let config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+
+      // Refresh provider pricing for the active model set. First-run downloads
+      // the litellm + (when applicable) OpenRouter snapshots; subsequent runs
+      // do conditional GETs and almost always fall through to a cached copy.
+      // Failures are non-fatal — calculateCost just reports 0 for unknown models.
+      await ensurePricing(enumerateActiveModels(config), projectRoot, {
+        log: (level, message) => getLogger()[level](message),
+      });
 
       // Banner first — every launch-time message below is printed as a
       // standardised notice underneath, instead of ad-hoc lines drifting

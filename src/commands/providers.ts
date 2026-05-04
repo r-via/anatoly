@@ -9,6 +9,9 @@ import Table from 'cli-table3';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKResultSuccess, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
 import { loadConfig } from '../utils/config-loader.js';
+import { ensurePricing } from '../utils/pricing-cache.js';
+import { enumerateActiveModels } from '../utils/active-models.js';
+import { getLogger } from '../utils/logger.js';
 import type { Config } from '../schemas/config.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
@@ -308,6 +311,12 @@ export function registerProvidersCommand(program: Command): void {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+
+      // Refresh the pricing cache up-front so any cost annotations the table
+      // surfaces stay accurate without re-fetching at every status check.
+      await ensurePricing(enumerateActiveModels(config), projectRoot, {
+        log: (level, message) => getLogger()[level](message),
+      });
 
       const checks = buildProviderChecks(config);
 

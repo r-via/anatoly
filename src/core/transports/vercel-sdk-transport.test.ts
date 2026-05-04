@@ -3,7 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import type { LlmRequest } from './index.js';
+import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
 
 // ---------------------------------------------------------------------------
 // Mock external Vercel AI SDK modules — use vi.hoisted() to avoid TDZ issues
@@ -50,12 +54,30 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
   return ConfigSchema.parse(overrides);
 }
 
+// Seeded by beforeEach so calculateCost can resolve a non-zero price for the
+// `anthropic/claude-sonnet-4-6` request used across tests.
+let testProjectRoot = '/tmp/test';
+
+function seedPricingFor(root: string): void {
+  mkdirSync(resolve(root, '.anatoly'), { recursive: true });
+  writeFileSync(
+    resolve(root, PRICING_PATHS.normalized),
+    JSON.stringify({
+      generated_at: new Date().toISOString(),
+      models: {
+        'anthropic/claude-sonnet-4-6': { input: 3, output: 15, source: 'litellm' },
+        'google/gemini-2.5-flash': { input: 0.3, output: 2.5, source: 'litellm' },
+      },
+    }),
+  );
+}
+
 function makeRequest(model: string): LlmRequest {
   return {
     systemPrompt: 'You are a helpful assistant.',
     userMessage: 'Hello',
     model,
-    projectRoot: '/tmp/test',
+    projectRoot: testProjectRoot,
     abortController: new AbortController(),
   };
 }
@@ -166,11 +188,16 @@ describe('VercelSdkTransport', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
     mockGenerateText.mockReset();
+    testProjectRoot = mkdtempSync(join(tmpdir(), 'anatoly-vsdk-'));
+    seedPricingFor(testProjectRoot);
+    _resetPricingCache();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
+    rmSync(testProjectRoot, { recursive: true, force: true });
+    _resetPricingCache();
   });
 
   it('should have provider = "vercel-sdk"', () => {

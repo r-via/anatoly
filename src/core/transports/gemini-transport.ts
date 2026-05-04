@@ -220,7 +220,7 @@ export class GeminiTransport implements LlmTransport {
     }
 
     const durationMs = Date.now() - start;
-    const costUsd = calculateCost(params.model, inputTokens, outputTokens);
+    const costUsd = calculateCost(params.model, inputTokens, outputTokens, params.projectRoot);
     transcriptLines.push(`## Assistant\n\n${text}\n`);
 
     // --- Conversation dump: append result ---
