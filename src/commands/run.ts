@@ -65,7 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -259,6 +259,19 @@ export function registerRunCommand(program: Command): void {
           isTTY: process.stdin.isTTY === true,
           defaultsSettings: false, // Story 48.7 adds the CLI flag
         });
+
+        // Advanced tier: also download GGUF models with SHA-256 verification.
+        // On failure, fall back to lite tier for this run.
+        if (wizardResult.tier === 'advanced') {
+          const ggufOk = await runGgufPrefetch({
+            isTTY: process.stdin.isTTY === true,
+            defaultsSettings: false, // Story 48.7 adds the CLI flag
+          });
+          if (!ggufOk) {
+            wizardResult = { ...wizardResult, tier: 'lite' };
+            getLogger().warn('GGUF download failed — tier forced to lite for this run');
+          }
+        }
       }
 
       const cliConcurrency = cmdOpts.concurrency;

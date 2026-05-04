@@ -6,6 +6,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
+import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefetch.js';
 import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -196,4 +197,78 @@ export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: 
 
     log.info('lite embedding models ready');
   }
+}
+
+// ---------------------------------------------------------------------------
+// GGUF prefetch with progress bar (advanced tier)
+// ---------------------------------------------------------------------------
+
+/**
+ * Download both GGUF embedding models with visual feedback.
+ * Returns `true` on success, `false` if any download failed (caller should
+ * fall back to lite).
+ *
+ * - Interactive (TTY): uses a `@clack/prompts` spinner with download progress.
+ * - Non-interactive (CI / pipe): emits linear log lines.
+ *
+ * On failure, warns and returns `false` — the caller forces tier to lite.
+ */
+export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: boolean }): Promise<boolean> {
+  const log = getLogger();
+  let hadError = false;
+
+  if (opts.isTTY && !opts.defaultsSettings) {
+    // Interactive: spinner
+    const spinner = p.spinner();
+    spinner.start('Downloading GGUF embedding models…');
+
+    await prefetchGgufModels({
+      onProgress: (ev: GgufPrefetchProgress) => {
+        switch (ev.kind) {
+          case 'verify':
+            if (ev.status === 'ok') {
+              spinner.message(`GGUF model verified: ${ev.filename}`);
+            } else if (ev.status === 'mismatch') {
+              spinner.message(`SHA256 mismatch, re-downloading: ${ev.filename}`);
+            }
+            break;
+          case 'progress':
+            spinner.message(`↓ ${ev.filename}: ${ev.downloadedMB}/${ev.totalMB} MB (${Math.round(ev.percent)}%)`);
+            break;
+          case 'done':
+            break;
+          case 'error':
+            hadError = true;
+            log.warn({ filename: ev.filename, err: ev.error.message }, 'GGUF model download failed');
+            break;
+        }
+      },
+    });
+
+    spinner.stop(hadError ? 'GGUF download failed — falling back to lite' : 'GGUF models ready');
+  } else {
+    // Non-interactive: linear log
+    log.info('downloading GGUF embedding models…');
+
+    await prefetchGgufModels({
+      onProgress: (ev: GgufPrefetchProgress) => {
+        if (ev.kind === 'verify' && ev.status === 'ok') {
+          log.info({ filename: ev.filename }, 'GGUF model verified');
+        } else if (ev.kind === 'done') {
+          log.info({ filename: ev.filename }, 'GGUF model ready');
+        } else if (ev.kind === 'error') {
+          hadError = true;
+          log.warn({ filename: ev.filename, err: ev.error.message }, 'GGUF model download failed');
+        }
+      },
+    });
+
+    if (hadError) {
+      log.warn('GGUF download failed — falling back to lite');
+    } else {
+      log.info('GGUF embedding models ready');
+    }
+  }
+
+  return !hadError;
 }

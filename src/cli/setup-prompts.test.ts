@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, runLitePrefetch, type WizardOptions, type WizardResult } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, type WizardOptions, type WizardResult } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,6 +72,12 @@ vi.mock('@clack/prompts', () => ({
 const prefetchMock = vi.fn<(opts?: { onProgress?: (ev: unknown) => void }) => Promise<void>>();
 vi.mock('../rag/embeddings-prefetch.js', () => ({
   prefetchLiteModels: (opts?: { onProgress?: (ev: unknown) => void }) => prefetchMock(opts),
+}));
+
+// Mock gguf-prefetch to avoid real network calls
+const ggufPrefetchMock = vi.fn<(opts?: { onProgress?: (ev: unknown) => void }) => Promise<void>>();
+vi.mock('../rag/gguf-prefetch.js', () => ({
+  prefetchGgufModels: (opts?: { onProgress?: (ev: unknown) => void }) => ggufPrefetchMock(opts),
 }));
 
 // Mock logger
@@ -360,5 +366,75 @@ describe('runLitePrefetch', () => {
     await runLitePrefetch({ isTTY: true, defaultsSettings: false });
 
     expect(prefetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runGgufPrefetch tests
+// ---------------------------------------------------------------------------
+
+describe('runGgufPrefetch', () => {
+  beforeEach(() => {
+    ggufPrefetchMock.mockReset();
+    spinnerStartMock.mockReset();
+    spinnerStopMock.mockReset();
+    spinnerMessageMock.mockReset();
+  });
+
+  // AC: interactive TTY → spinner used
+  it('uses a spinner in interactive mode', async () => {
+    ggufPrefetchMock.mockResolvedValue(undefined);
+
+    const result = await runGgufPrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(spinnerStartMock).toHaveBeenCalledWith(expect.stringContaining('GGUF'));
+    expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('ready'));
+    expect(result).toBe(true);
+  });
+
+  // AC: returns true on success
+  it('returns true when all downloads succeed', async () => {
+    ggufPrefetchMock.mockResolvedValue(undefined);
+
+    const result = await runGgufPrefetch({ isTTY: false, defaultsSettings: false });
+    expect(result).toBe(true);
+  });
+
+  // AC: returns false when a download fails
+  it('returns false when a download error event fires', async () => {
+    ggufPrefetchMock.mockImplementation(async (opts) => {
+      opts?.onProgress?.({ kind: 'error', filename: 'model.gguf', error: new Error('Network error') });
+    });
+
+    const result = await runGgufPrefetch({ isTTY: true, defaultsSettings: false });
+    expect(result).toBe(false);
+    expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('failed'));
+  });
+
+  // AC: --defaults-settings → no spinner
+  it('skips spinner when defaultsSettings is true', async () => {
+    ggufPrefetchMock.mockResolvedValue(undefined);
+
+    await runGgufPrefetch({ isTTY: true, defaultsSettings: true });
+
+    expect(spinnerStartMock).not.toHaveBeenCalled();
+  });
+
+  // AC: progress events update spinner
+  it('updates spinner message on progress events', async () => {
+    ggufPrefetchMock.mockImplementation(async (opts) => {
+      opts?.onProgress?.({
+        kind: 'progress',
+        filename: 'nomic.gguf',
+        downloadedMB: 500,
+        totalMB: 5000,
+        percent: 10,
+      });
+    });
+
+    await runGgufPrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(spinnerMessageMock).toHaveBeenCalledWith(expect.stringContaining('nomic.gguf'));
+    expect(spinnerMessageMock).toHaveBeenCalledWith(expect.stringContaining('10%'));
   });
 });
