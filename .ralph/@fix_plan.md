@@ -155,17 +155,7 @@
 
 - [x] Story 49.1: Recovery messages actionnables pour failures de download
 - [x] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
-  > As a user qui audite plusieurs projets
-  > I want que mon choix lite/advanced soit mémorisé entre projets
-  > So that je ne ré-réponde pas la même question à chaque nouveau repo.
-  > AC: Given un user choisit "Advanced" pour la première fois, When la story 48.1 termine avec succès (downloads + setup OK), Then `~/.anatoly/preferences.yml` est écrit avec `embeddings: { prefer: 'advanced' }`
-  > AC: Given `~/.anatoly/preferences.yml` contient `embeddings.prefer: 'advanced'`, And le hardware actuel a un GPU CUDA + ≥ 12 GB VRAM, When un nouveau first-run démarre dans un autre projet, Then le prompt tier est skippé, And un log info `"Using saved preference: advanced (override with --rag-lite)"` est émis, And le tier `advanced` est appliqué silencieusement
-  > AC: Given la préférence est `'advanced'`, And le hardware actuel n'a pas de GPU CUDA (ou < 12 GB VRAM), When un new first-run démarre, Then le prompt tier est ré-affiché, And une note explique : `"Your saved preference (advanced) isn't supported here — falling back to default."`
-  > AC: Given `--rag-lite` ou `--rag-advanced` est passé en CLI, When un first-run démarre, Then la préférence est ignorée pour ce run (le flag prime), And la préférence n'est pas ré-écrite (elle reste celle du choix initial)
-  > AC: Given `~/.anatoly/preferences.yml` est corrompu (YAML invalide), When la wizard tente de le lire, Then un warn est loggé, And le fichier est ignoré (le prompt tier est ré-affiché)
-  > AC: Given la wizard veut écrire la préférence, When `mkdirSync(homedir() + '/.anatoly', { recursive: true })` échoue, Then un warn est loggé (`"Could not save preference"`), And le run continue normalement (best-effort)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-2
-- [ ] Story 49.3: Transition visuelle setup → audit
+- [x] Story 49.3: Transition visuelle setup → audit
   > As a utilisateur qui passe du setup à l'audit
   > I want voir une démarcation claire entre les deux phases
   > So that je sais que l'onboarding est terminé et que les LLM calls vont démarrer.

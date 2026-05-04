@@ -61,7 +61,7 @@ import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { DeliberationResponseSchema } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
-import { printBanner } from '../utils/banner.js';
+import { printBanner, printSetupToAuditTransition } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
@@ -1285,6 +1285,12 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       defaultsSettings: ctx.defaultsSettings,
       projectRoot: ctx.projectRoot,
     });
+  }
+
+  // Story 49.3: visual transition between setup and audit phases.
+  // Printed even for --defaults-settings; gated on --plain for text fallback.
+  if (!ctx.interrupted && !ctx.dryRun) {
+    printSetupToAuditTransition({ plain: ctx.plain });
   }
 
   ctx.allTasks = allTasks;

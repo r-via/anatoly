@@ -35,3 +35,19 @@ export function printBanner(altMotd?: string): void {
   }
   console.log();
 }
+
+/**
+ * Visual transition between setup and audit phases (Story 49.3).
+ *
+ * - Normal mode: box-drawing separator + ASCII banner + "Starting audit..." + blank line.
+ * - Plain mode: simple `--- starting audit ---` text line.
+ */
+export function printSetupToAuditTransition(opts: { plain: boolean }): void {
+  if (opts.plain) {
+    console.log('--- starting audit ---');
+    return;
+  }
+
+  console.log(chalk.dim('\u2500'.repeat(61)));
+  printBanner('The weight is good !  Starting audit...');
+}
