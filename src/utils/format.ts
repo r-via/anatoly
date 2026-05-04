@@ -42,6 +42,32 @@ export function verboseLog(message: string): void {
 }
 
 /**
+ * Format a token count for compact display in summary lines.
+ *
+ * Examples:
+ *   formatCompactTokens(543)     // "543"
+ *   formatCompactTokens(1_500)   // "1.5K"
+ *   formatCompactTokens(58_000)  // "58K"
+ *   formatCompactTokens(1_500_000) // "1.5M"
+ *
+ * No `~` prefix (we have exact counts at this point); use
+ * {@link formatTokenSummary} or `formatTokenCount` for forecast/estimate
+ * contexts where the approximation marker matters.
+ */
+export function formatCompactTokens(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 10_000) {
+    return `${Math.round(count / 1_000)}K`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}K`;
+  }
+  return `${count}`;
+}
+
+/**
  * Format token counts for verbose display.
  * Shows input/output tokens and cache read hit rate.
  */

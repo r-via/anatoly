@@ -31,7 +31,7 @@ import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
-import { enterLlmCallSink } from '../utils/llm-calls-sink.js';
+import { enterLlmCallSink, getActiveSinkTotals } from '../utils/llm-calls-sink.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
@@ -46,7 +46,7 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
-import { countReviewFindings } from '../utils/format.js';
+import { countReviewFindings, formatCompactTokens } from '../utils/format.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
@@ -2431,9 +2431,33 @@ function runReportPhase(ctx: RunContext): void {
   const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
   const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
   const hasGemini = ctx.providerStats.gemini.calls > 0;
-  const costLine = hasGemini
-    ? `${chalk.bold('Cost:')} ${costColor(`$${claudeCost.toFixed(2)}`)} (Claude) \u00b7 ${chalk.green.bold(`$${geminiCost.toFixed(2)}`)} (Gemini)`
-    : `${chalk.bold('Cost:')} ${costColor(costStr)} in API calls \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`;
+
+  // Token counts come from the per-call sink (totals updated on every
+  // recordLlmCall). We render compact (e.g. 58K) and skip them entirely
+  // only if the sink is somehow absent \u2014 should never happen for `run`.
+  const sinkTotals = getActiveSinkTotals();
+  const tokensFragment = sinkTotals
+    ? `${formatCompactTokens(sinkTotals.inputTokens)} tokens in / ${formatCompactTokens(sinkTotals.outputTokens)} tokens out`
+    : '';
+
+  // The "$0.00 with Claude Code" hint is shown only when the user is on the
+  // Claude Code subscription (mode: subscription) AND there were Anthropic
+  // calls. Without subscription, the hint loses its meaning (no savings to
+  // show), so we drop it.
+  const isAnthropicSubscription =
+    ctx.config.providers.anthropic?.mode === 'subscription' &&
+    ctx.providerStats.anthropic.calls > 0;
+  const claudeCodeHint = isAnthropicSubscription
+    ? ` \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`
+    : '';
+
+  const dollars = hasGemini
+    ? `${costColor(`$${claudeCost.toFixed(2)}`)} (Claude) \u00b7 ${chalk.green.bold(`$${geminiCost.toFixed(2)}`)} (Gemini)`
+    : `${costColor(costStr)} in API calls`;
+
+  const costLine = tokensFragment
+    ? `${chalk.bold('Cost:')} ${tokensFragment} \u00b7 ${dollars}${claudeCodeHint}`
+    : `${chalk.bold('Cost:')} ${dollars}${claudeCodeHint}`;
   const quotaLine = hasGemini
     ? `${chalk.bold('Quota:')} ${ctx.providerStats.anthropic.calls} Claude \u00b7 ${ctx.providerStats.gemini.calls} Gemini (\u2212${Math.round((ctx.providerStats.gemini.calls / (ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls)) * 100)}%)`
     : undefined;

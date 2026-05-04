@@ -64,9 +64,23 @@ export type LlmCallInput = Omit<LlmCallEvent, 'schemaVersion' | 't' | 'phase' | 
 // AsyncLocalStorage-backed sink context
 // ---------------------------------------------------------------------------
 
+/**
+ * Running totals updated on every {@link recordLlmCall}. Lets the run
+ * summary render token counts without re-reading the ndjson file.
+ */
+export interface LlmCallTotals {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
 interface SinkContext {
   filePath: string;
   startTime: number;
+  totals: LlmCallTotals;
 }
 
 const als = new AsyncLocalStorage<SinkContext>();
@@ -81,7 +95,7 @@ const als = new AsyncLocalStorage<SinkContext>();
  */
 export function withLlmCallSink<T>(filePath: string, fn: () => T): T {
   mkdirSync(dirname(filePath), { recursive: true });
-  return als.run({ filePath, startTime: Date.now() }, fn);
+  return als.run({ filePath, startTime: Date.now(), totals: emptyTotals() }, fn);
 }
 
 /**
@@ -97,7 +111,18 @@ export function withLlmCallSink<T>(filePath: string, fn: () => T): T {
  */
 export function enterLlmCallSink(filePath: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
-  als.enterWith({ filePath, startTime: Date.now() });
+  als.enterWith({ filePath, startTime: Date.now(), totals: emptyTotals() });
+}
+
+function emptyTotals(): LlmCallTotals {
+  return {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    costUsd: 0,
+  };
 }
 
 /**
@@ -118,6 +143,15 @@ export function recordLlmCall(event: LlmCallInput): void {
     ...event,
   };
 
+  // Update in-memory aggregates first — even if the file write fails, the
+  // run summary should still see consistent counts.
+  sinkCtx.totals.calls += 1;
+  sinkCtx.totals.inputTokens += event.inputTokens;
+  sinkCtx.totals.outputTokens += event.outputTokens;
+  sinkCtx.totals.cacheReadTokens += event.cacheReadTokens;
+  sinkCtx.totals.cacheCreationTokens += event.cacheCreationTokens;
+  sinkCtx.totals.costUsd += event.costUsd;
+
   try {
     // Single appendFileSync with O_APPEND is atomic for writes ≤ PIPE_BUF
     // (typically 4096 bytes on Linux). Our events are ~500 bytes, so we get
@@ -133,4 +167,15 @@ export function recordLlmCall(event: LlmCallInput): void {
 /** Return the absolute file path of the active sink, or `undefined` outside any scope. Useful for tests and tooling. */
 export function getActiveSinkPath(): string | undefined {
   return als.getStore()?.filePath;
+}
+
+/**
+ * Return a snapshot of the running totals for the active sink. Returns
+ * `undefined` when no sink is open. Used by the run summary to render the
+ * cost line without re-parsing the ndjson file.
+ */
+export function getActiveSinkTotals(): Readonly<LlmCallTotals> | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  return { ...store.totals };
 }

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import {
   LLM_CALLS_SCHEMA_VERSION,
   getActiveSinkPath,
+  getActiveSinkTotals,
   recordLlmCall,
   withLlmCallSink,
 } from './llm-calls-sink.js';
@@ -143,5 +144,62 @@ describe('llm-calls-sink', () => {
       expect(getActiveSinkPath()).toBe(path);
     });
     expect(getActiveSinkPath()).toBeUndefined();
+  });
+
+  describe('getActiveSinkTotals', () => {
+    it('returns undefined outside any sink scope', () => {
+      expect(getActiveSinkTotals()).toBeUndefined();
+    });
+
+    it('starts at zero and accumulates each recordLlmCall', () => {
+      const path = join(dir, 'llm-calls.ndjson');
+      withLlmCallSink(path, () => {
+        expect(getActiveSinkTotals()).toEqual({
+          calls: 0, inputTokens: 0, outputTokens: 0,
+          cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0,
+        });
+
+        recordLlmCall({
+          provider: 'anthropic', model: 'm',
+          inputTokens: 100, outputTokens: 50,
+          cacheReadTokens: 200, cacheCreationTokens: 5,
+          costUsd: 0.01, durationMs: 100, success: true,
+        });
+        recordLlmCall({
+          provider: 'anthropic', model: 'm',
+          inputTokens: 30, outputTokens: 10,
+          cacheReadTokens: 0, cacheCreationTokens: 0,
+          costUsd: 0.002, durationMs: 50, success: true,
+        });
+
+        expect(getActiveSinkTotals()).toEqual({
+          calls: 2,
+          inputTokens: 130,
+          outputTokens: 60,
+          cacheReadTokens: 200,
+          cacheCreationTokens: 5,
+          costUsd: 0.012,
+        });
+      });
+    });
+
+    it('returns a snapshot that is decoupled from later mutations', () => {
+      const path = join(dir, 'llm-calls.ndjson');
+      withLlmCallSink(path, () => {
+        recordLlmCall({
+          provider: 'a', model: 'm', inputTokens: 1, outputTokens: 1,
+          cacheReadTokens: 0, cacheCreationTokens: 0,
+          costUsd: 0, durationMs: 0, success: true,
+        });
+        const snapshot = getActiveSinkTotals();
+        recordLlmCall({
+          provider: 'a', model: 'm', inputTokens: 99, outputTokens: 99,
+          cacheReadTokens: 0, cacheCreationTokens: 0,
+          costUsd: 0, durationMs: 0, success: true,
+        });
+        expect(snapshot?.inputTokens).toBe(1);
+        expect(getActiveSinkTotals()?.inputTokens).toBe(100);
+      });
+    });
   });
 });
