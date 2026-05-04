@@ -565,10 +565,10 @@ describe('writeFirstRunConfig', () => {
     }
   });
 
-  // AC: Given story 48.1 returned a tier, When writeFirstRunConfig(tier) is called,
+  // AC: Given the first-run wizard completed, When writeFirstRunConfig(projectRoot) is called,
   // Then a .anatoly.yml is written with correct providers, models, axes, and rag
   it('writes .anatoly.yml with subscription mode when no API key detected', () => {
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const filePath = join(dir, '.anatoly.yml');
     expect(existsSync(filePath)).toBe(true);
@@ -584,7 +584,7 @@ describe('writeFirstRunConfig', () => {
 
   // AC: Header comment
   it('includes header comment at top of file', () => {
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content.startsWith('# Anatoly configuration')).toBe(true);
@@ -594,7 +594,7 @@ describe('writeFirstRunConfig', () => {
 
   // AC: All axes enabled
   it('writes all 7 axes as enabled', () => {
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content).toContain('axes:');
@@ -607,7 +607,7 @@ describe('writeFirstRunConfig', () => {
 
   // AC: rag.code_model = 'auto'
   it('sets rag.code_model to auto', () => {
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content).toContain('rag:');
@@ -618,24 +618,16 @@ describe('writeFirstRunConfig', () => {
   it('sets provider mode to api when ANTHROPIC_API_KEY is in env', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
 
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content).toContain('mode: api');
     expect(content).not.toContain('mode: subscription');
   });
 
-  // AC: advanced tier is accepted and written
-  it('accepts advanced tier parameter', () => {
-    writeFirstRunConfig('advanced', dir);
-
-    const filePath = join(dir, '.anatoly.yml');
-    expect(existsSync(filePath)).toBe(true);
-  });
-
   // AC: The generated YAML can be parsed back by loadConfig
   it('generates valid YAML that can be loaded by js-yaml', async () => {
-    writeFirstRunConfig('lite', dir);
+    writeFirstRunConfig(dir);
 
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     // Use dynamic import to avoid issues with the yaml mock

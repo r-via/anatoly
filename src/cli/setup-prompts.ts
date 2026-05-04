@@ -334,10 +334,9 @@ const AXIS_IDS = [
  * - All 7 axes are enabled.
  * - `rag.code_model` is set to `'auto'` so runtime resolution picks the right backend.
  *
- * @param tier — the embedding tier chosen by the user ('lite' | 'advanced').
  * @param projectRoot — the project root where `.anatoly.yml` will be written.
  */
-export function writeFirstRunConfig(tier: 'lite' | 'advanced', projectRoot: string): void {
+export function writeFirstRunConfig(projectRoot: string): void {
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const providerMode = hasApiKey ? 'api' : 'subscription';
 
