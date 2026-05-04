@@ -62,6 +62,7 @@ import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { DeliberationResponseSchema } from '../core/deliberation.js';
 import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
+import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -229,11 +230,20 @@ export function registerRunCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
+      // Banner first — every launch-time message below is printed as a
+      // standardised notice underneath, instead of ad-hoc lines drifting
+      // above and below the banner.
+      printBanner();
+
       const cliConcurrency = cmdOpts.concurrency;
       const concurrency = cliConcurrency ?? config.runtime.concurrency;
 
       if (concurrency < 1 || concurrency > 10 || !Number.isInteger(concurrency)) {
-        console.error('error: --concurrency must be between 1 and 10');
+        printNotice({
+          kind: 'error',
+          title: 'invalid --concurrency',
+          hint: 'must be an integer between 1 and 10',
+        });
         process.exitCode = 2;
         return;
       }
@@ -241,7 +251,11 @@ export function registerRunCommand(program: Command): void {
       const cliSdkConcurrency = cmdOpts.sdkConcurrency;
       if (cliSdkConcurrency !== undefined) {
         if (cliSdkConcurrency < 1 || cliSdkConcurrency > 20 || !Number.isInteger(cliSdkConcurrency)) {
-          console.error('error: --sdk-concurrency must be between 1 and 20');
+          printNotice({
+            kind: 'error',
+            title: 'invalid --sdk-concurrency',
+            hint: 'must be an integer between 1 and 20',
+          });
           process.exitCode = 2;
           return;
         }
@@ -252,7 +266,11 @@ export function registerRunCommand(program: Command): void {
 
       const runId = cmdOpts.runId ?? generateRunId();
       if (cmdOpts.runId && !isValidRunId(cmdOpts.runId)) {
-        console.error(`anatoly — error: invalid --run-id "${cmdOpts.runId}" (use alphanumeric, dashes, underscores)`);
+        printNotice({
+          kind: 'error',
+          title: `invalid --run-id "${cmdOpts.runId}"`,
+          hint: 'use alphanumeric characters, dashes, or underscores',
+        });
         process.exitCode = 2;
         return;
       }
@@ -271,14 +289,22 @@ export function registerRunCommand(program: Command): void {
           worktreeCreated = true;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn(chalk.yellow(`warning: worktree creation failed (${msg}) — running in foreground`));
+          printNotice({
+            kind: 'warn',
+            title: 'worktree creation failed — running in foreground',
+            details: [msg],
+          });
           // Fallback: run in foreground mode without --background
           cmdOpts.background = false;
         }
 
         if (cmdOpts.background) {
           const { pid } = launchBackgroundRun(projectRoot, runId, runDir, forwardedArgs);
-          console.log(`Review started in background (run: ${runId}). Use \`anatoly status\` to check progress.`);
+          printNotice({
+            kind: 'success',
+            title: `review started in background (run: ${runId})`,
+            hint: 'run `anatoly status` to check progress',
+          });
           if (pid > 0) {
             getLogger().info({ runId, pid, worktreeCreated }, 'background run launched');
           }
@@ -293,8 +319,11 @@ export function registerRunCommand(program: Command): void {
         try { return readdirSync(join(runsDir, id, 'reviews')).length === 0; } catch { return true; }
       }).length;
       if (emptyRunCount > 0) {
-        console.log(chalk.dim(`${emptyRunCount} empty audit(s) in .anatoly/runs/ — run ${chalk.bold('anatoly audit remove --empty')} to clean up`));
-        console.log('');
+        printNotice({
+          kind: 'warn',
+          title: `${emptyRunCount} empty audit(s) in .anatoly/runs/`,
+          hint: `run ${chalk.bold('anatoly audit remove --empty')} to clean up`,
+        });
       }
 
       const dryRun = cmdOpts.dryRun ?? false;
@@ -302,7 +331,11 @@ export function registerRunCommand(program: Command): void {
 
       // Validate --lite / --advanced mutual exclusivity
       if (parentOpts.ragLite && parentOpts.ragAdvanced) {
-        console.error('error: --rag-lite and --rag-advanced are mutually exclusive');
+        printNotice({
+          kind: 'error',
+          title: '--rag-lite and --rag-advanced are mutually exclusive',
+          hint: 'pick one — or omit both to let Anatoly auto-detect',
+        });
         process.exitCode = 2;
         return;
       }
@@ -322,7 +355,10 @@ export function registerRunCommand(program: Command): void {
       // Flush deliberation memory if requested
       if (cmdOpts.flushMemory) {
         saveDeliberationMemory(projectRoot, { version: 2, false_positives: [] });
-        console.log(chalk.dim('deliberation memory flushed'));
+        printNotice({
+          kind: 'info',
+          title: 'deliberation memory flushed',
+        });
       }
 
       // Validate Anthropic provider auth — fail fast if misconfigured.
@@ -737,10 +773,22 @@ export function registerRunCommand(program: Command): void {
         });
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
-        if (error instanceof AnatolyError) {
-          console.error(`anatoly — ${error.formatForDisplay()}`);
+        if (error instanceof AnatolyError && error.preformatted) {
+          // Throw site already produced a fully styled multi-line block
+          // (e.g. provider-auth box) — print it verbatim.
+          console.error(error.message);
+        } else if (error instanceof AnatolyError) {
+          printNotice({
+            kind: 'error',
+            title: error.message,
+            ...(error.details ? { details: [...error.details] } : {}),
+            ...(error.hint ? { hint: error.hint } : {}),
+          });
         } else {
-          console.error(`anatoly — error: ${String(error)}`);
+          printNotice({
+            kind: 'error',
+            title: String(error),
+          });
         }
 
         // Persist failed status for background run tracking (Story 47.3)
@@ -843,7 +891,9 @@ interface SetupResult {
 async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const log = getLogger();
   const rl = ctx.runLog;
-  printBanner();
+  // Banner is printed at the very start of the run command so all
+  // launch-time notices (warnings, errors, info hints) appear under it
+  // in a consistent block.
 
   // sourceRoot is the directory from which source files are read (worktree or projectRoot)
   const srcRoot = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
@@ -982,10 +1032,13 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.fileFilter && estimateTasks.length === 0) {
     const cwdRel = relative(ctx.projectRoot, process.cwd()) || '.';
     throw new AnatolyError(
-      `no files match --file '${ctx.fileFilter}' (project root: ${ctx.projectRoot}, cwd: ${cwdRel})`,
+      `no files match --file '${ctx.fileFilter}'`,
       ERROR_CODES.FILE_NOT_FOUND,
       false,
       'fix the --file path — it is interpreted as a glob relative to the project root, not your current directory',
+      undefined,
+      false,
+      [`project root: ${ctx.projectRoot}`, `cwd: ${cwdRel}`],
     );
   }
   const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, estimateTasks);
