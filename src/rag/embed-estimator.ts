@@ -17,8 +17,12 @@ import { smartChunkDoc } from './doc-indexer.js';
  * NLP summaries don't exist before the run, so we use a flat per-symbol
  * average derived from observed Anatoly NLP outputs (~80-120 tokens each,
  * x2 for summary + doc embed).
+ *
+ * Exported so {@link forecastRun} can reuse the same constant when
+ * projecting the LLM summarizer's output token cost (the LLM summary
+ * text and the embed input share the same byte budget).
  */
-const NLP_TOKENS_PER_FUNCTION = 200;
+export const NLP_TOKENS_PER_FUNCTION = 200;
 
 export interface EmbedEstimate {
   /** Total tokens sent to the code-embedding model. */

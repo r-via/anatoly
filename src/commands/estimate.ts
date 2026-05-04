@@ -199,6 +199,7 @@ export function registerEstimateCommand(program: Command): void {
         totalFiles: allTasks.length,
         axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
         ...(embedForecast ? { embed: embedForecast } : {}),
+        ...(enableRag ? { summaryModel: resolveCodeSummaryModel(config) } : {}),
         calibration,
         concurrency,
         ragEnabled: enableRag,

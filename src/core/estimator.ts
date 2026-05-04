@@ -9,6 +9,7 @@ import { TaskSchema, type Task } from '../schemas/task.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
 import { calculateCost } from '../utils/cost-calculator.js';
 import { estimateCalibratedMinutes, type CalibrationData } from './calibration.js';
+import { NLP_TOKENS_PER_FUNCTION } from '../rag/embed-estimator.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
@@ -260,11 +261,20 @@ export interface ForecastInputs {
   axes: ReadonlyArray<{ id: string; model: string }>;
   /**
    * Embed forecast bundle when RAG is enabled. Token counts are surfaced
-   * to the user; cost is not modeled in this first cut (lite mode is local
-   * and free; external mode requires per-axis embedding model resolution
-   * which is async and hardware-dependent — see follow-up).
+   * to the user; embed cost is not modeled in this first cut (lite mode is
+   * local and free; external mode requires per-axis embedding model
+   * resolution which is async and hardware-dependent — see follow-up).
    */
   embed?: { codeTokens: number; codeUnits: number; nlpTokens: number; nlpUnits: number };
+  /**
+   * NLP-summarizer model id (typically Haiku via {@link resolveCodeSummaryModel}).
+   * When set together with a non-empty `embed`, the forecast adds the
+   * summarizer's token cost to the LLM totals — one call per file with
+   * functions, input ≈ embed.codeTokens, output ≈ codeUnits ×
+   * {@link NLP_TOKENS_PER_FUNCTION}. Tokens land in `llm.inputTokens` /
+   * `llm.outputTokens` per the contract: NLP summary stays in the LLM count.
+   */
+  summaryModel?: string;
   calibration: CalibrationData;
   concurrency: number;
   ragEnabled: boolean;
@@ -272,15 +282,15 @@ export interface ForecastInputs {
 }
 
 export function forecastRun(args: ForecastInputs): RunForecast {
-  const { projectRoot, evalTasks, totalFiles, axes, embed, calibration, concurrency, ragEnabled, deliberation } = args;
+  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, calibration, concurrency, ragEnabled, deliberation } = args;
 
   // Per-pass token cost (one axis × all eval files) — same as today's
   // `estimateTasksTokens` on the eval set.
   const { inputTokens: perPassInput, outputTokens: perPassOutput } = estimateTasksTokens(projectRoot, evalTasks);
 
   // Each active axis runs a full pass; total tokens scale linearly.
-  const llmInputTokens = perPassInput * axes.length;
-  const llmOutputTokens = perPassOutput * axes.length;
+  let llmInputTokens = perPassInput * axes.length;
+  let llmOutputTokens = perPassOutput * axes.length;
 
   // Cost per axis (each axis's model can differ). Distribute one pass per axis,
   // accumulate by short model name for the breakdown line.
@@ -303,6 +313,22 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     embedTokens = embed.codeTokens + embed.nlpTokens;
     codeUnits = embed.codeUnits;
     nlpUnits = embed.nlpUnits;
+  }
+
+  // NLP summarizer cost: one LLM call per file with functions. We approximate
+  // input as the function-body token sum and output as units × the per-function
+  // budget the embed-estimator already uses (NLP_TOKENS_PER_FUNCTION) — the
+  // observed summary text size. Tokens are merged into the LLM totals because
+  // the user opted to keep the summary work in the LLM in/out count.
+  if (summaryModel && embed && embed.codeUnits > 0) {
+    const summaryInput = embed.codeTokens;
+    const summaryOutput = embed.codeUnits * NLP_TOKENS_PER_FUNCTION;
+    llmInputTokens += summaryInput;
+    llmOutputTokens += summaryOutput;
+    const summaryCost = calculateCost(summaryModel, summaryInput, summaryOutput, projectRoot);
+    const summaryKey = shortModelKey(summaryModel);
+    costByModel[summaryKey] = (costByModel[summaryKey] ?? 0) + summaryCost;
+    llmCost += summaryCost;
   }
 
   const calibratedMin = estimateCalibratedMinutes(

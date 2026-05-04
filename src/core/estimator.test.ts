@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import {
   estimateProject,
   loadTasks,
@@ -14,12 +15,17 @@ import {
   estimateFileSeconds,
   estimateSequentialSeconds,
   estimateMinutesWithConcurrency,
+  forecastRun,
   BASE_SECONDS,
   SECONDS_PER_SYMBOL,
   CONCURRENCY_EFFICIENCY,
   AXIS_COUNT,
 } from './estimator.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
+import type { Task } from '../schemas/task.js';
+import type { CalibrationData } from './calibration.js';
+import { PRICING_PATHS, _resetPricingCache } from '../utils/pricing-cache.js';
+import { NLP_TOKENS_PER_FUNCTION } from '../rag/embed-estimator.js';
 
 describe('countTokens', () => {
   it('should count tokens in a string', () => {
@@ -223,5 +229,146 @@ describe('constants', () => {
     expect(SECONDS_PER_SYMBOL).toBe(0.8);
     expect(CONCURRENCY_EFFICIENCY).toBe(0.75);
     expect(AXIS_COUNT).toBe(ALL_AXIS_IDS.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// forecastRun — decision-grade Forecast block (Pass 1: NLP summary in LLM count)
+// ---------------------------------------------------------------------------
+
+describe('forecastRun', () => {
+  let projectRoot: string;
+
+  function seedPricing(models: Record<string, { input: number; output: number }>): void {
+    mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
+    writeFileSync(
+      resolve(projectRoot, PRICING_PATHS.normalized),
+      JSON.stringify({
+        generated_at: new Date().toISOString(),
+        models: Object.fromEntries(
+          Object.entries(models).map(([k, v]) => [k, { ...v, source: 'litellm' }]),
+        ),
+      }),
+    );
+  }
+
+  function makeTask(file: string, content: string): Task {
+    mkdirSync(resolve(projectRoot, 'src'), { recursive: true });
+    writeFileSync(resolve(projectRoot, file), content);
+    return {
+      version: 1,
+      file,
+      hash: 'h',
+      symbols: [{ name: 'fn', kind: 'function', exported: true, line_start: 1, line_end: 3 }],
+      scanned_at: '2026-01-01T00:00:00Z',
+    };
+  }
+
+  const emptyCal: CalibrationData = { version: 1, updatedAt: '', axes: {} };
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'anatoly-forecast-'));
+    _resetPricingCache();
+  });
+  afterEach(() => {
+    rmSync(projectRoot, { recursive: true, force: true });
+    _resetPricingCache();
+  });
+
+  it('does not add summary tokens when summaryModel is omitted', () => {
+    seedPricing({ 'anthropic/claude-sonnet-4-6': { input: 3, output: 15 } });
+    const tasks = [makeTask('src/a.ts', 'export function fn() { return 42; }\n')];
+    const baseline = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: { codeTokens: 1000, codeUnits: 5, nlpTokens: 200, nlpUnits: 10 },
+      // summaryModel intentionally omitted
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+    // Just the axis pass — no summarizer contribution.
+    const expectedAxisOnly = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: false,
+      deliberation: false,
+    });
+    expect(baseline.llm.inputTokens).toBe(expectedAxisOnly.llm.inputTokens);
+    expect(baseline.llm.outputTokens).toBe(expectedAxisOnly.llm.outputTokens);
+    expect(baseline.llm.costUsd).toBeCloseTo(expectedAxisOnly.llm.costUsd, 6);
+  });
+
+  it('folds NLP summarizer tokens and cost into the LLM count when summaryModel is set', () => {
+    seedPricing({
+      'anthropic/claude-sonnet-4-6': { input: 3, output: 15 },
+      'anthropic/claude-haiku-4-5': { input: 1, output: 5 },
+    });
+    const tasks = [makeTask('src/a.ts', 'export function fn() { return 42; }\n')];
+
+    const without = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: { codeTokens: 10_000, codeUnits: 50, nlpTokens: 1000, nlpUnits: 80 },
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+
+    const withSummary = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: { codeTokens: 10_000, codeUnits: 50, nlpTokens: 1000, nlpUnits: 80 },
+      summaryModel: 'anthropic/claude-haiku-4-5',
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+
+    // Summary input ≈ codeTokens (10 000), output ≈ codeUnits × NLP_TOKENS_PER_FUNCTION (50 × 200 = 10 000).
+    expect(withSummary.llm.inputTokens).toBe(without.llm.inputTokens + 10_000);
+    expect(withSummary.llm.outputTokens).toBe(
+      without.llm.outputTokens + 50 * NLP_TOKENS_PER_FUNCTION,
+    );
+
+    // Cost added under the summarizer's short model key (haiku-4-5).
+    const expectedSummaryCost = (10_000 * 1 + 10_000 * 5) / 1_000_000; // $0.06
+    expect(withSummary.llm.costUsd).toBeCloseTo(without.llm.costUsd + expectedSummaryCost, 6);
+    expect(withSummary.llm.costByModel['haiku-4-5']).toBeCloseTo(expectedSummaryCost, 6);
+  });
+
+  it('skips summary contribution when ragEnabled but embed has no code units', () => {
+    seedPricing({
+      'anthropic/claude-sonnet-4-6': { input: 3, output: 15 },
+      'anthropic/claude-haiku-4-5': { input: 1, output: 5 },
+    });
+    const tasks = [makeTask('src/a.ts', 'const x = 1;\n')];
+
+    const result = forecastRun({
+      projectRoot,
+      evalTasks: tasks,
+      totalFiles: 1,
+      axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+      embed: { codeTokens: 0, codeUnits: 0, nlpTokens: 500, nlpUnits: 5 },
+      summaryModel: 'anthropic/claude-haiku-4-5',
+      calibration: emptyCal,
+      concurrency: 1,
+      ragEnabled: true,
+      deliberation: false,
+    });
+    expect(result.llm.costByModel['haiku-4-5']).toBeUndefined();
   });
 });
