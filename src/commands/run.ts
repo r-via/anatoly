@@ -351,7 +351,7 @@ export function registerRunCommand(program: Command): void {
 
         // Write .anatoly.yml so subsequent runs skip the wizard
         try {
-          writeFirstRunConfig(projectRoot);
+          writeFirstRunConfig(projectRoot, { external: wizardResult.external });
           getLogger().info({ tier: wizardResult.tier }, 'first-run config written to .anatoly.yml');
           // Reload config from the file we just wrote so the rest of the run
           // uses the new settings instead of the bare defaults.

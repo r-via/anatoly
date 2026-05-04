@@ -398,30 +398,35 @@ function resolveExternalBackend(
   readyFlag: EmbeddingsReadyFlag | null,
   onLog?: (message: string) => void,
 ): ResolvedModels {
-  const embConfig = config.embedding;
+  // FR8: bidirectional duplication rule.
+  // If only one axis section is configured, the other inherits from it.
+  const rawCode = config.embedding?.code;
+  const rawNlp = config.embedding?.nlp;
+  const effectiveCode = rawCode ?? rawNlp;
+  const effectiveNlp = rawNlp ?? rawCode;
 
   // Determine providers: config > flag > default
-  const codeProvider = embConfig?.code?.provider ?? readyFlag?.embedding_provider ?? 'openai';
-  const nlpProvider = embConfig?.nlp?.provider ?? codeProvider;
+  const codeProvider = effectiveCode?.provider ?? readyFlag?.embedding_provider ?? 'openai';
+  const nlpProvider = effectiveNlp?.provider ?? readyFlag?.embedding_provider ?? 'openai';
 
   const codeEntry = KNOWN_EMBEDDING_PROVIDERS[codeProvider];
   const nlpEntry = KNOWN_EMBEDDING_PROVIDERS[nlpProvider];
 
   // Determine models: config > registry defaults
-  const codeModel = embConfig?.code?.model ?? codeEntry?.default_code_model ?? '';
-  const nlpModel = embConfig?.nlp?.model ?? nlpEntry?.default_nlp_model ?? '';
+  const codeModel = effectiveCode?.model ?? codeEntry?.default_code_model ?? '';
+  const nlpModel = effectiveNlp?.model ?? nlpEntry?.default_nlp_model ?? '';
 
   // Resolve base URLs: config > registry
-  const codeBaseUrl = embConfig?.code?.base_url
+  const codeBaseUrl = effectiveCode?.base_url
     ?? (typeof codeEntry?.base_url === 'function' ? codeEntry.base_url('code') : codeEntry?.base_url)
     ?? undefined;
-  const nlpBaseUrl = embConfig?.nlp?.base_url
+  const nlpBaseUrl = effectiveNlp?.base_url
     ?? (typeof nlpEntry?.base_url === 'function' ? nlpEntry.base_url('nlp') : nlpEntry?.base_url)
     ?? undefined;
 
   // Resolve env keys: config > registry
-  const codeEnvKey = embConfig?.code?.env_key ?? codeEntry?.env_key ?? null;
-  const nlpEnvKey = embConfig?.nlp?.env_key ?? nlpEntry?.env_key ?? null;
+  const codeEnvKey = effectiveCode?.env_key ?? codeEntry?.env_key ?? null;
+  const nlpEnvKey = effectiveNlp?.env_key ?? nlpEntry?.env_key ?? null;
 
   // Dims: from MODEL_REGISTRY if known, otherwise sentinel -1 (probe via ensureEmbeddingDims)
   const codeDim = MODEL_REGISTRY[codeModel]?.dim ?? -1;

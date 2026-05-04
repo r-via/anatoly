@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
+import { KNOWN_EMBEDDING_PROVIDERS } from '../rag/known-embedding-providers.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
 import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefetch.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
@@ -33,9 +34,22 @@ export interface WizardOptions {
   plain?: boolean;
 }
 
+/** Per-axis external embedding provider config (returned by the wizard). */
+export interface ExternalAxisConfig {
+  provider: string;
+  model: string;
+  base_url?: string;
+  env_key?: string;
+}
+
 export interface WizardResult {
-  tier: 'lite' | 'advanced';
+  tier: 'lite' | 'advanced' | 'external';
   mode: 'quick-win' | 'full-run';
+  /** Set when tier is 'external'. Both axes always present (NLP duplicated from code when "Same as code"). */
+  external?: {
+    code: ExternalAxisConfig;
+    nlp: ExternalAxisConfig;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +101,7 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   // Tier resolution: saved preference → prompt
   // -----------------------------------------------------------------------
   const advanced = canRunAdvanced(opts.hardware);
-  type TierValue = 'lite' | 'advanced';
+  type TierValue = 'lite' | 'advanced' | 'external';
   let tier: TierValue;
 
   // Story 49.2: apply saved preference when no CLI override
@@ -136,6 +150,11 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
         hint: 'GGUF GPU, ~15 GB',
       });
     }
+    tierOptions.push({
+      value: 'external',
+      label: 'External \u2014 bring your own provider (OpenAI, Voyage, Cohere, Azure...)',
+      hint: 'API key required',
+    });
 
     const tierChoice = await p.select({
       message: 'Which embedding backend?',
@@ -150,10 +169,18 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   }
 
   // -----------------------------------------------------------------------
+  // External sub-prompts (Story 50.6)
+  // -----------------------------------------------------------------------
+  let externalConfig: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } | undefined;
+  if (tier === 'external') {
+    externalConfig = await promptExternalEmbeddings();
+  }
+
+  // -----------------------------------------------------------------------
   // Mode prompt (skipped if --quick-win)
   // -----------------------------------------------------------------------
   if (opts.quickWin) {
-    return { tier, mode: 'quick-win' };
+    return { tier, mode: 'quick-win', external: externalConfig };
   }
 
   type ModeValue = 'quick-win' | 'full-run';
@@ -176,7 +203,171 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
     process.exit(0);
   }
 
-  return { tier, mode: modeChoice as ModeValue };
+  return { tier, mode: modeChoice as ModeValue, external: externalConfig };
+}
+
+// ---------------------------------------------------------------------------
+// External embedding provider sub-prompts (Story 50.6)
+// ---------------------------------------------------------------------------
+
+/** External providers from registry (exclude anatoly-local — that's the advanced-gguf backend). */
+const EXTERNAL_PROVIDERS = Object.entries(KNOWN_EMBEDDING_PROVIDERS)
+  .filter(([id]) => id !== 'anatoly-local');
+
+/**
+ * Show env key detection note.
+ * - Key present → "✓ KEY detected"
+ * - Key absent → "⚠ KEY not set..." warning
+ */
+function checkEnvKey(envKey?: string): void {
+  if (!envKey) return;
+  if (process.env[envKey]) {
+    p.note(`✓ ${envKey} detected`, 'API key');
+  } else {
+    p.note(
+      `⚠ ${envKey} not set in environment. The .anatoly.yml will be written, but embedding calls will fail until the key is exported.`,
+      'API key',
+    );
+  }
+}
+
+/**
+ * Prompt for a custom provider (4 text inputs: name, base_url, env_key, model).
+ */
+async function promptCustomProvider(kind: 'code' | 'nlp'): Promise<ExternalAxisConfig> {
+  const label = kind === 'code' ? 'Code' : 'NLP';
+
+  const providerName = await p.text({ message: `${label} provider name:` });
+  if (p.isCancel(providerName)) { p.cancel('Aborted.'); process.exit(0); }
+
+  const baseUrl = await p.text({
+    message: `${label} base URL:`,
+    validate: (value) => {
+      if (!value) return 'URL is required';
+      try { new URL(value); return undefined; } catch { return 'Please enter a valid URL'; }
+    },
+  });
+  if (p.isCancel(baseUrl)) { p.cancel('Aborted.'); process.exit(0); }
+
+  const envKey = await p.text({
+    message: `${label} environment variable name (API key):`,
+    validate: (value) => {
+      if (!value) return 'Variable name is required';
+      return /^[A-Z0-9_]+$/.test(value) ? undefined : 'Must match [A-Z0-9_]+';
+    },
+  });
+  if (p.isCancel(envKey)) { p.cancel('Aborted.'); process.exit(0); }
+
+  const model = await p.text({ message: `${label} model name:` });
+  if (p.isCancel(model)) { p.cancel('Aborted.'); process.exit(0); }
+
+  return {
+    provider: providerName as string,
+    model: model as string,
+    base_url: baseUrl as string,
+    env_key: envKey as string,
+  };
+}
+
+/**
+ * Interactive sub-prompts for external embedding provider selection.
+ * Prompts for code provider/model, then NLP provider/model (or "Same as code").
+ */
+async function promptExternalEmbeddings(): Promise<{ code: ExternalAxisConfig; nlp: ExternalAxisConfig }> {
+  // --- Code provider ---
+  const codeProviderOptions: Array<{ value: string; label: string; hint?: string }> = EXTERNAL_PROVIDERS.map(
+    ([id, entry]) => ({
+      value: id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      hint: entry.default_code_model,
+    }),
+  );
+  codeProviderOptions.push({ value: 'custom', label: 'Custom (manual)', hint: 'enter URL, key, and model' });
+
+  // Put voyage first (recommended for code retrieval)
+  const voyageIdx = codeProviderOptions.findIndex((o) => o.value === 'voyage');
+  if (voyageIdx > 0) {
+    const [voyage] = codeProviderOptions.splice(voyageIdx, 1);
+    codeProviderOptions.unshift(voyage!);
+  }
+
+  const codeProviderChoice = await p.select({
+    message: 'Code embedding provider:',
+    options: codeProviderOptions,
+  });
+  if (p.isCancel(codeProviderChoice)) { p.cancel('Aborted.'); process.exit(0); }
+
+  let codeConfig: ExternalAxisConfig;
+  if (codeProviderChoice === 'custom') {
+    codeConfig = await promptCustomProvider('code');
+  } else {
+    const providerId = codeProviderChoice as string;
+    const entry = KNOWN_EMBEDDING_PROVIDERS[providerId]!;
+
+    const codeModel = await p.text({
+      message: 'Code embedding model:',
+      initialValue: entry.default_code_model,
+    });
+    if (p.isCancel(codeModel)) { p.cancel('Aborted.'); process.exit(0); }
+
+    codeConfig = { provider: providerId, model: codeModel as string };
+    if (entry.env_key) {
+      codeConfig.env_key = entry.env_key;
+    }
+  }
+
+  checkEnvKey(codeConfig.env_key);
+
+  // --- NLP provider ---
+  const nlpProviderOptions: Array<{ value: string; label: string; hint?: string }> = [
+    { value: 'same', label: `Same as code (use ${codeConfig.provider} for both)` },
+    ...EXTERNAL_PROVIDERS.map(([id, entry]) => ({
+      value: id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      hint: entry.default_nlp_model,
+    })),
+    { value: 'custom', label: 'Custom (manual)', hint: 'enter URL, key, and model' },
+  ];
+
+  // Put qwen as first distinct option (after "Same as code") — recommended for NLP
+  const providerStartIdx = 1; // after 'same'
+  const qwenIdx = nlpProviderOptions.findIndex((o, i) => i >= providerStartIdx && o.value === 'qwen');
+  if (qwenIdx > providerStartIdx) {
+    const [qwen] = nlpProviderOptions.splice(qwenIdx, 1);
+    nlpProviderOptions.splice(providerStartIdx, 0, qwen!);
+  }
+
+  const nlpProviderChoice = await p.select({
+    message: 'NLP embedding provider:',
+    options: nlpProviderOptions,
+  });
+  if (p.isCancel(nlpProviderChoice)) { p.cancel('Aborted.'); process.exit(0); }
+
+  let nlpConfig: ExternalAxisConfig;
+  if (nlpProviderChoice === 'same') {
+    // Duplicate code config
+    nlpConfig = { ...codeConfig };
+  } else if (nlpProviderChoice === 'custom') {
+    nlpConfig = await promptCustomProvider('nlp');
+    checkEnvKey(nlpConfig.env_key);
+  } else {
+    const providerId = nlpProviderChoice as string;
+    const entry = KNOWN_EMBEDDING_PROVIDERS[providerId]!;
+
+    const nlpModel = await p.text({
+      message: 'NLP embedding model:',
+      initialValue: entry.default_nlp_model,
+    });
+    if (p.isCancel(nlpModel)) { p.cancel('Aborted.'); process.exit(0); }
+
+    nlpConfig = { provider: providerId, model: nlpModel as string };
+    if (entry.env_key) {
+      nlpConfig.env_key = entry.env_key;
+    }
+    checkEnvKey(nlpConfig.env_key);
+  }
+
+  return { code: codeConfig, nlp: nlpConfig };
 }
 
 // ---------------------------------------------------------------------------
@@ -377,12 +568,40 @@ const AXIS_IDS = [
  * - Detects `ANTHROPIC_API_KEY` in env to choose `api` vs `subscription` mode.
  * - All 7 axes are enabled.
  * - `rag.code_model` is set to `'auto'` so runtime resolution picks the right backend.
+ * - When `opts.external` is provided (tier 'external'), writes `rag.embedding` section.
  *
  * @param projectRoot — the project root where `.anatoly.yml` will be written.
+ * @param opts — optional external embedding config from the wizard.
  */
-export function writeFirstRunConfig(projectRoot: string): void {
+export function writeFirstRunConfig(
+  projectRoot: string,
+  opts?: { external?: { code: ExternalAxisConfig; nlp: ExternalAxisConfig } },
+): void {
   const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const providerMode = hasApiKey ? 'api' : 'subscription';
+
+  const ragSection: Record<string, unknown> = {
+    code_model: 'auto',
+  };
+
+  // Story 50.6: add embedding section for external tier
+  if (opts?.external) {
+    const codeEntry: Record<string, string> = {
+      provider: opts.external.code.provider,
+      model: opts.external.code.model,
+    };
+    if (opts.external.code.base_url) codeEntry.base_url = opts.external.code.base_url;
+    if (opts.external.code.env_key) codeEntry.env_key = opts.external.code.env_key;
+
+    const nlpEntry: Record<string, string> = {
+      provider: opts.external.nlp.provider,
+      model: opts.external.nlp.model,
+    };
+    if (opts.external.nlp.base_url) nlpEntry.base_url = opts.external.nlp.base_url;
+    if (opts.external.nlp.env_key) nlpEntry.env_key = opts.external.nlp.env_key;
+
+    ragSection.embedding = { code: codeEntry, nlp: nlpEntry };
+  }
 
   const config: Record<string, unknown> = {
     providers: {
@@ -397,9 +616,7 @@ export function writeFirstRunConfig(projectRoot: string): void {
       deliberation: DEFAULT_MODELS.deliberation,
     },
     axes: Object.fromEntries(AXIS_IDS.map((id) => [id, { enabled: true }])),
-    rag: {
-      code_model: 'auto',
-    },
+    rag: ragSection,
   };
 
   const yamlStr = yaml.dump(config, { lineWidth: 120 });

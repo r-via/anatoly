@@ -166,18 +166,7 @@
 - [x] Story 50.3: Factory `getVercelEmbeddingModel` + probe dim runtime + cache signature
 - [x] Story 50.4: Refacto `embeddings.ts` runtime `'sdk'` + suppression code legacy GGUF + parsing 3-formats
 - [x] Story 50.5: `resolveEmbeddingModels` enrichi + `EmbeddingBackend` `'external'` + mapping legacy
-  > As a développeur du pipeline
-  > I want que la résolution des modèles d'embedding produise toutes les infos nécessaires (provider, base_url, env_key, runtime, dims) en un seul objet
-  > So that `embeddings.ts` n'a plus à interroger `MODEL_REGISTRY` ni à recouper avec `embeddings-ready.json`.
-  > AC: Given `EmbeddingBackend` (`src/rag/hardware-detect.ts:134`) est étendu, When la définition est lue, Then le type est `'lite' | 'advanced-fp16' | 'advanced-gguf' | 'external'`, And un commentaire indique que `'advanced-gguf'` est une étiquette legacy mappée en interne sur `provider: 'anatoly-local'` + `runtime: 'sdk'`
-  > AC: Given `ResolvedModels` (ligne 262) est étendu, When la définition est lue, Then elle gagne les champs optionnels : `codeProvider?: string`, `codeBaseUrl?: string`, `codeEnvKey?: string | null`, `nlpProvider?: string`, `nlpBaseUrl?: string`, `nlpEnvKey?: string | null`, And `codeRuntime`/`nlpRuntime` deviennent `'onnx' | 'sdk'`
-  > AC: Given `determineBackend(flag, hardware)` (ligne 280), When `flag.backend === 'advanced-gguf'`, Then retourne `'advanced-gguf'` (étiquette conservée pour la traçabilité), When `flag.backend === 'external'`, Then retourne `'external'`, When `flag.backend === 'advanced-fp16'`, Then retourne `'lite'` (legacy, fp16 plus utilisé), When `flag.backend === 'lite'` ou absent, Then retourne `'lite'`
-  > AC: Given `resolveEmbeddingModels(config, hardware, onLog?, readyFlag?)` (ligne 302), When `backend === 'lite'`, Then `codeRuntime: 'onnx'`, `nlpRuntime: 'onnx'`, comportement identique à actuel (pas de provider/base_url renseigné), When `backend === 'advanced-gguf'`, Then `codeRuntime: 'sdk'`, `nlpRuntime: 'sdk'`, And `codeProvider: 'anatoly-local'`, `nlpProvider: 'anatoly-local'`, And `codeBaseUrl: 'http://127.0.0.1:11437/v1'`, `nlpBaseUrl: 'http://127.0.0.1:11438/v1'`, And `codeEnvKey: null`, `nlpEnvKey: null`, And `codeDim: 3584`, `nlpDim: 4096` (du registre), When `backend === 'external'`, Then `codeRuntime: 'sdk'`, `nlpRuntime: 'sdk'`, And `codeProvider`/`nlpProvider` viennent de `config.rag.embedding.provider` (ou des defaults registre si `'auto'`), And `codeBaseUrl`/`nlpBaseUrl` viennent du registre (ou de `config.rag.embedding.base_url` pour custom), And `codeEnvKey`/`nlpEnvKey` viennent du registre, And `codeDim`/`nlpDim` viennent du registre si disponibles, sinon valeurs sentinelles (`-1`) à probe au boot via `ensureEmbeddingDims`
-  > AC: Given `EmbeddingsReadyFlag` (ligne 147) est étendu, When la définition est lue, Then elle gagne `embedding_provider?: string` et `embedding_signature?: string`
-  > AC: Given un `embeddings-ready.json` existant en format pré-Epic-50 (avec `backend: 'advanced-gguf'`, sans `embedding_provider`), When `readEmbeddingsReadyFlag` le lit, Then le flag est parsé correctement, And `resolveEmbeddingModels` mappe automatiquement vers `provider: 'anatoly-local'` (NFR8 backward compat), And aucune migration manuelle n'est nécessaire pour l'utilisateur
-  > AC: Given un projet utilise `setup-embeddings.sh` en standalone (sans wizard), When le script écrit `backend: 'external'` et `embedding_provider: 'voyage'` dans le flag, Then `resolveEmbeddingModels` route vers Voyage sans intervention CLI
-  > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-5
-- [ ] Story 50.6: Wizard tier 3 options + sous-prompt external + writeFirstRunConfig étendu
+- [x] Story 50.6: Wizard tier 3 options + sous-prompt external + writeFirstRunConfig étendu
   > As a utilisateur en first-run
   > I want pouvoir choisir un provider d'embedding externe (OpenAI, Voyage, Cohere...) au lieu de lite ou advanced
   > So that je peux utiliser ma clé API existante sans télécharger 10 GB de GGUF ni avoir un GPU.
@@ -195,7 +184,7 @@
   > AC: Given l'utilisateur a confirmé "Same as code" pour NLP avec OpenAI, When le YAML est écrit, Then la section `nlp` est tout de même écrite explicitement avec les mêmes valeurs que `code` (pas d'implicite YAML — le fichier doit rester self-explanatory pour qui le relit) :, embedding:, code:, provider: openai, model: text-embedding-3-large, nlp:, provider: openai, model: text-embedding-3-large, When `tier: 'external'` avec custom code provider, Then le YAML contient `base_url` et `env_key` sous `rag.embedding.code` (et `rag.embedding.nlp` si custom NLP aussi), When `tier: 'lite'`, Then la section `rag.embedding` est absente du YAML écrit (équivalent à `auto`), When `tier: 'advanced'`, Then la section `rag.embedding` est absente également (le `embeddings-ready.json` écrit par `setup-embeddings.sh` avec `backend: 'advanced-gguf'` suffit à driver le runtime). Cohérence avec le comportement actuel.
   > AC: Given un utilisateur fait Ctrl+C dans le sous-prompt external, When `p.isCancel` retourne `true`, Then `process.exit(0)`, And aucun `.anatoly.yml` n'est écrit
   > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-6
-- [ ] Story 50.7: Tests d'intégration parité advanced + wiring openai live + bench latence SDK
+- [x] Story 50.7: Tests d'intégration parité advanced + wiring openai live + bench latence SDK
   > As a mainteneur d'anatoly
   > I want valider que le refacto `'sdk'` produit des vecteurs strictement identiques à l'ancien chemin GGUF natif et que le path OpenAI fonctionne end-to-end, So que je peux merger sans régression silencieuse.
   > AC: Given un test d'intégration `tests/integration/embedding-parity.integration.test.ts` est créé, When il est exécuté en présence d'une variable d'env `ANATOLY_TEST_VM_KEY` pointant sur une clé SSH valide vers la VM avec docker + GGUF models, Then le test :
@@ -204,7 +193,7 @@
   > AC: Given un bench `tests/bench/sdk-overhead.bench.ts` est créé, When il est exécuté, Then il mesure :
   > AC: Given la suite de tests existante (`embeddings.test.ts`, `hardware-detect.test.ts`) est étendue, When elle est exécutée, Then zéro régression sur les chemins ONNX (NFR9), And chaque story 50.1-50.6 est couverte par au moins 3 tests unit
   > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-7
-- [ ] Story 50.8: Validation gold-set anatoly-bench + documentation utilisateur embedding providers
+- [x] Story 50.8: Validation gold-set anatoly-bench + documentation utilisateur embedding providers
   > As a mainteneur d'anatoly
   > I want valider qu'aucune régression sémantique n'est introduite par le refacto et offrir aux utilisateurs une doc claire des providers d'embedding disponibles
   > So that je peux merger en confiance et que les utilisateurs sachent quel provider choisir.

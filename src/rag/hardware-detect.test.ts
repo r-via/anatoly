@@ -197,6 +197,50 @@ describe('resolveEmbeddingModels — external backend (Story 50.5)', () => {
     expect(result.codeModel).toBe('voyage-code-3');
     expect(result.nlpModel).toBe('text-embedding-v4');
   });
+
+  // FR8: bidirectional duplication — only code configured → nlp inherits
+  it('should duplicate code config to nlp when only code is configured (FR8)', async () => {
+    const config = {
+      ...defaultConfig,
+      embedding: {
+        code: { provider: 'voyage', model: 'voyage-code-3' },
+      },
+    };
+    const result = await resolveEmbeddingModels(config, liteHardware, undefined, externalFlag);
+    expect(result.codeProvider).toBe('voyage');
+    expect(result.nlpProvider).toBe('voyage');
+    expect(result.codeModel).toBe('voyage-code-3');
+    expect(result.nlpModel).toBe('voyage-code-3');
+  });
+
+  // FR8: bidirectional duplication — only nlp configured → code inherits
+  it('should duplicate nlp config to code when only nlp is configured (FR8)', async () => {
+    const config = {
+      ...defaultConfig,
+      embedding: {
+        nlp: { provider: 'qwen', model: 'text-embedding-v4' },
+      },
+    };
+    const result = await resolveEmbeddingModels(config, liteHardware, undefined, externalFlag);
+    expect(result.codeProvider).toBe('qwen');
+    expect(result.nlpProvider).toBe('qwen');
+    expect(result.codeModel).toBe('text-embedding-v4');
+    expect(result.nlpModel).toBe('text-embedding-v4');
+  });
+
+  // FR8: both configured → use independently (no duplication)
+  it('should use independent configs when both code and nlp are configured (FR8)', async () => {
+    const config = {
+      ...defaultConfig,
+      embedding: {
+        code: { provider: 'voyage', model: 'voyage-code-3' },
+        nlp: { provider: 'qwen', model: 'text-embedding-v4' },
+      },
+    };
+    const result = await resolveEmbeddingModels(config, liteHardware, undefined, externalFlag);
+    expect(result.codeProvider).toBe('voyage');
+    expect(result.nlpProvider).toBe('qwen');
+  });
 });
 
 // ---------------------------------------------------------------------------
