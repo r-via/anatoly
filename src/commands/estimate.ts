@@ -7,8 +7,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateTasksTokens, formatTokenCount, loadTasks } from '../core/estimator.js';
-import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime } from '../core/calibration.js';
+import { forecastRun, formatTokenCount, loadTasks } from '../core/estimator.js';
+import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
+import { ensurePricing } from '../utils/pricing-cache.js';
+import { enumerateActiveModels } from '../utils/active-models.js';
+import { getLogger } from '../utils/logger.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { resolveAxisModel, resolveCodeSummaryModel } from '../core/axis-evaluator.js';
 import { triageFile } from '../core/triage.js';
@@ -32,6 +35,14 @@ export function registerEstimateCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const concurrency = config.runtime.concurrency;
+
+      // Hydrate pricing cache before any forecast computation. strict: true so
+      // estimate refuses to run with an incomplete pricing table — same rule
+      // as `anatoly run` (a $0 forecast for an unpriced model would mislead).
+      await ensurePricing(enumerateActiveModels(config), projectRoot, {
+        log: (level, message) => getLogger()[level](message),
+        strict: true,
+      });
 
       printBanner();
 
@@ -135,53 +146,89 @@ export function registerEstimateCommand(program: Command): void {
         const result = triageFile(task, source);
         tiers[result.tier]++;
       }
-      pipelineRows.push({ phase: 'triage', detail: `${tiers.skip} skip · ${tiers.evaluate} evaluate` });
+      pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });
 
-      // rag
+      // rag (merged structural counts: files indexed + functions + chunks)
+      let embedForecast: ReturnType<typeof estimateEmbedTokens> | undefined;
       if (enableRag) {
         const ragFiles = allTasks.filter(t =>
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
-        pipelineRows.push({ phase: 'rag', detail: `${ragFiles} files` });
-
         const docsPath = config.documentation?.docs_path ?? 'docs';
-        const embed = estimateEmbedTokens(projectRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
+        embedForecast = estimateEmbedTokens(projectRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
         pipelineRows.push({
-          phase: 'embed',
-          detail: `${formatTokenCount(embed.codeTokens)} code (${embed.codeUnits} fns) · ${formatTokenCount(embed.nlpTokens)} nlp (${embed.nlpUnits} chunks)`,
+          phase: 'rag',
+          detail: `${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`,
         });
       }
 
-      // usage graph
+      // usage graph (kept in the detailed `estimate` view; dropped from the
+      // run pre-confirmation table because `15 edges` is opaque to users).
       const usageGraph = buildUsageGraph(projectRoot, allTasks);
       pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
-      // internal docs
+      // docs (internal + project merged)
       const bootstrapNeeded = needsBootstrap(projectRoot);
       if (bootstrapNeeded) {
-        pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
+        pipelineRows.push({ phase: 'docs', detail: 'first run (bootstrap)' });
       } else if (docScanInternal) {
-        pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
-        if (docScanProject) {
-          pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
-        } else {
-          pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
-        }
+        const projectFragment = docScanProject
+          ? `project ${docScanProject.changed} changed`
+          : 'project deduplicated';
+        pipelineRows.push({
+          phase: 'docs',
+          detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached · ${projectFragment}`,
+        });
       } else {
-        pipelineRows.push({ phase: 'internal docs', detail: '.anatoly/docs/ ready' });
+        pipelineRows.push({ phase: 'docs', detail: '.anatoly/docs/ ready' });
       }
 
-      // estimate (with calibrated ETA)
-      const { inputTokens, outputTokens } = estimateTasksTokens(projectRoot, allTasks);
+      // Forecast — decision-grade, cost included, embed tokens surfaced.
       const calibration = loadCalibration(projectRoot);
-      const activeAxes = evaluators.map(e => e.id);
-      const evalFileCount = tiers.evaluate;
-      const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, concurrency);
-      const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
-      const calLabel = hasCal ? 'calibrated' : 'default';
-      const tokenLabel = `${evalFileCount} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
-      pipelineRows.push({ phase: 'estimate', detail: `${tokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
+      const evalTasks = allTasks.filter(t => {
+        try {
+          const source = readFileSync(resolve(projectRoot, t.file), 'utf-8');
+          return triageFile(t, source).tier === 'evaluate';
+        } catch {
+          return true; // unreadable file: treat as evaluate (matches triage fallback)
+        }
+      });
+      const forecast = forecastRun({
+        projectRoot,
+        evalTasks,
+        totalFiles: allTasks.length,
+        axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
+        ...(embedForecast ? { embed: embedForecast } : {}),
+        calibration,
+        concurrency,
+        ragEnabled: enableRag,
+        deliberation: true,
+      });
+      const calLabel = forecast.hasCalibration ? 'calibrated' : 'default';
 
-      renderSetupTable({ project: projectInfo, config: configRows, models: modelsLeft, modelsRight, pipeline: pipelineRows }, false);
+      // Forecast block (estimate command only — verdict before pipeline detail).
+      const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`
+        + (forecast.embed.tokens > 0 ? ` + ${formatTokenCount(forecast.embed.tokens)} embed` : '');
+      const costBreakdown = Object.entries(forecast.llm.costByModel)
+        .filter(([, c]) => c > 0)
+        .map(([m, c]) => `$${c.toFixed(2)} ${m}`)
+        .join(' · ');
+      const costFragment = costBreakdown
+        ? `$${forecast.totalCostUsd.toFixed(2)}  (${costBreakdown})`
+        : `$${forecast.totalCostUsd.toFixed(2)}`;
+      const filesFragment = forecast.skippedFiles > 0
+        ? `${forecast.files} of ${forecast.totalFiles}  (${forecast.skippedFiles} skipped by triage)`
+        : `${forecast.files} files`;
+      const forecastRows = [
+        { key: 'files', value: filesFragment },
+        { key: 'tokens', value: totalTokensFragment },
+        { key: 'cost', value: costFragment },
+        { key: 'time', value: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})` },
+      ];
+
+      renderSetupTable(
+        { project: projectInfo, config: configRows, models: modelsLeft, modelsRight, forecast: forecastRows, pipeline: pipelineRows },
+        false,
+      );
     });
 }

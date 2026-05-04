@@ -13,6 +13,9 @@ import chalk from 'chalk';
  * @property config - Key-value rows for the "Configuration" section.
  * @property models - Left column of the "Used Models" section (axes + deliberation).
  * @property modelsRight - Right column of the "Used Models" section (embeddings, chunking, etc.).
+ * @property forecast - Optional decision-grade Forecast section. Rendered
+ *   above the Pipeline Summary when present. Used by `anatoly estimate` for
+ *   the standalone detail view; omitted from the run pre-confirmation table.
  * @property pipeline - Rows for the "Pipeline Summary" section.
  */
 export interface SetupTableData {
@@ -20,6 +23,7 @@ export interface SetupTableData {
   config: { key: string; value: string }[];
   models: { key: string; value: string }[];
   modelsRight?: { key: string; value: string }[];
+  forecast?: { key: string; value: string }[];
   pipeline: { phase: string; detail: string }[];
 }
 
@@ -69,6 +73,7 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
   const singleColRows = [
     ...projectRows,
     ...data.config,
+    ...(data.forecast ?? []),
     ...data.pipeline.map(r => ({ key: r.phase, value: r.detail })),
   ];
   const singleKeyWidth = Math.max(...singleColRows.map(r => r.key.length), checkPrefix, 0);
@@ -125,6 +130,10 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
         }
       }
       console.log(line);
+    }
+    if (data.forecast && data.forecast.length > 0) {
+      console.log(chalk.dim('  Forecast'));
+      for (const r of data.forecast) console.log(`    ${r.key.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.value}`);
     }
     console.log(chalk.dim('  Pipeline Summary'));
     for (const r of data.pipeline) console.log(`    ✔ ${r.phase.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.detail}`);
@@ -210,6 +219,14 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
     console.log(modelsRow(data.models[i], data.modelsRight?.[i]));
   }
   console.log(emptyRow);
+
+  // forecast section (only when caller supplied it — estimate command, not run wizard)
+  if (data.forecast && data.forecast.length > 0) {
+    console.log(sectionBorder('Forecast', chalk.yellow, '├', '┤'));
+    console.log(emptyRow);
+    for (const r of data.forecast) console.log(kvRow(r.key, r.value));
+    console.log(emptyRow);
+  }
 
   // pipeline section
   console.log(sectionBorder('Pipeline Summary', chalk.blue, '├', '┤'));

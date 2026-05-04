@@ -7,6 +7,8 @@ import { join, resolve } from 'node:path';
 import { get_encoding } from 'tiktoken';
 import { TaskSchema, type Task } from '../schemas/task.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
+import { calculateCost } from '../utils/cost-calculator.js';
+import { estimateCalibratedMinutes, type CalibrationData } from './calibration.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
@@ -188,6 +190,157 @@ export function estimateProject(projectRoot: string): EstimateResult {
     estimatedMinutes,
     estimatedCalls,
   };
+}
+
+/**
+ * Forecast the LLM and embedding workload for a run, including a $ cost
+ * projection per axis model.
+ *
+ * Token counts are multiplied by the number of active axes — each axis is a
+ * full pass over the evaluate-tier files. Cost per axis is computed via
+ * {@link calculateCost} using the run's pricing cache (must have been
+ * hydrated with `ensurePricing` first).
+ *
+ * Embedding cost is non-zero only when an external embedding model is
+ * resolved through the pricing cache (Voyage, OpenRouter, Mistral, …).
+ * Local embeddings (jina, MiniLM) return 0 because they have no API
+ * pricing entry — that's the right number, the user pays nothing.
+ *
+ * Known limitations (documented for honesty in the forecast):
+ * - NLP-summary calls (Haiku summarising functions for the RAG index)
+ *   are not yet modeled; their tokens land in `embed.tokens` only when
+ *   the embed model is external. The user accepted this gap as a
+ *   follow-up — see step 5 of the cost-line refactor discussion.
+ * - Retries, RAG-doc-gen calls, and refinement passes are also outside
+ *   this projection; the SDK's `total_cost_usd` covers those at run
+ *   time but estimate is a forecast, not a replay.
+ */
+export interface RunForecast {
+  /** Files that will actually be evaluated (post-triage). */
+  files: number;
+  /** Files scanned (pre-triage). */
+  totalFiles: number;
+  /** Files filtered out by triage. */
+  skippedFiles: number;
+  llm: {
+    /** New (uncached) input tokens across all axis passes. */
+    inputTokens: number;
+    outputTokens: number;
+    /** Sum across active axis models. */
+    costUsd: number;
+    /** Cost grouped by short model name (e.g. `sonnet-4-6`). */
+    costByModel: Record<string, number>;
+  };
+  embed: {
+    tokens: number;
+    /** Total cost for code + nlp embeddings; 0 when models are local. */
+    costUsd: number;
+    /** Number of code embedding calls (functions). */
+    codeUnits: number;
+    /** Number of NLP embedding calls (function summaries + doc chunks). */
+    nlpUnits: number;
+  };
+  /** Sum of llm.input + llm.output + embed.tokens. */
+  totalTokens: number;
+  /** Sum of llm.costUsd + embed.costUsd. */
+  totalCostUsd: number;
+  /** Calibrated wall-clock estimate in minutes, accounting for concurrency. */
+  calibratedMin: number;
+  /** True when at least one axis has empirical samples; false ⇒ default medians. */
+  hasCalibration: boolean;
+}
+
+export interface ForecastInputs {
+  projectRoot: string;
+  /** Tasks that survived triage and will be evaluated. */
+  evalTasks: Task[];
+  /** Total files scanned (pre-triage). */
+  totalFiles: number;
+  /** Active axis evaluators with their resolved model id. */
+  axes: ReadonlyArray<{ id: string; model: string }>;
+  /**
+   * Embed forecast bundle when RAG is enabled. Token counts are surfaced
+   * to the user; cost is not modeled in this first cut (lite mode is local
+   * and free; external mode requires per-axis embedding model resolution
+   * which is async and hardware-dependent — see follow-up).
+   */
+  embed?: { codeTokens: number; codeUnits: number; nlpTokens: number; nlpUnits: number };
+  calibration: CalibrationData;
+  concurrency: number;
+  ragEnabled: boolean;
+  deliberation: boolean;
+}
+
+export function forecastRun(args: ForecastInputs): RunForecast {
+  const { projectRoot, evalTasks, totalFiles, axes, embed, calibration, concurrency, ragEnabled, deliberation } = args;
+
+  // Per-pass token cost (one axis × all eval files) — same as today's
+  // `estimateTasksTokens` on the eval set.
+  const { inputTokens: perPassInput, outputTokens: perPassOutput } = estimateTasksTokens(projectRoot, evalTasks);
+
+  // Each active axis runs a full pass; total tokens scale linearly.
+  const llmInputTokens = perPassInput * axes.length;
+  const llmOutputTokens = perPassOutput * axes.length;
+
+  // Cost per axis (each axis's model can differ). Distribute one pass per axis,
+  // accumulate by short model name for the breakdown line.
+  const costByModel: Record<string, number> = {};
+  let llmCost = 0;
+  for (const axis of axes) {
+    const c = calculateCost(axis.model, perPassInput, perPassOutput, projectRoot);
+    const key = shortModelKey(axis.model);
+    costByModel[key] = (costByModel[key] ?? 0) + c;
+    llmCost += c;
+  }
+
+  // Embed tokens are surfaced; cost remains 0 in this first cut (see
+  // ForecastInputs.embed jsdoc).
+  let embedTokens = 0;
+  const embedCost = 0;
+  let codeUnits = 0;
+  let nlpUnits = 0;
+  if (embed) {
+    embedTokens = embed.codeTokens + embed.nlpTokens;
+    codeUnits = embed.codeUnits;
+    nlpUnits = embed.nlpUnits;
+  }
+
+  const calibratedMin = estimateCalibratedMinutes(
+    calibration,
+    evalTasks.length,
+    axes.map((a) => a.id),
+    concurrency,
+    0.75,
+    { rag: ragEnabled, deliberation },
+  );
+  const hasCalibration = Object.values(calibration.axes).some((a) => a.samples > 0);
+
+  return {
+    files: evalTasks.length,
+    totalFiles,
+    skippedFiles: totalFiles - evalTasks.length,
+    llm: {
+      inputTokens: llmInputTokens,
+      outputTokens: llmOutputTokens,
+      costUsd: llmCost,
+      costByModel,
+    },
+    embed: {
+      tokens: embedTokens,
+      costUsd: embedCost,
+      codeUnits,
+      nlpUnits,
+    },
+    totalTokens: llmInputTokens + llmOutputTokens + embedTokens,
+    totalCostUsd: llmCost + embedCost,
+    calibratedMin,
+    hasCalibration,
+  };
+}
+
+/** Group axis costs by a compact model key (e.g. "claude-sonnet-4-6" → "sonnet-4-6"). */
+function shortModelKey(modelId: string): string {
+  return modelId.replace(/^[^/]+\//, '').replace(/^claude-/, '');
 }
 
 /**

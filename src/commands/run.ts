@@ -14,7 +14,8 @@ import { enumerateActiveModels } from '../utils/active-models.js';
 import type { Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds } from '../core/estimator.js';
+import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, forecastRun } from '../core/estimator.js';
+import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
@@ -386,20 +387,24 @@ export function registerRunCommand(program: Command): void {
         }
       }
 
-      // External embedding providers require API keys to be exported.
-      // The first-run wizard already aborts when keys are missing, but
-      // subsequent runs (with .anatoly.yml already in place) reach here
-      // without that check — verify before any work happens.
+      // External embedding providers need their API keys before any work
+      // happens — the wizard only warns, this is the canonical halt point
+      // (also covers subsequent runs where the wizard is skipped because
+      // .anatoly.yml already exists). Anatoly auto-loads the project `.env`
+      // via dotenv/config, so the user just adds the variable and re-runs.
       if (parentOpts.rag !== false && config.rag.enabled) {
         const missingKeys = findMissingEmbeddingEnvKeys(config.rag.embedding);
         if (missingKeys.length > 0) {
           const lines = missingKeys.map(
-            (m) => `  export ${m.envKey}=...     # ${m.axis} embeddings via ${m.provider}`,
+            (m) => `  ${m.envKey}=...     # ${m.axis} embeddings via ${m.provider}`,
           );
+          const envPath = resolve(projectRoot, '.env');
           printNotice({
             kind: 'error',
             title: 'External embedding API key(s) missing',
-            hint: `Set the variable(s) in your shell and re-run:\n${lines.join('\n')}`,
+            hint:
+              `Add the variable(s) to ${envPath} (auto-loaded by Anatoly), then re-run \`anatoly run\`:\n` +
+              lines.join('\n'),
           });
           process.exitCode = 2;
           return;
@@ -1247,56 +1252,75 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     const triageDuration = Date.now() - triageStart;
     ctx.phaseDurations.triage = triageDuration;
     ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'triage', durationMs: triageDuration, skip: tiers.skip, evaluate: tiers.evaluate });
-    pipelineRows.push({ phase: 'triage', detail: `${tiers.skip} skip \u00b7 ${tiers.evaluate} evaluate` });
+    pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });
     const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
     log.info(triageSummary, 'triage summary');
     rl?.info(triageSummary, 'triage summary');
   }
 
-  // --- Phase: RAG file count ---
+  // --- Phase: RAG (structural counts: files + functions + chunks) ---
+  let embedForecast: ReturnType<typeof estimateEmbedTokens> | undefined;
   if (ctx.enableRag) {
     const ragFiles = allTasks.filter((t) =>
       t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
     ).length;
-    pipelineRows.push({ phase: 'rag', detail: `${ragFiles} files` });
+    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    embedForecast = estimateEmbedTokens(srcRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
+    pipelineRows.push({
+      phase: 'rag',
+      detail: `${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`,
+    });
   }
 
-  // --- Phase: usage graph ---
+  // --- Phase: usage graph (computed for downstream pipeline; not displayed
+  // in the run pre-confirmation table — opaque metric that lives in the
+  // detailed `anatoly estimate` view). ---
   const usageGraph = buildUsageGraph(srcRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
   const docsTree = buildDocsTree(srcRoot, ctx.config.documentation?.docs_path ?? 'docs');
   const internalDocsDir = resolve(srcRoot, '.anatoly', 'docs');
   const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'docs'));
-  pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
-  // --- Phase: internal docs status (Story 29.21 — scaffold moved to post-review) ---
+  // --- Phase: docs (internal + project merged into one user-facing row) ---
   const bootstrapNeeded = needsBootstrap(srcRoot);
   if (ctx.skipDocBootstrap && bootstrapNeeded) {
-    pipelineRows.push({ phase: 'internal docs', detail: 'skipped (quick-win mode)' });
+    pipelineRows.push({ phase: 'docs', detail: 'skipped (quick-win mode)' });
   } else if (bootstrapNeeded) {
-    pipelineRows.push({ phase: 'internal docs', detail: 'first run (bootstrap)' });
+    pipelineRows.push({ phase: 'docs', detail: 'first run (bootstrap)' });
   } else if (docScanInternal) {
-    pipelineRows.push({ phase: 'internal docs', detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached` });
-    if (docScanProject) {
-      pipelineRows.push({ phase: 'project docs', detail: `${docScanProject.changed} changed, ${docScanProject.cached} cached` });
-    } else {
-      pipelineRows.push({ phase: 'project docs', detail: 'deduplicated from internal' });
-    }
+    const projectFragment = docScanProject
+      ? `project ${docScanProject.changed} changed`
+      : 'project deduplicated';
+    pipelineRows.push({
+      phase: 'docs',
+      detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached · ${projectFragment}`,
+    });
   } else {
-    pipelineRows.push({ phase: 'internal docs', detail: '.anatoly/docs/ ready' });
+    pipelineRows.push({ phase: 'docs', detail: '.anatoly/docs/ ready' });
   }
 
-  // --- Calibrated ETA (merged into the estimate pipeline row) ---
+  // --- Forecast (single line: tokens · time · cost) ---
   const calibration = loadCalibration(ctx.projectRoot);
-  const activeAxes = evaluators.map(e => e.id);
-  const evalFileCount = ctx.triageEnabled
-    ? [...triageMap.values()].filter(t => t.tier === 'evaluate').length
-    : estimateTasks.length;
-  const calibratedMin = estimateCalibratedMinutes(calibration, evalFileCount, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
-  const hasCal = Object.values(calibration.axes).some(a => a.samples > 0);
-  const calLabel = hasCal ? 'calibrated' : 'default';
-  const estimateTokenLabel = `${evalFileCount} files · ${formatTokenCount(inputTokens + outputTokens)} tokens`;
-  pipelineRows.push({ phase: 'estimate', detail: `${estimateTokenLabel} · ${formatCalibratedTime(calibratedMin)} (${calLabel})` });
+  const evalTasks = ctx.triageEnabled
+    ? estimateTasks.filter(t => triageMap.get(t.file)?.tier === 'evaluate')
+    : estimateTasks;
+  const forecast = forecastRun({
+    projectRoot: ctx.projectRoot,
+    evalTasks,
+    totalFiles: allTasks.length,
+    axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, ctx.config) })),
+    ...(embedForecast ? { embed: embedForecast } : {}),
+    calibration,
+    concurrency: ctx.concurrency,
+    ragEnabled: ctx.enableRag,
+    deliberation: ctx.deliberation,
+  });
+  const calLabel = forecast.hasCalibration ? 'calibrated' : 'default';
+  const estimateDetail =
+    `${formatTokenCount(forecast.totalTokens)} tokens · ` +
+    `${formatCalibratedTime(forecast.calibratedMin)} · ` +
+    `$${forecast.totalCostUsd.toFixed(2)} (${calLabel})`;
+  pipelineRows.push({ phase: 'estimate', detail: estimateDetail });
 
   // Surface actionable hints (missing init, lite RAG on capable hardware, …) before the summary.
   // Skip in dry-run / non-TTY / plain mode where interactive prompts make no sense.
@@ -1317,7 +1341,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (ctx.dryRun) {
     const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
     const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, allTasks);
-    const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, activeAxes, ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
+    const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, evaluators.map(e => e.id), ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
 
     console.log('');
     console.log(chalk.bold('dry run') + ' — no files were reviewed');
