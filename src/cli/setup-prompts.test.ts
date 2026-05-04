@@ -304,17 +304,50 @@ describe('runFirstRunWizard', () => {
     });
   });
 
-  // AC: Privacy/transparency (Story 49.5 mentions this but the note is part of tier prompt rendering)
+  // Story 49.5: Privacy/transparency notice
   describe('transparency notice', () => {
-    it('includes a privacy/transparency line in the tier prompt', async () => {
+    // AC2: snapshot-style test verifying exact text content
+    it('renders note with exact transparency text', async () => {
       selectMock.mockResolvedValueOnce('lite');
       selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
 
-      // Check that note contains transparency info
       const transparencyNote = noteMock.mock.calls.find(
-        (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('No telemetry'),
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
+      );
+      expect(transparencyNote).toBeDefined();
+      // Snapshot: exact text content (may include ANSI from chalk.dim)
+      expect(transparencyNote![0]).toContain(
+        'Anatoly sends code chunks to your configured LLM provider only. No telemetry.',
+      );
+    });
+
+    // AC3: --plain → note is shown without chalk.dim wrapping
+    it('renders transparency note without chalk.dim when plain is true', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('quick-win');
+
+      await runFirstRunWizard(baseOpts({ hardware: capableHardware, plain: true }));
+
+      const transparencyNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
+      );
+      expect(transparencyNote).toBeDefined();
+      // In plain mode, the text should be passed without ANSI escapes
+      const text = transparencyNote![0] as string;
+      expect(text).toBe('Anatoly sends code chunks to your configured LLM provider only. No telemetry.');
+    });
+
+    // AC1: notice is shown on incapable hardware too (always before select)
+    it('shows transparency notice even on incapable hardware', async () => {
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
+
+      const transparencyNote = noteMock.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No telemetry'),
       );
       expect(transparencyNote).toBeDefined();
     });

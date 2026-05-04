@@ -157,15 +157,7 @@
 - [x] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
 - [x] Story 49.3: Transition visuelle setup → audit
 - [x] Story 49.4: Post-audit progressive education hint
-  > As a user qui vient de finir son premier audit en mode lite sur du hardware capable d'advanced
-  > I want apprendre que je peux faire mieux la prochaine fois
-  > So that je découvre l'option advanced **après** avoir vu la valeur d'un audit complet, pas avant.
-  > AC: Given un audit s'est terminé avec succès (pas d'interrupt, pas de crash), And `ctx.resolvedRagMode === 'lite'`, And le hardware a un GPU CUDA + ≥ 12 GB VRAM, And le hint `lite-rag-can-upgrade-post-audit` n'est pas dans `.anatoly/hints-dismissed.json`, When `generateReport()` termine, Then un `p.note` est affiché juste avant le summary CLI :, ```, 💡 Your hardware could run advanced embeddings (~30% better recall, ~15 GB disk)., Run `anatoly setup-embeddings` when you want to try it., ```, And le hint est marqué dismissed dans `hints-dismissed.json`
-  > AC: Given l'audit a crashé ou a été interrupt, When le post-audit handler tourne, Then le hint d'éducation n'est pas affiché
-  > AC: Given le user a déjà vu le hint une fois (dismissed.json contient l'entrée), When un nouvel audit termine, Then le hint n'est pas re-affiché
-  > AC: Given `--defaults-settings` ou `--plain`, When l'audit termine, Then le hint est affiché en log info (pas de `p.note`)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-4
-- [ ] Story 49.5: Privacy/transparency notice dans le prompt tier
+- [x] Story 49.5: Privacy/transparency notice dans le prompt tier
   > As a user privacy-conscious
   > I want savoir où vont mes données avant de cliquer sur "Default"
   > So that je peux décider en connaissance de cause sans aller fouiller la doc.

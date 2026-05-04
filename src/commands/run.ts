@@ -270,6 +270,7 @@ export function registerRunCommand(program: Command): void {
           quickWin: cmdOpts.quickWin === true,
           savedPreference,
           cliTierOverride,
+          plain: (parentOpts.plain as boolean | undefined) ?? !process.stdout.isTTY,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 

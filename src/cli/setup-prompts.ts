@@ -28,6 +28,8 @@ export interface WizardOptions {
   savedPreference?: 'lite' | 'advanced';
   /** True if --rag-lite or --rag-advanced was passed on CLI (ignores preferences). */
   cliTierOverride?: boolean;
+  /** When true, render text without ANSI styling (Story 49.5). */
+  plain?: boolean;
 }
 
 export interface WizardResult {
@@ -96,17 +98,19 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
       );
     }
 
-    // Privacy / transparency notice
+    // Privacy / transparency notice (Story 49.5: plain mode strips chalk.dim)
+    const transparencyText = 'Anatoly sends code chunks to your configured LLM provider only. No telemetry.';
     p.note(
-      chalk.dim('Anatoly sends code chunks to your configured LLM provider only. No telemetry.'),
+      opts.plain ? transparencyText : chalk.dim(transparencyText),
       'Embeddings tier',
     );
 
     if (advanced) {
       p.note(buildComparisonTable(), 'Comparison');
     } else {
+      const unavailableText = 'Advanced not available \u2014 needs CUDA GPU + 12 GB VRAM';
       p.note(
-        chalk.dim('Advanced not available \u2014 needs CUDA GPU + 12 GB VRAM'),
+        opts.plain ? unavailableText : chalk.dim(unavailableText),
         'Embeddings tier',
       );
     }
