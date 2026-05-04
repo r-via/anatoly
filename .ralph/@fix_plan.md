@@ -158,22 +158,7 @@
 - [x] Story 49.3: Transition visuelle setup → audit
 - [x] Story 49.4: Post-audit progressive education hint
 - [x] Story 49.5: Privacy/transparency notice dans le prompt tier
-  > As a user privacy-conscious
-  > I want savoir où vont mes données avant de cliquer sur "Default"
-  > So that je peux décider en connaissance de cause sans aller fouiller la doc.
-  > AC: Given la story 48.1 affiche le prompt tier, When le rendu est construit, Then une ligne de transparence est ajoutée juste au-dessus du `p.select` :, ```, ℹ Anatoly sends code chunks to your configured LLM provider only. No telemetry., ```, And la ligne est en couleur dim (gris discret, pas dominant)
-  > AC: Given la ligne de transparence est affichée, When un test snapshot est lancé sur le rendu du prompt, Then le snapshot contient la ligne textuelle (pas de regression silencieuse)
-  > AC: Given `--plain` ou `NO_COLOR`, When le prompt est rendu, Then la ligne reste affichée (sans `chalk.dim`)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-5
 - [x] Story 49.6: Plain-mode parity pour le tableau comparatif tier
-  > As a CI ou un user en environnement headless / piped
-  > I want que la sortie reste lisible quand box-drawing chars et ANSI sont indésirables
-  > So that mes logs CI sont copy-pasteables et mon screen reader fonctionne.
-  > AC: Given `--plain` est set OU `NO_COLOR` est dans l'env OU `process.stdout.isTTY === false`, When le tableau comparatif tier est rendu, Then le tableau utilise du texte simple sans box-drawing :, ```, Embeddings setup:, default   ONNX CPU       150 MB    instant   good recall, advanced  GGUF GPU       15 GB     2-5 min   best recall (recommended for this hardware), ```, And aucun caractère Unicode autre que ASCII n'est utilisé, And aucun escape ANSI n'est émis
-  > AC: Given le mode TTY-color normal, When le tableau est rendu, Then le tableau Unicode existant (avec box chars + couleurs) est utilisé (comportement Story 48.1 inchangé)
-  > AC: Given un test pipe la sortie : `anatoly run | cat`, When le snapshot est comparé, Then la sortie reste lisible et structurée (pas de chars cassés, pas de séquences ANSI résiduelles)
-  > AC: Given un screen reader est utilisé, When le tableau plain est lu, Then chaque ligne est interprétable indépendamment (clé/valeurs séparées par espaces, pas de chars décoratifs)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-6
 
 ## Completed
 

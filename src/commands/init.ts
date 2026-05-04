@@ -10,6 +10,7 @@ import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
+import { DEFAULT_MODELS } from '../core/default-models.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
 
@@ -180,22 +181,22 @@ async function runInitWizard(): Promise<WizardSelections> {
   // Model selection
   const quality = await p.text({
     message: 'Model for quality (axis evaluations)',
-    defaultValue: 'anthropic/claude-sonnet-4-6',
-    placeholder: 'anthropic/claude-sonnet-4-6',
+    defaultValue: DEFAULT_MODELS.quality,
+    placeholder: DEFAULT_MODELS.quality,
   });
   if (isCancelled(quality)) { p.cancel('Setup cancelled.'); process.exit(0); }
 
   const fast = await p.text({
     message: 'Model for fast (triage, code summaries)',
-    defaultValue: 'anthropic/claude-haiku-4-5-20251001',
-    placeholder: 'anthropic/claude-haiku-4-5-20251001',
+    defaultValue: DEFAULT_MODELS.fast,
+    placeholder: DEFAULT_MODELS.fast,
   });
   if (isCancelled(fast)) { p.cancel('Setup cancelled.'); process.exit(0); }
 
   const deliberation = await p.text({
     message: 'Model for deliberation (tier 3)',
-    defaultValue: 'anthropic/claude-opus-4-6',
-    placeholder: 'anthropic/claude-opus-4-6',
+    defaultValue: DEFAULT_MODELS.deliberation,
+    placeholder: DEFAULT_MODELS.deliberation,
   });
   if (isCancelled(deliberation)) { p.cancel('Setup cancelled.'); process.exit(0); }
 

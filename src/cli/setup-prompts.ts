@@ -14,6 +14,7 @@ import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefe
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { getLogger } from '../utils/logger.js';
 import { tryOpenFile } from '../utils/open.js';
+import { DEFAULT_MODELS } from '../core/default-models.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -391,9 +392,9 @@ export function writeFirstRunConfig(projectRoot: string): void {
       },
     },
     models: {
-      quality: 'anthropic/claude-sonnet-4-6',
-      fast: 'anthropic/claude-haiku-4-5-20251001',
-      deliberation: 'anthropic/claude-opus-4-6',
+      quality: DEFAULT_MODELS.quality,
+      fast: DEFAULT_MODELS.fast,
+      deliberation: DEFAULT_MODELS.deliberation,
     },
     axes: Object.fromEntries(AXIS_IDS.map((id) => [id, { enabled: true }])),
     rag: {

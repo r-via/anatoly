@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
+import { DEFAULT_MODELS } from '../core/default-models.js';
 
 export const ProjectConfigSchema = z.object({
   name: z.string().optional(),
@@ -83,9 +84,9 @@ export const ProvidersConfigSchema = z.object({
 // --- v1.0 Models ---
 
 export const ModelsConfigSchema = z.object({
-  quality: z.string().default('anthropic/claude-sonnet-4-6'),
-  fast: z.string().default('anthropic/claude-haiku-4-5-20251001'),
-  deliberation: z.string().default('anthropic/claude-opus-4-6'),
+  quality: z.string().default(DEFAULT_MODELS.quality),
+  fast: z.string().default(DEFAULT_MODELS.fast),
+  deliberation: z.string().default(DEFAULT_MODELS.deliberation),
   code_summary: z.string().optional(),
 });
 
@@ -187,9 +188,9 @@ export const ConfigSchema = z.object({
   // v2.0 sections
   providers: ProvidersConfigSchema.default({ anthropic: { mode: 'subscription', concurrency: 24 } }),
   models: ModelsConfigSchema.default({
-    quality: 'anthropic/claude-sonnet-4-6',
-    fast: 'anthropic/claude-haiku-4-5-20251001',
-    deliberation: 'anthropic/claude-opus-4-6',
+    quality: DEFAULT_MODELS.quality,
+    fast: DEFAULT_MODELS.fast,
+    deliberation: DEFAULT_MODELS.deliberation,
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
   runtime: RuntimeConfigSchema.default({
