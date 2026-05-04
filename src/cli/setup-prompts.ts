@@ -214,6 +214,15 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
 const EXTERNAL_PROVIDERS = Object.entries(KNOWN_EMBEDDING_PROVIDERS)
   .filter(([id]) => id !== 'anatoly-local');
 
+/** Friendly display name for a provider id; falls back to capitalisation. */
+function displayProviderName(id: string): string {
+  const overrides: Record<string, string> = {
+    openai: 'OpenAI',
+    openrouter: 'OpenRouter (Qwen3-8B)',
+  };
+  return overrides[id] ?? (id.charAt(0).toUpperCase() + id.slice(1));
+}
+
 /**
  * Show env key detection note.
  * - Key present → "✓ KEY detected"
@@ -278,7 +287,7 @@ async function promptExternalEmbeddings(): Promise<{ code: ExternalAxisConfig; n
   const codeProviderOptions: Array<{ value: string; label: string; hint?: string }> = EXTERNAL_PROVIDERS.map(
     ([id, entry]) => ({
       value: id,
-      label: id.charAt(0).toUpperCase() + id.slice(1),
+      label: displayProviderName(id),
       hint: entry.default_code_model,
     }),
   );
@@ -320,21 +329,22 @@ async function promptExternalEmbeddings(): Promise<{ code: ExternalAxisConfig; n
 
   // --- NLP provider ---
   const nlpProviderOptions: Array<{ value: string; label: string; hint?: string }> = [
-    { value: 'same', label: `Same as code (use ${codeConfig.provider} for both)` },
+    { value: 'same', label: `Same as code (use ${displayProviderName(codeConfig.provider)} for both)` },
     ...EXTERNAL_PROVIDERS.map(([id, entry]) => ({
       value: id,
-      label: id.charAt(0).toUpperCase() + id.slice(1),
+      label: displayProviderName(id),
       hint: entry.default_nlp_model,
     })),
     { value: 'custom', label: 'Custom (manual)', hint: 'enter URL, key, and model' },
   ];
 
-  // Put qwen as first distinct option (after "Same as code") — recommended for NLP
+  // Put openrouter as first distinct option (after "Same as code") — recommended for NLP
+  // (OpenRouter routes Qwen3-Embedding-8B at 4096d, parity with the local advanced GGUF tier)
   const providerStartIdx = 1; // after 'same'
-  const qwenIdx = nlpProviderOptions.findIndex((o, i) => i >= providerStartIdx && o.value === 'qwen');
-  if (qwenIdx > providerStartIdx) {
-    const [qwen] = nlpProviderOptions.splice(qwenIdx, 1);
-    nlpProviderOptions.splice(providerStartIdx, 0, qwen!);
+  const openrouterIdx = nlpProviderOptions.findIndex((o, i) => i >= providerStartIdx && o.value === 'openrouter');
+  if (openrouterIdx > providerStartIdx) {
+    const [openrouter] = nlpProviderOptions.splice(openrouterIdx, 1);
+    nlpProviderOptions.splice(providerStartIdx, 0, openrouter!);
   }
 
   const nlpProviderChoice = await p.select({

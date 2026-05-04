@@ -577,16 +577,16 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
       .mockResolvedValueOnce('voyage-code-3'); // code model
   }
 
-  // Helper: mock the full external flow (voyage code, qwen NLP, full-run mode)
+  // Helper: mock the full external flow (voyage code, openrouter NLP, full-run mode)
   function mockExternalVoyageQwen() {
     selectMock
       .mockResolvedValueOnce('external')     // tier
       .mockResolvedValueOnce('voyage')        // code provider
-      .mockResolvedValueOnce('qwen')          // NLP provider
+      .mockResolvedValueOnce('openrouter')    // NLP provider
       .mockResolvedValueOnce('full-run');     // mode
     textMock
-      .mockResolvedValueOnce('voyage-code-3') // code model
-      .mockResolvedValueOnce('text-embedding-v4'); // NLP model
+      .mockResolvedValueOnce('voyage-code-3')             // code model
+      .mockResolvedValueOnce('qwen/qwen3-embedding-8b');  // NLP model
   }
 
   // AC: tier options always contain External
@@ -630,7 +630,7 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     const providerValues = codeProviderCall.options.map((o: { value: string }) => o.value);
     expect(providerValues).toContain('openai');
     expect(providerValues).toContain('voyage');
-    expect(providerValues).toContain('qwen');
+    expect(providerValues).toContain('openrouter');
     expect(providerValues).toContain('cohere');
     expect(providerValues).toContain('mistral');
     expect(providerValues).toContain('custom');
@@ -677,7 +677,7 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     // Third select call = NLP provider
     const nlpProviderCall = selectMock.mock.calls[2]![0];
     expect(nlpProviderCall.options[0]!.value).toBe('same');
-    expect(nlpProviderCall.options[0]!.label).toContain('voyage');
+    expect(nlpProviderCall.options[0]!.label).toContain('Voyage');
   });
 
   // AC: "Same as code" duplicates code config to NLP
@@ -708,7 +708,7 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     // Two text calls: code model + NLP model
     expect(textMock).toHaveBeenCalledTimes(2);
     expect(textMock).toHaveBeenNthCalledWith(2,
-      expect.objectContaining({ initialValue: 'text-embedding-v4' }),
+      expect.objectContaining({ initialValue: 'qwen/qwen3-embedding-8b' }),
     );
   });
 
@@ -721,7 +721,7 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     expect(result.mode).toBe('full-run');
     expect(result.external).toEqual({
       code: { provider: 'voyage', model: 'voyage-code-3', env_key: 'VOYAGE_API_KEY' },
-      nlp: { provider: 'qwen', model: 'text-embedding-v4', env_key: 'DASHSCOPE_API_KEY' },
+      nlp: { provider: 'openrouter', model: 'qwen/qwen3-embedding-8b', env_key: 'OPENROUTER_API_KEY' },
     });
   });
 
@@ -865,14 +865,14 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     expect(selectMock).toHaveBeenCalledTimes(3);
   });
 
-  // AC: NLP select shows qwen as recommended (after "Same as code")
-  it('lists qwen as first distinct NLP provider option (after Same)', async () => {
+  // AC: NLP select shows openrouter (Qwen3-8B) as recommended (after "Same as code")
+  it('lists openrouter as first distinct NLP provider option (after Same)', async () => {
     mockExternalVoyageSame();
     await runFirstRunWizard(baseOpts());
 
     const nlpProviderCall = selectMock.mock.calls[2]![0];
-    // Index 0 = "Same as code", Index 1 = qwen (recommended for NLP)
-    expect(nlpProviderCall.options[1]!.value).toBe('qwen');
+    // Index 0 = "Same as code", Index 1 = openrouter (recommended for NLP — routes Qwen3-8B at 4096d)
+    expect(nlpProviderCall.options[1]!.value).toBe('openrouter');
   });
 
   // AC: NLP provider options show default_nlp_model as hint
@@ -883,8 +883,8 @@ describe('runFirstRunWizard — external tier (Story 50.6)', () => {
     const nlpProviderCall = selectMock.mock.calls[2]![0];
     const voyageOpt = nlpProviderCall.options.find((o) => o.value === 'voyage');
     expect(voyageOpt!.hint).toBe('voyage-3-large');
-    const qwenOpt = nlpProviderCall.options.find((o) => o.value === 'qwen');
-    expect(qwenOpt!.hint).toBe('text-embedding-v4');
+    const openrouterOpt = nlpProviderCall.options.find((o) => o.value === 'openrouter');
+    expect(openrouterOpt!.hint).toBe('qwen/qwen3-embedding-8b');
   });
 });
 
@@ -1222,7 +1222,7 @@ describe('writeFirstRunConfig', () => {
     writeFirstRunConfig(dir, {
       external: {
         code: { provider: 'voyage', model: 'voyage-code-3' },
-        nlp: { provider: 'qwen', model: 'text-embedding-v4' },
+        nlp: { provider: 'openrouter', model: 'qwen/qwen3-embedding-8b' },
       },
     });
 
@@ -1232,8 +1232,8 @@ describe('writeFirstRunConfig', () => {
     expect(parsed.rag.embedding).toBeDefined();
     expect(parsed.rag.embedding.code.provider).toBe('voyage');
     expect(parsed.rag.embedding.code.model).toBe('voyage-code-3');
-    expect(parsed.rag.embedding.nlp.provider).toBe('qwen');
-    expect(parsed.rag.embedding.nlp.model).toBe('text-embedding-v4');
+    expect(parsed.rag.embedding.nlp.provider).toBe('openrouter');
+    expect(parsed.rag.embedding.nlp.model).toBe('qwen/qwen3-embedding-8b');
   });
 
   // AC: "Same as code" → both sections written explicitly
