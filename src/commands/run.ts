@@ -979,6 +979,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const estimateTasks = ctx.fileFilter
     ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
     : allTasks;
+  if (ctx.fileFilter && estimateTasks.length === 0) {
+    const cwdRel = relative(ctx.projectRoot, process.cwd()) || '.';
+    throw new AnatolyError(
+      `no files match --file '${ctx.fileFilter}' (project root: ${ctx.projectRoot}, cwd: ${cwdRel})`,
+      ERROR_CODES.FILE_NOT_FOUND,
+      false,
+      'fix the --file path — it is interpreted as a glob relative to the project root, not your current directory',
+    );
+  }
   const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, estimateTasks);
   estimateFiles = estimateTasks.length;
   // estimateTokenLabel is built after triage so it reflects evalFileCount
