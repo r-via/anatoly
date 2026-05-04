@@ -446,8 +446,118 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// RagConfigSchema — Story 50.1: Embedding provider config
+// ---------------------------------------------------------------------------
+
+describe('RagConfigSchema — embedding section (Story 50.1)', () => {
+  it('should default rag.embedding to undefined when absent', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.rag.embedding).toBeUndefined();
+  });
+
+  it('should preserve existing rag defaults when embedding absent', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.rag.enabled).toBe(true);
+    expect(config.rag.code_model).toBe('auto');
+    expect(config.rag.nlp_model).toBe('auto');
+    expect(config.rag.code_weight).toBe(0.6);
+  });
+
+  it('should accept embedding.code only (nlp undefined)', () => {
+    const config = ConfigSchema.parse({
+      rag: {
+        embedding: {
+          code: { provider: 'openai', model: 'text-embedding-3-large' },
+        },
+      },
+    });
+    expect(config.rag.embedding!.code!.provider).toBe('openai');
+    expect(config.rag.embedding!.code!.model).toBe('text-embedding-3-large');
+    expect(config.rag.embedding!.nlp).toBeUndefined();
+  });
+
+  it('should accept best-of-breed code + nlp combo', () => {
+    const config = ConfigSchema.parse({
+      rag: {
+        embedding: {
+          code: { provider: 'voyage', model: 'voyage-code-3' },
+          nlp: { provider: 'qwen', model: 'text-embedding-v4', env_key: 'DASHSCOPE_API_KEY' },
+        },
+      },
+    });
+    expect(config.rag.embedding!.code!.provider).toBe('voyage');
+    expect(config.rag.embedding!.code!.model).toBe('voyage-code-3');
+    expect(config.rag.embedding!.code!.base_url).toBeUndefined();
+    expect(config.rag.embedding!.nlp!.provider).toBe('qwen');
+    expect(config.rag.embedding!.nlp!.model).toBe('text-embedding-v4');
+    expect(config.rag.embedding!.nlp!.env_key).toBe('DASHSCOPE_API_KEY');
+    expect(config.rag.embedding!.nlp!.base_url).toBeUndefined();
+  });
+
+  it('should accept custom provider with base_url and env_key', () => {
+    const config = ConfigSchema.parse({
+      rag: {
+        embedding: {
+          code: {
+            provider: 'my-internal',
+            base_url: 'https://embed.internal/v1',
+            env_key: 'INTERNAL_KEY',
+            model: 'foo',
+          },
+          nlp: {
+            provider: 'my-internal',
+            base_url: 'https://embed.internal/v1',
+            env_key: 'INTERNAL_KEY',
+            model: 'bar',
+          },
+        },
+      },
+    });
+    expect(config.rag.embedding!.code!.provider).toBe('my-internal');
+    expect(config.rag.embedding!.code!.base_url).toBe('https://embed.internal/v1');
+    expect(config.rag.embedding!.code!.env_key).toBe('INTERNAL_KEY');
+    expect(config.rag.embedding!.code!.model).toBe('foo');
+    expect(config.rag.embedding!.nlp!.provider).toBe('my-internal');
+    expect(config.rag.embedding!.nlp!.model).toBe('bar');
+  });
+
+  it('should accept anatoly-local provider', () => {
+    const config = ConfigSchema.parse({
+      rag: {
+        embedding: {
+          code: { provider: 'anatoly-local' },
+          nlp: { provider: 'anatoly-local' },
+        },
+      },
+    });
+    expect(config.rag.embedding!.code!.provider).toBe('anatoly-local');
+    expect(config.rag.embedding!.nlp!.provider).toBe('anatoly-local');
+  });
+
+  it('should accept empty embedding object (both code and nlp undefined)', () => {
+    const config = ConfigSchema.parse({
+      rag: { embedding: {} },
+    });
+    expect(config.rag.embedding).toBeDefined();
+    expect(config.rag.embedding!.code).toBeUndefined();
+    expect(config.rag.embedding!.nlp).toBeUndefined();
+  });
+
+  it('should require provider field when code is specified', () => {
+    const result = ConfigSchema.safeParse({
+      rag: {
+        embedding: {
+          code: { model: 'text-embedding-3-large' },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('Exported schemas', () => {
-  it('should export all v1.0 + v2.0 schema names', async () => {
+  it('should export all v1.0 + v2.0 + embedding schema names', async () => {
     const mod = await import('./config.js');
     expect(mod.AnthropicProviderConfigSchema).toBeDefined();
     expect(mod.GoogleProviderConfigSchema).toBeDefined();
@@ -460,5 +570,7 @@ describe('Exported schemas', () => {
     expect(mod.ConfigSchema).toBeDefined();
     expect(mod.TelegramNotificationSchema).toBeDefined();
     expect(mod.NotificationsConfigSchema).toBeDefined();
+    expect(mod.EmbeddingProviderConfigSchema).toBeDefined();
+    expect(mod.EmbeddingConfigSchema).toBeDefined();
   });
 });

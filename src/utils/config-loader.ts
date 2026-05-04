@@ -214,6 +214,19 @@ export function migrateConfigV1toV2(raw: Record<string, any>): Record<string, an
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Migrate a v2 config to v3 format (embedding section).
+ *
+ * Currently a no-op: the new `rag.embedding` section is fully optional and
+ * backward-compatible. Existing configs without `embedding` continue to
+ * work via the `auto` resolution path in `resolveEmbeddingModels`.
+ */
+export function migrateConfigV2toV3(raw: Record<string, any>): Record<string, any> {
+  return raw;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 /**
  * Load Anatoly configuration from `.anatoly.yml` in the given directory.
  * Falls back to sensible defaults if no config file exists.

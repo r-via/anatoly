@@ -113,6 +113,24 @@ export const RuntimeConfigSchema = z.object({
 
 // --- Other sections ---
 
+/** Per-axis embedding provider config (code or nlp). Provider is required; model, base_url, env_key optional. */
+export const EmbeddingProviderConfigSchema = z.object({
+  /** Provider identifier (e.g. 'openai', 'voyage', 'qwen', 'anatoly-local', or a custom name). */
+  provider: z.string(),
+  /** Model identifier for this axis. Defaults resolved from provider registry at runtime. */
+  model: z.string().optional(),
+  /** Base URL override. Known providers have defaults via the registry. */
+  base_url: z.string().optional(),
+  /** Environment variable name holding the API key. Known providers have defaults. */
+  env_key: z.string().optional(),
+}).passthrough();
+
+/** Embedding provider configuration — split by axis (code vs NLP) for best-of-breed support. */
+export const EmbeddingConfigSchema = z.object({
+  code: EmbeddingProviderConfigSchema.optional(),
+  nlp: EmbeddingProviderConfigSchema.optional(),
+});
+
 export const RagConfigSchema = z.object({
   enabled: z.boolean().default(true),
   /** Embedding model for code vectors. 'auto' = detect hardware and pick best available. */
@@ -121,6 +139,8 @@ export const RagConfigSchema = z.object({
   nlp_model: z.string().default('auto'),
   /** Weight for code similarity in hybrid search (0-1). NLP weight = 1 - code_weight. */
   code_weight: z.number().min(0).max(1).default(0.6),
+  /** External or custom embedding provider configuration. Absent = auto mode (resolved by hardware/flag). */
+  embedding: EmbeddingConfigSchema.optional(),
 });
 
 export const BadgeConfigSchema = z.object({
@@ -235,4 +255,6 @@ export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type TelegramNotificationConfig = z.infer<typeof TelegramNotificationSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
+export type EmbeddingProviderConfig = z.infer<typeof EmbeddingProviderConfigSchema>;
+export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;

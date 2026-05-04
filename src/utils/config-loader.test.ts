@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2 } from './config-loader.js';
+import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2, migrateConfigV2toV3 } from './config-loader.js';
 import { AnatolyError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -520,6 +520,115 @@ describe('migrateConfigV1toV2', () => {
     const result = migrateConfigV1toV2(input);
     expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
     expect(result.models.code_summary).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateConfigV2toV3 — Story 50.1: Embedding section migration
+// ---------------------------------------------------------------------------
+
+describe('migrateConfigV2toV3', () => {
+  it('should be a no-op for old format without embedding section', () => {
+    const input = {
+      models: { quality: 'anthropic/claude-sonnet-4-6' },
+      rag: { code_model: 'auto', nlp_model: 'auto' },
+    };
+    const result = migrateConfigV2toV3(input);
+    expect(result).toEqual(input);
+  });
+
+  it('should pass through config with embedding section unchanged', () => {
+    const input = {
+      models: { quality: 'anthropic/claude-sonnet-4-6' },
+      rag: {
+        embedding: {
+          code: { provider: 'openai', model: 'text-embedding-3-large' },
+        },
+      },
+    };
+    const result = migrateConfigV2toV3(input);
+    expect(result.rag.embedding.code.provider).toBe('openai');
+  });
+
+  it('should pass through config without rag section', () => {
+    const input = { models: { quality: 'anthropic/claude-sonnet-4-6' } };
+    const result = migrateConfigV2toV3(input);
+    expect(result).toEqual(input);
+  });
+});
+
+describe('loadConfig — embedding section (Story 50.1)', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-embed-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should load YAML with embedding.code only', () => {
+    const yml = `
+models:
+  quality: anthropic/claude-sonnet-4-6
+providers:
+  anthropic:
+    concurrency: 24
+rag:
+  embedding:
+    code:
+      provider: openai
+      model: text-embedding-3-large
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    const config = loadConfig(tempDir);
+    expect(config.rag.embedding!.code!.provider).toBe('openai');
+    expect(config.rag.embedding!.code!.model).toBe('text-embedding-3-large');
+    expect(config.rag.embedding!.nlp).toBeUndefined();
+  });
+
+  it('should load YAML with best-of-breed embedding combo', () => {
+    const yml = `
+models:
+  quality: anthropic/claude-sonnet-4-6
+providers:
+  anthropic:
+    concurrency: 24
+rag:
+  embedding:
+    code:
+      provider: voyage
+      model: voyage-code-3
+    nlp:
+      provider: qwen
+      model: text-embedding-v4
+      env_key: DASHSCOPE_API_KEY
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    const config = loadConfig(tempDir);
+    expect(config.rag.embedding!.code!.provider).toBe('voyage');
+    expect(config.rag.embedding!.code!.model).toBe('voyage-code-3');
+    expect(config.rag.embedding!.nlp!.provider).toBe('qwen');
+    expect(config.rag.embedding!.nlp!.env_key).toBe('DASHSCOPE_API_KEY');
+  });
+
+  it('should load YAML without embedding section (backward compat)', () => {
+    const yml = `
+models:
+  quality: anthropic/claude-sonnet-4-6
+providers:
+  anthropic:
+    concurrency: 24
+rag:
+  code_model: auto
+  nlp_model: auto
+`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    const config = loadConfig(tempDir);
+    expect(config.rag.embedding).toBeUndefined();
+    expect(config.rag.code_model).toBe('auto');
+    expect(config.rag.nlp_model).toBe('auto');
   });
 });
 
