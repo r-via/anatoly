@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,8 @@ import {
   detectHints,
   loadDismissedHints,
   saveDismissedHint,
+  maybeShowEducationHint,
+  type EducationHintContext,
 } from './hint-detector.js';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
 
@@ -162,5 +164,114 @@ describe('hint dismissal persistence', () => {
     saveDismissedHint(projectRoot, 'no-init');
     saveDismissedHint(projectRoot, 'no-init');
     expect([...loadDismissedHints(projectRoot)]).toEqual(['no-init']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maybeShowEducationHint (Story 49.4)
+// ---------------------------------------------------------------------------
+
+describe('maybeShowEducationHint', () => {
+  let projectRoot: string;
+  let logged: string[];
+
+  function baseCtx(overrides?: Partial<EducationHintContext>): EducationHintContext {
+    return {
+      projectRoot,
+      resolvedRagMode: 'lite',
+      hardware: capableHardware,
+      interrupted: false,
+      plain: false,
+      defaultsSettings: false,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'anatoly-edu-'));
+    logged = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logged.push(args.map(String).join(' '));
+    });
+  });
+
+  afterEach(() => {
+    rmSync(projectRoot, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  // AC1: successful audit + lite + capable hardware + not dismissed → show hint
+  // p.note writes directly to stdout (not console.log), so we verify the
+  // function executed by checking the dismissal was saved. Text output is
+  // verified via the plain/defaultsSettings tests below.
+  it('shows education hint and dismisses it when all conditions are met', () => {
+    maybeShowEducationHint(baseCtx());
+
+    const dismissed = loadDismissedHints(projectRoot);
+    expect(dismissed.has('lite-rag-can-upgrade-post-audit')).toBe(true);
+  });
+
+  // Negative: hint is NOT dismissed when conditions aren't met
+  it('does not dismiss when interrupted (hint was never shown)', () => {
+    maybeShowEducationHint(baseCtx({ interrupted: true }));
+
+    const dismissed = loadDismissedHints(projectRoot);
+    expect(dismissed.has('lite-rag-can-upgrade-post-audit')).toBe(false);
+  });
+
+  // AC2: interrupted audit → no hint
+  it('does not show hint when audit was interrupted', () => {
+    maybeShowEducationHint(baseCtx({ interrupted: true }));
+
+    const output = logged.join('\n');
+    expect(output).not.toContain('advanced embeddings');
+  });
+
+  // AC3: already dismissed → no hint
+  it('does not show hint when already dismissed', () => {
+    saveDismissedHint(projectRoot, 'lite-rag-can-upgrade-post-audit');
+
+    maybeShowEducationHint(baseCtx());
+
+    const output = logged.join('\n');
+    expect(output).not.toContain('advanced embeddings');
+  });
+
+  // Not lite mode → no hint
+  it('does not show hint when resolvedRagMode is advanced', () => {
+    maybeShowEducationHint(baseCtx({ resolvedRagMode: 'advanced' }));
+
+    const output = logged.join('\n');
+    expect(output).not.toContain('advanced embeddings');
+  });
+
+  // No capable hardware → no hint
+  it('does not show hint when hardware is incapable', () => {
+    const weakHardware: HardwareProfile = {
+      totalMemoryGB: 16,
+      cpuCores: 8,
+      hasGpu: false,
+    };
+    maybeShowEducationHint(baseCtx({ hardware: weakHardware }));
+
+    const output = logged.join('\n');
+    expect(output).not.toContain('advanced embeddings');
+  });
+
+  // AC4: --defaults-settings → log info, not p.note
+  it('uses console.log (not p.note) when defaultsSettings is true', () => {
+    maybeShowEducationHint(baseCtx({ defaultsSettings: true }));
+
+    const output = logged.join('\n');
+    // Should still contain the message (as log info)
+    expect(output).toContain('advanced embeddings');
+  });
+
+  // AC4: --plain → log info, not p.note
+  it('uses console.log (not p.note) when plain is true', () => {
+    maybeShowEducationHint(baseCtx({ plain: true }));
+
+    const output = logged.join('\n');
+    expect(output).toContain('advanced embeddings');
   });
 });

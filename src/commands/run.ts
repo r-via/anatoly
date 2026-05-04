@@ -64,7 +64,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { printBanner, printSetupToAuditTransition } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
-import { runHints } from '../cli/hint-detector.js';
+import { runHints, maybeShowEducationHint } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
@@ -2426,6 +2426,16 @@ function runReportPhase(ctx: RunContext): void {
     console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
     console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
   }
+
+  // Story 49.4: post-audit education hint — lite on capable hardware
+  maybeShowEducationHint({
+    projectRoot: ctx.projectRoot,
+    resolvedRagMode: ctx.resolvedRagMode,
+    hardware: detectHardware(),
+    interrupted: ctx.interrupted,
+    plain: ctx.plain,
+    defaultsSettings: ctx.defaultsSettings,
+  });
 
   if (ctx.shouldOpen) openFile(reportPath);
 

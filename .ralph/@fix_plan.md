@@ -156,15 +156,7 @@
 - [x] Story 49.1: Recovery messages actionnables pour failures de download
 - [x] Story 49.2: Cross-project preferences via `~/.anatoly/preferences.yml`
 - [x] Story 49.3: Transition visuelle setup → audit
-  > As a utilisateur qui passe du setup à l'audit
-  > I want voir une démarcation claire entre les deux phases
-  > So that je sais que l'onboarding est terminé et que les LLM calls vont démarrer.
-  > AC: Given le user choisit "Proceed with audit" dans le 3-choice, When la wizard termine, Then un séparateur visuel est imprimé (`────────────────────────────`), And sur la ligne suivante, un banner court est affiché : `"The weight is good !  Starting audit..."`, And une ligne vide est ajoutée avant le démarrage de la review phase
-  > AC: Given `--defaults-settings` est set, When le setup termine et le run continue, Then la transition visuelle est tout de même affichée (sauf si `--plain`, voir Story 49.6)
-  > AC: Given `--plain` est set, When la transition serait affichée, Then un simple `"--- starting audit ---"` est imprimé à la place du séparateur graphique
-  > AC: Given la fonction `printBanner('The weight is good !')` existe déjà ([src/utils/banner.ts](src/utils/banner.ts)), When la transition est implémentée, Then elle réutilise `printBanner` pour cohérence visuelle (pas de duplication de l'ASCII art)
-  > Spec: specs/planning-artifacts/epic-49-first-run-polish.md#story-49-3
-- [ ] Story 49.4: Post-audit progressive education hint
+- [x] Story 49.4: Post-audit progressive education hint
   > As a user qui vient de finir son premier audit en mode lite sur du hardware capable d'advanced
   > I want apprendre que je peux faire mieux la prochaine fois
   > So that je découvre l'option advanced **après** avoir vu la valeur d'un audit complet, pas avant.

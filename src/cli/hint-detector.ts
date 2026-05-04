@@ -114,6 +114,61 @@ export function detectHints(ctx: HintContext): Hint[] {
   return hints;
 }
 
+// ---------------------------------------------------------------------------
+// Post-audit education hint (Story 49.4)
+// ---------------------------------------------------------------------------
+
+/** Context needed to decide whether to show the post-audit education hint. */
+export interface EducationHintContext {
+  projectRoot: string;
+  resolvedRagMode?: 'lite' | 'advanced';
+  hardware?: HardwareProfile;
+  interrupted: boolean;
+  plain: boolean;
+  defaultsSettings: boolean;
+}
+
+const EDUCATION_HINT_ID = 'lite-rag-can-upgrade-post-audit';
+
+const EDUCATION_HINT_TEXT =
+  'Your hardware could run advanced embeddings (~30% better recall, ~15 GB disk).\n' +
+  'Run `anatoly setup-embeddings` when you want to try it.';
+
+/**
+ * Show a one-shot education hint after a successful lite-mode audit on
+ * hardware that supports advanced embeddings. Dismissed after first display.
+ *
+ * - Interactive: renders via `p.note`.
+ * - Non-interactive (`--defaults-settings` / `--plain`): logs via `console.log`.
+ */
+export function maybeShowEducationHint(ctx: EducationHintContext): void {
+  // Gate: successful audit only
+  if (ctx.interrupted) return;
+
+  // Gate: must be lite mode with capable hardware
+  if (ctx.resolvedRagMode !== 'lite') return;
+  const hw = ctx.hardware;
+  if (!hw?.hasGpu || hw.gpuType !== 'cuda' || (hw.vramGB ?? 0) < GGUF_MIN_VRAM_GB) return;
+
+  // Gate: not already dismissed
+  const dismissed = loadDismissedHints(ctx.projectRoot);
+  if (dismissed.has(EDUCATION_HINT_ID)) return;
+
+  // Show the hint
+  if (ctx.plain || ctx.defaultsSettings) {
+    console.log(`\u{1F4A1} ${EDUCATION_HINT_TEXT.replace('\n', ' ')}`);
+  } else {
+    p.note(EDUCATION_HINT_TEXT, '\u{1F4A1} Upgrade available');
+  }
+
+  // Dismiss so it only shows once
+  saveDismissedHint(ctx.projectRoot, EDUCATION_HINT_ID);
+}
+
+// ---------------------------------------------------------------------------
+// Interactive hint runner
+// ---------------------------------------------------------------------------
+
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
 }
