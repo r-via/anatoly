@@ -111,7 +111,6 @@ async function loadOnnxModel(modelId: string): Promise<any> {
   // Throttle per-file progress so we surface the download without flooding logs.
   const lastBucket = new Map<string, number>();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const model = await pipeline('feature-extraction', modelId, {
     progress_callback: (info: unknown) => {
       const evt = info as { status?: string; file?: string; progress?: number };

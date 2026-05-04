@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { printSetupToAuditTransition } from './banner.js';
+import { printSetupToAuditTransition } from './transitions.js';
 
 describe('printSetupToAuditTransition', () => {
   let logged: string[];

@@ -2,11 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { writeRunStatus, type RunStatus } from '../core/run-status.js';
+import { describe, it, expect } from 'vitest';
+import { type RunStatus } from '../core/run-status.js';
 import { formatDuration, buildRunTable, buildRunDetail } from './status.js';
 
 function makeStatus(overrides: Partial<RunStatus> = {}): RunStatus {

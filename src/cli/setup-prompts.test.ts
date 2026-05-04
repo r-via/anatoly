@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type WizardResult, type EndOfSetupOptions } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type EndOfSetupOptions } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,7 +51,7 @@ function baseOpts(overrides?: Partial<WizardOptions>): WizardOptions {
 // Mock @clack/prompts — track calls and simulate user hitting Enter (defaults)
 // ---------------------------------------------------------------------------
 
-const selectMock = vi.fn<(opts: { message: string; options: Array<{ value: string }> }) => Promise<string>>();
+const selectMock = vi.fn<(opts: { message: string; options: Array<{ value: string }> }) => Promise<string | symbol>>();
 const noteMock = vi.fn();
 const cancelMock = vi.fn();
 const spinnerStartMock = vi.fn();
@@ -496,7 +496,6 @@ describe('runFirstRunWizard', () => {
         (l: string) => l.includes('ONNX') || l.includes('GGUF') || l.includes('Embeddings setup'),
       );
       for (const line of tableLines) {
-        // eslint-disable-next-line no-control-regex
         expect(line).not.toMatch(/\x1b\[/);
       }
     });

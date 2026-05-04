@@ -7,20 +7,20 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Writable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { buildForwardedArgs, launchBackgroundRun } from './background-runner.js';
 import { readRunStatus } from './run-status.js';
 
 // Mock child_process.spawn to avoid actually spawning processes in tests
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual('node:child_process');
-  const EventEmitter = (await import('node:events')).default;
 
   return {
     ...actual,
     spawn: vi.fn(() => {
-      const child = new EventEmitter();
-      (child as any).pid = 99999;
-      (child as any).unref = vi.fn();
+      const child = new EventEmitter() as EventEmitter & { pid: number; unref: () => void };
+      child.pid = 99999;
+      child.unref = vi.fn();
       return child;
     }),
   };

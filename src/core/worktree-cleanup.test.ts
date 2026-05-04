@@ -2,12 +2,12 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { cleanupOrphanedWorktrees } from './worktree-cleanup.js';
-import { writeRunStatus, readRunStatus, type RunStatus } from './run-status.js';
+import { writeRunStatus, type RunStatus } from './run-status.js';
 
 function makeStatus(overrides: Partial<RunStatus> = {}): RunStatus {
   return {

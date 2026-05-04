@@ -12,7 +12,6 @@ import {
   verifyGgufFile,
   downloadGgufFile,
   GGUF_MODELS,
-  type GgufModelDef,
   type GgufPrefetchProgress,
 } from './gguf-prefetch.js';
 
@@ -211,14 +210,6 @@ describe('prefetchGgufModels', () => {
     expect(GGUF_MODELS[0]!.sha256).toBeTruthy();
     expect(GGUF_MODELS[1]!.sha256).toBeTruthy();
   });
-
-  // Helper: build fake GGUF_MODELS-compatible content whose SHA matches.
-  // Overrides the module-level GGUF_MODELS during tests by writing files
-  // whose SHA256 we control, then relying on verifyGgufFile to stream-hash.
-  function fakeModelContent(model: GgufModelDef): Buffer {
-    // Use the filename as deterministic content
-    return Buffer.from(`fake-model-${model.filename}`);
-  }
 
   function mockFetchForContent(content: Buffer) {
     fetchMock.mockImplementation(async () => {

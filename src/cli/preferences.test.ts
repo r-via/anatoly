@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2025-present Rémi Viau
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Hoisted mocks (available before vi.mock factories run)
 const { readFileSyncMock, writeFileSyncMock, mkdirSyncMock, homedirMock, warnMock } = vi.hoisted(() => ({

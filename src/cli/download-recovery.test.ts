@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { classifyDownloadError, promptDownloadRecovery, type DownloadErrorKind, type RecoveryChoice } from './download-recovery.js';
+import { classifyDownloadError, promptDownloadRecovery, type DownloadErrorKind } from './download-recovery.js';
 
 // ---------------------------------------------------------------------------
 // Mock @clack/prompts
