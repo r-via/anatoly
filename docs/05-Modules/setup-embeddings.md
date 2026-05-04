@@ -20,8 +20,9 @@ The active configuration is persisted as `.anatoly/embeddings-ready.json` ([`Emb
 | Docker daemon | Required for `advanced-gguf` and `advanced-fp16` backends |
 | NVIDIA Container Toolkit | Required for `advanced-gguf` backend (GPU-accelerated containers) |
 | NVIDIA GPU with ≥ 12 GB VRAM | Required for `advanced-gguf` backend |
+| Provider API key (e.g. `OPENAI_API_KEY`) | Required for `external` backend — see [Embedding Providers guide](../03-Guides/03-Embedding-Providers.md) |
 
-The `lite` backend (ONNX) has no external runtime dependencies beyond Node.js.
+The `lite` backend (ONNX) has no external runtime dependencies beyond Node.js. The `external` backend has no GPU/Docker dependency — only an HTTPS-reachable embedding endpoint and an API key.
 
 ---
 
@@ -45,8 +46,10 @@ anatoly setup-embeddings [options]
 Hardware detection is performed by `detectHardware()` in `src/rag/hardware-detect.ts`, which returns a `HardwareProfile`. The active backend is then resolved by `determineBackend(flag, hardware)`.
 
 ```typescript
-type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf'
+type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf' | 'external'
 ```
+
+`'advanced-fp16'` is a legacy A/B reference (TEI fp16); not selected at runtime — falls back to `lite`. `'advanced-gguf'` is mapped internally to provider `anatoly-local` over the SDK transport. `'external'` routes embeddings to a third-party provider configured under `rag.embedding` in `.anatoly.yml` (see the [Embedding Providers guide](../03-Guides/03-Embedding-Providers.md)).
 
 ### `lite`
 
@@ -79,6 +82,14 @@ Full-precision fp16 served by `ghcr.io/huggingface/text-embeddings-inference:1.9
 | Code | 11435 |
 | NLP | 11436 |
 
+### `external`
+
+Routes embeddings to a third-party HTTPS API via the Vercel AI SDK. No local GPU or Docker required. Selected automatically when `rag.embedding` is set in `.anatoly.yml` (or written there by the first-run wizard's "External" tier choice).
+
+The provider list, default models, env var conventions, and configuration shape are documented in the [Embedding Providers guide](../03-Guides/03-Embedding-Providers.md). Supported registry providers (v1): `openai`, `voyage`, `qwen`, `cohere`, `mistral`. Custom OpenAI-compatible endpoints (Azure OpenAI, self-hosted TEI/llama.cpp clusters, HF Inference Endpoints) are supported via free-form `provider` + `base_url` + `env_key`.
+
+The factory `getVercelEmbeddingModel(kind, modelId, config)` in [src/rag/sdk-embedding.ts](../../src/rag/sdk-embedding.ts) instantiates the SDK model, applies the registry's `max_per_call` / `supports_parallel` constraints, and runs the optional `pre_hook` (used by `anatoly-local` to hot-swap the active GGUF Docker container). Dimensions for non-registry models are probed once at boot and cached in `embeddings-ready.json` under `dim_code` / `dim_nlp` keyed by `embedding_signature`.
+
 ---
 
 ## Hardware Detection API
@@ -103,19 +114,30 @@ interface HardwareProfile {
 
 ### `resolveEmbeddingModels(config, hardware, onLog?, readyFlag?): Promise<ResolvedModels>`
 
-Selects concrete model IDs and runtimes based on hardware and an optional pre-existing flag.
+Selects concrete model IDs, runtimes, and provider routing based on the YAML config, hardware, and optional pre-existing flag. Reads `config.rag.embedding.code` / `config.rag.embedding.nlp` (split-by-axis) for the `external` and `advanced-gguf` backends.
 
 ```typescript
 interface ResolvedModels {
   codeModel: string;
   codeDim: number;
-  codeRuntime: 'onnx' | 'gguf';
+  codeRuntime: 'onnx' | 'gguf' | 'sdk';
   nlpModel: string;
   nlpDim: number;
-  nlpRuntime: 'onnx' | 'gguf';
+  nlpRuntime: 'onnx' | 'gguf' | 'sdk';
   backend: EmbeddingBackend;
+  /** Provider identifier for code embeddings (set when runtime is 'sdk'). */
+  codeProvider?: string;
+  /** Resolved code endpoint base URL (absent for native SDK providers like openai). */
+  codeBaseUrl?: string;
+  /** Env var name holding the code provider API key (null if no key required, e.g. anatoly-local). */
+  codeEnvKey?: string | null;
+  nlpProvider?: string;
+  nlpBaseUrl?: string;
+  nlpEnvKey?: string | null;
 }
 ```
+
+The `'gguf'` runtime label is preserved for telemetry but resolves to the same SDK code path as `'sdk'` (the legacy native HTTP fetch was removed in Epic 50).
 
 ### `readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFlag | null`
 
@@ -144,6 +166,10 @@ interface EmbeddingsReadyFlag {
   ab_test_at?: string;
   code_precision?: string;
   nlp_precision?: string;
+  /** Provider identifier when `backend === 'external'` (e.g. 'openai', 'voyage'). */
+  embedding_provider?: string;
+  /** SHA-256 of {provider, code_model, nlp_model}; cache key for the runtime dim probe. */
+  embedding_signature?: string;
 }
 ```
 
@@ -159,19 +185,19 @@ Applies a `ResolvedModels` snapshot as the active runtime configuration. Must be
 
 ### `embedCode(text: string): Promise<number[]>`
 
-Returns a code embedding vector for the given text. Uses the code model determined at setup time. Truncates input to `MAX_CODE_CHARS = 1500` characters in ONNX mode or `MAX_GGUF_CHARS = 8000` in GGUF mode.
+Returns a code embedding vector for the given text. Uses the code model determined at setup time. Truncates input to `MAX_CODE_CHARS = 1500` characters before embedding. In `sdk` runtime, the call is delegated to `embed()` from the Vercel AI SDK; in `onnx` runtime it runs in-process via `@huggingface/transformers`.
 
 ### `embedNlp(text: string): Promise<number[]>`
 
-Returns an NLP embedding vector. Uses the NLP model determined at setup time.
+Returns an NLP embedding vector. Uses the NLP model determined at setup time. Same routing as `embedCode`.
 
 ### `embedCodeBatch(texts: string[]): Promise<number[][]>`
 
-Batches multiple code embedding requests. In GGUF mode, automatically splits into chunks of `MAX_GGUF_BATCH_SIZE = 16`.
+Batches multiple code embedding requests. In `sdk` runtime, the SDK `embedMany()` handles automatic chunking based on the registry's `max_per_call` (16 for `anatoly-local`, 2048 for external providers by default).
 
 ### `embedNlpBatch(texts: string[]): Promise<number[][]>`
 
-Batches multiple NLP embedding requests with the same chunking behaviour.
+Batches multiple NLP embedding requests with the same routing behaviour.
 
 ### `buildEmbedCode(name: string, signature: string, sourceBody: string): string`
 

@@ -185,16 +185,19 @@ The axis-to-model resolution is defined in `resolveAxisModel()` ([src/core/axis-
 
 ### `rag`
 
-Controls the semantic RAG index used for cross-file analysis. RAG mode (lite vs. advanced) is auto-detected from hardware and can be forced with `--rag-lite` or `--rag-advanced`.
+Controls the semantic RAG index used for cross-file analysis. RAG mode (lite vs. advanced) is auto-detected from hardware and can be forced with `--rag-lite` or `--rag-advanced`. The `external` mode (third-party provider) is selected by setting `rag.embedding`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | `boolean` | `true` | Enable RAG cross-file analysis |
-| `code_model` | `string` | `'auto'` | Embedding model for code vectors; `'auto'` selects the best available model for the detected hardware |
+| `code_model` | `string` | `'auto'` | Embedding model for code vectors (lite/advanced tiers); `'auto'` selects the best available model for the detected hardware |
 | `nlp_model` | `string` | `'auto'` | NLP embedding model for lite mode; `'auto'` resolves to `all-MiniLM-L6-v2` |
 | `code_weight` | `number 0–1` | `0.6` | Weight for code similarity in hybrid search; NLP weight = `1 − code_weight` |
+| `embedding` | `{ code?: ProviderConfig, nlp?: ProviderConfig }` | absent | Third-party embedding provider configuration, split per axis. See [Embedding Providers guide](./03-Embedding-Providers.md). |
 
-Advanced RAG mode requires Docker with the NVIDIA container toolkit.
+Each `ProviderConfig` is `{ provider: string, model?: string, base_url?: string, env_key?: string }`. Either or both axes may be set; if only one is set the other duplicates it at runtime. When `rag.embedding` is absent, Anatoly falls back to lite or advanced based on hardware detection.
+
+Advanced RAG mode requires Docker with the NVIDIA container toolkit. External mode requires only an HTTPS-reachable provider endpoint and the corresponding API key (e.g. `OPENAI_API_KEY`, `VOYAGE_API_KEY`).
 
 ---
 
