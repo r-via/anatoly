@@ -255,71 +255,10 @@ export function registerRunCommand(program: Command): void {
       // above and below the banner.
       printBanner();
 
-      // Refresh provider pricing for the active model set. First-run downloads
-      // the litellm + (when applicable) OpenRouter snapshots; subsequent runs
-      // do conditional GETs and almost always fall through to a cached copy.
-      //
-      // strict mode refuses to start when any configured model has no pricing
-      // entry. We disable it on `--dry-run` (no calls billed) and when the
-      // user opts out via `--allow-missing-pricing` — surfacing
-      // PRICING_INCOMPLETE as an actionable notice instead of a stack trace.
-      //
-      // Scoping: pass the *resolved run shape* (--no-rag drops embeddings,
-      // --no-deliberation drops the deliberation tier, --axes restricts axis
-      // overrides) so the gate doesn't refuse to start over a model that
-      // won't actually be invoked this run.
+      // CLI flag parse — needs to happen before the wizard because a bad
+      // --axes value should fail fast (not after the user picks a tier).
       const pricingAxesFilter = parseAxesOption(cmdOpts.axes);
       if (pricingAxesFilter === null) return;
-      const ragForPricing = parentOpts.rag !== false && config.rag.enabled;
-
-      // Resolve the embedding tier eagerly so external SDK models (Voyage,
-      // OpenRouter, …) the user identified by `provider` only — without an
-      // explicit `model` in `.anatoly.yml` — still flow into the strict
-      // pricing gate. Local tiers (ONNX / GGUF) resolve to non-`sdk`
-      // runtimes and stay out of the active list, which is the right
-      // outcome (no API price to check).
-      let resolvedEmbedForPricing: ResolvedModels | undefined;
-      if (ragForPricing) {
-        const earlyHardware = detectHardware();
-        const earlyReadyFlag = readEmbeddingsReadyFlag(projectRoot);
-        resolvedEmbedForPricing = await resolveEmbeddingModels(
-          config.rag, earlyHardware, undefined, earlyReadyFlag,
-        );
-      }
-
-      const activeModels = enumerateActiveModels(config, {
-        enableRag: ragForPricing,
-        enableDeliberation: cmdOpts.deliberation !== false,
-        axesFilter: pricingAxesFilter,
-      });
-      // Only `external` backend models are billable per token; `lite` /
-      // `advanced-gguf` route through the SDK to local servers and have no
-      // upstream pricing — adding them would falsely trigger PRICING_INCOMPLETE.
-      if (resolvedEmbedForPricing?.backend === 'external') {
-        activeModels.push(resolvedEmbedForPricing.codeModel, resolvedEmbedForPricing.nlpModel);
-      }
-      const dedupedActiveModels = [...new Set(activeModels)];
-      const strictPricing = !cmdOpts.dryRun && !cmdOpts.allowMissingPricing;
-      try {
-        await ensurePricing(dedupedActiveModels, projectRoot, {
-          log: (level, message) => getLogger()[level](message),
-          strict: strictPricing,
-        });
-      } catch (err) {
-        if (err instanceof AnatolyError && err.code === ERROR_CODES.PRICING_INCOMPLETE) {
-          printNotice({
-            kind: 'error',
-            title: 'Pricing data incomplete',
-            hint:
-              `${err.message}\n\n` +
-              'Refresh the pricing snapshot with `anatoly providers`,\n' +
-              'or pass `--allow-missing-pricing` to continue (their cost reports as $0).',
-          });
-          process.exitCode = 2;
-          return;
-        }
-        throw err;
-      }
 
       const useDefaults = cmdOpts.defaultsSettings === true;
       if (useDefaults || !process.stdin.isTTY) {
@@ -493,6 +432,71 @@ export function registerRunCommand(program: Command): void {
           process.exitCode = 2;
           return;
         }
+      }
+
+      // Pricing gate runs AFTER the first-run wizard so it sees the user's
+      // actual tier choice (and any `rag.embedding` block written by the
+      // wizard or by the external-tier follow-up). Before this, on a brand
+      // new project, the gate would pre-screen against the default config
+      // and either over-permit (lite defaults pass strict trivially) or
+      // mis-screen the eventual external models.
+      //
+      // strict mode refuses to start when any configured model has no
+      // pricing entry. Disabled on `--dry-run` (no calls billed) and when
+      // the user opts out via `--allow-missing-pricing`.
+      //
+      // Scoping: pass the resolved run shape (--no-rag drops embeddings,
+      // --no-deliberation drops the deliberation tier, --axes restricts
+      // axis overrides) so the gate doesn't refuse to start over a model
+      // that won't actually be invoked this run.
+      const ragForPricing = parentOpts.rag !== false && config.rag.enabled;
+
+      // Resolve the embedding tier eagerly so external SDK models (Voyage,
+      // OpenRouter, …) the user identified by `provider` only — without an
+      // explicit `model` in `.anatoly.yml` — still flow into the strict
+      // pricing gate. Local tiers (ONNX / GGUF) resolve to non-external
+      // backends and stay out of the active list (no API price to check).
+      let resolvedEmbedForPricing: ResolvedModels | undefined;
+      if (ragForPricing) {
+        const earlyHardware = detectHardware();
+        const earlyReadyFlag = readEmbeddingsReadyFlag(projectRoot);
+        resolvedEmbedForPricing = await resolveEmbeddingModels(
+          config.rag, earlyHardware, undefined, earlyReadyFlag,
+        );
+      }
+
+      const activeModels = enumerateActiveModels(config, {
+        enableRag: ragForPricing,
+        enableDeliberation: cmdOpts.deliberation !== false,
+        axesFilter: pricingAxesFilter,
+      });
+      // Only `external` backend models are billable per token; `lite` /
+      // `advanced-gguf` route through the SDK to local servers and have no
+      // upstream pricing — adding them would falsely trigger PRICING_INCOMPLETE.
+      if (resolvedEmbedForPricing?.backend === 'external') {
+        activeModels.push(resolvedEmbedForPricing.codeModel, resolvedEmbedForPricing.nlpModel);
+      }
+      const dedupedActiveModels = [...new Set(activeModels)];
+      const strictPricing = !cmdOpts.dryRun && !cmdOpts.allowMissingPricing;
+      try {
+        await ensurePricing(dedupedActiveModels, projectRoot, {
+          log: (level, message) => getLogger()[level](message),
+          strict: strictPricing,
+        });
+      } catch (err) {
+        if (err instanceof AnatolyError && err.code === ERROR_CODES.PRICING_INCOMPLETE) {
+          printNotice({
+            kind: 'error',
+            title: 'Pricing data incomplete',
+            hint:
+              `${err.message}\n\n` +
+              'Refresh the pricing snapshot with `anatoly providers`,\n' +
+              'or pass `--allow-missing-pricing` to continue (their cost reports as $0).',
+          });
+          process.exitCode = 2;
+          return;
+        }
+        throw err;
       }
 
       const cliConcurrency = cmdOpts.concurrency;
