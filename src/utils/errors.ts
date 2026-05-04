@@ -17,6 +17,7 @@ export const ERROR_CODES = {
   WRITE_ERROR: 'WRITE_ERROR',
   NLP_SUMMARIZATION_FAILED: 'NLP_SUMMARIZATION_FAILED',
   PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
+  PRICING_INCOMPLETE: 'PRICING_INCOMPLETE',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -37,6 +38,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   FILE_NOT_FOUND: 'make sure you are running Anatoly from your project root',
   NLP_SUMMARIZATION_FAILED: 'NLP summarization LLM call failed — check provider config and API keys',
   PROVIDER_AUTH_FAILED: 'check provider API keys and authentication — see anatoly providers for status',
+  PRICING_INCOMPLETE: 'one or more configured models have no pricing entry — run `anatoly providers` for details, or remove the offending models from .anatoly.yml',
 };
 
 /**

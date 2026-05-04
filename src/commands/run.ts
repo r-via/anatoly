@@ -24,6 +24,7 @@ import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
+import { findMissingEmbeddingEnvKeys } from '../rag/known-embedding-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
@@ -68,7 +69,7 @@ import { printBanner } from '../utils/banner.js';
 import { printSetupToAuditTransition } from '../utils/transitions.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
-import { runHints, maybeShowEducationHint } from '../cli/hint-detector.js';
+import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
@@ -249,9 +250,12 @@ export function registerRunCommand(program: Command): void {
       // Refresh provider pricing for the active model set. First-run downloads
       // the litellm + (when applicable) OpenRouter snapshots; subsequent runs
       // do conditional GETs and almost always fall through to a cached copy.
-      // Failures are non-fatal — calculateCost just reports 0 for unknown models.
+      // strict: true — refuse to start a run if any configured model has no
+      // pricing entry. Silent zero-cost reports would be misleading and break
+      // the per-call replay contract; we'd rather surface the gap immediately.
       await ensurePricing(enumerateActiveModels(config), projectRoot, {
         log: (level, message) => getLogger()[level](message),
+        strict: true,
       });
 
       // Banner first — every launch-time message below is printed as a
@@ -379,6 +383,26 @@ export function registerRunCommand(program: Command): void {
         // and (b) the user didn't use --rag-lite / --rag-advanced (AC4).
         if (wizardResult.tier === 'advanced' && !cliTierOverride) {
           savePreferences({ embeddings: { prefer: 'advanced' } });
+        }
+      }
+
+      // External embedding providers require API keys to be exported.
+      // The first-run wizard already aborts when keys are missing, but
+      // subsequent runs (with .anatoly.yml already in place) reach here
+      // without that check — verify before any work happens.
+      if (parentOpts.rag !== false && config.rag.enabled) {
+        const missingKeys = findMissingEmbeddingEnvKeys(config.rag.embedding);
+        if (missingKeys.length > 0) {
+          const lines = missingKeys.map(
+            (m) => `  export ${m.envKey}=...     # ${m.axis} embeddings via ${m.provider}`,
+          );
+          printNotice({
+            kind: 'error',
+            title: 'External embedding API key(s) missing',
+            hint: `Set the variable(s) in your shell and re-run:\n${lines.join('\n')}`,
+          });
+          process.exitCode = 2;
+          return;
         }
       }
 
@@ -2455,16 +2479,6 @@ function runReportPhase(ctx: RunContext): void {
     console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
     console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
   }
-
-  // Story 49.4: post-audit education hint — lite on capable hardware
-  maybeShowEducationHint({
-    projectRoot: ctx.projectRoot,
-    resolvedRagMode: ctx.resolvedRagMode,
-    hardware: detectHardware(),
-    interrupted: ctx.interrupted,
-    plain: ctx.plain,
-    defaultsSettings: ctx.defaultsSettings,
-  });
 
   if (ctx.shouldOpen) openFile(reportPath);
 

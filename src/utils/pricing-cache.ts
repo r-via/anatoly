@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { extractProvider, stripPrefix } from '../core/transports/index.js';
+import { AnatolyError, ERROR_CODES } from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -286,6 +287,14 @@ function uniq<T>(items: T[]): T[] {
 export interface EnsurePricingOptions {
   /** Optional structured logger; falls back to no-op. */
   log?: (level: 'info' | 'warn' | 'error', message: string) => void;
+  /**
+   * Fail-loud mode: when true, throws {@link AnatolyError} with code
+   * `PRICING_INCOMPLETE` if any active model has no resolvable pricing.
+   * Required for `run` and `estimate` so a missing entry can never silently
+   * degrade cost reports to zero. Diagnostic commands (`init`, `providers`)
+   * leave this off so they can show the user *what* is missing.
+   */
+  strict?: boolean;
 }
 
 /**
@@ -314,6 +323,7 @@ export async function ensurePricing(
   }
 
   const models: Record<string, NormalizedEntry> = {};
+  const missing: string[] = [];
   for (const id of activeModels) {
     const useOR = extractProvider(id) === 'openrouter';
     const pricing = useOR
@@ -326,6 +336,7 @@ export async function ensurePricing(
     if (pricing) {
       models[id] = { ...pricing, source: useOR ? 'openrouter' : 'litellm' };
     } else {
+      missing.push(id);
       log('warn', `pricing: no entry resolved for "${id}" — calls will report cost = 0`);
     }
   }
@@ -340,6 +351,14 @@ export async function ensurePricing(
 
   memoryCache = models;
   warnedMissing = false;
+
+  if (options.strict && missing.length > 0) {
+    throw new AnatolyError(
+      `pricing not resolvable for: ${missing.join(', ')}`,
+      ERROR_CODES.PRICING_INCOMPLETE,
+      false,
+    );
+  }
 }
 
 /**

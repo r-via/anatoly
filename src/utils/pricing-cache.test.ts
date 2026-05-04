@@ -225,6 +225,62 @@ describe('ensurePricing — network failure', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ensurePricing — strict mode
+//
+// Required by the run / estimate commands: they must refuse to start if any
+// configured model has no pricing entry, otherwise cost reports silently
+// degrade to zero and break replay/forecast.
+// ---------------------------------------------------------------------------
+
+describe('ensurePricing — strict mode', () => {
+  it('does not throw when all active models resolve to a pricing entry', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+    await expect(
+      ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot, { strict: true }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws PRICING_INCOMPLETE listing the offending models when one is missing', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+    await expect(
+      ensurePricing(
+        ['anthropic/claude-sonnet-4-6', 'anthropic/claude-imaginary-9-9'],
+        projectRoot,
+        { strict: true },
+      ),
+    ).rejects.toMatchObject({
+      code: 'PRICING_INCOMPLETE',
+      message: expect.stringContaining('anthropic/claude-imaginary-9-9'),
+    });
+  });
+
+  it('throws even when the network is offline if no resolvable pricing remains', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('ENETUNREACH'));
+    await expect(
+      ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot, { strict: true }),
+    ).rejects.toMatchObject({ code: 'PRICING_INCOMPLETE' });
+  });
+
+  it('still persists the partial pricing.json so diagnostics can show what was resolved', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+    await expect(
+      ensurePricing(
+        ['anthropic/claude-sonnet-4-6', 'anthropic/claude-imaginary-9-9'],
+        projectRoot,
+        { strict: true },
+      ),
+    ).rejects.toThrow();
+
+    const path = resolve(projectRoot, PRICING_PATHS.normalized);
+    expect(existsSync(path)).toBe(true);
+    const file = JSON.parse(readFileSync(path, 'utf-8'));
+    // Resolved model is persisted; missing model is absent (caller can list).
+    expect(file.models['anthropic/claude-sonnet-4-6']).toBeDefined();
+    expect(file.models['anthropic/claude-imaginary-9-9']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // lookupPrice
 // ---------------------------------------------------------------------------
 
