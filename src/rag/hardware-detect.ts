@@ -287,23 +287,50 @@ export interface ResolvedModels {
   nlpEnvKey?: string | null;
 }
 
+/** Minimal subset of `Config` needed to infer an external backend from
+ * config alone. Kept as a structural type so callers can pass the full
+ * Config or a narrowed view without coupling this module to the Config
+ * schema. */
+interface BackendConfigView {
+  rag?: {
+    embedding?: {
+      code?: { provider?: string };
+      nlp?: { provider?: string };
+    };
+  };
+}
+
 /**
  * Determine the backend tier from embeddings-ready.json.
  * Returns the backend field if set, or infers from available infrastructure.
  *
- * Runtime backends: advanced-gguf (Docker GPU) or lite (ONNX CPU).
- * The legacy 'advanced-fp16' is treated as 'lite' at runtime since
- * fp16 has been replaced by Docker-only backends.
+ * Runtime backends: advanced-gguf (Docker GPU), external (third-party SDK),
+ * or lite (ONNX CPU). The legacy 'advanced-fp16' is treated as 'lite' at
+ * runtime since fp16 has been replaced by Docker-only backends.
+ *
+ * When `config` is provided and no readiness flag exists, returns 'external'
+ * if the user has configured `rag.embedding` (likely by hand-editing
+ * `.anatoly.yml` outside the wizard) — keeps the runtime tier truth-aligned
+ * with what `resolveEmbeddingModels` will actually route to, instead of
+ * silently falling back to lite.
  */
 export function determineBackend(
   flag: EmbeddingsReadyFlag | null,
   _hardware: HardwareProfile,
+  config?: BackendConfigView,
 ): EmbeddingBackend {
   // Explicit backend from setup
   if (flag?.backend) {
     // Treat legacy fp16 as lite (no longer a runtime backend)
     if (flag.backend === 'advanced-fp16') return 'lite';
     return flag.backend;
+  }
+
+  // No flag — but if the config carries an external embedding section,
+  // honour it (the user added `rag.embedding` outside the wizard flow).
+  const emb = config?.rag?.embedding;
+  if (emb && (emb.code?.provider || emb.nlp?.provider)) {
+    return 'external';
   }
 
   // No setup flag → always lite (advanced-gguf requires setup-embeddings)
@@ -336,7 +363,7 @@ export async function resolveEmbeddingModels(
   onLog?: (message: string) => void,
   readyFlag?: EmbeddingsReadyFlag | null,
 ): Promise<ResolvedModels> {
-  const backend = determineBackend(readyFlag ?? null, hardware);
+  const backend = determineBackend(readyFlag ?? null, hardware, { rag: { embedding: config.embedding } });
 
   if (backend === 'advanced-gguf') {
     return resolveAdvancedGguf(onLog);

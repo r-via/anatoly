@@ -39,7 +39,10 @@ export interface StandaloneRagOptions {
 export function resolveRagTableName(projectRoot: string): string {
   const hardware = detectHardware();
   const readyFlag = readEmbeddingsReadyFlag(projectRoot);
-  const backend = determineBackend(readyFlag, hardware);
+  // Pass config so determineBackend can infer 'external' from a hand-edited
+  // `rag.embedding` block when no readiness flag was written by the wizard.
+  const config = loadConfig(projectRoot);
+  const backend = determineBackend(readyFlag, hardware, config);
   const mode = backendToRagMode(backend);
   return `function_cards_${mode}`;
 }
@@ -83,7 +86,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
   const config = loadConfig(projectRoot);
   const hardware = detectHardware();
   const readyFlag = readEmbeddingsReadyFlag(projectRoot);
-  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware);
+  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware, config);
 
   // Start GGUF containers if advanced mode
   if (effectiveBackend === 'advanced-gguf') {

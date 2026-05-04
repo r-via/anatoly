@@ -38,6 +38,7 @@ export interface VercelAgentResult {
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +118,7 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
       durationMs,
       inputTokens,
       outputTokens,
+      cacheReadTokens,
     };
   } finally {
     slot?.release({ success });

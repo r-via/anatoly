@@ -86,7 +86,7 @@ Full-precision fp16 served by `ghcr.io/huggingface/text-embeddings-inference:1.9
 
 Routes embeddings to a third-party HTTPS API via the Vercel AI SDK. No local GPU or Docker required. Selected automatically when `rag.embedding` is set in `.anatoly.yml` (or written there by the first-run wizard's "External" tier choice).
 
-The provider list, default models, env var conventions, and configuration shape are documented in the [Embedding Providers guide](../03-Guides/03-Embedding-Providers.md). Supported registry providers (v1): `openai`, `voyage`, `qwen`, `cohere`, `mistral`. Custom OpenAI-compatible endpoints (Azure OpenAI, self-hosted TEI/llama.cpp clusters, HF Inference Endpoints) are supported via free-form `provider` + `base_url` + `env_key`.
+The provider list, default models, env var conventions, and configuration shape are documented in the [Embedding Providers guide](../03-Guides/03-Embedding-Providers.md). Supported registry providers (v1): `openai`, `voyage`, `openrouter`, `cohere`, `mistral`. Custom OpenAI-compatible endpoints (Azure OpenAI, self-hosted TEI/llama.cpp clusters, HF Inference Endpoints) are supported via free-form `provider` + `base_url` + `env_key`.
 
 The factory `getVercelEmbeddingModel(kind, modelId, config)` in [src/rag/sdk-embedding.ts](../../src/rag/sdk-embedding.ts) instantiates the SDK model, applies the registry's `max_per_call` / `supports_parallel` constraints, and runs the optional `pre_hook` (used by `anatoly-local` to hot-swap the active GGUF Docker container). Dimensions for non-registry models are probed once at boot and cached in `embeddings-ready.json` under `dim_code` / `dim_nlp` keyed by `embedding_signature`.
 

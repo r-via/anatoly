@@ -316,6 +316,7 @@ describe('VercelSdkTransport — agenticQuery', () => {
       durationMs: 3000,
       inputTokens: 500,
       outputTokens: 200,
+      cacheReadTokens: 0,
     });
 
     const config = makeConfig();
@@ -342,7 +343,7 @@ describe('VercelSdkTransport — agenticQuery', () => {
 
   it('should pass maxTurns from config when not specified', async () => {
     mockRunVercelAgent.mockResolvedValue({
-      text: 'ok', costUsd: 0, durationMs: 100, inputTokens: 10, outputTokens: 5,
+      text: 'ok', costUsd: 0, durationMs: 100, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0,
     });
 
     const config = makeConfig({ agents: { max_turns: 42 } });
@@ -368,5 +369,27 @@ describe('VercelSdkTransport — agenticQuery', () => {
       projectRoot: '/tmp/test', abortController: new AbortController(),
       allowedTools: [], config,
     })).rejects.toThrow('Agent crashed');
+  });
+
+  it('should surface cacheReadTokens from the agent in the LlmResponse', async () => {
+    mockRunVercelAgent.mockResolvedValue({
+      text: 'cached',
+      costUsd: 0.05,
+      durationMs: 1000,
+      inputTokens: 200,
+      outputTokens: 50,
+      cacheReadTokens: 800,
+    });
+
+    const config = makeConfig();
+    const transport = new VercelSdkTransport(config);
+    const response = await transport.agenticQuery!({
+      systemPrompt: '', userMessage: '', model: 'anthropic/claude-opus-4-6',
+      projectRoot: '/tmp/test', abortController: new AbortController(),
+      allowedTools: [], config,
+    });
+
+    expect(response.cacheReadTokens).toBe(800);
+    expect(response.inputTokens).toBe(200);
   });
 });

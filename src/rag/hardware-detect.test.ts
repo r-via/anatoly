@@ -59,6 +59,29 @@ describe('determineBackend — extended for external (Story 50.5)', () => {
   it('should return lite when no flag', () => {
     expect(determineBackend(null, liteHardware)).toBe('lite');
   });
+
+  it('should infer external when no flag but config.rag.embedding.code.provider is set', () => {
+    const config = { rag: { embedding: { code: { provider: 'voyage' } } } };
+    expect(determineBackend(null, liteHardware, config)).toBe('external');
+  });
+
+  it('should infer external when no flag but config.rag.embedding.nlp.provider is set', () => {
+    const config = { rag: { embedding: { nlp: { provider: 'openai' } } } };
+    expect(determineBackend(null, liteHardware, config)).toBe('external');
+  });
+
+  it('should still return lite when no flag and config has no rag.embedding', () => {
+    const config = { rag: {} };
+    expect(determineBackend(null, liteHardware, config)).toBe('lite');
+  });
+
+  it('should respect explicit flag.backend over config inference', () => {
+    const flag = { device: 'cpu', backend: 'lite' as EmbeddingBackend };
+    const config = { rag: { embedding: { code: { provider: 'voyage' } } } };
+    // The flag is the source of truth — config inference only kicks in when
+    // no flag exists.
+    expect(determineBackend(flag, liteHardware, config)).toBe('lite');
+  });
 });
 
 // ---------------------------------------------------------------------------

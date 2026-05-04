@@ -21,7 +21,7 @@
  * no string juggling.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { extractProvider, stripPrefix } from '../core/transports/index.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
@@ -74,6 +74,10 @@ const LITELLM_URL =
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/models';
 const OPENROUTER_EMBEDDINGS_URL = 'https://openrouter.ai/api/v1/embeddings/models';
 
+/** Hard ceiling on a single pricing fetch — keeps `anatoly run` startup bounded
+ * when the upstream registry hangs. The cached snapshot covers the recovery. */
+const FETCH_TIMEOUT_MS = 10_000;
+
 /** Paths under projectRoot. Centralised so tests can introspect them. */
 export const PRICING_PATHS = {
   normalized: '.anatoly/pricing.json',
@@ -114,15 +118,30 @@ async function fetchJsonConditional(
   bodyPath: string,
   metaPath: string,
 ): Promise<unknown> {
+  // If the cached body has been deleted but the meta survives, drop the meta
+  // so we send an unconditional GET — otherwise the upstream replies 304 and
+  // we have no body to fall back to, which would loop on every run.
+  if (existsSync(metaPath) && !existsSync(bodyPath)) {
+    try { unlinkSync(metaPath); } catch { /* best-effort */ }
+  }
+
   const meta = readMetaIfExists(metaPath);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (meta?.etag) headers['If-None-Match'] = meta.etag;
   if (meta?.last_modified) headers['If-Modified-Since'] = meta.last_modified;
 
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 
-  if (response.status === 304 && existsSync(bodyPath)) {
-    return JSON.parse(readFileSync(bodyPath, 'utf-8'));
+  if (response.status === 304) {
+    const cached = readJsonSafe(bodyPath);
+    if (cached !== null) return cached;
+    // 304 promised a body, but the cache is gone or corrupt. Drop the meta
+    // and surface a clear error — the caller will fall back appropriately.
+    try { unlinkSync(metaPath); } catch { /* best-effort */ }
+    throw new Error(`pricing fetch ${url}: 304 with no usable cached body`);
   }
 
   if (!response.ok) {
@@ -131,8 +150,8 @@ async function fetchJsonConditional(
 
   const body = await response.text();
   ensureDir(dirname(bodyPath));
-  writeFileSync(bodyPath, body);
-  writeFileSync(
+  writeFileAtomic(bodyPath, body);
+  writeFileAtomic(
     metaPath,
     JSON.stringify(
       {
@@ -144,7 +163,11 @@ async function fetchJsonConditional(
       2,
     ),
   );
-  return JSON.parse(body);
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`pricing fetch ${url}: response was not valid JSON`);
+  }
 }
 
 function readMetaIfExists(path: string): SourceMeta | null {
@@ -154,6 +177,25 @@ function readMetaIfExists(path: string): SourceMeta | null {
   } catch {
     return null;
   }
+}
+
+/** Read and parse a JSON file. Returns null when the file is missing,
+ * unreadable, or contains invalid JSON — callers treat null as "no cache". */
+function readJsonSafe(path: string): unknown {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Write to a sibling tmp file then rename, so concurrent readers never see a
+ * truncated payload. POSIX rename is atomic within the same directory. */
+function writeFileAtomic(path: string, contents: string): void {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, contents);
+  renameSync(tmp, path);
 }
 
 function ensureDir(path: string): void {
@@ -186,10 +228,7 @@ async function loadLitellm(projectRoot: string): Promise<LitellmRaw | null> {
   try {
     return (await fetchJsonConditional(LITELLM_URL, bodyPath, metaPath)) as LitellmRaw;
   } catch {
-    if (existsSync(bodyPath)) {
-      return JSON.parse(readFileSync(bodyPath, 'utf-8')) as LitellmRaw;
-    }
-    return null;
+    return readJsonSafe(bodyPath) as LitellmRaw | null;
   }
 }
 
@@ -212,8 +251,9 @@ async function loadOpenRouter(projectRoot: string): Promise<Map<string, OpenRout
       payload = (await fetchJsonConditional(url, bodyPath, metaPath)) as OpenRouterPayload;
       anySuccess = true;
     } catch {
-      if (existsSync(bodyPath)) {
-        payload = JSON.parse(readFileSync(bodyPath, 'utf-8')) as OpenRouterPayload;
+      const cached = readJsonSafe(bodyPath) as OpenRouterPayload | null;
+      if (cached) {
+        payload = cached;
         anySuccess = true;
       }
     }
@@ -341,17 +381,12 @@ export async function ensurePricing(
     }
   }
 
-  const file: NormalizedFile = {
-    generated_at: new Date().toISOString(),
-    models,
-  };
-  const outPath = resolve(projectRoot, PRICING_PATHS.normalized);
-  ensureDir(dirname(outPath));
-  writeFileSync(outPath, JSON.stringify(file, null, 2));
-
-  memoryCache = models;
-  warnedMissing = false;
-
+  // Strict + unresolved entries: refuse to publish the partial map. Writing
+  // it would let a subsequent non-strict consumer (or a `--allow-missing-pricing`
+  // retry) silently report cost = 0 for the same gaps that just blocked the
+  // run. Leave any previously-written `pricing.json` intact and surface the
+  // missing list via the thrown error instead. The `providers` command, which
+  // doesn't pass strict, still writes the partial map for its own diagnostics.
   if (options.strict && missing.length > 0) {
     throw new AnatolyError(
       `pricing not resolvable for: ${missing.join(', ')}`,
@@ -359,6 +394,17 @@ export async function ensurePricing(
       false,
     );
   }
+
+  const file: NormalizedFile = {
+    generated_at: new Date().toISOString(),
+    models,
+  };
+  const outPath = resolve(projectRoot, PRICING_PATHS.normalized);
+  ensureDir(dirname(outPath));
+  writeFileAtomic(outPath, JSON.stringify(file, null, 2));
+
+  memoryCache = models;
+  warnedMissing = false;
 }
 
 /**
@@ -401,10 +447,6 @@ function hydrateFromDisk(projectRoot: string): void {
     }
     return;
   }
-  try {
-    const file = JSON.parse(readFileSync(path, 'utf-8')) as NormalizedFile;
-    memoryCache = file.models ?? {};
-  } catch {
-    memoryCache = {};
-  }
+  const file = readJsonSafe(path) as NormalizedFile | null;
+  memoryCache = file?.models ?? {};
 }

@@ -270,17 +270,21 @@ export class VercelSdkTransport implements LlmTransport {
         });
       }
 
+      const totalTokens = result.inputTokens + result.cacheReadTokens;
+      const cacheHitRate = totalTokens > 0 ? Math.round((result.cacheReadTokens / totalTokens) * 100) : 0;
+
       recordLlmCall({
         provider: providerId,
         model: params.model,
         ...(params.attempt != null ? { attempt: params.attempt } : {}),
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
-        cacheReadTokens: 0,
+        cacheReadTokens: result.cacheReadTokens,
         cacheCreationTokens: 0,
         costUsd: result.costUsd,
         durationMs: result.durationMs,
         success: true,
+        ...(params.retryReason ? { retryReason: params.retryReason } : {}),
       });
       contextLogger().info(
         {
@@ -290,12 +294,13 @@ export class VercelSdkTransport implements LlmTransport {
           attempt: params.attempt,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
-          cacheReadTokens: 0,
+          cacheReadTokens: result.cacheReadTokens,
           cacheCreationTokens: 0,
-          cacheHitRate: 0,
+          cacheHitRate,
           costUsd: result.costUsd,
           durationMs: result.durationMs,
           success: true,
+          ...(params.retryReason ? { retryReason: params.retryReason } : {}),
         },
         'LLM call complete (agentic)',
       );
@@ -306,7 +311,7 @@ export class VercelSdkTransport implements LlmTransport {
         durationMs: result.durationMs,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
-        cacheReadTokens: 0,
+        cacheReadTokens: result.cacheReadTokens,
         cacheCreationTokens: 0,
         transcript: result.text,
         sessionId: undefined,

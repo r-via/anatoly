@@ -190,6 +190,26 @@ describe('ensurePricing — conditional GET', () => {
     const headers = secondCall[1].headers as Record<string, string>;
     expect(headers['If-None-Match']).toBe('"v1"');
   });
+
+  it('drops orphaned meta and refetches when the cached body has been deleted', async () => {
+    // Seed: meta + body persisted.
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+    await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
+    _resetPricingCache();
+
+    // Simulate operator wipe of just the body (e.g., partial cleanup).
+    rmSync(resolve(projectRoot, PRICING_PATHS.litellmRaw), { force: true });
+
+    // Next run must NOT send conditional headers — body is gone, so 304 would
+    // be unrecoverable. It should send an unconditional GET and rebuild.
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v2"' }));
+    await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
+
+    const secondCall = fetchMock.mock.calls[1];
+    const headers = (secondCall[1].headers ?? {}) as Record<string, string>;
+    expect(headers['If-None-Match']).toBeUndefined();
+    expect(existsSync(resolve(projectRoot, PRICING_PATHS.litellmRaw))).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -221,6 +241,25 @@ describe('ensurePricing — network failure', () => {
     const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toBeUndefined();
     expect(logged.some(([lvl]) => lvl === 'warn')).toBe(true);
+  });
+
+  it('treats a corrupt on-disk cache as missing instead of crashing', async () => {
+    // Seed an unparseable body file under the expected path.
+    mkdirSync(resolve(projectRoot, '.anatoly/sources'), { recursive: true });
+    writeFileSync(
+      resolve(projectRoot, PRICING_PATHS.litellmRaw),
+      'not-json-{<HTML error page>',
+    );
+
+    // Network is offline, so the only source available is the corrupt cache.
+    fetchMock.mockRejectedValueOnce(new Error('ENETUNREACH'));
+    await expect(
+      ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot),
+    ).resolves.toBeUndefined();
+
+    // Resolves cleanly — model is simply unpriced.
+    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    expect(file.models['anthropic/claude-sonnet-4-6']).toBeUndefined();
   });
 });
 
@@ -261,7 +300,13 @@ describe('ensurePricing — strict mode', () => {
     ).rejects.toMatchObject({ code: 'PRICING_INCOMPLETE' });
   });
 
-  it('still persists the partial pricing.json so diagnostics can show what was resolved', async () => {
+  it('does NOT publish a partial pricing.json on strict failure (leaves any prior cache untouched)', async () => {
+    // Seed a prior, fully-resolved cache that should survive the failed strict run.
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+    await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
+    _resetPricingCache();
+    const before = readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8');
+
     fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
     await expect(
       ensurePricing(
@@ -271,12 +316,11 @@ describe('ensurePricing — strict mode', () => {
       ),
     ).rejects.toThrow();
 
-    const path = resolve(projectRoot, PRICING_PATHS.normalized);
-    expect(existsSync(path)).toBe(true);
-    const file = JSON.parse(readFileSync(path, 'utf-8'));
-    // Resolved model is persisted; missing model is absent (caller can list).
-    expect(file.models['anthropic/claude-sonnet-4-6']).toBeDefined();
-    expect(file.models['anthropic/claude-imaginary-9-9']).toBeUndefined();
+    // The pre-existing cache must remain unchanged — strict failure cannot
+    // overwrite it with a half-resolved map. Diagnostics surface via the
+    // thrown error's message and the non-strict `anatoly providers` command.
+    const after = readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8');
+    expect(after).toBe(before);
   });
 });
 
