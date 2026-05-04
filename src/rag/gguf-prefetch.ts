@@ -11,10 +11,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { Writable } from 'node:stream';
 import { GGUF_CODE_MODEL_FILE, GGUF_NLP_MODEL_FILE } from './hardware-detect.js';
 
 // ---------------------------------------------------------------------------
@@ -69,15 +68,23 @@ export function defaultModelsDir(): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Verify a GGUF file's SHA-256 hash. If the file exists but the hash
- * doesn't match, the file is deleted so it can be re-downloaded.
+ * Verify a GGUF file's SHA-256 hash using streaming reads (safe for
+ * multi-GB files). If the file exists but the hash doesn't match, the
+ * file is deleted so it can be re-downloaded.
  *
  * @returns `true` if the file exists and the hash matches.
  */
-export function verifyGgufFile(filePath: string, expectedSha256: string): boolean {
+export async function verifyGgufFile(filePath: string, expectedSha256: string): Promise<boolean> {
   if (!existsSync(filePath)) return false;
 
-  const hash = createHash('sha256').update(readFileSync(filePath)).digest('hex');
+  const hash = await new Promise<string>((resolve, reject) => {
+    const hasher = createHash('sha256');
+    const rs = createReadStream(filePath);
+    rs.on('data', (chunk: Buffer) => hasher.update(chunk));
+    rs.on('end', () => resolve(hasher.digest('hex')));
+    rs.on('error', reject);
+  });
+
   if (hash === expectedSha256) return true;
 
   // Mismatch — delete the corrupt file
@@ -119,6 +126,7 @@ export async function downloadGgufFile(
   const reader = resp.body?.getReader();
   if (!reader) throw new Error('No response body for GGUF download');
 
+  let success = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -147,8 +155,13 @@ export async function downloadGgufFile(
         percent: Math.round(percent * 10) / 10,
       });
     }
+    success = true;
   } finally {
     await new Promise<void>((resolve) => ws.end(resolve));
+    // Remove partial file on failure so it isn't mistaken for a valid download
+    if (!success) {
+      try { unlinkSync(targetPath); } catch { /* already removed */ }
+    }
   }
 }
 
@@ -175,7 +188,7 @@ export async function prefetchGgufModels(opts?: GgufPrefetchOptions): Promise<vo
 
     // Verify existing file
     if (existsSync(targetPath)) {
-      const ok = verifyGgufFile(targetPath, model.sha256);
+      const ok = await verifyGgufFile(targetPath, model.sha256);
       emit({ kind: 'verify', filename: model.filename, status: ok ? 'ok' : 'mismatch' });
       if (ok) {
         emit({ kind: 'done', filename: model.filename });
@@ -189,6 +202,18 @@ export async function prefetchGgufModels(opts?: GgufPrefetchOptions): Promise<vo
     // Download
     try {
       await downloadGgufFile(model.hfRepo, model.filename, targetPath, emit);
+
+      // Post-download SHA-256 verification (FR7)
+      const postOk = await verifyGgufFile(targetPath, model.sha256);
+      if (!postOk) {
+        emit({
+          kind: 'error',
+          filename: model.filename,
+          error: new Error('Post-download SHA-256 verification failed'),
+        });
+        continue;
+      }
+
       emit({ kind: 'done', filename: model.filename });
     } catch (err) {
       emit({
