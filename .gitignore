@@ -20,5 +20,6 @@ spike/
 .env
 .githooks/
 .moltbook/
+.ssh/
 scripts/setup-discord.mjs
 .ralph/logs/
