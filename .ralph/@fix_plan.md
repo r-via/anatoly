@@ -162,17 +162,7 @@
 ### Embedding Provider Abstraction — Vercel AI SDK transport unifié pour les embeddings, mode External pour cloud + on-prem custom
 
 - [x] Story 50.1: Schema Zod section `embedding` + backward-compat resolver
-  > As a utilisateur d'anatoly
-  > I want pouvoir configurer le provider d'embedding (lite/advanced/external + détails) dans `.anatoly.yml`
-  > So that je peux brancher OpenAI, Voyage, Cohere ou un endpoint custom sans modifier le code, et que ma config existante en `advanced-gguf` continue à fonctionner.
-  > AC: Given `RagConfigSchema` (`src/schemas/config.ts:115`) est étendu, When il est parsé sans champ `embedding`, Then `config.rag.embedding` est `undefined`, And le comportement runtime est le mode `auto` (résolu par `resolveEmbeddingModels` selon `embeddings-ready.json`)
-  > AC: Given un YAML contient seulement `rag.embedding.code: { provider: 'openai', model: 'text-embedding-3-large' }`, When il est parsé, Then `config.rag.embedding.code.provider === 'openai'` et `config.rag.embedding.code.model === 'text-embedding-3-large'`, And `config.rag.embedding.nlp` est `undefined`, And au runtime, le résolveur duplique `code` dans `nlp` (raccourci mono-provider — décision dans `resolveEmbeddingModels` story 50.5)
-  > AC: Given un YAML contient le combo best-of-breed `embedding: { code: { provider: 'voyage', model: 'voyage-code-3' }, nlp: { provider: 'qwen', model: 'text-embedding-v4', env_key: 'DASHSCOPE_API_KEY' } }`, When il est parsé, Then les deux sous-sections sont conservées telles quelles, And `base_url` est `undefined` partout (le registre fournira les defaults pour `voyage` et `qwen`)
-  > AC: Given un YAML contient un provider custom : `embedding: { code: { provider: 'my-internal', base_url: 'https://embed.internal/v1', env_key: 'INTERNAL_KEY', model: 'foo' }, nlp: { provider: 'my-internal', base_url: 'https://embed.internal/v1', env_key: 'INTERNAL_KEY', model: 'bar' } }`, When il est parsé, Then le parse réussit (custom non-registry autorisé via `.catchall()` ou `.passthrough()`)
-  > AC: Given `migrateConfigV2toV3` est implémenté dans `config-loader.ts`, When un YAML contient l'ancien format `rag: { code_model: 'auto', nlp_model: 'auto' }` sans section `embedding`, Then la migration est no-op (le format est rétro-compatible — pas de section nouvelle requise, le résolveur tombe sur le mode `auto`)
-  > AC: Given un YAML contient `embedding: { code: { provider: 'anatoly-local' }, nlp: { provider: 'anatoly-local' } }`, When il est parsé, Then le parse réussit, And ce sera le path interne du mode advanced (équivalent UX, le wizard ne génère pas cette forme — utile pour debug, tests, et déploiement enterprise dedicated qui veut taper sur des containers GGUF self-hosted)
-  > Spec: specs/planning-artifacts/epic-50-embedding-provider-abstraction.md#story-50-1
-- [ ] Story 50.2: Registre `KNOWN_EMBEDDING_PROVIDERS` + entrée `anatoly-local` avec hook ensureModel
+- [x] Story 50.2: Registre `KNOWN_EMBEDDING_PROVIDERS` + entrée `anatoly-local` avec hook ensureModel
   > As a développeur d'anatoly
   > I want un registre centralisé des providers d'embedding avec leurs URLs, env vars, contraintes batch et hooks
   > So that ajouter un provider d'embedding nécessite une seule entrée dans le registre, pas un nouveau fichier transport.
