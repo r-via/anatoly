@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, type WizardOptions, type WizardResult } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, type WizardOptions, type WizardResult } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,12 +51,32 @@ function baseOpts(overrides?: Partial<WizardOptions>): WizardOptions {
 const selectMock = vi.fn<(opts: { message: string; options: Array<{ value: string }> }) => Promise<string>>();
 const noteMock = vi.fn();
 const cancelMock = vi.fn();
+const spinnerStartMock = vi.fn();
+const spinnerStopMock = vi.fn();
+const spinnerMessageMock = vi.fn();
+const spinnerMock = vi.fn(() => ({
+  start: spinnerStartMock,
+  stop: spinnerStopMock,
+  message: spinnerMessageMock,
+}));
 
 vi.mock('@clack/prompts', () => ({
   select: (opts: { message: string; options: Array<{ value: string }> }) => selectMock(opts),
   note: (...args: unknown[]) => noteMock(...args),
   cancel: (...args: unknown[]) => cancelMock(...args),
   isCancel: (val: unknown) => typeof val === 'symbol',
+  spinner: () => spinnerMock(),
+}));
+
+// Mock embeddings-prefetch to avoid real network calls
+const prefetchMock = vi.fn<(opts?: { onProgress?: (ev: unknown) => void }) => Promise<void>>();
+vi.mock('../rag/embeddings-prefetch.js', () => ({
+  prefetchLiteModels: (opts?: { onProgress?: (ev: unknown) => void }) => prefetchMock(opts),
+}));
+
+// Mock logger
+vi.mock('../utils/logger.js', () => ({
+  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn() }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -68,6 +88,10 @@ describe('runFirstRunWizard', () => {
     selectMock.mockReset();
     noteMock.mockReset();
     cancelMock.mockReset();
+    prefetchMock.mockReset();
+    spinnerStartMock.mockReset();
+    spinnerStopMock.mockReset();
+    spinnerMessageMock.mockReset();
   });
 
   // AC: --defaults-settings OR non-TTY → silent { tier: 'lite', mode: 'full-run' }
@@ -273,5 +297,68 @@ describe('runFirstRunWizard', () => {
       );
       expect(transparencyNote).toBeDefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runLitePrefetch tests
+// ---------------------------------------------------------------------------
+
+describe('runLitePrefetch', () => {
+  beforeEach(() => {
+    prefetchMock.mockReset();
+    spinnerStartMock.mockReset();
+    spinnerStopMock.mockReset();
+    spinnerMessageMock.mockReset();
+  });
+
+  // AC: interactive TTY → spinner used
+  it('uses a spinner in interactive mode', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(spinnerStartMock).toHaveBeenCalledWith(expect.stringContaining('embedding'));
+    expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('ready'));
+  });
+
+  // AC: --defaults-settings → no spinner, linear log
+  it('skips spinner when defaultsSettings is true', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: true });
+
+    expect(spinnerStartMock).not.toHaveBeenCalled();
+  });
+
+  // AC: non-TTY → no spinner, linear log
+  it('skips spinner when isTTY is false', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: false, defaultsSettings: false });
+
+    expect(spinnerStartMock).not.toHaveBeenCalled();
+  });
+
+  // AC: progress events update the spinner message
+  it('updates spinner message on progress events', async () => {
+    prefetchMock.mockImplementation(async (opts) => {
+      opts?.onProgress?.({ kind: 'initiate', modelId: 'test', file: 'model.onnx' });
+      opts?.onProgress?.({ kind: 'progress', modelId: 'test', file: 'model.onnx', percent: 50 });
+    });
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(spinnerMessageMock).toHaveBeenCalledWith(expect.stringContaining('model.onnx'));
+    expect(spinnerMessageMock).toHaveBeenCalledWith(expect.stringContaining('50%'));
+  });
+
+  // AC: prefetch calls prefetchLiteModels
+  it('calls prefetchLiteModels', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(prefetchMock).toHaveBeenCalledTimes(1);
   });
 });

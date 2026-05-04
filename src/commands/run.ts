@@ -65,7 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -252,6 +252,13 @@ export function registerRunCommand(program: Command): void {
           quickWin: cmdOpts.quickWin === true,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
+
+        // Prefetch lite ONNX embedding models (always, regardless of tier).
+        // Cached models resolve instantly; failures are warned but non-fatal.
+        await runLitePrefetch({
+          isTTY: process.stdin.isTTY === true,
+          defaultsSettings: false, // Story 48.7 adds the CLI flag
+        });
       }
 
       const cliConcurrency = cmdOpts.concurrency;

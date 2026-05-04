@@ -5,6 +5,8 @@
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
+import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
+import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -134,4 +136,64 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   }
 
   return { tier, mode: modeChoice as ModeValue };
+}
+
+// ---------------------------------------------------------------------------
+// Lite ONNX prefetch with spinner
+// ---------------------------------------------------------------------------
+
+/**
+ * Download both lite ONNX embedding models with visual feedback.
+ *
+ * - Interactive (TTY): uses a `@clack/prompts` spinner with dynamic message.
+ * - Non-interactive (CI / pipe): emits a single log line per model.
+ *
+ * On failure, warns and continues — the models will be retried lazily.
+ */
+export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: boolean }): Promise<void> {
+  const log = getLogger();
+
+  if (opts.isTTY && !opts.defaultsSettings) {
+    // Interactive: spinner
+    const spinner = p.spinner();
+    spinner.start('Downloading lite embedding models…');
+    let lastMsg = '';
+
+    await prefetchLiteModels({
+      onProgress: (ev: PrefetchProgress) => {
+        switch (ev.kind) {
+          case 'initiate':
+            lastMsg = `↓ ${ev.file} (starting…)`;
+            spinner.message(lastMsg);
+            break;
+          case 'progress':
+            lastMsg = `↓ ${ev.file}: ${Math.round(ev.percent)}%`;
+            spinner.message(lastMsg);
+            break;
+          case 'done':
+            break;
+          case 'error':
+            log.warn({ modelId: ev.modelId, err: ev.error.message }, 'lite model prefetch failed');
+            break;
+        }
+      },
+    });
+
+    spinner.stop('Embeddings (lite) ready');
+  } else {
+    // Non-interactive: linear log
+    log.info('downloading lite embedding models…');
+
+    await prefetchLiteModels({
+      onProgress: (ev: PrefetchProgress) => {
+        if (ev.kind === 'done') {
+          log.info({ modelId: ev.modelId }, 'model ready');
+        } else if (ev.kind === 'error') {
+          log.warn({ modelId: ev.modelId, err: ev.error.message }, 'lite model prefetch failed');
+        }
+      },
+    });
+
+    log.info('lite embedding models ready');
+  }
 }
