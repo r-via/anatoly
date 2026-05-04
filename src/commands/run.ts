@@ -65,7 +65,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, type WizardResult } from '../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -231,7 +231,7 @@ export function registerRunCommand(program: Command): void {
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
-      const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
+      let config = loadConfig(projectRoot, parentOpts.config as string | undefined);
 
       // Banner first — every launch-time message below is printed as a
       // standardised notice underneath, instead of ad-hoc lines drifting
@@ -289,6 +289,14 @@ export function registerRunCommand(program: Command): void {
             }
           }
         }
+
+        // Write .anatoly.yml so subsequent runs skip the wizard
+        writeFirstRunConfig(wizardResult.tier, projectRoot);
+        getLogger().info({ tier: wizardResult.tier }, 'first-run config written to .anatoly.yml');
+
+        // Reload config from the file we just wrote so the rest of the run
+        // uses the new settings instead of the bare defaults.
+        config = loadConfig(projectRoot);
       }
 
       const cliConcurrency = cmdOpts.concurrency;
