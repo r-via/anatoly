@@ -977,6 +977,111 @@ describe('writeFirstRunConfig', () => {
     delete process.env.MISTRAL_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
   });
+
+  // -------------------------------------------------------------------------
+  // Annotated YAML — every optional section is present (commented)
+  // -------------------------------------------------------------------------
+
+  it('renders commented section for scan with default include/exclude', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# scan:$/m);
+    expect(content).toContain('#     - src/**/*.ts');
+    expect(content).toContain('#     - node_modules/**');
+  });
+
+  it('renders commented section for coverage with default command', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# coverage:$/m);
+    expect(content).toContain('#   command: npx vitest run --coverage.reporter=json');
+  });
+
+  it('renders commented section for runtime with all sub-sections', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# runtime:$/m);
+    expect(content).toContain('#   concurrency: 8');
+    expect(content).toContain('#   timeout_per_file: 600');
+    expect(content).toContain('#   agents:');
+    expect(content).toContain('#     max_turns: 30');
+    expect(content).toContain('#   rag:');
+    expect(content).toContain('#     code_share: 0.6');
+    expect(content).toContain('#   logging:');
+    expect(content).toContain('#     level: warn');
+  });
+
+  it('renders commented section for notifications.telegram', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# notifications:$/m);
+    expect(content).toContain('#   telegram:');
+    expect(content).toContain('#     bot_token_env: ANATOLY_TELEGRAM_BOT_TOKEN');
+  });
+
+  it('renders commented section for badge with default link', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# badge:$/m);
+    expect(content).toContain('#   link: https://github.com/r-via/anatoly');
+  });
+
+  it('renders commented section for search', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toMatch(/^# search:$/m);
+  });
+
+  it('renders inactive providers (google, advanced, external) as commented blocks for lite tier', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    // local-lite is active (uncommented)
+    expect(content).toContain('  local-lite:');
+    expect(content).toMatch(/^  local-lite:$/m);
+    // local-advanced, mistral, openrouter, google are commented
+    expect(content).toContain('  # local-advanced:');
+    expect(content).toContain('  # mistral:');
+    expect(content).toContain('  # openrouter:');
+    expect(content).toContain('  # google:');
+  });
+
+  it('renders inactive providers as commented blocks for advanced tier', () => {
+    writeFirstRunConfig(dir, { tier: 'advanced' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toContain('  local-advanced:');
+    expect(content).toContain('  # local-lite:');
+    expect(content).toContain('  # mistral:');
+  });
+
+  it('renders inactive providers as commented blocks for external tier', () => {
+    writeFirstRunConfig(dir, { tier: 'external' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toContain('  mistral:');
+    expect(content).toContain('  openrouter:');
+    expect(content).toContain('  # local-lite:');
+    expect(content).toContain('  # local-advanced:');
+  });
+
+  it('includes per-axis override examples as commented hints', () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    expect(content).toContain('# Per-axis override example');
+    expect(content).toContain('#   correction:');
+    expect(content).toContain('#     model: anthropic/claude-opus-4-6');
+    expect(content).toContain('# Documentation extras');
+    expect(content).toContain('#     docs_path: docs');
+    expect(content).toContain('#     module_mapping:');
+  });
+
+  it('full annotated YAML still parses to a valid v3 (commented sections are inert)', async () => {
+    writeFirstRunConfig(dir, { tier: 'lite' });
+    const { loadConfig } = await import('../utils/config-loader.js');
+    const config = loadConfig(dir);
+    expect(config).toBeDefined();
+    // Commented sections do NOT take effect — the config still uses defaults
+    // for them (e.g. notifications stays absent, scan uses schema defaults).
+    expect(config.notifications).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
