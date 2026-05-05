@@ -444,10 +444,10 @@ export function registerEstimateCommand(program: Command): void {
         });
       }
 
-      // usage graph (kept in the detailed `estimate` view; dropped from the
-      // run pre-confirmation table because `15 edges` is opaque to users).
+      // Build the usage graph for the JSON payload's plan.usageGraph.edges
+      // diagnostic. Not surfaced in the rendered Pipeline Plan: the edges
+      // count is opaque to users and doesn't help the run/no-run decision.
       const usageGraph = buildUsageGraph(projectRoot, allTasks);
-      pipelineRows.push({ phase: 'usage graph', detail: `${usageGraph.usages.size} edges` });
 
       // docs (internal + project merged)
       const bootstrapNeeded = needsBootstrap(projectRoot);
