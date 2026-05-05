@@ -14,8 +14,9 @@ import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import { getLogger } from '../utils/logger.js';
-import { getEnabledEvaluators } from '../core/axes/index.js';
-import { resolveAxisModel, resolveCodeSummaryModel } from '../core/axis-evaluator.js';
+import { getEnabledEvaluators, ALL_AXIS_IDS } from '../core/axes/index.js';
+import { resolveAxisModel, resolveCodeSummaryModel, type AxisId } from '../core/axis-evaluator.js';
+import picomatch from 'picomatch';
 import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
@@ -305,9 +306,20 @@ interface EstimateJsonPayload {
       chunks?: number;
     };
     docs: {
-      mode: 'bootstrap' | 'update' | 'ready';
+      mode: 'bootstrap' | 'update' | 'ready' | 'skipped';
       internal?: { changed: number; cached: number };
       project?: { changed: number; cached: number };
+    };
+    /**
+     * CLI-scope filters that narrowed the forecast. Absent when the user
+     * ran `anatoly estimate` with no scoping flags (full default forecast).
+     */
+    scope?: {
+      filesGlob?: string;
+      axes?: AxisId[];
+      noRag?: true;
+      noDeliberation?: true;
+      noInternalDocs?: true;
     };
   };
   /**
@@ -340,8 +352,40 @@ export function registerEstimateCommand(program: Command): void {
     .command('estimate')
     .description('Show the startup summary table (no LLM calls)')
     .option('--json', 'emit a machine-readable JSON payload to stdout instead of the rendered table (logs go to stderr)')
-    .action(async (cmdOpts: { json?: boolean }) => {
+    .option('--files <glob>', 'forecast only files matching this glob (incremental scope preview)')
+    .option('--axes <list>', 'comma-separated axis ids to include (default: all enabled in config)')
+    .option('--no-deliberation', 'forecast as if the deliberation pass were disabled')
+    .option('--no-internal-docs', 'forecast as if internal-doc generation were skipped')
+    .action(async (cmdOpts: {
+      json?: boolean;
+      files?: string;
+      axes?: string;
+      deliberation?: boolean;
+      internalDocs?: boolean;
+    }) => {
       const jsonMode = cmdOpts.json === true;
+      const filesGlob = cmdOpts.files;
+      const matchFiles = filesGlob ? picomatch(filesGlob) : null;
+      // Commander's `--no-foo` flips the flag's default to `true` and sets it
+      // to `false` when --no-foo is passed. We treat `undefined` as "not
+      // overridden" → fall through to the config-driven default. `--no-rag`
+      // is defined on the parent program (see cli.ts), so we read it from
+      // `program.opts()` rather than from this subcommand's cmdOpts.
+      const ragOverride = program.opts().rag === false ? false : undefined;
+      const deliberationOverride = cmdOpts.deliberation === false ? false : undefined;
+      const internalDocsOverride = cmdOpts.internalDocs === false ? false : undefined;
+      let axesFilter: AxisId[] | undefined;
+      if (cmdOpts.axes !== undefined) {
+        const requested = cmdOpts.axes.split(',').map((s) => s.trim()).filter(Boolean) as AxisId[];
+        const unknown = requested.filter((id) => !ALL_AXIS_IDS.includes(id));
+        if (unknown.length > 0) {
+          process.stderr.write(
+            `✖ Unknown axis id(s): ${unknown.join(', ')}.\n  Known axes: ${ALL_AXIS_IDS.join(', ')}\n`,
+          );
+          process.exit(1);
+        }
+        axesFilter = requested;
+      }
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
@@ -408,8 +452,9 @@ export function registerEstimateCommand(program: Command): void {
       }
 
       // --- Config rows ---
-      const enableRag = config.rag.enabled;
-      let ragLabel = 'off';
+      // RAG can be force-disabled by --no-rag — gate the config-driven default.
+      const enableRag = ragOverride === false ? false : config.rag.enabled;
+      let ragLabel = ragOverride === false ? 'off (--no-rag)' : 'off';
       let resolvedRagSuffix: 'lite' | 'advanced' = 'lite';
       if (enableRag) {
         const hardware = detectHardware();
@@ -430,11 +475,27 @@ export function registerEstimateCommand(program: Command): void {
         { key: 'cache', value: 'on' },
       ];
 
-      // Active axis evaluators — used by the JSON payload's models.axes
-      // field and to drive the forecast's per-axis token math.
-      const evaluators = getEnabledEvaluators(config);
+      // Surface active CLI scope filters as a single 'scope' row when present.
+      // Keeps the Configuration block honest: the table tells you what the
+      // forecast actually covers, not what the config alone would imply.
+      const scopeFragments: string[] = [];
+      if (filesGlob) scopeFragments.push(`files: ${filesGlob}`);
+      if (axesFilter) scopeFragments.push(`axes: ${axesFilter.join(',')}`);
+      if (deliberationOverride === false) scopeFragments.push('no deliberation');
+      if (internalDocsOverride === false) scopeFragments.push('no internal-docs');
+      if (scopeFragments.length > 0) {
+        configRows.push({ key: 'scope', value: scopeFragments.join(' · ') });
+      }
 
-      const allTasks = loadTasks(projectRoot);
+      // Active axis evaluators — used by the JSON payload's models.axes
+      // field and to drive the forecast's per-axis token math. The optional
+      // --axes filter intersects with the config-enabled set.
+      const evaluators = getEnabledEvaluators(config, axesFilter);
+
+      const allTasksUnfiltered = loadTasks(projectRoot);
+      const allTasks = matchFiles
+        ? allTasksUnfiltered.filter((t) => matchFiles(t.file))
+        : allTasksUnfiltered;
 
       // Cached/new file counts — surfaced in the JSON payload's plan.scan
       // section. Not rendered as a pipeline row (the total file count is
@@ -483,7 +544,9 @@ export function registerEstimateCommand(program: Command): void {
       // docs status — merged into Configuration as a `docs` row.
       const bootstrapNeeded = needsBootstrap(projectRoot);
       let docsValue: string;
-      if (bootstrapNeeded) {
+      if (internalDocsOverride === false) {
+        docsValue = 'skipped (--no-internal-docs)';
+      } else if (bootstrapNeeded) {
         docsValue = 'first run (bootstrap)';
       } else if (docScanInternal) {
         const projectFragment = docScanProject
@@ -534,15 +597,17 @@ export function registerEstimateCommand(program: Command): void {
         axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
         ...(embedWithModels ? { embed: embedWithModels } : {}),
         ...(enableRag ? { summaryModel: resolveCodeSummaryModel(config) } : {}),
-        ...(config.models.deliberation ? { deliberationModel: config.models.deliberation } : {}),
-        ...(docPageCount > 0
+        ...(deliberationOverride !== false && config.models.deliberation
+          ? { deliberationModel: config.models.deliberation }
+          : {}),
+        ...(internalDocsOverride !== false && docPageCount > 0
           ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
           : {}),
         resolveBillingMode: makeBillingResolver(config),
         calibration,
         concurrency,
         ragEnabled: enableRag,
-        deliberation: true,
+        deliberation: deliberationOverride !== false,
       });
       const calLabel = forecast.hasCalibration ? 'calibrated' : 'default';
 
@@ -553,9 +618,20 @@ export function registerEstimateCommand(program: Command): void {
         // anymore — it isn't shown in the rendered table either.
         void usageGraph;
 
-        const docsMode: 'bootstrap' | 'update' | 'ready' = bootstrapNeeded
-          ? 'bootstrap'
-          : (docScanInternal?.changed ?? 0) > 0 ? 'update' : 'ready';
+        const docsMode: 'bootstrap' | 'update' | 'ready' | 'skipped' = internalDocsOverride === false
+          ? 'skipped'
+          : bootstrapNeeded
+            ? 'bootstrap'
+            : (docScanInternal?.changed ?? 0) > 0 ? 'update' : 'ready';
+
+        const scope: NonNullable<EstimateJsonPayload['config']['scope']> = {
+          ...(filesGlob ? { filesGlob } : {}),
+          ...(axesFilter ? { axes: axesFilter } : {}),
+          ...(ragOverride === false ? { noRag: true as const } : {}),
+          ...(deliberationOverride === false ? { noDeliberation: true as const } : {}),
+          ...(internalDocsOverride === false ? { noInternalDocs: true as const } : {}),
+        };
+        const hasScope = Object.keys(scope).length > 0;
 
         const billedUsd = forecast.steps
           .filter((s) => s.billingMode === 'api')
@@ -585,6 +661,7 @@ export function registerEstimateCommand(program: Command): void {
               ...(docScanInternal ? { internal: { changed: docScanInternal.changed, cached: docScanInternal.cached } } : {}),
               ...(docScanProject ? { project: { changed: docScanProject.changed, cached: docScanProject.cached } } : {}),
             },
+            ...(hasScope ? { scope } : {}),
           },
           forecast: {
             files: { total: forecast.totalFiles, evaluate: forecast.files, skipped: forecast.skippedFiles },
