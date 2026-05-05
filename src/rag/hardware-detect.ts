@@ -129,7 +129,7 @@ export function detectNvidiaContainerToolkit(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Embeddings readiness flag (written by setup-embeddings.sh)
+// Embeddings readiness flag (written by `local-embeddings upgrade`)
 // ---------------------------------------------------------------------------
 
 /** Embedding backend type — determines runtime embedding strategy. */
@@ -142,7 +142,7 @@ export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf' | 'ext
 
 /**
  * Shape of the `.anatoly/embeddings-ready.json` flag file written by
- * `setup-embeddings.sh` after successful embedding backend configuration.
+ * `local-embeddings upgrade` after successful embedding backend configuration.
  *
  * Read at runtime by {@link readEmbeddingsReadyFlag} to determine which
  * embedding backend and models to use.
@@ -182,7 +182,7 @@ export interface EmbeddingsReadyFlag {
 }
 
 /**
- * Check if setup-embeddings.sh has been run successfully.
+ * Check if `local-embeddings upgrade` has been run successfully.
  * Returns the flag data if .anatoly/embeddings-ready.json exists, null otherwise.
  */
 export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFlag | null {
@@ -334,7 +334,7 @@ export function determineBackend(
     return 'external';
   }
 
-  // No setup flag → always lite (advanced-gguf requires setup-embeddings)
+  // No setup flag → always lite (advanced-gguf requires `local-embeddings upgrade`)
   return 'lite';
 }
 

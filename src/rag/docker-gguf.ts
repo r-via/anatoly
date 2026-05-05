@@ -202,11 +202,11 @@ export async function startGgufContainers(
   const nlpModelPath = resolve(modelsDirectory, GGUF_NLP_MODEL_FILE);
 
   if (!existsSync(codeModelPath)) {
-    onLog?.(`GGUF code model not found: ${codeModelPath} — run 'anatoly setup-embeddings' first`);
+    onLog?.(`GGUF code model not found: ${codeModelPath} — run 'anatoly local-embeddings upgrade' first`);
     return false;
   }
   if (!existsSync(nlpModelPath)) {
-    onLog?.(`GGUF NLP model not found: ${nlpModelPath} — run 'anatoly setup-embeddings' first`);
+    onLog?.(`GGUF NLP model not found: ${nlpModelPath} — run 'anatoly local-embeddings upgrade' first`);
     return false;
   }
 

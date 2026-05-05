@@ -231,19 +231,26 @@ anatoly audit remove [runIds...] [options]
 
 ---
 
-### `setup-embeddings`
+### `local-embeddings`
 
-Installs local embedding model backends for the RAG pipeline by delegating to the bundled `setup-embeddings.sh` script with `ANATOLY_PROJECT_ROOT` set.
+Manages the local embedding backend for the RAG pipeline. The default tier
+(`lite`, ONNX in-process) is always available with no setup — this command
+exists to opt into the advanced GPU/GGUF tier (Docker llama.cpp sidecar).
+
+Both sub-commands delegate to the bundled `setup-embeddings.sh` script with
+`ANATOLY_PROJECT_ROOT` set.
 
 ```bash
-anatoly setup-embeddings [--check]
+anatoly local-embeddings upgrade   # install advanced backend
+anatoly local-embeddings status    # inspect current install
 ```
 
-| Option | Description |
-|--------|-------------|
-| `--check` | Inspect current embedding model status without installing anything |
+| Sub-command | Description |
+|-------------|-------------|
+| `upgrade` | Install advanced backend: download GGUF models, pull Docker image, start sidecar containers |
+| `status`  | Inspect current install (Docker, GPU, models, containers) without making changes |
 
-See [setup-embeddings module](../05-Modules/07-setup-embeddings.md) for model details and hardware requirements.
+See [local-embeddings module](../05-Modules/local-embeddings.md) for model details and hardware requirements.
 
 ---
 
@@ -470,5 +477,5 @@ npx anatoly watch --axes correction,best_practices
 - [Common Workflows](../03-Guides/01-Common-Workflows.md) — step-by-step guides for typical audit scenarios
 - [Advanced Configuration](../03-Guides/02-Advanced-Configuration.md) — tuning concurrency, RAG mode, and model overrides
 - [Module: commands](../05-Modules/01-commands.md) — source-level reference for all command registration functions
-- [setup-embeddings module](../05-Modules/07-setup-embeddings.md) — embedding model setup details
+- [local-embeddings module](../05-Modules/local-embeddings.md) — embedding model setup details
 - [Troubleshooting](../03-Guides/03-Troubleshooting.md) — common errors and diagnostics

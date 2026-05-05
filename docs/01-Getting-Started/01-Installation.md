@@ -108,9 +108,8 @@ Anatoly also fails fast at startup if it detects it is running under a Windows-i
 If you have an NVIDIA GPU with >= 12 GB VRAM and Docker installed, you can use GGUF-quantized models in Docker llama.cpp containers for higher-quality embeddings:
 
 ```bash
-npx anatoly setup-embeddings        # Pulls Docker images, downloads GGUF models (SHA256-verified)
-npx anatoly setup-embeddings --check # Check status without installing
-npx anatoly setup-embeddings --ab-test # Validate GGUF quality against fp16 reference
+npx anatoly local-embeddings upgrade   # Pulls Docker images, downloads GGUF models (SHA256-verified)
+npx anatoly local-embeddings status    # Inspect current install without making changes
 ```
 
 Containers start automatically with `anatoly run` when setup is detected. No Python dependency -- Docker is the only runtime requirement for GPU mode.

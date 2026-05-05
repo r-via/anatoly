@@ -93,7 +93,7 @@ Current model resolution:
 | Any (ONNX runtime) | `jina-v2-base-code` (768d, 161M params) | `all-MiniLM-L6-v2` (384d, ~22M params) |
 | GPU + 12GB+ VRAM + Docker | `nomic-embed-code` (GGUF Q5_K_M, 3584d) | `Qwen3-Embedding-8B` (GGUF Q5_K_M, 4096d) |
 
-Both advanced models are downloaded by `setup-embeddings` (SHA256-verified) and run via Docker llama.cpp server-cuda containers in sequential mode (one model loaded at a time, ~10 GB VRAM). The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
+Both advanced models are downloaded by `anatoly local-embeddings upgrade` (SHA256-verified) and run via Docker llama.cpp server-cuda containers in sequential mode (one model loaded at a time, ~10 GB VRAM). The model registry in `src/rag/hardware-detect.ts` can be extended with new models.
 
 ## Indexing Pipeline
 

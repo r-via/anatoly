@@ -9,7 +9,7 @@ Anatoly produces two embedding vectors for every indexed function — a **code**
 | Tier | Engine | Setup | Hardware | Recall | Cost | Use case |
 |---|---|---|---|---|---|---|
 | **`lite`** | ONNX in-process via `@huggingface/transformers` | None (auto on first run) | CPU only | Good | Free | Default. Works everywhere, no external services. |
-| **`advanced`** | GGUF llama.cpp Docker container (`anatoly-local`) | Run `anatoly setup-embeddings` once | NVIDIA GPU + ≥ 12 GB VRAM + Docker | Best | Free (after model download, ~10 GB) | Local power users with a capable GPU who want maximum quality without sending code to a third party. |
+| **`advanced`** | GGUF llama.cpp Docker container (`anatoly-local`) | Run `anatoly local-embeddings upgrade` once | NVIDIA GPU + ≥ 12 GB VRAM + Docker | Best | Free (after model download, ~10 GB) | Local power users with a capable GPU who want maximum quality without sending code to a third party. |
 | **`external`** | Vercel AI SDK → any OpenAI-compatible API (OpenAI, Voyage, OpenRouter, Cohere, Mistral, custom) | Set provider + API key in `.anatoly.yml` | None (CPU only) | Provider-dependent | Per-token billed by the provider | Cloud-friendly, zero local infra. Best when you have a Voyage/OpenRouter/OpenAI account or a corporate inference endpoint. |
 
 The active tier is selected at first run via the embedded wizard or by editing `.anatoly.yml` directly. The CLI flags `--rag-lite` and `--rag-advanced` override the persisted choice for a single run; the `external` tier requires an explicit YAML config.
@@ -289,7 +289,7 @@ Edit `rag.embedding` in `.anatoly.yml` and re-run `anatoly run`. The signature c
 
 ## See also
 
-- [Setup Embeddings](../05-Modules/setup-embeddings.md) — runtime backend resolution, Docker container lifecycle, hardware detection.
+- [Local Embeddings](../05-Modules/local-embeddings.md) — runtime backend resolution, Docker container lifecycle, hardware detection.
 - [Advanced Configuration — `rag` section](./02-Advanced-Configuration.md#rag) — full schema reference for `.anatoly.yml`.
 - [Multi-Provider Migration (Epic 43)](../../_bmad-output/planning-artifacts/epic-43-multi-provider-migration.md) — sibling abstraction for LLM providers.
 - Code: [src/rag/known-embedding-providers.ts](../../src/rag/known-embedding-providers.ts), [src/rag/sdk-embedding.ts](../../src/rag/sdk-embedding.ts), [src/rag/embeddings.ts](../../src/rag/embeddings.ts).

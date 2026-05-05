@@ -137,7 +137,7 @@ The only API cost in the RAG pipeline comes from NLP summarization in dual embed
 
 ### GPU-accelerated embedding via Docker GGUF containers
 
-When a GPU and Docker are available, Anatoly uses `nomic-ai/nomic-embed-code` (GGUF Q5_K_M) for higher-quality code embeddings via llama.cpp server-cuda containers. Run `npx anatoly setup-embeddings` to set up. Containers start automatically with `anatoly run` when setup is detected.
+When a GPU and Docker are available, Anatoly uses `nomic-ai/nomic-embed-code` (GGUF Q5_K_M) for higher-quality code embeddings via llama.cpp server-cuda containers. Run `npx anatoly local-embeddings upgrade` to set up. Containers start automatically with `anatoly run` when setup is detected.
 
 Embedding requests are **batched per file** — all symbols in a file are sent in a single HTTP request to llama.cpp, reducing overhead from N requests to 1. The indexing pipeline runs in two sequential phases: all code embeddings first (one container), then all NLP embeddings (swap to second container), minimising VRAM usage.
 

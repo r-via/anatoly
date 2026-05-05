@@ -31,7 +31,7 @@ describe('CLI program', () => {
         'reset',
         'rag-status',
         'hook',
-        'setup-embeddings',
+        'local-embeddings',
         'init',
         'docs',
         'providers',

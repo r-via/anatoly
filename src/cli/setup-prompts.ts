@@ -335,23 +335,23 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
 }
 
 // ---------------------------------------------------------------------------
-// Setup-embeddings subprocess (advanced tier Docker setup)
+// local-embeddings upgrade subprocess (advanced tier Docker setup)
 // ---------------------------------------------------------------------------
 
-export interface SetupEmbeddingsResult {
+export interface LocalEmbeddingsUpgradeResult {
   ok: boolean;
   exitCode: number;
 }
 
 /**
- * Run `anatoly setup-embeddings` as a child process with stdio inherited
- * so the user sees Docker pull / container start logs in real time.
+ * Run `anatoly local-embeddings upgrade` as a child process with stdio
+ * inherited so the user sees Docker pull / container start logs in real time.
  *
  * @param projectRoot — passed as `ANATOLY_PROJECT_ROOT` env var.
  * @returns `{ ok: true, exitCode: 0 }` on success, `{ ok: false, exitCode }` on failure.
  * @throws {AnatolyError} if `process.argv[0]` or `process.argv[1]` is undefined.
  */
-export function runSetupEmbeddingsSubprocess(projectRoot: string): SetupEmbeddingsResult {
+export function runLocalEmbeddingsUpgradeSubprocess(projectRoot: string): LocalEmbeddingsUpgradeResult {
   const argv0 = process.argv[0];
   const argv1 = process.argv[1];
 
@@ -364,7 +364,7 @@ export function runSetupEmbeddingsSubprocess(projectRoot: string): SetupEmbeddin
     );
   }
 
-  const result = spawnSync(argv0, [argv1, 'setup-embeddings'], {
+  const result = spawnSync(argv0, [argv1, 'local-embeddings', 'upgrade'], {
     stdio: 'inherit',
     env: { ...process.env, ANATOLY_PROJECT_ROOT: projectRoot },
   });
@@ -569,7 +569,7 @@ function renderProvidersBlock(
   if (tier !== 'advanced') {
     optional.push({
       name: 'local-advanced',
-      comment: 'GGUF embeddings via Docker sidecar. Run `anatoly setup-embeddings` first.',
+      comment: 'GGUF embeddings via Docker sidecar. Run `anatoly local-embeddings upgrade` first.',
       config: LOCAL_ADVANCED_PROVIDER,
     });
   }

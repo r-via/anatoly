@@ -18,7 +18,7 @@ import {
   registerCleanCommand,
   registerCleanRunCommand,
   registerCleanSyncCommand,
-  registerSetupEmbeddingsCommand,
+  registerLocalEmbeddingsCommand,
   registerInitCommand,
   registerDocsCommand,
   registerProvidersCommand,
@@ -106,7 +106,7 @@ export function createProgram(): Command {
   registerResetCommand(program);
   registerRagStatusCommand(program);
   registerHookCommand(program);
-  registerSetupEmbeddingsCommand(program);
+  registerLocalEmbeddingsCommand(program);
   registerInitCommand(program);
   registerDocsCommand(program);
   registerProvidersCommand(program);

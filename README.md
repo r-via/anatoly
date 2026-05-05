@@ -178,10 +178,10 @@ By default, Anatoly uses ONNX-based code embeddings (Jina v2, 768d) running on C
 
 ```bash
 # One-time setup: pulls Docker images, downloads GGUF models (SHA256-verified)
-npx anatoly setup-embeddings
+npx anatoly local-embeddings upgrade
 
 # Check status anytime
-npx anatoly setup-embeddings --check
+npx anatoly local-embeddings status
 ```
 
 Containers start automatically with `anatoly run` when setup is detected. No Python dependency -- Docker is the only runtime requirement for GPU mode.
@@ -237,7 +237,7 @@ npx anatoly reset                # Wipe all state (runs, cache, RAG, internal do
 npx anatoly reset --keep-docs    # Wipe state but keep internal docs
 npx anatoly hook init            # Generate Claude Code hooks configuration
 npx anatoly init                 # Generate .anatoly.yml with all defaults (commented out)
-npx anatoly setup-embeddings     # Install GPU-accelerated embeddings (Docker GGUF)
+npx anatoly local-embeddings upgrade  # Install GPU-accelerated embeddings (Docker GGUF)
 npx anatoly providers            # Verify LLM connectivity (Claude + Gemini)
 npx anatoly notifications create-bot  # Interactive Telegram bot setup wizard
 npx anatoly notifications test   # Send a test Telegram notification

@@ -60,7 +60,7 @@ Default when no GPU is available or GGUF backend is not configured.
 
 ### Advanced-GGUF Backend (Docker GPU)
 
-Requires `setup-embeddings`, Docker, NVIDIA Container Toolkit, and 12 GB+ VRAM.
+Requires `local-embeddings upgrade`, Docker, NVIDIA Container Toolkit, and 12 GB+ VRAM.
 
 | Role | Modele | Dimensions | Runtime |
 |------|--------|------------|---------|

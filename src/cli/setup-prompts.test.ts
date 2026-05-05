@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type EndOfSetupOptions } from './setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardOptions, type EndOfSetupOptions } from './setup-prompts.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,7 +90,7 @@ vi.mock('../utils/logger.js', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn() }),
 }));
 
-// Mock child_process.spawnSync for setup-embeddings subprocess tests
+// Mock child_process.spawnSync for `local-embeddings upgrade` subprocess tests
 const spawnSyncMock = vi.fn();
 vi.mock('node:child_process', () => ({
   spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
@@ -691,10 +691,10 @@ describe('runGgufPrefetch', () => {
 });
 
 // ---------------------------------------------------------------------------
-// runSetupEmbeddingsSubprocess tests
+// runLocalEmbeddingsUpgradeSubprocess tests
 // ---------------------------------------------------------------------------
 
-describe('runSetupEmbeddingsSubprocess', () => {
+describe('runLocalEmbeddingsUpgradeSubprocess', () => {
   const origArgv0 = process.argv[0];
   const origArgv1 = process.argv[1];
 
@@ -709,17 +709,18 @@ describe('runSetupEmbeddingsSubprocess', () => {
     process.argv[1] = origArgv1!;
   });
 
-  // AC: Given story 48.3 has downloaded GGUF models, When runSetupEmbeddingsSubprocess() is called,
-  // Then spawnSync('node', ['anatoly', 'setup-embeddings'], { stdio: 'inherit' }) is executed
-  it('spawns the setup-embeddings subprocess with stdio inherit', () => {
+  // AC: Given story 48.3 has downloaded GGUF models, when the subprocess is
+  // launched, then spawnSync('node', ['anatoly', 'local-embeddings', 'upgrade'])
+  // is executed with stdio inherited.
+  it('spawns the local-embeddings upgrade subprocess with stdio inherit', () => {
     spawnSyncMock.mockReturnValue({ status: 0, error: undefined });
 
-    const result = runSetupEmbeddingsSubprocess('/tmp/project');
+    const result = runLocalEmbeddingsUpgradeSubprocess('/tmp/project');
 
     expect(spawnSyncMock).toHaveBeenCalledTimes(1);
     expect(spawnSyncMock).toHaveBeenCalledWith(
       '/usr/bin/node',
-      ['/usr/local/bin/anatoly', 'setup-embeddings'],
+      ['/usr/local/bin/anatoly', 'local-embeddings', 'upgrade'],
       expect.objectContaining({
         stdio: 'inherit',
         env: expect.objectContaining({ ANATOLY_PROJECT_ROOT: '/tmp/project' }),
@@ -732,7 +733,7 @@ describe('runSetupEmbeddingsSubprocess', () => {
   it('returns ok true when subprocess exits with code 0', () => {
     spawnSyncMock.mockReturnValue({ status: 0, error: undefined });
 
-    const result = runSetupEmbeddingsSubprocess('/tmp/project');
+    const result = runLocalEmbeddingsUpgradeSubprocess('/tmp/project');
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
   });
@@ -742,7 +743,7 @@ describe('runSetupEmbeddingsSubprocess', () => {
   it('returns ok false when subprocess exits with non-zero code', () => {
     spawnSyncMock.mockReturnValue({ status: 1, error: undefined });
 
-    const result = runSetupEmbeddingsSubprocess('/tmp/project');
+    const result = runLocalEmbeddingsUpgradeSubprocess('/tmp/project');
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
   });
@@ -751,26 +752,26 @@ describe('runSetupEmbeddingsSubprocess', () => {
   it('returns ok false with exitCode -1 when status is null (signal kill)', () => {
     spawnSyncMock.mockReturnValue({ status: null, error: new Error('SIGTERM') });
 
-    const result = runSetupEmbeddingsSubprocess('/tmp/project');
+    const result = runLocalEmbeddingsUpgradeSubprocess('/tmp/project');
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(-1);
   });
 
-  // AC: Given process.argv[0] is undefined, When runSetupEmbeddingsSubprocess() tries to spawn,
+  // AC: Given process.argv[0] is undefined, When the subprocess tries to spawn,
   // Then an AnatolyError is thrown
   it('throws AnatolyError when process.argv[0] is undefined', () => {
     process.argv[0] = undefined as unknown as string;
 
-    expect(() => runSetupEmbeddingsSubprocess('/tmp/project'))
+    expect(() => runLocalEmbeddingsUpgradeSubprocess('/tmp/project'))
       .toThrow(/Cannot resolve anatoly CLI binary path/);
   });
 
-  // AC: Given process.argv[1] is undefined, When runSetupEmbeddingsSubprocess() tries to spawn,
+  // AC: Given process.argv[1] is undefined, When the subprocess tries to spawn,
   // Then an AnatolyError is thrown
   it('throws AnatolyError when process.argv[1] is undefined', () => {
     process.argv[1] = undefined as unknown as string;
 
-    expect(() => runSetupEmbeddingsSubprocess('/tmp/project'))
+    expect(() => runLocalEmbeddingsUpgradeSubprocess('/tmp/project'))
       .toThrow(/Cannot resolve anatoly CLI binary path/);
   });
 
@@ -778,7 +779,7 @@ describe('runSetupEmbeddingsSubprocess', () => {
   it('passes ANATOLY_PROJECT_ROOT as the projectRoot argument', () => {
     spawnSyncMock.mockReturnValue({ status: 0, error: undefined });
 
-    runSetupEmbeddingsSubprocess('/home/user/myproject');
+    runLocalEmbeddingsUpgradeSubprocess('/home/user/myproject');
 
     const envArg = spawnSyncMock.mock.calls[0]![2].env;
     expect(envArg.ANATOLY_PROJECT_ROOT).toBe('/home/user/myproject');

@@ -1,10 +1,12 @@
-# Setup Embeddings
+# Local Embeddings
 
-> Configures the embedding backend used by the RAG index, selecting between ONNX in-process models and GPU-accelerated Docker containers based on detected hardware.
+> Configures the local embedding backend used by the RAG index, selecting between ONNX in-process models and GPU-accelerated Docker containers based on detected hardware.
 
 ## Overview
 
-`setup-embeddings` is the subsystem responsible for choosing and initialising the embedding pipeline that powers anatoly's semantic search. On first install the `postinstall` lifecycle hook (`scripts/download-model.js`) pre-fetches the default ONNX models so that no network access is required at runtime.
+The local-embeddings subsystem is responsible for choosing and initialising the embedding pipeline that powers anatoly's semantic search. On first install the `postinstall` lifecycle hook (`scripts/download-model.js`) pre-fetches the default ONNX models so that no network access is required at runtime.
+
+The default tier (`lite`, ONNX in-process) is always available with zero setup; the `local-embeddings upgrade` command exists to opt into the advanced GPU/GGUF tier.
 
 Embedding operates in **dual-vector** mode: every indexed function receives both a *code* vector (structural/syntactic semantics) and an *NLP* vector (natural-language semantics). These are stored separately in the LanceDB table at `.anatoly/rag/lancedb` and queried independently or combined for hybrid search.
 
@@ -28,16 +30,16 @@ The `lite` backend (ONNX) has no external runtime dependencies beyond Node.js. T
 
 ## CLI Command
 
-Registered by `registerSetupEmbeddingsCommand(program: Command)` in `src/commands/setup-embeddings.ts`.
+Registered by `registerLocalEmbeddingsCommand(program: Command)` in `src/commands/local-embeddings.ts`.
 
 ```bash
-anatoly setup-embeddings [options]
+anatoly local-embeddings <upgrade|status>
 ```
 
-| Option | Description |
+| Sub-command | Description |
 |---|---|
-| `--check` | Report current embedding setup status without modifying anything |
-| `--ab-test` | Run an A/B quality comparison between `advanced-fp16` (TEI) and `advanced-gguf` (llama.cpp) and write results to `.anatoly/embeddings-ready.json` |
+| `upgrade` | Install the advanced GPU/GGUF backend: download models (SHA256-verified), pull the Docker image, and start the sidecar containers |
+| `status`  | Report the current install status without modifying anything (Docker, GPU, models, containers) |
 
 ---
 
@@ -73,14 +75,9 @@ GPU-accelerated GGUF quantised models served by `ghcr.io/ggml-org/llama.cpp:serv
 
 Minimum VRAM: **12 GB** (`GGUF_MIN_VRAM_GB`). Selected automatically when an NVIDIA GPU, Docker, and the NVIDIA Container Toolkit are all present.
 
-### `advanced-fp16` (A/B test only)
+### `advanced-fp16` (legacy)
 
-Full-precision fp16 served by `ghcr.io/huggingface/text-embeddings-inference:1.9` via `src/rag/docker-tei.ts`. Used exclusively during `--ab-test` runs as the quality reference; the GGUF backend is preferred at runtime.
-
-| Role | Port |
-|---|---|
-| Code | 11435 |
-| NLP | 11436 |
+Full-precision fp16 reference backend retained as a label for backwards compatibility — no longer selected at runtime; treated as `lite`. The A/B comparison harness against TEI was removed in commit `2eccf1f`; the GGUF backend is the only advanced runtime today.
 
 ### `external`
 
@@ -145,7 +142,7 @@ Reads `.anatoly/embeddings-ready.json`. Returns `null` if the file does not exis
 
 ### `EmbeddingsReadyFlag`
 
-Persisted configuration written after a successful `setup-embeddings` run.
+Persisted configuration written after a successful `local-embeddings upgrade` run.
 
 ```typescript
 interface EmbeddingsReadyFlag {
@@ -241,7 +238,7 @@ stopTeiContainers(onLog?): Promise<void>
 areTeiContainersRunning(): boolean
 ```
 
-TEI containers wait up to **5 minutes** (`READY_TIMEOUT_MS = 300_000`). Used only during `--ab-test`; the GGUF backend is used at normal index time.
+Legacy fp16 backend (HuggingFace TEI) retained for cleanup of zombie containers from older installations. Not started at runtime today — the GGUF backend is the only advanced runtime.
 
 ---
 
@@ -278,16 +275,16 @@ Distance metric: **L2**, converted to cosine similarity via `1 - L2² / 2`.
 
 ## Examples
 
-### Check setup status
+### Check current install status
 
 ```bash
-anatoly setup-embeddings --check
+anatoly local-embeddings status
 ```
 
-### Run setup (hardware auto-detection)
+### Install the advanced backend (hardware auto-detection)
 
 ```bash
-anatoly setup-embeddings
+anatoly local-embeddings upgrade
 ```
 
 ### Programmatic backend resolution

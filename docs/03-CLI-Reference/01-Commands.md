@@ -452,33 +452,27 @@ anatoly reset --yes
 
 ---
 
-## setup-embeddings
+## local-embeddings
 
-Set up, check, or validate GPU-accelerated embeddings using Docker llama.cpp GGUF containers.
+Manage the local embedding backend. The default tier (`lite`, ONNX in-process)
+is always available with zero setup; this command exists to **opt into the
+advanced GPU/GGUF tier** powered by Docker llama.cpp containers.
 
 ```
-anatoly setup-embeddings [--check] [--ab-test]
+anatoly local-embeddings <upgrade|status>
 ```
 
-### Options
+### Sub-commands
 
-| Flag | Type | Description |
-|------|------|-------------|
-| `--check` | boolean | Check current embedding setup status without installing. Reports model availability, Docker status, and VRAM. |
-| `--ab-test` | boolean | Run an A/B quality validation comparing GGUF Q5_K_M output against HuggingFace TEI fp16 reference vectors. Used during setup to verify quantization quality. |
-
-### Behavior
-
-**Default (no flags):** Full setup. Pulls Docker llama.cpp server-cuda images, downloads GGUF Q5_K_M quantized models (nomic-embed-code for code, Qwen3-Embedding-8B for NLP), and verifies downloads with SHA256 integrity checks. Requires Docker and an NVIDIA GPU with >= 12 GB VRAM.
-
-**`--check`:** Status check only. Reports whether Docker is available, GPU VRAM, which models are downloaded, and whether containers can start. No modifications made.
-
-**`--ab-test`:** Quality validation. Spins up HuggingFace TEI containers with fp16 reference models and compares their output against the GGUF quantized models. Used to verify that quantization does not degrade embedding quality beyond acceptable thresholds. Run this after setup to validate model integrity.
+| Sub-command | Description |
+|-------------|-------------|
+| `upgrade` | Install the advanced backend: pulls Docker llama.cpp server-cuda images, downloads GGUF Q5_K_M models (nomic-embed-code for code, Qwen3-Embedding-8B for NLP), verifies SHA256 integrity, and starts the sidecar. Requires Docker and an NVIDIA GPU with ≥ 12 GB VRAM. |
+| `status` | Inspect the current install without making changes. Reports Docker availability, GPU VRAM, which models are downloaded, and whether containers can start. |
 
 ### Output
 
 ```
-anatoly -- setup-embeddings
+anatoly -- local-embeddings status
 
   docker     available
   gpu        NVIDIA RTX 4090 (24 GB VRAM)
@@ -492,14 +486,11 @@ anatoly -- setup-embeddings
 ### Examples
 
 ```bash
-# Full setup
-npx anatoly setup-embeddings
+# Install advanced backend (one-shot, can take several minutes)
+npx anatoly local-embeddings upgrade
 
-# Check status
-npx anatoly setup-embeddings --check
-
-# Validate GGUF quality
-npx anatoly setup-embeddings --ab-test
+# Check current install
+npx anatoly local-embeddings status
 ```
 
 ---
