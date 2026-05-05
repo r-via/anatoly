@@ -76,7 +76,7 @@ import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } fr
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
-import { needsBootstrap } from '../core/doc-bootstrap.js';
+import { needsBootstrap, writeScaffoldStatus } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
 import { clearRefinementCache } from '../core/refinement/tier3.js';
 import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
@@ -876,6 +876,17 @@ export function registerRunCommand(program: Command): void {
           await runWithContext({ phase: 'bootstrap-doc' }, async () => {
             await runDocBootstrap(ctx, setup.tasks);
           });
+          // Mark the docs as validly scaffolded — the canonical signal
+          // future `needsBootstrap()` checks will look for. Written after
+          // runDocBootstrap returns (which itself includes the refinement
+          // pass), so a crash mid-pipeline leaves no tag and the next run
+          // correctly re-bootstraps.
+          if (!ctx.interrupted) {
+            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
+              mode: 'bootstrap',
+              runId: ctx.runId,
+            });
+          }
         }
 
         await runWithContext({ phase: 'rag-index' }, async () => {
@@ -1022,6 +1033,14 @@ export function registerRunCommand(program: Command): void {
           // chunk cache → restart embedding containers → re-embed + upsert → stop.
           if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
             await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
+          }
+
+          // Refresh the scaffold-status tag to record this successful update.
+          if (!ctx.interrupted) {
+            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
+              mode: 'update',
+              runId: ctx.runId,
+            });
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
