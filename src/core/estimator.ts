@@ -278,14 +278,24 @@ export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> =
 ];
 
 /**
- * Fraction of file-axis pairs the deliberation pass re-evaluates with the
- * deliberation model. Calibrated from R1+R2: refinement actually re-investigates
- * roughly half of the axis findings (R1: 1 finding investigated of ~5 axis
- * outputs; R2: 4 of ~10 escalations) and the per-call cost on Opus runs
- * deeper than a simple per-call reuse — bumped from 0.3 to 0.5 to reflect
- * the observed cost ratio (delib/axis ≈ 0.5× under the new axis tokens).
+ * Deliberation runs as a single deliberation-model call per *shard* of
+ * escalated findings (see `core/refinement/tier3.ts:buildShards` — shards
+ * are grouped by directory module, capped at 20 files each). Crucially,
+ * most findings get resolved by tier-1/2 (cache + coherence) before tier-3
+ * ever sees them, so the deliberation cost is roughly **invariant of axes
+ * × file count**: observed at $0.30 (R1, 1 file), $0.41 (R2, 2 files), and
+ * $0.38 (R3, 11 files) — essentially flat per shard.
+ *
+ * The forecast therefore models the deliberation step as `shardCount ×
+ * fixed-tokens-per-shard` instead of the old `coverage × axes × E` model
+ * which scaled multiplicatively with axes and files. Token shape is
+ * dominated by output (structured per-finding decisions on opus).
  */
-export const DELIBERATION_COVERAGE = 0.5;
+export const DELIBERATION_FILES_PER_SHARD = 20;
+export const DELIBERATION_INPUT_PER_SHARD = 6000;
+export const DELIBERATION_OUTPUT_PER_SHARD = 4000;
+export const DELIBERATION_CACHE_READ_PER_SHARD = 1000;
+export const DELIBERATION_CACHE_CREATION_PER_SHARD = 600;
 
 /**
  * Forecast the LLM and embedding workload for a run, with a $ cost
@@ -513,17 +523,18 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     });
   }
 
-  // Deliberation step: refinement pass on a fraction of file-axis pairs,
-  // typically with a stronger model (Opus). We approximate as a single step
-  // with DELIBERATION_COVERAGE × per-axis tokens, summed across axes, costed
-  // at the deliberation model rate. Marked approximate — real coverage
-  // depends on how many findings the axes flag as ambiguous.
+  // Deliberation step: a single deliberation-model call per shard (shard =
+  // up to DELIBERATION_FILES_PER_SHARD files grouped by directory module).
+  // Cost is roughly fixed per shard — most findings are auto-resolved or
+  // coherence-resolved before reaching tier-3 — so this scales sublinearly
+  // with file count. See DELIBERATION_*_PER_SHARD jsdoc for the empirical
+  // basis (R1/R2/R3 observed all stayed in the $0.30-$0.41 range).
   if (deliberation && deliberationModel && axes.length > 0 && E > 0) {
-    const ratio = DELIBERATION_COVERAGE;
-    const delibInput = Math.round(freshInputPerAxis * axes.length * ratio);
-    const delibOutput = Math.round(perPassOutput * axes.length * ratio);
-    const delibCacheRead = Math.round(cacheReadSystemPerAxis * axes.length * ratio);
-    const delibCacheCreation = Math.round(cacheCreationSystemPerAxis * axes.length * ratio);
+    const shardCount = Math.max(1, Math.ceil(E / DELIBERATION_FILES_PER_SHARD));
+    const delibInput = shardCount * DELIBERATION_INPUT_PER_SHARD;
+    const delibOutput = shardCount * DELIBERATION_OUTPUT_PER_SHARD;
+    const delibCacheRead = shardCount * DELIBERATION_CACHE_READ_PER_SHARD;
+    const delibCacheCreation = shardCount * DELIBERATION_CACHE_CREATION_PER_SHARD;
     steps.push({
       category: 'deliberation',
       name: '',
