@@ -27,10 +27,13 @@ import { shortModelName } from '../cli/setup-table.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 
-/** Strip provider prefix and `claude-` prefix for compact model display. */
+/** Strip provider prefix, `claude-` prefix, and trailing 8-digit date for compact model display. */
 function displayModel(modelId: string): string {
   if (modelId === 'local') return '(local)';
-  return modelId.replace(/^[^/]+\//, '').replace(/^claude-/, '');
+  return modelId
+    .replace(/^[^/]+\//, '')   // strip provider prefix (e.g. "anthropic/")
+    .replace(/^claude-/, '')   // strip "claude-" prefix
+    .replace(/-\d{8}$/, '');   // strip trailing -YYYYMMDD release date
 }
 
 /**
@@ -53,14 +56,28 @@ function sortSteps(steps: ForecastStep[]): ForecastStep[] {
 // ---------------------------------------------------------------------------
 
 /**
- * cli-table3 chars used by every estimate-view section. Same convention as
- * `formatProvidersTable` in providers.ts:
- *   - no outer top/bottom borders (sections have their own colored title above)
- *   - 2-space left indent so content sits inside the visual margin
- *   - single horizontal line as inter-row separator (`mid: '─'`)
- *   - 3-space inter-column gap (`middle: '   '`) for breathing room
+ * Two cli-table3 char sets used by the estimate view:
+ *
+ *   - `KV_NO_SEP_CHARS`: no inter-row separator, used for blocks rendered as
+ *     a single multi-line cli-table3 row (key/value pairs joined by `\n`).
+ *     Avoids the noisy `─` line between every entry in 3-4-row kv sections.
+ *
+ *   - `TABLE_CHARS`: visible `─` separator between rows. Used only for truly
+ *     tabular sections (Cost breakdown sub-tables, Pipeline Plan) where the
+ *     separator helps the eye scan rows.
+ *
+ * Both share: no top/bottom borders, 2-space left indent, 3-space inter-column gap.
  */
-const KV_CHARS = {
+const KV_NO_SEP_CHARS = {
+  top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
+  bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
+  left: '  ', 'left-mid': '',
+  mid: '', 'mid-mid': '',
+  right: '', 'right-mid': '',
+  middle: '   ',
+};
+
+const TABLE_CHARS = {
   top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
   bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
   left: '  ', 'left-mid': '  ',
@@ -69,18 +86,37 @@ const KV_CHARS = {
   middle: '   ',
 };
 
-function newKvTable(opts?: { colAligns?: ('left' | 'center' | 'right')[]; head?: string[] }): InstanceType<typeof Table> {
+function newTable(opts?: {
+  chars?: typeof KV_NO_SEP_CHARS;
+  colAligns?: ('left' | 'center' | 'right')[];
+  head?: string[];
+}): InstanceType<typeof Table> {
   return new Table({
-    chars: KV_CHARS,
+    chars: opts?.chars ?? KV_NO_SEP_CHARS,
     style: { 'padding-left': 0, 'padding-right': 0, head: ['dim'] },
     ...(opts?.colAligns ? { colAligns: opts.colAligns } : {}),
     ...(opts?.head ? { head: opts.head } : {}),
   });
 }
 
+/**
+ * Render a key/value block without inter-row separators. Uses the cli-table3
+ * "single multi-line row" trick: the keys are joined by `\n` into one cell,
+ * the values likewise. cli-table3 then aligns the columns by the longest
+ * line in each, but only emits one row of output → zero `─` separators.
+ */
+function makeKvBlock(rows: ReadonlyArray<{ key: string; value: string }>): string {
+  if (rows.length === 0) return '';
+  const t = newTable();
+  t.push([rows.map((r) => r.key).join('\n'), rows.map((r) => r.value).join('\n')]);
+  return t.toString();
+}
+
+/** Print a section title with a dim rule under it for visual hierarchy. */
 function printSection(title: string, color: (s: string) => string, body: string): void {
   console.log('');
   console.log('  ' + color(title));
+  console.log('  ' + chalk.dim('─'.repeat(Math.max(title.length, 14))));
   console.log(body);
 }
 
@@ -100,68 +136,86 @@ interface EstimateViewData {
 }
 
 function renderEstimateView(data: EstimateViewData): void {
-  // --- Project Info ---
+  // --- Project Info — kv block, no separators ---
   if (data.project) {
-    const t = newKvTable();
-    t.push(['name', data.project.name]);
-    t.push(['version', data.project.version]);
-    if (data.project.languages) t.push(['languages', data.project.languages]);
-    if (data.project.frameworks) t.push(['frameworks', data.project.frameworks]);
-    printSection('Project Info', chalk.green.bold, t.toString());
+    const rows = [
+      { key: 'name', value: data.project.name },
+      { key: 'version', value: data.project.version },
+      ...(data.project.languages ? [{ key: 'languages', value: data.project.languages }] : []),
+      ...(data.project.frameworks ? [{ key: 'frameworks', value: data.project.frameworks }] : []),
+    ];
+    printSection('Project Info', chalk.green.bold, makeKvBlock(rows));
   }
 
-  // --- Configuration ---
-  {
-    const t = newKvTable();
-    for (const r of data.config) t.push([r.key, r.value]);
-    printSection('Configuration', chalk.cyan.bold, t.toString());
-  }
+  // --- Configuration — kv block, no separators ---
+  printSection('Configuration', chalk.cyan.bold, makeKvBlock(data.config));
 
-  // --- Used Models (4 cols: key1, val1, key2, val2) ---
+  // --- Used Models — two stacked sub-blocks (axes / rag) instead of a 4-col
+  // side-by-side that left empty cells when one column was longer. ---
   {
-    const t = newKvTable();
-    const max = Math.max(data.models.length, data.modelsRight?.length ?? 0);
-    const hasRight = (data.modelsRight?.length ?? 0) > 0;
-    for (let i = 0; i < max; i++) {
-      const l = data.models[i];
-      const r = data.modelsRight?.[i];
-      const row = [l?.key ?? '', l?.value ?? ''];
-      if (hasRight) row.push(r?.key ?? '', r?.value ?? '');
-      t.push(row);
+    console.log('');
+    console.log('  ' + chalk.magenta.bold('Used Models'));
+    console.log('  ' + chalk.dim('─'.repeat(14)));
+    if (data.models.length > 0) {
+      console.log('');
+      console.log('  ' + chalk.dim('axes'));
+      console.log(makeKvBlock(data.models));
     }
-    printSection('Used Models', chalk.magenta.bold, t.toString());
+    if (data.modelsRight && data.modelsRight.length > 0) {
+      console.log('');
+      console.log('  ' + chalk.dim('rag'));
+      console.log(makeKvBlock(data.modelsRight));
+    }
   }
 
-  // --- Forecast (decision-grade headlines: files / tokens / cost / time) ---
+  // --- Forecast — decision-grade headlines (files / tokens / cost / time) ---
   {
-    const t = newKvTable();
-    t.push(['files', data.forecast.filesValue]);
-    t.push(['tokens', data.forecast.tokensValue]);
-    t.push(['cost', `$${data.forecast.totalCostUsd.toFixed(2)} total`]);
-    t.push(['time', data.forecast.timeValue]);
-    printSection('Forecast', chalk.yellow.bold, t.toString());
+    const rows = [
+      { key: 'files', value: data.forecast.filesValue },
+      { key: 'tokens', value: data.forecast.tokensValue },
+      { key: 'cost', value: `$${data.forecast.totalCostUsd.toFixed(2)} total` },
+      { key: 'time', value: data.forecast.timeValue },
+    ];
+    printSection('Forecast', chalk.yellow.bold, makeKvBlock(rows));
   }
 
-  // --- Cost breakdown — 4 columns: category, step name, cost (right-aligned), model.
-  // Sorted: axis → summary → embed → doc, then by cost desc within each group.
+  // --- Cost breakdown — grouped by category. Each category is its own
+  // sub-block; within a group, steps are sorted by cost desc. The category
+  // appears once as a sub-title rather than repeating in a column. ---
   {
+    console.log('');
+    console.log('  ' + chalk.yellow.bold('Cost breakdown'));
+    console.log('  ' + chalk.dim('─'.repeat(14)));
+
+    // Group by category, preserving canonical category order.
     const sorted = sortSteps(data.forecast.steps);
-    const t = newKvTable({
-      head: ['category', 'step', 'cost', 'model'],
-      colAligns: ['left', 'left', 'right', 'left'],
-    });
+    const groups = new Map<string, ForecastStep[]>();
     for (const s of sorted) {
-      const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
-      t.push([s.category, s.name, cost, displayModel(s.model)]);
+      if (!groups.has(s.category)) groups.set(s.category, []);
+      groups.get(s.category)!.push(s);
     }
-    printSection('Cost breakdown', chalk.yellow.bold, t.toString());
+
+    for (const [category, items] of groups) {
+      console.log('');
+      console.log('  ' + chalk.dim(category));
+      // 3-col table per group: name / cost (right) / model — separator-less.
+      const t = newTable({ colAligns: ['left', 'right', 'left'] });
+      const names = items.map((s) => s.name || '—').join('\n');
+      const costs = items.map((s) => (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2)).join('\n');
+      const models = items.map((s) => displayModel(s.model)).join('\n');
+      t.push([names, costs, models]);
+      console.log(t.toString());
+    }
   }
 
-  // --- Pipeline Plan ---
+  // --- Pipeline Plan — kv block, no separators (5 phases, separators were
+  // 50% noise vs content). The ✓ marker keeps each phase scannable. ---
   {
-    const t = newKvTable();
-    for (const r of data.pipeline) t.push([chalk.green('✔') + ' ' + r.phase, r.detail]);
-    printSection('Pipeline Plan', chalk.blue.bold, t.toString());
+    const rows = data.pipeline.map((r) => ({
+      key: chalk.green('✔') + ' ' + r.phase,
+      value: r.detail,
+    }));
+    printSection('Pipeline Plan', chalk.blue.bold, makeKvBlock(rows));
   }
 
   console.log('');
