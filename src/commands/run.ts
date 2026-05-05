@@ -288,6 +288,7 @@ export function registerRunCommand(program: Command): void {
           savedPreference,
           cliTierOverride,
           plain: Boolean(parentOpts.plain) || 'NO_COLOR' in process.env || !process.stdout.isTTY,
+          projectRoot,
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
@@ -307,8 +308,17 @@ export function registerRunCommand(program: Command): void {
           const isTTY = process.stdin.isTTY === true;
           let advancedReady = false;
 
+          // If `local-embeddings upgrade` was run earlier, the backend is
+          // already provisioned and validated — skip the download + setup
+          // subprocess entirely.
+          const existingFlag = readEmbeddingsReadyFlag(projectRoot);
+          if (existingFlag?.backend === 'advanced-gguf') {
+            getLogger().info('embeddings-ready.json already set to advanced-gguf — skipping GGUF download + setup');
+            advancedReady = true;
+          }
+
           // GGUF download with retry loop
-          let ggufDone = false;
+          let ggufDone = advancedReady;
           while (!ggufDone) {
             const ggufResult = await runGgufPrefetch({ isTTY, defaultsSettings: useDefaults });
             if (ggufResult.ok) {

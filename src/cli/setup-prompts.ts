@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
-import { GGUF_MIN_VRAM_GB, type HardwareProfile } from '../rag/hardware-detect.js';
+import { GGUF_MIN_VRAM_GB, readEmbeddingsReadyFlag, type HardwareProfile } from '../rag/hardware-detect.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
 import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefetch.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
@@ -31,6 +31,13 @@ export interface WizardOptions {
   cliTierOverride?: boolean;
   /** When true, render text without ANSI styling (Story 49.5). */
   plain?: boolean;
+  /**
+   * Project root used to look up `.anatoly/embeddings-ready.json`. When that
+   * flag file exists (e.g. the user already ran `local-embeddings upgrade`
+   * before any first run), the wizard skips the tier prompt and adopts the
+   * recorded backend.
+   */
+  projectRoot?: string;
 }
 
 export interface WizardResult {
@@ -83,6 +90,26 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   // Non-interactive: CI / pipe / --defaults-settings
   if (opts.defaultsSettings || !opts.isTTY) {
     return { tier: 'lite', mode: 'full-run' };
+  }
+
+  // -----------------------------------------------------------------------
+  // Short-circuit when `.anatoly/embeddings-ready.json` already exists.
+  // Means the user ran `anatoly local-embeddings upgrade` (or the external
+  // tier flow) before any first run — the embedding backend is settled, so
+  // we skip the tier prompt entirely and only ask for audit mode.
+  // -----------------------------------------------------------------------
+  if (opts.projectRoot) {
+    const flag = readEmbeddingsReadyFlag(opts.projectRoot);
+    if (flag?.backend) {
+      const tier: 'lite' | 'advanced' | 'external' =
+        flag.backend === 'advanced-gguf' ? 'advanced'
+          : flag.backend === 'external' ? 'external'
+            : 'lite';
+      getLogger().info({ backend: flag.backend, tier }, 'embeddings-ready.json detected — skipping tier prompt');
+      if (tier === 'external') return { tier, mode: 'full-run' };
+      const mode = await resolveModePrompt(opts.quickWin);
+      return { tier, mode };
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -164,9 +191,12 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
   // -----------------------------------------------------------------------
   // Mode prompt (skipped if --quick-win)
   // -----------------------------------------------------------------------
-  if (opts.quickWin) {
-    return { tier, mode: 'quick-win' };
-  }
+  const mode = await resolveModePrompt(opts.quickWin);
+  return { tier, mode };
+}
+
+async function resolveModePrompt(quickWin: boolean): Promise<'quick-win' | 'full-run'> {
+  if (quickWin) return 'quick-win';
 
   type ModeValue = 'quick-win' | 'full-run';
   const modeChoice = await p.select({
@@ -188,7 +218,7 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
     process.exit(0);
   }
 
-  return { tier, mode: modeChoice as ModeValue };
+  return modeChoice as ModeValue;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
@@ -265,6 +265,81 @@ describe('runFirstRunWizard', () => {
       const result = await runFirstRunWizard(baseOpts({ hardware: capableHardware, quickWin: true }));
       expect(result).toEqual({ tier: 'advanced', mode: 'quick-win' });
       expect(selectMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // AC: When `.anatoly/embeddings-ready.json` already exists (e.g. user ran
+  // `anatoly local-embeddings upgrade` standalone), the wizard skips the tier
+  // prompt and adopts the recorded backend.
+  describe('ready-flag short-circuit', () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'wizard-ready-'));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    function writeReadyFlag(backend: 'advanced-gguf' | 'lite' | 'external'): void {
+      mkdirSync(join(dir, '.anatoly'), { recursive: true });
+      writeFileSync(
+        join(dir, '.anatoly', 'embeddings-ready.json'),
+        JSON.stringify({ backend, device: 'cpu', setup_at: new Date().toISOString() }),
+        'utf-8',
+      );
+    }
+
+    it('skips tier prompt and returns advanced when flag is advanced-gguf', async () => {
+      writeReadyFlag('advanced-gguf');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
+
+      expect(result).toEqual({ tier: 'advanced', mode: 'full-run' });
+      // Only the mode prompt should fire — tier prompt is skipped.
+      expect(selectMock).toHaveBeenCalledTimes(1);
+      expect(selectMock.mock.calls[0]![0].message).toMatch(/audit mode/i);
+    });
+
+    it('skips both prompts and returns external when flag is external', async () => {
+      writeReadyFlag('external');
+
+      const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
+
+      expect(result).toEqual({ tier: 'external', mode: 'full-run' });
+      expect(selectMock).not.toHaveBeenCalled();
+    });
+
+    it('skips tier prompt and returns lite when flag is lite', async () => {
+      writeReadyFlag('lite');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
+
+      expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
+      expect(selectMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls through to normal flow when flag is missing', async () => {
+      // No writeReadyFlag — empty project root.
+      selectMock.mockResolvedValueOnce('lite');
+      selectMock.mockResolvedValueOnce('full-run');
+
+      await runFirstRunWizard(baseOpts({ projectRoot: dir }));
+
+      // Both tier and mode prompts fire.
+      expect(selectMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('honours --quick-win when short-circuiting on advanced flag', async () => {
+      writeReadyFlag('advanced-gguf');
+
+      const result = await runFirstRunWizard(baseOpts({ projectRoot: dir, quickWin: true }));
+
+      expect(result).toEqual({ tier: 'advanced', mode: 'quick-win' });
+      expect(selectMock).not.toHaveBeenCalled();
     });
   });
 
