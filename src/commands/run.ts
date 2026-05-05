@@ -1435,6 +1435,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, ctx.config) })),
     ...(embedWithModels ? { embed: embedWithModels } : {}),
     ...(ctx.enableRag ? { summaryModel: resolveCodeSummaryModel(ctx.config) } : {}),
+    ...(ctx.config.models.deliberation ? { deliberationModel: ctx.config.models.deliberation } : {}),
     ...(docPageCount > 0
       ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
       : {}),

@@ -195,10 +195,10 @@ export function estimateProject(projectRoot: string): EstimateResult {
 
 /**
  * Category bucket for a {@link ForecastStep}. Used both for grouping in the
- * rendered breakdown table and for ordered sorting (axis → summary → embed
- * → doc).
+ * rendered breakdown table and for ordered sorting (axis → deliberation →
+ * summary → embed → internal-doc).
  */
-export type ForecastStepCategory = 'axis' | 'summary' | 'embed' | 'doc';
+export type ForecastStepCategory = 'axis' | 'deliberation' | 'summary' | 'embed' | 'internal-doc';
 
 /**
  * One discrete cost contribution in the forecast — typically one logical
@@ -207,7 +207,7 @@ export type ForecastStepCategory = 'axis' | 'summary' | 'embed' | 'doc';
  *   { category: 'axis',    name: 'correction',  model: 'anthropic/claude-sonnet-4-6', costUsd: 5.20 }
  *   { category: 'summary', name: '',            model: 'anthropic/claude-haiku-4-5',  costUsd: 0.21 }
  *   { category: 'embed',   name: 'code',        model: 'voyage/voyage-code-3',        costUsd: 0.05 }
- *   { category: 'embed',   name: 'nlp',         model: 'local',                       costUsd: 0    }
+ *   { category: 'embed',   name: 'text',        model: 'local',                       costUsd: 0    }
  *   { category: 'doc',     name: 'bootstrap',   model: 'anthropic/claude-opus-4-6',   costUsd: 1.20 }
  *
  * `category` and `name` are kept as separate fields so consumers (display,
@@ -242,9 +242,19 @@ export interface ForecastStep {
 
 /**
  * Canonical category order for sorting steps in the breakdown view.
+ * Roughly chronological in execution: axis review → deliberation refinement
+ * → RAG summary → RAG embeddings → internal-doc generation.
  * Within each category, callers sort by costUsd desc.
  */
-export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> = ['axis', 'summary', 'embed', 'doc'];
+export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> = [
+  'axis', 'deliberation', 'summary', 'embed', 'internal-doc',
+];
+
+/**
+ * Fraction of file-axis pairs the deliberation pass re-evaluates with the
+ * deliberation model. Empirical estimate — refine from observed runs later.
+ */
+export const DELIBERATION_COVERAGE = 0.3;
 
 /**
  * Forecast the LLM and embedding workload for a run, with a $ cost
@@ -347,6 +357,14 @@ export interface ForecastInputs {
    */
   summaryModel?: string;
   /**
+   * Deliberation model id (typically Opus). When set together with
+   * `deliberation: true` and a non-empty axis list, the forecast adds a
+   * `deliberation` step approximated as {@link DELIBERATION_COVERAGE} of
+   * the per-axis token volume costed at the deliberation model rate.
+   * Marked approximate (the real coverage varies by findings ambiguity).
+   */
+  deliberationModel?: string;
+  /**
    * Doc-generation context. When provided, the forecast adds a `doc:*` step
    * sized via the per-page heuristic that models the multi-turn agentic
    * Read-tool conversation: per-page accumulated context becomes cache
@@ -396,7 +414,7 @@ export const DOC_UPDATE_PER_PAGE = {
 } as const;
 
 export function forecastRun(args: ForecastInputs): RunForecast {
-  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, docContext, calibration, concurrency, ragEnabled, deliberation } = args;
+  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, calibration, concurrency, ragEnabled, deliberation } = args;
   const steps: ForecastStep[] = [];
 
   // Per-pass token cost (one axis × all eval files) — `estimateTasksTokens`
@@ -433,6 +451,33 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     });
   }
 
+  // Deliberation step: refinement pass on a fraction of file-axis pairs,
+  // typically with a stronger model (Opus). We approximate as a single step
+  // with DELIBERATION_COVERAGE × per-axis tokens, summed across axes, costed
+  // at the deliberation model rate. Marked approximate — real coverage
+  // depends on how many findings the axes flag as ambiguous.
+  if (deliberation && deliberationModel && axes.length > 0 && E > 0) {
+    const ratio = DELIBERATION_COVERAGE;
+    const delibInput = Math.round(freshInputPerAxis * axes.length * ratio);
+    const delibOutput = Math.round(perPassOutput * axes.length * ratio);
+    const delibCacheRead = Math.round(cacheReadSystemPerAxis * axes.length * ratio);
+    const delibCacheCreation = Math.round(cacheCreationSystemPerAxis * axes.length * ratio);
+    steps.push({
+      category: 'deliberation',
+      name: '',
+      model: deliberationModel,
+      inputTokens: delibInput,
+      outputTokens: delibOutput,
+      cacheReadTokens: delibCacheRead,
+      cacheCreationTokens: delibCacheCreation,
+      costUsd: calculateCost(deliberationModel, delibInput, delibOutput, projectRoot, {
+        read: delibCacheRead,
+        creation: delibCacheCreation,
+      }),
+      approximate: true,
+    });
+  }
+
   // NLP summarizer: one LLM call per file with functions, no cache modeling
   // (system prompt does benefit from caching across files in reality, but the
   // approximation is good enough — the call dominates on file content not
@@ -450,8 +495,11 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     });
   }
 
-  // Embed steps — one per axis (code, nlp). Surfaced even when local so the
-  // user sees the work; cost is 0 when models have no pricing entry.
+  // Embed steps — one per axis (code, text). Surfaced even when local so the
+  // user sees the work; cost is 0 when models have no pricing entry. The
+  // public step name is `text` (matches the v3 config schema's
+  // routing.embeddings.text); internal token fields stay `nlp*` because they
+  // come from upstream pricing registries that haven't migrated yet.
   if (embed && embed.codeTokens > 0) {
     const cost = embed.codeModel
       ? calculateCost(embed.codeModel, embed.codeTokens, 0, projectRoot)
@@ -471,7 +519,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       : 0;
     steps.push({
       category: 'embed',
-      name: 'nlp',
+      name: 'text',
       model: embed.nlpModel ?? 'local',
       inputTokens: embed.nlpTokens,
       outputTokens: 0,
@@ -479,7 +527,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     });
   }
 
-  // Doc-generation: heuristic per-page cost that models the multi-turn
+  // Internal-doc generation: heuristic per-page cost that models the multi-turn
   // agentic conversation with prompt caching. See DOC_*_PER_PAGE jsdoc for
   // the breakdown. Marked `approximate: true` so display can prefix `~`.
   if (docContext && docContext.pageCount > 0) {
@@ -489,7 +537,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     const docCacheCreation = docContext.pageCount * c.cacheCreation;
     const docOutput = docContext.pageCount * c.output;
     steps.push({
-      category: 'doc',
+      category: 'internal-doc',
       name: docContext.mode,
       model: docContext.scaffoldingModel,
       inputTokens: docFresh,

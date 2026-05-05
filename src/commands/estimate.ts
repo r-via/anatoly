@@ -22,7 +22,6 @@ import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type R
 import { countChangedDocs } from '../rag/doc-indexer.js';
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
-import { printBanner } from '../utils/banner.js';
 import { shortModelName } from '../cli/setup-table.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -197,10 +196,22 @@ function renderEstimateView(data: EstimateViewData): void {
 
     for (const [category, items] of groups) {
       console.log('');
+      // Single-entry category with no sub-name (e.g. summary) reads better
+      // inline: the category title carries the cost+model directly, no
+      // empty-name placeholder row needed.
+      const isSingleton = items.length === 1 && items[0].name === '';
+      if (isSingleton) {
+        const s = items[0];
+        const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
+        const t = newTable({ colAligns: ['left', 'right', 'left'] });
+        t.push([chalk.dim(category), cost, displayModel(s.model)]);
+        console.log(t.toString());
+        continue;
+      }
       console.log('  ' + chalk.dim(category));
       // 3-col table per group: name / cost (right) / model — separator-less.
       const t = newTable({ colAligns: ['left', 'right', 'left'] });
-      const names = items.map((s) => s.name || '—').join('\n');
+      const names = items.map((s) => s.name).join('\n');
       const costs = items.map((s) => (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2)).join('\n');
       const models = items.map((s) => displayModel(s.model)).join('\n');
       t.push([names, costs, models]);
@@ -208,14 +219,14 @@ function renderEstimateView(data: EstimateViewData): void {
     }
   }
 
-  // --- Pipeline Plan — kv block, no separators (5 phases, separators were
-  // 50% noise vs content). The ✓ marker keeps each phase scannable. ---
+  // --- Pipeline Plan — kv block, no separators, no checkmarks (the
+  // section is already framed by its title; ✓ marks added clutter without
+  // information). 'source files' / 'triage' rows are intentionally omitted
+  // — their data is already in the Forecast `files` line. ---
   {
-    const rows = data.pipeline.map((r) => ({
-      key: chalk.green('✔') + ' ' + r.phase,
-      value: r.detail,
-    }));
-    printSection('Pipeline Plan', chalk.blue.bold, makeKvBlock(rows));
+    printSection('Pipeline Plan', chalk.blue.bold, makeKvBlock(
+      data.pipeline.map((r) => ({ key: r.phase, value: r.detail })),
+    ));
   }
 
   console.log('');
@@ -321,9 +332,9 @@ export function registerEstimateCommand(program: Command): void {
         strict: true,
       });
 
-      // Banner is purely decorative — suppress in --json mode so stdout
-      // contains only the JSON payload (logs already go to stderr via pino).
-      if (!jsonMode) printBanner();
+      // No banner: `estimate` is a pure forecast view — the ASCII banner
+      // adds vertical noise above the actually useful content. (Banner stays
+      // on `anatoly run` where it marks the start of a long-running session.)
 
       // Auto-scan if no tasks directory exists
       const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
@@ -379,11 +390,11 @@ export function registerEstimateCommand(program: Command): void {
       const modelsRight: { key: string; value: string }[] = [];
       if (enableRag) {
         if (resolvedRagSuffix === 'advanced') {
-          modelsRight.push({ key: 'embeddings/code', value: 'nomic-embed-code Q5_K_M' });
-          modelsRight.push({ key: 'embeddings/nlp', value: 'Qwen3-8B Q5_K_M' });
+          modelsRight.push({ key: 'code', value: 'nomic-embed-code Q5_K_M' });
+          modelsRight.push({ key: 'text', value: 'Qwen3-8B Q5_K_M' });
         } else {
-          modelsRight.push({ key: 'embeddings/code', value: 'jina-v2 768d' });
-          modelsRight.push({ key: 'embeddings/nlp', value: 'MiniLM-L6 384d' });
+          modelsRight.push({ key: 'code', value: 'jina-v2 768d' });
+          modelsRight.push({ key: 'text', value: 'MiniLM-L6 384d' });
         }
         modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
         modelsRight.push({ key: 'summarization', value: shortModelName(resolveCodeSummaryModel(config)) });
@@ -393,20 +404,11 @@ export function registerEstimateCommand(program: Command): void {
       const pipelineRows: { phase: string; detail: string }[] = [];
       const allTasks = loadTasks(projectRoot);
 
-      // scan
+      // Cached/new file counts — surfaced in the JSON payload's plan.scan
+      // section. Not rendered as a pipeline row (the total file count is
+      // already in the Forecast `files` line).
       const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
       const progress = readProgress(progressPath);
-      let scanDetail = `${allTasks.length} files`;
-      if (progress) {
-        // Count how many current tasks have a cached/done progress entry
-        const cached = allTasks.filter(t => {
-          const entry = progress.files[t.file];
-          return entry && (entry.status === 'CACHED' || entry.status === 'DONE');
-        }).length;
-        const pending = allTasks.length - cached;
-        scanDetail = `${allTasks.length} files (${pending} new, ${cached} cached)`;
-      }
-      pipelineRows.push({ phase: 'source files', detail: scanDetail });
       let docScanProject: ReturnType<typeof countChangedDocs> = null;
       let docScanInternal: ReturnType<typeof countChangedDocs> = null;
       if (enableRag) {
@@ -425,7 +427,8 @@ export function registerEstimateCommand(program: Command): void {
         const result = triageFile(task, source);
         tiers[result.tier]++;
       }
-      pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });
+      // No 'triage' row: 'evaluate / skipped' is already shown in the
+      // Forecast `files` line (e.g. '12 of 15 (3 skipped by triage)').
 
       // rag (merged structural counts: files indexed + functions + chunks)
       let embedForecast: ReturnType<typeof estimateEmbedTokens> | undefined;
@@ -498,6 +501,7 @@ export function registerEstimateCommand(program: Command): void {
         axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
         ...(embedWithModels ? { embed: embedWithModels } : {}),
         ...(enableRag ? { summaryModel: resolveCodeSummaryModel(config) } : {}),
+        ...(config.models.deliberation ? { deliberationModel: config.models.deliberation } : {}),
         ...(docPageCount > 0
           ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
           : {}),
