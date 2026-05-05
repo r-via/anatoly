@@ -51,13 +51,13 @@ export const AXIS_RAG_CONTEXT_TOKENS_PER_FILE = 6000;
  * the cost correctly per step.
  */
 export const AXIS_OUTPUT_MULTIPLIERS: Record<string, number> = {
-  best_practices: 2.7,
-  correction: 1.25,
-  duplication: 0.71,
-  overengineering: 0.43,
-  documentation: 0.25,
-  utility: 0.19,
-  tests: 0.11,
+  best_practices: 3.36,
+  correction: 1.56,
+  duplication: 0.88,
+  overengineering: 0.54,
+  documentation: 0.31,
+  utility: 0.24,
+  tests: 0.14,
 };
 
 /**
