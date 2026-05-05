@@ -32,6 +32,35 @@ const OUTPUT_BASE_PER_FILE = 1500;
 export const AXIS_RAG_CONTEXT_TOKENS_PER_FILE = 6000;
 
 /**
+ * Per-axis output verbosity multipliers, applied on top of the baseline
+ * `perPassOutput` (1500 base + 400 per symbol). Calibrated empirically from
+ * R3 v2 actuals on the slot-engine bench (12 files, 7 axes, real per-call
+ * token counts captured after the snake_case bug fix in the Anthropic
+ * transport).
+ *
+ * Why per-axis: best_practices and correction emit long structured
+ * findings (multi-paragraph rationale + suggestions per violation), while
+ * tests and utility emit terse outputs (one-line dead-code calls or
+ * pass/fail-style verdicts). Without these multipliers the estimator gave
+ * a uniform $0.72/axis prediction that masked a 23× spread in real per-axis
+ * cost ($2.30 best_practices vs $0.04 utility on R3).
+ *
+ * Multipliers are normalized so they roughly average to 1.0 across the 7
+ * default axes (sum ≈ 5.6/7), keeping the total-output forecast aligned
+ * with R3 actuals (~188K vs 226K predicted = 1.2× over) while distributing
+ * the cost correctly per step.
+ */
+export const AXIS_OUTPUT_MULTIPLIERS: Record<string, number> = {
+  best_practices: 2.7,
+  correction: 1.25,
+  duplication: 0.71,
+  overengineering: 0.43,
+  documentation: 0.25,
+  utility: 0.19,
+  tests: 0.11,
+};
+
+/**
  * Weighted time estimation constants (axis pipeline).
  * BASE_SECONDS covers fixed overhead (file read, prompt assembly, RAG pre-resolution).
  * SECONDS_PER_SYMBOL accounts for LLM output tokens scaling with symbol count.
@@ -512,7 +541,9 @@ export function forecastRun(args: ForecastInputs): RunForecast {
   const cacheCreationSystemPerAxis = E > 0 ? SYSTEM_PROMPT_TOKENS : 0;
 
   for (const axis of axes) {
-    const cost = calculateCost(axis.model, freshInputPerAxis, perPassOutput, projectRoot, {
+    const outputMultiplier = AXIS_OUTPUT_MULTIPLIERS[axis.id] ?? 1.0;
+    const axisOutput = Math.round(perPassOutput * outputMultiplier);
+    const cost = calculateCost(axis.model, freshInputPerAxis, axisOutput, projectRoot, {
       read: cacheReadSystemPerAxis,
       creation: cacheCreationSystemPerAxis,
     });
@@ -522,7 +553,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       model: axis.model,
       billingMode: resolveBillingMode(axis.model),
       inputTokens: freshInputPerAxis,
-      outputTokens: perPassOutput,
+      outputTokens: axisOutput,
       cacheReadTokens: cacheReadSystemPerAxis,
       cacheCreationTokens: cacheCreationSystemPerAxis,
       costUsd: cost,
