@@ -369,10 +369,10 @@ describe('AnthropicTransport — SDK usage extraction', () => {
       abortController: new AbortController(),
     });
 
-    expect(response.inputTokens).toBe(0);
-    expect(response.outputTokens).toBe(0);
-    expect(response.cacheReadTokens).toBe(0);
-    expect(response.cacheCreationTokens).toBe(0);
+    expect(response.inputTokens).toBe(100);
+    expect(response.outputTokens).toBe(200);
+    expect(response.cacheReadTokens).toBe(1500);
+    expect(response.cacheCreationTokens).toBe(50);
     expect(response.costUsd).toBe(0.005);
   });
 });

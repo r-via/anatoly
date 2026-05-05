@@ -201,11 +201,28 @@ export class AnthropicTransport implements LlmTransport {
             sessionId = success.session_id;
 
             if (success.usage) {
-              const u = success.usage;
-              inputTokens += u.inputTokens ?? 0;
-              outputTokens += u.outputTokens ?? 0;
-              cacheReadTokens += u.cacheReadInputTokens ?? 0;
-              cacheCreationTokens += u.cacheCreationInputTokens ?? 0;
+              // The Claude Agent SDK's `NonNullableUsage` is derived from the
+              // upstream `BetaUsage` type, which mirrors the Anthropic API and
+              // uses snake_case keys (`input_tokens`, `output_tokens`, …). The
+              // prior camelCase reads silently fell through to `?? 0` on every
+              // call, which is why every entry in `llm-calls.ndjson` and the
+              // run-metrics axisStats reported 0 tokens despite a non-zero
+              // costUsd. Fall back to camelCase shapes only as a defensive
+              // path in case a future SDK version normalizes the keys.
+              const u = success.usage as unknown as {
+                input_tokens?: number;
+                output_tokens?: number;
+                cache_read_input_tokens?: number;
+                cache_creation_input_tokens?: number;
+                inputTokens?: number;
+                outputTokens?: number;
+                cacheReadInputTokens?: number;
+                cacheCreationInputTokens?: number;
+              };
+              inputTokens += u.input_tokens ?? u.inputTokens ?? 0;
+              outputTokens += u.output_tokens ?? u.outputTokens ?? 0;
+              cacheReadTokens += u.cache_read_input_tokens ?? u.cacheReadInputTokens ?? 0;
+              cacheCreationTokens += u.cache_creation_input_tokens ?? u.cacheCreationInputTokens ?? 0;
             }
 
             // Prefer the SDK's precise cost (accounts for cache discount and
