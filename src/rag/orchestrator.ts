@@ -68,6 +68,11 @@ export interface RagIndexOptions {
   router?: TransportRouter;
   /** When set, scopes --rebuild-rag to only purge entries matching this glob (instead of dropping the entire table). */
   fileFilter?: string;
+  /** Auto-drop the LanceDB table when stored vector dimensions don't match
+   *  the active embedding model. Default true — leaving stale dims in place
+   *  silently corrupts search ranking. Sourced from
+   *  `runtime.rag.rebuild_on_drift` in .anatoly.yml. */
+  rebuildOnDrift?: boolean;
 }
 
 /**
@@ -325,7 +330,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     configureModels(options.resolvedModels);
   }
 
-  const store = new VectorStore(projectRoot, tableName, onLog);
+  const store = new VectorStore(projectRoot, tableName, onLog, options.rebuildOnDrift ?? true);
   await store.init();
 
   if (rebuild && options.fileFilter) {

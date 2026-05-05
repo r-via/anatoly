@@ -393,8 +393,15 @@ describe('RuntimeConfigSchema', () => {
     expect(r.concurrency).toBe(8);
     expect(r.agents.max_turns).toBe(30);
     expect(r.rag.code_share).toBe(0.6);
+    expect(r.rag.rebuild_on_drift).toBe(true);
     expect(r.logging.level).toBe('warn');
     expect(r.logging.pretty).toBe(true);
+  });
+
+  it('honours an explicit rebuild_on_drift override', () => {
+    const r = RuntimeConfigSchema.parse({ rag: { rebuild_on_drift: false } });
+    expect(r.rag.rebuild_on_drift).toBe(false);
+    expect(r.rag.code_share).toBe(0.6);
   });
 
   it('rejects code_share outside [0,1]', () => {

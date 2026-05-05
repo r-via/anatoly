@@ -2,8 +2,12 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect } from 'vitest';
-import { sanitizeId, sanitizeFilePath } from './vector-store.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { connect } from '@lancedb/lancedb';
+import { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
 
 describe('sanitizeId', () => {
   it('accepts a valid 16-char hex string', () => {
@@ -46,5 +50,102 @@ describe('sanitizeFilePath', () => {
 
   it('handles SQL injection attempt in file path', () => {
     expect(sanitizeFilePath("'; DROP TABLE cards; --")).toBe("''; DROP TABLE cards; --");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dimension drift handling — integration tests against a real LanceDB store
+// ---------------------------------------------------------------------------
+
+describe('VectorStore — dimension drift', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'vs-drift-'));
+    dbPath = join(dir, '.anatoly', 'rag', 'lancedb');
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Seed a `function_cards` table with one row whose vector dimensions are
+   * supplied by the caller. Used to fabricate drift relative to the current
+   * `getCodeDim()` / `getNlpDim()` (which default to 768 / 384).
+   */
+  async function seedTable(codeDim: number, nlpDim: number): Promise<void> {
+    mkdirSync(dbPath, { recursive: true });
+    const db = await connect(dbPath);
+    await db.createTable('function_cards', [{
+      id: 'aaaaaaaaaaaaaaaa',
+      filePath: 'src/foo.ts',
+      name: 'foo',
+      summary: '',
+      docSummary: '',
+      keyConcepts: '[]',
+      signature: '',
+      behavioralProfile: '',
+      complexityScore: 0,
+      calledInternals: '[]',
+      lastIndexed: '2024-01-01',
+      vector: new Array(codeDim).fill(0.1),
+      nlp_vector: new Array(nlpDim).fill(0.2),
+      doc_vector: new Array(nlpDim).fill(0),
+      type: 'function',
+      source: '',
+    }]);
+  }
+
+  async function listTables(): Promise<string[]> {
+    const db = await connect(dbPath);
+    return db.tableNames();
+  }
+
+  it('drops the table when stored dim differs from active dim and rebuildOnDrift=true', async () => {
+    // Default getCodeDim()=768, getNlpDim()=384 → seed with 1024 to force drift.
+    await seedTable(1024, 1024);
+    expect(await listTables()).toContain('function_cards');
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (msg) => logs.push(msg), true);
+    await store.init();
+
+    expect(await listTables()).not.toContain('function_cards');
+    expect(logs.some((m) => m.includes('drift detected') && m.includes('auto-rebuilding'))).toBe(true);
+  });
+
+  it('preserves the table when rebuildOnDrift=false (warn-only legacy behavior)', async () => {
+    await seedTable(1024, 1024);
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (msg) => logs.push(msg), false);
+    await store.init();
+
+    expect(await listTables()).toContain('function_cards');
+    expect(logs.some((m) => m.includes('drift detected') && m.includes("'anatoly run --rebuild-rag'"))).toBe(true);
+  });
+
+  it('preserves the table when no drift (dims match active model)', async () => {
+    // 768/384 are the defaults from MODEL_REGISTRY for the lite tier.
+    await seedTable(768, 384);
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (msg) => logs.push(msg), true);
+    await store.init();
+
+    expect(await listTables()).toContain('function_cards');
+    expect(logs.some((m) => m.includes('drift detected'))).toBe(false);
+  });
+
+  it('defaults rebuildOnDrift to false when constructor arg is omitted', async () => {
+    await seedTable(1024, 1024);
+
+    const store = new VectorStore(dir);
+    await store.init();
+
+    // No opt-in → table preserved.
+    expect(await listTables()).toContain('function_cards');
   });
 });

@@ -303,6 +303,13 @@ export const RagRuntimeSchema = z.object({
   /** Share of the code-embedding score in the hybrid search ranking (0..1).
    *  text_share is implicitly `1 - code_share`. */
   code_share: z.number().min(0).max(1).default(0.6),
+  /** When the LanceDB table holds vectors of a different dimension than the
+   *  active embedding model produces (e.g. user switched backend or the model
+   *  registry was updated), drop and recreate the table on the next indexing
+   *  run instead of warning and continuing with mismatched data. Default
+   *  true — leaving stale dims in place produces silently-wrong search
+   *  results downstream, so auto-healing is the safer default. */
+  rebuild_on_drift: z.boolean().default(true),
 });
 
 export const OutputRuntimeSchema = z.object({
@@ -329,7 +336,7 @@ export const RuntimeConfigSchema = z.object({
   /** Hard cap on hook-mode self-iteration loops. */
   max_stop_iterations: z.int().min(1).max(10).default(3),
   agents: AgentsRuntimeSchema.default({ max_turns: 30 }),
-  rag: RagRuntimeSchema.default({ code_share: 0.6 }),
+  rag: RagRuntimeSchema.default({ code_share: 0.6, rebuild_on_drift: true }),
   output: OutputRuntimeSchema.default({}),
   logging: LoggingRuntimeSchema.default({ level: 'warn', pretty: true }),
 });
@@ -382,7 +389,7 @@ const PreConfigSchema = z.object({
     min_confidence: 70,
     max_stop_iterations: 3,
     agents: { max_turns: 30 },
-    rag: { code_share: 0.6 },
+    rag: { code_share: 0.6, rebuild_on_drift: true },
     output: {},
     logging: { level: 'warn', pretty: true },
   }),

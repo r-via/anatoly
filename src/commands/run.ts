@@ -2049,6 +2049,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       projectRoot: ctx.projectRoot,
       tasks,
       rebuild: ctx.rebuildRag,
+      rebuildOnDrift: getV3Source(ctx.config)?.runtime.rag.rebuild_on_drift ?? true,
       concurrency: ctx.concurrency,
       verbose: ctx.verbose,
       indexModel,

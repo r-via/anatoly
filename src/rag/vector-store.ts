@@ -79,21 +79,34 @@ export interface UpsertOptions {
  * @param projectRoot - Absolute path to the project root.
  * @param tableName - LanceDB table name (default: `'function_cards'`).
  * @param onLog - Optional logging callback for diagnostic messages.
+ * @param rebuildOnDrift - When true, drop and recreate the table during
+ *        `init()` if the stored vector dimension does not match the active
+ *        embedding model's dimension. Default `false` so utility commands
+ *        (rag-status, reset, docs) that don't call `configureModels()` can
+ *        open the existing table without nuking it; the indexing path
+ *        opts in via the runtime config.
  */
 export class VectorStore {
   private dbPath: string;
   private projectRoot: string;
   private tableName: string;
+  private rebuildOnDrift: boolean;
   private db: Connection | null = null;
   private table: Table | null = null;
   private onLog: (message: string) => void = () => {};
   private _cachedCodeDim: number | undefined;
   private _cachedNlpDim: number | undefined;
 
-  constructor(projectRoot: string, tableName?: string, onLog?: (message: string) => void) {
+  constructor(
+    projectRoot: string,
+    tableName?: string,
+    onLog?: (message: string) => void,
+    rebuildOnDrift?: boolean,
+  ) {
     this.projectRoot = projectRoot;
     this.tableName = tableName ?? DEFAULT_TABLE_NAME;
     this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+    this.rebuildOnDrift = rebuildOnDrift ?? false;
     if (onLog) this.onLog = onLog;
   }
 
@@ -108,28 +121,40 @@ export class VectorStore {
     if (tableNames.includes(this.tableName)) {
       this.table = await this.db.openTable(this.tableName);
 
-      // Detect dimension mismatches between stored and current models
+      // Detect dimension mismatches between stored vectors and the active
+      // embedding model. When `rebuildOnDrift` is set, the table is dropped
+      // and re-created on the next upsert; otherwise we warn and continue
+      // (the user has to run `anatoly run --rebuild-rag` themselves).
       try {
         const sample = await this.table.query().limit(1).toArray();
         if (sample.length > 0) {
-          // Cache and warn if stored code vector dimension doesn't match current model
           const storedCodeDim = toNumberArray(sample[0].vector).length;
           if (storedCodeDim > 0) this._cachedCodeDim = storedCodeDim;
           const expectedCodeDim = getCodeDim();
-          if (storedCodeDim > 0 && storedCodeDim !== expectedCodeDim) {
-            this.onLog(`⚠️ dimension mismatch: stored code vectors are ${storedCodeDim}-dim but current model expects ${expectedCodeDim}-dim — run 'anatoly rag-index --rebuild' to fix`);
-          }
+          const codeDrift = storedCodeDim > 0 && storedCodeDim !== expectedCodeDim;
 
+          let nlpDrift = false;
+          let storedNlpDim = 0;
+          let expectedNlpDim = 0;
           if ('nlp_vector' in sample[0]) {
             const nlpVec = toNumberArray(sample[0].nlp_vector);
             if (nlpVec.length > 0 && nlpVec.some((v) => v !== 0)) {
               this._cachedNlpDim = nlpVec.length;
-              // Warn if stored NLP vector dimension doesn't match current model
-              const expectedNlpDim = getNlpDim();
-              if (nlpVec.length !== expectedNlpDim) {
-                this.onLog(`⚠️ dimension mismatch: stored NLP vectors are ${nlpVec.length}-dim but current model expects ${expectedNlpDim}-dim — run 'anatoly rag-index --rebuild' to fix`);
-              }
+              storedNlpDim = nlpVec.length;
+              expectedNlpDim = getNlpDim();
+              nlpDrift = nlpVec.length !== expectedNlpDim;
             }
+          }
+
+          if (codeDrift || nlpDrift) {
+            await this.handleDimDrift({
+              codeDrift,
+              storedCodeDim,
+              expectedCodeDim,
+              nlpDrift,
+              storedNlpDim,
+              expectedNlpDim,
+            });
           }
 
           if (!('doc_vector' in sample[0])) {
@@ -139,6 +164,44 @@ export class VectorStore {
       } catch {
         // Table may be empty or have unexpected schema — proceed normally
       }
+    }
+  }
+
+  /**
+   * Resolve a detected dimension mismatch. With `rebuildOnDrift` enabled the
+   * stale table is dropped and the local state reset; subsequent operations
+   * recreate it fresh against the new embedding dimensions. Otherwise the
+   * legacy warn-and-continue behaviour is preserved.
+   */
+  private async handleDimDrift(info: {
+    codeDrift: boolean;
+    storedCodeDim: number;
+    expectedCodeDim: number;
+    nlpDrift: boolean;
+    storedNlpDim: number;
+    expectedNlpDim: number;
+  }): Promise<void> {
+    const parts: string[] = [];
+    if (info.codeDrift) {
+      parts.push(`code ${info.storedCodeDim}d → ${info.expectedCodeDim}d`);
+    }
+    if (info.nlpDrift) {
+      parts.push(`nlp ${info.storedNlpDim}d → ${info.expectedNlpDim}d`);
+    }
+    const summary = parts.join(', ');
+
+    if (this.rebuildOnDrift) {
+      this.onLog(`embedding dim drift detected (${summary}) — auto-rebuilding LanceDB table (set runtime.rag.rebuild_on_drift to false in .anatoly.yml to keep stale data)`);
+      try {
+        await this.db!.dropTable(this.tableName);
+      } catch {
+        // Table may have been dropped concurrently — ignore.
+      }
+      this.table = null;
+      this._cachedCodeDim = undefined;
+      this._cachedNlpDim = undefined;
+    } else {
+      this.onLog(`⚠️ embedding dim drift detected (${summary}) — run 'anatoly run --rebuild-rag' to fix, or set runtime.rag.rebuild_on_drift: true in .anatoly.yml for auto-healing`);
     }
   }
 
