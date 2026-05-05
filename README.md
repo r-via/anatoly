@@ -209,7 +209,8 @@ npx anatoly watch                # Daemon mode: initial scan + incremental re-re
 
 # Individual phases
 npx anatoly scan                 # Parse AST + compute SHA-256 hashes
-npx anatoly estimate             # Estimate token cost (local, no API calls)
+npx anatoly estimate             # Pre-run forecast: tokens, cost, time + per-step breakdown (no API calls)
+npx anatoly estimate --json      # Same forecast, machine-readable JSON to stdout
 npx anatoly review               # Run Claude agent on pending files
 npx anatoly report               # Aggregate reviews → report.md
 

@@ -35,8 +35,9 @@ Restrict the audit scope to files matching a glob pattern. When used with `run`,
 ```bash
 anatoly run --file "src/core/**"
 anatoly run --file "src/commands/run.ts"
-anatoly estimate --file "src/rag/**"
 ```
+
+`--file` is supported by the `run` and `watch` commands. `anatoly estimate` always projects the full configured scan; for a JSON view of the same data, use `anatoly estimate --json`.
 
 ---
 

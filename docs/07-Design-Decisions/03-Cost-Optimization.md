@@ -65,16 +65,33 @@ The estimator (`src/core/estimator.ts`) uses `tiktoken` (cl100k_base encoding) t
 - **Output tokens per file:** base per file (300 tokens) + per-symbol output (150 tokens per symbol)
 - **Time estimation:** base seconds per file (4s) + per-symbol time (0.8s per symbol), adjusted for concurrency efficiency (75%)
 
-This runs via `anatoly estimate` with zero API calls, giving users a clear picture before they commit:
+This runs via `anatoly estimate` with zero API calls, giving users a clear picture before they commit. The rendered view splits the projection into a per-step Cost breakdown (one row per axis, deliberation, summary, embedding, internal-doc) and a Forecast headline:
 
 ```
-Files: 187 (evaluate: 142, skip: 45)
-Symbols: 1,247
-Input tokens: ~2.1M
-Output tokens: ~340K
-Estimated time: ~12 min (at concurrency 5)
-Estimated calls: 852
+  Cost breakdown
+  ──────────────
+  category       step              cost   mode           model
+  axis           correction       $0.15   subscription   anthropic/claude-sonnet-4-6
+                 utility          $0.05   subscription   anthropic/claude-haiku-4-5
+                 ...
+  deliberation                   ~$0.53   subscription   anthropic/claude-opus-4-6
+  summary                         $0.02   subscription   anthropic/claude-haiku-4-5
+  embed          code             $0.00   local          jina-v2 768d (local)
+                 text             $0.00   local          MiniLM-L6 384d (local)
+  internal-doc   bootstrap       ~$0.53   subscription   anthropic/claude-sonnet-4-6
+
+  total billed                    $0.00
+  consumption                    ~$1.93
+
+  Forecast
+  ──────────────
+  files    12 of 15  (3 skipped by triage)
+  tokens   ~64K in / ~113K out + ~6K embed
+  cost     $0 in subscription mode  (ensure quota for ~$1.93)
+  time     ~10m  (default)
 ```
+
+The `mode` column distinguishes work covered by an OAuth subscription (`subscription` — you pay nothing, the cost is informative quota magnitude) from real per-token API spending (`api`) and free local runtimes (`local`). Two totals close the breakdown: `total billed` (what comes out of your pocket) versus `consumption` (the API equivalent — useful for sizing your subscription quota). For programmatic consumers, `anatoly estimate --json` emits the same data as a versioned JSON payload (`schemaVersion: 1`).
 
 ### Model tiering
 

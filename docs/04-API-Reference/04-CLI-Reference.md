@@ -78,11 +78,14 @@ anatoly scan
 
 ### `estimate`
 
-Prints the startup summary table without making any LLM calls. Auto-scans if no tasks exist, detects the project profile, resolves RAG modes, and displays a calibrated ETA.
+Pre-run forecast: tokens, dollars, and wall-clock time the next `anatoly run` will consume — no LLM calls (token counts via tiktoken, costs from the on-disk pricing cache, ETA from calibrated medians). Auto-scans if no prior task cache exists.
 
 ```bash
-anatoly estimate
+anatoly estimate          # rendered table (Project Info → Configuration → Cost breakdown → Forecast)
+anatoly estimate --json   # versioned JSON payload to stdout (schemaVersion: 1)
 ```
+
+The rendered view shows a per-step Cost breakdown with a `mode` column (`subscription` / `api` / `local`) and two totals — `billed` (what you actually pay) and `consumption` (pay-per-token equivalent). The Forecast section ends with a mode-aware cost line that distinguishes OAuth-covered work from real API spending. See [`docs/03-CLI-Reference/01-Commands.md#estimate`](../03-CLI-Reference/01-Commands.md#estimate) for the full schema and an example payload.
 
 ---
 

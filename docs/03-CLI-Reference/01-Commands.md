@@ -101,35 +101,127 @@ anatoly scan --config custom.yml
 
 ## estimate
 
-Estimate token counts and review wall-clock time via tiktoken. Makes no LLM calls. If no prior scan exists, runs an automatic scan first.
+Pre-run forecast — what the next `anatoly run` will cost in tokens, dollars, and wall-clock time. Makes **no LLM calls**: token counts come from tiktoken, costs from the on-disk pricing cache (litellm + OpenRouter), and the per-axis time estimate uses calibrated medians from past runs. If no prior scan exists, runs an automatic scan first.
 
 ```
-anatoly estimate
+anatoly estimate [--json]
 ```
 
 ### Options
 
-No command-specific options.
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit a machine-readable JSON payload to stdout instead of the rendered table (logs go to stderr, banner suppressed). Schema versioned via `schemaVersion: 1`. |
 
-### Output
+### Output sections
+
+The rendered view is built bottom-up — the verdict (Forecast) sits last so the user's eye lands on it next to the prompt.
+
+**Project Info** — name, version, detected languages, frameworks.
+
+**Configuration** — runtime settings + indexing scope merged together. The `rag` line carries the mode and the indexing breadth (e.g. `lite — 8 files · 17 fns · 34 chunks`); the `docs` line shows whether this is a first-run bootstrap or an incremental update.
+
+**Cost breakdown** — one row per pipeline step that hits the LLM (or embedding API), grouped by category (`axis` → `deliberation` → `summary` → `embed` → `internal-doc`) and sorted by cost desc within each group. Five columns:
+
+| Column | Meaning |
+|--------|---------|
+| `category` | Pipeline phase. Empty on consecutive rows of the same group (visual grouping). |
+| `step` | Sub-identifier (axis name like `correction`, embed `code`/`text`, doc `bootstrap`/`update`). |
+| `cost` | Pay-per-token equivalent for this step. Prefixed `~` when the value comes from a heuristic (doc, deliberation). |
+| `mode` | `subscription` (covered by Claude Code OAuth — you don't pay this), `api` (real per-token bill), `local` (free local runtime). |
+| `model` | Resolved model id; local embeddings get a friendly label (e.g. `jina-v2 768d (local)`). |
+
+Two totals close the breakdown:
+- `total billed` — sum of `api`-mode rows: what you actually pay.
+- `consumption` — sum of all rows: the API equivalent magnitude (informative when subscription covers it).
+
+**Forecast** — decision-grade headlines that recap what's above:
+- `files` (X of Y, with skipped count)
+- `tokens` (in / out + embed)
+- `cost` — billed amount with mode-aware suffix:
+  - `$0 in subscription mode (ensure quota for ~$X)` when fully covered
+  - `$X in consumption mode` when fully API-billed
+  - `$X billed (~$Y consumption equivalent)` for mixed setups
+- `time` (calibrated ETA)
+
+### Example — slot-engine project on Claude Code subscription
 
 ```
-anatoly -- estimate
+  Project Info
+  ──────────────
+  name        slot-engine
+  version     0.1.0
+  languages   TypeScript 72% · JSON 28%
 
-  files        128
-  symbols      1024
-  est. tokens  2.4M input / 480K output
-  est. time    ~12 min (x4)
+  Configuration
+  ──────────────
+  concurrency   8 files · 24 Claude slots
+  cache         on
+  rag           lite — 8 files · 17 fns · 34 chunks
+  docs          first run (bootstrap)
+
+  Cost breakdown
+  ──────────────
+  category       step                cost   mode           model
+  axis           correction         $0.15   subscription   anthropic/claude-sonnet-4-6
+                 overengineering    $0.15   subscription   anthropic/claude-sonnet-4-6
+                 ...
+  deliberation                     ~$0.53   subscription   anthropic/claude-opus-4-6
+  summary                           $0.02   subscription   anthropic/claude-haiku-4-5
+  embed          code               $0.00   local          jina-v2 768d (local)
+                 text               $0.00   local          MiniLM-L6 384d (local)
+  internal-doc   bootstrap         ~$0.53   subscription   anthropic/claude-sonnet-4-6
+
+  total billed                      $0.00
+  consumption                      ~$1.93
+
+  Forecast
+  ──────────────
+  files    12 of 15  (3 skipped by triage)
+  tokens   ~64K in / ~113K out + ~6K embed
+  cost     $0 in subscription mode  (ensure quota for ~$1.93)
+  time     ~10m  (default)
 ```
 
-The time estimate accounts for the configured `llm.concurrency`.
+### JSON mode
 
-### Examples
+`anatoly estimate --json` emits a stable shape that strictly mirrors the rendered table. No banner, no colors; `process.stdout` carries only the JSON.
 
-```bash
-anatoly estimate
-anatoly estimate --file "src/commands/**"
+```json
+{
+  "schemaVersion": 1,
+  "timestamp": "...",
+  "project": { "name": "slot-engine", "version": "0.1.0", "languages": "..." },
+  "config": {
+    "concurrency": 8,
+    "cache": true,
+    "rag": { "mode": "lite", "files": 8, "fns": 17, "chunks": 34 },
+    "docs": { "mode": "bootstrap" }
+  },
+  "forecast": {
+    "files": { "total": 15, "evaluate": 12, "skipped": 3 },
+    "tokens": {
+      "llm":   { "inputTokens": 63506, "outputTokens": 113300 },
+      "embed": { "tokens": 5696, "codeUnits": 17, "textUnits": 34 },
+      "total": 182502
+    },
+    "cost":  { "billedUsd": 0, "consumptionUsd": 1.93 },
+    "time":  { "minutes": 10, "calibrated": false },
+    "steps": [
+      {
+        "category": "axis", "name": "correction",
+        "model": "anthropic/claude-sonnet-4-6",
+        "billingMode": "subscription",
+        "inputTokens": 4089, "outputTokens": 9000,
+        "cacheReadTokens": 6600, "cacheCreationTokens": 600,
+        "costUsd": 0.151
+      }
+    ]
+  }
+}
 ```
+
+Aggregations like `cost.byModel` or `cost.llmUsd` are intentionally omitted — they're trivially derivable from `forecast.steps[]` (filter by `category` / `model`, sum `costUsd`).
 
 ---
 
