@@ -39,6 +39,7 @@ help:
 	@printf '$(D)Run from a fresh `git clone https://github.com/r-via/anatoly`:$(N)\n\n'
 	@printf '  $(C)make install$(N)        $(D)complete dev install (deps + build + global symlink)$(N)\n'
 	@printf '  $(C)make update$(N)         $(D)git pull origin main, then reinstall$(N)\n'
+	@printf '  $(C)make update BRANCH=x$(N)$(D) checkout branch x from origin, pull, then reinstall$(N)\n'
 	@printf '  $(C)make build$(N)          $(D)build dist/ via tsup$(N)\n'
 	@printf '  $(C)make rebuild$(N)        $(D)clean + build$(N)\n'
 	@printf '  $(C)make install-global$(N) $(D)link this clone as the global anatoly bin$(N)\n'
@@ -69,11 +70,23 @@ install-global:
 	@$(NPM) install -g . --no-audit --no-fund --no-progress
 	@printf '$(G)  ✔$(N) global bin linked\n'
 
+BRANCH ?= main
+
 update:
-	@printf '$(B)→$(N) $(C)fetching origin/main$(N)\n'; \
-	 git fetch origin main; \
+	@printf '$(B)→$(N) $(C)fetching origin/$(BRANCH)$(N)\n'; \
+	 git fetch origin $(BRANCH); \
+	 current=$$(git rev-parse --abbrev-ref HEAD); \
+	 if [ "$$current" != "$(BRANCH)" ]; then \
+	   printf '$(B)→$(N) $(C)switching $(D)%s$(N) $(C)→ $(B)$(BRANCH)$(N)\n' "$$current"; \
+	   if ! git checkout $(BRANCH) 2>/dev/null; then \
+	     if ! git checkout -b $(BRANCH) origin/$(BRANCH); then \
+	       printf '$(R)✗$(N) cannot checkout $(B)$(BRANCH)$(N) — resolve manually\n'; \
+	       exit 1; \
+	     fi; \
+	   fi; \
+	 fi; \
 	 before=$$(git rev-parse HEAD); \
-	 if ! git pull --ff-only origin main; then \
+	 if ! git pull --ff-only origin $(BRANCH); then \
 	   printf '$(R)✗$(N) pull failed — local commits or divergence on this clone\n'; \
 	   printf '  $(D)resolve manually (git status / git log) before retrying$(N)\n'; \
 	   exit 1; \
