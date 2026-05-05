@@ -201,7 +201,7 @@ function renderEstimateView(data: EstimateViewData): void {
   // magnitude — informative when subscription mode covers some/all of it).
   {
     console.log('');
-    console.log('  ' + chalk.yellow.bold('Cost breakdown'));
+    console.log('  ' + chalk.yellow.bold('Cost breakdown') + ' ' + chalk.dim('based on latest public provider price'));
     console.log('  ' + chalk.dim('─'.repeat(14)));
 
     const sorted = sortSteps(data.forecast.steps);
