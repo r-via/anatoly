@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { get_encoding } from 'tiktoken';
 import { TaskSchema, type Task } from '../schemas/task.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
@@ -320,7 +320,6 @@ export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> =
  * which scaled multiplicatively with axes and files. Token shape is
  * dominated by output (structured per-finding decisions on opus).
  */
-export const DELIBERATION_FILES_PER_SHARD = 20;
 // Per-shard token shape calibrated against R1/R2/R3 actuals at opus-4-6
 // pricing ($5/M in, $25/M out, $0.5/M cacheRead, $6.25/M cacheCreation):
 // cost ≈ $0.35/shard (10K * $5 + 12K * $25 + 1K * $0.5 + 0.6K * $6.25 per M).
@@ -560,14 +559,25 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     });
   }
 
-  // Deliberation step: a single deliberation-model call per shard (shard =
-  // up to DELIBERATION_FILES_PER_SHARD files grouped by directory module).
-  // Cost is roughly fixed per shard — most findings are auto-resolved or
-  // coherence-resolved before reaching tier-3 — so this scales sublinearly
-  // with file count. See DELIBERATION_*_PER_SHARD jsdoc for the empirical
-  // basis (R1/R2/R3 observed all stayed in the $0.30-$0.41 range).
+  // Deliberation step: one deliberation-model call per shard. Shards are
+  // built by `core/refinement/tier3.ts:buildShards`, which groups escalated
+  // findings by `dirname(file)` — one shard per distinct directory, with
+  // a 20-finding cap that splits oversized dirs.
+  //
+  // Approximation: shard count ≈ distinct directories among evalTasks,
+  // floored at 1. We can't predict the escalation rate per file (which is
+  // what really determines whether a directory yields a shard), but
+  // empirically directories with reviewed files almost always produce at
+  // least one escalation.
+  //
+  // Earlier versions used `ceil(E / 20)` which silently degenerated to 1
+  // shard for any project under ~20 files regardless of structure — fine
+  // for monolithic single-dir trees (slot-engine) but broke spectacularly
+  // on multi-module projects: python-dotenv (18 files / 5 dirs) ran 5
+  // real shards against 1 forecasted, under-pricing deliberation 5×.
   if (deliberation && deliberationModel && axes.length > 0 && E > 0) {
-    const shardCount = Math.max(1, Math.ceil(E / DELIBERATION_FILES_PER_SHARD));
+    const distinctDirs = new Set(evalTasks.map((t) => dirname(t.file))).size;
+    const shardCount = Math.max(1, distinctDirs);
     const delibInput = shardCount * DELIBERATION_INPUT_PER_SHARD;
     const delibOutput = shardCount * DELIBERATION_OUTPUT_PER_SHARD;
     const delibCacheRead = shardCount * DELIBERATION_CACHE_READ_PER_SHARD;
