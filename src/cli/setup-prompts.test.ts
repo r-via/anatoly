@@ -692,6 +692,26 @@ describe('runLitePrefetch', () => {
 
     expect(prefetchMock).toHaveBeenCalledTimes(1);
   });
+
+  // AC: asFallback=true reframes the messages so the user understands lite is
+  //     a backup, not the primary backend (advanced is still the choice).
+  it('uses fallback-framed messages when asFallback is true', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: false, asFallback: true });
+
+    expect(spinnerStartMock).toHaveBeenCalledWith(expect.stringContaining('fallback'));
+    expect(spinnerStopMock).toHaveBeenCalledWith(expect.stringContaining('fallback'));
+    expect(spinnerStopMock).not.toHaveBeenCalledWith('Embeddings (lite) ready');
+  });
+
+  it('keeps the primary-framed messages when asFallback is unset', async () => {
+    prefetchMock.mockResolvedValue(undefined);
+
+    await runLitePrefetch({ isTTY: true, defaultsSettings: false });
+
+    expect(spinnerStopMock).toHaveBeenCalledWith('Embeddings (lite) ready');
+  });
 });
 
 // ---------------------------------------------------------------------------

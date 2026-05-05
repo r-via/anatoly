@@ -292,13 +292,20 @@ export function registerRunCommand(program: Command): void {
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
-        // Prefetch lite ONNX embedding models when the user picked lite or
-        // advanced (advanced still benefits from a lite fallback if GGUF setup
-        // later fails). External tier bypasses ONNX entirely — no prefetch.
-        if (wizardResult.tier !== 'external') {
+        // Prefetch lite ONNX embedding models. Skipped for:
+        // - external tier (no ONNX involvement at all)
+        // - advanced tier when the GGUF backend is already provisioned (the
+        //   ready-flag reports advanced-gguf) — no fallback needed, and
+        //   running the lite prefetch here would print "Embeddings (lite)
+        //   ready" which misleads the user about which backend is active.
+        const advancedAlreadyReady =
+          wizardResult.tier === 'advanced'
+          && readEmbeddingsReadyFlag(projectRoot)?.backend === 'advanced-gguf';
+        if (wizardResult.tier !== 'external' && !advancedAlreadyReady) {
           await runLitePrefetch({
             isTTY: process.stdin.isTTY === true,
             defaultsSettings: useDefaults,
+            asFallback: wizardResult.tier === 'advanced',
           });
         }
 

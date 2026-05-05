@@ -232,14 +232,27 @@ async function resolveModePrompt(quickWin: boolean): Promise<'quick-win' | 'full
  * - Non-interactive (CI / pipe): emits a single log line per model.
  *
  * On failure, warns and continues — the models will be retried lazily.
+ *
+ * @param asFallback — when true, the messages are framed as "lite ONNX
+ *   fallback" to make it clear that the user's chosen tier (advanced) is
+ *   still the primary backend. The lite models are only downloaded so the
+ *   pipeline can degrade gracefully if the GGUF setup fails later.
  */
-export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: boolean }): Promise<void> {
+export async function runLitePrefetch(opts: {
+  isTTY: boolean;
+  defaultsSettings: boolean;
+  asFallback?: boolean;
+}): Promise<void> {
   const log = getLogger();
+  const startMsg = opts.asFallback
+    ? 'Downloading lite ONNX fallback models…'
+    : 'Downloading lite embedding models…';
+  const doneMsg = opts.asFallback ? 'Lite ONNX fallback ready' : 'Embeddings (lite) ready';
 
   if (opts.isTTY && !opts.defaultsSettings) {
     // Interactive: spinner
     const spinner = p.spinner();
-    spinner.start('Downloading lite embedding models…');
+    spinner.start(startMsg);
     let lastMsg = '';
 
     await prefetchLiteModels({
@@ -262,10 +275,10 @@ export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: 
       },
     });
 
-    spinner.stop('Embeddings (lite) ready');
+    spinner.stop(doneMsg);
   } else {
     // Non-interactive: linear log
-    log.info('downloading lite embedding models…');
+    log.info(opts.asFallback ? 'downloading lite ONNX fallback models…' : 'downloading lite embedding models…');
 
     await prefetchLiteModels({
       onProgress: (ev: PrefetchProgress) => {
@@ -277,7 +290,7 @@ export async function runLitePrefetch(opts: { isTTY: boolean; defaultsSettings: 
       },
     });
 
-    log.info('lite embedding models ready');
+    log.info(opts.asFallback ? 'lite ONNX fallback ready' : 'lite embedding models ready');
   }
 }
 
