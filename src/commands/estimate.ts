@@ -23,7 +23,9 @@ import { countChangedDocs } from '../rag/doc-indexer.js';
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
-import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
+import { shortModelName } from '../cli/setup-table.js';
+import chalk from 'chalk';
+import Table from 'cli-table3';
 
 /** Strip provider prefix and `claude-` prefix for compact model display. */
 function displayModel(modelId: string): string {
@@ -39,10 +41,123 @@ function formatStepLabel(id: string): string {
   return id;
 }
 
-/** Format the per-step value column: cost (with `~` for approximate) + model. */
-function formatStepValue(s: ForecastStep): string {
-  const costStr = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
-  return `${costStr}  ${displayModel(s.model)}`;
+// ---------------------------------------------------------------------------
+// Estimate view rendering — uses cli-table3 throughout (only path; the run
+// pre-confirmation table keeps its own renderSetupTable in cli/setup-table.ts).
+// ---------------------------------------------------------------------------
+
+/**
+ * cli-table3 chars used by every estimate-view section. Same convention as
+ * `formatProvidersTable` in providers.ts:
+ *   - no outer top/bottom borders (sections have their own colored title above)
+ *   - 2-space left indent so content sits inside the visual margin
+ *   - single horizontal line as inter-row separator (`mid: '─'`)
+ *   - 3-space inter-column gap (`middle: '   '`) for breathing room
+ */
+const KV_CHARS = {
+  top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
+  bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
+  left: '  ', 'left-mid': '  ',
+  mid: '─', 'mid-mid': ' ',
+  right: '', 'right-mid': '',
+  middle: '   ',
+};
+
+function newKvTable(opts?: { colAligns?: ('left' | 'center' | 'right')[]; head?: string[] }): InstanceType<typeof Table> {
+  return new Table({
+    chars: KV_CHARS,
+    style: { 'padding-left': 0, 'padding-right': 0, head: ['dim'] },
+    ...(opts?.colAligns ? { colAligns: opts.colAligns } : {}),
+    ...(opts?.head ? { head: opts.head } : {}),
+  });
+}
+
+function printSection(title: string, color: (s: string) => string, body: string): void {
+  console.log('');
+  console.log('  ' + color(title));
+  console.log(body);
+}
+
+interface EstimateViewData {
+  project?: { name: string; version: string; languages?: string; frameworks?: string };
+  config: { key: string; value: string }[];
+  models: { key: string; value: string }[];
+  modelsRight?: { key: string; value: string }[];
+  forecast: {
+    filesValue: string;
+    tokensValue: string;
+    totalCostUsd: number;
+    timeValue: string;
+    steps: ForecastStep[];
+  };
+  pipeline: { phase: string; detail: string }[];
+}
+
+function renderEstimateView(data: EstimateViewData): void {
+  // --- Project Info ---
+  if (data.project) {
+    const t = newKvTable();
+    t.push(['name', data.project.name]);
+    t.push(['version', data.project.version]);
+    if (data.project.languages) t.push(['languages', data.project.languages]);
+    if (data.project.frameworks) t.push(['frameworks', data.project.frameworks]);
+    printSection('Project Info', chalk.green.bold, t.toString());
+  }
+
+  // --- Configuration ---
+  {
+    const t = newKvTable();
+    for (const r of data.config) t.push([r.key, r.value]);
+    printSection('Configuration', chalk.cyan.bold, t.toString());
+  }
+
+  // --- Used Models (4 cols: key1, val1, key2, val2) ---
+  {
+    const t = newKvTable();
+    const max = Math.max(data.models.length, data.modelsRight?.length ?? 0);
+    const hasRight = (data.modelsRight?.length ?? 0) > 0;
+    for (let i = 0; i < max; i++) {
+      const l = data.models[i];
+      const r = data.modelsRight?.[i];
+      const row = [l?.key ?? '', l?.value ?? ''];
+      if (hasRight) row.push(r?.key ?? '', r?.value ?? '');
+      t.push(row);
+    }
+    printSection('Used Models', chalk.magenta.bold, t.toString());
+  }
+
+  // --- Forecast (decision-grade headlines: files / tokens / cost / time) ---
+  {
+    const t = newKvTable();
+    t.push(['files', data.forecast.filesValue]);
+    t.push(['tokens', data.forecast.tokensValue]);
+    t.push(['cost', `$${data.forecast.totalCostUsd.toFixed(2)} total`]);
+    t.push(['time', data.forecast.timeValue]);
+    printSection('Forecast', chalk.yellow.bold, t.toString());
+  }
+
+  // --- Cost breakdown (per-step contributions, sorted by cost desc) ---
+  {
+    const sorted = [...data.forecast.steps].sort((a, b) => b.costUsd - a.costUsd);
+    const t = newKvTable({
+      head: ['step', 'cost', 'model'],
+      colAligns: ['left', 'right', 'left'],
+    });
+    for (const s of sorted) {
+      const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
+      t.push([formatStepLabel(s.id), cost, displayModel(s.model)]);
+    }
+    printSection('Cost breakdown', chalk.yellow.bold, t.toString());
+  }
+
+  // --- Pipeline Plan ---
+  {
+    const t = newKvTable();
+    for (const r of data.pipeline) t.push([chalk.green('✔') + ' ' + r.phase, r.detail]);
+    printSection('Pipeline Plan', chalk.blue.bold, t.toString());
+  }
+
+  console.log('');
 }
 
 /** Registers the `estimate` CLI sub-command on the given Commander program. @param program The root Commander instance. */
@@ -278,25 +393,19 @@ export function registerEstimateCommand(program: Command): void {
         ? `${forecast.files} of ${forecast.totalFiles}  (${forecast.skippedFiles} skipped by triage)`
         : `${forecast.files} files`;
 
-      // Per-step breakdown — sorted by cost descending so the user sees the
-      // biggest contributors first. `~` marker on approximate steps (doc:*).
-      const sortedSteps = [...forecast.steps].sort((a, b) => b.costUsd - a.costUsd);
-      const stepRows = sortedSteps.map(s => ({
-        key: '  ' + formatStepLabel(s.id),
-        value: formatStepValue(s),
-      }));
-
-      const forecastRows = [
-        { key: 'files', value: filesFragment },
-        { key: 'tokens', value: totalTokensFragment },
-        { key: 'cost', value: `$${forecast.totalCostUsd.toFixed(2)} total` },
-        ...stepRows,
-        { key: 'time', value: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})` },
-      ];
-
-      renderSetupTable(
-        { project: projectInfo, config: configRows, models: modelsLeft, modelsRight, forecast: forecastRows, pipeline: pipelineRows },
-        false,
-      );
+      renderEstimateView({
+        project: projectInfo,
+        config: configRows,
+        models: modelsLeft,
+        modelsRight,
+        forecast: {
+          filesValue: filesFragment,
+          tokensValue: totalTokensFragment,
+          totalCostUsd: forecast.totalCostUsd,
+          timeValue: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})`,
+          steps: forecast.steps,
+        },
+        pipeline: pipelineRows,
+      });
     });
 }
