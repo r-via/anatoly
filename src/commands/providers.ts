@@ -8,11 +8,15 @@ import chalk from 'chalk';
 import Table from 'cli-table3';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKResultSuccess, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
-import { loadConfig } from '../utils/config-loader.js';
+import { embed } from 'ai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import { getLogger } from '../utils/logger.js';
 import type { Config } from '../schemas/config.js';
+import type { ConfigV3, ProviderConfig, Transport } from '../schemas/config-v3.js';
+import { parseModelRef } from '../schemas/config-v3.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { extractProvider, stripPrefix, type LlmTransport } from '../core/transports/index.js';
@@ -24,9 +28,18 @@ import { coreEvents } from '@google/gemini-cli-core';
 
 /** Describes a provider/model pair to check. */
 export interface ProviderCheck {
+  /** v3 provider id (e.g. "anthropic", "google", "local-advanced"). */
   provider: string;
+  /** Full `<provider>/<model>` reference. */
   model: string;
+  /** Display label for the Auth column, derived from the v3 declaration. */
   auth: string;
+  /** Transport that determines which check function to dispatch to. */
+  transport: Transport;
+  /** Environment variable holding the API key (when auth=api_key). */
+  envKey?: string;
+  /** Provider base URL (when set in v3). */
+  baseUrl?: string;
 }
 
 /** Result of a single provider connectivity check. */
@@ -36,6 +49,7 @@ export interface ProviderCheckResult {
   status: 'ok' | 'error';
   latencyMs: number;
   auth: string;
+  transport: Transport;
   error?: string;
   /** Concurrency stress-test results (only present for the first check per provider). */
   concurrency?: {
@@ -47,35 +61,131 @@ export interface ProviderCheckResult {
 }
 
 // ---------------------------------------------------------------------------
+// Auth label derivation
+// ---------------------------------------------------------------------------
+
+function isLocalUrl(url: string | undefined): boolean {
+  return !!url && /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(url);
+}
+
+/**
+ * Build a human-readable Auth column label from a v3 provider declaration.
+ * The label mirrors what the YAML actually says (`auth`, `env_key`, transport)
+ * rather than the v2-adapted `mode` projection — so users see the same vocabulary
+ * they typed into `.anatoly.yml`.
+ */
+export function formatAuthLabel(provider: {
+  transport: Transport;
+  auth?: 'oauth' | 'api_key';
+  env_key?: string;
+  base_url?: string;
+}): string {
+  if (provider.transport === 'onnxruntime_node') return 'Local (in-process)';
+  if (provider.auth === 'oauth') return 'OAuth';
+  if (provider.auth === 'api_key') {
+    const env = provider.env_key;
+    if (isLocalUrl(provider.base_url)) {
+      return env ? `Local (${env})` : 'Local';
+    }
+    return env ? `API Key (${env})` : 'API Key';
+  }
+  return '—';
+}
+
+/**
+ * v2 fallback: derive an auth label from the post-adapter `mode` field. Only
+ * used when no v3 source is attached (legacy configs without `version: 3`).
+ */
+function formatAuthLabelV2(providerId: string, provider: { mode: string; env_key?: string }): string {
+  if (provider.mode === 'subscription') {
+    return providerId === 'google' ? 'Google OAuth' : 'OAuth';
+  }
+  const env = provider.env_key;
+  return env ? `API Key (${env})` : 'API Key';
+}
+
+/**
+ * v2 fallback: guess transport from the provider id. v2 had no explicit
+ * transport field, so anthropic/google are special-cased and any other
+ * catchall provider is assumed to be openai-compatible.
+ */
+function guessTransportV2(providerId: string): Transport {
+  if (providerId === 'anthropic') return 'claude_agent_sdk';
+  if (providerId === 'google') return 'google_genai';
+  return 'openai_compatible';
+}
+
+// ---------------------------------------------------------------------------
 // Pure functions (testable)
 // ---------------------------------------------------------------------------
 
 /**
  * Build the list of provider/model pairs to check based on config.
- * Deduplicates models within the same provider.
+ * Deduplicates by full `<provider>/<model>` reference. When the config came
+ * from a v3 YAML, the v3 declarative section drives the walk (every provider
+ * declared, including embedding-only ones like openai_compatible / ONNX).
  */
 export function buildProviderChecks(config: Config): ProviderCheck[] {
+  const v3 = getV3Source(config);
+  if (v3) return buildProviderChecksV3(v3);
+  return buildProviderChecksV2(config);
+}
+
+function buildProviderChecksV3(v3: ConfigV3): ProviderCheck[] {
   const seen = new Set<string>();
   const checks: ProviderCheck[] = [];
 
-  const geminiAuth = config.providers.google
-    ? (config.providers.google.mode === 'api' ? 'API Key' : 'Google OAuth')
-    : undefined;
+  const refs: string[] = [
+    v3.routing.generation.quality,
+    v3.routing.generation.fast,
+    v3.routing.generation.deliberation,
+    v3.routing.generation.summarization,
+    v3.routing.embeddings.code,
+    v3.routing.embeddings.text,
+  ];
+  for (const axis of Object.values(v3.evaluation.axes)) {
+    if (typeof axis === 'object' && axis !== null && 'model' in axis && axis.model) {
+      refs.push(axis.model);
+    }
+  }
+
+  for (const ref of refs) {
+    if (seen.has(ref)) continue;
+    const parsed = parseModelRef(ref);
+    if (!parsed) continue;
+    const provider: ProviderConfig | undefined = v3.providers[parsed.provider];
+    if (!provider) continue;
+    seen.add(ref);
+    checks.push({
+      provider: parsed.provider,
+      model: ref,
+      auth: formatAuthLabel(provider),
+      transport: provider.transport,
+      envKey: provider.env_key,
+      baseUrl: provider.base_url,
+    });
+  }
+
+  return checks;
+}
+
+function buildProviderChecksV2(config: Config): ProviderCheck[] {
+  const seen = new Set<string>();
+  const checks: ProviderCheck[] = [];
 
   const addModel = (model: string) => {
+    if (seen.has(model)) return;
     const providerId = extractProvider(model);
-    const isGoogle = providerId === 'google';
-    // Map provider id to display name used by check functions
-    const provider = isGoogle ? 'gemini' : 'anthropic';
-    const key = `${provider}:${model}`;
-    if (seen.has(key)) return;
-    // Skip Google models when Google provider is not configured
-    if (isGoogle && !config.providers.google) return;
-    seen.add(key);
+    const provider = (config.providers as Record<string, { mode: string; env_key?: string; base_url?: string } | undefined>)[providerId];
+    if (!provider) return;
+    seen.add(model);
     checks.push({
-      provider,
+      provider: providerId,
       model,
-      auth: isGoogle ? geminiAuth! : 'Claude Code SDK',
+      auth: formatAuthLabelV2(providerId, provider),
+      transport: guessTransportV2(providerId),
+      envKey: provider.env_key,
+      baseUrl: provider.base_url,
     });
   };
 
@@ -119,15 +229,18 @@ export function formatProvidersTable(results: ProviderCheckResult[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// SDK connectivity check
+// Anthropic (claude_agent_sdk) probe
 // ---------------------------------------------------------------------------
 
-async function checkAnthropic(model: string, projectRoot: string, signal?: AbortSignal): Promise<ProviderCheckResult> {
-  // Strip provider prefix for native SDK (e.g. "anthropic/claude-opus-4-6" → "claude-opus-4-6")
+/** Internal: short LLM ping returning a boolean status + latency. */
+async function pingAnthropic(
+  model: string,
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; error?: string; latencyMs: number }> {
   const bareModel = stripPrefix(model);
   const start = Date.now();
   const ac = new AbortController();
-  // Abort on either local timeout or external signal
   const timeout = setTimeout(() => ac.abort(), 30_000);
   if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
   try {
@@ -154,76 +267,174 @@ async function checkAnthropic(model: string, projectRoot: string, signal?: Abort
           const errorResult = message as SDKResultError;
           const details = errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
           clearTimeout(timeout);
-          return { provider: 'anthropic', model, status: 'error', latencyMs: Date.now() - start, auth: 'Claude Code SDK', error: details };
+          return { ok: false, error: details, latencyMs: Date.now() - start };
         }
       }
     }
 
     clearTimeout(timeout);
-    if (ok) {
-      return { provider: 'anthropic', model, status: 'ok', latencyMs: Date.now() - start, auth: 'Claude Code SDK' };
-    }
-    return { provider: 'anthropic', model, status: 'error', latencyMs: Date.now() - start, auth: 'Claude Code SDK', error: 'no result received' };
+    return ok
+      ? { ok: true, latencyMs: Date.now() - start }
+      : { ok: false, error: 'no result received', latencyMs: Date.now() - start };
   } catch (err) {
     clearTimeout(timeout);
-    return {
-      provider: 'anthropic',
-      model,
-      status: 'error',
-      latencyMs: Date.now() - start,
-      auth: 'Claude Code SDK',
-      error: err instanceof Error ? err.message : String(err),
-    };
+    return { ok: false, error: err instanceof Error ? err.message : String(err), latencyMs: Date.now() - start };
   }
 }
 
+async function checkAnthropic(check: ProviderCheck, projectRoot: string, signal?: AbortSignal): Promise<ProviderCheckResult> {
+  const r = await pingAnthropic(check.model, projectRoot, signal);
+  return {
+    provider: check.provider,
+    model: check.model,
+    status: r.ok ? 'ok' : 'error',
+    latencyMs: r.latencyMs,
+    auth: check.auth,
+    transport: check.transport,
+    ...(r.error ? { error: r.error } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Gemini connectivity check
+// Gemini (google_genai) probe
 // ---------------------------------------------------------------------------
 
 function createGeminiTransport(mode: 'subscription' | 'api', projectRoot: string, model: string, config: Config): LlmTransport {
   return mode === 'api' ? new VercelSdkTransport(config) : new GeminiTransport(projectRoot, model);
 }
 
-async function checkGemini(model: string, projectRoot: string, mode: 'subscription' | 'api', config: Config): Promise<ProviderCheckResult> {
-  const auth = mode === 'api' ? 'API Key' : 'Google OAuth';
+async function pingGemini(
+  model: string,
+  projectRoot: string,
+  mode: 'subscription' | 'api',
+  config: Config,
+): Promise<{ ok: boolean; error?: string; latencyMs: number }> {
   const start = Date.now();
+  const ac = new AbortController();
+  const timeout = setTimeout(() => ac.abort(), 30_000);
   try {
     const transport = createGeminiTransport(mode, projectRoot, model, config);
-    const ac = new AbortController();
-    const timeout = setTimeout(() => ac.abort(), 30_000);
-
-    try {
-      const response = await transport.query({
-        systemPrompt: 'Respond with exactly "OK" and nothing else.',
-        userMessage: 'Respond OK',
-        model,
-        projectRoot,
-        abortController: ac,
-      });
-
-      const text = response.text.trim();
-      if (text.length > 0) {
-        return { provider: 'gemini', model, status: 'ok', latencyMs: Date.now() - start, auth };
-      }
-      return { provider: 'gemini', model, status: 'error', latencyMs: Date.now() - start, auth, error: 'empty response' };
-    } finally {
-      clearTimeout(timeout);
-    }
-  } catch (err) {
-    return {
-      provider: 'gemini',
+    const response = await transport.query({
+      systemPrompt: 'Respond with exactly "OK" and nothing else.',
+      userMessage: 'Respond OK',
       model,
+      projectRoot,
+      abortController: ac,
+    });
+    const text = response.text.trim();
+    return text.length > 0
+      ? { ok: true, latencyMs: Date.now() - start }
+      : { ok: false, error: 'empty response', latencyMs: Date.now() - start };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), latencyMs: Date.now() - start };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function checkGemini(check: ProviderCheck, projectRoot: string, config: Config): Promise<ProviderCheckResult> {
+  // v3 oauth → subscription, api_key → api. Honor `auth` directly when v3 was used;
+  // fall back to v2's mode field otherwise.
+  const mode: 'subscription' | 'api' = (() => {
+    const v2Mode = config.providers.google?.mode;
+    if (v2Mode) return v2Mode;
+    return 'subscription';
+  })();
+  const r = await pingGemini(check.model, projectRoot, mode, config);
+  return {
+    provider: check.provider,
+    model: check.model,
+    status: r.ok ? 'ok' : 'error',
+    latencyMs: r.latencyMs,
+    auth: check.auth,
+    transport: check.transport,
+    ...(r.error ? { error: r.error } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible (embeddings) probe
+// ---------------------------------------------------------------------------
+
+async function checkOpenAICompatible(check: ProviderCheck): Promise<ProviderCheckResult> {
+  const start = Date.now();
+  const bareModel = stripPrefix(check.model);
+
+  if (!check.baseUrl) {
+    return {
+      provider: check.provider,
+      model: check.model,
+      status: 'error',
+      latencyMs: 0,
+      auth: check.auth,
+      transport: check.transport,
+      error: 'missing base_url',
+    };
+  }
+
+  const local = isLocalUrl(check.baseUrl);
+  const apiKey = check.envKey ? process.env[check.envKey] : undefined;
+
+  if (!local && check.envKey && !apiKey) {
+    return {
+      provider: check.provider,
+      model: check.model,
       status: 'error',
       latencyMs: Date.now() - start,
-      auth,
+      auth: check.auth,
+      transport: check.transport,
+      error: `${check.envKey} not set`,
+    };
+  }
+
+  try {
+    const sdkProvider = createOpenAICompatible({
+      baseURL: check.baseUrl,
+      name: check.provider,
+      apiKey: apiKey ?? 'dummy',
+    });
+    const model = sdkProvider.textEmbeddingModel(bareModel);
+    const result = await embed({ model, value: 'anatoly probe' });
+    const ok = result.embedding.length > 0;
+    return {
+      provider: check.provider,
+      model: check.model,
+      status: ok ? 'ok' : 'error',
+      latencyMs: Date.now() - start,
+      auth: check.auth,
+      transport: check.transport,
+      ...(ok ? {} : { error: 'empty embedding' }),
+    };
+  } catch (err) {
+    return {
+      provider: check.provider,
+      model: check.model,
+      status: 'error',
+      latencyMs: Date.now() - start,
+      auth: check.auth,
+      transport: check.transport,
       error: err instanceof Error ? err.message : String(err),
     };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Concurrency stress test
+// ONNX (in-process) probe — no network call, just acknowledge it's local.
+// ---------------------------------------------------------------------------
+
+function checkOnnx(check: ProviderCheck): ProviderCheckResult {
+  return {
+    provider: check.provider,
+    model: check.model,
+    status: 'ok',
+    latencyMs: 0,
+    auth: check.auth,
+    transport: check.transport,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency stress test (LLM transports only)
 // ---------------------------------------------------------------------------
 
 interface ConcurrencyResult {
@@ -237,9 +448,9 @@ async function stressAnthropic(model: string, projectRoot: string, n: number): P
   const start = Date.now();
   const bail = new AbortController();
   const promises = Array.from({ length: n }, () =>
-    checkAnthropic(model, projectRoot, bail.signal).then(r => {
-      if (r.status !== 'ok') bail.abort();
-      return r.status === 'ok';
+    pingAnthropic(model, projectRoot, bail.signal).then(r => {
+      if (!r.ok) bail.abort();
+      return r.ok;
     }),
   );
   const outcomes = await Promise.all(promises);
@@ -336,25 +547,34 @@ export function registerProvidersCommand(program: Command): void {
       const results: ProviderCheckResult[] = [];
 
       for (const check of checks) {
-        if (check.provider === 'anthropic') {
-          const result = await checkAnthropic(check.model, projectRoot);
-          results.push(result);
-        } else if (check.provider === 'gemini') {
-          const result = await checkGemini(check.model, projectRoot, config.providers.google?.mode ?? 'subscription', config);
-          results.push(result);
+        let result: ProviderCheckResult;
+        switch (check.transport) {
+          case 'claude_agent_sdk':
+            result = await checkAnthropic(check, projectRoot);
+            break;
+          case 'google_genai':
+            result = await checkGemini(check, projectRoot, config);
+            break;
+          case 'openai_compatible':
+            result = await checkOpenAICompatible(check);
+            break;
+          case 'onnxruntime_node':
+            result = checkOnnx(check);
+            break;
         }
+        results.push(result);
       }
 
-      // --- Concurrency stress test (one model per provider, only reachable ones) ---
+      // --- Concurrency stress test (LLM transports only — embeddings/ONNX skipped) ---
       const concurrencyResults: { provider: string; model: string; concurrency: ConcurrencyResult }[] = [];
-      const reachable = results.filter(r => r.status === 'ok');
-      const testedProviders = new Set<string>();
+      const reachable = results.filter(r => r.status === 'ok' && (r.transport === 'claude_agent_sdk' || r.transport === 'google_genai'));
+      const testedTransports = new Set<Transport>();
 
       for (const r of reachable) {
-        if (testedProviders.has(r.provider)) continue;
-        testedProviders.add(r.provider);
+        if (testedTransports.has(r.transport)) continue;
+        testedTransports.add(r.transport);
 
-        const slots = r.provider === 'gemini'
+        const slots = r.transport === 'google_genai'
           ? (config.providers.google?.concurrency ?? 10)
           : (config.providers.anthropic?.concurrency ?? 24);
 
@@ -363,7 +583,7 @@ export function registerProvidersCommand(program: Command): void {
         }
 
         try {
-          const cr = r.provider === 'gemini'
+          const cr = r.transport === 'google_genai'
             ? await stressGemini(r.model, projectRoot, slots, config.providers.google?.mode ?? 'subscription', config)
             : await stressAnthropic(r.model, projectRoot, slots);
           concurrencyResults.push({ provider: r.provider, model: r.model, concurrency: cr });
