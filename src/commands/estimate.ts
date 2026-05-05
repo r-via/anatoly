@@ -25,13 +25,28 @@ import { readProgress } from '../utils/cache.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 
-/** Strip provider prefix, `claude-` prefix, and trailing 8-digit date for compact model display. */
+/**
+ * Compact, readable label for a model id. Keeps the provider prefix
+ * (`anthropic/`, `voyage/`, …) so the user sees full attribution; only the
+ * trailing release date suffix is stripped for visual brevity.
+ *
+ * Local-runtime embedding models (ONNX / GGUF) carry awkward HuggingFace
+ * paths or internal ids that don't read well — we map them to friendly
+ * `name dim (local)` labels via {@link KNOWN_LOCAL_LABELS} so the user
+ * sees "jina-v2 768d (local)" instead of "jinaai/jina-embeddings-v2-base-code".
+ */
+const KNOWN_LOCAL_LABELS: Record<string, string> = {
+  'jinaai/jina-embeddings-v2-base-code': 'jina-v2 768d (local)',
+  'Xenova/all-MiniLM-L6-v2': 'MiniLM-L6 384d (local)',
+  'Xenova/nomic-embed-text-v1': 'nomic-text-v1 768d (local)',
+  'nomic-embed-code-gguf': 'nomic-embed-code Q5_K_M (local)',
+  'qwen3-embedding-8b-gguf': 'Qwen3-8B Q5_K_M (local)',
+};
+
 function displayModel(modelId: string): string {
   if (modelId === 'local') return '(local)';
-  return modelId
-    .replace(/^[^/]+\//, '')   // strip provider prefix (e.g. "anthropic/")
-    .replace(/^claude-/, '')   // strip "claude-" prefix
-    .replace(/-\d{8}$/, '');   // strip trailing -YYYYMMDD release date
+  if (KNOWN_LOCAL_LABELS[modelId]) return KNOWN_LOCAL_LABELS[modelId];
+  return modelId.replace(/-\d{8}$/, ''); // strip trailing -YYYYMMDD release date
 }
 
 /**
@@ -156,41 +171,39 @@ function renderEstimateView(data: EstimateViewData): void {
   // Listing them twice (once with model id only, once with model+cost)
   // diverged in ordering and was missing 'deliberation' anyway.
 
-  // --- Cost breakdown — per-step contributions building up to the total ---
+  // --- Cost breakdown — single 4-column table so all values stack with
+  // uniform column widths. Category column is left blank on consecutive
+  // rows of the same group (visual grouping without literal repetition).
+  // Ends with a bold `total` row that aggregates the costUsd column. ---
   {
     console.log('');
     console.log('  ' + chalk.yellow.bold('Cost breakdown'));
     console.log('  ' + chalk.dim('─'.repeat(14)));
 
     const sorted = sortSteps(data.forecast.steps);
-    const groups = new Map<string, ForecastStep[]>();
+    const t = newTable({
+      head: ['category', 'step', 'cost', 'model'],
+      colAligns: ['left', 'left', 'right', 'left'],
+    });
+    let lastCategory = '';
     for (const s of sorted) {
-      if (!groups.has(s.category)) groups.set(s.category, []);
-      groups.get(s.category)!.push(s);
+      const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
+      const categoryCell = s.category === lastCategory ? '' : chalk.dim(s.category);
+      lastCategory = s.category;
+      t.push([categoryCell, s.name, cost, displayModel(s.model)]);
     }
 
-    for (const [category, items] of groups) {
-      console.log('');
-      // Single-entry category with no sub-name (e.g. summary, deliberation)
-      // reads better inline: the category title carries the cost+model
-      // directly, no empty-name placeholder row needed.
-      const isSingleton = items.length === 1 && items[0].name === '';
-      if (isSingleton) {
-        const s = items[0];
-        const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
-        const t = newTable({ colAligns: ['left', 'right', 'left'] });
-        t.push([chalk.dim(category), cost, displayModel(s.model)]);
-        console.log(t.toString());
-        continue;
-      }
-      console.log('  ' + chalk.dim(category));
-      const t = newTable({ colAligns: ['left', 'right', 'left'] });
-      const names = items.map((s) => s.name).join('\n');
-      const costs = items.map((s) => (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2)).join('\n');
-      const models = items.map((s) => displayModel(s.model)).join('\n');
-      t.push([names, costs, models]);
-      console.log(t.toString());
-    }
+    // Empty row + total — gives the breakdown a clear closing line.
+    // 'total' sits in the leftmost column as a summary-level label.
+    t.push(['', '', '', '']);
+    t.push([
+      chalk.bold('total'),
+      '',
+      chalk.yellow.bold('$' + data.forecast.totalCostUsd.toFixed(2)),
+      '',
+    ]);
+
+    console.log(t.toString());
   }
 
   // --- Forecast — the verdict, last so the user's eye lands on it.
@@ -436,14 +449,17 @@ export function registerEstimateCommand(program: Command): void {
           return true; // unreadable file: treat as evaluate (matches triage fallback)
         }
       });
-      // Only attach embedding model ids when the resolved backend is
-      // 'external' — local backends have no API price, so passing their ids
-      // would just hit a missing-pricing path that returns 0 anyway.
-      const externalEmbed = resolvedEmbed?.backend === 'external' ? resolvedEmbed : undefined;
+      // Always attach the resolved embedding model ids when RAG is on —
+      // including for local backends. Pricing-wise it's a no-op (local
+      // models have no upstream entry, so calculateCost returns 0), but it
+      // gives the display layer the actual model id to render (e.g.
+      // 'jina-v2 768d (local)' instead of a generic '(local)').
       const embedWithModels = embedForecast
         ? {
             ...embedForecast,
-            ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
+            ...(resolvedEmbed
+              ? { codeModel: resolvedEmbed.codeModel, nlpModel: resolvedEmbed.nlpModel }
+              : {}),
           }
         : undefined;
       // Doc-gen forecast: pick mode + page count for the heuristic.

@@ -1408,13 +1408,16 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const evalTasks = ctx.triageEnabled
     ? estimateTasks.filter(t => triageMap.get(t.file)?.tier === 'evaluate')
     : estimateTasks;
-  // Only attach embedding model ids when the resolved backend is
-  // 'external' — local backends have no API price.
-  const externalEmbed = ctx.resolvedModels?.backend === 'external' ? ctx.resolvedModels : undefined;
+  // Always attach the resolved embedding model ids when present — including
+  // local backends. Pricing-wise it's a no-op (calculateCost returns 0 for
+  // unpriced models), but the display layer gets the real model id for
+  // accurate labelling (jina-v2 768d, nomic-embed-code Q5_K_M, etc.).
   const embedWithModels = embedForecast
     ? {
         ...embedForecast,
-        ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
+        ...(ctx.resolvedModels
+          ? { codeModel: ctx.resolvedModels.codeModel, nlpModel: ctx.resolvedModels.nlpModel }
+          : {}),
       }
     : undefined;
   // Doc-gen forecast inputs: pageCount = idealPageCount approximation for
