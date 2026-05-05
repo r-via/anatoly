@@ -114,8 +114,9 @@ function enumerateActiveModelsV3(v3: ConfigV3, options: ActiveModelOptions): str
   }
 
   // 3. Embedding routing — only network providers go to the pricing cache.
-  //    ONNX providers (transport === 'onnxruntime_node') are local; LiteLLM
-  //    has no entry for them and including them triggers spurious warnings.
+  //    Local providers (ONNX in-process, or openai_compatible pointing at
+  //    localhost like the GGUF Docker sidecar) have no upstream pricing entry
+  //    and would trigger spurious warnings if included.
   if (enableRag) {
     for (const ref of [v3.routing.embeddings.code, v3.routing.embeddings.text]) {
       const parsed = parseModelRef(ref);
@@ -123,6 +124,13 @@ function enumerateActiveModelsV3(v3: ConfigV3, options: ActiveModelOptions): str
       const provider = v3.providers[parsed.provider];
       if (!provider) continue;
       if (provider.transport === 'onnxruntime_node') continue;
+      if (
+        provider.transport === 'openai_compatible'
+        && provider.base_url !== undefined
+        && /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(provider.base_url)
+      ) {
+        continue;
+      }
       seen.add(ref);
     }
   }

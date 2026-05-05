@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2, migrateConfigV2toV3, getV3Source } from './config-loader.js';
+import { loadConfig, getV3Source } from './config-loader.js';
 import { AnatolyError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,31 +31,6 @@ describe('loadConfig', () => {
     expect(config.coverage.enabled).toBe(true);
     expect(config.runtime.timeout_per_file).toBe(600);
     expect(config.runtime.max_retries).toBe(3);
-  });
-
-  it('should parse a valid .anatoly.yml with legacy llm section', () => {
-    const yml = `
-project:
-  name: my-project
-  monorepo: true
-scan:
-  include:
-    - "packages/*/src/**/*.ts"
-  exclude:
-    - "node_modules/**"
-llm:
-  model: claude-opus-4-20250514
-  timeout_per_file: 300
-`;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
-    const config = loadConfig(tempDir);
-    expect(config.project.name).toBe('my-project');
-    expect(config.project.monorepo).toBe(true);
-    expect(config.scan.include).toEqual(['packages/*/src/**/*.ts']);
-    // After migration: llm.model → models.quality (v0→v1), then bare → prefixed (v1→v2)
-    expect(config.models.quality).toBe('anthropic/claude-opus-4-20250514');
-    expect(config.runtime.timeout_per_file).toBe(300);
-    expect(config.coverage.enabled).toBe(true);
   });
 
   it('should accept a custom config path', () => {
@@ -101,32 +76,11 @@ llm:
     expect(() => loadConfig(tempDir)).toThrow(AnatolyError);
   });
 
-  it('should emit stderr warning for legacy llm format', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const yml = `llm:\n  model: claude-sonnet-4-6\n`;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
-    loadConfig(tempDir);
-    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).toContain('legacy');
-    expect(output).toContain('llm');
-    stderrSpy.mockRestore();
-  });
-
-  it('should NOT emit warning for new v1.0 format', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const yml = `models:\n  quality: claude-sonnet-4-6\n`;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
-    loadConfig(tempDir);
-    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).not.toContain('legacy');
-    stderrSpy.mockRestore();
-  });
-
-  it('should load v1.0 config without providers.google (Gemini disabled, no undefined errors)', () => {
+  it('should load v2-prefixed config without providers.google', () => {
     const yml = `
 models:
-  quality: claude-sonnet-4-6
-  fast: claude-haiku-4-5-20251001
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5-20251001
 providers:
   anthropic:
     concurrency: 24
@@ -142,24 +96,19 @@ runtime:
     expect(config.models.code_summary).toBeUndefined();
   });
 
-  it('should load the project anatoly.yml without warnings or errors', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  it('should load the project anatoly.yml without errors', () => {
     // Load from the actual project root
     const projectRoot = join(__dirname, '..', '..');
     const config = loadConfig(projectRoot);
-    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).not.toContain('legacy');
-    // Structural checks — values may change, but shape must hold
     expect(config.providers.anthropic).toBeDefined();
     expect(config.models.quality).toContain('/');
-    stderrSpy.mockRestore();
   });
 
-  it('should parse a v1.0 config with new sections directly', () => {
+  it('should parse a v2-prefixed config with new sections directly', () => {
     const yml = `
 models:
-  quality: claude-opus-4-6
-  fast: claude-haiku-4-5-20251001
+  quality: anthropic/claude-opus-4-6
+  fast: anthropic/claude-haiku-4-5-20251001
 providers:
   anthropic:
     concurrency: 16
@@ -171,10 +120,10 @@ runtime:
   concurrency: 4
 agents:
   enabled: true
-  deliberation: custom-model
+  deliberation: anthropic/claude-opus-4-6
 axes:
   correction:
-    model: claude-opus-4-6
+    model: anthropic/claude-opus-4-6
 `;
     writeFileSync(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
@@ -183,377 +132,8 @@ axes:
     expect(config.providers.google?.mode).toBe('api');
     expect(config.providers.google?.concurrency).toBe(8);
     expect(config.runtime.timeout_per_file).toBe(300);
-    expect(config.agents.deliberation).toBe('custom-model');
+    expect(config.agents.deliberation).toBe('anthropic/claude-opus-4-6');
     expect(config.axes.correction?.model).toBe('anthropic/claude-opus-4-6');
-  });
-});
-
-describe('migrateConfigV0toV1', () => {
-  it('should return new-format objects unchanged', () => {
-    const input = { models: { quality: 'claude-opus-4-6' }, runtime: { concurrency: 4 } };
-    const result = migrateConfigV0toV1(input);
-    expect(result).toEqual(input);
-  });
-
-  it('should not migrate when models key already exists', () => {
-    const input = { models: { quality: 'x' }, llm: { model: 'y' } };
-    const result = migrateConfigV0toV1(input);
-    // Has models → no migration, llm is kept as-is
-    expect(result).toEqual(input);
-  });
-
-  it('should migrate basic llm fields to new sections', () => {
-    const input = {
-      llm: {
-        model: 'claude-opus-4-6',
-        index_model: 'claude-haiku-4-5-20251001',
-        deliberation_model: 'custom-deliberation',
-        sdk_concurrency: 16,
-        timeout_per_file: 300,
-        max_retries: 5,
-        concurrency: 4,
-        min_confidence: 80,
-        max_stop_iterations: 2,
-        deliberation: false,
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-
-    expect(result.models).toEqual({
-      quality: 'claude-opus-4-6',
-      fast: 'claude-haiku-4-5-20251001',
-      deliberation: 'custom-deliberation',
-    });
-    expect(result.providers).toEqual({
-      anthropic: { concurrency: 16 },
-    });
-    expect(result.runtime).toEqual({
-      timeout_per_file: 300,
-      max_retries: 5,
-      concurrency: 4,
-      min_confidence: 80,
-      max_stop_iterations: 2,
-    });
-    expect(result.agents).toEqual({
-      enabled: false,
-    });
-    expect(result).not.toHaveProperty('llm');
-  });
-
-  it('should use fast_model as fallback for models.fast', () => {
-    const input = {
-      llm: {
-        index_model: 'haiku-default',
-        fast_model: 'fast-override',
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.models.fast).toBe('fast-override');
-  });
-
-  it('should prefer index_model when fast_model is absent', () => {
-    const input = {
-      llm: {
-        index_model: 'haiku-model',
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.models.fast).toBe('haiku-model');
-  });
-
-  it('should migrate axes from llm.axes to top-level axes', () => {
-    const input = {
-      llm: {
-        axes: {
-          correction: { model: 'claude-opus-4-6', enabled: true },
-          utility: { enabled: false },
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.axes).toEqual({
-      correction: { model: 'claude-opus-4-6', enabled: true },
-      utility: { enabled: false },
-    });
-  });
-
-  it('should migrate gemini.enabled: true → providers.google', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          type: 'genai',
-          sdk_concurrency: 8,
-          flash_model: 'gemini-2.5-flash',
-          nlp_model: 'gemini-2.5-flash',
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.providers.google).toEqual({
-      mode: 'api',
-      concurrency: 8,
-    });
-  });
-
-  it('should propagate flash_model to mechanical axes when gemini enabled', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          flash_model: 'gemini-3-flash-preview',
-          nlp_model: 'gemini-2.5-flash',
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.axes.utility.model).toBe('gemini-3-flash-preview');
-    expect(result.axes.duplication.model).toBe('gemini-3-flash-preview');
-    expect(result.axes.overengineering.model).toBe('gemini-3-flash-preview');
-  });
-
-  it('should NOT override existing axis model when propagating flash_model', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          flash_model: 'gemini-3-flash-preview',
-          nlp_model: 'gemini-2.5-flash',
-        },
-        axes: {
-          utility: { model: 'custom-model' },
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.axes.utility.model).toBe('custom-model');
-    expect(result.axes.duplication.model).toBe('gemini-3-flash-preview');
-  });
-
-  it('should set models.code_summary from gemini nlp_model', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          nlp_model: 'gemini-2.5-flash',
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.models.code_summary).toBe('gemini-2.5-flash');
-  });
-
-  it('should NOT set providers.google when gemini.enabled: false', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: false,
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.providers?.google).toBeUndefined();
-    expect(result.models?.code_summary).toBeUndefined();
-  });
-
-  it('should NOT set providers.google when gemini section is absent', () => {
-    const input = {
-      llm: {
-        model: 'claude-sonnet-4-6',
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.providers?.google).toBeUndefined();
-  });
-
-  it('should map gemini type cli-core → subscription', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          type: 'cli-core',
-          sdk_concurrency: 12,
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.providers.google!.mode).toBe('subscription');
-  });
-
-  it('should map gemini type genai → api', () => {
-    const input = {
-      llm: {
-        gemini: {
-          enabled: true,
-          type: 'genai',
-          sdk_concurrency: 10,
-        },
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.providers.google!.mode).toBe('api');
-  });
-
-  it('should preserve non-llm keys during migration', () => {
-    const input = {
-      project: { name: 'test' },
-      scan: { include: ['src/**'] },
-      llm: { model: 'test-model' },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(result.project).toEqual({ name: 'test' });
-    expect(result.scan).toEqual({ include: ['src/**'] });
-    expect(result).not.toHaveProperty('llm');
-  });
-
-  it('should strip agentic_tools during migration', () => {
-    const input = {
-      llm: {
-        agentic_tools: true,
-        model: 'test',
-      },
-    };
-    const result = migrateConfigV0toV1(input);
-    expect(JSON.stringify(result)).not.toContain('agentic_tools');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// migrateConfigV1toV2 — Story 43.3: Model prefixes
-// ---------------------------------------------------------------------------
-
-describe('migrateConfigV1toV2', () => {
-  it('should prefix claude-* models with anthropic/', () => {
-    const input = {
-      models: { quality: 'claude-sonnet-4-6', fast: 'claude-haiku-4-5-20251001' },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
-    expect(result.models.fast).toBe('anthropic/claude-haiku-4-5-20251001');
-  });
-
-  it('should prefix gemini-* models with google/', () => {
-    const input = {
-      models: { quality: 'gemini-2.5-flash', code_summary: 'gemini-2.5-flash-lite' },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.models.quality).toBe('google/gemini-2.5-flash');
-    expect(result.models.code_summary).toBe('google/gemini-2.5-flash-lite');
-  });
-
-  it('should prefix axes.*.model', () => {
-    const input = {
-      models: { quality: 'claude-sonnet-4-6' },
-      axes: {
-        utility: { model: 'gemini-2.5-flash-lite' },
-        correction: { model: 'claude-opus-4-6' },
-      },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.axes.utility.model).toBe('google/gemini-2.5-flash-lite');
-    expect(result.axes.correction.model).toBe('anthropic/claude-opus-4-6');
-  });
-
-  it('should prefix agents model strings', () => {
-    const input = {
-      models: { quality: 'claude-sonnet-4-6' },
-      agents: { deliberation: 'claude-opus-4-6', scaffolding: 'gemini-2.5-flash' },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.agents.deliberation).toBe('anthropic/claude-opus-4-6');
-    expect(result.agents.scaffolding).toBe('google/gemini-2.5-flash');
-  });
-
-  it('should NOT double-prefix already-prefixed model names', () => {
-    const input = {
-      models: {
-        quality: 'anthropic/claude-sonnet-4-6',
-        fast: 'google/gemini-2.5-flash',
-      },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
-    expect(result.models.fast).toBe('google/gemini-2.5-flash');
-  });
-
-  it('should return object unchanged when all models already have prefixes', () => {
-    const input = {
-      models: {
-        quality: 'anthropic/claude-sonnet-4-6',
-        fast: 'anthropic/claude-haiku-4-5-20251001',
-        deliberation: 'anthropic/claude-opus-4-6',
-      },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result).toEqual(input);
-  });
-
-  it('should leave unknown bare model names unchanged', () => {
-    const input = {
-      models: { quality: 'llama-3-70b' },
-    };
-    const result = migrateConfigV1toV2(input);
-    // Unknown models are left as-is (error at runtime if provider unknown)
-    expect(result.models.quality).toBe('llama-3-70b');
-  });
-
-  it('should handle missing models section gracefully', () => {
-    const input = { project: { name: 'test' } };
-    const result = migrateConfigV1toV2(input);
-    expect(result).toEqual(input);
-  });
-
-  it('should handle axes without model field', () => {
-    const input = {
-      models: { quality: 'claude-sonnet-4-6' },
-      axes: { utility: { enabled: true } },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.axes.utility).toEqual({ enabled: true });
-    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
-  });
-
-  it('should skip undefined model values in models section', () => {
-    const input = {
-      models: { quality: 'claude-sonnet-4-6', code_summary: undefined },
-    };
-    const result = migrateConfigV1toV2(input);
-    expect(result.models.quality).toBe('anthropic/claude-sonnet-4-6');
-    expect(result.models.code_summary).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// migrateConfigV2toV3 — Story 50.1: Embedding section migration
-// ---------------------------------------------------------------------------
-
-describe('migrateConfigV2toV3', () => {
-  it('should be a no-op for old format without embedding section', () => {
-    const input = {
-      models: { quality: 'anthropic/claude-sonnet-4-6' },
-      rag: { code_model: 'auto', nlp_model: 'auto' },
-    };
-    const result = migrateConfigV2toV3(input);
-    expect(result).toEqual(input);
-  });
-
-  it('should pass through config with embedding section unchanged', () => {
-    const input = {
-      models: { quality: 'anthropic/claude-sonnet-4-6' },
-      rag: {
-        embedding: {
-          code: { provider: 'openai', model: 'text-embedding-3-large' },
-        },
-      },
-    };
-    const result = migrateConfigV2toV3(input);
-    expect(result.rag.embedding.code.provider).toBe('openai');
-  });
-
-  it('should pass through config without rag section', () => {
-    const input = { models: { quality: 'anthropic/claude-sonnet-4-6' } };
-    const result = migrateConfigV2toV3(input);
-    expect(result).toEqual(input);
   });
 });
 
@@ -632,53 +212,6 @@ rag:
   });
 });
 
-describe('loadConfig — v1→v2 migration warning', () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-v1v2-'));
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('should emit v1→v2 migration warning for bare model names', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const yml = `
-models:
-  quality: claude-sonnet-4-6
-  fast: claude-haiku-4-5-20251001
-providers:
-  anthropic:
-    concurrency: 24
-`;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
-    const config = loadConfig(tempDir);
-    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).toContain('bare model names');
-    // Models should be prefixed in memory
-    expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
-    stderrSpy.mockRestore();
-  });
-
-  it('should NOT emit v1→v2 warning when models already have prefixes', () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const yml = `
-models:
-  quality: anthropic/claude-sonnet-4-6
-  fast: anthropic/claude-haiku-4-5-20251001
-providers:
-  anthropic:
-    concurrency: 24
-`;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
-    loadConfig(tempDir);
-    const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(output).not.toContain('bare model names');
-    stderrSpy.mockRestore();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // v3 config (declarative `version: 3` schema with providers/routing/...)
