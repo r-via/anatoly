@@ -483,10 +483,10 @@ export interface ForecastInputs {
  * `recalibrateFromRuns` for axis durations).
  */
 export const DOC_BOOTSTRAP_PER_PAGE = {
-  fresh: 3000,
-  cacheRead: 7000,
-  cacheCreation: 600,
-  output: 3500,
+  fresh: 100,
+  cacheRead: 100000,
+  cacheCreation: 12000,
+  output: 12500,
 } as const;
 
 /** Update mode is lighter — the agent reads less context, edits more locally. */
@@ -509,10 +509,10 @@ export const DOC_UPDATE_PER_PAGE = {
  * across the agent's multi-turn editing loop.
  */
 export const DOC_COHERENCE_PER_PAGE = {
-  fresh: 2000,
-  cacheRead: 6000,
-  cacheCreation: 1500,
-  output: 9000,
+  fresh: 3000,
+  cacheRead: 12000,
+  cacheCreation: 2000,
+  output: 12500,
 } as const;
 
 export function forecastRun(args: ForecastInputs): RunForecast {
