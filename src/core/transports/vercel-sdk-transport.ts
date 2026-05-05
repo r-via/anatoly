@@ -119,17 +119,26 @@ export class VercelSdkTransport implements LlmTransport {
       const text = result.text ?? '';
       const inputTokens = result.usage?.inputTokens ?? 0;
       const outputTokens = result.usage?.outputTokens ?? 0;
-      const rawCached = (result.usage as Record<string, unknown>)?.cachedInputTokens;
-      const cacheReadTokens = typeof rawCached === 'number' ? rawCached : 0;
+      // Vercel AI SDK v6 exposes the full cache breakdown under
+      // `usage.inputTokenDetails.{cacheReadTokens,cacheWriteTokens}`. The
+      // earlier shape (`usage.cachedInputTokens`) only carried cache_reads
+      // and was dropped — reading the legacy field returns undefined, which
+      // silently zeroed both cache numbers and over-priced any underlying
+      // Anthropic-routed call (no cache discount applied). Fall back to the
+      // legacy field for older SDK versions.
+      const usage = result.usage as unknown as {
+        inputTokens?: number;
+        outputTokens?: number;
+        inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+        cachedInputTokens?: number;
+      } | undefined;
+      const cacheReadTokens =
+        usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? 0;
+      const cacheCreationTokens = usage?.inputTokenDetails?.cacheWriteTokens ?? 0;
       const durationMs = Date.now() - start;
-      // Vercel AI SDK's unified usage shape doesn't expose cache_creation
-      // tokens (only cache_read via `cachedInputTokens`), so we pass `read`
-      // only. The cache_creation contribution is implicitly folded into the
-      // `inputTokens` count, which means underlying Anthropic-routed calls
-      // get costed at the input rate for those tokens — close enough until
-      // Vercel SDK exposes the full cache breakdown.
       const costUsd = calculateCost(modelId, inputTokens, outputTokens, params.projectRoot, {
         read: cacheReadTokens,
+        creation: cacheCreationTokens,
       });
 
       transcriptLines.push(`## Assistant\n\n${text}\n`);
@@ -146,7 +155,7 @@ export class VercelSdkTransport implements LlmTransport {
         inputTokens,
         outputTokens,
         cacheReadTokens,
-        cacheCreationTokens: 0,
+        cacheCreationTokens,
         costUsd,
         durationMs,
         success: true,
@@ -161,7 +170,7 @@ export class VercelSdkTransport implements LlmTransport {
           inputTokens,
           outputTokens,
           cacheReadTokens,
-          cacheCreationTokens: 0,
+          cacheCreationTokens,
           cacheHitRate: inputTokens > 0 ? Math.round((cacheReadTokens / inputTokens) * 100) : 0,
           costUsd,
           durationMs,
@@ -178,7 +187,7 @@ export class VercelSdkTransport implements LlmTransport {
         inputTokens,
         outputTokens,
         cacheReadTokens,
-        cacheCreationTokens: 0,
+        cacheCreationTokens,
         transcript: transcriptLines.join('\n'),
         sessionId: undefined,
       };

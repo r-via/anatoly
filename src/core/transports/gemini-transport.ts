@@ -208,6 +208,7 @@ export class GeminiTransport implements LlmTransport {
     let text = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
 
     const stream = client.sendMessageStream(
       [{ text: params.userMessage }],
@@ -225,11 +226,17 @@ export class GeminiTransport implements LlmTransport {
             usageMetadata?: {
               promptTokenCount?: number;
               candidatesTokenCount?: number;
+              // Gemini's cached prompt count when context-cache is engaged.
+              // Reported as a portion of promptTokenCount (cached + non-cached
+              // sum to promptTokenCount), so we surface it separately for
+              // pricing and dashboarding without mutating inputTokens.
+              cachedContentTokenCount?: number;
             };
           };
           if (finished.usageMetadata) {
             inputTokens = finished.usageMetadata.promptTokenCount ?? 0;
             outputTokens = finished.usageMetadata.candidatesTokenCount ?? 0;
+            cacheReadTokens = finished.usageMetadata.cachedContentTokenCount ?? 0;
           }
           break;
         }
@@ -237,7 +244,9 @@ export class GeminiTransport implements LlmTransport {
     }
 
     const durationMs = Date.now() - start;
-    const costUsd = calculateCost(params.model, inputTokens, outputTokens, params.projectRoot);
+    const costUsd = calculateCost(params.model, inputTokens, outputTokens, params.projectRoot, {
+      read: cacheReadTokens,
+    });
     transcriptLines.push(`## Assistant\n\n${text}\n`);
 
     // --- Conversation dump: append result ---
@@ -246,14 +255,18 @@ export class GeminiTransport implements LlmTransport {
       appendResult(dump, { durationMs, costUsd, inputTokens, outputTokens, success: true });
     }
 
-    // Emit structured llm_call event
+    // Emit structured llm_call event. Gemini's prompt cache (when engaged
+    // via the Cached Content API) reports its hit count via
+    // `usageMetadata.cachedContentTokenCount`, surfaced here as cacheReadTokens.
+    // Gemini doesn't expose a separate cache-creation count — content is
+    // cached out-of-band, so cacheCreationTokens stays at 0 by design.
     recordLlmCall({
       provider: 'gemini',
       model: params.model,
       ...(params.attempt != null ? { attempt: params.attempt } : {}),
       inputTokens,
       outputTokens,
-      cacheReadTokens: 0,
+      cacheReadTokens,
       cacheCreationTokens: 0,
       costUsd,
       durationMs,
@@ -268,9 +281,9 @@ export class GeminiTransport implements LlmTransport {
         attempt: params.attempt,
         inputTokens,
         outputTokens,
-        cacheReadTokens: 0,
+        cacheReadTokens,
         cacheCreationTokens: 0,
-        cacheHitRate: 0,
+        cacheHitRate: inputTokens > 0 ? Math.round((cacheReadTokens / inputTokens) * 100) : 0,
         costUsd,
         durationMs,
         success: true,
@@ -285,7 +298,7 @@ export class GeminiTransport implements LlmTransport {
       durationMs,
       inputTokens,
       outputTokens,
-      cacheReadTokens: 0,
+      cacheReadTokens,
       cacheCreationTokens: 0,
       transcript: transcriptLines.join('\n'),
       sessionId: undefined,
