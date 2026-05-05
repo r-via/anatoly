@@ -475,14 +475,17 @@ export function registerEstimateCommand(program: Command): void {
         { key: 'cache', value: 'on' },
       ];
 
-      // Surface active CLI scope filters as a single 'scope' row when present.
-      // Keeps the Configuration block honest: the table tells you what the
-      // forecast actually covers, not what the config alone would imply.
+      // Surface active CLI scope filters as a single 'scope' row — but only
+      // for overrides that don't have their own row. The 'rag' and 'docs'
+      // rows already carry their --no-rag / --no-internal-docs override
+      // inline (e.g. `rag   off (--no-rag)`), so listing them again in
+      // 'scope' would be redundant. 'scope' therefore holds: files glob,
+      // axes filter, deliberation suppression — the things with no
+      // dedicated row to show them.
       const scopeFragments: string[] = [];
       if (filesGlob) scopeFragments.push(`files: ${filesGlob}`);
       if (axesFilter) scopeFragments.push(`axes: ${axesFilter.join(',')}`);
       if (deliberationOverride === false) scopeFragments.push('no deliberation');
-      if (internalDocsOverride === false) scopeFragments.push('no internal-docs');
       if (scopeFragments.length > 0) {
         configRows.push({ key: 'scope', value: scopeFragments.join(' · ') });
       }
