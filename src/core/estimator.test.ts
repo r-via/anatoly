@@ -507,6 +507,7 @@ describe('forecastRun', () => {
         'embed:code',
         'embed:text',
         'internal-doc:bootstrap',
+        'internal-doc:coherence',
         'summary:',
       ]);
       // embed nlp has no nlpModel ⇒ cost = 0 but step still surfaces with model 'local'.

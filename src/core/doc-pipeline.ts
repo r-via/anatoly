@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { type ProjectProfile, type ProjectType } from './language-detect.js';
-import { scaffoldDocs, type ScaffoldResult } from './doc-scaffolder.js';
+import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
 import { resolveModuleGranularity, extractModuleName, type ModuleDir } from './module-granularity.js';
 import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mapping.js';
 import { assertSafeOutputPath } from './docs-guard.js';
@@ -73,6 +73,23 @@ export interface DocPipelineResult {
  * @returns Scaffold result containing project types, generated scaffold structure,
  *   code-to-doc mappings, and the output directory path.
  */
+/**
+ * Compute the scaffold page list (without writing to disk) for a given
+ * project profile + scanned task set. Mirrors the runtime's page-list
+ * derivation in {@link runDocScaffold}, so the estimator can size the
+ * doc-generation forecast against the actual page count rather than a
+ * generic heuristic.
+ *
+ * Importantly: this MUST take the unfiltered task set — RAG / doc scaffolding
+ * runs over the whole project regardless of `--files`, so an estimator that
+ * passes a filtered list would underestimate dynamic module pages.
+ */
+export function computeScaffoldPageList(tasks: Task[], profile: ProjectProfile): PageDef[] {
+  const moduleDirs = buildModuleDirs(tasks);
+  const modulePages = resolveModuleGranularity(moduleDirs);
+  return buildPageList(profile.types, modulePages);
+}
+
 export function runDocScaffold(
   projectRoot: string,
   packageJson: Record<string, unknown>,

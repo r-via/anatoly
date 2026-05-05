@@ -176,7 +176,7 @@ export function scaffoldDocs(
 
 // --- Internal helpers ---
 
-function buildPageList(projectTypes: ProjectType[], dynamicModulePages: PageDef[] = []): PageDef[] {
+export function buildPageList(projectTypes: ProjectType[], dynamicModulePages: PageDef[] = []): PageDef[] {
   // Deep-copy to avoid mutating the module-level constants
   const pages: PageDef[] = BASE_PAGES.map(p => ({ ...p }));
   for (const type of projectTypes) {

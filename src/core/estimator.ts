@@ -433,6 +433,24 @@ export const DOC_UPDATE_PER_PAGE = {
   output: 2000,
 } as const;
 
+/**
+ * Coherence review pass — single Sonnet agent that reads ALL bootstrapped
+ * pages and rewrites them via the Write tool to fix cross-page issues.
+ * Runs once per bootstrap (not on update mode). Cost scales with the total
+ * scaffolded page count: more pages → more content injected, more edits emitted.
+ *
+ * Constants are calibrated empirically from R1 (18 pages, $2.77 on
+ * sonnet-4-6). Per-page shape is dominated by output tokens (Write-tool
+ * deltas as the agent rewrites each page), with cached input growing
+ * across the agent's multi-turn editing loop.
+ */
+export const DOC_COHERENCE_PER_PAGE = {
+  fresh: 2000,
+  cacheRead: 6000,
+  cacheCreation: 1500,
+  output: 9000,
+} as const;
+
 export function forecastRun(args: ForecastInputs): RunForecast {
   const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, resolveBillingMode, calibration, concurrency, ragEnabled, deliberation } = args;
   const steps: ForecastStep[] = [];
@@ -576,6 +594,34 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       }),
       approximate: true,
     });
+
+    // Coherence review — single-agent Sonnet pass after bootstrap that
+    // reads all generated pages and rewrites them for cross-page coherence.
+    // Only runs in bootstrap mode (see run.ts: `if (taskId === 'bootstrap-doc')`).
+    // Without this step the forecast missed ~$2.77 on the R1 baseline (18-page
+    // bootstrap of slot-engine), making total cost ~13× under-reported.
+    if (docContext.mode === 'bootstrap') {
+      const cc = DOC_COHERENCE_PER_PAGE;
+      const cohFresh = docContext.pageCount * cc.fresh;
+      const cohCacheRead = docContext.pageCount * cc.cacheRead;
+      const cohCacheCreation = docContext.pageCount * cc.cacheCreation;
+      const cohOutput = docContext.pageCount * cc.output;
+      steps.push({
+        category: 'internal-doc',
+        name: 'coherence',
+        model: docContext.scaffoldingModel,
+        billingMode: resolveBillingMode(docContext.scaffoldingModel),
+        inputTokens: cohFresh,
+        outputTokens: cohOutput,
+        cacheReadTokens: cohCacheRead,
+        cacheCreationTokens: cohCacheCreation,
+        costUsd: calculateCost(docContext.scaffoldingModel, cohFresh, cohOutput, projectRoot, {
+          read: cohCacheRead,
+          creation: cohCacheCreation,
+        }),
+        approximate: true,
+      });
+    }
   }
 
   // Aggregate from steps — single source of truth: any new step type lands

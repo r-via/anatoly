@@ -20,6 +20,7 @@ import picomatch from 'picomatch';
 import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
+import { computeScaffoldPageList } from '../core/doc-pipeline.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
 import { countChangedDocs } from '../rag/doc-indexer.js';
@@ -528,14 +529,21 @@ export function registerEstimateCommand(program: Command): void {
 
       // RAG indexing scope — merged with the rag mode label in the
       // Configuration block (e.g. `rag   lite — 8 files · 17 fns · 34 chunks`).
+      //
+      // RAG indexes the WHOLE project regardless of `--files` (the filter
+      // only narrows axis review, not the index). So this section is sized
+      // from `allTasksUnfiltered`. Without this fix, scoping to one file
+      // collapsed the RAG/NLP-summary forecast by ~order of magnitude — R1
+      // forecast was $0.001 against $0.27 actual (8 haiku summaries over
+      // the full project's 17 functions).
       let embedForecast: ReturnType<typeof estimateEmbedTokens> | undefined;
       let ragScopeFragment = '';
       if (enableRag) {
-        const ragFiles = allTasks.filter(t =>
+        const ragFiles = allTasksUnfiltered.filter(t =>
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
         const docsPath = config.documentation?.docs_path ?? 'docs';
-        embedForecast = estimateEmbedTokens(projectRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
+        embedForecast = estimateEmbedTokens(projectRoot, allTasksUnfiltered, [docsPath, join('.anatoly', 'docs')]);
         ragScopeFragment = ` — ${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`;
       }
       configRows.push({ key: 'rag', value: ragLabel + ragScopeFragment });
@@ -585,11 +593,15 @@ export function registerEstimateCommand(program: Command): void {
           }
         : undefined;
       // Doc-gen forecast: pick mode + page count for the heuristic.
-      // Bootstrap page count is approximated from project size (no canonical
-      // value exists pre-pipeline). Update uses the actual changed count.
+      // Bootstrap page count comes from the SAME page-list builder the
+      // runtime scaffolder uses — base pages + project-type extras +
+      // dynamic module pages — so the forecast tracks reality (BASE_PAGES
+      // alone is 18, dwarfing the prior `max(8, ceil(N/12))` heuristic
+      // which floored at 8). Uses unfiltered tasks: scaffolding runs over
+      // the whole project regardless of `--files` review scope.
       const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
       const docPageCount = docMode === 'bootstrap'
-        ? Math.max(8, Math.ceil(allTasks.length / 12))
+        ? computeScaffoldPageList(allTasksUnfiltered, profile).length
         : (docScanInternal?.changed ?? 0);
       const scaffoldingModel = config.agents.scaffolding ?? config.models.quality;
 
