@@ -131,10 +131,14 @@ interface EstimateViewData {
     timeValue: string;
     steps: ForecastStep[];
   };
-  pipeline: { phase: string; detail: string }[];
 }
 
 function renderEstimateView(data: EstimateViewData): void {
+  // Reading order is bottom-up — CLI users land on the LAST line of the
+  // output (next to the prompt that comes back). So we build context first,
+  // then the breakdown, and end on the Forecast: the headline `cost / time`
+  // sits right above the prompt and is what the eye remembers.
+
   // --- Project Info — kv block, no separators ---
   if (data.project) {
     const rows = [
@@ -146,11 +150,10 @@ function renderEstimateView(data: EstimateViewData): void {
     printSection('Project Info', chalk.green.bold, makeKvBlock(rows));
   }
 
-  // --- Configuration — kv block, no separators ---
+  // --- Configuration ---
   printSection('Configuration', chalk.cyan.bold, makeKvBlock(data.config));
 
-  // --- Used Models — two stacked sub-blocks (axes / rag) instead of a 4-col
-  // side-by-side that left empty cells when one column was longer. ---
+  // --- Used Models — two stacked sub-blocks (axes / rag). ---
   {
     console.log('');
     console.log('  ' + chalk.magenta.bold('Used Models'));
@@ -167,26 +170,12 @@ function renderEstimateView(data: EstimateViewData): void {
     }
   }
 
-  // --- Forecast — decision-grade headlines (files / tokens / cost / time) ---
-  {
-    const rows = [
-      { key: 'files', value: data.forecast.filesValue },
-      { key: 'tokens', value: data.forecast.tokensValue },
-      { key: 'cost', value: `$${data.forecast.totalCostUsd.toFixed(2)} total` },
-      { key: 'time', value: data.forecast.timeValue },
-    ];
-    printSection('Forecast', chalk.yellow.bold, makeKvBlock(rows));
-  }
-
-  // --- Cost breakdown — grouped by category. Each category is its own
-  // sub-block; within a group, steps are sorted by cost desc. The category
-  // appears once as a sub-title rather than repeating in a column. ---
+  // --- Cost breakdown — per-step contributions building up to the total ---
   {
     console.log('');
     console.log('  ' + chalk.yellow.bold('Cost breakdown'));
     console.log('  ' + chalk.dim('─'.repeat(14)));
 
-    // Group by category, preserving canonical category order.
     const sorted = sortSteps(data.forecast.steps);
     const groups = new Map<string, ForecastStep[]>();
     for (const s of sorted) {
@@ -196,9 +185,9 @@ function renderEstimateView(data: EstimateViewData): void {
 
     for (const [category, items] of groups) {
       console.log('');
-      // Single-entry category with no sub-name (e.g. summary) reads better
-      // inline: the category title carries the cost+model directly, no
-      // empty-name placeholder row needed.
+      // Single-entry category with no sub-name (e.g. summary, deliberation)
+      // reads better inline: the category title carries the cost+model
+      // directly, no empty-name placeholder row needed.
       const isSingleton = items.length === 1 && items[0].name === '';
       if (isSingleton) {
         const s = items[0];
@@ -209,7 +198,6 @@ function renderEstimateView(data: EstimateViewData): void {
         continue;
       }
       console.log('  ' + chalk.dim(category));
-      // 3-col table per group: name / cost (right) / model — separator-less.
       const t = newTable({ colAligns: ['left', 'right', 'left'] });
       const names = items.map((s) => s.name).join('\n');
       const costs = items.map((s) => (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2)).join('\n');
@@ -219,14 +207,16 @@ function renderEstimateView(data: EstimateViewData): void {
     }
   }
 
-  // --- Pipeline Plan — kv block, no separators, no checkmarks (the
-  // section is already framed by its title; ✓ marks added clutter without
-  // information). 'source files' / 'triage' rows are intentionally omitted
-  // — their data is already in the Forecast `files` line. ---
+  // --- Forecast — the verdict, last so the user's eye lands on it.
+  // The cost value is bold so it pops as the headline number. ---
   {
-    printSection('Pipeline Plan', chalk.blue.bold, makeKvBlock(
-      data.pipeline.map((r) => ({ key: r.phase, value: r.detail })),
-    ));
+    const rows = [
+      { key: 'files', value: data.forecast.filesValue },
+      { key: 'tokens', value: data.forecast.tokensValue },
+      { key: 'cost', value: chalk.yellow.bold(`$${data.forecast.totalCostUsd.toFixed(2)} total`) },
+      { key: 'time', value: data.forecast.timeValue },
+    ];
+    printSection('Forecast', chalk.yellow.bold, makeKvBlock(rows));
   }
 
   console.log('');
@@ -375,9 +365,13 @@ export function registerEstimateCommand(program: Command): void {
         ragLabel = resolvedRagSuffix;
       }
 
-      const configRows = [
+      // Configuration rows are populated incrementally below — the rag /
+      // docs lines are enriched with the RAG indexing scope + doc-bootstrap
+      // status, so what was previously two sections (Configuration +
+      // Pipeline Plan) collapses into one semantic block: "what's set up
+      // for this run". The rest of the diagnostic info is in the JSON payload.
+      const configRows: { key: string; value: string }[] = [
         { key: 'concurrency', value: `${concurrency} files · ${config.providers.google ? `${config.providers.anthropic?.concurrency ?? 24} Claude + ${config.providers.google.concurrency} Gemini slots` : `${config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
-        { key: 'rag', value: ragLabel },
         { key: 'cache', value: 'on' },
       ];
 
@@ -400,8 +394,6 @@ export function registerEstimateCommand(program: Command): void {
         modelsRight.push({ key: 'summarization', value: shortModelName(resolveCodeSummaryModel(config)) });
       }
 
-      // --- Pipeline rows ---
-      const pipelineRows: { phase: string; detail: string }[] = [];
       const allTasks = loadTasks(projectRoot);
 
       // Cached/new file counts — surfaced in the JSON payload's plan.scan
@@ -430,40 +422,38 @@ export function registerEstimateCommand(program: Command): void {
       // No 'triage' row: 'evaluate / skipped' is already shown in the
       // Forecast `files` line (e.g. '12 of 15 (3 skipped by triage)').
 
-      // rag (merged structural counts: files indexed + functions + chunks)
+      // RAG indexing scope — merged with the rag mode label in the
+      // Configuration block (e.g. `rag   lite — 8 files · 17 fns · 34 chunks`).
       let embedForecast: ReturnType<typeof estimateEmbedTokens> | undefined;
+      let ragScopeFragment = '';
       if (enableRag) {
         const ragFiles = allTasks.filter(t =>
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
         const docsPath = config.documentation?.docs_path ?? 'docs';
         embedForecast = estimateEmbedTokens(projectRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
-        pipelineRows.push({
-          phase: 'rag',
-          detail: `${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`,
-        });
+        ragScopeFragment = ` — ${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`;
       }
+      configRows.push({ key: 'rag', value: ragLabel + ragScopeFragment });
 
       // Build the usage graph for the JSON payload's plan.usageGraph.edges
-      // diagnostic. Not surfaced in the rendered Pipeline Plan: the edges
-      // count is opaque to users and doesn't help the run/no-run decision.
+      // diagnostic. Not surfaced in the rendered view (opaque metric).
       const usageGraph = buildUsageGraph(projectRoot, allTasks);
 
-      // docs (internal + project merged)
+      // docs status — merged into Configuration as a `docs` row.
       const bootstrapNeeded = needsBootstrap(projectRoot);
+      let docsValue: string;
       if (bootstrapNeeded) {
-        pipelineRows.push({ phase: 'docs', detail: 'first run (bootstrap)' });
+        docsValue = 'first run (bootstrap)';
       } else if (docScanInternal) {
         const projectFragment = docScanProject
           ? `project ${docScanProject.changed} changed`
           : 'project deduplicated';
-        pipelineRows.push({
-          phase: 'docs',
-          detail: `${docScanInternal.changed} changed, ${docScanInternal.cached} cached · ${projectFragment}`,
-        });
+        docsValue = `${docScanInternal.changed} changed, ${docScanInternal.cached} cached · ${projectFragment}`;
       } else {
-        pipelineRows.push({ phase: 'docs', detail: '.anatoly/docs/ ready' });
+        docsValue = '.anatoly/docs/ ready';
       }
+      configRows.push({ key: 'docs', value: docsValue });
 
       // Forecast — decision-grade, cost included, embed tokens surfaced.
       const calibration = loadCalibration(projectRoot);
@@ -611,7 +601,6 @@ export function registerEstimateCommand(program: Command): void {
           timeValue: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})`,
           steps: forecast.steps,
         },
-        pipeline: pipelineRows,
       });
     });
 }
