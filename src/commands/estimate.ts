@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
-import { forecastRun, formatTokenCount, loadTasks } from '../core/estimator.js';
+import { forecastRun, formatTokenCount, loadTasks, type ForecastStep } from '../core/estimator.js';
 import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
@@ -24,6 +24,26 @@ import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
 import { printBanner } from '../utils/banner.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
+
+/** Strip provider prefix and `claude-` prefix for compact model display. */
+function displayModel(modelId: string): string {
+  if (modelId === 'local') return '(local)';
+  return modelId.replace(/^[^/]+\//, '').replace(/^claude-/, '');
+}
+
+/** Convert a step id into the user-facing label shown in the Forecast block. */
+function formatStepLabel(id: string): string {
+  if (id.startsWith('axis:')) return id.slice(5);
+  if (id.startsWith('embed:')) return `embed/${id.slice(6)}`;
+  if (id.startsWith('doc:')) return `doc/${id.slice(4)}`;
+  return id;
+}
+
+/** Format the per-step value column: cost (with `~` for approximate) + model. */
+function formatStepValue(s: ForecastStep): string {
+  const costStr = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
+  return `${costStr}  ${displayModel(s.model)}`;
+}
 
 /** Registers the `estimate` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerEstimateCommand(program: Command): void {
@@ -225,6 +245,15 @@ export function registerEstimateCommand(program: Command): void {
             ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
           }
         : undefined;
+      // Doc-gen forecast: pick mode + page count for the heuristic.
+      // Bootstrap page count is approximated from project size (no canonical
+      // value exists pre-pipeline). Update uses the actual changed count.
+      const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
+      const docPageCount = docMode === 'bootstrap'
+        ? Math.max(8, Math.ceil(allTasks.length / 12))
+        : (docScanInternal?.changed ?? 0);
+      const scaffoldingModel = config.agents.scaffolding ?? config.models.quality;
+
       const forecast = forecastRun({
         projectRoot,
         evalTasks,
@@ -232,6 +261,9 @@ export function registerEstimateCommand(program: Command): void {
         axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, config) })),
         ...(embedWithModels ? { embed: embedWithModels } : {}),
         ...(enableRag ? { summaryModel: resolveCodeSummaryModel(config) } : {}),
+        ...(docPageCount > 0
+          ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
+          : {}),
         calibration,
         concurrency,
         ragEnabled: enableRag,
@@ -242,20 +274,23 @@ export function registerEstimateCommand(program: Command): void {
       // Forecast block (estimate command only — verdict before pipeline detail).
       const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`
         + (forecast.embed.tokens > 0 ? ` + ${formatTokenCount(forecast.embed.tokens)} embed` : '');
-      const costBreakdown = Object.entries(forecast.llm.costByModel)
-        .filter(([, c]) => c > 0)
-        .map(([m, c]) => `$${c.toFixed(2)} ${m}`)
-        .join(' · ');
-      const costFragment = costBreakdown
-        ? `$${forecast.totalCostUsd.toFixed(2)}  (${costBreakdown})`
-        : `$${forecast.totalCostUsd.toFixed(2)}`;
       const filesFragment = forecast.skippedFiles > 0
         ? `${forecast.files} of ${forecast.totalFiles}  (${forecast.skippedFiles} skipped by triage)`
         : `${forecast.files} files`;
+
+      // Per-step breakdown — sorted by cost descending so the user sees the
+      // biggest contributors first. `~` marker on approximate steps (doc:*).
+      const sortedSteps = [...forecast.steps].sort((a, b) => b.costUsd - a.costUsd);
+      const stepRows = sortedSteps.map(s => ({
+        key: '  ' + formatStepLabel(s.id),
+        value: formatStepValue(s),
+      }));
+
       const forecastRows = [
         { key: 'files', value: filesFragment },
         { key: 'tokens', value: totalTokensFragment },
-        { key: 'cost', value: costFragment },
+        { key: 'cost', value: `$${forecast.totalCostUsd.toFixed(2)} total` },
+        ...stepRows,
         { key: 'time', value: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})` },
       ];
 

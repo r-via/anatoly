@@ -239,7 +239,9 @@ describe('constants', () => {
 describe('forecastRun', () => {
   let projectRoot: string;
 
-  function seedPricing(models: Record<string, { input: number; output: number }>): void {
+  function seedPricing(
+    models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number }>,
+  ): void {
     mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
     writeFileSync(
       resolve(projectRoot, PRICING_PATHS.normalized),
@@ -450,5 +452,191 @@ describe('forecastRun', () => {
       deliberation: false,
     });
     expect(result.totalCostUsd).toBeCloseTo(result.llm.costUsd, 6);
+  });
+
+  // ---------------------------------------------------------------------
+  // Pass A — per-step breakdown + cache modeling + doc-gen heuristic
+  // ---------------------------------------------------------------------
+
+  describe('per-step breakdown', () => {
+    it('produces one step per axis, plus summary, embed, and doc when applicable', () => {
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': { input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75 },
+        'anthropic/claude-haiku-4-5': { input: 1, output: 5, cacheReadInput: 0.1, cacheCreationInput: 1.25 },
+        'anthropic/claude-opus-4-6': { input: 15, output: 75, cacheReadInput: 1.5, cacheCreationInput: 18.75 },
+        'voyage/voyage-code-3': { input: 0.18, output: 0 },
+      });
+      const tasks = [
+        makeTask('src/a.ts', 'export function a() { return 1; }\n'),
+        makeTask('src/b.ts', 'export function b() { return 2; }\n'),
+      ];
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 2,
+        axes: [
+          { id: 'correction', model: 'anthropic/claude-sonnet-4-6' },
+          { id: 'utility', model: 'anthropic/claude-haiku-4-5' },
+        ],
+        embed: {
+          codeTokens: 100_000, codeUnits: 50,
+          nlpTokens: 50_000, nlpUnits: 25,
+          codeModel: 'voyage/voyage-code-3',
+        },
+        summaryModel: 'anthropic/claude-haiku-4-5',
+        docContext: { mode: 'bootstrap', pageCount: 5, scaffoldingModel: 'anthropic/claude-opus-4-6' },
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: true,
+        deliberation: false,
+      });
+
+      const ids = result.steps.map(s => s.id).sort();
+      expect(ids).toEqual([
+        'axis:correction',
+        'axis:utility',
+        'doc:bootstrap',
+        'embed:code',
+        'embed:nlp',
+        'summary',
+      ]);
+      // embed:nlp has no nlpModel ⇒ cost = 0 but step still surfaces with model 'local'.
+      expect(result.steps.find(s => s.id === 'embed:nlp')?.model).toBe('local');
+      // doc:bootstrap is approximate.
+      expect(result.steps.find(s => s.id === 'doc:bootstrap')?.approximate).toBe(true);
+    });
+
+    it('totals are derived from steps (totalCostUsd = sum of step costUsd)', () => {
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': { input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75 },
+        'anthropic/claude-haiku-4-5': { input: 1, output: 5, cacheReadInput: 0.1, cacheCreationInput: 1.25 },
+      });
+      const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 1,
+        axes: [
+          { id: 'correction', model: 'anthropic/claude-sonnet-4-6' },
+          { id: 'utility', model: 'anthropic/claude-haiku-4-5' },
+        ],
+        embed: { codeTokens: 1000, codeUnits: 5, nlpTokens: 500, nlpUnits: 3 },
+        summaryModel: 'anthropic/claude-haiku-4-5',
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: true,
+        deliberation: false,
+      });
+      const stepSum = result.steps.reduce((s, x) => s + x.costUsd, 0);
+      expect(result.totalCostUsd).toBeCloseTo(stepSum, 6);
+    });
+  });
+
+  describe('cache modeling', () => {
+    it('uses cache rates for cached SYSTEM portion across files (E > 1)', () => {
+      // Anthropic-style rates: cache_read = 10% of input, cache_creation = 125%.
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': {
+          input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75,
+        },
+      });
+
+      // Build 10 identical tasks so cache benefit is measurable.
+      const tasks = Array.from({ length: 10 }, (_, i) =>
+        makeTask(`src/f${i}.ts`, 'export function fn() { return 1; }\n'),
+      );
+
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 10,
+        axes: [{ id: 'utility', model: 'anthropic/claude-sonnet-4-6' }],
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: false,
+        deliberation: false,
+      });
+
+      const axisStep = result.steps[0];
+      // 10 files: 1 cache_creation, 9 cache_read on the SYSTEM_PROMPT_TOKENS portion.
+      expect(axisStep.cacheCreationTokens ?? 0).toBeGreaterThan(0);
+      expect(axisStep.cacheReadTokens ?? 0).toBeGreaterThan(0);
+      expect(axisStep.cacheReadTokens ?? 0).toBeGreaterThan(axisStep.cacheCreationTokens ?? 0);
+    });
+
+    it('falls back to naive cost for models without cache rates', () => {
+      seedPricing({
+        // No cacheReadInput / cacheCreationInput keys ⇒ pricing.cacheReadInput
+        // is undefined ⇒ calculateCost falls back to inputRate for cache tokens.
+        // Net effect: cost is the same as naive (no cache benefit assumed).
+        'openai/gpt-5': { input: 5, output: 20 },
+      });
+      const tasks = Array.from({ length: 10 }, (_, i) =>
+        makeTask(`src/f${i}.ts`, 'export function fn() { return 1; }\n'),
+      );
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 10,
+        axes: [{ id: 'utility', model: 'openai/gpt-5' }],
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: false,
+        deliberation: false,
+      });
+      // Naive cost = (totalInput) × inputRate + totalOutput × outputRate.
+      // We can't easily compute the exact naive total here, but it must equal
+      // the step's total billed input × inputRate (since cache rate falls back).
+      const step = result.steps[0];
+      const naive = (step.inputTokens + (step.cacheReadTokens ?? 0) + (step.cacheCreationTokens ?? 0)) * 5
+        + step.outputTokens * 20;
+      expect(step.costUsd * 1_000_000).toBeCloseTo(naive, 4);
+    });
+  });
+
+  describe('doc-gen step', () => {
+    it('uses bootstrap constants when mode = bootstrap', () => {
+      seedPricing({
+        'anthropic/claude-opus-4-6': {
+          input: 15, output: 75, cacheReadInput: 1.5, cacheCreationInput: 18.75,
+        },
+      });
+      const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 1,
+        axes: [],
+        docContext: { mode: 'bootstrap', pageCount: 10, scaffoldingModel: 'anthropic/claude-opus-4-6' },
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: false,
+        deliberation: false,
+      });
+      const step = result.steps.find(s => s.id === 'doc:bootstrap');
+      expect(step).toBeDefined();
+      expect(step!.approximate).toBe(true);
+      // 10 pages × 3000 fresh = 30 000 fresh input.
+      expect(step!.inputTokens).toBe(30_000);
+      // 10 pages × 7000 cache_read = 70 000.
+      expect(step!.cacheReadTokens).toBe(70_000);
+    });
+
+    it('skips doc step when pageCount is 0', () => {
+      seedPricing({ 'anthropic/claude-opus-4-6': { input: 15, output: 75 } });
+      const tasks = [makeTask('src/a.ts', 'export function fn() { return 1; }\n')];
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: 1,
+        axes: [],
+        docContext: { mode: 'update', pageCount: 0, scaffoldingModel: 'anthropic/claude-opus-4-6' },
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: false,
+        deliberation: false,
+      });
+      expect(result.steps.find(s => s.id.startsWith('doc:'))).toBeUndefined();
+    });
   });
 });

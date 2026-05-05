@@ -194,27 +194,64 @@ export function estimateProject(projectRoot: string): EstimateResult {
 }
 
 /**
- * Forecast the LLM and embedding workload for a run, including a $ cost
- * projection per axis model.
+ * One discrete cost contribution in the forecast — typically one logical
+ * pipeline phase that hits the LLM (or embedding API). Examples:
  *
- * Token counts are multiplied by the number of active axes — each axis is a
- * full pass over the evaluate-tier files. Cost per axis is computed via
- * {@link calculateCost} using the run's pricing cache (must have been
- * hydrated with `ensurePricing` first).
+ *   { id: 'axis:correction',  model: 'anthropic/claude-sonnet-4-6', costUsd: 5.20 }
+ *   { id: 'summary',          model: 'anthropic/claude-haiku-4-5',  costUsd: 0.21 }
+ *   { id: 'embed:code',       model: 'voyage/voyage-code-3',        costUsd: 0.05 }
+ *   { id: 'embed:nlp',        model: 'local',                       costUsd: 0    }
+ *   { id: 'doc:bootstrap',    model: 'anthropic/claude-opus-4-6',   costUsd: 1.20 }
+ *
+ * Steps are the source of truth for the per-step display in the Forecast
+ * block and for the `--json` payload. Aggregates on {@link RunForecast}
+ * (llm.*, embed.*, totalCostUsd) are derived from this array.
+ */
+export interface ForecastStep {
+  /** Category-prefixed id (`axis:<name>`, `summary`, `embed:code|nlp`, `doc:bootstrap|update`). */
+  id: string;
+  /** Resolved model id; `'local'` for local-runtime embeddings (no API price). */
+  model: string;
+  /** Net new (uncached) input tokens billed at the input rate. */
+  inputTokens: number;
+  outputTokens: number;
+  /** Tokens read from the prompt cache (Anthropic — billed at cacheReadInput rate). */
+  cacheReadTokens?: number;
+  /** Tokens written to the prompt cache on the first call (billed at cacheCreationInput rate). */
+  cacheCreationTokens?: number;
+  costUsd: number;
+  /**
+   * True for steps whose token counts come from heuristics (doc:bootstrap,
+   * doc:update). Display uses this to prefix the cost with `~` so the user
+   * knows the number is an order-of-magnitude estimate, not a precise math.
+   */
+  approximate?: boolean;
+}
+
+/**
+ * Forecast the LLM and embedding workload for a run, with a $ cost
+ * projection per pipeline step (axis, NLP summary, embeddings, doc-gen).
+ *
+ * Axis tokens are multiplied by the number of active axes — each axis is
+ * a full pass over the evaluate-tier files. Each axis pass benefits from
+ * Anthropic's prompt caching: the per-call SYSTEM prompt is written to
+ * cache on the first file and read from cache on every subsequent file
+ * (cache_read at ~10% of input rate). The file content itself stays
+ * fresh because it changes per call.
+ *
+ * Doc-generation steps (bootstrap on first run, update on subsequent
+ * runs) are estimated from a per-page heuristic that accounts for the
+ * multi-turn nature of the agentic Read-tool conversation.
  *
  * Embedding cost is non-zero only when an external embedding model is
  * resolved through the pricing cache (Voyage, OpenRouter, Mistral, …).
- * Local embeddings (jina, MiniLM) return 0 because they have no API
- * pricing entry — that's the right number, the user pays nothing.
+ * Local embeddings (jina, MiniLM, GGUF) have no API pricing entry, so
+ * `calculateCost` returns 0 — that's the right number, they're free.
  *
- * Known limitations (documented for honesty in the forecast):
- * - NLP-summary calls (Haiku summarising functions for the RAG index)
- *   are not yet modeled; their tokens land in `embed.tokens` only when
- *   the embed model is external. The user accepted this gap as a
- *   follow-up — see step 5 of the cost-line refactor discussion.
- * - Retries, RAG-doc-gen calls, and refinement passes are also outside
- *   this projection; the SDK's `total_cost_usd` covers those at run
- *   time but estimate is a forecast, not a replay.
+ * Known limitations:
+ * - Retries / refinement / deliberation are not modeled; the SDK's
+ *   `total_cost_usd` covers those at run time but estimate is a
+ *   forecast, not a replay.
  */
 export interface RunForecast {
   /** Files that will actually be evaluated (post-triage). */
@@ -223,11 +260,13 @@ export interface RunForecast {
   totalFiles: number;
   /** Files filtered out by triage. */
   skippedFiles: number;
+  /** Per-step breakdown — primary user-facing structure. */
+  steps: ForecastStep[];
   llm: {
-    /** New (uncached) input tokens across all axis passes. */
+    /** New (uncached) input tokens across all LLM steps (axes + summary + doc). */
     inputTokens: number;
     outputTokens: number;
-    /** Sum across active axis models. */
+    /** Sum across all LLM steps. */
     costUsd: number;
     /** Cost grouped by short model name (e.g. `sonnet-4-6`). */
     costByModel: Record<string, number>;
@@ -289,68 +328,178 @@ export interface ForecastInputs {
    * `llm.outputTokens` per the contract: NLP summary stays in the LLM count.
    */
   summaryModel?: string;
+  /**
+   * Doc-generation context. When provided, the forecast adds a `doc:*` step
+   * sized via the per-page heuristic that models the multi-turn agentic
+   * Read-tool conversation: per-page accumulated context becomes cache
+   * reads after turn 1, only tool_results and per-turn deltas pay fresh
+   * input rates. Constants (DOC_BOOTSTRAP_PER_PAGE / DOC_UPDATE_PER_PAGE)
+   * are exported for tuning from empirical run data later.
+   */
+  docContext?: {
+    mode: 'bootstrap' | 'update';
+    pageCount: number;
+    scaffoldingModel: string;
+  };
   calibration: CalibrationData;
   concurrency: number;
   ragEnabled: boolean;
   deliberation: boolean;
 }
 
-export function forecastRun(args: ForecastInputs): RunForecast {
-  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, calibration, concurrency, ragEnabled, deliberation } = args;
+/**
+ * Per-page token budget for doc-generation steps. The agentic Read-tool
+ * conversation runs ~3-7 turns per page; each turn appends to the
+ * conversation, but Anthropic's automatic prompt caching covers most of
+ * the accumulated context. So per-page tokens split into:
+ *
+ *   - `fresh`         — tool_result bodies + per-turn deltas (billed input)
+ *   - `cacheRead`     — accumulated context re-read on every turn after the first
+ *   - `cacheCreation` — initial system+user prompt cached on turn 1
+ *   - `output`        — sum of per-turn outputs (mostly small tool-call
+ *                       wrappers + the final doc text)
+ *
+ * Exported so tooling can recalibrate from observed runs (analogous to
+ * `recalibrateFromRuns` for axis durations).
+ */
+export const DOC_BOOTSTRAP_PER_PAGE = {
+  fresh: 3000,
+  cacheRead: 7000,
+  cacheCreation: 600,
+  output: 3500,
+} as const;
 
-  // Per-pass token cost (one axis × all eval files) — same as today's
-  // `estimateTasksTokens` on the eval set.
+/** Update mode is lighter — the agent reads less context, edits more locally. */
+export const DOC_UPDATE_PER_PAGE = {
+  fresh: 2000,
+  cacheRead: 4000,
+  cacheCreation: 600,
+  output: 2000,
+} as const;
+
+export function forecastRun(args: ForecastInputs): RunForecast {
+  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, docContext, calibration, concurrency, ragEnabled, deliberation } = args;
+  const steps: ForecastStep[] = [];
+
+  // Per-pass token cost (one axis × all eval files) — `estimateTasksTokens`
+  // returns aggregate for the whole evaluate set.
+  const E = evalTasks.length;
   const { inputTokens: perPassInput, outputTokens: perPassOutput } = estimateTasksTokens(projectRoot, evalTasks);
 
-  // Each active axis runs a full pass; total tokens scale linearly.
-  let llmInputTokens = perPassInput * axes.length;
-  let llmOutputTokens = perPassOutput * axes.length;
+  // Decompose per-pass input into the cache-friendly portion (SYSTEM, identical
+  // across files for a given axis ⇒ cached after the first call) and the
+  // fresh portion (file content + per-call overhead, different every call).
+  // For E files, cache_creation = SYSTEM (one write), cache_read = SYSTEM × (E−1).
+  // Models without cache rates (non-Anthropic) fall back to input rate via
+  // calculateCost's pricing.cacheReadInput ?? pricing.input — that yields the
+  // naive cost, exactly what we want for providers without prompt caching.
+  const sumFileTokens = Math.max(0, perPassInput - E * SYSTEM_PROMPT_TOKENS - E * PER_FILE_OVERHEAD_TOKENS);
+  const freshInputPerAxis = sumFileTokens + E * PER_FILE_OVERHEAD_TOKENS;
+  const cacheReadSystemPerAxis = SYSTEM_PROMPT_TOKENS * Math.max(0, E - 1);
+  const cacheCreationSystemPerAxis = E > 0 ? SYSTEM_PROMPT_TOKENS : 0;
 
-  // Cost per axis (each axis's model can differ). Distribute one pass per axis,
-  // accumulate by short model name for the breakdown line.
-  const costByModel: Record<string, number> = {};
-  let llmCost = 0;
   for (const axis of axes) {
-    const c = calculateCost(axis.model, perPassInput, perPassOutput, projectRoot);
-    const key = shortModelKey(axis.model);
-    costByModel[key] = (costByModel[key] ?? 0) + c;
-    llmCost += c;
+    const cost = calculateCost(axis.model, freshInputPerAxis, perPassOutput, projectRoot, {
+      read: cacheReadSystemPerAxis,
+      creation: cacheCreationSystemPerAxis,
+    });
+    steps.push({
+      id: `axis:${axis.id}`,
+      model: axis.model,
+      inputTokens: freshInputPerAxis,
+      outputTokens: perPassOutput,
+      cacheReadTokens: cacheReadSystemPerAxis,
+      cacheCreationTokens: cacheCreationSystemPerAxis,
+      costUsd: cost,
+    });
   }
 
-  // Embed tokens are surfaced. Cost is computed when codeModel / nlpModel
-  // are provided — local models return 0 from calculateCost (no pricing
-  // entry → free), external SDK models return their per-token rate.
-  let embedTokens = 0;
-  let embedCost = 0;
-  let codeUnits = 0;
-  let nlpUnits = 0;
-  if (embed) {
-    embedTokens = embed.codeTokens + embed.nlpTokens;
-    codeUnits = embed.codeUnits;
-    nlpUnits = embed.nlpUnits;
-    if (embed.codeModel && embed.codeTokens > 0) {
-      embedCost += calculateCost(embed.codeModel, embed.codeTokens, 0, projectRoot);
-    }
-    if (embed.nlpModel && embed.nlpTokens > 0) {
-      embedCost += calculateCost(embed.nlpModel, embed.nlpTokens, 0, projectRoot);
-    }
-  }
-
-  // NLP summarizer cost: one LLM call per file with functions. We approximate
-  // input as the function-body token sum and output as units × the per-function
-  // budget the embed-estimator already uses (NLP_TOKENS_PER_FUNCTION) — the
-  // observed summary text size. Tokens are merged into the LLM totals because
-  // the user opted to keep the summary work in the LLM in/out count.
+  // NLP summarizer: one LLM call per file with functions, no cache modeling
+  // (system prompt does benefit from caching across files in reality, but the
+  // approximation is good enough — the call dominates on file content not
+  // system prompt). Tokens merged into LLM totals per the contract.
   if (summaryModel && embed && embed.codeUnits > 0) {
     const summaryInput = embed.codeTokens;
     const summaryOutput = embed.codeUnits * NLP_TOKENS_PER_FUNCTION;
-    llmInputTokens += summaryInput;
-    llmOutputTokens += summaryOutput;
-    const summaryCost = calculateCost(summaryModel, summaryInput, summaryOutput, projectRoot);
-    const summaryKey = shortModelKey(summaryModel);
-    costByModel[summaryKey] = (costByModel[summaryKey] ?? 0) + summaryCost;
-    llmCost += summaryCost;
+    steps.push({
+      id: 'summary',
+      model: summaryModel,
+      inputTokens: summaryInput,
+      outputTokens: summaryOutput,
+      costUsd: calculateCost(summaryModel, summaryInput, summaryOutput, projectRoot),
+    });
   }
+
+  // Embed steps — one per axis (code, nlp). Surfaced even when local so the
+  // user sees the work; cost is 0 when models have no pricing entry.
+  if (embed && embed.codeTokens > 0) {
+    const cost = embed.codeModel
+      ? calculateCost(embed.codeModel, embed.codeTokens, 0, projectRoot)
+      : 0;
+    steps.push({
+      id: 'embed:code',
+      model: embed.codeModel ?? 'local',
+      inputTokens: embed.codeTokens,
+      outputTokens: 0,
+      costUsd: cost,
+    });
+  }
+  if (embed && embed.nlpTokens > 0) {
+    const cost = embed.nlpModel
+      ? calculateCost(embed.nlpModel, embed.nlpTokens, 0, projectRoot)
+      : 0;
+    steps.push({
+      id: 'embed:nlp',
+      model: embed.nlpModel ?? 'local',
+      inputTokens: embed.nlpTokens,
+      outputTokens: 0,
+      costUsd: cost,
+    });
+  }
+
+  // Doc-generation: heuristic per-page cost that models the multi-turn
+  // agentic conversation with prompt caching. See DOC_*_PER_PAGE jsdoc for
+  // the breakdown. Marked `approximate: true` so display can prefix `~`.
+  if (docContext && docContext.pageCount > 0) {
+    const c = docContext.mode === 'bootstrap' ? DOC_BOOTSTRAP_PER_PAGE : DOC_UPDATE_PER_PAGE;
+    const docFresh = docContext.pageCount * c.fresh;
+    const docCacheRead = docContext.pageCount * c.cacheRead;
+    const docCacheCreation = docContext.pageCount * c.cacheCreation;
+    const docOutput = docContext.pageCount * c.output;
+    steps.push({
+      id: `doc:${docContext.mode}`,
+      model: docContext.scaffoldingModel,
+      inputTokens: docFresh,
+      outputTokens: docOutput,
+      cacheReadTokens: docCacheRead,
+      cacheCreationTokens: docCacheCreation,
+      costUsd: calculateCost(docContext.scaffoldingModel, docFresh, docOutput, projectRoot, {
+        read: docCacheRead,
+        creation: docCacheCreation,
+      }),
+      approximate: true,
+    });
+  }
+
+  // Aggregate from steps — single source of truth: any new step type lands
+  // in totals automatically.
+  const isLlm = (s: ForecastStep) => !s.id.startsWith('embed:');
+  const llmSteps = steps.filter(isLlm);
+  const embedSteps = steps.filter((s) => s.id.startsWith('embed:'));
+
+  const llmInputTokens = llmSteps.reduce((sum, s) => sum + s.inputTokens, 0);
+  const llmOutputTokens = llmSteps.reduce((sum, s) => sum + s.outputTokens, 0);
+  const llmCost = llmSteps.reduce((sum, s) => sum + s.costUsd, 0);
+  const costByModel: Record<string, number> = {};
+  for (const s of llmSteps) {
+    const key = shortModelKey(s.model);
+    costByModel[key] = (costByModel[key] ?? 0) + s.costUsd;
+  }
+
+  const embedTokens = embedSteps.reduce((sum, s) => sum + s.inputTokens, 0);
+  const embedCost = embedSteps.reduce((sum, s) => sum + s.costUsd, 0);
+  const codeUnits = embed?.codeUnits ?? 0;
+  const nlpUnits = embed?.nlpUnits ?? 0;
 
   const calibratedMin = estimateCalibratedMinutes(
     calibration,
@@ -366,6 +515,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     files: evalTasks.length,
     totalFiles,
     skippedFiles: totalFiles - evalTasks.length,
+    steps,
     llm: {
       inputTokens: llmInputTokens,
       outputTokens: llmOutputTokens,

@@ -71,7 +71,7 @@ import { printSetupToAuditTransition } from '../utils/transitions.js';
 import { printNotice } from '../utils/notice.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runSetupEmbeddingsSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -314,20 +314,20 @@ export function registerRunCommand(program: Command): void {
             if (ggufResult.ok) {
               ggufDone = true;
 
-              // GGUF models downloaded — run setup-embeddings to pull Docker
-              // image and start containers. User sees logs in real time.
+              // GGUF models downloaded — run `local-embeddings upgrade` to pull
+              // the Docker image and start containers. User sees logs in real time.
               let setupDone = false;
               while (!setupDone) {
-                const setupResult = runSetupEmbeddingsSubprocess(projectRoot);
+                const setupResult = runLocalEmbeddingsUpgradeSubprocess(projectRoot);
                 if (setupResult.ok) {
                   setupDone = true;
                   const flag = readEmbeddingsReadyFlag(projectRoot);
                   if (flag) {
-                    getLogger().info({ backend: flag.backend }, 'setup-embeddings completed — advanced mode ready');
+                    getLogger().info({ backend: flag.backend }, 'local-embeddings upgrade completed — advanced mode ready');
                   }
                   advancedReady = true;
                 } else {
-                  const setupError = new Error(`setup-embeddings failed (exit ${setupResult.exitCode})`);
+                  const setupError = new Error(`local-embeddings upgrade failed (exit ${setupResult.exitCode})`);
                   const kind = classifyDownloadError(setupError);
                   const choice: RecoveryChoice = await promptDownloadRecovery({
                     kind,
@@ -1417,6 +1417,17 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
         ...(externalEmbed ? { codeModel: externalEmbed.codeModel, nlpModel: externalEmbed.nlpModel } : {}),
       }
     : undefined;
+  // Doc-gen forecast inputs: pageCount = idealPageCount approximation for
+  // bootstrap, or the actual changed count for update. Skipped (pageCount = 0)
+  // when nothing to do — forecastRun won't emit a doc step in that case.
+  const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
+  const docPageCount = ctx.skipDocBootstrap && bootstrapNeeded
+    ? 0
+    : docMode === 'bootstrap'
+      ? Math.max(8, Math.ceil(allTasks.length / 12))
+      : (docScanInternal?.changed ?? 0);
+  const scaffoldingModel = ctx.config.agents.scaffolding ?? ctx.config.models.quality;
+
   const forecast = forecastRun({
     projectRoot: ctx.projectRoot,
     evalTasks,
@@ -1424,6 +1435,9 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     axes: evaluators.map(e => ({ id: e.id, model: resolveAxisModel(e, ctx.config) })),
     ...(embedWithModels ? { embed: embedWithModels } : {}),
     ...(ctx.enableRag ? { summaryModel: resolveCodeSummaryModel(ctx.config) } : {}),
+    ...(docPageCount > 0
+      ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
+      : {}),
     calibration,
     concurrency: ctx.concurrency,
     ragEnabled: ctx.enableRag,
@@ -1950,7 +1964,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           ? `verify the API key env var, base_url, and model name in .anatoly.yml; `
             + `pass --no-connectivity-check to bypass this gate`
           : `check that Docker is running and that GGUF setup completed; `
-            + `re-run \`anatoly setup-embeddings\` if needed`,
+            + `re-run \`anatoly local-embeddings upgrade\` if needed`,
       );
     }
   }
