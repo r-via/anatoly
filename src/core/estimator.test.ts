@@ -632,10 +632,10 @@ describe('forecastRun', () => {
       const step = result.steps.find(s => s.category === 'internal-doc' && s.name === 'bootstrap');
       expect(step).toBeDefined();
       expect(step!.approximate).toBe(true);
-      // 10 pages × 3000 fresh = 30 000 fresh input.
-      expect(step!.inputTokens).toBe(30_000);
-      // 10 pages × 7000 cache_read = 70 000.
-      expect(step!.cacheReadTokens).toBe(70_000);
+      // 10 pages × DOC_BOOTSTRAP_PER_PAGE.fresh.
+      expect(step!.inputTokens).toBe(10 * 100);
+      // 10 pages × DOC_BOOTSTRAP_PER_PAGE.cacheRead.
+      expect(step!.cacheReadTokens).toBe(10 * 100_000);
     });
 
     it('skips doc step when pageCount is 0', () => {
