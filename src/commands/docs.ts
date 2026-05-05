@@ -18,6 +18,7 @@ import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
+import { runWithContext } from '../utils/log-context.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -140,21 +141,23 @@ async function runDocUpdate(
     const contentLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `content-review_${ts}`);
 
     try {
-      const contentResult = await runDocContentReview({
-        outputDir,
-        projectRoot: ctx.projectRoot,
-        gapReportText: formatGapReportV2(gapReport),
-        logDir: contentLogDir,
-        router: ctx.router,
-        callbacks: {
-          onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
-          onDone: () => {},
-          onToolUse: (_tool, filePath) => {
-            ctx.state.trackFile(filePath);
-            ctx.state.untrackFile(filePath);
+      const contentResult = await runWithContext({ phase: 'content-review' }, async () =>
+        runDocContentReview({
+          outputDir,
+          projectRoot: ctx.projectRoot,
+          gapReportText: formatGapReportV2(gapReport),
+          logDir: contentLogDir,
+          router: ctx.router,
+          callbacks: {
+            onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
+            onDone: () => {},
+            onToolUse: (_tool, filePath) => {
+              ctx.state.trackFile(filePath);
+              ctx.state.untrackFile(filePath);
+            },
           },
-        },
-      });
+        }),
+      );
       ctx.addCost(contentResult.costUsd);
       ctx.state.completeTask(contentTaskId, `done ($${contentResult.costUsd.toFixed(4)})`);
     } catch {
