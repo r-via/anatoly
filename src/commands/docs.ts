@@ -11,14 +11,13 @@ import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
-import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, runDocContentReview, autoFixStructuralIssues } from '../core/doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, autoFixStructuralIssues } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
-import { runWithContext } from '../utils/log-context.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -43,14 +42,43 @@ async function runDocUpdate(
     },
   });
 
-  // Collect all pages that need work
-  const pagesWithWork = [
-    ...gapReport.domains
-      .filter(d => d.functionsMissing.length > 0 && d.matchedPage)
-      .map(d => ({ page: d.matchedPage!, missing: d.functionsMissing })),
-  ];
+  // Collect all pages that need work, merging two gap kinds onto the same
+  // page entry so a single Sonnet pass per page handles both: missing
+  // functions (per-domain) and missing concepts (routed by suggestedPage).
+  // The previous design ran a second Opus `runDocContentReview` after this
+  // loop just to attach concept paragraphs — but the loop already owns
+  // page-level edits, so folding concepts in here removes the redundant
+  // Opus pass entirely (see prompt rule for `MISSING CONCEPT`).
+  type PageWork = {
+    page: string;
+    missing: typeof gapReport.domains[number]['functionsMissing'];
+    concepts: Array<{ concept: string; frequency: number }>;
+  };
+  const workByPage = new Map<string, PageWork>();
+  for (const d of gapReport.domains) {
+    if (d.functionsMissing.length > 0 && d.matchedPage) {
+      workByPage.set(d.matchedPage, {
+        page: d.matchedPage,
+        missing: d.functionsMissing,
+        concepts: [],
+      });
+    }
+  }
+  for (const c of gapReport.conceptsToDocument) {
+    const existing = workByPage.get(c.suggestedPage);
+    if (existing) {
+      existing.concepts.push({ concept: c.concept, frequency: c.frequency });
+    } else {
+      workByPage.set(c.suggestedPage, {
+        page: c.suggestedPage,
+        missing: [],
+        concepts: [{ concept: c.concept, frequency: c.frequency }],
+      });
+    }
+  }
+  const pagesWithWork = [...workByPage.values()];
 
-  const totalGaps = gapReport.pagesToCreate.length + pagesWithWork.length + gapReport.conceptsToDocument.length;
+  const totalGaps = gapReport.pagesToCreate.length + pagesWithWork.length;
   if (totalGaps === 0) {
     ctx.state.completeTask(updateTaskId, `${gapReport.moduleCoverage.covered}/${gapReport.moduleCoverage.total} domains covered, 0 gaps`);
     ctx.state.startTask(coherenceTaskId, 'skipped (no updates)');
@@ -72,6 +100,10 @@ async function runDocUpdate(
       gapLines.push(`MISSING FUNCTION: ${fn.name} (${fn.file})`);
       gapLines.push(`  Doc summary: ${fn.docSummary || 'no summary'}`);
       gapLines.push(`  → Create documentation for this function.\n`);
+    }
+    for (const c of work.concepts) {
+      gapLines.push(`MISSING CONCEPT: ${c.concept} (referenced ${c.frequency}x in code)`);
+      gapLines.push(`  → Add a short paragraph defining the concept on this page.\n`);
     }
     const system = resolveSystemPrompt('doc-generation.updater');
     const user = `## Current page: ${pagePath}\n\n${currentContent}\n\n## Work items\n\n${gapLines.join('\n')}`;
@@ -131,38 +163,6 @@ async function runDocUpdate(
       : `${structResult.linterIssuesAfter} structural issues remaining`);
   } catch {
     ctx.state.completeTask(coherenceTaskId, 'structural review failed');
-  }
-
-  // Pass 2: Content coherence (Opus fills gaps from gap report)
-  const contentTaskId = coherenceTaskId + '-content';
-  // Only run if we have a gap report with actual gaps
-  if (totalGaps > 0) {
-    ctx.state.startTask(contentTaskId, 'content review…');
-    const contentLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `content-review_${ts}`);
-
-    try {
-      const contentResult = await runWithContext({ phase: 'content-review' }, async () =>
-        runDocContentReview({
-          outputDir,
-          projectRoot: ctx.projectRoot,
-          gapReportText: formatGapReportV2(gapReport),
-          logDir: contentLogDir,
-          router: ctx.router,
-          callbacks: {
-            onStart: () => ctx.state.updateTask(contentTaskId, 'Opus reviewing content…'),
-            onDone: () => {},
-            onToolUse: (_tool, filePath) => {
-              ctx.state.trackFile(filePath);
-              ctx.state.untrackFile(filePath);
-            },
-          },
-        }),
-      );
-      ctx.addCost(contentResult.costUsd);
-      ctx.state.completeTask(contentTaskId, `done ($${contentResult.costUsd.toFixed(4)})`);
-    } catch {
-      ctx.state.completeTask(contentTaskId, 'content review failed');
-    }
   }
 }
 

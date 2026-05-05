@@ -162,7 +162,7 @@ describe('universal registry — new domain keys', () => {
       'documentation.bash', 'documentation.python', 'documentation.rust', 'documentation.go',
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
-      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.content-review', 'doc-generation.updater',
+      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.updater',
       'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
       'refinement.tier3-investigation',
     ];
@@ -206,9 +206,6 @@ describe('Story 33.4 — registry coherence', () => {
     }
     if (key === 'doc-generation.updater') {
       return 'doc-generation/doc-internal-updater.system.md';
-    }
-    if (key === 'doc-generation.content-review') {
-      return 'doc-generation/doc-internal-content-review.system.md';
     }
     if (key.startsWith('doc-generation')) {
       const variant = key.replace('doc-generation', '').replace(/^\./, '');
@@ -300,7 +297,6 @@ describe('Story 33.4 — registry coherence', () => {
         "doc-generation.api-reference",
         "doc-generation.architecture",
         "doc-generation.coherence-review",
-        "doc-generation.content-review",
         "doc-generation.updater",
         "documentation",
         "documentation.bash",

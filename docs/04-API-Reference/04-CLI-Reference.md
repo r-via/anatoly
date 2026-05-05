@@ -352,7 +352,7 @@ anatoly docs index [--rebuild] [--plain]
 
 #### `docs update`
 
-Runs RAG-based gap detection and generates targeted documentation updates for under-documented symbols and stale sections.
+Runs RAG-based gap detection and generates targeted documentation updates for under-documented symbols and missing domain concepts. Each affected page is rewritten in a single Sonnet pass that addresses both `MISSING FUNCTION` and `MISSING CONCEPT` work items, followed by a structural coherence review.
 
 ```bash
 anatoly docs update
