@@ -293,7 +293,9 @@ describe('forecastRun', () => {
       ragEnabled: true,
       deliberation: false,
     });
-    // Just the axis pass — no summarizer contribution.
+    // Just the axis pass — no summarizer contribution. Keeps ragEnabled=true
+    // so axis-side RAG context (AXIS_RAG_CONTEXT_TOKENS_PER_FILE) is the same
+    // on both sides; the only difference being asserted is the summary call.
     const expectedAxisOnly = forecastRun({
       projectRoot,
       evalTasks: tasks,
@@ -302,7 +304,7 @@ describe('forecastRun', () => {
       resolveBillingMode: () => 'api',
       calibration: emptyCal,
       concurrency: 1,
-      ragEnabled: false,
+      ragEnabled: true,
       deliberation: false,
     });
     expect(baseline.llm.inputTokens).toBe(expectedAxisOnly.llm.inputTokens);

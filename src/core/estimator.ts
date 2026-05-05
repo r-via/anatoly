@@ -13,8 +13,23 @@ import { NLP_TOKENS_PER_FUNCTION } from '../rag/embed-estimator.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
-const OUTPUT_TOKENS_PER_SYMBOL = 150;
-const OUTPUT_BASE_PER_FILE = 300;
+// Output tokens were calibrated against R1 (rng.ts solo) and R2 (rng + reels):
+// real per-axis-file cost ≈ $0.10 on sonnet-4-6, dominated by long structured
+// findings output. The previous values (150/symbol, 300 base) yielded $0.018,
+// understating reality by ~5.5×. Bumped so a typical reviewed file emits
+// ~1500 base + 400/symbol output tokens.
+const OUTPUT_TOKENS_PER_SYMBOL = 400;
+const OUTPUT_BASE_PER_FILE = 1500;
+
+/**
+ * Per-file RAG context tokens added to the axis input when RAG is enabled —
+ * covers the "Similar functions" (semantic duplication) and "Internal docs"
+ * blocks the axis runtime injects into each prompt. Without this, the
+ * forecast missed the dominant input contributor and underestimated axes
+ * by ~6× against R1/R2 actuals. Treated as fresh input (different per file
+ * since the retrieved neighbors change), not cached.
+ */
+export const AXIS_RAG_CONTEXT_TOKENS_PER_FILE = 6000;
 
 /**
  * Weighted time estimation constants (axis pipeline).
@@ -264,9 +279,13 @@ export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> =
 
 /**
  * Fraction of file-axis pairs the deliberation pass re-evaluates with the
- * deliberation model. Empirical estimate — refine from observed runs later.
+ * deliberation model. Calibrated from R1+R2: refinement actually re-investigates
+ * roughly half of the axis findings (R1: 1 finding investigated of ~5 axis
+ * outputs; R2: 4 of ~10 escalations) and the per-call cost on Opus runs
+ * deeper than a simple per-call reuse — bumped from 0.3 to 0.5 to reflect
+ * the observed cost ratio (delib/axis ≈ 0.5× under the new axis tokens).
  */
-export const DELIBERATION_COVERAGE = 0.3;
+export const DELIBERATION_COVERAGE = 0.5;
 
 /**
  * Forecast the LLM and embedding workload for a run, with a $ cost
@@ -468,7 +487,11 @@ export function forecastRun(args: ForecastInputs): RunForecast {
   // calculateCost's pricing.cacheReadInput ?? pricing.input — that yields the
   // naive cost, exactly what we want for providers without prompt caching.
   const sumFileTokens = Math.max(0, perPassInput - E * SYSTEM_PROMPT_TOKENS - E * PER_FILE_OVERHEAD_TOKENS);
-  const freshInputPerAxis = sumFileTokens + E * PER_FILE_OVERHEAD_TOKENS;
+  // RAG-injected per-file context (similar functions + internal-doc snippets)
+  // is added to fresh input when RAG is enabled. It changes per call
+  // (different neighbors per file) so it doesn't fit the cache pattern.
+  const ragInputPerAxis = ragEnabled ? E * AXIS_RAG_CONTEXT_TOKENS_PER_FILE : 0;
+  const freshInputPerAxis = sumFileTokens + E * PER_FILE_OVERHEAD_TOKENS + ragInputPerAxis;
   const cacheReadSystemPerAxis = SYSTEM_PROMPT_TOKENS * Math.max(0, E - 1);
   const cacheCreationSystemPerAxis = E > 0 ? SYSTEM_PROMPT_TOKENS : 0;
 
