@@ -22,7 +22,6 @@ import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type R
 import { countChangedDocs } from '../rag/doc-indexer.js';
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
-import { shortModelName } from '../cli/setup-table.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 
@@ -122,8 +121,6 @@ function printSection(title: string, color: (s: string) => string, body: string)
 interface EstimateViewData {
   project?: { name: string; version: string; languages?: string; frameworks?: string };
   config: { key: string; value: string }[];
-  models: { key: string; value: string }[];
-  modelsRight?: { key: string; value: string }[];
   forecast: {
     filesValue: string;
     tokensValue: string;
@@ -153,22 +150,11 @@ function renderEstimateView(data: EstimateViewData): void {
   // --- Configuration ---
   printSection('Configuration', chalk.cyan.bold, makeKvBlock(data.config));
 
-  // --- Used Models — two stacked sub-blocks (axes / rag). ---
-  {
-    console.log('');
-    console.log('  ' + chalk.magenta.bold('Used Models'));
-    console.log('  ' + chalk.dim('─'.repeat(14)));
-    if (data.models.length > 0) {
-      console.log('');
-      console.log('  ' + chalk.dim('axes'));
-      console.log(makeKvBlock(data.models));
-    }
-    if (data.modelsRight && data.modelsRight.length > 0) {
-      console.log('');
-      console.log('  ' + chalk.dim('rag'));
-      console.log(makeKvBlock(data.modelsRight));
-    }
-  }
+  // No 'Used Models' section: every active model already appears in the
+  // Cost breakdown alongside its $ contribution (axes, deliberation,
+  // summary, embed/code, embed/text, internal-doc/bootstrap-or-update).
+  // Listing them twice (once with model id only, once with model+cost)
+  // diverged in ordering and was missing 'deliberation' anyway.
 
   // --- Cost breakdown — per-step contributions building up to the total ---
   {
@@ -375,24 +361,9 @@ export function registerEstimateCommand(program: Command): void {
         { key: 'cache', value: 'on' },
       ];
 
-      // --- Models rows (left: axes, right: embeddings/chunking/summarization) ---
+      // Active axis evaluators — used by the JSON payload's models.axes
+      // field and to drive the forecast's per-axis token math.
       const evaluators = getEnabledEvaluators(config);
-      const modelsLeft = evaluators.map(e => ({
-        key: e.id as string,
-        value: shortModelName(resolveAxisModel(e, config)),
-      }));
-      const modelsRight: { key: string; value: string }[] = [];
-      if (enableRag) {
-        if (resolvedRagSuffix === 'advanced') {
-          modelsRight.push({ key: 'code', value: 'nomic-embed-code Q5_K_M' });
-          modelsRight.push({ key: 'text', value: 'Qwen3-8B Q5_K_M' });
-        } else {
-          modelsRight.push({ key: 'code', value: 'jina-v2 768d' });
-          modelsRight.push({ key: 'text', value: 'MiniLM-L6 384d' });
-        }
-        modelsRight.push({ key: 'chunking', value: 'smartChunkDoc (no LLM)' });
-        modelsRight.push({ key: 'summarization', value: shortModelName(resolveCodeSummaryModel(config)) });
-      }
 
       const allTasks = loadTasks(projectRoot);
 
@@ -592,8 +563,6 @@ export function registerEstimateCommand(program: Command): void {
       renderEstimateView({
         project: projectInfo,
         config: configRows,
-        models: modelsLeft,
-        modelsRight,
         forecast: {
           filesValue: filesFragment,
           tokensValue: totalTokensFragment,
