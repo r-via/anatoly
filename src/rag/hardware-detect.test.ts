@@ -312,3 +312,216 @@ describe('EmbeddingsReadyFlag — new fields (Story 50.5)', () => {
     expect(flag.embedding_signature).toBe('abc12345');
   });
 });
+
+// ---------------------------------------------------------------------------
+// v3 path — resolveEmbeddingModels honours the v3 source when supplied
+// ---------------------------------------------------------------------------
+
+import { ConfigV3Schema } from '../schemas/config-v3.js';
+
+function buildV3(input: {
+  codeProvider: string;
+  codeTransport: 'onnxruntime_node' | 'openai_compatible';
+  codeBaseUrl?: string;
+  codeEnvKey?: string;
+  codeModel: string;
+  textProvider?: string;
+  textTransport?: 'onnxruntime_node' | 'openai_compatible';
+  textBaseUrl?: string;
+  textEnvKey?: string;
+  textModel?: string;
+}): ReturnType<typeof ConfigV3Schema.parse> {
+  const textProvider = input.textProvider ?? input.codeProvider;
+  const textTransport = input.textTransport ?? input.codeTransport;
+  const textModel = input.textModel ?? input.codeModel;
+  const textBaseUrl = input.textBaseUrl ?? input.codeBaseUrl;
+  const textEnvKey = input.textEnvKey ?? input.codeEnvKey;
+
+  // Build the providers map (deduplicate when code+text use same provider)
+  const providers: Record<string, unknown> = {
+    anthropic: {
+      transport: 'claude_agent_sdk',
+      auth: 'oauth',
+      models: ['claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-opus-4-6'],
+    },
+  };
+  const codeP: Record<string, unknown> = {
+    transport: input.codeTransport,
+    models: [input.codeModel, ...(input.codeProvider === textProvider && textModel !== input.codeModel ? [textModel] : [])],
+  };
+  if (input.codeTransport === 'openai_compatible') {
+    codeP.auth = 'api_key';
+    codeP.env_key = input.codeEnvKey ?? 'TEST_API_KEY';
+    if (input.codeBaseUrl) codeP.base_url = input.codeBaseUrl;
+  }
+  providers[input.codeProvider] = codeP;
+
+  if (textProvider !== input.codeProvider) {
+    const textP: Record<string, unknown> = {
+      transport: textTransport,
+      models: [textModel],
+    };
+    if (textTransport === 'openai_compatible') {
+      textP.auth = 'api_key';
+      textP.env_key = textEnvKey ?? 'TEST_API_KEY';
+      if (textBaseUrl) textP.base_url = textBaseUrl;
+    }
+    providers[textProvider] = textP;
+  }
+
+  return ConfigV3Schema.parse({
+    version: 3,
+    providers,
+    routing: {
+      generation: {
+        quality: 'anthropic/claude-sonnet-4-6',
+        fast: 'anthropic/claude-haiku-4-5',
+        deliberation: 'anthropic/claude-opus-4-6',
+        summarization: 'anthropic/claude-haiku-4-5',
+      },
+      embeddings: {
+        code: `${input.codeProvider}/${input.codeModel}`,
+        text: `${textProvider}/${textModel}`,
+      },
+    },
+  });
+}
+
+describe('resolveEmbeddingModels — v3 path', () => {
+  it('returns lite backend when both slots use onnxruntime_node', async () => {
+    const v3 = buildV3({
+      codeProvider: 'local-lite',
+      codeTransport: 'onnxruntime_node',
+      codeModel: 'jinaai/jina-embeddings-v2-base-code',
+      textModel: 'Xenova/all-MiniLM-L6-v2',
+    });
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      liteHardware,
+      undefined,
+      null,
+      v3,
+    );
+    expect(result.backend).toBe('lite');
+    expect(result.codeRuntime).toBe('onnx');
+    expect(result.codeModel).toBe('jinaai/jina-embeddings-v2-base-code');
+    expect(result.codeDim).toBe(768);
+    expect(result.nlpModel).toBe('Xenova/all-MiniLM-L6-v2');
+    expect(result.nlpDim).toBe(384);
+    expect(result.codeProvider).toBe('local-lite');
+    expect(result.codeEnvKey).toBeNull();
+  });
+
+  it('returns external backend for openai_compatible with non-localhost base_url', async () => {
+    const v3 = buildV3({
+      codeProvider: 'mistral',
+      codeTransport: 'openai_compatible',
+      codeBaseUrl: 'https://api.mistral.ai/v1',
+      codeEnvKey: 'MISTRAL_API_KEY',
+      codeModel: 'mistral-embed',
+      textProvider: 'openrouter',
+      textTransport: 'openai_compatible',
+      textBaseUrl: 'https://openrouter.ai/api/v1',
+      textEnvKey: 'OPENROUTER_API_KEY',
+      textModel: 'qwen/qwen3-embedding-8b',
+    });
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      liteHardware,
+      undefined,
+      null,
+      v3,
+    );
+    expect(result.backend).toBe('external');
+    expect(result.codeRuntime).toBe('sdk');
+    expect(result.codeProvider).toBe('mistral');
+    expect(result.codeBaseUrl).toBe('https://api.mistral.ai/v1');
+    expect(result.codeEnvKey).toBe('MISTRAL_API_KEY');
+    expect(result.nlpProvider).toBe('openrouter');
+    expect(result.nlpEnvKey).toBe('OPENROUTER_API_KEY');
+  });
+
+  it('returns advanced-gguf for openai_compatible with localhost base_url', async () => {
+    const v3 = buildV3({
+      codeProvider: 'local-advanced',
+      codeTransport: 'openai_compatible',
+      codeBaseUrl: 'http://localhost:8082/v1',
+      codeEnvKey: 'DUMMY',
+      codeModel: 'nomic-embed-code-gguf',
+      textModel: 'qwen3-embedding-8b-gguf',
+    });
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      liteHardware,
+      undefined,
+      null,
+      v3,
+    );
+    expect(result.backend).toBe('advanced-gguf');
+    expect(result.codeModel).toBe('nomic-embed-code-gguf');
+    expect(result.codeDim).toBe(3584);
+    expect(result.nlpModel).toBe('qwen3-embedding-8b-gguf');
+    expect(result.nlpDim).toBe(4096);
+    expect(result.codeBaseUrl).toBe('http://localhost:8082/v1');
+  });
+
+  it('mixes lite (onnx) code + external (mistral) text', async () => {
+    const v3 = buildV3({
+      codeProvider: 'local-lite',
+      codeTransport: 'onnxruntime_node',
+      codeModel: 'jinaai/jina-embeddings-v2-base-code',
+      textProvider: 'mistral',
+      textTransport: 'openai_compatible',
+      textBaseUrl: 'https://api.mistral.ai/v1',
+      textEnvKey: 'MISTRAL_API_KEY',
+      textModel: 'mistral-embed',
+    });
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      liteHardware,
+      undefined,
+      null,
+      v3,
+    );
+    expect(result.backend).toBe('external');  // external wins over lite
+    expect(result.codeRuntime).toBe('onnx');
+    expect(result.nlpRuntime).toBe('sdk');
+  });
+
+  it('does not consult readyFlag or hardware when v3 is provided', async () => {
+    const v3 = buildV3({
+      codeProvider: 'local-lite',
+      codeTransport: 'onnxruntime_node',
+      codeModel: 'jinaai/jina-embeddings-v2-base-code',
+      textModel: 'Xenova/all-MiniLM-L6-v2',
+    });
+    // GPU hardware + advanced-gguf flag would normally upgrade — but v3 wins.
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      gpuHardware,
+      undefined,
+      { device: 'cuda', backend: 'advanced-gguf' as EmbeddingBackend },
+      v3,
+    );
+    expect(result.backend).toBe('lite');
+  });
+
+  it('treats 127.0.0.1 base_url as advanced-gguf, like localhost', async () => {
+    const v3 = buildV3({
+      codeProvider: 'local-advanced',
+      codeTransport: 'openai_compatible',
+      codeBaseUrl: 'http://127.0.0.1:8082/v1',
+      codeEnvKey: 'DUMMY',
+      codeModel: 'nomic-embed-code-gguf',
+      textModel: 'qwen3-embedding-8b-gguf',
+    });
+    const result = await resolveEmbeddingModels(
+      { code_model: 'auto', nlp_model: 'auto' },
+      liteHardware,
+      undefined,
+      null,
+      v3,
+    );
+    expect(result.backend).toBe('advanced-gguf');
+  });
+});

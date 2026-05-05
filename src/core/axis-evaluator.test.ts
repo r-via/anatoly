@@ -440,3 +440,123 @@ describe('composeAxisSystemPrompt — user instructions injection', () => {
     expect(result).not.toContain('## User Calibration');
   });
 });
+
+// ---------------------------------------------------------------------------
+// v3 path — exercised when the config came from a `version: 3` YAML
+// ---------------------------------------------------------------------------
+
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { beforeEach, afterEach } from 'vitest';
+import { loadConfig } from '../utils/config-loader.js';
+
+describe('axis resolvers — v3 path', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-axis-resolvers-v3-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function loadV3(yml: string): ReturnType<typeof loadConfig> {
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    return loadConfig(tempDir);
+  }
+
+  const baseV3 = `
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+      - claude-opus-4-6
+  google:
+    transport: google_genai
+    auth: api_key
+    env_key: GEMINI_API_KEY
+    models:
+      - gemini-2.5-flash-lite
+      - gemini-2.5-pro
+  'local-lite':
+    transport: onnxruntime_node
+    models:
+      - jinaai/jina-embeddings-v2-base-code
+      - Xenova/all-MiniLM-L6-v2
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5-20251001
+    deliberation: anthropic/claude-opus-4-6
+    summarization: google/gemini-2.5-flash-lite
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+`;
+
+  describe('resolveAxisModel', () => {
+    it('returns routing.generation.fast for haiku-tier evaluators', () => {
+      const config = loadV3(baseV3);
+      const evaluator = { id: 'utility', defaultModel: 'haiku' } as AxisEvaluator;
+      expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-haiku-4-5-20251001');
+    });
+
+    it('returns routing.generation.quality for non-haiku evaluators', () => {
+      const config = loadV3(baseV3);
+      const evaluator = { id: 'correction', defaultModel: 'sonnet' } as AxisEvaluator;
+      expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-sonnet-4-6');
+    });
+
+    it('honours per-axis override declared in evaluation.axes.<id>.model', () => {
+      const config = loadV3(`${baseV3.trimEnd()}
+evaluation:
+  axes:
+    correction:
+      enabled: true
+      model: anthropic/claude-opus-4-6
+`);
+      const evaluator = { id: 'correction', defaultModel: 'sonnet' } as AxisEvaluator;
+      expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-opus-4-6');
+    });
+
+    it('falls through to routing default when override points at undeclared provider', () => {
+      // Schema validation would reject an undeclared override at parse time,
+      // so we mutate the in-memory v3 source post-load to test the resolver's
+      // safety net (defense in depth — a downstream tool could also reach in).
+      const config = loadV3(baseV3);
+      const sym = Symbol.for('anatoly.config.v3Source');
+      const v3 = (config as unknown as Record<symbol, { evaluation: { axes: Record<string, unknown> } }>)[sym];
+      v3.evaluation.axes.utility = { enabled: true, model: 'ghost/gemini-2.5-flash' };
+      const evaluator = { id: 'utility', defaultModel: 'haiku' } as AxisEvaluator;
+      expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-haiku-4-5-20251001');
+    });
+  });
+
+  describe('resolveCodeSummaryModel', () => {
+    it('returns routing.generation.summarization', () => {
+      const config = loadV3(baseV3);
+      expect(resolveCodeSummaryModel(config)).toBe('google/gemini-2.5-flash-lite');
+    });
+  });
+
+  describe('resolveDeliberationModel', () => {
+    it('returns routing.generation.deliberation', () => {
+      const config = loadV3(baseV3);
+      expect(resolveDeliberationModel(config)).toBe('anthropic/claude-opus-4-6');
+    });
+  });
+
+  describe('resolveAgentModel', () => {
+    it('returns routing.generation.quality for any phase (no per-phase split in v3)', () => {
+      const config = loadV3(baseV3);
+      expect(resolveAgentModel('scaffolding', config)).toBe('anthropic/claude-sonnet-4-6');
+      expect(resolveAgentModel('review', config)).toBe('anthropic/claude-sonnet-4-6');
+    });
+  });
+});

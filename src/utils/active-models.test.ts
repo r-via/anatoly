@@ -162,3 +162,151 @@ describe('enumerateActiveModels', () => {
     expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
   });
 });
+
+// ---------------------------------------------------------------------------
+// v3 path — exercised when the config carries a getV3Source() result
+// ---------------------------------------------------------------------------
+
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { beforeEach, afterEach } from 'vitest';
+import { loadConfig } from './config-loader.js';
+
+describe('enumerateActiveModels — v3 path', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-active-models-v3-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function loadV3(yml: string): ReturnType<typeof loadConfig> {
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    return loadConfig(tempDir);
+  }
+
+  const baseV3 = `
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+      - claude-opus-4-6
+  mistral:
+    transport: openai_compatible
+    auth: api_key
+    env_key: MISTRAL_API_KEY
+    models:
+      - mistral-embed
+  openrouter:
+    transport: openai_compatible
+    auth: api_key
+    env_key: OPENROUTER_API_KEY
+    models:
+      - qwen/qwen3-embedding-8b
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5-20251001
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5-20251001
+  embeddings:
+    code: mistral/mistral-embed
+    text: openrouter/qwen/qwen3-embedding-8b
+`;
+
+  it('returns generation slots, embeddings, and dedupes', () => {
+    const config = loadV3(baseV3);
+    const models = enumerateActiveModels(config);
+    expect(models).toContain('anthropic/claude-sonnet-4-6');
+    expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
+    expect(models).toContain('anthropic/claude-opus-4-6');
+    expect(models).toContain('mistral/mistral-embed');
+    expect(models).toContain('openrouter/qwen/qwen3-embedding-8b');
+    // Haiku appears in both fast and summarization — should be deduped.
+    expect(models.filter((m) => m === 'anthropic/claude-haiku-4-5-20251001')).toHaveLength(1);
+  });
+
+  it('drops deliberation when enableDeliberation: false', () => {
+    const config = loadV3(baseV3);
+    const models = enumerateActiveModels(config, { enableDeliberation: false });
+    expect(models).not.toContain('anthropic/claude-opus-4-6');
+  });
+
+  it('drops embedding refs when enableRag: false', () => {
+    const config = loadV3(baseV3);
+    const models = enumerateActiveModels(config, { enableRag: false });
+    expect(models).not.toContain('mistral/mistral-embed');
+    expect(models).not.toContain('openrouter/qwen/qwen3-embedding-8b');
+  });
+
+  it('excludes ONNX providers from embeddings (no pricing entry)', () => {
+    const config = loadV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+`);
+    const models = enumerateActiveModels(config);
+    expect(models).not.toContain('local-lite/jinaai/jina-embeddings-v2-base-code');
+    expect(models).not.toContain('local-lite/Xenova/all-MiniLM-L6-v2');
+    expect(models).toContain('anthropic/claude-sonnet-4-6');
+  });
+
+  it('includes per-axis model overrides when axes are in object form', () => {
+    const config = loadV3(`${baseV3.trimEnd()}
+evaluation:
+  axes:
+    correction:
+      enabled: true
+      model: anthropic/claude-opus-4-6
+`);
+    const models = enumerateActiveModels(config);
+    expect(models).toContain('anthropic/claude-opus-4-6');
+  });
+
+  it('respects axesFilter for object-form overrides', () => {
+    const config = loadV3(`${baseV3.trimEnd()}
+evaluation:
+  axes:
+    correction:
+      enabled: true
+      model: anthropic/claude-opus-4-6
+    tests:
+      enabled: true
+      model: anthropic/claude-haiku-4-5-20251001
+`);
+    const models = enumerateActiveModels(config, { axesFilter: ['correction'] });
+    expect(models).toContain('anthropic/claude-opus-4-6');
+    // tests override is filtered out — but haiku stays via routing.fast/summarization
+    expect(models.filter((m) => m === 'anthropic/claude-haiku-4-5-20251001')).toHaveLength(1);
+  });
+
+  it('returns sorted results', () => {
+    const config = loadV3(baseV3);
+    const models = enumerateActiveModels(config);
+    const sorted = [...models].sort();
+    expect(models).toEqual(sorted);
+  });
+});

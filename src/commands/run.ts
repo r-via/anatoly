@@ -8,7 +8,7 @@ import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, cre
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
 import picomatch from 'picomatch';
-import { loadConfig } from '../utils/config-loader.js';
+import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import type { Config } from '../schemas/config.js';
@@ -198,6 +198,8 @@ interface RunContext {
   userInstructions?: import('../utils/user-instructions.js').UserInstructions;
   /** Skip all interactive prompts and use built-in defaults (--defaults-settings / non-TTY) */
   defaultsSettings: boolean;
+  /** Run the pre-flight RAG embedding probe before indexing (default true). */
+  connectivityCheck: boolean;
 }
 
 /**
@@ -235,6 +237,7 @@ export function registerRunCommand(program: Command): void {
     .option('--quick-win', 'run with reduced axis set (utility + duplication + correction, no doc scaffold)')
     .option('--defaults-settings', 'skip all interactive prompts, use built-in defaults (CI/scripts)')
     .option('--allow-missing-pricing', 'continue when one or more models have no pricing entry (their cost reports as $0)')
+    .option('--no-connectivity-check', 'skip the pre-flight RAG embedding probe (CI/deterministic runs)')
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
@@ -245,6 +248,7 @@ export function registerRunCommand(program: Command): void {
       background?: boolean; notify?: boolean; sourceRoot?: string;
       quickWin?: boolean; defaultsSettings?: boolean;
       allowMissingPricing?: boolean;
+      connectivityCheck?: boolean;
     }) => {
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
@@ -461,7 +465,7 @@ export function registerRunCommand(program: Command): void {
         const earlyHardware = detectHardware();
         const earlyReadyFlag = readEmbeddingsReadyFlag(projectRoot);
         resolvedEmbedForPricing = await resolveEmbeddingModels(
-          config.rag, earlyHardware, undefined, earlyReadyFlag,
+          config.rag, earlyHardware, undefined, earlyReadyFlag, getV3Source(config),
         );
       }
 
@@ -745,6 +749,7 @@ export function registerRunCommand(program: Command): void {
         router: _router,
         userInstructions: _userInstructions.hasInstructions ? _userInstructions : undefined,
         defaultsSettings: useDefaults,
+        connectivityCheck: cmdOpts.connectivityCheck !== false,
       };
 
       // Quick-win mode: restrict to 3 axes and skip doc bootstrap.
@@ -1918,7 +1923,37 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const effectiveFlag = readyFlag
     ? { ...readyFlag, backend: effectiveBackend }
     : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
-  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag);
+  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
+
+  // Pre-flight: probe the resolved backend before the indexer starts so a
+  // misconfigured external provider (bad key, wrong base URL, unknown model)
+  // or a dead local container fails in seconds with an actionable message
+  // instead of mid-pipeline. Lite is a no-op confirmation. Suppressed via
+  // --no-connectivity-check for deterministic CI runs.
+  if (ctx.connectivityCheck) {
+    const { runConnectivityCheck } = await import('../rag/connectivity-check.js');
+    const probeLog = (msg: string) => {
+      log.info(msg);
+      rl?.info(msg);
+      ctx.renderer?.logPlain(`[rag] ${msg}`);
+    };
+    const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);
+    if (!outcome.ok) {
+      const { axis, provider, model, cause } = outcome.failure;
+      const providerLabel = provider ?? '<no provider>';
+      throw new AnatolyError(
+        `RAG ${outcome.backend} connectivity check failed on ${axis} axis `
+        + `(${providerLabel}/${model}): ${cause.message}`,
+        ERROR_CODES.PROVIDER_AUTH_FAILED,
+        false,
+        outcome.backend === 'external'
+          ? `verify the API key env var, base_url, and model name in .anatoly.yml; `
+            + `pass --no-connectivity-check to bypass this gate`
+          : `check that Docker is running and that GGUF setup completed; `
+            + `re-run \`anatoly setup-embeddings\` if needed`,
+      );
+    }
+  }
 
   // Update task labels with resolved model names
   const state = ctx.pipelineState!;

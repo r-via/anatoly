@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
-import { loadConfig } from '../utils/config-loader.js';
+import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
 import { forecastRun, formatTokenCount, loadTasks } from '../core/estimator.js';
 import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
@@ -45,7 +45,7 @@ export function registerEstimateCommand(program: Command): void {
       if (config.rag.enabled) {
         const hardware = detectHardware();
         const readyFlag = readEmbeddingsReadyFlag(projectRoot);
-        resolvedEmbed = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag);
+        resolvedEmbed = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag, getV3Source(config));
       }
 
       // Augment active models for the pricing gate ONLY when the resolved

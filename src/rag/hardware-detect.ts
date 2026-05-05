@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { KNOWN_EMBEDDING_PROVIDERS } from './known-embedding-providers.js';
+import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
 
 // ---------------------------------------------------------------------------
 // Hardware detection
@@ -362,7 +363,13 @@ export async function resolveEmbeddingModels(
   hardware: HardwareProfile,
   onLog?: (message: string) => void,
   readyFlag?: EmbeddingsReadyFlag | null,
+  v3?: ConfigV3,
 ): Promise<ResolvedModels> {
+  // v3 path: routing.embeddings is declarative — the backend is determined
+  // entirely by which provider each slot references, with no hardware probing
+  // or readiness flag involved.
+  if (v3) return resolveEmbeddingModelsV3(v3, onLog);
+
   const backend = determineBackend(readyFlag ?? null, hardware, { rag: { embedding: config.embedding } });
 
   if (backend === 'advanced-gguf') {
@@ -510,4 +517,97 @@ function resolveNlpModel(
   const model = 'Xenova/all-MiniLM-L6-v2';
   onLog?.(`NLP model: ${MODEL_REGISTRY[model]!.description}`);
   return model;
+}
+
+// ---------------------------------------------------------------------------
+// v3 resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve embedding models from a v3 config. The backend is fully determined
+ * by the providers that `routing.embeddings.code` and `routing.embeddings.text`
+ * point at — no hardware probing or readiness flag is consulted.
+ *
+ * Backend mapping:
+ * - `transport: onnxruntime_node` → backend `lite`, runtime `onnx`
+ * - `transport: openai_compatible` with a `localhost` base_url → `advanced-gguf`,
+ *   runtime `sdk` (anatoly-managed Docker sidecar)
+ * - `transport: openai_compatible` with any other base_url → `external`,
+ *   runtime `sdk` (third-party API)
+ */
+function resolveEmbeddingModelsV3(
+  v3: ConfigV3,
+  onLog?: (message: string) => void,
+): ResolvedModels {
+  const codeRef = parseModelRef(v3.routing.embeddings.code)!;
+  const textRef = parseModelRef(v3.routing.embeddings.text)!;
+  const codeProvider = v3.providers[codeRef.provider]!;
+  const textProvider = v3.providers[textRef.provider]!;
+
+  const code = embeddingSlotForV3(codeRef.provider, codeRef.model, codeProvider);
+  const text = embeddingSlotForV3(textRef.provider, textRef.model, textProvider);
+
+  // Pick the more specific backend if the two slots differ — advanced-gguf
+  // wins over external wins over lite, mirroring the historical layering.
+  const backend: EmbeddingBackend =
+    code.backend === 'advanced-gguf' || text.backend === 'advanced-gguf' ? 'advanced-gguf' :
+    code.backend === 'external' || text.backend === 'external' ? 'external' :
+    'lite';
+
+  onLog?.(`backend: ${backend} (v3) → ${codeRef.provider}/${codeRef.model} (code), ${textRef.provider}/${textRef.model} (text)`);
+
+  return {
+    codeModel: code.model,
+    codeDim: code.dim,
+    codeRuntime: code.runtime,
+    codeProvider: code.providerId,
+    ...(code.baseUrl !== undefined ? { codeBaseUrl: code.baseUrl } : {}),
+    codeEnvKey: code.envKey,
+    nlpModel: text.model,
+    nlpDim: text.dim,
+    nlpRuntime: text.runtime,
+    nlpProvider: text.providerId,
+    ...(text.baseUrl !== undefined ? { nlpBaseUrl: text.baseUrl } : {}),
+    nlpEnvKey: text.envKey,
+    backend,
+  };
+}
+
+/**
+ * Per-slot resolution for v3. Returns the runtime + dimensions + transport
+ * metadata for one embedding slot (code or text).
+ */
+function embeddingSlotForV3(
+  providerId: string,
+  model: string,
+  provider: ConfigV3['providers'][string],
+): {
+  model: string;
+  dim: number;
+  runtime: 'onnx' | 'gguf' | 'sdk';
+  backend: EmbeddingBackend;
+  providerId: string;
+  baseUrl?: string;
+  envKey: string | null;
+} {
+  if (provider.transport === 'onnxruntime_node') {
+    const dim = MODEL_REGISTRY[model]?.dim ?? 768;
+    return { model, dim, runtime: 'onnx', backend: 'lite', providerId, envKey: null };
+  }
+
+  // openai_compatible — distinguish localhost (Docker GGUF sidecar) from external
+  const baseUrl = provider.base_url;
+  const isLocalSidecar = baseUrl !== undefined && /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(baseUrl);
+  const dim = MODEL_REGISTRY[model]?.dim ?? -1;
+  const runtime: 'onnx' | 'gguf' | 'sdk' = isLocalSidecar ? 'sdk' : 'sdk';
+
+  return {
+    model,
+    dim,
+    runtime,
+    backend: isLocalSidecar ? 'advanced-gguf' : 'external',
+    providerId,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    envKey: provider.env_key ?? null,
+  };
 }

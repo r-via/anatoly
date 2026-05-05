@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { VectorStore, ragModeArtifacts } from '../rag/index.js';
 import type { RagMode } from '../rag/index.js';
 import type { RagStats } from '../rag/types.js';
-import { loadConfig } from '../utils/config-loader.js';
+import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag } from '../rag/hardware-detect.js';
 import { configureModels } from '../rag/embeddings.js';
 
@@ -64,7 +64,7 @@ export function registerRagStatusCommand(program: Command): void {
       const config = loadConfig(projectRoot);
       const hardware = detectHardware();
       const readyFlag = readEmbeddingsReadyFlag(projectRoot);
-      const resolved = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag);
+      const resolved = await resolveEmbeddingModels(config.rag, hardware, undefined, readyFlag, getV3Source(config));
       configureModels(resolved);
 
       // Read --rag-lite / --rag-advanced from parent (global) options

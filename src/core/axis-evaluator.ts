@@ -5,6 +5,8 @@
 import type { z } from 'zod';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
+import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
+import { getV3Source } from '../utils/config-loader.js';
 import type { UsageGraph } from './usage-graph.js';
 import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
@@ -190,8 +192,15 @@ export function getLanguageLines(task: Task): string[] {
  *
  * Gemini routing is now implicit: if the user sets `axes.utility.model: gemini-2.5-flash`
  * in the config, the model name determines the transport (no separate defaultGeminiMode flag).
+ *
+ * v3 path: when the config originated from a `version: 3` YAML, this reads
+ * `evaluation.axes.<id>.model` (object form) for overrides and falls back to
+ * `routing.generation.fast` (haiku tier) or `routing.generation.quality`.
  */
 export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): string {
+  const v3 = getV3Source(config);
+  if (v3) return resolveAxisModelV3(evaluator, v3, config);
+
   const axisConfig = config.axes?.[evaluator.id];
   // Honour per-axis override, but ignore gemini-* models when Google provider is absent
   if (axisConfig?.model) {
@@ -207,11 +216,33 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
     : config.models.quality;
 }
 
+function resolveAxisModelV3(
+  evaluator: AxisEvaluator,
+  v3: ConfigV3,
+  config: Config,
+): string {
+  const axis = v3.evaluation.axes[evaluator.id as keyof typeof v3.evaluation.axes];
+  if (axis && typeof axis === 'object' && 'model' in axis && axis.model) {
+    // Honour per-axis override, but skip if it points at a transport whose
+    // provider is missing (e.g. Gemini override but no google provider).
+    const parsed = parseModelRef(axis.model);
+    if (parsed && v3.providers[parsed.provider]) return axis.model;
+  }
+  return evaluator.defaultModel === 'haiku'
+    ? v3.routing.generation.fast
+    : v3.routing.generation.quality;
+}
+
 /**
  * Resolve the model for code summarization during RAG indexing.
  * Returns `code_summary` when set (e.g. a Gemini model), falls back to `models.fast` (Haiku).
+ *
+ * v3 path: returns `routing.generation.summarization`, which is the explicit
+ * slot for this purpose in the v3 schema.
  */
 export function resolveCodeSummaryModel(config: Config): string {
+  const v3 = getV3Source(config);
+  if (v3) return v3.routing.generation.summarization;
   return config.models.code_summary ?? config.models.fast;
 }
 
@@ -257,16 +288,28 @@ export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic
 /**
  * Resolve the model for the deliberation pass.
  * Uses agents.deliberation override if set, otherwise falls back to models.deliberation.
+ *
+ * v3 path: returns `routing.generation.deliberation` directly (the v3 schema
+ * has no per-agent overrides — that level of indirection was removed since
+ * routing slots are already declarative).
  */
 export function resolveDeliberationModel(config: Config): string {
+  const v3 = getV3Source(config);
+  if (v3) return v3.routing.generation.deliberation;
   return config.agents.deliberation ?? config.models.deliberation;
 }
 
 /**
  * Resolve the model for an agentic phase (scaffolding, review).
  * Uses agents.[phase] override if set, otherwise falls back to models.quality.
+ *
+ * v3 path: returns `routing.generation.quality` (v3 schema has no per-phase
+ * overrides; if a project needs them we'll re-introduce a dedicated routing
+ * slot rather than smuggle a parallel agent table).
  */
 export function resolveAgentModel(phase: 'scaffolding' | 'review', config: Config): string {
+  const v3 = getV3Source(config);
+  if (v3) return v3.routing.generation.quality;
   return config.agents[phase] ?? config.models.quality;
 }
 

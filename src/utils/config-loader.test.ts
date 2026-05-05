@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2, migrateConfigV2toV3 } from './config-loader.js';
+import { loadConfig, migrateConfigV0toV1, migrateConfigV1toV2, migrateConfigV2toV3, getV3Source } from './config-loader.js';
 import { AnatolyError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -677,5 +677,283 @@ providers:
     const output = stderrSpy.mock.calls.map(c => String(c[0])).join('');
     expect(output).not.toContain('bare model names');
     stderrSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v3 config (declarative `version: 3` schema with providers/routing/...)
+// ---------------------------------------------------------------------------
+
+describe('loadConfig — v3 schema', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-v3-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeV3(yml: string): void {
+    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+  }
+
+  const minimalV3Yaml = `
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    concurrency: 24
+    models:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+      - claude-opus-4-6
+  mistral:
+    transport: openai_compatible
+    auth: api_key
+    env_key: MISTRAL_API_KEY
+    models:
+      - mistral-embed
+  openrouter:
+    transport: openai_compatible
+    auth: api_key
+    env_key: OPENROUTER_API_KEY
+    models:
+      - qwen/qwen3-embedding-8b
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5-20251001
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5-20251001
+  embeddings:
+    code: mistral/mistral-embed
+    text: openrouter/qwen/qwen3-embedding-8b
+`;
+
+  it('loads a valid v3 YAML and returns a v2-shape Config', () => {
+    writeV3(minimalV3Yaml);
+    const config = loadConfig(tempDir);
+    expect(config.providers.anthropic).toMatchObject({ mode: 'subscription' });
+    expect(config.providers.mistral).toMatchObject({ mode: 'api', env_key: 'MISTRAL_API_KEY' });
+    expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
+    expect(config.models.code_summary).toBe('anthropic/claude-haiku-4-5-20251001');
+    expect(config.rag.embedding?.code).toMatchObject({
+      provider: 'mistral',
+      model: 'mistral-embed',
+      env_key: 'MISTRAL_API_KEY',
+    });
+    expect(config.rag.embedding?.nlp).toMatchObject({
+      provider: 'openrouter',
+      model: 'qwen/qwen3-embedding-8b',
+    });
+  });
+
+  it('falls through to v2 path when no version key is present', () => {
+    writeFileSync(join(tempDir, '.anatoly.yml'), `
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5-20251001
+  deliberation: anthropic/claude-opus-4-6
+`);
+    const config = loadConfig(tempDir);
+    expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
+  });
+
+  it('rejects v3 with a missing provider in routing', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: ghost/some-embed-model
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+`);
+    expect(() => loadConfig(tempDir)).toThrow(AnatolyError);
+    expect(() => loadConfig(tempDir)).toThrow(/Invalid v3 configuration/);
+    expect(() => loadConfig(tempDir)).toThrow(/provider "ghost" not declared/);
+  });
+
+  it('rejects v3 with a model not declared under its provider', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-undeclared
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+`);
+    expect(() => loadConfig(tempDir)).toThrow(/model "claude-undeclared" not declared/);
+  });
+
+  it('rejects v3 with an embedding-incapable transport pointed at by routing.embeddings', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: anthropic/claude-sonnet-4-6
+    text: anthropic/claude-haiku-4-5
+`);
+    expect(() => loadConfig(tempDir)).toThrow(/embedding-capable transport/);
+  });
+
+  it('routes a v3 ONNX-only embeddings config to rag.{code,nlp}_model', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+`);
+    const config = loadConfig(tempDir);
+    expect(config.rag.code_model).toBe('jinaai/jina-embeddings-v2-base-code');
+    expect(config.rag.nlp_model).toBe('Xenova/all-MiniLM-L6-v2');
+    expect(config.rag.embedding).toBeUndefined();
+  });
+
+  it('lifts evaluation.axes.documentation extras into top-level documentation', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+evaluation:
+  axes:
+    documentation:
+      enabled: true
+      docs_path: site/docs
+      module_mapping:
+        site/docs/auth.md:
+          - src/auth/**/*.ts
+`);
+    const config = loadConfig(tempDir);
+    expect(config.documentation.docs_path).toBe('site/docs');
+    expect(config.documentation.module_mapping).toEqual({
+      'site/docs/auth.md': ['src/auth/**/*.ts'],
+    });
+  });
+
+  it('exposes the v3 source via getV3Source when the YAML is v3', () => {
+    writeV3(minimalV3Yaml);
+    const config = loadConfig(tempDir);
+    const v3 = getV3Source(config);
+    expect(v3).toBeDefined();
+    expect(v3?.version).toBe(3);
+    expect(v3?.providers.anthropic.models).toContain('claude-sonnet-4-6');
+    expect(v3?.routing.embeddings.code).toBe('mistral/mistral-embed');
+  });
+
+  it('returns undefined from getV3Source for legacy (non-v3) YAML', () => {
+    writeFileSync(join(tempDir, '.anatoly.yml'), `
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5-20251001
+  deliberation: anthropic/claude-opus-4-6
+`);
+    const config = loadConfig(tempDir);
+    expect(getV3Source(config)).toBeUndefined();
+  });
+
+  it('hides v3 source from Object.keys / JSON.stringify', () => {
+    writeV3(minimalV3Yaml);
+    const config = loadConfig(tempDir);
+    const keys = Object.keys(config);
+    expect(keys).not.toContain('v3Source');
+    const json = JSON.stringify(config);
+    expect(json).not.toContain('"version":3');  // v3 source not serialized
+  });
+
+  it('preserves runtime.agents.max_turns and runtime.rag.code_share', () => {
+    writeV3(`
+version: 3
+providers:
+  anthropic:
+    transport: claude_agent_sdk
+    auth: oauth
+    models: [claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-6]
+  'local-lite':
+    transport: onnxruntime_node
+    models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
+routing:
+  generation:
+    quality: anthropic/claude-sonnet-4-6
+    fast: anthropic/claude-haiku-4-5
+    deliberation: anthropic/claude-opus-4-6
+    summarization: anthropic/claude-haiku-4-5
+  embeddings:
+    code: local-lite/jinaai/jina-embeddings-v2-base-code
+    text: local-lite/Xenova/all-MiniLM-L6-v2
+runtime:
+  agents:
+    max_turns: 75
+  rag:
+    code_share: 0.8
+`);
+    const config = loadConfig(tempDir);
+    expect(config.agents.max_turns).toBe(75);
+    expect(config.rag.code_weight).toBe(0.8);
   });
 });

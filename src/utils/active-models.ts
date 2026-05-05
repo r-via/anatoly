@@ -3,6 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Config } from '../schemas/config.js';
+import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
+import { getV3Source } from './config-loader.js';
 
 /** Per-run shape filters that narrow the active model set to what the
  * resolved invocation will actually call. All fields default to "include"
@@ -40,6 +42,21 @@ export function enumerateActiveModels(
   config: Config,
   options: ActiveModelOptions = {},
 ): string[] {
+  // When the config originated from a v3 YAML, walk its declarative routing
+  // section directly. v3 has no `models.*` / `agents.*` / `rag.embedding.*`
+  // duplication — every active model is reachable through `routing` and
+  // `evaluation.axes.<id>.model`, which keeps the inventory tighter and
+  // avoids re-deriving the v2 mapping for the pricing gate.
+  const v3 = getV3Source(config);
+  if (v3) return enumerateActiveModelsV3(v3, options);
+
+  return enumerateActiveModelsV2(config, options);
+}
+
+function enumerateActiveModelsV2(
+  config: Config,
+  options: ActiveModelOptions,
+): string[] {
   const enableRag = options.enableRag !== false;
   const enableDeliberation = options.enableDeliberation !== false;
   const axesFilter = options.axesFilter;
@@ -70,6 +87,44 @@ export function enumerateActiveModels(
     const embedding = config.rag.embedding;
     if (embedding?.code?.model) seen.add(embedding.code.model);
     if (embedding?.nlp?.model) seen.add(embedding.nlp.model);
+  }
+
+  return [...seen].sort();
+}
+
+function enumerateActiveModelsV3(v3: ConfigV3, options: ActiveModelOptions): string[] {
+  const enableRag = options.enableRag !== false;
+  const enableDeliberation = options.enableDeliberation !== false;
+  const axesFilter = options.axesFilter;
+  const seen = new Set<string>();
+
+  // 1. Generation routing — quality, fast, summarization always; deliberation
+  //    is gated by enableDeliberation (matches v2 behaviour).
+  seen.add(v3.routing.generation.quality);
+  seen.add(v3.routing.generation.fast);
+  seen.add(v3.routing.generation.summarization);
+  if (enableDeliberation) seen.add(v3.routing.generation.deliberation);
+
+  // 2. Per-axis overrides
+  for (const [id, axis] of Object.entries(v3.evaluation.axes)) {
+    if (typeof axis === 'boolean') continue;
+    if (!('model' in axis) || !axis.model) continue;
+    if (axesFilter && !axesFilter.includes(id)) continue;
+    seen.add(axis.model);
+  }
+
+  // 3. Embedding routing — only network providers go to the pricing cache.
+  //    ONNX providers (transport === 'onnxruntime_node') are local; LiteLLM
+  //    has no entry for them and including them triggers spurious warnings.
+  if (enableRag) {
+    for (const ref of [v3.routing.embeddings.code, v3.routing.embeddings.text]) {
+      const parsed = parseModelRef(ref);
+      if (!parsed) continue;
+      const provider = v3.providers[parsed.provider];
+      if (!provider) continue;
+      if (provider.transport === 'onnxruntime_node') continue;
+      seen.add(ref);
+    }
   }
 
   return [...seen].sort();
