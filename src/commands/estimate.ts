@@ -290,48 +290,47 @@ interface EstimateJsonPayload {
     languages?: string;
     frameworks?: string;
   };
+  /**
+   * Mirrors the rendered Configuration section verbatim. `rag` and `docs`
+   * carry their structural details (scope counts, mode) inline so the JSON
+   * stays a strict projection of what the user sees in the table.
+   */
   config: {
     concurrency: number;
-    ragEnabled: boolean;
-    ragMode: 'off' | 'lite' | 'advanced' | 'external';
     cache: boolean;
-  };
-  models: {
-    axes: Record<string, string>;
-    summarization?: string;
-    embeddings?: { code: string; nlp: string; backend: 'lite' | 'advanced-gguf' | 'external' };
-  };
-  forecast: {
-    files: { total: number; evaluate: number; skipped: number };
-    tokens: {
-      llm: { inputTokens: number; outputTokens: number };
-      embed: { tokens: number; codeUnits: number; nlpUnits: number };
-      total: number;
+    rag: {
+      mode: 'off' | 'lite' | 'advanced' | 'external';
+      files?: number;
+      fns?: number;
+      chunks?: number;
     };
-    cost: {
-      /** Sum of all step costs — pay-per-token equivalent (consumption). */
-      consumptionUsd: number;
-      /** What the user actually pays — sum of `api`-mode steps only. */
-      billedUsd: number;
-      /** Legacy alias of consumptionUsd, kept for v1 schema compatibility. */
-      totalUsd: number;
-      llmUsd: number;
-      embedUsd: number;
-      byModel: Record<string, number>;
-    };
-    time: { minutes: number; calibrated: boolean };
-    steps: ForecastStep[];
-  };
-  plan: {
-    scan: { totalFiles: number; new: number; cached: number };
-    triage: { evaluate: number; skipped: number };
-    rag?: { files: number; codeUnits: number; nlpUnits: number };
-    usageGraph: { edges: number };
     docs: {
       mode: 'bootstrap' | 'update' | 'ready';
       internal?: { changed: number; cached: number };
       project?: { changed: number; cached: number };
     };
+  };
+  /**
+   * Mirrors the rendered Forecast + Cost breakdown sections. `cost` only
+   * carries the two totals shown in the breakdown footer (billed and
+   * consumption); per-model / per-category aggregates are derivable from
+   * `steps` and intentionally omitted from this top-level view.
+   */
+  forecast: {
+    files: { total: number; evaluate: number; skipped: number };
+    tokens: {
+      llm: { inputTokens: number; outputTokens: number };
+      embed: { tokens: number; codeUnits: number; textUnits: number };
+      total: number;
+    };
+    cost: {
+      /** What the user actually pays — sum of `api`-mode step costs. */
+      billedUsd: number;
+      /** Sum of all step costs — pay-per-token equivalent (consumption). */
+      consumptionUsd: number;
+    };
+    time: { minutes: number; calibrated: boolean };
+    steps: ForecastStep[];
   };
 }
 
@@ -549,82 +548,57 @@ export function registerEstimateCommand(program: Command): void {
 
       // --- JSON mode: emit a versioned payload, skip the rendered view. ---
       if (jsonMode) {
+        // Touch usageGraph so the (still computed) build doesn't generate a
+        // dead-code warning. We deliberately don't surface it in the JSON
+        // anymore — it isn't shown in the rendered table either.
+        void usageGraph;
+
         const docsMode: 'bootstrap' | 'update' | 'ready' = bootstrapNeeded
           ? 'bootstrap'
           : (docScanInternal?.changed ?? 0) > 0 ? 'update' : 'ready';
+
+        const billedUsd = forecast.steps
+          .filter((s) => s.billingMode === 'api')
+          .reduce((sum, s) => sum + s.costUsd, 0);
+
+        const ragFiles = enableRag
+          ? allTasks.filter(t =>
+              t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+            ).length
+          : 0;
+
         const payload: EstimateJsonPayload = {
           schemaVersion: ESTIMATE_SCHEMA_VERSION,
           timestamp: new Date().toISOString(),
           ...(projectInfo ? { project: projectInfo } : {}),
           config: {
             concurrency,
-            ragEnabled: enableRag,
-            ragMode: enableRag ? (resolvedEmbed?.backend ?? 'lite') as EstimateJsonPayload['config']['ragMode'] : 'off',
             cache: true,
-          },
-          models: {
-            axes: Object.fromEntries(evaluators.map(e => [e.id, resolveAxisModel(e, config)])),
-            ...(enableRag ? { summarization: resolveCodeSummaryModel(config) } : {}),
-            ...(resolvedEmbed
-              ? {
-                  embeddings: {
-                    code: resolvedEmbed.codeModel,
-                    nlp: resolvedEmbed.nlpModel,
-                    // 'advanced-fp16' is a deprecated runtime value that the SDK
-                    // collapses to 'lite' at runtime — do the same in the API.
-                    backend: resolvedEmbed.backend === 'advanced-fp16' ? 'lite' : resolvedEmbed.backend,
-                  },
-                }
-              : {}),
-          },
-          forecast: {
-            files: { total: forecast.totalFiles, evaluate: forecast.files, skipped: forecast.skippedFiles },
-            tokens: {
-              llm: { inputTokens: forecast.llm.inputTokens, outputTokens: forecast.llm.outputTokens },
-              embed: { tokens: forecast.embed.tokens, codeUnits: forecast.embed.codeUnits, nlpUnits: forecast.embed.nlpUnits },
-              total: forecast.totalTokens,
+            rag: {
+              mode: (enableRag ? (resolvedEmbed?.backend ?? 'lite') : 'off') as EstimateJsonPayload['config']['rag']['mode'],
+              ...(enableRag && embedForecast
+                ? { files: ragFiles, fns: embedForecast.codeUnits, chunks: embedForecast.nlpUnits }
+                : {}),
             },
-            cost: {
-              consumptionUsd: forecast.totalCostUsd,
-              billedUsd: forecast.steps
-                .filter((s) => s.billingMode === 'api')
-                .reduce((sum, s) => sum + s.costUsd, 0),
-              totalUsd: forecast.totalCostUsd, // alias of consumptionUsd, retained for compat
-              llmUsd: forecast.llm.costUsd,
-              embedUsd: forecast.embed.costUsd,
-              byModel: forecast.llm.costByModel,
-            },
-            time: { minutes: forecast.calibratedMin, calibrated: forecast.hasCalibration },
-            steps: sortSteps(forecast.steps),
-          },
-          plan: {
-            scan: (() => {
-              const cached = progress
-                ? allTasks.filter(t => {
-                    const e = progress.files[t.file];
-                    return e && (e.status === 'CACHED' || e.status === 'DONE');
-                  }).length
-                : 0;
-              return { totalFiles: allTasks.length, new: allTasks.length - cached, cached };
-            })(),
-            triage: { evaluate: tiers.evaluate, skipped: tiers.skip },
-            ...(enableRag && embedForecast
-              ? {
-                  rag: {
-                    files: allTasks.filter(t =>
-                      t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
-                    ).length,
-                    codeUnits: embedForecast.codeUnits,
-                    nlpUnits: embedForecast.nlpUnits,
-                  },
-                }
-              : {}),
-            usageGraph: { edges: usageGraph.usages.size },
             docs: {
               mode: docsMode,
               ...(docScanInternal ? { internal: { changed: docScanInternal.changed, cached: docScanInternal.cached } } : {}),
               ...(docScanProject ? { project: { changed: docScanProject.changed, cached: docScanProject.cached } } : {}),
             },
+          },
+          forecast: {
+            files: { total: forecast.totalFiles, evaluate: forecast.files, skipped: forecast.skippedFiles },
+            tokens: {
+              llm: { inputTokens: forecast.llm.inputTokens, outputTokens: forecast.llm.outputTokens },
+              embed: { tokens: forecast.embed.tokens, codeUnits: forecast.embed.codeUnits, textUnits: forecast.embed.nlpUnits },
+              total: forecast.totalTokens,
+            },
+            cost: {
+              billedUsd,
+              consumptionUsd: forecast.totalCostUsd,
+            },
+            time: { minutes: forecast.calibratedMin, calibrated: forecast.hasCalibration },
+            steps: sortSteps(forecast.steps),
           },
         };
         process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
