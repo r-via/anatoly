@@ -6,6 +6,8 @@ import type { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
+import type { Config } from '../schemas/config.js';
+import { extractProvider } from '../core/transports/index.js';
 import { scanProject } from '../core/scanner.js';
 import { forecastRun, formatTokenCount, loadTasks, FORECAST_STEP_CATEGORY_ORDER, type ForecastStep } from '../core/estimator.js';
 import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
@@ -24,6 +26,21 @@ import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { readProgress } from '../utils/cache.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
+
+/**
+ * Resolve the per-step billing mode from a model id + the resolved Config.
+ * Keeps a single source of truth: `subscription` / `api` come from
+ * `config.providers.<provider>.mode`, `local` is detected from the
+ * known-local embedding labels map.
+ */
+function makeBillingResolver(config: Config): (modelId: string) => 'subscription' | 'api' | 'local' {
+  return (modelId: string) => {
+    if (modelId === 'local' || KNOWN_LOCAL_LABELS[modelId]) return 'local';
+    const provider = extractProvider(modelId);
+    const providers = config.providers as Record<string, { mode?: 'subscription' | 'api' } | undefined>;
+    return providers[provider]?.mode === 'subscription' ? 'subscription' : 'api';
+  };
+}
 
 /**
  * Compact, readable label for a model id. Keeps the provider prefix
@@ -139,7 +156,10 @@ interface EstimateViewData {
   forecast: {
     filesValue: string;
     tokensValue: string;
+    /** Sum of all step costs — the consumption magnitude (API equivalent). */
     totalCostUsd: number;
+    /** What the user actually pays — sum of `api`-mode steps only. */
+    billedUsd: number;
     timeValue: string;
     steps: ForecastStep[];
   };
@@ -171,10 +191,12 @@ function renderEstimateView(data: EstimateViewData): void {
   // Listing them twice (once with model id only, once with model+cost)
   // diverged in ordering and was missing 'deliberation' anyway.
 
-  // --- Cost breakdown — single 4-column table so all values stack with
-  // uniform column widths. Category column is left blank on consecutive
-  // rows of the same group (visual grouping without literal repetition).
-  // Ends with a bold `total` row that aggregates the costUsd column. ---
+  // --- Cost breakdown — single 5-column table so all values stack with
+  // uniform column widths. Columns: category, step, cost, mode, model.
+  // Category column is left blank on consecutive rows of the same group.
+  // Ends with two totals: `total billed` (real $ paid — sum of api-mode rows)
+  // and `total consumption equivalent` (sum of all rows, the API equivalent
+  // magnitude — informative when subscription mode covers some/all of it).
   {
     console.log('');
     console.log('  ' + chalk.yellow.bold('Cost breakdown'));
@@ -182,24 +204,33 @@ function renderEstimateView(data: EstimateViewData): void {
 
     const sorted = sortSteps(data.forecast.steps);
     const t = newTable({
-      head: ['category', 'step', 'cost', 'model'],
-      colAligns: ['left', 'left', 'right', 'left'],
+      head: ['category', 'step', 'cost', 'mode', 'model'],
+      colAligns: ['left', 'left', 'right', 'left', 'left'],
     });
     let lastCategory = '';
+    let billedUsd = 0;
     for (const s of sorted) {
       const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
       const categoryCell = s.category === lastCategory ? '' : chalk.dim(s.category);
       lastCategory = s.category;
-      t.push([categoryCell, s.name, cost, displayModel(s.model)]);
+      if (s.billingMode === 'api') billedUsd += s.costUsd;
+      t.push([categoryCell, s.name, cost, chalk.dim(s.billingMode), displayModel(s.model)]);
     }
 
-    // Empty row + total — gives the breakdown a clear closing line.
-    // 'total' sits in the leftmost column as a summary-level label.
-    t.push(['', '', '', '']);
+    // Empty row + two totals.
+    t.push(['', '', '', '', '']);
     t.push([
-      chalk.bold('total'),
+      chalk.bold('total billed'),
       '',
-      chalk.yellow.bold('$' + data.forecast.totalCostUsd.toFixed(2)),
+      chalk.yellow.bold('$' + billedUsd.toFixed(2)),
+      '',
+      '',
+    ]);
+    t.push([
+      chalk.dim('consumption'),
+      '',
+      chalk.dim('~$' + data.forecast.totalCostUsd.toFixed(2)),
+      '',
       '',
     ]);
 
@@ -207,12 +238,33 @@ function renderEstimateView(data: EstimateViewData): void {
   }
 
   // --- Forecast — the verdict, last so the user's eye lands on it.
-  // The cost value is bold so it pops as the headline number. ---
+  // The cost line takes the *billed* amount (what the user actually pays),
+  // with the consumption equivalent as a hint when subscription mode
+  // covers some/all of the work. ---
   {
+    const billed = data.forecast.billedUsd;
+    const consumption = data.forecast.totalCostUsd;
+    const allCovered = billed === 0 && consumption > 0;
+    const allBilled = Math.abs(billed - consumption) < 0.01;
+
+    let costValue: string;
+    if (allCovered) {
+      costValue = chalk.yellow.bold('$0')
+        + ' in subscription mode  '
+        + chalk.dim(`(ensure quota for ~$${consumption.toFixed(2)})`);
+    } else if (allBilled) {
+      costValue = chalk.yellow.bold(`$${consumption.toFixed(2)}`)
+        + ' in consumption mode';
+    } else {
+      costValue = chalk.yellow.bold(`$${billed.toFixed(2)}`)
+        + ' billed  '
+        + chalk.dim(`(~$${consumption.toFixed(2)} consumption equivalent)`);
+    }
+
     const rows = [
       { key: 'files', value: data.forecast.filesValue },
       { key: 'tokens', value: data.forecast.tokensValue },
-      { key: 'cost', value: chalk.yellow.bold(`$${data.forecast.totalCostUsd.toFixed(2)} total`) },
+      { key: 'cost', value: costValue },
       { key: 'time', value: data.forecast.timeValue },
     ];
     printSection('Forecast', chalk.yellow.bold, makeKvBlock(rows));
@@ -257,6 +309,11 @@ interface EstimateJsonPayload {
       total: number;
     };
     cost: {
+      /** Sum of all step costs — pay-per-token equivalent (consumption). */
+      consumptionUsd: number;
+      /** What the user actually pays — sum of `api`-mode steps only. */
+      billedUsd: number;
+      /** Legacy alias of consumptionUsd, kept for v1 schema compatibility. */
       totalUsd: number;
       llmUsd: number;
       embedUsd: number;
@@ -482,6 +539,7 @@ export function registerEstimateCommand(program: Command): void {
         ...(docPageCount > 0
           ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
           : {}),
+        resolveBillingMode: makeBillingResolver(config),
         calibration,
         concurrency,
         ragEnabled: enableRag,
@@ -527,7 +585,11 @@ export function registerEstimateCommand(program: Command): void {
               total: forecast.totalTokens,
             },
             cost: {
-              totalUsd: forecast.totalCostUsd,
+              consumptionUsd: forecast.totalCostUsd,
+              billedUsd: forecast.steps
+                .filter((s) => s.billingMode === 'api')
+                .reduce((sum, s) => sum + s.costUsd, 0),
+              totalUsd: forecast.totalCostUsd, // alias of consumptionUsd, retained for compat
               llmUsd: forecast.llm.costUsd,
               embedUsd: forecast.embed.costUsd,
               byModel: forecast.llm.costByModel,
@@ -576,6 +638,10 @@ export function registerEstimateCommand(program: Command): void {
         ? `${forecast.files} of ${forecast.totalFiles}  (${forecast.skippedFiles} skipped by triage)`
         : `${forecast.files} files`;
 
+      const billedUsd = forecast.steps
+        .filter((s) => s.billingMode === 'api')
+        .reduce((sum, s) => sum + s.costUsd, 0);
+
       renderEstimateView({
         project: projectInfo,
         config: configRows,
@@ -583,6 +649,7 @@ export function registerEstimateCommand(program: Command): void {
           filesValue: filesFragment,
           tokensValue: totalTokensFragment,
           totalCostUsd: forecast.totalCostUsd,
+          billedUsd,
           timeValue: `${formatCalibratedTime(forecast.calibratedMin)}  (${calLabel})`,
           steps: forecast.steps,
         },

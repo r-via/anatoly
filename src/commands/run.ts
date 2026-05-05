@@ -60,7 +60,7 @@ import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, type AxisId } from '../core/axis-evaluator.js';
-import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
+import { TransportRouter, findModelForProvider, extractProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
@@ -1442,6 +1442,15 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     ...(docPageCount > 0
       ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
       : {}),
+    resolveBillingMode: (modelId: string) => {
+      // Local embeddings (ONNX/GGUF, no API call) → 'local'. Anything else
+      // looks up the provider's mode from config.providers.<provider>.mode.
+      // Default 'api' when no entry exists.
+      if (modelId === 'local') return 'local';
+      const provider = extractProvider(modelId);
+      const providers = ctx.config.providers as Record<string, { mode?: 'subscription' | 'api' } | undefined>;
+      return providers[provider]?.mode === 'subscription' ? 'subscription' : 'api';
+    },
     calibration,
     concurrency: ctx.concurrency,
     ragEnabled: ctx.enableRag,

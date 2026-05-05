@@ -218,12 +218,24 @@ export type ForecastStepCategory = 'axis' | 'deliberation' | 'summary' | 'embed'
  * block and for the `--json` payload. Aggregates on {@link RunForecast}
  * (llm.*, embed.*, totalCostUsd) are derived from this array.
  */
+/**
+ * How the user is billed for this step's cost:
+ *   - `subscription` — covered by an OAuth subscription (Claude Code), the
+ *     user does not pay the displayed cost. The displayed value is the
+ *     pay-per-token equivalent ("consumption magnitude").
+ *   - `api`          — pay-per-token via API key. The displayed cost is real.
+ *   - `local`        — local runtime (ONNX / GGUF), no API call, free.
+ */
+export type ForecastStepBillingMode = 'subscription' | 'api' | 'local';
+
 export interface ForecastStep {
   category: ForecastStepCategory;
   /** Sub-identifier within the category. Empty string when the category has a single canonical entry (e.g. `summary`). */
   name: string;
   /** Resolved model id; `'local'` for local-runtime embeddings (no API price). */
   model: string;
+  /** Per-step billing mode — determines whether costUsd is real or pay-per-token equivalent. */
+  billingMode: ForecastStepBillingMode;
   /** Net new (uncached) input tokens billed at the input rate. */
   inputTokens: number;
   outputTokens: number;
@@ -377,6 +389,14 @@ export interface ForecastInputs {
     pageCount: number;
     scaffoldingModel: string;
   };
+  /**
+   * Resolves the billing mode for a model id. Lets the estimator stay
+   * decoupled from the config schema while still tagging each step with
+   * its billing mode (subscription / api / local). The caller passes a
+   * function that consults `config.providers[provider].mode` and the
+   * known-local embedding labels.
+   */
+  resolveBillingMode: (modelId: string) => ForecastStepBillingMode;
   calibration: CalibrationData;
   concurrency: number;
   ragEnabled: boolean;
@@ -414,7 +434,7 @@ export const DOC_UPDATE_PER_PAGE = {
 } as const;
 
 export function forecastRun(args: ForecastInputs): RunForecast {
-  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, calibration, concurrency, ragEnabled, deliberation } = args;
+  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, resolveBillingMode, calibration, concurrency, ragEnabled, deliberation } = args;
   const steps: ForecastStep[] = [];
 
   // Per-pass token cost (one axis × all eval files) — `estimateTasksTokens`
@@ -443,6 +463,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'axis',
       name: axis.id,
       model: axis.model,
+      billingMode: resolveBillingMode(axis.model),
       inputTokens: freshInputPerAxis,
       outputTokens: perPassOutput,
       cacheReadTokens: cacheReadSystemPerAxis,
@@ -466,6 +487,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'deliberation',
       name: '',
       model: deliberationModel,
+      billingMode: resolveBillingMode(deliberationModel),
       inputTokens: delibInput,
       outputTokens: delibOutput,
       cacheReadTokens: delibCacheRead,
@@ -489,6 +511,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'summary',
       name: '',
       model: summaryModel,
+      billingMode: resolveBillingMode(summaryModel),
       inputTokens: summaryInput,
       outputTokens: summaryOutput,
       costUsd: calculateCost(summaryModel, summaryInput, summaryOutput, projectRoot),
@@ -508,6 +531,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'embed',
       name: 'code',
       model: embed.codeModel ?? 'local',
+      billingMode: resolveBillingMode(embed.codeModel ?? 'local'),
       inputTokens: embed.codeTokens,
       outputTokens: 0,
       costUsd: cost,
@@ -521,6 +545,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'embed',
       name: 'text',
       model: embed.nlpModel ?? 'local',
+      billingMode: resolveBillingMode(embed.nlpModel ?? 'local'),
       inputTokens: embed.nlpTokens,
       outputTokens: 0,
       costUsd: cost,
@@ -540,6 +565,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       category: 'internal-doc',
       name: docContext.mode,
       model: docContext.scaffoldingModel,
+      billingMode: resolveBillingMode(docContext.scaffoldingModel),
       inputTokens: docFresh,
       outputTokens: docOutput,
       cacheReadTokens: docCacheRead,
