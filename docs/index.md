@@ -14,6 +14,7 @@
 | [Vision](01-Getting-Started/00-Vision.md) | Mission, philosophy, and guiding principles |
 | [Installation](01-Getting-Started/01-Installation.md) | Prerequisites, install steps, and first run |
 | [Configuration](01-Getting-Started/02-Configuration.md) | Config files, environment variables, and tuning options |
+| [Estimate](01-Getting-Started/04-Estimate.md) | Preview tokens, cost, and time before running an audit |
 
 ---
 
