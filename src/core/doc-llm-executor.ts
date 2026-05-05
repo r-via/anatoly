@@ -21,6 +21,7 @@ import { resolveSystemPrompt } from './prompt-resolver.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { contextLogger } from '../utils/log-context.js';
+import { recordLlmCall } from '../utils/llm-calls-sink.js';
 
 // --- Public interfaces ---
 
@@ -737,6 +738,11 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  const callStart = Date.now();
   try {
     const result = await retryWithBackoff(
       async () => {
@@ -756,11 +762,31 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
 
         let text = '';
         let cost = 0;
+        let usageIn = 0;
+        let usageOut = 0;
+        let usageCacheRead = 0;
+        let usageCacheCreation = 0;
         for await (const message of q) {
           if (message.type === 'result') {
             if (message.subtype === 'success') {
-              text = (message as { result: string }).result;
-              cost = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+              const success = message as {
+                result: string;
+                total_cost_usd?: number;
+                usage?: {
+                  input_tokens?: number;
+                  output_tokens?: number;
+                  cache_read_input_tokens?: number;
+                  cache_creation_input_tokens?: number;
+                };
+              };
+              text = success.result;
+              cost = success.total_cost_usd ?? 0;
+              if (success.usage) {
+                usageIn += success.usage.input_tokens ?? 0;
+                usageOut += success.usage.output_tokens ?? 0;
+                usageCacheRead += success.usage.cache_read_input_tokens ?? 0;
+                usageCacheCreation += success.usage.cache_creation_input_tokens ?? 0;
+              }
             } else {
               const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
@@ -776,7 +802,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
             }
           }
         }
-        return { text, cost };
+        return { text, cost, usageIn, usageOut, usageCacheRead, usageCacheCreation };
       },
       {
         maxRetries: 3,
@@ -791,10 +817,48 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     );
     resultText = result.text;
     costUsd = result.cost;
+    inputTokens = result.usageIn;
+    outputTokens = result.usageOut;
+    cacheReadTokens = result.usageCacheRead;
+    cacheCreationTokens = result.usageCacheCreation;
     success = true;
   } finally {
     slot?.release({ success });
   }
+
+  // Emit a structured llm_call event so the coherence pass shows up in
+  // run-metrics aggregates and llm-calls.ndjson alongside bootstrap and
+  // axis calls. Without this, the coherence cost was captured in
+  // coherence-review.md but invisible to the run-level token accounting
+  // (the python-dotenv run had $1.81 of coherence cost missing from the
+  // ndjson sum).
+  recordLlmCall({
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    costUsd,
+    durationMs: Date.now() - callStart,
+    success,
+  });
+  contextLogger().info(
+    {
+      event: 'llm_call',
+      phase: 'coherence-review',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      costUsd,
+      durationMs: Date.now() - callStart,
+      success,
+    },
+    'LLM call complete',
+  );
 
   // Post-review linter verification
   const verifyLint = reviewDocStructure(outputDir, projectRoot, docsPath);
@@ -884,6 +948,11 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  const callStart = Date.now();
   const slot = await router?.acquireSlot('claude-opus-4-6');
   let success = false;
   try {
@@ -905,11 +974,31 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
 
         let text = '';
         let cost = 0;
+        let usageIn = 0;
+        let usageOut = 0;
+        let usageCacheRead = 0;
+        let usageCacheCreation = 0;
         for await (const message of q) {
           if (message.type === 'result') {
             if (message.subtype === 'success') {
-              text = (message as { result: string }).result;
-              cost = (message as { total_cost_usd?: number }).total_cost_usd ?? 0;
+              const success = message as {
+                result: string;
+                total_cost_usd?: number;
+                usage?: {
+                  input_tokens?: number;
+                  output_tokens?: number;
+                  cache_read_input_tokens?: number;
+                  cache_creation_input_tokens?: number;
+                };
+              };
+              text = success.result;
+              cost = success.total_cost_usd ?? 0;
+              if (success.usage) {
+                usageIn += success.usage.input_tokens ?? 0;
+                usageOut += success.usage.output_tokens ?? 0;
+                usageCacheRead += success.usage.cache_read_input_tokens ?? 0;
+                usageCacheCreation += success.usage.cache_creation_input_tokens ?? 0;
+              }
             } else {
               const errMsg = (message as { errors?: string[] }).errors?.join(', ') ?? message.subtype;
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
@@ -924,7 +1013,7 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
             }
           }
         }
-        return { text, cost };
+        return { text, cost, usageIn, usageOut, usageCacheRead, usageCacheCreation };
       },
       {
         maxRetries: 3,
@@ -939,10 +1028,44 @@ export async function runDocContentReview(params: DocContentReviewParams): Promi
     );
     resultText = result.text;
     costUsd = result.cost;
+    inputTokens = result.usageIn;
+    outputTokens = result.usageOut;
+    cacheReadTokens = result.usageCacheRead;
+    cacheCreationTokens = result.usageCacheCreation;
     success = true;
   } finally {
     slot?.release({ success });
   }
+
+  // Same llm_call emission as the coherence pass: routes content-review
+  // tokens into run-metrics aggregates and llm-calls.ndjson.
+  recordLlmCall({
+    provider: 'anthropic',
+    model: 'claude-opus-4-6',
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    costUsd,
+    durationMs: Date.now() - callStart,
+    success,
+  });
+  contextLogger().info(
+    {
+      event: 'llm_call',
+      phase: 'content-review',
+      provider: 'anthropic',
+      model: 'claude-opus-4-6',
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      costUsd,
+      durationMs: Date.now() - callStart,
+      success,
+    },
+    'LLM call complete',
+  );
 
   callbacks?.onDone?.();
 

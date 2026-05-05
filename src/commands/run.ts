@@ -1657,20 +1657,26 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
       try {
         const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
-        const coherenceResult = await runDocCoherenceReview({
-          outputDir,
-          projectRoot: ctx.projectRoot,
-          docsPath,
-          abortController: ac,
-          logDir: coherenceLogDir,
-          router: ctx.router,
-          callbacks: {
-            onToolUse: (_tool, filePath) => {
-              const name = filePath.split('/').pop() ?? filePath;
-              ctx.pipelineState?.updateTask(taskId, `reviewing ${name}…`);
+        // Switch the phase tag for the duration of the coherence pass so
+        // its llm_call event lands under `phase: "coherence-review"` in
+        // the ndjson — the surrounding block is `bootstrap-doc`, which
+        // would otherwise absorb its tokens.
+        const coherenceResult = await runWithContext({ phase: 'coherence-review' }, async () =>
+          runDocCoherenceReview({
+            outputDir,
+            projectRoot: ctx.projectRoot,
+            docsPath,
+            abortController: ac,
+            logDir: coherenceLogDir,
+            router: ctx.router,
+            callbacks: {
+              onToolUse: (_tool, filePath) => {
+                const name = filePath.split('/').pop() ?? filePath;
+                ctx.pipelineState?.updateTask(taskId, `reviewing ${name}…`);
+              },
             },
-          },
-        });
+          }),
+        );
         ctx.totalCostUsd += coherenceResult.costUsd;
         log.info({
           issuesBefore: coherenceResult.linterIssuesBefore,
