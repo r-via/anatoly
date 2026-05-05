@@ -292,8 +292,14 @@ export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> =
  * dominated by output (structured per-finding decisions on opus).
  */
 export const DELIBERATION_FILES_PER_SHARD = 20;
-export const DELIBERATION_INPUT_PER_SHARD = 6000;
-export const DELIBERATION_OUTPUT_PER_SHARD = 4000;
+// Per-shard token shape calibrated against R1/R2/R3 actuals at opus-4-6
+// pricing ($5/M in, $25/M out, $0.5/M cacheRead, $6.25/M cacheCreation):
+// cost ≈ $0.35/shard (10K * $5 + 12K * $25 + 1K * $0.5 + 0.6K * $6.25 per M).
+// Earlier draft used 6K+4K which under-priced by 3× because the cached opus
+// rates ($5/$25) are roughly half of the standard opus-4 launch rates the
+// prior calibration assumed.
+export const DELIBERATION_INPUT_PER_SHARD = 10000;
+export const DELIBERATION_OUTPUT_PER_SHARD = 12000;
 export const DELIBERATION_CACHE_READ_PER_SHARD = 1000;
 export const DELIBERATION_CACHE_CREATION_PER_SHARD = 600;
 
