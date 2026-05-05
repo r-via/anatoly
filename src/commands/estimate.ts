@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
-import { forecastRun, formatTokenCount, loadTasks, type ForecastStep } from '../core/estimator.js';
+import { forecastRun, formatTokenCount, loadTasks, FORECAST_STEP_CATEGORY_ORDER, type ForecastStep } from '../core/estimator.js';
 import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
@@ -33,12 +33,18 @@ function displayModel(modelId: string): string {
   return modelId.replace(/^[^/]+\//, '').replace(/^claude-/, '');
 }
 
-/** Convert a step id into the user-facing label shown in the Forecast block. */
-function formatStepLabel(id: string): string {
-  if (id.startsWith('axis:')) return id.slice(5);
-  if (id.startsWith('embed:')) return `embed/${id.slice(6)}`;
-  if (id.startsWith('doc:')) return `doc/${id.slice(4)}`;
-  return id;
+/**
+ * Sort steps for the breakdown view: group by category in the canonical
+ * order (axis → summary → embed → doc), then by costUsd desc within each
+ * group so the biggest contributors of each kind appear first.
+ */
+function sortSteps(steps: ForecastStep[]): ForecastStep[] {
+  return [...steps].sort((a, b) => {
+    const ca = FORECAST_STEP_CATEGORY_ORDER.indexOf(a.category);
+    const cb = FORECAST_STEP_CATEGORY_ORDER.indexOf(b.category);
+    if (ca !== cb) return ca - cb;
+    return b.costUsd - a.costUsd;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -136,16 +142,17 @@ function renderEstimateView(data: EstimateViewData): void {
     printSection('Forecast', chalk.yellow.bold, t.toString());
   }
 
-  // --- Cost breakdown (per-step contributions, sorted by cost desc) ---
+  // --- Cost breakdown — 4 columns: category, step name, cost (right-aligned), model.
+  // Sorted: axis → summary → embed → doc, then by cost desc within each group.
   {
-    const sorted = [...data.forecast.steps].sort((a, b) => b.costUsd - a.costUsd);
+    const sorted = sortSteps(data.forecast.steps);
     const t = newKvTable({
-      head: ['step', 'cost', 'model'],
-      colAligns: ['left', 'right', 'left'],
+      head: ['category', 'step', 'cost', 'model'],
+      colAligns: ['left', 'left', 'right', 'left'],
     });
     for (const s of sorted) {
       const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
-      t.push([formatStepLabel(s.id), cost, displayModel(s.model)]);
+      t.push([s.category, s.name, cost, displayModel(s.model)]);
     }
     printSection('Cost breakdown', chalk.yellow.bold, t.toString());
   }
@@ -160,12 +167,71 @@ function renderEstimateView(data: EstimateViewData): void {
   console.log('');
 }
 
+// ---------------------------------------------------------------------------
+// JSON payload — versioned shape for `--json` mode (machine-readable).
+// ---------------------------------------------------------------------------
+
+const ESTIMATE_SCHEMA_VERSION = 1 as const;
+
+/** Public JSON shape returned by `anatoly estimate --json`. Stable within a `schemaVersion`. */
+interface EstimateJsonPayload {
+  schemaVersion: typeof ESTIMATE_SCHEMA_VERSION;
+  /** ISO-8601 timestamp of when this estimate was produced. */
+  timestamp: string;
+  project?: {
+    name: string;
+    version: string;
+    languages?: string;
+    frameworks?: string;
+  };
+  config: {
+    concurrency: number;
+    ragEnabled: boolean;
+    ragMode: 'off' | 'lite' | 'advanced' | 'external';
+    cache: boolean;
+  };
+  models: {
+    axes: Record<string, string>;
+    summarization?: string;
+    embeddings?: { code: string; nlp: string; backend: 'lite' | 'advanced-gguf' | 'external' };
+  };
+  forecast: {
+    files: { total: number; evaluate: number; skipped: number };
+    tokens: {
+      llm: { inputTokens: number; outputTokens: number };
+      embed: { tokens: number; codeUnits: number; nlpUnits: number };
+      total: number;
+    };
+    cost: {
+      totalUsd: number;
+      llmUsd: number;
+      embedUsd: number;
+      byModel: Record<string, number>;
+    };
+    time: { minutes: number; calibrated: boolean };
+    steps: ForecastStep[];
+  };
+  plan: {
+    scan: { totalFiles: number; new: number; cached: number };
+    triage: { evaluate: number; skipped: number };
+    rag?: { files: number; codeUnits: number; nlpUnits: number };
+    usageGraph: { edges: number };
+    docs: {
+      mode: 'bootstrap' | 'update' | 'ready';
+      internal?: { changed: number; cached: number };
+      project?: { changed: number; cached: number };
+    };
+  };
+}
+
 /** Registers the `estimate` CLI sub-command on the given Commander program. @param program The root Commander instance. */
 export function registerEstimateCommand(program: Command): void {
   program
     .command('estimate')
     .description('Show the startup summary table (no LLM calls)')
-    .action(async () => {
+    .option('--json', 'emit a machine-readable JSON payload to stdout instead of the rendered table (logs go to stderr)')
+    .action(async (cmdOpts: { json?: boolean }) => {
+      const jsonMode = cmdOpts.json === true;
       const projectRoot = resolve('.');
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
@@ -201,7 +267,9 @@ export function registerEstimateCommand(program: Command): void {
         strict: true,
       });
 
-      printBanner();
+      // Banner is purely decorative — suppress in --json mode so stdout
+      // contains only the JSON payload (logs already go to stderr via pino).
+      if (!jsonMode) printBanner();
 
       // Auto-scan if no tasks directory exists
       const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
@@ -385,6 +453,86 @@ export function registerEstimateCommand(program: Command): void {
         deliberation: true,
       });
       const calLabel = forecast.hasCalibration ? 'calibrated' : 'default';
+
+      // --- JSON mode: emit a versioned payload, skip the rendered view. ---
+      if (jsonMode) {
+        const docsMode: 'bootstrap' | 'update' | 'ready' = bootstrapNeeded
+          ? 'bootstrap'
+          : (docScanInternal?.changed ?? 0) > 0 ? 'update' : 'ready';
+        const payload: EstimateJsonPayload = {
+          schemaVersion: ESTIMATE_SCHEMA_VERSION,
+          timestamp: new Date().toISOString(),
+          ...(projectInfo ? { project: projectInfo } : {}),
+          config: {
+            concurrency,
+            ragEnabled: enableRag,
+            ragMode: enableRag ? (resolvedEmbed?.backend ?? 'lite') as EstimateJsonPayload['config']['ragMode'] : 'off',
+            cache: true,
+          },
+          models: {
+            axes: Object.fromEntries(evaluators.map(e => [e.id, resolveAxisModel(e, config)])),
+            ...(enableRag ? { summarization: resolveCodeSummaryModel(config) } : {}),
+            ...(resolvedEmbed
+              ? {
+                  embeddings: {
+                    code: resolvedEmbed.codeModel,
+                    nlp: resolvedEmbed.nlpModel,
+                    // 'advanced-fp16' is a deprecated runtime value that the SDK
+                    // collapses to 'lite' at runtime — do the same in the API.
+                    backend: resolvedEmbed.backend === 'advanced-fp16' ? 'lite' : resolvedEmbed.backend,
+                  },
+                }
+              : {}),
+          },
+          forecast: {
+            files: { total: forecast.totalFiles, evaluate: forecast.files, skipped: forecast.skippedFiles },
+            tokens: {
+              llm: { inputTokens: forecast.llm.inputTokens, outputTokens: forecast.llm.outputTokens },
+              embed: { tokens: forecast.embed.tokens, codeUnits: forecast.embed.codeUnits, nlpUnits: forecast.embed.nlpUnits },
+              total: forecast.totalTokens,
+            },
+            cost: {
+              totalUsd: forecast.totalCostUsd,
+              llmUsd: forecast.llm.costUsd,
+              embedUsd: forecast.embed.costUsd,
+              byModel: forecast.llm.costByModel,
+            },
+            time: { minutes: forecast.calibratedMin, calibrated: forecast.hasCalibration },
+            steps: sortSteps(forecast.steps),
+          },
+          plan: {
+            scan: (() => {
+              const cached = progress
+                ? allTasks.filter(t => {
+                    const e = progress.files[t.file];
+                    return e && (e.status === 'CACHED' || e.status === 'DONE');
+                  }).length
+                : 0;
+              return { totalFiles: allTasks.length, new: allTasks.length - cached, cached };
+            })(),
+            triage: { evaluate: tiers.evaluate, skipped: tiers.skip },
+            ...(enableRag && embedForecast
+              ? {
+                  rag: {
+                    files: allTasks.filter(t =>
+                      t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+                    ).length,
+                    codeUnits: embedForecast.codeUnits,
+                    nlpUnits: embedForecast.nlpUnits,
+                  },
+                }
+              : {}),
+            usageGraph: { edges: usageGraph.usages.size },
+            docs: {
+              mode: docsMode,
+              ...(docScanInternal ? { internal: { changed: docScanInternal.changed, cached: docScanInternal.cached } } : {}),
+              ...(docScanProject ? { project: { changed: docScanProject.changed, cached: docScanProject.cached } } : {}),
+            },
+          },
+        };
+        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+        return;
+      }
 
       // Forecast block (estimate command only — verdict before pipeline detail).
       const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`

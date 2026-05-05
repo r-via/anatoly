@@ -194,22 +194,34 @@ export function estimateProject(projectRoot: string): EstimateResult {
 }
 
 /**
+ * Category bucket for a {@link ForecastStep}. Used both for grouping in the
+ * rendered breakdown table and for ordered sorting (axis → summary → embed
+ * → doc).
+ */
+export type ForecastStepCategory = 'axis' | 'summary' | 'embed' | 'doc';
+
+/**
  * One discrete cost contribution in the forecast — typically one logical
  * pipeline phase that hits the LLM (or embedding API). Examples:
  *
- *   { id: 'axis:correction',  model: 'anthropic/claude-sonnet-4-6', costUsd: 5.20 }
- *   { id: 'summary',          model: 'anthropic/claude-haiku-4-5',  costUsd: 0.21 }
- *   { id: 'embed:code',       model: 'voyage/voyage-code-3',        costUsd: 0.05 }
- *   { id: 'embed:nlp',        model: 'local',                       costUsd: 0    }
- *   { id: 'doc:bootstrap',    model: 'anthropic/claude-opus-4-6',   costUsd: 1.20 }
+ *   { category: 'axis',    name: 'correction',  model: 'anthropic/claude-sonnet-4-6', costUsd: 5.20 }
+ *   { category: 'summary', name: '',            model: 'anthropic/claude-haiku-4-5',  costUsd: 0.21 }
+ *   { category: 'embed',   name: 'code',        model: 'voyage/voyage-code-3',        costUsd: 0.05 }
+ *   { category: 'embed',   name: 'nlp',         model: 'local',                       costUsd: 0    }
+ *   { category: 'doc',     name: 'bootstrap',   model: 'anthropic/claude-opus-4-6',   costUsd: 1.20 }
+ *
+ * `category` and `name` are kept as separate fields so consumers (display,
+ * `--json` API) can render them in distinct columns / properties without
+ * having to parse a prefixed id string.
  *
  * Steps are the source of truth for the per-step display in the Forecast
  * block and for the `--json` payload. Aggregates on {@link RunForecast}
  * (llm.*, embed.*, totalCostUsd) are derived from this array.
  */
 export interface ForecastStep {
-  /** Category-prefixed id (`axis:<name>`, `summary`, `embed:code|nlp`, `doc:bootstrap|update`). */
-  id: string;
+  category: ForecastStepCategory;
+  /** Sub-identifier within the category. Empty string when the category has a single canonical entry (e.g. `summary`). */
+  name: string;
   /** Resolved model id; `'local'` for local-runtime embeddings (no API price). */
   model: string;
   /** Net new (uncached) input tokens billed at the input rate. */
@@ -227,6 +239,12 @@ export interface ForecastStep {
    */
   approximate?: boolean;
 }
+
+/**
+ * Canonical category order for sorting steps in the breakdown view.
+ * Within each category, callers sort by costUsd desc.
+ */
+export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> = ['axis', 'summary', 'embed', 'doc'];
 
 /**
  * Forecast the LLM and embedding workload for a run, with a $ cost
@@ -404,7 +422,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       creation: cacheCreationSystemPerAxis,
     });
     steps.push({
-      id: `axis:${axis.id}`,
+      category: 'axis',
+      name: axis.id,
       model: axis.model,
       inputTokens: freshInputPerAxis,
       outputTokens: perPassOutput,
@@ -422,7 +441,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     const summaryInput = embed.codeTokens;
     const summaryOutput = embed.codeUnits * NLP_TOKENS_PER_FUNCTION;
     steps.push({
-      id: 'summary',
+      category: 'summary',
+      name: '',
       model: summaryModel,
       inputTokens: summaryInput,
       outputTokens: summaryOutput,
@@ -437,7 +457,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       ? calculateCost(embed.codeModel, embed.codeTokens, 0, projectRoot)
       : 0;
     steps.push({
-      id: 'embed:code',
+      category: 'embed',
+      name: 'code',
       model: embed.codeModel ?? 'local',
       inputTokens: embed.codeTokens,
       outputTokens: 0,
@@ -449,7 +470,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       ? calculateCost(embed.nlpModel, embed.nlpTokens, 0, projectRoot)
       : 0;
     steps.push({
-      id: 'embed:nlp',
+      category: 'embed',
+      name: 'nlp',
       model: embed.nlpModel ?? 'local',
       inputTokens: embed.nlpTokens,
       outputTokens: 0,
@@ -467,7 +489,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     const docCacheCreation = docContext.pageCount * c.cacheCreation;
     const docOutput = docContext.pageCount * c.output;
     steps.push({
-      id: `doc:${docContext.mode}`,
+      category: 'doc',
+      name: docContext.mode,
       model: docContext.scaffoldingModel,
       inputTokens: docFresh,
       outputTokens: docOutput,
@@ -483,9 +506,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
 
   // Aggregate from steps — single source of truth: any new step type lands
   // in totals automatically.
-  const isLlm = (s: ForecastStep) => !s.id.startsWith('embed:');
-  const llmSteps = steps.filter(isLlm);
-  const embedSteps = steps.filter((s) => s.id.startsWith('embed:'));
+  const llmSteps = steps.filter((s) => s.category !== 'embed');
+  const embedSteps = steps.filter((s) => s.category === 'embed');
 
   const llmInputTokens = llmSteps.reduce((sum, s) => sum + s.inputTokens, 0);
   const llmOutputTokens = llmSteps.reduce((sum, s) => sum + s.outputTokens, 0);

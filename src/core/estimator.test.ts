@@ -491,19 +491,19 @@ describe('forecastRun', () => {
         deliberation: false,
       });
 
-      const ids = result.steps.map(s => s.id).sort();
+      const ids = result.steps.map(s => `${s.category}:${s.name}`).sort();
       expect(ids).toEqual([
         'axis:correction',
         'axis:utility',
         'doc:bootstrap',
         'embed:code',
         'embed:nlp',
-        'summary',
+        'summary:',
       ]);
-      // embed:nlp has no nlpModel ⇒ cost = 0 but step still surfaces with model 'local'.
-      expect(result.steps.find(s => s.id === 'embed:nlp')?.model).toBe('local');
+      // embed nlp has no nlpModel ⇒ cost = 0 but step still surfaces with model 'local'.
+      expect(result.steps.find(s => s.category === 'embed' && s.name === 'nlp')?.model).toBe('local');
       // doc:bootstrap is approximate.
-      expect(result.steps.find(s => s.id === 'doc:bootstrap')?.approximate).toBe(true);
+      expect(result.steps.find(s => s.category === 'doc' && s.name === 'bootstrap')?.approximate).toBe(true);
     });
 
     it('totals are derived from steps (totalCostUsd = sum of step costUsd)', () => {
@@ -613,7 +613,7 @@ describe('forecastRun', () => {
         ragEnabled: false,
         deliberation: false,
       });
-      const step = result.steps.find(s => s.id === 'doc:bootstrap');
+      const step = result.steps.find(s => s.category === 'doc' && s.name === 'bootstrap');
       expect(step).toBeDefined();
       expect(step!.approximate).toBe(true);
       // 10 pages × 3000 fresh = 30 000 fresh input.
@@ -636,7 +636,7 @@ describe('forecastRun', () => {
         ragEnabled: false,
         deliberation: false,
       });
-      expect(result.steps.find(s => s.id.startsWith('doc:'))).toBeUndefined();
+      expect(result.steps.find(s => s.category === 'doc')).toBeUndefined();
     });
   });
 });
