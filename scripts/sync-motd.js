@@ -4,7 +4,7 @@
  * The [vx.x.x] placeholder in .motd is replaced with the actual package version.
  * Run automatically via the "prebuild" npm script.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
 const motd = readFileSync('.motd', 'utf-8');
@@ -57,5 +57,11 @@ export function printBanner(altMotd?: string): void {
 }
 `;
 
-writeFileSync('src/utils/banner.ts', src);
-console.log('sync-motd: src/utils/banner.ts updated');
+const target = 'src/utils/banner.ts';
+const current = existsSync(target) ? readFileSync(target, 'utf-8') : null;
+if (current === src) {
+  console.log('sync-motd: src/utils/banner.ts already up to date');
+} else {
+  writeFileSync(target, src);
+  console.log('sync-motd: src/utils/banner.ts updated');
+}
