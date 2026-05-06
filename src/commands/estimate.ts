@@ -321,6 +321,7 @@ interface EstimateJsonPayload {
       noRag?: true;
       noDeliberation?: true;
       noInternalDocs?: true;
+      noCache?: true;
     };
   };
   /**
@@ -357,15 +358,18 @@ export function registerEstimateCommand(program: Command): void {
     .option('--axes <list>', 'comma-separated axis ids to include (default: all enabled in config)')
     .option('--no-deliberation', 'forecast as if the deliberation pass were disabled')
     .option('--no-internal-docs', 'forecast as if internal-doc generation were skipped')
+    .option('--no-cache', 'forecast as if running from scratch — ignore CACHED state, bill every file matched by scan')
     .action(async (cmdOpts: {
       json?: boolean;
       files?: string;
       axes?: string;
       deliberation?: boolean;
       internalDocs?: boolean;
+      cache?: boolean;
     }) => {
       const jsonMode = cmdOpts.json === true;
       const filesGlob = cmdOpts.files;
+      const ignoreCache = cmdOpts.cache === false;
       const matchFiles = filesGlob ? picomatch(filesGlob) : null;
       // Commander's `--no-foo` flips the flag's default to `true` and sets it
       // to `false` when --no-foo is passed. We treat `undefined` as "not
@@ -473,7 +477,7 @@ export function registerEstimateCommand(program: Command): void {
       // for this run". The rest of the diagnostic info is in the JSON payload.
       const configRows: { key: string; value: string }[] = [
         { key: 'concurrency', value: `${concurrency} files · ${config.providers.google ? `${config.providers.anthropic?.concurrency ?? 24} Claude + ${config.providers.google.concurrency} Gemini slots` : `${config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
-        { key: 'cache', value: 'on' },
+        { key: 'cache', value: ignoreCache ? 'ignored (--no-cache)' : 'on' },
       ];
 
       // Surface active CLI scope filters as a single 'scope' row — but only
@@ -557,6 +561,8 @@ export function registerEstimateCommand(program: Command): void {
       let docsValue: string;
       if (internalDocsOverride === false) {
         docsValue = 'skipped (--no-internal-docs)';
+      } else if (ignoreCache) {
+        docsValue = 'forced bootstrap (--no-cache)';
       } else if (bootstrapNeeded) {
         docsValue = 'first run (bootstrap)';
       } else if (docScanInternal) {
@@ -585,7 +591,9 @@ export function registerEstimateCommand(program: Command): void {
         const progressEntry = progress?.files[t.file];
         if (progressEntry?.status === 'CACHED') {
           cachedSkipCount++;
-          return false;
+          // --no-cache: count cached files for display, but keep them in the
+          // forecast so the cost reflects a from-scratch run.
+          if (!ignoreCache) return false;
         }
         try {
           const source = readFileSync(resolve(projectRoot, t.file), 'utf-8');
@@ -618,7 +626,11 @@ export function registerEstimateCommand(program: Command): void {
       // alone is 18, dwarfing the prior `max(8, ceil(N/12))` heuristic
       // which floored at 8). Uses unfiltered tasks: scaffolding runs over
       // the whole project regardless of `--files` review scope.
-      const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
+      // --no-cache forces a from-scratch forecast: docs are treated as
+      // bootstrap (every page billed) regardless of `.anatoly/docs/` state,
+      // matching the rest of the from-scratch semantics (every file billed,
+      // no eval-cache shortcut).
+      const docMode: 'bootstrap' | 'update' = ignoreCache || bootstrapNeeded ? 'bootstrap' : 'update';
       const docPageCount = docMode === 'bootstrap'
         ? computeScaffoldPageList(allTasksUnfiltered, profile).length
         : (docScanInternal?.changed ?? 0);
@@ -664,6 +676,7 @@ export function registerEstimateCommand(program: Command): void {
           ...(ragOverride === false ? { noRag: true as const } : {}),
           ...(deliberationOverride === false ? { noDeliberation: true as const } : {}),
           ...(internalDocsOverride === false ? { noInternalDocs: true as const } : {}),
+          ...(ignoreCache ? { noCache: true as const } : {}),
         };
         const hasScope = Object.keys(scope).length > 0;
 
@@ -683,7 +696,7 @@ export function registerEstimateCommand(program: Command): void {
           ...(projectInfo ? { project: projectInfo } : {}),
           config: {
             concurrency,
-            cache: true,
+            cache: !ignoreCache,
             rag: {
               mode: (enableRag ? (resolvedEmbed?.backend ?? 'lite') : 'off') as EstimateJsonPayload['config']['rag']['mode'],
               ...(enableRag && embedForecast
@@ -727,10 +740,26 @@ export function registerEstimateCommand(program: Command): void {
       // Showing both gives the user the full picture of why the forecast
       // bills only `forecast.files` out of `forecast.totalFiles` — separating
       // the cache skip from the triage skip avoids the misleading merge.
+      // Two distinct cache signals to surface:
+      //   - SHA-unchanged: source hash matches a prior scan. Pure freshness
+      //     info — no cost implication on its own.
+      //   - Eval-cached: the run skipped this file last time because the eval
+      //     result was already cached ($0). This is a strict subset of
+      //     SHA-unchanged (an eval-cached file always has a stable hash).
+      // We render them as `K cached (J evaluated)` so the user sees both:
+      // how stable the tree is and how much of that stability the eval cache
+      // actually capitalises on.
       const freshnessParts: string[] = [];
       if (scanResult.filesNew > 0) freshnessParts.push(`${scanResult.filesNew} new`);
       if (scanResult.filesModified > 0) freshnessParts.push(`${scanResult.filesModified} modified`);
-      if (cachedSkipCount > 0) freshnessParts.push(`${cachedSkipCount} cached`);
+      if (scanResult.filesCached > 0) {
+        const evaluatedSuffix = cachedSkipCount > 0
+          ? ignoreCache
+            ? ` (${cachedSkipCount} evaluated, re-billed)`
+            : ` (${cachedSkipCount} evaluated)`
+          : '';
+        freshnessParts.push(`${scanResult.filesCached} cached${evaluatedSuffix}`);
+      }
       if (triageSkipCount > 0) freshnessParts.push(`${triageSkipCount} skipped by triage`);
       const breakdown = freshnessParts.length > 0 ? `  (${freshnessParts.join(', ')})` : '';
       const filesFragment = forecast.skippedFiles > 0
