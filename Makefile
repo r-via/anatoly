@@ -40,6 +40,7 @@ help:
 	@printf '  $(C)make install$(N)        $(D)complete dev install (deps + build + global symlink)$(N)\n'
 	@printf '  $(C)make update$(N)         $(D)git pull origin main, then reinstall$(N)\n'
 	@printf '  $(C)make update BRANCH=x$(N)$(D) checkout branch x from origin, pull, then reinstall$(N)\n'
+	@printf '  $(C)make update COMMIT=h$(N)$(D) checkout commit h (detached HEAD), then reinstall$(N)\n'
 	@printf '  $(C)make build$(N)          $(D)build dist/ via tsup$(N)\n'
 	@printf '  $(C)make rebuild$(N)        $(D)clean + build$(N)\n'
 	@printf '  $(C)make install-global$(N) $(D)link this clone as the global anatoly bin$(N)\n'
@@ -71,7 +72,32 @@ install-global:
 	@printf '$(G)  ✔$(N) global bin linked\n'
 
 BRANCH ?= main
+COMMIT ?=
 
+ifneq ($(strip $(COMMIT)),)
+update:
+	@printf '$(B)→$(N) $(C)fetching origin$(N)\n'; \
+	 git fetch origin; \
+	 target=$$(git rev-parse --verify "$(COMMIT)^{commit}" 2>/dev/null); \
+	 if [ -z "$$target" ]; then \
+	   printf '$(R)✗$(N) cannot resolve commit $(B)$(COMMIT)$(N) — not present after fetch\n'; \
+	   exit 1; \
+	 fi; \
+	 before=$$(git rev-parse HEAD); \
+	 if [ "$$before" = "$$target" ]; then \
+	   printf '$(G)  ✔$(N) already on $(B)$(COMMIT)$(N) — nothing to reinstall\n'; \
+	   exit 0; \
+	 fi; \
+	 printf '$(B)→$(N) $(C)checking out $(B)$(COMMIT)$(N) $(D)(detached HEAD)$(N)\n'; \
+	 if ! git checkout --detach "$$target"; then \
+	   printf '$(R)✗$(N) checkout failed — resolve manually (git status)\n'; \
+	   exit 1; \
+	 fi; \
+	 printf '\n$(B)→$(N) $(C)now on commit:$(N)\n'; \
+	 git --no-pager log --oneline -1 | sed 's/^/  /'; \
+	 printf '\n'; \
+	 $(MAKE) --no-print-directory install
+else
 update:
 	@printf '$(B)→$(N) $(C)fetching origin/$(BRANCH)$(N)\n'; \
 	 git fetch origin $(BRANCH); \
@@ -100,6 +126,7 @@ update:
 	 git --no-pager log --oneline "$$before..$$after" | head -10 | sed 's/^/  /'; \
 	 printf '\n'; \
 	 $(MAKE) --no-print-directory install
+endif
 
 build:
 	@printf '$(B)→$(N) $(C)building dist/$(N)\n'
