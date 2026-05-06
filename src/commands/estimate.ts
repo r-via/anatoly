@@ -441,7 +441,7 @@ export function registerEstimateCommand(program: Command): void {
         }
       } catch { /* no package.json */ }
 
-      const profile = detectProjectProfile(projectRoot);
+      const profile = await detectProjectProfile(projectRoot);
       const langLine = formatLanguageLine(profile.languages.languages);
       const fwLine = formatFrameworkLine(profile.frameworks);
       if (!projectInfo && (langLine || fwLine)) {

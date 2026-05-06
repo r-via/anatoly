@@ -11,6 +11,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, basename, join } from 'node:path';
+import linguist from 'linguist-js';
 import { getGitTrackedFiles } from '../utils/git.js';
 
 // --- Types ---
@@ -231,14 +232,49 @@ export function classifyFile(filePath: string): string | null {
 }
 
 /**
- * Build a language distribution from a list of file paths.
- * Filters out languages below 1% of total files.
+ * Detect programming languages in a project, delegating to GitHub's Linguist
+ * (via the `linguist-js` port). Linguist's database is far more complete than
+ * any hand-maintained extension map: it knows ~700 languages, applies content
+ * heuristics to disambiguate (`.h` C vs C++, `.m` Objective-C vs Matlab,
+ * etc.), and respects `.gitignore` / `.gitattributes` natively.
+ *
+ * `categories: ['programming']` filters out prose/markup/data so the % split
+ * reflects code only — markdown documentation and JSON config files don't
+ * dilute the language stats.
+ *
+ * @param projectRoot - Absolute path to the project root directory.
+ * @param excludes - Optional extra glob patterns (in addition to the defaults
+ *                   for vendor/build dirs) to exclude from detection.
+ * @returns A {@link LanguageDistribution} with file-count-based percentages.
  */
-export function buildDistribution(files: string[]): LanguageDistribution {
+export async function detectLanguages(
+  projectRoot: string,
+  excludes?: string[],
+): Promise<LanguageDistribution> {
+  const ignoredFiles = [
+    ...DEFAULT_EXCLUDES.map((d) => (d.endsWith('/') ? `${d}**` : `${d}/**`)),
+    ...(excludes ?? []),
+  ];
+
+  let result;
+  try {
+    result = await linguist(projectRoot, {
+      ignoredFiles,
+      categories: ['programming'],
+      keepVendored: false,
+    });
+  } catch {
+    return { languages: [], totalFiles: 0 };
+  }
+
+  // Aggregate per-file counts from linguist's `files.results` map
+  // (filepath -> language|null). Files linguist can't classify (binary, no
+  // extension, .gitkeep stubs, etc.) come back as null and are dropped here
+  // so they don't pollute the distribution. Count-based percentages match
+  // the historical contract; bytes-based would skew toward verbose languages.
   const counts = new Map<string, number>();
-  for (const file of files) {
-    const lang = classifyFile(file);
-    if (lang) {
+  for (const lang of Object.values(result.files.results)) {
+    if (typeof lang === 'string' && lang.length > 0) {
       counts.set(lang, (counts.get(lang) ?? 0) + 1);
     }
   }
@@ -248,12 +284,10 @@ export function buildDistribution(files: string[]): LanguageDistribution {
     return { languages: [], totalFiles: 0 };
   }
 
-  // Filter out languages below 1% threshold (raw percentage before rounding)
+  // 1% threshold to drop noise (matches the previous behavior)
   const filtered = Array.from(counts.entries()).filter(
     ([, count]) => count / rawTotal >= 0.01,
   );
-
-  // Recalculate totalFiles from remaining languages
   const totalFiles = filtered.reduce((sum, [, count]) => sum + count, 0);
 
   const languages: LanguageInfo[] = filtered
@@ -268,27 +302,6 @@ export function buildDistribution(files: string[]): LanguageDistribution {
 }
 
 /**
- * Detect programming languages in a project by scanning git-tracked file extensions.
- * Excludes standard vendor/build directories.
- */
-export function detectLanguages(
-  projectRoot: string,
-  excludes?: string[],
-): LanguageDistribution {
-  const gitFiles = getGitTrackedFiles(projectRoot);
-  if (!gitFiles) {
-    return { languages: [], totalFiles: 0 };
-  }
-
-  const allExcludes = [...DEFAULT_EXCLUDES, ...(excludes ?? [])];
-  const filteredFiles = Array.from(gitFiles).filter(
-    (filePath) => !isExcluded(filePath, allExcludes),
-  );
-
-  return buildDistribution(filteredFiles);
-}
-
-/**
  * Build a complete {@link ProjectProfile} for the given project root.
  *
  * Scans git-tracked files to compute language distribution, detects frameworks
@@ -299,12 +312,9 @@ export function detectLanguages(
  * @returns A {@link ProjectProfile} containing languages, frameworks, types,
  *          capabilities, and the primary language.
  */
-export function detectProjectProfile(projectRoot: string): ProjectProfile {
+export async function detectProjectProfile(projectRoot: string): Promise<ProjectProfile> {
   const gitFiles = getGitTrackedFiles(projectRoot);
-  const filteredFiles = gitFiles
-    ? Array.from(gitFiles).filter((f) => !isExcluded(f, DEFAULT_EXCLUDES))
-    : [];
-  const languages = buildDistribution(filteredFiles);
+  const languages = await detectLanguages(projectRoot);
   const frameworks = detectFrameworks(projectRoot, languages, gitFiles);
   const types = deriveTypes(frameworks, projectRoot, gitFiles, languages);
   const capabilities = deriveCapabilities(frameworks, gitFiles);
@@ -329,14 +339,6 @@ export function formatFrameworkLine(frameworks: FrameworkInfo[]): string {
 }
 
 // --- Internal helpers ---
-
-function isExcluded(filePath: string, excludes: string[]): boolean {
-  const segments = filePath.split('/');
-  return excludes.some((excl) => {
-    const dir = excl.endsWith('/') ? excl.slice(0, -1) : excl;
-    return segments.includes(dir);
-  });
-}
 
 function detectFrameworks(
   projectRoot: string,

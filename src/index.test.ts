@@ -20,7 +20,6 @@ describe('CLI program', () => {
     const commandNames = program.commands.map((cmd) => cmd.name());
     expect(commandNames).toEqual(
       expect.arrayContaining([
-        'scan',
         'estimate',
         'review',
         'report',
@@ -40,7 +39,7 @@ describe('CLI program', () => {
         'git',
       ]),
     );
-    expect(commandNames).toHaveLength(18);
+    expect(commandNames).toHaveLength(17);
   });
 
   it('should register all global options', () => {

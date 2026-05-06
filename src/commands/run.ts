@@ -1200,7 +1200,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // Detect languages & frameworks for project info display
-  const profile = detectProjectProfile(srcRoot);
+  const profile = await detectProjectProfile(srcRoot);
   ctx.profile = profile;
   const langLine = formatLanguageLine(profile.languages.languages);
   const fwLine = formatFrameworkLine(profile.frameworks);

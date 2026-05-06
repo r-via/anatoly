@@ -328,7 +328,7 @@ export async function scanProject(
 
   const files = await collectFiles(projectRoot, config);
   const coverageMap = loadCoverage(projectRoot, config);
-  const profile = detectProjectProfile(projectRoot);
+  const profile = await detectProjectProfile(projectRoot);
   const scannedFiles: ScannedFileInfo[] = [];
   let filesCached = 0;
   let filesNew = 0;

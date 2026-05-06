@@ -73,7 +73,7 @@ export function registerReportCommand(program: Command): void {
           const config = loadConfig(projectRoot);
           const reviews = loadReviews(projectRoot, runDir);
           const tasks = loadTasks(projectRoot);
-          const profile = detectProjectProfile(projectRoot);
+          const profile = await detectProjectProfile(projectRoot);
           const result = aggregateDocReport({
             projectRoot,
             projectTypes: profile.types,

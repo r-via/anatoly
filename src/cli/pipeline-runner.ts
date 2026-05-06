@@ -144,7 +144,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     // No package.json (Go, Rust, Python projects) — continue with empty manifest
   }
   const docsPath = config.documentation?.docs_path ?? 'docs';
-  const profile = detectProjectProfile(projectRoot);
+  const profile = await detectProjectProfile(projectRoot);
 
   // Validate Anthropic provider auth — fail fast if misconfigured.
   // Without this probe, a missing `claude` CLI (subscription mode) or
