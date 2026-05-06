@@ -11,12 +11,19 @@ export const ProjectConfigSchema = z.object({
 });
 
 export const ScanConfigSchema = z.object({
-  include: z.array(z.string()).default(['src/**/*.ts', 'src/**/*.tsx']),
+  // Glob patterns describing the files to audit. Anatoly is language-agnostic
+  // and does not bake TypeScript globs into the schema. The first-run wizard
+  // emits an appropriate starter based on the detected project; users of
+  // other languages should write their own patterns (Python: '**/*.py', Go:
+  // '**/*.go', etc). When empty, nothing is scanned — anatoly tells the user.
+  include: z.array(z.string()).default([]),
+  // Glob patterns to exclude from the include matches. Defaults are
+  // deliberately minimal and Node-leaning (node_modules and dist) since
+  // those directories show up in many projects. Per-language test patterns
+  // belong in your own .anatoly.yml, not in the schema default.
   exclude: z.array(z.string()).default([
     'node_modules/**',
     'dist/**',
-    '**/*.test.ts',
-    '**/*.spec.ts',
   ]),
 });
 
@@ -194,10 +201,7 @@ export const NotificationsConfigSchema = z.object({
 
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({ monorepo: false }),
-  scan: ScanConfigSchema.default({
-    include: ['src/**/*.ts', 'src/**/*.tsx'],
-    exclude: ['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts'],
-  }),
+  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'] }),
   coverage: CoverageConfigSchema.default({
     enabled: true,
     command: 'npx vitest run --coverage.reporter=json',

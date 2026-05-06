@@ -26,7 +26,10 @@ describe('loadConfig', () => {
   it('should return defaults when no config file exists', () => {
     const config = loadConfig(tempDir);
     expect(config.project.monorepo).toBe(false);
-    expect(config.scan.include).toEqual(['src/**/*.ts', 'src/**/*.tsx']);
+    // Schema is language-agnostic — no implicit TS globs. Empty include
+    // means "user did not specify what to scan"; the wizard or the user
+    // must provide patterns. The default exclude covers common Node noise.
+    expect(config.scan.include).toEqual([]);
     expect(config.scan.exclude).toContain('node_modules/**');
     expect(config.coverage.enabled).toBe(true);
     expect(config.runtime.timeout_per_file).toBe(600);

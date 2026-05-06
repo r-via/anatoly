@@ -13,7 +13,10 @@ describe('ConfigSchema — v1.0 new sections', () => {
   it('should apply all defaults when given empty object', () => {
     const config = ConfigSchema.parse({});
     expect(config.project.monorepo).toBe(false);
-    expect(config.scan.include).toEqual(['src/**/*.ts', 'src/**/*.tsx']);
+    // Schema is language-agnostic — the default include is empty so users
+    // who add a config file without `scan` get an explicit "no patterns"
+    // state rather than a silent TypeScript bias.
+    expect(config.scan.include).toEqual([]);
     expect(config.scan.exclude).toContain('node_modules/**');
     expect(config.coverage.enabled).toBe(true);
   });

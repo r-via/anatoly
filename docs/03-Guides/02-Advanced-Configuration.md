@@ -37,8 +37,8 @@ Controls which files are included in each audit run.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `include` | `string[]` | `['src/**/*.ts', 'src/**/*.tsx']` | Glob patterns for files to audit. Authoritative — anatoly does not silently augment this list. To scan additional languages, add their patterns explicitly (e.g. `'**/*.py'`). |
-| `exclude` | `string[]` | `['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts']` | Glob patterns to exclude from `include` matches. |
+| `include` | `string[]` | `[]` | Glob patterns for files to audit. Authoritative — anatoly does not silently augment this list and does not assume a language. The first-run wizard emits a starter appropriate to the detected project. To scan additional languages, add their patterns explicitly (e.g. `'**/*.py'`, `'**/*.go'`). |
+| `exclude` | `string[]` | `['node_modules/**', 'dist/**']` | Glob patterns to exclude from `include` matches. Defaults are minimal and Node-leaning. Add per-language test/build patterns yourself (e.g. `'**/*.test.ts'`, `'target/**'`). |
 
 The `--file <glob>` CLI flag narrows the scan scope at runtime without modifying `.anatoly.yml`.
 
