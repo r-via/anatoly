@@ -426,11 +426,11 @@ export function registerEstimateCommand(program: Command): void {
       // adds vertical noise above the actually useful content. (Banner stays
       // on `anatoly run` where it marks the start of a long-running session.)
 
-      // Auto-scan if no tasks directory exists
-      const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
-      if (!existsSync(tasksDir)) {
-        await scanProject(projectRoot, config);
-      }
+      // Always rescan: cheap (no LLM), keeps `.anatoly/tasks/` in sync with
+      // the current source tree, and yields fresh new/modified/cached counts
+      // for the forecast block. Stale tasks from a previous scan with a
+      // different scope no longer leak into the forecast.
+      const scanResult = await scanProject(projectRoot, config);
 
       // --- Project info ---
       let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined;
@@ -700,9 +700,21 @@ export function registerEstimateCommand(program: Command): void {
       // Forecast block (estimate command only — verdict before pipeline detail).
       const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`
         + (forecast.embed.tokens > 0 ? ` + ${formatTokenCount(forecast.embed.tokens)} embed` : '');
+      // Build the files line with both forecast (X of Y, triage skips) and
+      // scan freshness (new/modified/cached). Cached files have prior task
+      // data and cost $0 to re-confirm; new + modified files require a full
+      // LLM evaluation. Triage may further skip evaluable files.
+      const freshnessParts: string[] = [];
+      if (scanResult.filesNew > 0) freshnessParts.push(`${scanResult.filesNew} new`);
+      if (scanResult.filesModified > 0) freshnessParts.push(`${scanResult.filesModified} modified`);
+      if (scanResult.filesCached > 0) freshnessParts.push(`${scanResult.filesCached} cached`);
+      const triageSuffix = forecast.skippedFiles > 0 ? `, ${forecast.skippedFiles} skipped by triage` : '';
+      const breakdown = freshnessParts.length > 0
+        ? `  (${freshnessParts.join(' · ')}${triageSuffix})`
+        : (forecast.skippedFiles > 0 ? `  (${forecast.skippedFiles} skipped by triage)` : '');
       const filesFragment = forecast.skippedFiles > 0
-        ? `${forecast.files} of ${forecast.totalFiles}  (${forecast.skippedFiles} skipped by triage)`
-        : `${forecast.files} files`;
+        ? `${forecast.files} of ${forecast.totalFiles}${breakdown}`
+        : `${forecast.files} files${breakdown}`;
 
       const billedUsd = forecast.steps
         .filter((s) => s.billingMode === 'api')

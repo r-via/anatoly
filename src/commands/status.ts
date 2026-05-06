@@ -163,7 +163,7 @@ export function registerStatusCommand(program: Command): void {
 
       if (!existsSync(progressPath) && allStatuses.length === 0) {
         console.log(chalk.bold('anatoly — status'));
-        console.log('  No audit in progress. Run `anatoly scan` or `anatoly run` first.');
+        console.log('  No audit in progress. Run `anatoly estimate` or `anatoly run` first.');
         return;
       }
 

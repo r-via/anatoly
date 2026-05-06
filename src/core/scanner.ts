@@ -292,7 +292,10 @@ export interface ScannedFileInfo {
 export interface ScanResult {
   filesScanned: number;
   filesCached: number;
+  /** Files with no prior task — first time being seen. */
   filesNew: number;
+  /** Files with a prior task whose hash no longer matches the source. */
+  filesModified: number;
   /** Per-file info for structured logging (file_discovered events) */
   files?: ScannedFileInfo[];
 }
@@ -329,26 +332,29 @@ export async function scanProject(
   const scannedFiles: ScannedFileInfo[] = [];
   let filesCached = 0;
   let filesNew = 0;
+  let filesModified = 0;
   let astErrors = 0;
 
   for (const relPath of files) {
     const absPath = resolve(projectRoot, relPath);
     const hash = computeFileHash(absPath);
 
-    // Check if file is unchanged (CACHED)
+    // Hash-based freshness: if the file content matches the prior task, we
+    // skip the re-parse and report the file as cached. The run pipeline
+    // makes its own skip decision using progress.json status + axes
+    // coverage; the scanner's job here is only to classify file-level
+    // freshness (new / modified / cached) for the user-facing forecast.
     const existing = existingProgress?.files[relPath];
     const axesCovered = !requestedAxes ||
       (existing?.axes && requestedAxes.every((a) => existing.axes!.includes(a)));
-    if (
-      existing &&
-      existing.hash === hash &&
-      (existing.status === 'DONE' || existing.status === 'CACHED') &&
-      axesCovered
-    ) {
+    const evalDone = existing?.status === 'DONE' || existing?.status === 'CACHED';
+    if (existing && existing.hash === hash) {
       progress.files[relPath] = {
         file: relPath,
         hash,
-        status: 'CACHED',
+        // Preserve CACHED status only when prior eval covered the requested
+        // axes. Otherwise stay PENDING so run knows it still needs work.
+        status: evalDone && axesCovered ? 'CACHED' : (existing.status ?? 'PENDING'),
         updated_at: now,
         axes: existing.axes,
       };
@@ -408,14 +414,18 @@ export async function scanProject(
     } satisfies FileProgress;
 
     scannedFiles.push({ file: relPath, hash, symbolCount: symbols.length });
-    filesNew++;
+    if (existing) {
+      filesModified++;
+    } else {
+      filesNew++;
+    }
   }
 
   // Write progress atomically
   atomicWriteJson(progressPath, progress);
 
   contextLogger().debug(
-    { filesScanned: files.length, filesCached, filesNew, astErrors },
+    { filesScanned: files.length, filesCached, filesNew, filesModified, astErrors },
     'scan summary',
   );
 
@@ -423,6 +433,7 @@ export async function scanProject(
     filesScanned: files.length,
     filesCached,
     filesNew,
+    filesModified,
     files: scannedFiles,
   };
 }

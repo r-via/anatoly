@@ -2,7 +2,6 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-export { registerScanCommand } from './scan.js';
 export { registerEstimateCommand } from './estimate.js';
 export { registerReviewCommand } from './review.js';
 export { registerReportCommand } from './report.js';

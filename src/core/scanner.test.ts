@@ -193,7 +193,8 @@ describe('scanProject', () => {
 
     // Re-scan
     const result = await scanProject(tempDir, config);
-    expect(result.filesNew).toBe(1); // index.ts changed
+    expect(result.filesNew).toBe(0); // no truly-new files; index.ts had a prior task
+    expect(result.filesModified).toBe(1); // index.ts changed → modified
     expect(result.filesCached).toBe(1); // utils.ts unchanged
   });
 });

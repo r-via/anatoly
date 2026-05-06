@@ -66,19 +66,9 @@ anatoly init [--force]
 
 ### `scan`
 
-Parses AST via `web-tree-sitter` and computes SHA-256 hashes for all source files matching `scan.include`. Writes task JSON files to `.anatoly/tasks/`. Does not invoke the LLM.
-
-```bash
-anatoly scan
-```
-
-`run` performs an automatic scan as its first phase. Use `scan` standalone to pre-populate the task cache or inspect the file count before committing to a full audit.
-
----
-
 ### `estimate`
 
-Pre-run forecast: tokens, dollars, and wall-clock time the next `anatoly run` will consume — no LLM calls (token counts via tiktoken, costs from the on-disk pricing cache, ETA from calibrated medians). Auto-scans if no prior task cache exists.
+Pre-run forecast: tokens, dollars, and wall-clock time the next `anatoly run` will consume — no LLM calls (token counts via tiktoken, costs from the on-disk pricing cache, ETA from calibrated medians). Always rescans the source tree first so `.anatoly/tasks/` is in sync with the current files and the forecast reports fresh new/modified/cached counts.
 
 ```bash
 anatoly estimate          # rendered table (Project Info → Configuration → Cost breakdown → Forecast)

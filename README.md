@@ -208,8 +208,7 @@ npx anatoly run --run-id X       # Custom run ID (default: YYYY-MM-DD_HHmmss)
 npx anatoly watch                # Daemon mode: initial scan + incremental re-review on change/delete
 
 # Individual phases
-npx anatoly scan                 # Parse AST + compute SHA-256 hashes
-npx anatoly estimate             # Pre-run forecast: tokens, cost, time + per-step breakdown (no API calls)
+npx anatoly estimate             # Pre-run forecast (auto-rescan): tokens, cost, time + new/modified/cached breakdown (no API calls)
 npx anatoly estimate --json      # Same forecast, machine-readable JSON to stdout
 npx anatoly review               # Run Claude agent on pending files
 npx anatoly report               # Aggregate reviews → report.md

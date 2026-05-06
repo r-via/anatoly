@@ -51,7 +51,7 @@ Each indexed function is stored as a `FunctionCard` containing: ID, file path, n
 ### Positive
 
 - **Zero API cost for indexing.** Embedding generation and vector storage are entirely local. The only API costs in Anatoly come from the Claude evaluation calls.
-- **Full offline support.** After the initial model download, `anatoly scan` and `anatoly run --no-review` work without any network access.
+- **Full offline support.** After the initial model download, `anatoly estimate` and `anatoly run --no-review` work without any network access.
 - **Privacy by default.** Function source code never leaves the machine during indexing.
 - **Fast incremental updates.** Only changed files are re-embedded (SHA-256 cache). Re-indexing a 500-file project after editing 3 files takes seconds.
 - **Portable index.** The `.anatoly/rag/` directory can be committed or shared. No cloud state to synchronize.

@@ -5,7 +5,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import {
-  registerScanCommand,
   registerEstimateCommand,
   registerReviewCommand,
   registerReportCommand,
@@ -90,7 +89,6 @@ export function createProgram(): Command {
     runAutoGitCleanup(process.cwd());
   });
 
-  registerScanCommand(program);
   registerEstimateCommand(program);
   registerReviewCommand(program);
   registerReportCommand(program);

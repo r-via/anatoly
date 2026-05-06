@@ -69,39 +69,9 @@ anatoly run --axes correction,tests
 
 ---
 
-## scan
-
-Parse the AST and compute SHA-256 hashes for all TypeScript files matching the configured `scan.include` / `scan.exclude` globs. Writes one `.task.json` per file into `.anatoly/tasks/`.
-
-```
-anatoly scan
-```
-
-### Options
-
-No command-specific options. Uses global `--config` and `--file`.
-
-### Output
-
-```
-anatoly -- scan
-  files     128
-  new       12
-  cached    116
-```
-
-### Examples
-
-```bash
-anatoly scan
-anatoly scan --config custom.yml
-```
-
----
-
 ## estimate
 
-Pre-run forecast — what the next `anatoly run` will cost in tokens, dollars, and wall-clock time. Makes **no LLM calls**: token counts come from tiktoken, costs from the on-disk pricing cache (litellm + OpenRouter), and the per-axis time estimate uses calibrated medians from past runs. If no prior scan exists, runs an automatic scan first.
+Pre-run forecast — what the next `anatoly run` will cost in tokens, dollars, and wall-clock time. Makes **no LLM calls**: token counts come from tiktoken, costs from the on-disk pricing cache (litellm + OpenRouter), and the per-axis time estimate uses calibrated medians from past runs. Always rescans the source tree first, so `.anatoly/tasks/` reflects the current state and the forecast block reports fresh `new`/`modified`/`cached` counts (cached files cost $0; new + modified files require a full LLM evaluation).
 
 ```
 anatoly estimate [--json]
