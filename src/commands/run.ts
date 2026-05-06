@@ -26,6 +26,7 @@ import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
+import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
@@ -90,7 +91,7 @@ import { createWorktreeManager } from '../core/worktree-manager.js';
  * invocation. Populated incrementally during setup and consumed by review,
  * report, and doc-generation phases.
  */
-interface RunContext {
+export interface RunContext {
   /** Absolute path to the project being audited */
   projectRoot: string;
   /** Absolute path to the source tree (worktree snapshot). When set, source files are read from here. Defaults to projectRoot. */
@@ -163,6 +164,8 @@ interface RunContext {
   degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
+  /** Per-phase aggregated stats for run-metrics.json (mirrors axisStats but keyed by pipeline phase, including non-axis phases like rag-index, doc-generation, coherence-review, refinement). */
+  phaseStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   /** Per-provider call counts and cost (Story 39.2) */
   providerStats: { anthropic: { calls: number; costUsd: number }; gemini: { calls: number; costUsd: number } };
   /** Timeline of key events for run-metrics.json (phase + file level) */
@@ -201,6 +204,72 @@ interface RunContext {
   defaultsSettings: boolean;
   /** Run the pre-flight RAG embedding probe before indexing (default true). */
   connectivityCheck: boolean;
+}
+
+/**
+ * Centralised LLM-cost bookkeeping. Every site that adds to `ctx.totalCostUsd`
+ * MUST go through this helper so the three buckets (`totalCostUsd`,
+ * `providerStats[provider]`, `phaseStats[phase]`) stay reconciled. When `axis`
+ * is provided the call is also rolled up into `axisStats` for back-compat with
+ * the per-axis breakdown.
+ *
+ * @internal exported for tests only.
+ */
+export function recordLlmCost(
+  ctx: RunContext,
+  entry: {
+    provider: 'anthropic' | 'gemini';
+    phase: string;
+    axis?: string;
+    costUsd: number;
+    durationMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+    calls?: number;
+  },
+): void {
+  const calls = entry.calls ?? 1;
+  const durationMs = entry.durationMs ?? 0;
+  const inputTokens = entry.inputTokens ?? 0;
+  const outputTokens = entry.outputTokens ?? 0;
+  const cacheReadTokens = entry.cacheReadTokens ?? 0;
+  const cacheCreationTokens = entry.cacheCreationTokens ?? 0;
+
+  ctx.totalCostUsd += entry.costUsd;
+
+  const ps = ctx.providerStats[entry.provider];
+  ps.calls += calls;
+  ps.costUsd += entry.costUsd;
+
+  const phs = ctx.phaseStats[entry.phase] ??= {
+    calls: 0, totalDurationMs: 0, totalCostUsd: 0,
+    totalInputTokens: 0, totalOutputTokens: 0,
+    totalCacheReadTokens: 0, totalCacheCreationTokens: 0,
+  };
+  phs.calls += calls;
+  phs.totalDurationMs += durationMs;
+  phs.totalCostUsd += entry.costUsd;
+  phs.totalInputTokens += inputTokens;
+  phs.totalOutputTokens += outputTokens;
+  phs.totalCacheReadTokens += cacheReadTokens;
+  phs.totalCacheCreationTokens += cacheCreationTokens;
+
+  if (entry.axis) {
+    const axs = ctx.axisStats[entry.axis] ??= {
+      calls: 0, totalDurationMs: 0, totalCostUsd: 0,
+      totalInputTokens: 0, totalOutputTokens: 0,
+      totalCacheReadTokens: 0, totalCacheCreationTokens: 0,
+    };
+    axs.calls += calls;
+    axs.totalDurationMs += durationMs;
+    axs.totalCostUsd += entry.costUsd;
+    axs.totalInputTokens += inputTokens;
+    axs.totalOutputTokens += outputTokens;
+    axs.totalCacheReadTokens += cacheReadTokens;
+    axs.totalCacheCreationTokens += cacheCreationTokens;
+  }
 }
 
 /**
@@ -751,6 +820,7 @@ export function registerRunCommand(program: Command): void {
         errorDetails: [],
         degradedReviews: 0,
         axisStats: {},
+        phaseStats: {},
         providerStats: { anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } },
         timeline: [],
         axesFilter,
@@ -999,7 +1069,6 @@ export function registerRunCommand(program: Command): void {
 
             const refinementDuration = Date.now() - refinementStart;
             ctx.phaseDurations.refinement = refinementDuration;
-            ctx.totalCostUsd += refinementResult.totalCostUsd;
             ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'refinement', durationMs: refinementDuration });
 
             // Update findings counter to reflect post-refinement net
@@ -1008,11 +1077,16 @@ export function registerRunCommand(program: Command): void {
               + refinementResult.tier3Stats.reclassified;
             ctx.totalFindings = Math.max(0, ctx.totalFindings - totalResolved);
 
-            // Count tier 3 Claude SDK calls in provider stats
-            if (refinementResult.tier3Stats.investigated > 0) {
-              ctx.providerStats.anthropic.calls += refinementResult.tier3Stats.investigated;
-              ctx.providerStats.anthropic.costUsd += refinementResult.totalCostUsd;
-            }
+            // Tier 3 invokes Claude SDK; tiers 1+2 are deterministic so the
+            // cost is fully attributable to anthropic. `investigated` is the
+            // SDK call count; `totalCostUsd` is the rolled-up cost.
+            recordLlmCost(ctx, {
+              provider: 'anthropic',
+              phase: 'refinement',
+              costUsd: refinementResult.totalCostUsd,
+              durationMs: refinementDuration,
+              calls: refinementResult.tier3Stats.investigated,
+            });
 
             getLogger().info({
               phase: 'refinement',
@@ -1231,11 +1305,16 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     // written. Honour the config anyway so the runtime tier matches what
     // resolveEmbeddingModels will route to (otherwise embeddings silently
     // fall back to ONNX lite while the user thinks they're on external).
+    // The system providers `local-advanced` (Docker GGUF sidecar) and
+    // `local-lite` (ONNX in-process) also populate `rag.embedding.{code,nlp}`
+    // through the v3 adapter — exclude them so a local setup isn't mislabeled
+    // "external".
     const embeddingsReady = readEmbeddingsReadyFlag(ctx.projectRoot);
-    const hasExternalConfig = Boolean(
-      ctx.config.rag.embedding?.code?.provider
-      || ctx.config.rag.embedding?.nlp?.provider
-    );
+    const codeProvider = ctx.config.rag.embedding?.code?.provider;
+    const nlpProvider = ctx.config.rag.embedding?.nlp?.provider;
+    const hasExternalConfig =
+      (codeProvider !== undefined && !isSystemLocalProvider(codeProvider))
+      || (nlpProvider !== undefined && !isSystemLocalProvider(nlpProvider));
     const isExternalReady = embeddingsReady?.backend === 'external' || hasExternalConfig;
     const canAdvanced = hardware.hasGpu && embeddingsReady !== null && !isExternalReady;
     const needsSidecar = ctx.ragMode === 'advanced'
@@ -1567,6 +1646,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
   const startDetail = taskId === 'bootstrap-doc' ? 'Creating internal documentation...' : `0/${total}`;
   ctx.pipelineState?.startTask(taskId, startDetail);
 
+  const phaseStart = Date.now();
   let completed = 0;
   const executor: DocExecutor = async ({ system, user, model }) => {
     // Doc generation uses agentic query with Read tool for file access
@@ -1609,8 +1689,15 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       },
     });
 
-    // Aggregate doc generation LLM costs
-    ctx.totalCostUsd += result.totalCostUsd;
+    // Aggregate doc generation LLM costs. Per-call tokens aren't surfaced
+    // by `executeDocPrompts` — they remain visible in `llm-calls.ndjson`.
+    recordLlmCost(ctx, {
+      provider: 'anthropic',
+      phase: taskId,
+      costUsd: result.totalCostUsd,
+      durationMs: Date.now() - phaseStart,
+      calls: result.pagesWritten + result.pagesFailed,
+    });
 
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
@@ -1647,6 +1734,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
       ctx.pipelineState?.updateTask(taskId, 'coherence review (Sonnet)…');
       ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
+      const coherenceStart = Date.now();
       try {
         const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
         // Switch the phase tag for the duration of the coherence pass so
@@ -1669,7 +1757,12 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             },
           }),
         );
-        ctx.totalCostUsd += coherenceResult.costUsd;
+        recordLlmCost(ctx, {
+          provider: 'anthropic',
+          phase: 'coherence-review',
+          costUsd: coherenceResult.costUsd,
+          durationMs: Date.now() - coherenceStart,
+        });
         log.info({
           issuesBefore: coherenceResult.linterIssuesBefore,
           issuesAfter: coherenceResult.linterIssuesAfter,
@@ -2132,9 +2225,15 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     return { ragEnabled: false };
   }
 
-  // Aggregate RAG LLM costs (NLP summaries + doc chunking)
+  // Aggregate RAG LLM costs (NLP summaries + doc chunking). Provider is
+  // anthropic — RAG NLP summarization runs through the same router.
   if (ragResult?.costUsd) {
-    ctx.totalCostUsd += ragResult.costUsd;
+    recordLlmCost(ctx, {
+      provider: 'anthropic',
+      phase: 'rag-index',
+      costUsd: ragResult.costUsd,
+      durationMs: ragDuration,
+    });
   }
 
   // Store dedup status for project docs sync after internal docs update
@@ -2405,23 +2504,21 @@ async function runReviewPhase(
         ctx.freshFiles.add(filePath);
         completedCount++;
         ctx.totalFindings += countReviewFindings(result.review, 60);
-        ctx.totalCostUsd += result.costUsd;
         if (result.failedAxes.length > 0) {
           ctx.degradedReviews++;
         }
         for (const at of result.axisTiming) {
-          const s = ctx.axisStats[at.axisId] ??= { calls: 0, totalDurationMs: 0, totalCostUsd: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0, totalCacheCreationTokens: 0 };
-          s.calls++;
-          s.totalDurationMs += at.durationMs;
-          s.totalCostUsd += at.costUsd;
-          s.totalInputTokens += at.inputTokens;
-          s.totalOutputTokens += at.outputTokens;
-          s.totalCacheReadTokens += at.cacheReadTokens;
-          s.totalCacheCreationTokens += at.cacheCreationTokens;
-          // Track per-provider stats (Story 39.2)
-          const ps = ctx.providerStats[at.provider];
-          ps.calls++;
-          ps.costUsd += at.costUsd;
+          recordLlmCost(ctx, {
+            provider: at.provider,
+            phase: 'review',
+            axis: at.axisId,
+            costUsd: at.costUsd,
+            durationMs: at.durationMs,
+            inputTokens: at.inputTokens,
+            outputTokens: at.outputTokens,
+            cacheReadTokens: at.cacheReadTokens,
+            cacheCreationTokens: at.cacheCreationTokens,
+          });
         }
         const symbolCount = task.symbols?.length ?? 0;
         const reviewFields = {
@@ -2817,6 +2914,7 @@ function runReportPhase(ctx: RunContext): void {
     claude_quota_saved_pct,
     phaseDurations: ctx.phaseDurations,
     axisStats: ctx.axisStats,
+    phaseStats: ctx.phaseStats,
     timeline: ctx.timeline.sort((a, b) => a.t - b.t),
     conversations: conversationStats,
   };
