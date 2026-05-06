@@ -69,6 +69,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { printSetupToAuditTransition } from '../utils/transitions.js';
 import { printNotice } from '../utils/notice.js';
+import { buildRunConfig, writeRunConfig } from '../core/run-config.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
@@ -794,9 +795,8 @@ export function registerRunCommand(program: Command): void {
         ctx.runLog = createFileLogger(runLogPath);
         ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
 
-        const runConfig = {
+        const runConfig = buildRunConfig({
           runId,
-          timestamp: new Date().toISOString(),
           projectRoot,
           concurrency,
           ragMode: ctx.ragMode,
@@ -805,20 +805,12 @@ export function registerRunCommand(program: Command): void {
           rebuildRag: ctx.rebuildRag,
           deliberation: ctx.deliberation,
           dryRun: ctx.dryRun,
-          axesFilter: ctx.axesFilter ?? null,
-          fileFilter: ctx.fileFilter ?? null,
+          axesFilter: ctx.axesFilter,
+          fileFilter: ctx.fileFilter,
           badge: ctx.badge,
-          config: {
-            providers: ctx.config.providers,
-            models: ctx.config.models,
-            agents: ctx.config.agents,
-            runtime: ctx.config.runtime,
-            axes: ctx.config.axes,
-            rag: ctx.config.rag,
-            scan: ctx.config.scan,
-          },
-        };
-        writeFileSync(join(ctx.runDir, 'run-config.json'), JSON.stringify(runConfig, null, 2));
+          config: ctx.config,
+        });
+        writeRunConfig(ctx.runDir, runConfig);
       };
 
       const onSigint = async () => {
