@@ -118,7 +118,14 @@ export function estimateMinutesWithConcurrency(sequentialSeconds: number, concur
 }
 
 /**
- * Load all .task.json files from the tasks directory.
+ * Load all .task.json files from the tasks directory and drop entries whose
+ * source file no longer exists in the current project tree.
+ *
+ * The filesystem check guards against stale tasks from a previous scan in a
+ * different repo (cross-project contamination) or from files that have since
+ * been deleted. Without it, `estimate` and downstream consumers would inflate
+ * scope based on the cache rather than the current source of truth — the
+ * scanner output. The current source tree wins.
  */
 export function loadTasks(projectRoot: string): Task[] {
   const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
@@ -130,7 +137,9 @@ export function loadTasks(projectRoot: string): Task[] {
   for (const entry of entries) {
     try {
       const raw = readFileSync(join(tasksDir, entry), 'utf-8');
-      tasks.push(TaskSchema.parse(JSON.parse(raw)));
+      const task = TaskSchema.parse(JSON.parse(raw));
+      if (!existsSync(resolve(projectRoot, task.file))) continue;
+      tasks.push(task);
     } catch {
       // Skip unreadable task files
     }

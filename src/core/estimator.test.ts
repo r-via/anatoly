@@ -73,6 +73,10 @@ describe('loadTasks', () => {
   });
 
   it('should load task files from tasks directory', () => {
+    // Create the source file so the existence guard in loadTasks doesn't drop it.
+    mkdirSync(join(tempDir, 'src'), { recursive: true });
+    writeFileSync(join(tempDir, 'src', 'index.ts'), 'export const x = 1;\n');
+
     const tasksDir = join(tempDir, '.anatoly', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
@@ -89,6 +93,25 @@ describe('loadTasks', () => {
     const tasks = loadTasks(tempDir);
     expect(tasks).toHaveLength(1);
     expect(tasks[0].file).toBe('src/index.ts');
+  });
+
+  it('should drop tasks whose source file no longer exists', () => {
+    // No corresponding src/orphan.ts on disk — guards against cross-project
+    // contamination of .anatoly/tasks/.
+    const tasksDir = join(tempDir, '.anatoly', 'tasks');
+    mkdirSync(tasksDir, { recursive: true });
+    writeFileSync(
+      join(tasksDir, 'src-orphan.task.json'),
+      JSON.stringify({
+        version: 1,
+        file: 'src/orphan.ts',
+        hash: 'abc',
+        symbols: [{ name: 'foo', kind: 'function', exported: true, line_start: 1, line_end: 3 }],
+        scanned_at: '2026-01-01T00:00:00Z',
+      }),
+    );
+
+    expect(loadTasks(tempDir)).toEqual([]);
   });
 });
 
@@ -147,7 +170,9 @@ describe('estimateProject', () => {
   });
 
   it('should handle deleted source files gracefully', () => {
-    // Task without corresponding source file
+    // Task pointing at a source file that no longer exists. loadTasks() now
+    // drops these so the estimator stays consistent with the current source
+    // tree, and estimateProject reports zero scope (no work to do).
     const tasksDir = join(tempDir, '.anatoly', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
@@ -164,8 +189,9 @@ describe('estimateProject', () => {
     );
 
     const result = estimateProject(tempDir);
-    expect(result.files).toBe(1);
-    expect(result.inputTokens).toBeGreaterThan(0);
+    expect(result.files).toBe(0);
+    expect(result.symbols).toBe(0);
+    expect(result.inputTokens).toBe(0);
   });
 });
 
