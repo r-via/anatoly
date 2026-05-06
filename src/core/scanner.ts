@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { resolve, join, relative, extname } from 'node:path';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
@@ -165,17 +165,25 @@ export async function collectFiles(
 ): Promise<string[]> {
   const files: string[] = [];
 
+  if (config.scan.include.length === 0) {
+    contextLogger().warn(
+      'scan.include is empty — no files will be scanned. Configure scan.include in .anatoly.yml (or delete the file and re-run to regenerate it with auto-detected globs).',
+    );
+  }
   const matched = await glob(config.scan.include, {
     cwd: projectRoot,
     ignore: config.scan.exclude,
   });
   files.push(...matched);
 
-  // Filter out .gitignore'd files
-  const tracked = getGitTrackedFiles(projectRoot);
-  const filtered = tracked
-    ? files.filter((f) => tracked.has(f))
-    : files;
+  // Filter out .gitignore'd files when respect_gitignore is enabled
+  // (default true). Intersection with `git ls-files` is the source of truth;
+  // when disabled, gitignored files matching include globs stay in scope.
+  let filtered = files;
+  if (config.scan.respect_gitignore) {
+    const tracked = getGitTrackedFiles(projectRoot);
+    if (tracked) filtered = files.filter((f) => tracked.has(f));
+  }
 
   // Deduplicate and sort for deterministic output
   const result = [...new Set(filtered)].sort();
@@ -421,8 +429,28 @@ export async function scanProject(
     }
   }
 
-  // Write progress atomically
-  atomicWriteJson(progressPath, progress);
+  // Write progress atomically — but only when the scan actually matched
+  // files. An empty match almost always means a misconfigured scan section
+  // (e.g. commented-out `scan.include`); overwriting progress.json with an
+  // empty file map would silently destroy the cache state from prior runs.
+  if (files.length > 0) {
+    atomicWriteJson(progressPath, progress);
+  }
+
+  // Drop .task.json files for paths that are no longer matched by the current
+  // scan globs. Without this, narrowing scan.include (or excluding a file)
+  // leaves stale tasks behind, and `loadTasks` would still surface them in
+  // the forecast — the user would see costs for files they thought they'd
+  // removed from scope.
+  //
+  // Safety guard: skip pruning when the scan matched zero files. Empty
+  // `scan.include` (e.g. a config where the section is commented out) collects
+  // nothing — pruning would wipe valid tasks from prior runs over a
+  // misconfiguration. The forecast will still show 0 files, which is the
+  // signal the user needs to fix their config.
+  if (files.length > 0) {
+    pruneStaleTasks(tasksDir, new Set(files.map((f) => `${toOutputName(f)}.task.json`)));
+  }
 
   contextLogger().debug(
     { filesScanned: files.length, filesCached, filesNew, filesModified, astErrors },
@@ -436,4 +464,14 @@ export async function scanProject(
     filesModified,
     files: scannedFiles,
   };
+}
+
+function pruneStaleTasks(tasksDir: string, validNames: Set<string>): void {
+  if (!existsSync(tasksDir)) return;
+  for (const entry of readdirSync(tasksDir)) {
+    if (!entry.endsWith('.task.json')) continue;
+    if (!validNames.has(entry)) {
+      try { unlinkSync(join(tasksDir, entry)); } catch { /* best effort */ }
+    }
+  }
 }

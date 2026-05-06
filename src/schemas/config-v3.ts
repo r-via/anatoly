@@ -351,7 +351,7 @@ const PreConfigSchema = z.object({
   version: z.literal(3),
   // Sections inherited unchanged from v2.
   project: ProjectConfigSchema.default({ monorepo: false }),
-  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'] }),
+  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'], respect_gitignore: true }),
   coverage: CoverageConfigSchema.default({
     enabled: true,
     command: 'npx vitest run --coverage.reporter=json',

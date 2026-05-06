@@ -25,6 +25,12 @@ export const ScanConfigSchema = z.object({
     'node_modules/**',
     'dist/**',
   ]),
+  // When true (default), files ignored by .gitignore are filtered out at scan
+  // time by intersecting with `git ls-files`. The check is a no-op outside a
+  // git repo. Surfaced as a yaml field so the behavior is declarative rather
+  // than hidden runtime magic — set to false to audit gitignored files
+  // explicitly (e.g. a generated dir you want to lint).
+  respect_gitignore: z.boolean().default(true),
 });
 
 export const CoverageConfigSchema = z.object({
@@ -201,7 +207,7 @@ export const NotificationsConfigSchema = z.object({
 
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({ monorepo: false }),
-  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'] }),
+  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'], respect_gitignore: true }),
   coverage: CoverageConfigSchema.default({
     enabled: true,
     command: 'npx vitest run --coverage.reporter=json',
