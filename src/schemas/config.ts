@@ -18,7 +18,6 @@ export const ScanConfigSchema = z.object({
     '**/*.test.ts',
     '**/*.spec.ts',
   ]),
-  auto_detect: z.boolean().default(true),
 });
 
 export const CoverageConfigSchema = z.object({
@@ -198,7 +197,6 @@ export const ConfigSchema = z.object({
   scan: ScanConfigSchema.default({
     include: ['src/**/*.ts', 'src/**/*.tsx'],
     exclude: ['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts'],
-    auto_detect: true,
   }),
   coverage: CoverageConfigSchema.default({
     enabled: true,

@@ -354,7 +354,6 @@ const PreConfigSchema = z.object({
   scan: ScanConfigSchema.default({
     include: ['src/**/*.ts', 'src/**/*.tsx'],
     exclude: ['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts'],
-    auto_detect: true,
   }),
   coverage: CoverageConfigSchema.default({
     enabled: true,

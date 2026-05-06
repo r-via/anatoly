@@ -483,7 +483,6 @@ function buildAnnotatedV3Yaml(
       scan: {
         include: ['src/**/*.ts', 'src/**/*.tsx'],
         exclude: ['node_modules/**', 'dist/**', '**/*.test.ts', '**/*.spec.ts'],
-        auto_detect: true,
       },
     }),
     '',
