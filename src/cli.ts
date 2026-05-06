@@ -27,7 +27,7 @@ import {
   registerGitCommand,
   runAutoGitCleanup,
 } from './commands/index.js';
-import { pkgVersion } from './utils/version.js';
+import { pkgVersionString } from './utils/version.js';
 import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
 
 // Respect $NO_COLOR convention (https://no-color.org/)
@@ -47,7 +47,7 @@ if ('NO_COLOR' in process.env) {
 export function createProgram(): Command {
   const program = new Command()
     .name('anatoly')
-    .version(pkgVersion)
+    .version(pkgVersionString)
     .description('Deep Audit Agent for codebases')
     .option('--config <path>', 'path to .anatoly.yml config file')
     .option('--verbose', 'show detailed operation logs')
