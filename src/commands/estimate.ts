@@ -570,11 +570,30 @@ export function registerEstimateCommand(program: Command): void {
       configRows.push({ key: 'docs', value: docsValue });
 
       // Forecast — decision-grade, cost included, embed tokens surfaced.
+      // evalTasks = tasks the run will actually call the LLM for. Two filters:
+      //   1. Drop tasks whose progress.json status is CACHED — they hit the
+      //      eval cache and the run skips them ($0).
+      //   2. Drop tasks the triage decides to skip on content grounds.
+      // Without the cache filter the forecast over-counted cached files and
+      // inflated the predicted token total even though those files cost $0.
+      // Track the two skip causes separately so the display can show
+      // "N cached, M skipped by triage" rather than mashing them together.
       const calibration = loadCalibration(projectRoot);
+      let cachedSkipCount = 0;
+      let triageSkipCount = 0;
       const evalTasks = allTasks.filter(t => {
+        const progressEntry = progress?.files[t.file];
+        if (progressEntry?.status === 'CACHED') {
+          cachedSkipCount++;
+          return false;
+        }
         try {
           const source = readFileSync(resolve(projectRoot, t.file), 'utf-8');
-          return triageFile(t, source).tier === 'evaluate';
+          if (triageFile(t, source).tier !== 'evaluate') {
+            triageSkipCount++;
+            return false;
+          }
+          return true;
         } catch {
           return true; // unreadable file: treat as evaluate (matches triage fallback)
         }
@@ -700,18 +719,20 @@ export function registerEstimateCommand(program: Command): void {
       // Forecast block (estimate command only — verdict before pipeline detail).
       const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`
         + (forecast.embed.tokens > 0 ? ` + ${formatTokenCount(forecast.embed.tokens)} embed` : '');
-      // Build the files line with both forecast (X of Y, triage skips) and
-      // scan freshness (new/modified/cached). Cached files have prior task
-      // data and cost $0 to re-confirm; new + modified files require a full
-      // LLM evaluation. Triage may further skip evaluable files.
+      // Build the files line. Two orthogonal axes:
+      //   - Freshness from the scanner: how many files are new vs modified
+      //     vs unchanged (cached) in the source tree.
+      //   - Skip cause for the run: cached files hit the eval cache ($0);
+      //     triage skips files on content grounds.
+      // Showing both gives the user the full picture of why the forecast
+      // bills only `forecast.files` out of `forecast.totalFiles` — separating
+      // the cache skip from the triage skip avoids the misleading merge.
       const freshnessParts: string[] = [];
       if (scanResult.filesNew > 0) freshnessParts.push(`${scanResult.filesNew} new`);
       if (scanResult.filesModified > 0) freshnessParts.push(`${scanResult.filesModified} modified`);
-      if (scanResult.filesCached > 0) freshnessParts.push(`${scanResult.filesCached} cached`);
-      const triageSuffix = forecast.skippedFiles > 0 ? `, ${forecast.skippedFiles} skipped by triage` : '';
-      const breakdown = freshnessParts.length > 0
-        ? `  (${freshnessParts.join(' · ')}${triageSuffix})`
-        : (forecast.skippedFiles > 0 ? `  (${forecast.skippedFiles} skipped by triage)` : '');
+      if (cachedSkipCount > 0) freshnessParts.push(`${cachedSkipCount} cached`);
+      if (triageSkipCount > 0) freshnessParts.push(`${triageSkipCount} skipped by triage`);
+      const breakdown = freshnessParts.length > 0 ? `  (${freshnessParts.join(', ')})` : '';
       const filesFragment = forecast.skippedFiles > 0
         ? `${forecast.files} of ${forecast.totalFiles}${breakdown}`
         : `${forecast.files} files${breakdown}`;
