@@ -310,6 +310,45 @@ if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# --cleanup mode: remove containers, image, downloaded weights, ready flag
+# ═══════════════════════════════════════════════════════════════════════════
+if [[ "${1:-}" == "--cleanup" ]]; then
+  log_section "Anatoly Embedding Cleanup"
+
+  if has_docker; then
+    log info "Stopping and removing anatoly-* containers…"
+    stop_gguf_containers 2>/dev/null || true
+
+    if docker image inspect "$GGUF_DOCKER_IMAGE" &>/dev/null; then
+      log info "Removing Docker image: ${GGUF_DOCKER_IMAGE}"
+      docker rmi "$GGUF_DOCKER_IMAGE" 2>/dev/null || log warn "Could not remove image (still in use?)"
+    else
+      log info "Docker image already absent: ${GGUF_DOCKER_IMAGE}"
+    fi
+  else
+    log info "Docker not available — skipping container/image cleanup"
+  fi
+
+  for f in "${MODELS_DIR}/${GGUF_CODE_MODEL_FILE}" "${MODELS_DIR}/${GGUF_NLP_MODEL_FILE}"; do
+    if [[ -f "$f" ]]; then
+      log info "Removing GGUF weights: $f"
+      rm -f "$f"
+    fi
+  done
+  if [[ -d "${MODELS_DIR}" ]] && [[ -z "$(ls -A "${MODELS_DIR}" 2>/dev/null)" ]]; then
+    rmdir "${MODELS_DIR}" 2>/dev/null || true
+  fi
+
+  if [[ -f "$READY_FILE" ]]; then
+    log info "Removing ready flag: $READY_FILE"
+    rm -f "$READY_FILE"
+  fi
+
+  log ok "Cleanup complete"
+  exit 0
+fi
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Main setup flow
