@@ -124,7 +124,10 @@ export function resolveEmbeddingProvider(
   return {
     type: 'openai-compatible',
     base_url: configOverrides.base_url,
-    env_key: configOverrides.env_key ?? `${providerId.toUpperCase().replace(/-/g, '_')}_API_KEY`,
+    // Trust the YAML: if no env_key was declared, the provider needs no key
+    // (e.g. system-local sidecar with auth: none). The schema enforces the
+    // env_key/auth correspondence — no fallback synthesis here.
+    env_key: configOverrides.env_key ?? null,
     default_code_model: '',
     default_nlp_model: '',
   };

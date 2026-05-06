@@ -155,6 +155,22 @@ describe('getVercelEmbeddingModel', () => {
     }
   });
 
+  it('passes empty apiKey when an unknown provider is declared with no env_key (auth: none)', () => {
+    // Mirrors how `local-advanced` is written by the wizard: openai_compatible
+    // pointing at localhost with no env_key. The factory must not throw or
+    // synthesize a fallback env var name — the YAML is the source of truth.
+    getVercelEmbeddingModel('code', 'nomic-embed-code-gguf', {
+      provider: 'local-advanced',
+      base_url: 'http://localhost:8082/v1',
+    });
+    expect(mockCreateOpenAICompatible).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseURL: 'http://localhost:8082/v1',
+        apiKey: '',
+      }),
+    );
+  });
+
   it('should wrap model with pre_hook for anatoly-local provider', () => {
     const model = getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'anatoly-local' });
     // The wrapper should have a doEmbed method

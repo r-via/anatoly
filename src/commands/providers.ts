@@ -76,12 +76,13 @@ function isLocalUrl(url: string | undefined): boolean {
  */
 export function formatAuthLabel(provider: {
   transport: Transport;
-  auth?: 'oauth' | 'api_key';
+  auth?: 'oauth' | 'api_key' | 'none';
   env_key?: string;
   base_url?: string;
 }): string {
   if (provider.transport === 'onnxruntime_node') return 'Local (in-process)';
   if (provider.auth === 'oauth') return 'OAuth';
+  if (provider.auth === 'none') return 'Local';
   if (provider.auth === 'api_key') {
     const env = provider.env_key;
     if (isLocalUrl(provider.base_url)) {

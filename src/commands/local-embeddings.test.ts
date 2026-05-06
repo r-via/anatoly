@@ -81,10 +81,10 @@ routing:
     expect(providers['local-lite']).toBeDefined();
     expect(providers['local-advanced']).toMatchObject({
       transport: 'openai_compatible',
-      auth: 'api_key',
-      env_key: 'ANATOLY_LOCAL_DUMMY_KEY',
+      auth: 'none',
       base_url: 'http://localhost:8082/v1',
     });
+    expect(providers['local-advanced']!.env_key).toBeUndefined();
     expect(providers['local-advanced']!.models).toEqual([
       'nomic-embed-code-gguf',
       'qwen3-embedding-8b-gguf',
@@ -229,8 +229,7 @@ providers:
     models: [jinaai/jina-embeddings-v2-base-code, Xenova/all-MiniLM-L6-v2]
   local-advanced:
     transport: openai_compatible
-    auth: api_key
-    env_key: ANATOLY_LOCAL_DUMMY_KEY
+    auth: none
     base_url: http://localhost:8082/v1
     models: [nomic-embed-code-gguf, qwen3-embedding-8b-gguf]
 routing:

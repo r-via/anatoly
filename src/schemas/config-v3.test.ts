@@ -78,9 +78,10 @@ describe('TransportSchema', () => {
 });
 
 describe('AuthSchema', () => {
-  it('accepts oauth and api_key', () => {
+  it('accepts oauth, api_key, and none', () => {
     expect(AuthSchema.parse('oauth')).toBe('oauth');
     expect(AuthSchema.parse('api_key')).toBe('api_key');
+    expect(AuthSchema.parse('none')).toBe('none');
   });
   it('rejects others', () => {
     expect(() => AuthSchema.parse('subscription')).toThrow();
@@ -170,6 +171,39 @@ describe('ProviderConfigSchema', () => {
         models: ['m'],
       }),
     ).toThrow(/openai_compatible does not support oauth/);
+  });
+
+  it('accepts openai_compatible + auth=none (system-local sidecar)', () => {
+    const r = ProviderConfigSchema.parse({
+      transport: 'openai_compatible',
+      auth: 'none',
+      base_url: 'http://localhost:8082/v1',
+      models: ['nomic-embed-code-gguf'],
+    });
+    expect(r.auth).toBe('none');
+    expect(r.env_key).toBeUndefined();
+  });
+
+  it('rejects auth=none with env_key (mutually exclusive)', () => {
+    expect(() =>
+      ProviderConfigSchema.parse({
+        transport: 'openai_compatible',
+        auth: 'none',
+        env_key: 'SOMETHING',
+        base_url: 'http://localhost:8082/v1',
+        models: ['m'],
+      }),
+    ).toThrow(/auth=none must not specify env_key/);
+  });
+
+  it('rejects auth=none on non-openai_compatible transports', () => {
+    expect(() =>
+      ProviderConfigSchema.parse({
+        transport: 'claude_agent_sdk',
+        auth: 'none',
+        models: ['claude-sonnet-4-6'],
+      }),
+    ).toThrow(/auth=none is only valid with transport=openai_compatible/);
   });
 
   it('rejects onnxruntime_node with auth', () => {

@@ -16,7 +16,7 @@
  *
  * Mapping summary:
  * - `providers.<name>` (network only) → `providers.<name>` with `mode` derived
- *   from `auth` (oauth → subscription, api_key → api). ONNX providers are
+ *   from `auth` (oauth → subscription, api_key/none → api). ONNX providers are
  *   skipped (no v2 transport). Local-advanced (openai_compatible + localhost
  *   base_url) is kept since v2 supports it through `rag.embedding`.
  * - `routing.generation.{quality,fast,deliberation,summarization}` → `models.*`

@@ -52,8 +52,14 @@ export const TransportSchema = z.enum([
 
 export type Transport = z.infer<typeof TransportSchema>;
 
-/** Auth method. Only meaningful for transports that talk to a network. */
-export const AuthSchema = z.enum(['oauth', 'api_key']);
+/**
+ * Auth method. Only meaningful for transports that talk to a network.
+ * - `oauth` — interactive session (Anthropic, Google).
+ * - `api_key` — bearer token read from `env_key`.
+ * - `none` — no authentication (e.g. system-local sidecar on localhost).
+ *   Restricted to `openai_compatible`; must not specify `env_key`.
+ */
+export const AuthSchema = z.enum(['oauth', 'api_key', 'none']);
 
 export type Auth = z.infer<typeof AuthSchema>;
 
@@ -113,12 +119,23 @@ export const ProviderConfigSchema = z.object({
     }
   }
 
-  // openai_compatible only supports api_key (no OAuth flow defined).
+  // openai_compatible only supports api_key or none (no OAuth flow defined).
   if (data.transport === 'openai_compatible' && data.auth === 'oauth') {
     ctx.addIssue({
       code: 'custom',
       path: ['auth'],
-      message: 'openai_compatible does not support oauth — use api_key',
+      message: 'openai_compatible does not support oauth — use api_key or none',
+    });
+  }
+
+  // `none` is reserved for system-local sidecars exposed via openai_compatible
+  // (no key sent on the wire). Network SDKs that always inject auth headers
+  // (claude_agent_sdk, google_genai) are not compatible with it.
+  if (data.auth === 'none' && data.transport !== 'openai_compatible') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['auth'],
+      message: `auth=none is only valid with transport=openai_compatible (got ${data.transport})`,
     });
   }
 
@@ -137,6 +154,15 @@ export const ProviderConfigSchema = z.object({
       code: 'custom',
       path: ['env_key'],
       message: 'auth=oauth must not specify env_key (no API key is read)',
+    });
+  }
+
+  // none must not specify env_key (no key is read).
+  if (data.auth === 'none' && data.env_key !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['env_key'],
+      message: 'auth=none must not specify env_key (no API key is read)',
     });
   }
 

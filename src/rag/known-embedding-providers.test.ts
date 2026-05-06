@@ -201,11 +201,14 @@ describe('resolveEmbeddingProvider', () => {
     expect(result.env_key).toBe('MY_EMBED_KEY');
   });
 
-  it('should derive env_key for unknown provider without explicit env_key', () => {
+  it('returns env_key=null for unknown provider without explicit env_key', () => {
+    // Mirrors `local-advanced` written with auth: none — the YAML omits env_key
+    // and the resolver must NOT synthesize a placeholder, otherwise the SDK
+    // factory would throw on a missing env var that the user never declared.
     const result = resolveEmbeddingProvider('my-custom-embed', {
       base_url: 'https://embed.example.com/v1',
     });
-    expect(result.env_key).toBe('MY_CUSTOM_EMBED_API_KEY');
+    expect(result.env_key).toBeNull();
   });
 
   it('should throw for unknown provider without base_url', () => {

@@ -42,8 +42,7 @@ function runScript(scriptArgs: string[]): { ok: boolean; exitCode: number } {
  */
 const LOCAL_ADVANCED_PROVIDER: Record<string, unknown> = {
   transport: 'openai_compatible',
-  auth: 'api_key',
-  env_key: 'ANATOLY_LOCAL_DUMMY_KEY',
+  auth: 'none',
   base_url: 'http://localhost:8082/v1',
   models: ['nomic-embed-code-gguf', 'qwen3-embedding-8b-gguf'],
 };

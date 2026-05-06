@@ -83,13 +83,12 @@ describe('formatAuthLabel', () => {
       .toBe('API Key (GEMINI_API_KEY)');
   });
 
-  it('returns "Local (ENV_VAR)" for api_key against localhost', () => {
+  it('returns "Local" for auth=none (system-local sidecar)', () => {
     expect(formatAuthLabel({
       transport: 'openai_compatible',
-      auth: 'api_key',
-      env_key: 'ANATOLY_LOCAL_DUMMY_KEY',
+      auth: 'none',
       base_url: 'http://localhost:8082/v1',
-    })).toBe('Local (ANATOLY_LOCAL_DUMMY_KEY)');
+    })).toBe('Local');
   });
 
   it('returns "Local (in-process)" for onnxruntime_node', () => {
@@ -113,8 +112,7 @@ describe('buildProviderChecks (v3)', () => {
         },
         'local-advanced': {
           transport: 'openai_compatible',
-          auth: 'api_key',
-          env_key: 'ANATOLY_LOCAL_DUMMY_KEY',
+          auth: 'none',
           base_url: 'http://localhost:8082/v1',
           models: ['nomic-embed-code-gguf', 'qwen3-embedding-8b-gguf'],
         },
@@ -147,7 +145,7 @@ describe('buildProviderChecks (v3)', () => {
 
     expect(byProvider('local-advanced').length).toBe(2);
     expect(byProvider('local-advanced')[0]!.transport).toBe('openai_compatible');
-    expect(byProvider('local-advanced')[0]!.auth).toBe('Local (ANATOLY_LOCAL_DUMMY_KEY)');
+    expect(byProvider('local-advanced')[0]!.auth).toBe('Local');
   });
 
   it('marks ONNX providers as Local (in-process) without an env_key', () => {
