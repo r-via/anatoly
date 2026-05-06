@@ -458,15 +458,19 @@ export function registerEstimateCommand(program: Command): void {
 
       // --- Config rows ---
       // RAG can be force-disabled by --no-rag — gate the config-driven default.
+      // Trust the backend resolved by `resolveEmbeddingModels` above (line 408)
+      // rather than re-deriving it from hardware: that resolver is the single
+      // source of truth, also used by `anatoly run`. The legacy 'advanced-fp16'
+      // backend was retired but readiness flags from older versions can still
+      // surface it — treat it as 'lite' for both display and cache suffix.
       const enableRag = ragOverride === false ? false : config.rag.enabled;
       let ragLabel = ragOverride === false ? 'off (--no-rag)' : 'off';
-      let resolvedRagSuffix: 'lite' | 'advanced' = 'lite';
+      let resolvedRagSuffix: 'lite' | 'advanced' | 'external' = 'lite';
       if (enableRag) {
-        const hardware = detectHardware();
-        const embeddingsReady = readEmbeddingsReadyFlag(projectRoot);
-        const canAdvanced = hardware.hasGpu && embeddingsReady !== null;
-        const needsSidecar = canAdvanced && config.rag.code_model === 'auto';
-        resolvedRagSuffix = needsSidecar ? 'advanced' : 'lite';
+        const backend = resolvedEmbed?.backend ?? 'lite';
+        resolvedRagSuffix = backend === 'advanced-gguf' ? 'advanced'
+          : backend === 'external' ? 'external'
+          : 'lite';
         ragLabel = resolvedRagSuffix;
       }
 
@@ -749,16 +753,17 @@ export function registerEstimateCommand(program: Command): void {
       // We render them as `K cached (J evaluated)` so the user sees both:
       // how stable the tree is and how much of that stability the eval cache
       // actually capitalises on.
+      // In --no-cache mode the SHA-unchanged / eval-cached counts are
+      // inactive (every file is billed regardless), so suppress them in the
+      // breakdown — only triage skip remains relevant.
       const freshnessParts: string[] = [];
-      if (scanResult.filesNew > 0) freshnessParts.push(`${scanResult.filesNew} new`);
-      if (scanResult.filesModified > 0) freshnessParts.push(`${scanResult.filesModified} modified`);
-      if (scanResult.filesCached > 0) {
-        const evaluatedSuffix = cachedSkipCount > 0
-          ? ignoreCache
-            ? ` (${cachedSkipCount} evaluated, re-billed)`
-            : ` (${cachedSkipCount} evaluated)`
-          : '';
-        freshnessParts.push(`${scanResult.filesCached} cached${evaluatedSuffix}`);
+      if (!ignoreCache) {
+        if (scanResult.filesNew > 0) freshnessParts.push(`${scanResult.filesNew} new`);
+        if (scanResult.filesModified > 0) freshnessParts.push(`${scanResult.filesModified} modified`);
+        if (scanResult.filesCached > 0) {
+          const evaluatedSuffix = cachedSkipCount > 0 ? ` (${cachedSkipCount} evaluated)` : '';
+          freshnessParts.push(`${scanResult.filesCached} cached${evaluatedSuffix}`);
+        }
       }
       if (triageSkipCount > 0) freshnessParts.push(`${triageSkipCount} skipped by triage`);
       const breakdown = freshnessParts.length > 0 ? `  (${freshnessParts.join(', ')})` : '';

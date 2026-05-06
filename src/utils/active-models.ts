@@ -4,6 +4,7 @@
 
 import type { Config } from '../schemas/config.js';
 import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
+import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { getV3Source } from './config-loader.js';
 
 /** Per-run shape filters that narrow the active model set to what the
@@ -114,9 +115,11 @@ function enumerateActiveModelsV3(v3: ConfigV3, options: ActiveModelOptions): str
   }
 
   // 3. Embedding routing — only network providers go to the pricing cache.
-  //    Local providers (ONNX in-process, or openai_compatible pointing at
-  //    localhost like the GGUF Docker sidecar) have no upstream pricing entry
-  //    and would trigger spurious warnings if included.
+  //    Local providers (ONNX in-process, or the auto-managed `local-advanced`
+  //    GGUF Docker sidecar) have no upstream pricing entry and would trigger
+  //    spurious warnings if included. Match by provider id, not URL — a user
+  //    pointing a custom provider at their own localhost service is opting in
+  //    to pricing lookups (and will get a clear warning if no entry exists).
   if (enableRag) {
     for (const ref of [v3.routing.embeddings.code, v3.routing.embeddings.text]) {
       const parsed = parseModelRef(ref);
@@ -124,13 +127,7 @@ function enumerateActiveModelsV3(v3: ConfigV3, options: ActiveModelOptions): str
       const provider = v3.providers[parsed.provider];
       if (!provider) continue;
       if (provider.transport === 'onnxruntime_node') continue;
-      if (
-        provider.transport === 'openai_compatible'
-        && provider.base_url !== undefined
-        && /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(provider.base_url)
-      ) {
-        continue;
-      }
+      if (isSystemLocalProvider(parsed.provider)) continue;
       seen.add(ref);
     }
   }

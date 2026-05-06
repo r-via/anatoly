@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { KNOWN_EMBEDDING_PROVIDERS } from './known-embedding-providers.js';
+import { isSystemLocalProvider } from './system-providers.js';
 import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
 
 // ---------------------------------------------------------------------------
@@ -530,9 +531,10 @@ function resolveNlpModel(
  *
  * Backend mapping:
  * - `transport: onnxruntime_node` → backend `lite`, runtime `onnx`
- * - `transport: openai_compatible` with a `localhost` base_url → `advanced-gguf`,
- *   runtime `sdk` (anatoly-managed Docker sidecar)
- * - `transport: openai_compatible` with any other base_url → `external`,
+ * - `transport: openai_compatible` with provider id in `SYSTEM_LOCAL_PROVIDERS`
+ *   (i.e. `local-advanced`) → `advanced-gguf`, runtime `sdk` (anatoly-managed
+ *   Docker sidecar)
+ * - `transport: openai_compatible` with any other provider → `external`,
  *   runtime `sdk` (third-party API)
  */
 function resolveEmbeddingModelsV3(
@@ -595,11 +597,15 @@ function embeddingSlotForV3(
     return { model, dim, runtime: 'onnx', backend: 'lite', providerId, envKey: null };
   }
 
-  // openai_compatible — distinguish localhost (Docker GGUF sidecar) from external
+  // openai_compatible — distinguish the auto-managed Anatoly sidecar
+  // (`local-advanced`) from third-party APIs by provider id, not by URL.
+  // Any custom user-defined provider — even one pointing at localhost — is
+  // treated as `external`; the cost is still $0 if the model has no pricing
+  // entry, so the label is the only thing that changes.
   const baseUrl = provider.base_url;
-  const isLocalSidecar = baseUrl !== undefined && /^https?:\/\/(localhost|127\.0\.0\.1)/i.test(baseUrl);
+  const isLocalSidecar = isSystemLocalProvider(providerId);
   const dim = MODEL_REGISTRY[model]?.dim ?? -1;
-  const runtime: 'onnx' | 'gguf' | 'sdk' = isLocalSidecar ? 'sdk' : 'sdk';
+  const runtime: 'onnx' | 'gguf' | 'sdk' = 'sdk';
 
   return {
     model,
