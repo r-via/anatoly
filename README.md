@@ -16,6 +16,10 @@ Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) w
 npx anatoly run   # one command, full codebase audit
 ```
 
+> **TL;DR** — Install: `npx @r-via/anatoly@latest run` (pin a version for reproducibility: `npx @r-via/anatoly@0.9.5 run`).
+> Disable hooks: remove the `anatoly` block from `.claude/settings.json`.
+> Full uninstall: `rm -rf .anatoly/ && npm un -g @r-via/anatoly`.
+
 This program is entirely free — don't forget to leave a ⭐ on the [repo](https://github.com/r-via/anatoly) to help it get started.
 
 ---
@@ -189,11 +193,12 @@ Containers start automatically with `anatoly run` when setup is detected. No Pyt
 ## Getting Started
 
 ```bash
-# Run without installing
-npx anatoly run
+# Run without installing (resolves @latest — pin for reproducibility)
+npx @r-via/anatoly@latest run
+npx @r-via/anatoly@0.9.5 run   # pinned
 
 # Or install globally
-npm install -g anatoly
+npm install -g @r-via/anatoly
 anatoly run
 ```
 
