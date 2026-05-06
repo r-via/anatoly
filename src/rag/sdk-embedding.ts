@@ -63,7 +63,7 @@ export function getVercelEmbeddingModel(
     );
   }
 
-  // Resolve base URL (may be a function for anatoly-local)
+  // Resolve base URL (may be a function for local-advanced)
   const baseUrl = typeof resolved.base_url === 'function'
     ? resolved.base_url(kind)
     : resolved.base_url;

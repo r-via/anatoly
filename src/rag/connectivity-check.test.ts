@@ -64,10 +64,10 @@ function advancedGgufResolved(): ResolvedModels {
     nlpDim: 4096,
     nlpRuntime: 'sdk',
     backend: 'advanced-gguf',
-    codeProvider: 'anatoly-local',
+    codeProvider: 'local-advanced',
     codeBaseUrl: 'http://127.0.0.1:11437/v1',
     codeEnvKey: null,
-    nlpProvider: 'anatoly-local',
+    nlpProvider: 'local-advanced',
     nlpBaseUrl: 'http://127.0.0.1:11438/v1',
     nlpEnvKey: null,
   };

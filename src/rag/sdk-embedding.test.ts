@@ -92,8 +92,8 @@ describe('getVercelEmbeddingModel', () => {
     }
   });
 
-  it('should resolve dynamic base_url for anatoly-local per kind', () => {
-    const modelCode = getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'anatoly-local' });
+  it('should resolve dynamic base_url for local-advanced per kind', () => {
+    const modelCode = getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'local-advanced' });
     expect(mockCreateOpenAICompatible).toHaveBeenCalledWith(
       expect.objectContaining({
         baseURL: 'http://127.0.0.1:11437/v1',
@@ -103,7 +103,7 @@ describe('getVercelEmbeddingModel', () => {
 
     vi.clearAllMocks();
 
-    const modelNlp = getVercelEmbeddingModel('nlp', 'qwen3-embedding-8b', { provider: 'anatoly-local' });
+    const modelNlp = getVercelEmbeddingModel('nlp', 'qwen3-embedding-8b', { provider: 'local-advanced' });
     expect(mockCreateOpenAICompatible).toHaveBeenCalledWith(
       expect.objectContaining({
         baseURL: 'http://127.0.0.1:11438/v1',
@@ -113,7 +113,7 @@ describe('getVercelEmbeddingModel', () => {
   });
 
   it('should pass empty apiKey for providers with env_key: null', () => {
-    getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'anatoly-local' });
+    getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'local-advanced' });
     expect(mockCreateOpenAICompatible).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: '',
@@ -171,8 +171,8 @@ describe('getVercelEmbeddingModel', () => {
     );
   });
 
-  it('should wrap model with pre_hook for anatoly-local provider', () => {
-    const model = getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'anatoly-local' });
+  it('should wrap model with pre_hook for local-advanced provider', () => {
+    const model = getVercelEmbeddingModel('code', 'nomic-embed-code', { provider: 'local-advanced' });
     // The wrapper should have a doEmbed method
     expect(model).toHaveProperty('doEmbed');
     expect(typeof model.doEmbed).toBe('function');

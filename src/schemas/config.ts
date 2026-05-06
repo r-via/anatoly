@@ -127,7 +127,7 @@ export const RuntimeConfigSchema = z.object({
 
 /** Per-axis embedding provider config (code or nlp). Provider is required; model, base_url, env_key optional. */
 export const EmbeddingProviderConfigSchema = z.object({
-  /** Provider identifier (e.g. 'openai', 'voyage', 'qwen', 'anatoly-local', or a custom name). */
+  /** Provider identifier (e.g. 'openai', 'voyage', 'qwen', 'local-advanced', or a custom name). */
   provider: z.string(),
   /** Model identifier for this axis. Defaults resolved from provider registry at runtime. */
   model: z.string().optional(),

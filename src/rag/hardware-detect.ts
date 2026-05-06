@@ -137,7 +137,7 @@ export function detectNvidiaContainerToolkit(): boolean {
 export type EmbeddingBackend = 'lite' | 'advanced-fp16' | 'advanced-gguf' | 'external';
 
 // 'advanced-gguf' is a legacy label preserved for traceability — mapped
-// internally to provider: 'anatoly-local' + runtime: 'sdk'.
+// internally to provider: 'local-advanced' + runtime: 'sdk'.
 // 'advanced-fp16' is no longer used at runtime (TEI replaced it) — treated as 'lite'.
 // 'external' means a third-party embedding provider configured via .anatoly.yml.
 
@@ -352,7 +352,7 @@ interface EmbeddingAxisConfig {
  *
  * Routes to one of three strategies:
  * - `lite` → ONNX CPU (in-process @huggingface/transformers)
- * - `advanced-gguf` → SDK via anatoly-local Docker containers
+ * - `advanced-gguf` → SDK via local-advanced Docker containers
  * - `external` → SDK via third-party provider (OpenAI, Voyage, etc.)
  */
 export async function resolveEmbeddingModels(
@@ -398,9 +398,9 @@ function resolveLiteBackend(
   return { codeModel, codeDim, codeRuntime: 'onnx', nlpModel, nlpDim, nlpRuntime: 'onnx', backend: 'lite' };
 }
 
-/** Resolve for advanced-gguf backend (SDK via anatoly-local Docker). */
+/** Resolve for advanced-gguf backend (SDK via local-advanced Docker). */
 function resolveAdvancedGguf(onLog?: (message: string) => void): ResolvedModels {
-  const provider = KNOWN_EMBEDDING_PROVIDERS['anatoly-local']!;
+  const provider = KNOWN_EMBEDDING_PROVIDERS['local-advanced']!;
   const codeModel = provider.default_code_model;
   const nlpModel = provider.default_nlp_model;
   const codeDim = MODEL_REGISTRY['nomic-embed-code-gguf']?.dim ?? 3584;
@@ -408,16 +408,16 @@ function resolveAdvancedGguf(onLog?: (message: string) => void): ResolvedModels 
   const codeBaseUrl = typeof provider.base_url === 'function' ? provider.base_url('code') : provider.base_url;
   const nlpBaseUrl = typeof provider.base_url === 'function' ? provider.base_url('nlp') : provider.base_url;
 
-  onLog?.(`backend: advanced-gguf → SDK via anatoly-local (${codeModel} + ${nlpModel})`);
+  onLog?.(`backend: advanced-gguf → SDK via local-advanced (${codeModel} + ${nlpModel})`);
 
   return {
     codeModel, codeDim, codeRuntime: 'sdk',
     nlpModel, nlpDim, nlpRuntime: 'sdk',
     backend: 'advanced-gguf',
-    codeProvider: 'anatoly-local',
+    codeProvider: 'local-advanced',
     codeBaseUrl: codeBaseUrl ?? undefined,
     codeEnvKey: null,
-    nlpProvider: 'anatoly-local',
+    nlpProvider: 'local-advanced',
     nlpBaseUrl: nlpBaseUrl ?? undefined,
     nlpEnvKey: null,
   };
@@ -602,16 +602,32 @@ function embeddingSlotForV3(
   // Any custom user-defined provider — even one pointing at localhost — is
   // treated as `external`; the cost is still $0 if the model has no pricing
   // entry, so the label is the only thing that changes.
-  const baseUrl = provider.base_url;
   const isLocalSidecar = isSystemLocalProvider(providerId);
   const dim = MODEL_REGISTRY[model]?.dim ?? -1;
   const runtime: 'onnx' | 'gguf' | 'sdk' = 'sdk';
 
+  // System-local sidecar: ignore the user's `base_url` (the v3 template
+  // intentionally omits one — see LOCAL_ADVANCED_PROVIDER) and let
+  // resolveEmbeddingProvider pull the per-axis URLs (11437/11438) and the
+  // pre_hook that swaps the GGUF Docker container on demand from the
+  // canonical KNOWN_EMBEDDING_PROVIDERS['local-advanced'] entry.
+  if (isLocalSidecar) {
+    return {
+      model,
+      dim,
+      runtime,
+      backend: 'advanced-gguf',
+      providerId,
+      envKey: null,
+    };
+  }
+
+  const baseUrl = provider.base_url;
   return {
     model,
     dim,
     runtime,
-    backend: isLocalSidecar ? 'advanced-gguf' : 'external',
+    backend: 'external',
     providerId,
     ...(baseUrl !== undefined ? { baseUrl } : {}),
     envKey: provider.env_key ?? null,

@@ -18,7 +18,7 @@ export interface KnownEmbeddingProviderEntry {
    * Base URL for the embedding API.
    * - `null` for native SDK providers (openai).
    * - `string` for fixed-URL providers (voyage, openrouter, cohere, mistral).
-   * - `(kind) => string` for providers with per-axis URLs (anatoly-local).
+   * - `(kind) => string` for providers with per-axis URLs (local-advanced).
    */
   readonly base_url: string | null | ((kind: 'code' | 'nlp') => string);
   /** Environment variable name holding the API key. `null` if no key required. */
@@ -78,7 +78,7 @@ export const KNOWN_EMBEDDING_PROVIDERS: Readonly<Record<string, KnownEmbeddingPr
     default_code_model: 'mistral-embed',
     default_nlp_model: 'mistral-embed',
   },
-  'anatoly-local': {
+  'local-advanced': {
     base_url: (kind: 'code' | 'nlp') =>
       kind === 'code' ? 'http://127.0.0.1:11437/v1' : 'http://127.0.0.1:11438/v1',
     env_key: null,

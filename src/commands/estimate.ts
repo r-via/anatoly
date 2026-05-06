@@ -410,7 +410,7 @@ export function registerEstimateCommand(program: Command): void {
 
       // Augment active models for the pricing gate ONLY when the resolved
       // backend is 'external' (third-party SDK with per-token billing).
-      // 'lite' (ONNX) and 'advanced-gguf' (anatoly-local Docker) are local —
+      // 'lite' (ONNX) and 'advanced-gguf' (local-advanced Docker) are local —
       // their model ids are absent from upstream pricing registries by design,
       // so adding them here would falsely trigger PRICING_INCOMPLETE.
       const activeModels = enumerateActiveModels(config);

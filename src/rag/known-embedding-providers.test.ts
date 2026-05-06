@@ -15,7 +15,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('KNOWN_EMBEDDING_PROVIDERS registry', () => {
-  const expectedIds = ['openai', 'voyage', 'openrouter', 'cohere', 'mistral', 'anatoly-local'];
+  const expectedIds = ['openai', 'voyage', 'openrouter', 'cohere', 'mistral', 'local-advanced'];
 
   it('should contain all 6 expected embedding provider entries', () => {
     for (const id of expectedIds) {
@@ -129,9 +129,9 @@ describe('mistral embedding provider', () => {
   });
 });
 
-describe('anatoly-local embedding provider', () => {
+describe('local-advanced embedding provider', () => {
   it('should have base_url as a function returning different URLs per kind', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(typeof entry.base_url).toBe('function');
     const baseUrlFn = entry.base_url as (kind: 'code' | 'nlp') => string;
     expect(baseUrlFn('code')).toBe('http://127.0.0.1:11437/v1');
@@ -139,29 +139,29 @@ describe('anatoly-local embedding provider', () => {
   });
 
   it('should have env_key as null (no API key required)', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(entry.env_key).toBeNull();
   });
 
   it('should be openai-compatible', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(entry.type).toBe('openai-compatible');
   });
 
   it('should have max_per_call=16 and supports_parallel=false', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(entry.max_per_call).toBe(16);
     expect(entry.supports_parallel).toBe(false);
   });
 
   it('should have correct default models', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(entry.default_code_model).toBe('nomic-embed-code');
     expect(entry.default_nlp_model).toBe('qwen3-embedding-8b');
   });
 
   it('should have a pre_hook function', () => {
-    const entry = KNOWN_EMBEDDING_PROVIDERS['anatoly-local'];
+    const entry = KNOWN_EMBEDDING_PROVIDERS['local-advanced'];
     expect(entry.pre_hook).toBeDefined();
     expect(typeof entry.pre_hook).toBe('function');
   });

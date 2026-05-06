@@ -1000,14 +1000,17 @@ describe('writeFirstRunConfig', () => {
   // Advanced tier
   // -------------------------------------------------------------------------
 
-  it('advanced tier declares local-advanced provider with localhost base_url', async () => {
+  it('advanced tier declares local-advanced provider without a user-facing base_url', async () => {
     await writeFirstRunConfig(dir, { tier: 'advanced' });
     const yaml = await import('js-yaml');
     const parsed = yaml.load(readFileSync(join(dir, '.anatoly.yml'), 'utf-8')) as {
       providers: Record<string, { transport: string; base_url?: string; models: string[] }>;
     };
     expect(parsed.providers['local-advanced'].transport).toBe('openai_compatible');
-    expect(parsed.providers['local-advanced'].base_url).toMatch(/^http:\/\/localhost:/);
+    // base_url is intentionally omitted: the runtime resolves per-axis URLs
+    // (11437/11438) from KNOWN_EMBEDDING_PROVIDERS and swaps the GGUF Docker
+    // container on demand.
+    expect(parsed.providers['local-advanced'].base_url).toBeUndefined();
     expect(parsed.providers['local-advanced'].models).toContain('nomic-embed-code-gguf');
     expect(parsed.providers['local-advanced'].models).toContain('qwen3-embedding-8b-gguf');
   });

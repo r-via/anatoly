@@ -109,12 +109,12 @@ describe('resolveEmbeddingModels — advanced-gguf backend (Story 50.5)', () => 
     backend: 'advanced-gguf',
   };
 
-  it('should return sdk runtime with anatoly-local provider', async () => {
+  it('should return sdk runtime with local-advanced provider', async () => {
     const result = await resolveEmbeddingModels(defaultConfig, gpuHardware, undefined, ggufFlag);
     expect(result.codeRuntime).toBe('sdk');
     expect(result.nlpRuntime).toBe('sdk');
-    expect(result.codeProvider).toBe('anatoly-local');
-    expect(result.nlpProvider).toBe('anatoly-local');
+    expect(result.codeProvider).toBe('local-advanced');
+    expect(result.nlpProvider).toBe('local-advanced');
   });
 
   it('should set correct base URLs for code and nlp', async () => {
@@ -123,7 +123,7 @@ describe('resolveEmbeddingModels — advanced-gguf backend (Story 50.5)', () => 
     expect(result.nlpBaseUrl).toBe('http://127.0.0.1:11438/v1');
   });
 
-  it('should set null env keys for anatoly-local', async () => {
+  it('should set null env keys for local-advanced', async () => {
     const result = await resolveEmbeddingModels(defaultConfig, gpuHardware, undefined, ggufFlag);
     expect(result.codeEnvKey).toBeNull();
     expect(result.nlpEnvKey).toBeNull();
@@ -271,14 +271,14 @@ describe('resolveEmbeddingModels — external backend (Story 50.5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveEmbeddingModels — backward compat (Story 50.5)', () => {
-  it('should map advanced-gguf flag without embedding_provider to anatoly-local', async () => {
+  it('should map advanced-gguf flag without embedding_provider to local-advanced', async () => {
     const legacyFlag: EmbeddingsReadyFlag = {
       device: 'cuda',
       backend: 'advanced-gguf',
       // No embedding_provider — pre-Epic-50 format
     };
     const result = await resolveEmbeddingModels(defaultConfig, gpuHardware, undefined, legacyFlag);
-    expect(result.codeProvider).toBe('anatoly-local');
+    expect(result.codeProvider).toBe('local-advanced');
     expect(result.codeRuntime).toBe('sdk');
   });
 
@@ -441,12 +441,10 @@ describe('resolveEmbeddingModels — v3 path', () => {
     expect(result.nlpEnvKey).toBe('OPENROUTER_API_KEY');
   });
 
-  it('returns advanced-gguf for openai_compatible with localhost base_url', async () => {
+  it('returns advanced-gguf for the system-local local-advanced provider', async () => {
     const v3 = buildV3({
       codeProvider: 'local-advanced',
       codeTransport: 'openai_compatible',
-      codeBaseUrl: 'http://localhost:8082/v1',
-      codeEnvKey: 'DUMMY',
       codeModel: 'nomic-embed-code-gguf',
       textModel: 'qwen3-embedding-8b-gguf',
     });
@@ -462,7 +460,10 @@ describe('resolveEmbeddingModels — v3 path', () => {
     expect(result.codeDim).toBe(3584);
     expect(result.nlpModel).toBe('qwen3-embedding-8b-gguf');
     expect(result.nlpDim).toBe(4096);
-    expect(result.codeBaseUrl).toBe('http://localhost:8082/v1');
+    // System-local sidecar: base_url is omitted in the slot — runtime resolves
+    // per-axis URLs (11437/11438) from KNOWN_EMBEDDING_PROVIDERS.
+    expect(result.codeBaseUrl).toBeUndefined();
+    expect(result.codeProvider).toBe('local-advanced');
   });
 
   it('mixes lite (onnx) code + external (mistral) text', async () => {
@@ -506,12 +507,11 @@ describe('resolveEmbeddingModels — v3 path', () => {
     expect(result.backend).toBe('lite');
   });
 
-  it('treats 127.0.0.1 base_url as advanced-gguf, like localhost', async () => {
+  it('ignores any user-supplied base_url on the local-advanced system provider', async () => {
     const v3 = buildV3({
       codeProvider: 'local-advanced',
       codeTransport: 'openai_compatible',
-      codeBaseUrl: 'http://127.0.0.1:8082/v1',
-      codeEnvKey: 'DUMMY',
+      codeBaseUrl: 'http://127.0.0.1:9999/v1',
       codeModel: 'nomic-embed-code-gguf',
       textModel: 'qwen3-embedding-8b-gguf',
     });
@@ -523,5 +523,8 @@ describe('resolveEmbeddingModels — v3 path', () => {
       v3,
     );
     expect(result.backend).toBe('advanced-gguf');
+    // The slot-level baseUrl is dropped for system-local providers — the
+    // canonical per-axis URLs are resolved later via KNOWN_EMBEDDING_PROVIDERS.
+    expect(result.codeBaseUrl).toBeUndefined();
   });
 });

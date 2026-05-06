@@ -525,17 +525,17 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
     expect(config.rag.embedding!.nlp!.model).toBe('bar');
   });
 
-  it('should accept anatoly-local provider', () => {
+  it('should accept local-advanced provider', () => {
     const config = ConfigSchema.parse({
       rag: {
         embedding: {
-          code: { provider: 'anatoly-local' },
-          nlp: { provider: 'anatoly-local' },
+          code: { provider: 'local-advanced' },
+          nlp: { provider: 'local-advanced' },
         },
       },
     });
-    expect(config.rag.embedding!.code!.provider).toBe('anatoly-local');
-    expect(config.rag.embedding!.nlp!.provider).toBe('anatoly-local');
+    expect(config.rag.embedding!.code!.provider).toBe('local-advanced');
+    expect(config.rag.embedding!.nlp!.provider).toBe('local-advanced');
   });
 
   it('should accept empty embedding object (both code and nlp undefined)', () => {
