@@ -16,9 +16,7 @@ Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) w
 npx anatoly run   # one command, full codebase audit
 ```
 
-> **TL;DR** — Install: `npx @r-via/anatoly@latest run` (pin a version for reproducibility: `npx @r-via/anatoly@0.9.5 run`).
-> Disable hooks: remove the `anatoly` block from `.claude/settings.json`.
-> Full uninstall: `rm -rf .anatoly/ && npm un -g @r-via/anatoly`.
+> **TL;DR** — `npx @r-via/anatoly@latest run` audits your codebase end-to-end. Pin a specific version for reproducibility: `npx @r-via/anatoly@0.9.5 run`.
 
 This program is entirely free — don't forget to leave a ⭐ on the [repo](https://github.com/r-via/anatoly) to help it get started.
 
@@ -203,6 +201,11 @@ anatoly run
 ```
 
 The `run` command executes the full pipeline: **scan** → **estimate** → **triage** → **usage graph** → **RAG index** → **review** → **doc update** → **report**. RAG indexing is enabled by default; use `--no-rag` to skip it. Internal docs are auto-scaffolded on first run if `.anatoly/docs/` doesn't exist.
+
+### Disable or uninstall
+
+- **Disable the Claude Code hooks** — remove the `anatoly` block from `.claude/settings.json`
+- **Full uninstall** — `rm -rf .anatoly/ && npm un -g @r-via/anatoly`
 
 ## Usage
 
