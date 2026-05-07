@@ -2104,6 +2104,9 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
           );
         }
       }
+      // Startup is done; clear the "starting GGUF…" activity so the spinner
+      // doesn't linger with a misleading label through the rest of setup.
+      clearActivity();
     }
 
     // Resolve models with the effective backend (handles GGUF/ONNX routing)
@@ -2114,22 +2117,21 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
 
     // Pre-flight: probe the resolved backend before the indexer starts so a
     // misconfigured external provider (bad key, wrong base URL, unknown model)
-    // or a dead local container fails in seconds with an actionable message
-    // instead of mid-pipeline. Lite is a no-op confirmation. Suppressed via
-    // --no-connectivity-check for deterministic CI runs.
+    // fails in seconds with an actionable message instead of mid-pipeline.
+    // Lite and advanced-gguf are no-op (advanced-gguf is already validated by
+    // startGgufContainers — daemon, model files, container health). Suppressed
+    // via --no-connectivity-check for deterministic CI runs.
     if (ctx.connectivityCheck) {
       const { runConnectivityCheck } = await import('../rag/connectivity-check.js');
-      if (tuiActive && effectiveBackend === 'advanced-gguf') {
+      if (tuiActive && effectiveBackend === 'external') {
         setActivity('checking embedding backend…');
       }
       const probeLog = (msg: string) => {
         log.info(msg);
         rl?.info(msg);
         ctx.renderer?.logPlain(`[rag] ${msg}`);
-        // Surface the latest probe log line in the In progress zone so the
-        // user sees real-time progress through the swap-heavy probe pair.
-        // The wait-progress handler will overwrite this with the seconds
-        // counter as soon as a VRAM load starts.
+        // Surface the latest probe log line in the In progress zone (only
+        // matters for `external` — the other backends are instant no-ops).
         setActivityDetail(msg.trim().slice(0, 80));
       };
       const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);

@@ -8,12 +8,12 @@
  * Validates — before the indexer runs — that the active backend can actually
  * produce embeddings end-to-end:
  *  - `lite` (ONNX, in-process): no I/O — emits a confirmation line.
- *  - `advanced-gguf` (local Docker llama.cpp): probes both axes via the SDK so
- *    `pre_hook` triggers `ensureModel` and the swap, exercising the hot-swap
- *    that the run will rely on. Order is **NLP first, then code** so the code
- *    container is left hot — the indexer starts with the code phase, so
- *    finishing the probe on `code` saves one extra swap (~15-60 s of VRAM
- *    reload) right before real work begins.
+ *  - `advanced-gguf` (local Docker llama.cpp): **skipped**. `startGgufContainers`
+ *    already validates the only meaningful failure modes (Docker daemon
+ *    available, model files present on disk, container `/health` green via
+ *    `waitForContainer`). A SDK-level probe would force ~30-120 s of extra
+ *    VRAM swap (load nlp, swap back to code) for a duplicate validation; any
+ *    remaining fault surfaces with a clear error on first index-time use.
  *  - `external` (third-party SDK): fires one short embedding per axis to catch
  *    bad keys, wrong base URL, or unsupported model names before any real work
  *    starts.
@@ -72,8 +72,11 @@ export async function runConnectivityCheck(
   }
 
   if (resolved.backend === 'advanced-gguf') {
-    log('RAG · advanced-gguf · probing local containers (NLP first, then code swap)…');
-    return probePair(resolved, log);
+    // Skip the probe: startGgufContainers already validated daemon + model
+    // files + container health. A second SDK-level validation would cost
+    // ~30-120 s of redundant VRAM swap right before the indexer starts.
+    log('RAG · advanced-gguf · ok (containers validated at startup, probe skipped)');
+    return { ok: true, backend: resolved.backend, probes: [] };
   }
 
   // external
@@ -88,28 +91,20 @@ async function probePair(
   resolved: ResolvedModels,
   log: (message: string) => void,
 ): Promise<ConnectivityCheckOutcome> {
-  // For advanced-gguf the order matters: probe NLP first so the *code*
-  // container is hot when the indexer starts (which begins with the code
-  // phase). For external/lite the order is irrelevant but stays consistent.
-  const order = resolved.backend === 'advanced-gguf'
-    ? ['nlp', 'code'] as const
-    : ['code', 'nlp'] as const;
-  const probesByAxis = new Map<'code' | 'nlp', ProbeResult>();
-  for (const axis of order) {
+  const probes: ProbeResult[] = [];
+  for (const axis of ['code', 'nlp'] as const) {
     const result = await probeOne(resolved, axis, log);
     if (!result.ok) {
       return { ok: false, backend: resolved.backend, failure: result.failure };
     }
-    probesByAxis.set(axis, result.probe);
+    probes.push(result.probe);
   }
-  const codeProbe = probesByAxis.get('code')!;
-  const nlpProbe = probesByAxis.get('nlp')!;
   log(
     `RAG · ${resolved.backend} · ok (`
-    + `code ${codeProbe.dim}d in ${codeProbe.durationMs}ms, `
-    + `nlp ${nlpProbe.dim}d in ${nlpProbe.durationMs}ms)`,
+    + `code ${probes[0]!.dim}d in ${probes[0]!.durationMs}ms, `
+    + `nlp ${probes[1]!.dim}d in ${probes[1]!.durationMs}ms)`,
   );
-  return { ok: true, backend: resolved.backend, probes: [codeProbe, nlpProbe] };
+  return { ok: true, backend: resolved.backend, probes };
 }
 
 async function probeOne(

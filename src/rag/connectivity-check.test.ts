@@ -185,44 +185,18 @@ describe('runConnectivityCheck — external backend', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Advanced GGUF — exercises the swap by probing both axes via SDK
+// Advanced GGUF — probe is skipped (containers validated at startup)
 // ---------------------------------------------------------------------------
 
 describe('runConnectivityCheck — advanced-gguf backend', () => {
-  it('probes both axes (nlp first, then code) — leaves code hot for the indexer', async () => {
-    // Probe order is NLP → code so the code container is hot when the
-    // indexer's first phase (code embedding) starts. Mocks are ordered to
-    // match: first call = NLP (4096d), second = code (3584d).
-    mockEmbed
-      .mockResolvedValueOnce({ embedding: new Array(4096).fill(0) })
-      .mockResolvedValueOnce({ embedding: new Array(3584).fill(0) });
+  it('skips the probe and returns ok with empty probes', async () => {
+    const logs: string[] = [];
+    const outcome = await runConnectivityCheck(advancedGgufResolved(), (msg) => logs.push(msg));
 
-    const outcome = await runConnectivityCheck(advancedGgufResolved(), () => {});
-
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
-    expect(outcome.backend).toBe('advanced-gguf');
-    // Returned `probes` keeps a stable [code, nlp] shape regardless of
-    // execution order, so downstream consumers don't have to care.
-    expect(outcome.probes.map((p) => p.axis)).toEqual(['code', 'nlp']);
-    expect(outcome.probes[0]?.dim).toBe(3584);
-    expect(outcome.probes[1]?.dim).toBe(4096);
-    // Two calls — proves the swap was driven (the SDK model's pre_hook is
-    // what actually runs ensureModel; this test just confirms we issue both
-    // probes through the SDK).
-    expect(mockEmbed).toHaveBeenCalledTimes(2);
-  });
-
-  it('reports failure when the local container does not respond', async () => {
-    // First probe is NLP (advanced-gguf order), so the failure surfaces on
-    // the nlp axis.
-    mockEmbed.mockRejectedValueOnce(new Error('ECONNREFUSED 127.0.0.1:11438'));
-
-    const outcome = await runConnectivityCheck(advancedGgufResolved(), () => {});
-
-    expect(outcome.ok).toBe(false);
-    if (outcome.ok) return;
-    expect(outcome.failure.axis).toBe('nlp');
-    expect(outcome.failure.cause.message).toContain('ECONNREFUSED');
+    expect(outcome).toEqual({ ok: true, backend: 'advanced-gguf', probes: [] });
+    expect(mockEmbed).not.toHaveBeenCalled();
+    expect(mockGetVercelEmbeddingModel).not.toHaveBeenCalled();
+    // The skip is logged so it shows up in the run log for traceability.
+    expect(logs[0]).toMatch(/probe skipped/);
   });
 });
