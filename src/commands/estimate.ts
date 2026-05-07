@@ -333,7 +333,7 @@ interface EstimateJsonPayload {
   forecast: {
     files: { total: number; evaluate: number; skipped: number };
     tokens: {
-      llm: { inputTokens: number; outputTokens: number };
+      llm: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number };
       embed: { tokens: number; codeUnits: number; textUnits: number };
       total: number;
     };
@@ -717,7 +717,12 @@ export function registerEstimateCommand(program: Command): void {
           forecast: {
             files: { total: forecast.totalFiles, evaluate: forecast.files, skipped: forecast.skippedFiles },
             tokens: {
-              llm: { inputTokens: forecast.llm.inputTokens, outputTokens: forecast.llm.outputTokens },
+              llm: {
+                inputTokens: forecast.llm.inputTokens,
+                outputTokens: forecast.llm.outputTokens,
+                cacheReadTokens: forecast.llm.cacheReadTokens,
+                cacheCreationTokens: forecast.llm.cacheCreationTokens,
+              },
               embed: { tokens: forecast.embed.tokens, codeUnits: forecast.embed.codeUnits, textUnits: forecast.embed.nlpUnits },
               total: forecast.totalTokens,
             },
@@ -734,7 +739,15 @@ export function registerEstimateCommand(program: Command): void {
       }
 
       // Forecast block (estimate command only — verdict before pipeline detail).
+      // Headline counts fresh in/out plus cache reads/writes — without the
+      // cache segment, internal-doc bootstrap (~2M cached reads/run) is
+      // invisible and the displayed $/token ratio looks inflated.
+      const cacheParts: string[] = [];
+      if (forecast.llm.cacheReadTokens > 0) cacheParts.push(`${formatTokenCount(forecast.llm.cacheReadTokens)} cache-read`);
+      if (forecast.llm.cacheCreationTokens > 0) cacheParts.push(`${formatTokenCount(forecast.llm.cacheCreationTokens)} cache-write`);
+      const cacheFragment = cacheParts.length > 0 ? ` (+ ${cacheParts.join(', ')})` : '';
       const totalTokensFragment = `${formatTokenCount(forecast.llm.inputTokens)} in / ${formatTokenCount(forecast.llm.outputTokens)} out`
+        + cacheFragment
         + (forecast.embed.tokens > 0 ? ` + ${formatTokenCount(forecast.embed.tokens)} embed` : '');
       // Build the files line. Two orthogonal axes:
       //   - Freshness from the scanner: how many files are new vs modified

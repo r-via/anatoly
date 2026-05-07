@@ -378,6 +378,16 @@ export interface RunForecast {
     /** New (uncached) input tokens across all LLM steps (axes + summary + doc). */
     inputTokens: number;
     outputTokens: number;
+    /**
+     * Cached input tokens *read* across all LLM steps. Billed at the
+     * provider's cacheReadInput rate (~10% of input on Anthropic). Excluded
+     * from {@link inputTokens} to keep "fresh" vs "cached" cost decomposable;
+     * surfaced here so the displayed token total isn't misleadingly small
+     * (internal-doc bootstrap alone can read ~2M cached tokens per run).
+     */
+    cacheReadTokens: number;
+    /** Cached input tokens *written* on first call of each cacheable prompt. */
+    cacheCreationTokens: number;
     /** Sum across all LLM steps. */
     costUsd: number;
     /** Cost grouped by short model name (e.g. `sonnet-4-6`). */
@@ -721,6 +731,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
 
   const llmInputTokens = llmSteps.reduce((sum, s) => sum + s.inputTokens, 0);
   const llmOutputTokens = llmSteps.reduce((sum, s) => sum + s.outputTokens, 0);
+  const llmCacheReadTokens = llmSteps.reduce((sum, s) => sum + (s.cacheReadTokens ?? 0), 0);
+  const llmCacheCreationTokens = llmSteps.reduce((sum, s) => sum + (s.cacheCreationTokens ?? 0), 0);
   const llmCost = llmSteps.reduce((sum, s) => sum + s.costUsd, 0);
   const costByModel: Record<string, number> = {};
   for (const s of llmSteps) {
@@ -751,6 +763,8 @@ export function forecastRun(args: ForecastInputs): RunForecast {
     llm: {
       inputTokens: llmInputTokens,
       outputTokens: llmOutputTokens,
+      cacheReadTokens: llmCacheReadTokens,
+      cacheCreationTokens: llmCacheCreationTokens,
       costUsd: llmCost,
       costByModel,
     },

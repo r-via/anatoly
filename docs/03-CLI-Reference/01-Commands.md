@@ -107,12 +107,28 @@ Two totals close the breakdown:
 
 **Forecast** — decision-grade headlines that recap what's above:
 - `files` (X of Y, with skipped count)
-- `tokens` (in / out + embed)
+- `tokens` (fresh in / out, plus cache-read / cache-write when prompt caching applies, plus embed). Cache tokens are billed at the provider's reduced rate (~10% of input on Anthropic for reads, ~125% for writes) — surfaced separately so the displayed `$/token` ratio reflects total work rather than just fresh input.
 - `cost` — billed amount with mode-aware suffix:
   - `$0 in subscription mode (ensure quota for ~$X)` when fully covered
   - `$X in consumption mode` when fully API-billed
   - `$X billed (~$Y consumption equivalent)` for mixed setups
 - `time` (calibrated ETA)
+
+#### How token & cache counts are forecast
+
+The forecast does **not** call the LLM — it predicts token volume from the pipeline's structure plus calibrated per-step heuristics, then prices each step against the on-disk pricing cache.
+
+| Step | Fresh input | Output | Cache read / write | Source of the prediction |
+|------|-------------|--------|---------------------|---------------------------|
+| `axis` (one per axis × file) | system prompt + file content + RAG context (when enabled), tokenized via tiktoken (`cl100k_base`) | `OUTPUT_BASE_PER_FILE + symbols × OUTPUT_TOKENS_PER_SYMBOL`, scaled by `AXIS_OUTPUT_MULTIPLIERS[axisId]` | **Deterministic.** The system prompt is identical across files for a given axis; Anthropic auto-caches identical prefixes. So for E files the estimator emits `cache_creation = SYSTEM_TOKENS` once and `cache_read = SYSTEM_TOKENS × (E−1)`. File content stays fresh (changes per call). | Pipeline construction + tiktoken |
+| `summary` (NLP code summarizer) | embed code-token volume | `codeUnits × NLP_TOKENS_PER_FUNCTION` | not modeled (single call per file, cache benefit small) | Heuristic |
+| `deliberation` (per shard) | `DELIBERATION_INPUT_PER_SHARD × shardCount` | `DELIBERATION_OUTPUT_PER_SHARD × shardCount` | calibrated `DELIBERATION_CACHE_READ/CREATION_PER_SHARD × shardCount` | **Empirical** — values fitted against R1/R2/R3 bench actuals |
+| `internal-doc:bootstrap` / `coherence` / `update` | `DOC_*_PER_PAGE.fresh × pageCount` | `… .output × pageCount` | `… .cacheRead / cacheCreation × pageCount` | **Empirical** — multi-turn agentic Read-tool conversation; values fitted against R1 actuals |
+
+So:
+- **Axis cache numbers are exact** given the pipeline runs as specified — they fall out of how Anthropic prompt caching works.
+- **Doc and deliberation cache numbers are calibrated estimates**: the multi-turn agent conversation isn't formally derivable, so the per-page / per-shard token shapes were measured on real runs (R1 baseline for doc, R1/R2/R3 for deliberation) and locked into constants. The breakdown table prefixes their `cost` values with `~` and the JSON tags those steps with `approximate: true`.
+- **Pricing** uses `cacheReadInput` / `cacheCreationInput` rates from the on-disk pricing cache. Providers without cache rates (non-Anthropic) fall back to the standard `input` rate, yielding the naive cost — which is the right number when no caching exists.
 
 ### Example — slot-engine project on Claude Code subscription
 
@@ -148,7 +164,7 @@ Two totals close the breakdown:
   Forecast
   ──────────────
   files    12 of 15  (3 skipped by triage)
-  tokens   ~64K in / ~113K out + ~6K embed
+  tokens   ~64K in / ~113K out (+ ~5K cache-read, ~600 cache-write) + ~6K embed
   cost     $0 in subscription mode  (ensure quota for ~$1.93)
   time     ~10m  (default)
 ```
@@ -171,7 +187,7 @@ Two totals close the breakdown:
   "forecast": {
     "files": { "total": 15, "evaluate": 12, "skipped": 3 },
     "tokens": {
-      "llm":   { "inputTokens": 63506, "outputTokens": 113300 },
+      "llm":   { "inputTokens": 63506, "outputTokens": 113300, "cacheReadTokens": 4800, "cacheCreationTokens": 600 },
       "embed": { "tokens": 5696, "codeUnits": 17, "textUnits": 34 },
       "total": 182502
     },
