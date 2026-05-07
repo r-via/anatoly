@@ -28,7 +28,7 @@ import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, in
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
-import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
+import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
@@ -2047,76 +2047,111 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
   let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware, ctx.config);
 
-  // Start the appropriate embedding backend based on detected tier
-  if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {
-    const ggufMsg = 'starting GGUF Docker containers';
-    let started = false;
-    if (!ctx.plain && process.stdout.isTTY) {
-      // Render in the "In progress" zone so it survives the 100 ms screen redraw
-      // (direct stdout writes get clobbered by the renderer).
-      const ggufLabel = `${ggufMsg}…`;
-      ctx.pipelineState?.trackFile(ggufLabel);
-      try {
-        started = await startGgufContainers(ctx.projectRoot, logFn, (sec) => {
-          ctx.pipelineState?.setRetryMessage(ggufLabel, `${sec}s`);
-        });
-      } finally {
-        ctx.pipelineState?.activeFiles.delete(ggufLabel);
-      }
-    } else {
-      log.info(ggufMsg);
-      started = await startGgufContainers(ctx.projectRoot, logFn);
+  // Unified "In progress" activity for the GGUF setup phase: container
+  // startup → connectivity check → (any pre_hook-driven swap). One synthetic
+  // activeFile entry whose path evolves with the current step, and whose
+  // retryMsg carries the live elapsed-second counter from VRAM loads or the
+  // latest probe log line. Without this, the spinner would freeze for tens of
+  // seconds during VRAM swaps and look like the app is hung.
+  const tuiActive = !ctx.plain && process.stdout.isTTY && !!ctx.pipelineState;
+  let activityLabel: string | null = null;
+  const setActivity = (label: string) => {
+    if (!tuiActive) return;
+    if (activityLabel) ctx.pipelineState!.activeFiles.delete(activityLabel);
+    activityLabel = label;
+    ctx.pipelineState!.trackFile(label);
+  };
+  const setActivityDetail = (detail: string) => {
+    if (!tuiActive || !activityLabel) return;
+    ctx.pipelineState!.setRetryMessage(activityLabel, detail);
+  };
+  const clearActivity = () => {
+    if (activityLabel && ctx.pipelineState) {
+      ctx.pipelineState.activeFiles.delete(activityLabel);
     }
-    if (!started) {
-      if (ctx.rebuildRag) {
-        log.warn('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
-        effectiveBackend = 'lite';
+    activityLabel = null;
+  };
+
+  try {
+    // Handler fires every second while a GGUF container is loading its
+    // model into VRAM (initial start AND swaps triggered by the SDK
+    // pre_hook). Installed for the whole setup phase and cleared in
+    // `finally` below.
+    setGgufWaitProgressHandler((model, elapsed) => {
+      setActivityDetail(`loading ${model} model · ${elapsed}s`);
+    });
+
+    // Start the appropriate embedding backend based on detected tier
+    if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {
+      const ggufMsg = 'starting GGUF Docker containers';
+      if (tuiActive) {
+        setActivity(`${ggufMsg}…`);
       } else {
-        throw new Error(
-          'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
-          + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
-          + 'Please either:\n'
-          + '  1. Start Docker and retry, or\n'
-          + '  2. Run with --rebuild-rag to re-index everything in lite mode',
+        log.info(ggufMsg);
+      }
+      const started = await startGgufContainers(ctx.projectRoot, logFn);
+      if (!started) {
+        if (ctx.rebuildRag) {
+          log.warn('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
+          effectiveBackend = 'lite';
+        } else {
+          throw new Error(
+            'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
+            + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
+            + 'Please either:\n'
+            + '  1. Start Docker and retry, or\n'
+            + '  2. Run with --rebuild-rag to re-index everything in lite mode',
+          );
+        }
+      }
+    }
+
+    // Resolve models with the effective backend (handles GGUF/ONNX routing)
+    const effectiveFlag = readyFlag
+      ? { ...readyFlag, backend: effectiveBackend }
+      : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
+    ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
+
+    // Pre-flight: probe the resolved backend before the indexer starts so a
+    // misconfigured external provider (bad key, wrong base URL, unknown model)
+    // or a dead local container fails in seconds with an actionable message
+    // instead of mid-pipeline. Lite is a no-op confirmation. Suppressed via
+    // --no-connectivity-check for deterministic CI runs.
+    if (ctx.connectivityCheck) {
+      const { runConnectivityCheck } = await import('../rag/connectivity-check.js');
+      if (tuiActive && effectiveBackend === 'advanced-gguf') {
+        setActivity('checking embedding backend…');
+      }
+      const probeLog = (msg: string) => {
+        log.info(msg);
+        rl?.info(msg);
+        ctx.renderer?.logPlain(`[rag] ${msg}`);
+        // Surface the latest probe log line in the In progress zone so the
+        // user sees real-time progress through the swap-heavy probe pair.
+        // The wait-progress handler will overwrite this with the seconds
+        // counter as soon as a VRAM load starts.
+        setActivityDetail(msg.trim().slice(0, 80));
+      };
+      const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);
+      if (!outcome.ok) {
+        const { axis, provider, model, cause } = outcome.failure;
+        const providerLabel = provider ?? '<no provider>';
+        throw new AnatolyError(
+          `RAG ${outcome.backend} connectivity check failed on ${axis} axis `
+          + `(${providerLabel}/${model}): ${cause.message}`,
+          ERROR_CODES.PROVIDER_AUTH_FAILED,
+          false,
+          outcome.backend === 'external'
+            ? `verify the API key env var, base_url, and model name in .anatoly.yml; `
+              + `pass --no-connectivity-check to bypass this gate`
+            : `check that Docker is running and that GGUF setup completed; `
+              + `re-run \`anatoly local-embeddings upgrade\` if needed`,
         );
       }
     }
-  }
-
-  // Resolve models with the effective backend (handles GGUF/ONNX routing)
-  const effectiveFlag = readyFlag
-    ? { ...readyFlag, backend: effectiveBackend }
-    : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
-  ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
-
-  // Pre-flight: probe the resolved backend before the indexer starts so a
-  // misconfigured external provider (bad key, wrong base URL, unknown model)
-  // or a dead local container fails in seconds with an actionable message
-  // instead of mid-pipeline. Lite is a no-op confirmation. Suppressed via
-  // --no-connectivity-check for deterministic CI runs.
-  if (ctx.connectivityCheck) {
-    const { runConnectivityCheck } = await import('../rag/connectivity-check.js');
-    const probeLog = (msg: string) => {
-      log.info(msg);
-      rl?.info(msg);
-      ctx.renderer?.logPlain(`[rag] ${msg}`);
-    };
-    const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);
-    if (!outcome.ok) {
-      const { axis, provider, model, cause } = outcome.failure;
-      const providerLabel = provider ?? '<no provider>';
-      throw new AnatolyError(
-        `RAG ${outcome.backend} connectivity check failed on ${axis} axis `
-        + `(${providerLabel}/${model}): ${cause.message}`,
-        ERROR_CODES.PROVIDER_AUTH_FAILED,
-        false,
-        outcome.backend === 'external'
-          ? `verify the API key env var, base_url, and model name in .anatoly.yml; `
-            + `pass --no-connectivity-check to bypass this gate`
-          : `check that Docker is running and that GGUF setup completed; `
-            + `re-run \`anatoly local-embeddings upgrade\` if needed`,
-      );
-    }
+  } finally {
+    setGgufWaitProgressHandler(undefined);
+    clearActivity();
   }
 
   // Update task labels with resolved model names

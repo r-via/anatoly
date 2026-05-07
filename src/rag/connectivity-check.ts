@@ -9,8 +9,11 @@
  * produce embeddings end-to-end:
  *  - `lite` (ONNX, in-process): no I/O — emits a confirmation line.
  *  - `advanced-gguf` (local Docker llama.cpp): probes both axes via the SDK so
- *    `pre_hook` triggers `ensureModel(code)` and the swap to NLP, exercising
- *    the hot-swap that the run will rely on.
+ *    `pre_hook` triggers `ensureModel` and the swap, exercising the hot-swap
+ *    that the run will rely on. Order is **NLP first, then code** so the code
+ *    container is left hot — the indexer starts with the code phase, so
+ *    finishing the probe on `code` saves one extra swap (~15-60 s of VRAM
+ *    reload) right before real work begins.
  *  - `external` (third-party SDK): fires one short embedding per axis to catch
  *    bad keys, wrong base URL, or unsupported model names before any real work
  *    starts.
@@ -69,7 +72,7 @@ export async function runConnectivityCheck(
   }
 
   if (resolved.backend === 'advanced-gguf') {
-    log('RAG · advanced-gguf · probing local containers (code, then NLP swap)…');
+    log('RAG · advanced-gguf · probing local containers (NLP first, then code swap)…');
     return probePair(resolved, log);
   }
 
@@ -85,20 +88,28 @@ async function probePair(
   resolved: ResolvedModels,
   log: (message: string) => void,
 ): Promise<ConnectivityCheckOutcome> {
-  const probes: ProbeResult[] = [];
-  for (const axis of ['code', 'nlp'] as const) {
+  // For advanced-gguf the order matters: probe NLP first so the *code*
+  // container is hot when the indexer starts (which begins with the code
+  // phase). For external/lite the order is irrelevant but stays consistent.
+  const order = resolved.backend === 'advanced-gguf'
+    ? ['nlp', 'code'] as const
+    : ['code', 'nlp'] as const;
+  const probesByAxis = new Map<'code' | 'nlp', ProbeResult>();
+  for (const axis of order) {
     const result = await probeOne(resolved, axis, log);
     if (!result.ok) {
       return { ok: false, backend: resolved.backend, failure: result.failure };
     }
-    probes.push(result.probe);
+    probesByAxis.set(axis, result.probe);
   }
+  const codeProbe = probesByAxis.get('code')!;
+  const nlpProbe = probesByAxis.get('nlp')!;
   log(
     `RAG · ${resolved.backend} · ok (`
-    + `code ${probes[0]!.dim}d in ${probes[0]!.durationMs}ms, `
-    + `nlp ${probes[1]!.dim}d in ${probes[1]!.durationMs}ms)`,
+    + `code ${codeProbe.dim}d in ${codeProbe.durationMs}ms, `
+    + `nlp ${nlpProbe.dim}d in ${nlpProbe.durationMs}ms)`,
   );
-  return { ok: true, backend: resolved.backend, probes };
+  return { ok: true, backend: resolved.backend, probes: [codeProbe, nlpProbe] };
 }
 
 async function probeOne(
@@ -123,6 +134,7 @@ async function probeOne(
     };
   }
 
+  log(`  ${axis}: ${provider}/${model} → probing…`);
   const start = Date.now();
   try {
     const sdkModel = getVercelEmbeddingModel(axis, model, {

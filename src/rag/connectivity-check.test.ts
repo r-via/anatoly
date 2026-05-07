@@ -189,16 +189,21 @@ describe('runConnectivityCheck — external backend', () => {
 // ---------------------------------------------------------------------------
 
 describe('runConnectivityCheck — advanced-gguf backend', () => {
-  it('probes both axes (code, then nlp) — exercising the hot-swap', async () => {
+  it('probes both axes (nlp first, then code) — leaves code hot for the indexer', async () => {
+    // Probe order is NLP → code so the code container is hot when the
+    // indexer's first phase (code embedding) starts. Mocks are ordered to
+    // match: first call = NLP (4096d), second = code (3584d).
     mockEmbed
-      .mockResolvedValueOnce({ embedding: new Array(3584).fill(0) })
-      .mockResolvedValueOnce({ embedding: new Array(4096).fill(0) });
+      .mockResolvedValueOnce({ embedding: new Array(4096).fill(0) })
+      .mockResolvedValueOnce({ embedding: new Array(3584).fill(0) });
 
     const outcome = await runConnectivityCheck(advancedGgufResolved(), () => {});
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.backend).toBe('advanced-gguf');
+    // Returned `probes` keeps a stable [code, nlp] shape regardless of
+    // execution order, so downstream consumers don't have to care.
     expect(outcome.probes.map((p) => p.axis)).toEqual(['code', 'nlp']);
     expect(outcome.probes[0]?.dim).toBe(3584);
     expect(outcome.probes[1]?.dim).toBe(4096);
@@ -209,13 +214,15 @@ describe('runConnectivityCheck — advanced-gguf backend', () => {
   });
 
   it('reports failure when the local container does not respond', async () => {
-    mockEmbed.mockRejectedValueOnce(new Error('ECONNREFUSED 127.0.0.1:11437'));
+    // First probe is NLP (advanced-gguf order), so the failure surfaces on
+    // the nlp axis.
+    mockEmbed.mockRejectedValueOnce(new Error('ECONNREFUSED 127.0.0.1:11438'));
 
     const outcome = await runConnectivityCheck(advancedGgufResolved(), () => {});
 
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.failure.axis).toBe('code');
+    expect(outcome.failure.axis).toBe('nlp');
     expect(outcome.failure.cause.message).toContain('ECONNREFUSED');
   });
 });

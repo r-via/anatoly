@@ -32,7 +32,22 @@ type ActiveModel = 'code' | 'nlp' | null;
 let activeModel: ActiveModel = null;
 let modelsDirectory: string | null = null;
 let logFn: ((message: string) => void) | undefined;
+let waitProgressFn: ((model: 'code' | 'nlp', elapsed: number) => void) | undefined;
 let dockerVerified = false;
+
+/**
+ * Register a callback invoked once per second while a GGUF container is
+ * loading its model into VRAM (during initial start or a swap). Lets the
+ * caller render live feedback in the CLI's "In progress" zone instead of
+ * leaving the spinner frozen for tens of seconds.
+ *
+ * Pass `undefined` to clear.
+ */
+export function setGgufWaitProgressHandler(
+  cb: ((model: 'code' | 'nlp', elapsed: number) => void) | undefined,
+): void {
+  waitProgressFn = cb;
+}
 
 // ---------------------------------------------------------------------------
 // Low-level helpers
@@ -159,7 +174,11 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   runContainer(cfg.container, cfg.file, cfg.port);
 
   logFn?.(`waiting for GGUF ${cfg.label} model to load into VRAM...`);
-  const ready = await waitForContainer(cfg.port, READY_TIMEOUT_MS);
+  const ready = await waitForContainer(
+    cfg.port,
+    READY_TIMEOUT_MS,
+    (elapsed) => waitProgressFn?.(model, elapsed),
+  );
 
   if (!ready) {
     removeContainer(cfg.container);
@@ -184,15 +203,17 @@ export function activePort(): number {
  * Validate prerequisites for GGUF containers (model files, Docker daemon).
  * Starts the code model by default so the first embedCode() call is instant.
  *
+ * For per-second progress feedback during the VRAM load (initial start *and*
+ * subsequent swaps), register a callback via {@link setGgufWaitProgressHandler}
+ * before calling this function.
+ *
  * @param projectRoot - Project root path (reserved for future per-project config).
  * @param onLog - Optional callback for status/error messages during startup.
- * @param onProgress - Optional callback invoked with elapsed seconds while waiting for readiness.
  * @returns `true` if the code-model container started and became healthy, `false` on any failure.
  */
 export async function startGgufContainers(
   projectRoot: string,
   onLog?: (message: string) => void,
-  _onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
   modelsDirectory = resolve(homedir(), '.anatoly', 'models');
   logFn = onLog;
