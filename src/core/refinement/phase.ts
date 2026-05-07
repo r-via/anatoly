@@ -51,6 +51,10 @@ export interface RefinementResult {
   tier3Stats: { investigated: number; confirmed: number; reclassified: number };
   totalDurationMs: number;
   totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +77,10 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     tier2Stats: { resolved: 0, escalated: 0 },
     tier3Stats: { investigated: 0, confirmed: 0, reclassified: 0 },
     totalDurationMs: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
     totalCostUsd: 0,
   };
 
@@ -164,6 +172,10 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   let tier3Stats = { investigated: 0, confirmed: 0, reclassified: 0 };
   let tier3CostUsd = 0;
   let tier3DurationMs = 0;
+  let tier3InputTokens = 0;
+  let tier3OutputTokens = 0;
+  let tier3CacheReadTokens = 0;
+  let tier3CacheCreationTokens = 0;
   const finalReviews = new Map(tier2Reviews.map((r) => [r.file, r]));
 
   if (allEscalated.length > 0 && ctx.queryFn) {
@@ -199,6 +211,10 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     };
     tier3CostUsd = tier3Result.totalCostUsd;
     tier3DurationMs = tier3Result.totalDurationMs;
+    tier3InputTokens = tier3Result.totalInputTokens;
+    tier3OutputTokens = tier3Result.totalOutputTokens;
+    tier3CacheReadTokens = tier3Result.totalCacheReadTokens;
+    tier3CacheCreationTokens = tier3Result.totalCacheCreationTokens;
 
     // Merge tier 3 updated reviews back
     for (const [file, updated] of tier3Result.updatedReviews) {
@@ -233,5 +249,9 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     tier3Stats,
     totalDurationMs,
     totalCostUsd: tier3CostUsd,
+    totalInputTokens: tier3InputTokens,
+    totalOutputTokens: tier3OutputTokens,
+    totalCacheReadTokens: tier3CacheReadTokens,
+    totalCacheCreationTokens: tier3CacheCreationTokens,
   };
 }

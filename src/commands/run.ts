@@ -1086,6 +1086,10 @@ export function registerRunCommand(program: Command): void {
               costUsd: refinementResult.totalCostUsd,
               durationMs: refinementDuration,
               calls: refinementResult.tier3Stats.investigated,
+              inputTokens: refinementResult.totalInputTokens,
+              outputTokens: refinementResult.totalOutputTokens,
+              cacheReadTokens: refinementResult.totalCacheReadTokens,
+              cacheCreationTokens: refinementResult.totalCacheCreationTokens,
             });
 
             getLogger().info({
@@ -2048,11 +2052,17 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     const ggufMsg = 'starting GGUF Docker containers';
     let started = false;
     if (!ctx.plain && process.stdout.isTTY) {
-      process.stdout.write(chalk.dim(`  ${ggufMsg}...`));
-      started = await startGgufContainers(ctx.projectRoot, logFn, (sec) => {
-        process.stdout.write(`\r\x1b[K${chalk.dim(`  ${ggufMsg}... ${sec}s`)}`);
-      });
-      process.stdout.write('\r\x1b[K');
+      // Render in the "In progress" zone so it survives the 100 ms screen redraw
+      // (direct stdout writes get clobbered by the renderer).
+      const ggufLabel = `${ggufMsg}…`;
+      ctx.pipelineState?.trackFile(ggufLabel);
+      try {
+        started = await startGgufContainers(ctx.projectRoot, logFn, (sec) => {
+          ctx.pipelineState?.setRetryMessage(ggufLabel, `${sec}s`);
+        });
+      } finally {
+        ctx.pipelineState?.activeFiles.delete(ggufLabel);
+      }
     } else {
       log.info(ggufMsg);
       started = await startGgufContainers(ctx.projectRoot, logFn);

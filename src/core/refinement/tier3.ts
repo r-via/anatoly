@@ -88,6 +88,10 @@ export interface ShardResult {
   reclassified: number;
   costUsd: number;
   durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   error?: string;
 }
 
@@ -97,6 +101,10 @@ export interface Tier3Result {
   reclassified: number;
   totalCostUsd: number;
   totalDurationMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   budgetExceeded: boolean;
   shardResults: ShardResult[];
   /** ReviewFiles updated by tier 3 investigation. */
@@ -255,6 +263,10 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         reclassified: 0,
         costUsd: 0,
         durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
       };
       shardResults.push(cachedResult);
       ctx.onShardDone?.(shardResults.length, shards.length, cachedResult);
@@ -273,6 +285,10 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         reclassified: 0,
         costUsd: 0,
         durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
         error: `Budget exceeded ($${totalCostUsd.toFixed(2)} >= $${ctx.budgetUsd})`,
       };
       shardResults.push(skipped);
@@ -316,6 +332,10 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
         reclassified: 0,
         costUsd: 0,
         durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
         error: err instanceof Error ? err.message : String(err),
       };
       shardResults.push(failed);
@@ -327,11 +347,19 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   let investigated = 0;
   let confirmed = 0;
   let reclassified = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCacheReadTokens = 0;
+  let totalCacheCreationTokens = 0;
 
   for (const sr of shardResults) {
     investigated += sr.investigated;
     confirmed += sr.confirmed;
     reclassified += sr.reclassified;
+    totalInputTokens += sr.inputTokens;
+    totalOutputTokens += sr.outputTokens;
+    totalCacheReadTokens += sr.cacheReadTokens;
+    totalCacheCreationTokens += sr.cacheCreationTokens;
   }
 
   return {
@@ -340,6 +368,10 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
     reclassified,
     totalCostUsd,
     totalDurationMs,
+    totalInputTokens,
+    totalOutputTokens,
+    totalCacheReadTokens,
+    totalCacheCreationTokens,
     budgetExceeded,
     shardResults,
     updatedReviews,
@@ -447,6 +479,10 @@ async function investigateShard(
     reclassified: reclassifiedCount,
     costUsd: queryResult.costUsd,
     durationMs: queryResult.durationMs,
+    inputTokens: queryResult.inputTokens,
+    outputTokens: queryResult.outputTokens,
+    cacheReadTokens: queryResult.cacheReadTokens,
+    cacheCreationTokens: queryResult.cacheCreationTokens,
     deliberation,
   };
 }
