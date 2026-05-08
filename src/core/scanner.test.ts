@@ -134,7 +134,7 @@ describe('scanProject', () => {
 
     // Check task files
     const taskFile = readFileSync(
-      join(tempDir, '.anatoly', 'tasks', 'src-index.task.json'),
+      join(tempDir, '.anatoly', 'cache', 'tasks', 'src-index.task.json'),
       'utf-8',
     );
     const task = JSON.parse(taskFile);
@@ -341,7 +341,7 @@ describe('loadCoverage', () => {
     await scanProject(tempDir, config);
 
     const taskFile = readFileSync(
-      join(tempDir, '.anatoly', 'tasks', 'src-index.task.json'),
+      join(tempDir, '.anatoly', 'cache', 'tasks', 'src-index.task.json'),
       'utf-8',
     );
     const task = JSON.parse(taskFile);
@@ -368,7 +368,7 @@ describe('loadCoverage', () => {
     await scanProject(tempDir, config);
 
     const taskFile = readFileSync(
-      join(tempDir, '.anatoly', 'tasks', 'src-index.task.json'),
+      join(tempDir, '.anatoly', 'cache', 'tasks', 'src-index.task.json'),
       'utf-8',
     );
     const task = JSON.parse(taskFile);

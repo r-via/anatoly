@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
-import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
 import { buildDocSectionId, remapDocPath } from './doc-indexer.js';
@@ -105,7 +105,7 @@ export class VectorStore {
   ) {
     this.projectRoot = projectRoot;
     this.tableName = tableName ?? DEFAULT_TABLE_NAME;
-    this.dbPath = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+    this.dbPath = anatolyPath(projectRoot, 'cache/rag/lancedb');
     this.rebuildOnDrift = rebuildOnDrift ?? false;
     if (onLog) this.onLog = onLog;
   }

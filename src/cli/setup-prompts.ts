@@ -6,7 +6,8 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import yaml from 'js-yaml';
 import { GGUF_MIN_VRAM_GB, readEmbeddingsReadyFlag, type HardwareProfile } from '../rag/hardware-detect.js';
 import { prefetchLiteModels, type PrefetchProgress } from '../rag/embeddings-prefetch.js';
@@ -756,9 +757,9 @@ function writeExternalReadyFlag(projectRoot: string): void {
     backend: 'external' as const,
     setup_at: new Date().toISOString(),
   };
-  const dir = resolve(projectRoot, '.anatoly');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(resolve(dir, 'embeddings-ready.json'), JSON.stringify(flag, null, 2), 'utf-8');
+  const flagPath = anatolyPath(projectRoot, 'setup', 'embeddings-ready.json');
+  mkdirSync(dirname(flagPath), { recursive: true });
+  writeFileSync(flagPath, JSON.stringify(flag, null, 2), 'utf-8');
 }
 
 // ---------------------------------------------------------------------------

@@ -6,10 +6,12 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import type { HardwareProfile } from '../rag/hardware-detect.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
-const DISMISS_FILE = join('.anatoly', 'hints-dismissed.json');
+// Relative path is resolved per-call via anatolyPath(projectRoot, 'state', 'hints-dismissed.json')
+const DISMISS_FILENAME = 'hints-dismissed.json';
 
 /** Command attached to a hint that the user can launch directly from the prompt. */
 export interface HintCommand {
@@ -46,7 +48,7 @@ interface DismissalFile {
 }
 
 function dismissalsPath(projectRoot: string): string {
-  return join(projectRoot, DISMISS_FILE);
+  return anatolyPath(projectRoot, 'state', DISMISS_FILENAME);
 }
 
 export function loadDismissedHints(projectRoot: string): Set<string> {

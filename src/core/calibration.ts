@@ -2,8 +2,9 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 /**
  * Per-axis calibration data, derived from real run timings.
@@ -41,7 +42,7 @@ const DEFAULT_MEDIANS: Record<string, number> = {
 };
 
 function calibrationPath(projectRoot: string): string {
-  return resolve(projectRoot, '.anatoly', 'calibration.json');
+  return anatolyPath(projectRoot, 'state', 'calibration.json');
 }
 
 /**
@@ -71,6 +72,7 @@ export function loadCalibration(projectRoot: string): CalibrationData {
  */
 export function saveCalibration(projectRoot: string, data: CalibrationData): void {
   const path = calibrationPath(projectRoot);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(data, null, 2) + '\n');
 }
 
@@ -96,7 +98,7 @@ interface RunMetrics {
  * then computes the median. Falls back to defaults for axes with no data.
  */
 export function recalibrateFromRuns(projectRoot: string): CalibrationData {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
   if (!existsSync(runsDir)) return loadCalibration(projectRoot);
 
   // Only use the most recent runs to bound I/O and keep calibration fresh

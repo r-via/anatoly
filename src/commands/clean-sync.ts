@@ -4,7 +4,8 @@
 
 import type { Command } from 'commander';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -166,7 +167,7 @@ export function registerCleanSyncCommand(program: Command): void {
       }
 
       // Find prd.json
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', axis);
+      const cleanDir = anatolyPath(projectRoot, 'cache', 'clean', axis);
       const prdPath = join(cleanDir, 'prd.json');
 
       if (!existsSync(prdPath)) {

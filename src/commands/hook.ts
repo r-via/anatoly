@@ -3,8 +3,9 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { resolve, relative, extname } from 'node:path';
+import { relative, extname } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
@@ -94,12 +95,12 @@ export function registerHookCommand(program: Command): void {
       // Check SHA-256 hash — skip if unchanged from cached review
       const currentHash = computeFileHash(absPath);
       const outputName = toOutputName(relPath);
-      const revJsonPath = resolve(projectRoot, '.anatoly', 'reviews', `${outputName}.rev.json`);
+      const revJsonPath = anatolyPath(projectRoot, 'cache', 'reviews', `${outputName}.rev.json`);
       if (existsSync(revJsonPath)) {
         try {
           const existingReview = JSON.parse(readFileSync(revJsonPath, 'utf-8')) as ReviewFile;
           // If the review's file matches and we have a matching task hash, skip
-          const taskPath = resolve(projectRoot, '.anatoly', 'tasks', `${outputName}.task.json`);
+          const taskPath = anatolyPath(projectRoot, 'cache', 'tasks', `${outputName}.task.json`);
           if (existsSync(taskPath)) {
             const task = JSON.parse(readFileSync(taskPath, 'utf-8')) as { hash: string };
             if (task.hash === currentHash && existingReview.file === relPath) {

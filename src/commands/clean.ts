@@ -6,6 +6,7 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import chalk from 'chalk';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { loadConfig } from '../utils/config-loader.js';
@@ -267,7 +268,7 @@ export function registerCleanCommand(program: Command): void {
         return;
       }
 
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', cleanName);
+      const cleanDir = resolve(anatolyPath(projectRoot, 'cache'), 'clean', cleanName);
       mkdirSync(cleanDir, { recursive: true });
 
       // Generate artifacts
@@ -288,7 +289,7 @@ export function registerCleanCommand(program: Command): void {
         const config = loadConfig(projectRoot);
         const docsPath = config.documentation?.docs_path ?? 'docs';
         const projectDocsDir = resolve(projectRoot, docsPath);
-        const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
+        const internalDocsDir = anatolyPath(projectRoot, 'state/internal-docs');
         if (!existsSync(projectDocsDir) && existsSync(internalDocsDir)) {
           cpSync(internalDocsDir, projectDocsDir, { recursive: true });
           console.log(chalk.green(`\u2713 Bootstrapped ${docsPath}/ from .anatoly/docs/`));

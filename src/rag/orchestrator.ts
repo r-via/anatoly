@@ -588,7 +588,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   let internalDocsCached = false;
 
   // Check if docs/ and .anatoly/docs/ are byte-identical to avoid double-chunking
-  const internalDocsDir = join('.anatoly', 'docs');
+  const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
   let docsIdentical = false;
   try {
     docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);

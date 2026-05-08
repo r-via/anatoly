@@ -253,7 +253,7 @@ describe('loadRagCache with cacheSuffix', () => {
 
   beforeEach(() => {
     tmpRoot = resolve(tmpdir(), `anatoly-test-${Date.now()}`);
-    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
   });
 
   afterEach(() => {
@@ -262,7 +262,7 @@ describe('loadRagCache with cacheSuffix', () => {
 
   it('loads cache_lite.json when cacheSuffix is "lite"', () => {
     const cache: RagCache = { entries: { abc123def4567890: 'hash1' } };
-    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache_lite.json'), JSON.stringify(cache));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache_lite.json'), JSON.stringify(cache));
 
     const result = loadRagCache(tmpRoot, 'lite');
     expect(result.entries).toEqual({ abc123def4567890: 'hash1' });
@@ -270,7 +270,7 @@ describe('loadRagCache with cacheSuffix', () => {
 
   it('loads cache.json when no suffix provided', () => {
     const cache: RagCache = { entries: { abc123def4567890: 'hash2' } };
-    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(cache));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache.json'), JSON.stringify(cache));
 
     const result = loadRagCache(tmpRoot);
     expect(result.entries).toEqual({ abc123def4567890: 'hash2' });
@@ -278,7 +278,7 @@ describe('loadRagCache with cacheSuffix', () => {
 
   it('falls back to legacy cache.json when mode-specific cache does not exist', () => {
     const cache: RagCache = { entries: { abc123def4567890: 'legacy' } };
-    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(cache));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache.json'), JSON.stringify(cache));
 
     const result = loadRagCache(tmpRoot, 'lite');
     expect(result.entries).toEqual({ abc123def4567890: 'legacy' });
@@ -287,8 +287,8 @@ describe('loadRagCache with cacheSuffix', () => {
   it('does not fall back when mode-specific cache exists', () => {
     const legacy: RagCache = { entries: { abc123def4567890: 'legacy' } };
     const modeSpecific: RagCache = { entries: { abc123def4567890: 'mode' } };
-    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache.json'), JSON.stringify(legacy));
-    writeFileSync(resolve(tmpRoot, '.anatoly', 'rag', 'cache_advanced.json'), JSON.stringify(modeSpecific));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache.json'), JSON.stringify(legacy));
+    writeFileSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache_advanced.json'), JSON.stringify(modeSpecific));
 
     const result = loadRagCache(tmpRoot, 'advanced');
     expect(result.entries).toEqual({ abc123def4567890: 'mode' });
@@ -305,7 +305,7 @@ describe('saveRagCache with cacheSuffix', () => {
 
   beforeEach(() => {
     tmpRoot = resolve(tmpdir(), `anatoly-test-${Date.now()}`);
-    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
   });
 
   afterEach(() => {
@@ -316,7 +316,7 @@ describe('saveRagCache with cacheSuffix', () => {
     const cache: RagCache = { entries: { abc123def4567890: 'saved' } };
     saveRagCache(tmpRoot, cache, 'lite');
 
-    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'cache_lite.json');
+    const filePath = resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache_lite.json');
     expect(existsSync(filePath)).toBe(true);
   });
 
@@ -324,7 +324,7 @@ describe('saveRagCache with cacheSuffix', () => {
     const cache: RagCache = { entries: { abc123def4567890: 'saved' } };
     saveRagCache(tmpRoot, cache);
 
-    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'cache.json');
+    const filePath = resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'cache.json');
     expect(existsSync(filePath)).toBe(true);
   });
 });
@@ -352,7 +352,7 @@ describe('loadNlpSummaryCache', () => {
 
   beforeEach(() => {
     tmpRoot = resolve(tmpdir(), `anatoly-test-nlp-${Date.now()}`);
-    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
   });
 
   afterEach(() => {
@@ -374,7 +374,7 @@ describe('loadNlpSummaryCache', () => {
       },
     };
     writeFileSync(
-      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json'),
+      resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'nlp_summary_cache.json'),
       JSON.stringify(data),
     );
 
@@ -385,7 +385,7 @@ describe('loadNlpSummaryCache', () => {
 
   it('returns empty cache for corrupted file', () => {
     writeFileSync(
-      resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json'),
+      resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'nlp_summary_cache.json'),
       'not json',
     );
     const cache = loadNlpSummaryCache(tmpRoot);
@@ -405,7 +405,7 @@ describe('loadNlpSummaryCache', () => {
         fnShared: { bodyHash: 'h2-advanced', summary: { summary: 'from advanced', docSummary: '', keyConcepts: ['y'], behavioralProfile: 'utility' } },
       },
     };
-    const ragDir = resolve(tmpRoot, '.anatoly', 'rag');
+    const ragDir = resolve(tmpRoot, '.anatoly', 'cache', 'rag');
     writeFileSync(resolve(ragDir, 'nlp_summary_cache_lite.json'), JSON.stringify(liteData));
     // Ensure the advanced file has a strictly later mtime than the lite file
     await new Promise((r) => setTimeout(r, 20));
@@ -431,7 +431,7 @@ describe('saveNlpSummaryCache', () => {
 
   beforeEach(() => {
     tmpRoot = resolve(tmpdir(), `anatoly-test-nlp-${Date.now()}`);
-    mkdirSync(resolve(tmpRoot, '.anatoly', 'rag'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
   });
 
   afterEach(() => {
@@ -449,7 +449,7 @@ describe('saveNlpSummaryCache', () => {
     };
     saveNlpSummaryCache(tmpRoot, cache);
 
-    const filePath = resolve(tmpRoot, '.anatoly', 'rag', 'nlp_summary_cache.json');
+    const filePath = resolve(tmpRoot, '.anatoly', 'cache', 'rag', 'nlp_summary_cache.json');
     expect(existsSync(filePath)).toBe(true);
 
     const loaded = loadNlpSummaryCache(tmpRoot);

@@ -14,6 +14,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import type { ProjectType } from './language-detect.js';
 import { extractModuleName } from './module-granularity.js';
 import { scoreDocumentation, type DocScore, type DocScoringInput } from './doc-scoring.js';
@@ -315,7 +316,7 @@ function buildReportStats(
   }
 
   // Internal docs module coverage: check .anatoly/docs/ pages against module names
-  const anatolyDocsDir = resolve(input.projectRoot, '.anatoly', 'docs');
+  const anatolyDocsDir = anatolyPath(input.projectRoot, 'state/internal-docs');
   const internalDocPages = scanUserDocs(anatolyDocsDir);
   let internalModulesDocumented = 0;
   if (scoringInput.totalModules > 0) {

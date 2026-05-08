@@ -4,6 +4,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createHash } from 'node:crypto';
 import { globSync } from 'tinyglobby';
 import { z } from 'zod';
@@ -30,7 +31,7 @@ export interface DocCacheData {
 }
 
 function ragCachePath(projectRoot: string, suffix: string): string {
-  return resolve(projectRoot, '.anatoly', 'rag', `cache_${suffix}.json`);
+  return anatolyPath(projectRoot, 'cache/rag', `cache_${suffix}.json`);
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ interface DocChunkCache {
 }
 
 function docChunkCachePath(projectRoot: string, suffix: string): string {
-  return resolve(projectRoot, '.anatoly', 'rag', `doc_chunk_cache_${suffix}.json`);
+  return anatolyPath(projectRoot, 'cache/rag', `doc_chunk_cache_${suffix}.json`);
 }
 
 function loadDocChunkCache(projectRoot: string, suffix: string): DocChunkCache {

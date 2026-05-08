@@ -4,6 +4,7 @@
 
 import { readFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
@@ -328,11 +329,11 @@ export async function generateDocEmbeddings(
 
 function cachePath(projectRoot: string, cacheSuffix?: string): string {
   const file = cacheSuffix ? `cache_${cacheSuffix}.json` : 'cache.json';
-  return resolve(projectRoot, '.anatoly', 'rag', file);
+  return anatolyPath(projectRoot, 'cache/rag', file);
 }
 
 function nlpCachePath(projectRoot: string): string {
-  return resolve(projectRoot, '.anatoly', 'rag', 'nlp_summary_cache.json');
+  return anatolyPath(projectRoot, 'cache/rag', 'nlp_summary_cache.json');
 }
 
 /**
@@ -345,7 +346,7 @@ function nlpCachePath(projectRoot: string): string {
  * between lite and advanced. Returns the merged cache.
  */
 function migrateLegacyNlpCaches(projectRoot: string): NlpSummaryCache {
-  const ragDir = resolve(projectRoot, '.anatoly', 'rag');
+  const ragDir = anatolyPath(projectRoot, 'cache/rag');
   if (!existsSync(ragDir)) return { entries: {} };
 
   const legacyFiles: string[] = [];

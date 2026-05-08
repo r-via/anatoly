@@ -40,7 +40,7 @@ describe('acquireLock / releaseLock', () => {
 
   it('should clean up stale lock (non-existent PID)', () => {
     // Write a lock with a PID that doesn't exist
-    const lockDir = join(tempDir, '.anatoly');
+    const lockDir = join(tempDir, '.anatoly', 'runtime');
     mkdirSync(lockDir, { recursive: true });
     writeFileSync(
       join(lockDir, 'anatoly.lock'),
@@ -90,7 +90,7 @@ describe('isLockActive', () => {
   });
 
   it('returns false when lock is stale (dead PID)', () => {
-    const lockDir = join(tempDir, '.anatoly');
+    const lockDir = join(tempDir, '.anatoly', 'runtime');
     mkdirSync(lockDir, { recursive: true });
     writeFileSync(
       join(lockDir, 'anatoly.lock'),

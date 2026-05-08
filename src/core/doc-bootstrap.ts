@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 interface ScaffoldStatus {
   /** Bumped when the file format changes incompatibly. */
@@ -31,7 +32,7 @@ interface ScaffoldStatus {
 
 /** Path to the scaffold-status tag, relative to `projectRoot`. */
 function statusPath(projectRoot: string): string {
-  return join(projectRoot, '.anatoly', 'docs', '.scaffold-status.json');
+  return anatolyPath(projectRoot, 'state/internal-docs', '.scaffold-status.json');
 }
 
 /**
@@ -45,7 +46,7 @@ function statusPath(projectRoot: string): string {
  * spuriously on their next run.
  */
 export function needsBootstrap(projectRoot: string): boolean {
-  const docsDir = join(projectRoot, '.anatoly', 'docs');
+  const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
   if (!existsSync(docsDir)) return true;
 
   // Canonical signal: scaffold-status tag.
@@ -81,7 +82,7 @@ export function writeScaffoldStatus(
   projectRoot: string,
   info: { mode: 'bootstrap' | 'update'; runId?: string },
 ): void {
-  const docsDir = join(projectRoot, '.anatoly', 'docs');
+  const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
   if (!existsSync(docsDir)) return;
   const status: ScaffoldStatus = {
     schemaVersion: 1,

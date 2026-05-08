@@ -4,7 +4,8 @@
 
 import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, basename, join } from 'node:path';
+import { basename, join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
@@ -256,7 +257,7 @@ export function registerCleanRunCommand(program: Command): void {
         reportFile = target;
       }
 
-      const cleanDir = resolve(projectRoot, '.anatoly', 'clean', cleanName);
+      const cleanDir = anatolyPath(projectRoot, 'cache', 'clean', cleanName);
       const prdPath = join(cleanDir, 'prd.json');
       const claudeMdPath = join(cleanDir, 'CLAUDE.md');
 

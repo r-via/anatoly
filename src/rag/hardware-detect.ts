@@ -6,6 +6,7 @@ import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { KNOWN_EMBEDDING_PROVIDERS } from './known-embedding-providers.js';
 import { isSystemLocalProvider } from './system-providers.js';
 import { parseModelRef, type ConfigV3 } from '../schemas/config-v3.js';
@@ -187,7 +188,7 @@ export interface EmbeddingsReadyFlag {
  * Returns the flag data if .anatoly/embeddings-ready.json exists, null otherwise.
  */
 export function readEmbeddingsReadyFlag(projectRoot: string): EmbeddingsReadyFlag | null {
-  const flagPath = resolve(projectRoot, '.anatoly', 'embeddings-ready.json');
+  const flagPath = anatolyPath(projectRoot, 'setup', 'embeddings-ready.json');
   if (!existsSync(flagPath)) return null;
   try {
     return JSON.parse(readFileSync(flagPath, 'utf-8')) as EmbeddingsReadyFlag;

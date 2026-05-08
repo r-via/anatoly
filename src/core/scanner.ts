@@ -4,6 +4,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { resolve, join, relative, extname } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { glob } from 'tinyglobby';
@@ -317,12 +318,10 @@ export async function scanProject(
   /** When provided, the cache validates that all requested axes were previously evaluated */
   requestedAxes?: string[],
 ): Promise<ScanResult> {
-  const anatolyDir = resolve(projectRoot, '.anatoly');
-  const tasksDir = join(anatolyDir, 'tasks');
-  const progressPath = join(anatolyDir, 'cache', 'progress.json');
+  const tasksDir = anatolyPath(projectRoot, 'cache', 'tasks');
+  const progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
 
   mkdirSync(tasksDir, { recursive: true });
-  mkdirSync(join(anatolyDir, 'cache'), { recursive: true });
 
   // Load existing progress
   const existingProgress = readProgress(progressPath);

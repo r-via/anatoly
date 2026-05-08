@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { resolve, relative } from 'node:path';
+import { relative } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
@@ -227,8 +228,8 @@ export function registerReviewCommand(program: Command): void {
           console.log(`interrupted \u2014 ${filesReviewed}/${total} files reviewed | ${totalFindings} findings`);
         } else {
           const rel = (p: string) => relative(process.cwd(), p) || '.';
-          const reviewsDir = resolve(projectRoot, '.anatoly', 'reviews');
-          const logsDir = resolve(projectRoot, '.anatoly', 'logs');
+          const reviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
+          const logsDir = anatolyPath(projectRoot, 'cache', 'logs');
           console.log('');
           console.log(chalk.bold('Done') + ` \u2014 ${filesReviewed} files | ${totalFindings} findings | ${filesReviewed - filesErrored} clean`);
           console.log('');

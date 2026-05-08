@@ -9,10 +9,11 @@ import { loadHookState, saveHookState, initHookState, isProcessRunning } from '.
 
 const TEST_ROOT = resolve(__dirname, '../../.test-hook-state');
 const ANATOLY_DIR = resolve(TEST_ROOT, '.anatoly');
+const RUNTIME_DIR = resolve(ANATOLY_DIR, 'runtime');
 
 describe('hook-state', () => {
   beforeEach(() => {
-    mkdirSync(ANATOLY_DIR, { recursive: true });
+    mkdirSync(RUNTIME_DIR, { recursive: true });
   });
 
   afterEach(() => {
@@ -35,7 +36,7 @@ describe('hook-state', () => {
     });
 
     it('returns fresh state when file is corrupted', () => {
-      writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), 'invalid json');
+      writeFileSync(resolve(RUNTIME_DIR, 'hook-state.json'), 'invalid json');
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBeTruthy();
       expect(state.reviews).toEqual({});
@@ -53,7 +54,7 @@ describe('hook-state', () => {
           },
         },
       };
-      writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), JSON.stringify(savedState));
+      writeFileSync(resolve(RUNTIME_DIR, 'hook-state.json'), JSON.stringify(savedState));
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBe('hook-123-abc');
       expect(state.reviews['src/foo.ts'].status).toBe('done');
@@ -71,14 +72,14 @@ describe('hook-state', () => {
           },
         },
       };
-      writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), JSON.stringify(savedState));
+      writeFileSync(resolve(RUNTIME_DIR, 'hook-state.json'), JSON.stringify(savedState));
       const state = loadHookState(TEST_ROOT);
       expect(state.reviews['src/bar.ts'].status).toBe('error');
     });
 
     it('returns fresh state when session_id is missing', () => {
       const savedState = { reviews: {} };
-      writeFileSync(resolve(ANATOLY_DIR, 'hook-state.json'), JSON.stringify(savedState));
+      writeFileSync(resolve(RUNTIME_DIR, 'hook-state.json'), JSON.stringify(savedState));
       const state = loadHookState(TEST_ROOT);
       expect(state.session_id).toBeTruthy();
       expect(state.session_id).not.toBe('');
@@ -97,7 +98,7 @@ describe('hook-state', () => {
 
       saveHookState(TEST_ROOT, state);
 
-      const path = resolve(ANATOLY_DIR, 'hook-state.json');
+      const path = resolve(RUNTIME_DIR, 'hook-state.json');
       expect(existsSync(path)).toBe(true);
 
       const loaded = JSON.parse(readFileSync(path, 'utf-8'));
@@ -105,13 +106,13 @@ describe('hook-state', () => {
       expect(loaded.reviews['src/test.ts'].pid).toBe(12345);
     });
 
-    it('creates .anatoly directory if it does not exist', () => {
+    it('creates .anatoly/runtime directory if it does not exist', () => {
       rmSync(ANATOLY_DIR, { recursive: true, force: true });
 
       const state = initHookState();
       saveHookState(TEST_ROOT, state);
 
-      expect(existsSync(resolve(ANATOLY_DIR, 'hook-state.json'))).toBe(true);
+      expect(existsSync(resolve(RUNTIME_DIR, 'hook-state.json'))).toBe(true);
     });
   });
 

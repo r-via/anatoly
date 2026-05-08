@@ -6,6 +6,7 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync, cpSync, lstatSync } from 'node:fs';
 import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { scanProject } from '../core/scanner.js';
@@ -141,7 +142,7 @@ async function runDocUpdate(
   if (unfixedIssues.length > 10) ctx.renderer.logPlain(`[lint]   … and ${unfixedIssues.length - 10} more`);
   ctx.state.updateTask(coherenceTaskId, `coherence review… (${unfixedIssues.length} issues)`);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const structLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `structural-review_${ts}`);
+  const structLogDir = anatolyPath(ctx.projectRoot, 'cache', 'logs', 'docs', `structural-review_${ts}`);
 
   try {
     const structResult = await runDocCoherenceReview({
@@ -200,7 +201,7 @@ export function registerDocsCommand(program: Command): void {
 
       const config = loadConfig(projectRoot);
       const projectDocsPath = config.documentation?.docs_path ?? 'docs';
-      const internalDocsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const internalDocsDir = anatolyPath(projectRoot, 'state/internal-docs');
       const projectDocsDir = resolve(projectRoot, projectDocsPath);
 
       // --- Project scope: copy internal → project docs ---
@@ -293,7 +294,7 @@ export function registerDocsCommand(program: Command): void {
             const total = genResult.prompts.length;
             ctx.state.updateTask('scaffold', `0/${total} pages`);
 
-            const scaffoldLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `scaffold_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+            const scaffoldLogDir = anatolyPath(ctx.projectRoot, 'cache', 'logs', 'docs', `scaffold_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
             const llmResult = await executeDocPrompts({
               prompts: genResult.prompts,
               outputDir,
@@ -334,7 +335,7 @@ export function registerDocsCommand(program: Command): void {
           if (scaffoldUnfixed.length > 10) ctx.renderer.logPlain(`[lint]   … and ${scaffoldUnfixed.length - 10} more`);
           ctx.state.updateTask('coherence-1', `coherence review… (${scaffoldUnfixed.length} issues)`);
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-          const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
+          const coherenceLogDir = anatolyPath(ctx.projectRoot, 'cache', 'logs', 'docs', `coherence-review_${ts}`);
 
           try {
             const coherenceResult = await runDocCoherenceReview({
@@ -435,9 +436,9 @@ export function registerDocsCommand(program: Command): void {
       const elapsed = (result.durationMs / 1000).toFixed(1);
       console.log('');
       console.log(`  ${chalk.green('✓')} Doc scaffold complete — ${elapsed}s · $${result.totalCostUsd.toFixed(4)}`);
-      console.log(`    ${chalk.dim(`docs: .anatoly/docs/`)}`);
-      if (existsSync(resolve(projectRoot, '.anatoly', 'logs', 'docs'))) {
-        console.log(`    ${chalk.dim(`logs: .anatoly/logs/docs/`)}`);
+      console.log(`    ${chalk.dim(`docs: .anatoly/state/internal-docs/`)}`);
+      if (existsSync(anatolyPath(projectRoot, 'cache', 'logs', 'docs'))) {
+        console.log(`    ${chalk.dim(`logs: .anatoly/cache/logs/docs/`)}`);
       }
     });
 
@@ -453,7 +454,7 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
       if (!existsSync(docsDir)) {
         console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
@@ -464,7 +465,7 @@ export function registerDocsCommand(program: Command): void {
       const docsPath = config.documentation?.docs_path ?? 'docs';
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const logDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `structure-review_${ts}`);
+      const logDir = anatolyPath(projectRoot, 'cache', 'logs', 'docs', `structure-review_${ts}`);
 
       console.log(`  ${chalk.yellow('●')} Structure lint`);
 
@@ -523,7 +524,7 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
       if (!existsSync(docsDir)) {
         console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
@@ -535,7 +536,7 @@ export function registerDocsCommand(program: Command): void {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
       // Step 1: Deterministic lint
-      const lintLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `structure-lint_${ts}`);
+      const lintLogDir = anatolyPath(projectRoot, 'cache', 'logs', 'docs', `structure-lint_${ts}`);
       console.log(`  ${chalk.yellow('●')} Structure lint`);
 
       const lintResult = reviewDocStructure(docsDir, projectRoot, docsPath, undefined, {
@@ -584,7 +585,7 @@ export function registerDocsCommand(program: Command): void {
       console.log('');
       console.log(`  ${chalk.yellow('●')} Coherence review ${chalk.dim('(sonnet)')}`);
 
-      const coherenceLogDir = resolve(projectRoot, '.anatoly', 'logs', 'docs', `coherence-review_${ts}`);
+      const coherenceLogDir = anatolyPath(projectRoot, 'cache', 'logs', 'docs', `coherence-review_${ts}`);
 
       try {
         const result = await runDocCoherenceReview({
@@ -632,7 +633,7 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
       if (!existsSync(docsDir)) {
         console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
@@ -664,7 +665,7 @@ export function registerDocsCommand(program: Command): void {
 
       // Drop doc-related caches + NLP summary cache (contains docSummary needed for gap detection)
       if (opts.dropCache) {
-        const ragDir = resolve(projectRoot, '.anatoly', 'rag');
+        const ragDir = anatolyPath(projectRoot, 'cache/rag');
         if (existsSync(ragDir)) {
           const cachePatterns = ['doc_chunk_cache_', 'cache_advanced-internal', 'cache_lite-internal', 'nlp_summary_cache_'];
           const cacheFiles = readdirSync(ragDir).filter(f =>
@@ -779,7 +780,7 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
       if (!existsSync(docsDir)) {
         console.error(chalk.red('No internal docs found. Run `anatoly docs scaffold` first.'));
         process.exitCode = 1;
@@ -787,7 +788,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       // Check RAG index exists
-      const ragDir = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+      const ragDir = anatolyPath(projectRoot, 'cache/rag/lancedb');
       if (!existsSync(ragDir)) {
         console.error(chalk.red('No RAG index found. Run `anatoly docs index` first.'));
         process.exitCode = 1;
@@ -804,7 +805,7 @@ export function registerDocsCommand(program: Command): void {
           { id: 'coherence-content', label: 'Internal doc — Content review (Opus)' },
         ],
         execute: async (ctx) => {
-          const outputDir = resolve(ctx.projectRoot, '.anatoly', 'docs');
+          const outputDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
           await runDocUpdate(ctx, outputDir, 'update', 'coherence');
         },
       });
@@ -830,7 +831,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       // Check that RAG index exists
-      const ragDir = resolve(projectRoot, '.anatoly', 'rag', 'lancedb');
+      const ragDir = anatolyPath(projectRoot, 'cache/rag/lancedb');
       if (!existsSync(ragDir)) {
         console.error(chalk.red('No RAG index found. Run `anatoly docs index` first.'));
         process.exitCode = 1;
@@ -839,7 +840,7 @@ export function registerDocsCommand(program: Command): void {
 
       const config = loadConfig(projectRoot);
       const docsPath = config.documentation?.docs_path ?? 'docs';
-      const targetDir = scope === 'internal' ? '.anatoly/docs' : docsPath;
+      const targetDir = scope === 'internal' ? join('.anatoly', 'state', 'internal-docs') : docsPath;
 
       if (!existsSync(resolve(projectRoot, targetDir))) {
         console.error(chalk.red(`${targetDir}/ not found.${scope === 'internal' ? ' Run `anatoly docs scaffold` first.' : ''}`));
@@ -893,7 +894,7 @@ export function registerDocsCommand(program: Command): void {
     .description('Show internal documentation status')
     .action(() => {
       const projectRoot = process.cwd();
-      const docsDir = resolve(projectRoot, '.anatoly', 'docs');
+      const docsDir = anatolyPath(projectRoot, 'state/internal-docs');
 
       if (!existsSync(docsDir)) {
         console.log('  No internal docs found. Run `anatoly docs scaffold` or `anatoly run` to generate.');
@@ -930,7 +931,7 @@ export function registerDocsCommand(program: Command): void {
       const projectRoot = process.cwd();
       const config = loadConfig(projectRoot);
       const projectDocsDir = config.documentation?.docs_path ?? 'docs';
-      const internalDocsDir = join('.anatoly', 'docs');
+      const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
 
       const absProject = resolve(projectRoot, projectDocsDir);
       const absInternal = resolve(projectRoot, internalDocsDir);
@@ -977,7 +978,7 @@ export function registerDocsCommand(program: Command): void {
       const config = loadConfig(projectRoot);
       const projectDocsPath = config.documentation?.docs_path ?? 'docs';
       const absProject = resolve(projectRoot, projectDocsPath);
-      const absInternal = resolve(projectRoot, '.anatoly', 'docs');
+      const absInternal = anatolyPath(projectRoot, 'state/internal-docs');
 
       if (!existsSync(absInternal)) {
         console.error(chalk.red('  .anatoly/docs/ does not exist. Run `anatoly docs scaffold` first.'));
@@ -986,7 +987,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       const projectExists = existsSync(absProject);
-      const identical = projectExists && areDocTreesIdentical(projectRoot, projectDocsPath, join('.anatoly', 'docs'));
+      const identical = projectExists && areDocTreesIdentical(projectRoot, projectDocsPath, join('.anatoly', 'state', 'internal-docs'));
 
       if (identical) {
         console.log(chalk.green('  Already identical') + ` — ${projectDocsPath}/ is already a copy of .anatoly/docs/`);

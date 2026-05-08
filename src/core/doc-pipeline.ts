@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { type ProjectProfile, type ProjectType } from './language-detect.js';
 import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
 import { resolveModuleGranularity, extractModuleName, type ModuleDir } from './module-granularity.js';
@@ -97,7 +98,7 @@ export function runDocScaffold(
   docsPath = 'docs',
   profile: ProjectProfile,
 ): DocScaffoldResult {
-  const outputDir = resolve(projectRoot, '.anatoly', 'docs');
+  const outputDir = anatolyPath(projectRoot, 'state/internal-docs');
 
   // Guard: never write to docs/
   assertSafeOutputPath(outputDir, projectRoot, docsPath);
@@ -150,7 +151,7 @@ export function runDocGeneration(
   changedFiles?: Set<string>,
 ): DocGenerationResult {
   const outputDir = scaffoldResult.outputDir;
-  const cachePath = join(outputDir, '.cache.json');
+  const cachePath = anatolyPath(projectRoot, 'cache/doc-build', 'manifest.json');
 
   // Load cache
   const cache = loadDocCache(cachePath);

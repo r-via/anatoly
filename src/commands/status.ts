@@ -6,6 +6,7 @@ import type { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
 import { buildProgressBar, verdictColor } from '../utils/format.js';
@@ -159,7 +160,7 @@ export function registerStatusCommand(program: Command): void {
       }
 
       // --- Existing audit progress section ---
-      const progressPath = resolve(projectRoot, '.anatoly', 'progress.json');
+      const progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
 
       if (!existsSync(progressPath) && allStatuses.length === 0) {
         console.log(chalk.bold('anatoly — status'));
@@ -245,11 +246,11 @@ export function registerStatusCommand(program: Command): void {
         }
         console.log(`  reviews     ${chalk.cyan(rel(resolve(latestRunDir, 'reviews')) + '/')}`);
       } else {
-        const reportPath = resolve(projectRoot, '.anatoly', 'report.md');
+        const reportPath = anatolyPath(projectRoot, 'state', 'report.md');
         if (existsSync(reportPath)) {
           console.log(`  report      ${chalk.cyan(rel(reportPath))}`);
         }
-        console.log(`  reviews     ${chalk.cyan(rel(resolve(projectRoot, '.anatoly', 'reviews')) + '/')}`);
+        console.log(`  reviews     ${chalk.cyan(rel(anatolyPath(projectRoot, 'cache', 'reviews')) + '/')}`);
       }
     });
 }

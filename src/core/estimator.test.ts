@@ -77,7 +77,7 @@ describe('loadTasks', () => {
     mkdirSync(join(tempDir, 'src'), { recursive: true });
     writeFileSync(join(tempDir, 'src', 'index.ts'), 'export const x = 1;\n');
 
-    const tasksDir = join(tempDir, '.anatoly', 'tasks');
+    const tasksDir = join(tempDir, '.anatoly', 'cache', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
       join(tasksDir, 'src-index.task.json'),
@@ -97,8 +97,8 @@ describe('loadTasks', () => {
 
   it('should drop tasks whose source file no longer exists', () => {
     // No corresponding src/orphan.ts on disk — guards against cross-project
-    // contamination of .anatoly/tasks/.
-    const tasksDir = join(tempDir, '.anatoly', 'tasks');
+    // contamination of .anatoly/cache/tasks/.
+    const tasksDir = join(tempDir, '.anatoly', 'cache', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
       join(tasksDir, 'src-orphan.task.json'),
@@ -145,7 +145,7 @@ describe('estimateProject', () => {
     );
 
     // Create task file
-    const tasksDir = join(tempDir, '.anatoly', 'tasks');
+    const tasksDir = join(tempDir, '.anatoly', 'cache', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
       join(tasksDir, 'src-index.task.json'),
@@ -173,7 +173,7 @@ describe('estimateProject', () => {
     // Task pointing at a source file that no longer exists. loadTasks() now
     // drops these so the estimator stays consistent with the current source
     // tree, and estimateProject reports zero scope (no work to do).
-    const tasksDir = join(tempDir, '.anatoly', 'tasks');
+    const tasksDir = join(tempDir, '.anatoly', 'cache', 'tasks');
     mkdirSync(tasksDir, { recursive: true });
     writeFileSync(
       join(tasksDir, 'src-deleted.task.json'),

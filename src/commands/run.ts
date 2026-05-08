@@ -85,6 +85,7 @@ import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
 import { createWorktreeManager } from '../core/worktree-manager.js';
+import { anatolyPath, runPath, clearCache } from '../utils/anatoly-paths.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -668,7 +669,7 @@ export function registerRunCommand(program: Command): void {
       }
 
       // Warn about empty (phantom) runs
-      const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+      const runsDir = anatolyPath(projectRoot, 'runs');
       const existingRuns = listRuns(projectRoot);
       const emptyRunCount = existingRuns.filter((id) => {
         try { return readdirSync(join(runsDir, id, 'reviews')).length === 0; } catch { return true; }
@@ -1394,7 +1395,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     const ragSuffix = ctx.resolvedRagMode ?? 'lite';
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
     docScanProject = countChangedDocs(srcRoot, docsPath, ragSuffix);
-    docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
+    docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
   }
   const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
@@ -1480,7 +1481,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
     ).length;
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-    embedForecast = estimateEmbedTokens(srcRoot, allTasks, [docsPath, join('.anatoly', 'docs')]);
+    embedForecast = estimateEmbedTokens(srcRoot, allTasks, [docsPath, join('.anatoly', 'state', 'internal-docs')]);
     pipelineRows.push({
       phase: 'rag',
       detail: `${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`,
@@ -1493,8 +1494,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const usageGraph = buildUsageGraph(srcRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
   const docsTree = buildDocsTree(srcRoot, ctx.config.documentation?.docs_path ?? 'docs');
-  const internalDocsDir = resolve(srcRoot, '.anatoly', 'docs');
-  const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'docs'));
+  const internalDocsDir = anatolyPath(srcRoot, 'state/internal-docs');
+  const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'state', 'internal-docs'));
 
   // --- Phase: docs (internal + project merged into one user-facing row) ---
   const bootstrapNeeded = needsBootstrap(srcRoot);
@@ -1711,7 +1712,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       ctx.pipelineState?.updateTask(taskId, 'linting docs…');
       ctx.renderer?.logPlain(`[${taskId}] linting doc structure…`);
       try {
-        const lintLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'structure-review');
+        const lintLogDir = runPath(ctx.projectRoot, ctx.runId, 'structure-review');
         const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: lintLogDir });
         log.info({ filesFixed: lintResult.filesFixed, issues: lintResult.issues.length }, 'doc structure lint complete');
         ctx.renderer?.logPlain(`[${taskId}] structure lint: ${lintResult.issues.length} issues, ${lintResult.filesFixed} auto-fixed`);
@@ -1740,7 +1741,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
       const coherenceStart = Date.now();
       try {
-        const coherenceLogDir = resolve(ctx.projectRoot, '.anatoly', 'runs', ctx.runId, 'coherence-review');
+        const coherenceLogDir = runPath(ctx.projectRoot, ctx.runId, 'coherence-review');
         // Switch the phase tag for the duration of the coherence pass so
         // its llm_call event lands under `phase: "coherence-review"` in
         // the ndjson — the surrounding block is `bootstrap-doc`, which
@@ -1915,7 +1916,7 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
 
   try {
     const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
-    const absInternal = resolve(ctx.projectRoot, '.anatoly', 'docs');
+    const absInternal = anatolyPath(ctx.projectRoot, 'state/internal-docs');
     const absProject = resolve(ctx.projectRoot, docsPath);
 
     if (!existsSync(absInternal)) {
@@ -1959,7 +1960,7 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
 async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore): Promise<void> {
   const log = getLogger();
   const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
-  const internalDocsDir = join('.anatoly', 'docs');
+  const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
   const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
@@ -2332,6 +2333,8 @@ async function runReviewPhase(
       }
     }
   } else if (ctx.noCache) {
+    clearCache(ctx.projectRoot);
+    log.info('--no-cache: cleared project cache. Shared cache (~/.anatoly/shared/) untouched. Use \'anatoly clean --shared\' to clear it.');
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
     }
@@ -3023,7 +3026,7 @@ function runReportPhase(ctx: RunContext): void {
  * from leaking into the current run's report.
  */
 function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: AxisId[]): ReviewFile | undefined {
-  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
+  const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
   const baseName = toOutputName(filePath);
   const src = join(cacheReviewsDir, `${baseName}.rev.json`);
   if (!existsSync(src)) return undefined;
@@ -3080,7 +3083,7 @@ function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: A
  * @param review Parsed review file to cache.
  */
 function cacheReview(projectRoot: string, review: ReviewFile): void {
-  const cacheReviewsDir = resolve(projectRoot, '.anatoly', 'cache', 'reviews');
+  const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
   mkdirSync(cacheReviewsDir, { recursive: true });
   const baseName = toOutputName(review.file);
   try {

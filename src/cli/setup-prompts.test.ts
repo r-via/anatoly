@@ -283,9 +283,9 @@ describe('runFirstRunWizard', () => {
     });
 
     function writeReadyFlag(backend: 'advanced-gguf' | 'lite' | 'external'): void {
-      mkdirSync(join(dir, '.anatoly'), { recursive: true });
+      mkdirSync(join(dir, '.anatoly', 'setup'), { recursive: true });
       writeFileSync(
-        join(dir, '.anatoly', 'embeddings-ready.json'),
+        join(dir, '.anatoly', 'setup', 'embeddings-ready.json'),
         JSON.stringify({ backend, device: 'cpu', setup_at: new Date().toISOString() }),
         'utf-8',
       );
@@ -992,7 +992,7 @@ describe('writeFirstRunConfig', () => {
 
   it('lite tier does not write embeddings-ready.json', async () => {
     await writeFirstRunConfig(dir, { tier: 'lite' });
-    const flagPath = join(dir, '.anatoly', 'embeddings-ready.json');
+    const flagPath = join(dir, '.anatoly', 'setup', 'embeddings-ready.json');
     expect(existsSync(flagPath)).toBe(false);
   });
 
@@ -1061,7 +1061,7 @@ describe('writeFirstRunConfig', () => {
 
   it('external tier still writes embeddings-ready.json (legacy compat)', async () => {
     await writeFirstRunConfig(dir, { tier: 'external' });
-    const flagPath = join(dir, '.anatoly', 'embeddings-ready.json');
+    const flagPath = join(dir, '.anatoly', 'setup', 'embeddings-ready.json');
     expect(existsSync(flagPath)).toBe(true);
     const flag = JSON.parse(readFileSync(flagPath, 'utf-8')) as { backend?: string };
     expect(flag.backend).toBe('external');

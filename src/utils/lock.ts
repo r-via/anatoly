@@ -3,9 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { AnatolyError, ERROR_CODES } from './errors.js';
 import { isProcessRunning } from './process.js';
+import { anatolyPath } from './anatoly-paths.js';
 
 interface LockData {
   pid: number;
@@ -18,7 +19,7 @@ interface LockData {
  * Stale locks (process no longer running) are automatically cleaned up.
  */
 export function acquireLock(projectRoot: string): string {
-  const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
+  const lockPath = anatolyPath(projectRoot, 'runtime', 'anatoly.lock');
   mkdirSync(dirname(lockPath), { recursive: true });
 
   // Check for existing lock
@@ -69,7 +70,7 @@ export function releaseLock(lockPath: string): void {
  * Does NOT acquire the lock — read-only check for hook coordination.
  */
 export function isLockActive(projectRoot: string): boolean {
-  const lockPath = resolve(projectRoot, '.anatoly', 'anatoly.lock');
+  const lockPath = anatolyPath(projectRoot, 'runtime', 'anatoly.lock');
   if (!existsSync(lockPath)) return false;
 
   try {

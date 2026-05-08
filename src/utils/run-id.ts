@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { mkdirSync, symlinkSync, unlinkSync, lstatSync, readlinkSync, readdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { anatolyPath } from './anatoly-paths.js';
 
 const RUN_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 
@@ -31,7 +32,7 @@ export function isValidRunId(runId: string): boolean {
  * Returns the absolute path to the run directory.
  */
 export function createRunDir(projectRoot: string, runId: string): string {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
   const runDir = join(runsDir, runId);
 
   mkdirSync(join(runDir, 'logs'), { recursive: true });
@@ -84,7 +85,7 @@ export function createMiniRun(projectRoot: string, prefix: string): MiniRunPaths
  * Returns null if the resolved directory doesn't exist.
  */
 export function resolveRunDir(projectRoot: string, runId?: string): string | null {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
 
   if (runId) {
     const runDir = join(runsDir, runId);
@@ -123,7 +124,7 @@ export function resolveRunDir(projectRoot: string, runId?: string): string | nul
  * List all run IDs sorted by name (chronological for timestamp-based IDs).
  */
 export function listRuns(projectRoot: string): string[] {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
   try {
     return readdirSync(runsDir)
       .filter((entry) => entry !== 'latest')
@@ -141,7 +142,7 @@ export function purgeRuns(projectRoot: string, keep: number): number {
   const runs = listRuns(projectRoot);
   if (runs.length <= keep) return 0;
 
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
   const toDelete = runs.slice(0, runs.length - keep);
   for (const runId of toDelete) {
     rmSync(join(runsDir, runId), { recursive: true, force: true });

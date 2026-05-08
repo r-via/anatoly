@@ -4,6 +4,7 @@
 
 import type { Command } from 'commander';
 import { resolve, relative } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { readFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { watch } from 'chokidar';
 import chalk from 'chalk';
@@ -52,12 +53,10 @@ export function registerWatchCommand(program: Command): void {
       const axesFilter = parseAxesOption(cmdOpts.axes);
       if (axesFilter === null) return;
 
-      const anatolyDir = resolve(projectRoot, '.anatoly');
-      const tasksDir = resolve(anatolyDir, 'tasks');
-      const progressPath = resolve(anatolyDir, 'cache', 'progress.json');
+      const tasksDir = anatolyPath(projectRoot, 'cache', 'tasks');
+      const progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
 
       mkdirSync(tasksDir, { recursive: true });
-      mkdirSync(resolve(anatolyDir, 'cache'), { recursive: true });
 
       // Acquire lock to prevent conflicts with concurrent anatoly instances
       const lockPath = acquireLock(projectRoot);

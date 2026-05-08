@@ -6,6 +6,7 @@ import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, relative, dirname, join, basename } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporter.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -44,7 +45,7 @@ export function registerReportCommand(program: Command): void {
       // Collect error files from progress (shared by both modes)
       const errorFiles: string[] = [];
       const pm = new ProgressManager(projectRoot);
-      const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
+      const progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
       if (existsSync(progressPath)) {
         const progress = pm.getProgress();
         for (const [, fp] of Object.entries(progress.files)) {
@@ -112,7 +113,7 @@ export function registerReportCommand(program: Command): void {
 
         const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles);
         reportData = data;
-        printReportSummary(data, axisReports, reportPath, resolve(projectRoot, '.anatoly', 'reviews'));
+        printReportSummary(data, axisReports, reportPath, anatolyPath(projectRoot, 'cache', 'reviews'));
         if (shouldOpen) openFile(reportPath);
       }
 

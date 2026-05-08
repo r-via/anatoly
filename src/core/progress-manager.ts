@@ -2,9 +2,9 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { resolve } from 'node:path';
 import type { Progress, FileProgress, FileStatus } from '../schemas/progress.js';
 import { readProgress, atomicWriteJson } from '../utils/cache.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 /**
  * Manages review progress: reads state, filters pending files,
@@ -19,7 +19,7 @@ export class ProgressManager {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(projectRoot: string) {
-    this.progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
+    this.progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
     this.progress = readProgress(this.progressPath) ?? {
       version: 1,
       started_at: new Date().toISOString(),

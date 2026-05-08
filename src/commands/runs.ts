@@ -4,7 +4,8 @@
 
 import type { Command } from 'commander';
 import { readdirSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir } from '../utils/run-id.js';
@@ -86,7 +87,7 @@ export function registerAuditCommand(program: Command): void {
         return;
       }
 
-      const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+      const runsDir = anatolyPath(projectRoot, 'runs');
       let infos = runs.map((id) => getRunInfo(runsDir, id));
 
       if (opts.empty) {
@@ -149,7 +150,7 @@ export function registerAuditCommand(program: Command): void {
         return;
       }
 
-      const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+      const runsDir = anatolyPath(projectRoot, 'runs');
       const allRuns = listRuns(projectRoot);
 
       let toDelete: string[];

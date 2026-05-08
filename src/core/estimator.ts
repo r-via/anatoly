@@ -4,6 +4,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { get_encoding } from 'tiktoken';
 import { TaskSchema, type Task } from '../schemas/task.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
@@ -128,7 +129,7 @@ export function estimateMinutesWithConcurrency(sequentialSeconds: number, concur
  * scanner output. The current source tree wins.
  */
 export function loadTasks(projectRoot: string): Task[] {
-  const tasksDir = resolve(projectRoot, '.anatoly', 'tasks');
+  const tasksDir = anatolyPath(projectRoot, 'cache', 'tasks');
   if (!existsSync(tasksDir)) return [];
 
   const entries = readdirSync(tasksDir).filter((f) => f.endsWith('.task.json'));

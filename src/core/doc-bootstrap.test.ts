@@ -26,39 +26,39 @@ describe('needsBootstrap', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('returns true when .anatoly/docs/ does not exist', () => {
+  it('returns true when .anatoly/state/internal-docs/ does not exist', () => {
     expect(needsBootstrap(tempDir)).toBe(true);
   });
 
-  it('returns false when .anatoly/docs/ exists with index.md and .cache.json', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+  it('returns false when .anatoly/state/internal-docs/ exists with index.md and .cache.json', () => {
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(join(docsDir, 'index.md'), '# Index\n');
     writeFileSync(join(docsDir, '.cache.json'), JSON.stringify({ version: 1, pages: { 'index.md': {} } }));
     expect(needsBootstrap(tempDir)).toBe(false);
   });
 
-  it('returns true when .anatoly/docs/ exists but .cache.json is missing', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+  it('returns true when .anatoly/state/internal-docs/ exists but .cache.json is missing', () => {
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(join(docsDir, 'index.md'), '# Index\n');
     expect(needsBootstrap(tempDir)).toBe(true);
   });
 
-  it('returns true when .anatoly/docs/ exists but index.md is missing', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+  it('returns true when .anatoly/state/internal-docs/ exists but index.md is missing', () => {
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(join(docsDir, '.cache.json'), JSON.stringify({ version: 1, pages: {} }));
     expect(needsBootstrap(tempDir)).toBe(true);
   });
 
-  it('returns true when .anatoly/ exists but docs/ subdirectory does not', () => {
+  it('returns true when .anatoly/ exists but state/internal-docs/ subdirectory does not', () => {
     mkdirSync(join(tempDir, '.anatoly'), { recursive: true });
     expect(needsBootstrap(tempDir)).toBe(true);
   });
 
   it('returns false when the scaffold-status tag is present (canonical signal)', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(
       join(docsDir, '.scaffold-status.json'),
@@ -69,7 +69,7 @@ describe('needsBootstrap', () => {
   });
 
   it('falls back to legacy markers when the tag is corrupt', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(join(docsDir, '.scaffold-status.json'), 'not json');
     // No legacy markers either → still needs bootstrap.
@@ -81,7 +81,7 @@ describe('needsBootstrap', () => {
   });
 
   it('rejects an unrecognised schemaVersion (forward-compat guard)', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeFileSync(
       join(docsDir, '.scaffold-status.json'),
@@ -97,8 +97,8 @@ describe('writeScaffoldStatus / readScaffoldStatus', () => {
   beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), 'doc-scaffold-status-')); });
   afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
 
-  it('writes a valid v1 tag when .anatoly/docs/ exists', () => {
-    const docsDir = join(tempDir, '.anatoly', 'docs');
+  it('writes a valid v1 tag when .anatoly/state/internal-docs/ exists', () => {
+    const docsDir = join(tempDir, '.anatoly', 'state', 'internal-docs');
     mkdirSync(docsDir, { recursive: true });
     writeScaffoldStatus(tempDir, { mode: 'bootstrap', runId: '2026-05-05_120000' });
     const tagPath = join(docsDir, '.scaffold-status.json');
@@ -110,13 +110,13 @@ describe('writeScaffoldStatus / readScaffoldStatus', () => {
     expect(typeof parsed.scaffoldedAt).toBe('string');
   });
 
-  it('does nothing when .anatoly/docs/ does not exist (no-op safe)', () => {
+  it('does nothing when .anatoly/state/internal-docs/ does not exist (no-op safe)', () => {
     writeScaffoldStatus(tempDir, { mode: 'bootstrap' });
-    expect(existsSync(join(tempDir, '.anatoly', 'docs', '.scaffold-status.json'))).toBe(false);
+    expect(existsSync(join(tempDir, '.anatoly', 'state', 'internal-docs', '.scaffold-status.json'))).toBe(false);
   });
 
   it('readScaffoldStatus round-trips the written tag', () => {
-    mkdirSync(join(tempDir, '.anatoly', 'docs'), { recursive: true });
+    mkdirSync(join(tempDir, '.anatoly', 'state', 'internal-docs'), { recursive: true });
     writeScaffoldStatus(tempDir, { mode: 'update' });
     const status = readScaffoldStatus(tempDir);
     expect(status?.lastMode).toBe('update');
@@ -125,8 +125,8 @@ describe('writeScaffoldStatus / readScaffoldStatus', () => {
 
   it('readScaffoldStatus returns null for missing/corrupt tags', () => {
     expect(readScaffoldStatus(tempDir)).toBeNull();
-    mkdirSync(join(tempDir, '.anatoly', 'docs'), { recursive: true });
-    writeFileSync(join(tempDir, '.anatoly', 'docs', '.scaffold-status.json'), 'garbage');
+    mkdirSync(join(tempDir, '.anatoly', 'state', 'internal-docs'), { recursive: true });
+    writeFileSync(join(tempDir, '.anatoly', 'state', 'internal-docs', '.scaffold-status.json'), 'garbage');
     expect(readScaffoldStatus(tempDir)).toBeNull();
   });
 });

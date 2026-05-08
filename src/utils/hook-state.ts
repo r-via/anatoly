@@ -3,9 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import { atomicWriteJson } from './cache.js';
 import { isProcessRunning } from './process.js';
+import { anatolyPath } from './anatoly-paths.js';
 
 export interface HookReview {
   pid: number;
@@ -21,7 +22,7 @@ export interface HookState {
 }
 
 function hookStatePath(projectRoot: string): string {
-  return resolve(projectRoot, '.anatoly', 'hook-state.json');
+  return anatolyPath(projectRoot, 'runtime', 'hook-state.json');
 }
 
 /**

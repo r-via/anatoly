@@ -3,7 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname } from 'node:path';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
 import type { Config } from '../../schemas/config.js';
 import type { Verdict } from '../../schemas/review.js';
 import { TelegramNotifier } from './telegram.js';
@@ -39,7 +40,7 @@ export interface NotificationChannel {
 
 /** Cache file for resolved username → chat_id mappings. */
 function chatIdCachePath(projectRoot: string): string {
-  return resolve(projectRoot, '.anatoly', 'telegram-chat-ids.json');
+  return anatolyPath(projectRoot, 'state', 'telegram-chat-ids.json');
 }
 
 type ChatIdCache = Record<string, string>;

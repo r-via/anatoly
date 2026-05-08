@@ -55,7 +55,7 @@ export interface EmbedEstimate {
 export function estimateEmbedTokens(
   projectRoot: string,
   tasks: Task[],
-  docsPaths: string[] = ['docs', join('.anatoly', 'docs')],
+  docsPaths: string[] = ['docs', join('.anatoly', 'state', 'internal-docs')],
 ): EmbedEstimate {
   const enc = get_encoding('cl100k_base');
   let codeTokens = 0;

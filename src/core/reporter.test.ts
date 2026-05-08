@@ -208,7 +208,7 @@ describe('loadReviews', () => {
   });
 
   it('should load valid .rev.json files', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     const review = makeReview({ file: 'test.ts' });
     writeFileSync(join(reviewsDir, 'test.rev.json'), JSON.stringify(review));
@@ -218,7 +218,7 @@ describe('loadReviews', () => {
   });
 
   it('should skip malformed files', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(join(reviewsDir, 'bad.rev.json'), 'not json');
     writeFileSync(join(reviewsDir, 'incomplete.rev.json'), JSON.stringify({ version: 1 }));
@@ -850,7 +850,7 @@ describe('generateReport', () => {
   });
 
   it('should write report.md index and return data', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
       join(reviewsDir, 'a.rev.json'),
@@ -868,7 +868,7 @@ describe('generateReport', () => {
   });
 
   it('should create axis folders for finding reviews', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
 
     for (let i = 0; i < 15; i++) {
@@ -906,7 +906,7 @@ describe('generateReport', () => {
   });
 
   it('should not create axis folders when all clean', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
       join(reviewsDir, 'clean.rev.json'),
@@ -919,7 +919,7 @@ describe('generateReport', () => {
   });
 
   it('should return report.md path even with axis reports', () => {
-    const reviewsDir = join(tmpDir, '.anatoly', 'reviews');
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
     mkdirSync(reviewsDir, { recursive: true });
     writeFileSync(
       join(reviewsDir, 'f.rev.json'),

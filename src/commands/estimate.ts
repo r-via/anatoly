@@ -5,6 +5,7 @@
 import type { Command } from 'commander';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import type { Config } from '../schemas/config.js';
 import { extractProvider } from '../core/transports/index.js';
@@ -512,7 +513,7 @@ export function registerEstimateCommand(program: Command): void {
       // Cached/new file counts — surfaced in the JSON payload's plan.scan
       // section. Not rendered as a pipeline row (the total file count is
       // already in the Forecast `files` line).
-      const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');
+      const progressPath = anatolyPath(projectRoot, 'cache', 'progress.json');
       const progress = readProgress(progressPath);
       let docScanProject: ReturnType<typeof countChangedDocs> = null;
       let docScanInternal: ReturnType<typeof countChangedDocs> = null;
@@ -520,7 +521,7 @@ export function registerEstimateCommand(program: Command): void {
         const ragSuffix = resolvedRagSuffix;
         const docsPath = config.documentation?.docs_path ?? 'docs';
         docScanProject = countChangedDocs(projectRoot, docsPath, ragSuffix);
-        docScanInternal = countChangedDocs(projectRoot, join('.anatoly', 'docs'), `${ragSuffix}-internal`);
+        docScanInternal = countChangedDocs(projectRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
       }
 
       // triage
@@ -551,7 +552,7 @@ export function registerEstimateCommand(program: Command): void {
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
         const docsPath = config.documentation?.docs_path ?? 'docs';
-        embedForecast = estimateEmbedTokens(projectRoot, allTasksUnfiltered, [docsPath, join('.anatoly', 'docs')]);
+        embedForecast = estimateEmbedTokens(projectRoot, allTasksUnfiltered, [docsPath, join('.anatoly', 'state', 'internal-docs')]);
         ragScopeFragment = ` — ${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`;
       }
       configRows.push({ key: 'rag', value: ragLabel + ragScopeFragment });

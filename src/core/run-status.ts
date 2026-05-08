@@ -10,7 +10,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { execFileSync } from 'node:child_process';
 
 export type RunStatusState = 'running' | 'done' | 'failed' | 'crashed';
@@ -56,7 +57,7 @@ export function readRunStatus(runDir: string): RunStatus | undefined {
  * Returns statuses sorted by runId (chronological for timestamp-based IDs).
  */
 export function listRunStatuses(projectRoot: string): RunStatus[] {
-  const runsDir = resolve(projectRoot, '.anatoly', 'runs');
+  const runsDir = anatolyPath(projectRoot, 'runs');
   let entries: string[];
   try {
     entries = readdirSync(runsDir).filter((e) => e !== 'latest').sort();

@@ -3,9 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { atomicWriteJson } from '../utils/cache.js';
 import { contextLogger } from '../utils/log-context.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +69,6 @@ export type CorrectionMemory = DeliberationMemory;
 // Public API
 // ---------------------------------------------------------------------------
 
-const MEMORY_DIR = '.anatoly';
 const MEMORY_FILE = 'deliberation-memory.json';
 const LEGACY_MEMORY_FILE = 'correction-memory.json';
 
@@ -150,9 +150,8 @@ function migrateV1toV2(entries: LegacyReclassificationEntry[]): Reclassification
  * Migrates from legacy correction-memory.json and v1 format if needed.
  */
 export function loadDeliberationMemory(projectRoot: string): DeliberationMemory {
-  const dir = resolve(projectRoot, MEMORY_DIR);
-  const memPath = resolve(dir, MEMORY_FILE);
-  const legacyPath = resolve(dir, LEGACY_MEMORY_FILE);
+  const memPath = anatolyPath(projectRoot, 'state', MEMORY_FILE);
+  const legacyPath = resolve(projectRoot, '.anatoly', LEGACY_MEMORY_FILE);
 
   // Migrate from legacy correction-memory.json if new file doesn't exist
   if (!existsSync(memPath) && existsSync(legacyPath)) {
@@ -168,7 +167,7 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
           version: 2,
           false_positives: migrateV1toV2(v1Entries),
         };
-        mkdirSync(dir, { recursive: true });
+        mkdirSync(dirname(memPath), { recursive: true });
         atomicWriteJson(memPath, migrated);
         renameSync(legacyPath, legacyPath + '.bak');
         return migrated;
@@ -203,7 +202,7 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
         renameSync(memPath, bakPath);
       } catch { /* best-effort backup */ }
       const fresh: DeliberationMemory = { version: 2, false_positives: [] };
-      mkdirSync(dir, { recursive: true });
+      mkdirSync(dirname(memPath), { recursive: true });
       atomicWriteJson(memPath, fresh);
       return fresh;
     }
@@ -218,9 +217,8 @@ export const loadCorrectionMemory = loadDeliberationMemory;
  * Save the deliberation memory to disk (atomic write).
  */
 export function saveDeliberationMemory(projectRoot: string, memory: DeliberationMemory): void {
-  const dir = resolve(projectRoot, MEMORY_DIR);
-  mkdirSync(dir, { recursive: true });
-  const memPath = join(dir, MEMORY_FILE);
+  const memPath = anatolyPath(projectRoot, 'state', MEMORY_FILE);
+  mkdirSync(dirname(memPath), { recursive: true });
   atomicWriteJson(memPath, memory);
 }
 

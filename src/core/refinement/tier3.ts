@@ -119,31 +119,24 @@ function findingCacheKey(file: string, symbol: string, axis: string): string {
   return `${file}::${symbol}::${axis}`;
 }
 
-function cachePath(projectRoot: string): string {
-  return resolve(projectRoot, '.anatoly', 'cache', 'refinement-cache.json');
+// Refinement caching disabled — will be refactored to shared/refinements/ in Story 52.4
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _cachePath(_projectRoot: string): string {
+  return '';
 }
 
-export function loadRefinementCache(projectRoot: string): RefinementCache {
-  try {
-    const raw = readFileSync(cachePath(projectRoot), 'utf-8');
-    return JSON.parse(raw) as RefinementCache;
-  } catch {
-    return { investigated: {} };
-  }
+export function loadRefinementCache(_projectRoot: string): RefinementCache {
+  // Refinement caching refactored to shared/refinements/ in Story 52.4
+  return { investigated: {} };
 }
 
-export function clearRefinementCache(projectRoot: string): void {
-  try { rmSync(cachePath(projectRoot), { force: true }); } catch { /* ok */ }
+export function clearRefinementCache(_projectRoot: string): void {
+  // No-op: refinement caching refactored to shared/refinements/ in Story 52.4
 }
 
-function saveRefinementCache(projectRoot: string, cache: RefinementCache): void {
-  try {
-    const dir = resolve(projectRoot, '.anatoly', 'cache');
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(cachePath(projectRoot), JSON.stringify(cache, null, 2) + '\n');
-  } catch {
-    // non-critical
-  }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function saveRefinementCache(_projectRoot: string, _cache: RefinementCache): void {
+  // No-op: refinement caching refactored to shared/refinements/ in Story 52.4
 }
 
 // ---------------------------------------------------------------------------

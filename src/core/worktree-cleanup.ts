@@ -11,6 +11,7 @@
 
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { execFileSync } from 'node:child_process';
 import { readRunStatus, isProcessAlive } from './run-status.js';
 
@@ -33,7 +34,7 @@ export interface CleanupResult {
 export function cleanupOrphanedWorktrees(projectRoot: string): CleanupResult {
   const root = resolve(projectRoot);
   const worktreesDir = join(root, '.anatoly', 'worktrees');
-  const runsDir = join(root, '.anatoly', 'runs');
+  const runsDir = anatolyPath(root, 'runs');
 
   if (!existsSync(worktreesDir)) return { cleaned: 0, failed: 0, skipped: 0 };
 

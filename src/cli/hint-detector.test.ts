@@ -81,7 +81,7 @@ describe('hint dismissal persistence', () => {
     expect(reloaded.has('no-init')).toBe(true);
     expect(reloaded.has('lite-rag-can-upgrade')).toBe(true);
 
-    const filePath = join(projectRoot, '.anatoly', 'hints-dismissed.json');
+    const filePath = join(projectRoot, '.anatoly', 'state', 'hints-dismissed.json');
     expect(existsSync(filePath)).toBe(true);
     const data = JSON.parse(readFileSync(filePath, 'utf-8')) as { dismissed: string[] };
     expect(data.dismissed.sort()).toEqual(['lite-rag-can-upgrade', 'no-init']);

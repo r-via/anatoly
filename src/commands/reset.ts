@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { rmSync, existsSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
@@ -79,7 +79,7 @@ export function registerResetCommand(program: Command): void {
         return;
       }
 
-      const anatolyDir = resolve(projectRoot, '.anatoly');
+      const anatolyDir = join(projectRoot, '.anatoly');
 
       if (!existsSync(anatolyDir)) {
         console.log('anatoly — reset');

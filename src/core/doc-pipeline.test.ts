@@ -60,7 +60,7 @@ describe('runDocScaffold', () => {
 
     expect(result.projectTypes).toContain('Frontend');
     expect(result.scaffoldResult.pagesCreated.length).toBeGreaterThan(0);
-    expect(result.outputDir).toContain('.anatoly/docs');
+    expect(result.outputDir).toContain(join('.anatoly', 'state', 'internal-docs'));
 
     // Verify index.md was created
     const indexPath = join(result.outputDir, 'index.md');
@@ -267,14 +267,14 @@ describe('runDocGeneration', () => {
     }
   });
 
-  it('should save .cache.json to .anatoly/docs/', () => {
+  it('should save manifest.json to .anatoly/cache/doc-build/', () => {
     const pkg = { name: 'test' };
     const tasks: Task[] = [];
 
     const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
     runDocGeneration(tempDir, scaffold, tasks, pkg);
 
-    const cachePath = join(scaffold.outputDir, '.cache.json');
+    const cachePath = join(tempDir, '.anatoly', 'cache', 'doc-build', 'manifest.json');
     const cache = JSON.parse(readFileSync(cachePath, 'utf-8'));
     expect(cache.version).toBe(1);
     expect(typeof cache.pages).toBe('object');

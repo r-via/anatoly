@@ -63,7 +63,7 @@ describe('VectorStore — dimension drift', () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'vs-drift-'));
-    dbPath = join(dir, '.anatoly', 'rag', 'lancedb');
+    dbPath = join(dir, '.anatoly', 'cache', 'rag', 'lancedb');
   });
 
   afterEach(() => {

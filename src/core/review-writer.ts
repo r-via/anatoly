@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ReviewFile, Action } from '../schemas/review.js';
 import { atomicWriteJson, toOutputName } from '../utils/cache.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 /**
  * Write both .rev.json and .rev.md for a completed review.
@@ -17,7 +18,7 @@ export function writeReviewOutput(
   review: ReviewFile,
   runDir?: string,
 ): { jsonPath: string; mdPath: string } {
-  const reviewsDir = runDir ? join(runDir, 'reviews') : join(projectRoot, '.anatoly', 'reviews');
+  const reviewsDir = runDir ? join(runDir, 'reviews') : anatolyPath(projectRoot, 'cache', 'reviews');
   mkdirSync(reviewsDir, { recursive: true });
 
   const baseName = toOutputName(review.file);

@@ -4,7 +4,8 @@
 
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
 import type { AxisId } from './axis-evaluator.js';
@@ -64,7 +65,7 @@ export interface ReportData {
  * @returns Parsed review files sorted alphabetically by file path, skipping any malformed entries.
  */
 export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] {
-  const reviewsDir = runDir ? join(runDir, 'reviews') : resolve(projectRoot, '.anatoly', 'reviews');
+  const reviewsDir = runDir ? join(runDir, 'reviews') : anatolyPath(projectRoot, 'cache', 'reviews');
   let entries: string[];
   try {
     entries = readdirSync(reviewsDir);
@@ -2243,7 +2244,7 @@ export function generateReport(
   const shards = buildShards(data);
   const axisReports = buildAxisReports(data);
 
-  const baseDir = runDir ?? resolve(projectRoot, '.anatoly');
+  const baseDir = runDir ?? join(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
   // Write master index (internal, full detail)
