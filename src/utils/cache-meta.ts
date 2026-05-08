@@ -47,9 +47,14 @@ function getAnatolyVersion(): string {
 // Normalisation
 // ---------------------------------------------------------------------------
 
-/** Strip trailing whitespace from each line. */
+/**
+ * Normalise prompt text for hashing:
+ * 1. Convert \r\n → \n (cross-platform parity per NFR6)
+ * 2. Strip trailing whitespace from each line
+ * 3. Trim leading/trailing whitespace from the whole string
+ */
 function normalize(text: string): string {
-  return text.replace(/[^\S\n]+$/gm, '');
+  return text.replace(/\r\n/g, '\n').replace(/[^\S\n]+$/gm, '').trim();
 }
 
 // ---------------------------------------------------------------------------

@@ -57,6 +57,52 @@ describe('computePromptHash', () => {
     expect(a).toBe(b);
   });
 
+  it('CRLF and LF produce identical hashes (cross-platform)', () => {
+    const base = {
+      schemaVersion: 1,
+      modelId: 'model-a',
+      userTemplate: 'tpl',
+    };
+    const lf = computePromptHash({ ...base, systemPrompt: 'line one\nline two\n' });
+    const crlf = computePromptHash({ ...base, systemPrompt: 'line one\r\nline two\r\n' });
+    expect(crlf).toBe(lf);
+  });
+
+  it('CRLF in userTemplate is normalised to LF', () => {
+    const base = {
+      schemaVersion: 1,
+      modelId: 'model-a',
+      systemPrompt: 'sys',
+    };
+    const lf = computePromptHash({ ...base, userTemplate: 'a\nb' });
+    const crlf = computePromptHash({ ...base, userTemplate: 'a\r\nb' });
+    expect(crlf).toBe(lf);
+  });
+
+  it('trailing newlines are trimmed (no false cache bust)', () => {
+    const base = {
+      schemaVersion: 1,
+      modelId: 'model-a',
+      userTemplate: 'tpl',
+    };
+    const a = computePromptHash({ ...base, systemPrompt: 'hello world' });
+    const b = computePromptHash({ ...base, systemPrompt: 'hello world\n' });
+    const c = computePromptHash({ ...base, systemPrompt: 'hello world\n\n' });
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+  });
+
+  it('leading/trailing whitespace in templates is trimmed', () => {
+    const base = {
+      schemaVersion: 1,
+      modelId: 'model-a',
+      systemPrompt: 'sys',
+    };
+    const a = computePromptHash({ ...base, userTemplate: '  hello  ' });
+    const b = computePromptHash({ ...base, userTemplate: 'hello' });
+    expect(a).toBe(b);
+  });
+
   it('semantic differences produce different hashes', () => {
     const base = {
       schemaVersion: 1,
