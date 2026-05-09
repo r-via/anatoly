@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * `anatoly attach [runId]` — Story 53.4
+ * `anatoly attach [runId]` — Stories 53.4 + 53.5
  *
  * Attaches a read-only viewer to a running audit.
- * This story implements run resolution and header display.
- * Tail/TUI rendering is deferred to Story 53.5.
+ * Story 53.4: run resolution and header display.
+ * Story 53.5: ndjson tail + TUI live rendering + --from-start.
  * Termination handling is deferred to Story 53.6.
  */
 
@@ -16,6 +16,8 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
+import { buildProgressBar } from '../utils/format.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -127,6 +129,104 @@ export function buildAttachHeader(status: RunStatus, logPath: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Live TUI event handler — Story 53.5                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * State tracked during live attach rendering.
+ * Exported for testing.
+ */
+export interface AttachRenderState {
+  currentPhase: string;
+  reviewedFiles: number;
+  totalFiles: number;
+  findings: Array<{ file: string; verdict: string }>;
+}
+
+/**
+ * Create an event handler for ndjson events that renders TUI output.
+ * Returns the handler function and the mutable state object.
+ *
+ * Design note (Story 53.5 AC): Progress is event-driven (file_review_end
+ * increments the counter) rather than polling progress.json. This avoids
+ * filesystem reads every second and provides instant updates. The progress
+ * bar is re-rendered on each file_review_end event.
+ */
+export function createAttachEventHandler(): {
+  handleEvent: (event: unknown) => void;
+  state: AttachRenderState;
+} {
+  const state: AttachRenderState = {
+    currentPhase: '',
+    reviewedFiles: 0,
+    totalFiles: 0,
+    findings: [],
+  };
+
+  function handleEvent(event: unknown): void {
+    if (!event || typeof event !== 'object') return;
+    const ev = event as Record<string, unknown>;
+    const eventType = ev.event as string | undefined;
+    if (!eventType) return;
+
+    switch (eventType) {
+      case 'phase_start': {
+        const phase = ev.phase as string;
+        state.currentPhase = phase;
+        console.log(chalk.dim(`  ▸ phase: ${phase}`));
+        break;
+      }
+
+      case 'phase_end': {
+        const phase = ev.phase as string;
+        const durationMs = ev.durationMs as number | undefined;
+        const durStr = durationMs != null ? ` (${Math.round(durationMs / 1000)}s)` : '';
+        console.log(chalk.dim(`  ▹ phase: ${phase} done${durStr}`));
+        state.currentPhase = '';
+        break;
+      }
+
+      case 'file_review_end': {
+        const file = (ev.file as string) ?? '?';
+        const verdict = (ev.verdict as string) ?? '?';
+        state.reviewedFiles++;
+        state.findings.push({ file, verdict });
+
+        // Render progress bar
+        if (state.totalFiles > 0) {
+          const bar = buildProgressBar(state.reviewedFiles, state.totalFiles, 30);
+          const pct = Math.round((state.reviewedFiles / state.totalFiles) * 100);
+          process.stdout.write(`\r  progress    ${bar} ${pct}% (${state.reviewedFiles}/${state.totalFiles})`);
+        }
+
+        // Render finding line
+        const verdictLabel = verdict === 'CLEAN' ? chalk.green(verdict) :
+                             verdict === 'ERROR' ? chalk.red(verdict) :
+                             chalk.yellow(verdict);
+        console.log(`  ${verdictLabel}  ${chalk.dim(file)}`);
+        break;
+      }
+
+      case 'estimate_total': {
+        // Custom event emitted at start of review phase with total file count
+        // Fallback: extract from phase_end of estimate
+        state.totalFiles = (ev.total as number) ?? state.totalFiles;
+        break;
+      }
+
+      default:
+        // Check if this is the run_started event with file count
+        if (ev.concurrency != null) {
+          // run started event — ignore
+        }
+        break;
+    }
+  }
+
+  return { handleEvent, state };
+}
+
+/* ------------------------------------------------------------------ */
 /*  CLI registration                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -152,10 +252,27 @@ export function registerAttachCommand(program: Command): void {
       console.log(chalk.bold('anatoly — attach'));
       console.log('');
       console.log(buildAttachHeader(result.status, logPath));
-
-      // Tail/TUI rendering will be added in Story 53.5
-      // Termination handling will be added in Story 53.6
       console.log('');
-      console.log(chalk.dim('  (live tail not yet implemented — see Story 53.5)'));
+
+      // Start tailing ndjson — Story 53.5
+      const { handleEvent } = createAttachEventHandler();
+      const fromStart = opts?.fromStart ?? false;
+
+      const tailHandle: TailHandle = tailNdjson(logPath, {
+        fromStart,
+        onEvent: handleEvent,
+        onError: (err) => {
+          console.error(chalk.dim(`  warning: ${err.message}`));
+        },
+      });
+
+      // Termination handling will be added in Story 53.6.
+      // For now, just handle SIGINT to stop cleanly.
+      process.on('SIGINT', () => {
+        tailHandle.stop();
+        console.log('');
+        console.log(`  detached from run ${result.runId}`);
+        process.exit(130);
+      });
     });
 }
