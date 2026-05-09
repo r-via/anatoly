@@ -208,6 +208,8 @@ export interface RunContext {
   defaultsSettings: boolean;
   /** Run the pre-flight RAG embedding probe before indexing (default true). */
   connectivityCheck: boolean;
+  /** Git branch + commit captured once during initRunDir, reused in done/failed status writes. */
+  gitInfo?: { branch?: string; commit?: string };
 }
 
 /**
@@ -885,6 +887,19 @@ export function registerRunCommand(program: Command): void {
           config: ctx.config,
         });
         writeRunConfig(ctx.runDir, runConfig);
+
+        // Write initial 'running' status for foreground visibility (Story 53.1)
+        ctx.gitInfo = getGitInfo(projectRoot);
+        const runStatus: RunStatus = {
+          runId: ctx.runId,
+          pid: process.pid,
+          status: 'running',
+          startedAt: new Date(ctx.startTime).toISOString(),
+          branch: ctx.gitInfo.branch,
+          commit: ctx.gitInfo.commit,
+          background: !!process.env.ANATOLY_BACKGROUND_MODE,
+        };
+        writeRunStatus(ctx.runDir, runStatus);
       };
 
       const onSigint = async () => {
@@ -1188,9 +1203,10 @@ export function registerRunCommand(program: Command): void {
           });
         }
 
-        // Persist failed status for background run tracking (Story 47.3)
+        // Persist failed status — transition to 'failed' (Story 53.1)
         if (ctx.runDir) {
           const errMsg = error instanceof Error ? error.message : String(error);
+          const gi = ctx.gitInfo ?? getGitInfo(ctx.projectRoot);
           const failedStatus: RunStatus = {
             runId: ctx.runId,
             pid: process.pid,
@@ -1198,6 +1214,8 @@ export function registerRunCommand(program: Command): void {
             startedAt: new Date(ctx.startTime).toISOString(),
             completedAt: new Date().toISOString(),
             error: errMsg,
+            branch: gi.branch,
+            commit: gi.commit,
             background: !!process.env.ANATOLY_BACKGROUND_MODE,
           };
           writeRunStatus(ctx.runDir, failedStatus);
@@ -2989,17 +3007,17 @@ function runReportPhase(ctx: RunContext): void {
     log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
   }
 
-  // Persist run-status.json for background run tracking (Story 47.3)
+  // Persist run-status.json — transition to 'done' (Story 53.1)
   if (ctx.runDir) {
-    const gitInfo = getGitInfo(ctx.projectRoot);
+    const gi = ctx.gitInfo ?? getGitInfo(ctx.projectRoot);
     const runStatus: RunStatus = {
       runId: ctx.runId,
       pid: process.pid,
       status: 'done',
       startedAt: new Date(ctx.startTime).toISOString(),
       completedAt: new Date().toISOString(),
-      branch: gitInfo.branch,
-      commit: gitInfo.commit,
+      branch: gi.branch,
+      commit: gi.commit,
       background: !!process.env.ANATOLY_BACKGROUND_MODE,
     };
     writeRunStatus(ctx.runDir, runStatus);

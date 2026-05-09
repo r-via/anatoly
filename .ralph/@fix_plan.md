@@ -191,18 +191,9 @@
 - [x] Story 52.6: Détection ancien layout + commande `clean --shared` + ban env vars + ban `~/.cache/`
 - [x] Story 52.7: Tests intégration cross-projet (mutualisation, isolation, idempotence, invalidation prompt)
 - [x] Story 52.8: Documentation `cache-layout.md` + ADR + CHANGELOG + tracker updates
-  > As a utilisateur d'anatoly
-  > I want une documentation claire de la nouvelle organisation des caches, du modèle mount-point, et de la migration depuis l'ancien layout, So que je comprenne comment Anatoly persiste mes données, où aller en cas de besoin de debug, et comment activer/désactiver le partage cross-projets.
-  > AC: Given un nouveau fichier `docs/02-Architecture/cache-layout.md`, When il est lu, Then il contient les sections suivantes :
-  > AC: Given un nouvel ADR `docs/07-Design-Decisions/07-Cache-Layout-Overhaul.md`, When il est lu, Then il documente :
-  > AC: Given le `CHANGELOG.md` (ou équivalent), When il est mis à jour, Then une entrée `## [Unreleased]` ou `## [0.X.0]` contient :
-  > AC: Given le `README.md`, When il est mis à jour, Then la section sur le storage (s'il y en a une) mentionne `~/.anatoly/` comme racine user-wide cache, And la section Quick Start ne nécessite aucune étape supplémentaire — bootstrap automatique au premier `anatoly run`
-  > AC: Given `.ralph/@fix_plan.md` (sprint tracker effectif du projet, généré par `bmalph implement`), When `bmalph implement --force` est exécuté après le merge de cet epic, Then une section `### Cache Layout Overhaul — racine .anatoly/ unique, mutualisation par content-hash, préparation cloud` est ajoutée, And les 8 stories apparaissent comme `- [ ] Story 52.K: <titre>` (parseable par Ralph), And la spec `_bmad-output/spec-cache-layout-overhaul.md` est copiée dans `.ralph/specs/`, And le statut peut être suivi en cochant `[x]` au fil des stories complétées (mécanisme natif Ralph)
-  > AC: Given un test markdown lint, When il est exécuté, Then les liens internes vers ADR-07, Epic 52, `cache-layout.md` sont valides
-  > Spec: specs/planning-artifacts/epic-52-cache-layout-overhaul.md#story-52-8
 ### In-flight run visibility — status detection fix + read-only attach
 
-- [ ] Story 53.1: Écriture initiale `run-status.json` côté foreground
+- [x] Story 53.1: Écriture initiale `run-status.json` côté foreground
   > As a utilisateur d'anatoly
   > I want que `anatoly status` détecte un run foreground actif dès qu'il a démarré
   > So that je puisse vérifier l'état d'un audit en cours depuis un second terminal sans attendre la fin du run.
