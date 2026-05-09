@@ -3,21 +3,24 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * `anatoly attach [runId]` — Stories 53.4 + 53.5
+ * `anatoly attach [runId]` — Stories 53.4 + 53.5 + 53.6
  *
  * Attaches a read-only viewer to a running audit.
  * Story 53.4: run resolution and header display.
  * Story 53.5: ndjson tail + TUI live rendering + --from-start.
- * Termination handling is deferred to Story 53.6.
+ * Story 53.6: clean termination + crash detection.
  */
 
 import type { Command } from 'commander';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
 import { buildProgressBar } from '../utils/format.js';
+import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
+import { formatDuration } from './status.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -208,22 +211,149 @@ export function createAttachEventHandler(): {
       }
 
       case 'estimate_total': {
-        // Custom event emitted at start of review phase with total file count
-        // Fallback: extract from phase_end of estimate
         state.totalFiles = (ev.total as number) ?? state.totalFiles;
         break;
       }
 
       default:
-        // Check if this is the run_started event with file count
-        if (ev.concurrency != null) {
-          // run started event — ignore
-        }
         break;
     }
   }
 
   return { handleEvent, state };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Termination handling — Story 53.6                                  */
+/* ------------------------------------------------------------------ */
+
+export interface MonitorResult {
+  reason: 'status_change' | 'pid_dead' | 'aborted';
+  finalStatus: RunStatus | undefined;
+}
+
+export interface MonitorOptions {
+  /** How often to poll run-status.json in ms (default 1000). */
+  statusPollMs?: number;
+  /** How often to poll PID liveness in ms (default 2000). */
+  pidPollMs?: number;
+  /** AbortSignal for external cancellation (e.g. SIGINT). */
+  signal?: AbortSignal;
+}
+
+/**
+ * Monitor a run's status file and PID liveness.
+ * Resolves when:
+ * - The run-status.json indicates a non-running state (done/failed/crashed)
+ * - The PID is detected as dead (writes crashed status to disk)
+ * - The signal is aborted (SIGINT)
+ *
+ * Design choice: polling (not fs.watch) for run-status.json because
+ * fs.watch is unreliable across platforms and network filesystems.
+ * The 1s poll interval is low overhead for a status file.
+ */
+export function monitorRunStatus(
+  runDir: string,
+  pid: number,
+  opts: MonitorOptions = {},
+): Promise<MonitorResult> {
+  const statusPollMs = opts.statusPollMs ?? 1000;
+  const pidPollMs = opts.pidPollMs ?? 2000;
+
+  return new Promise<MonitorResult>((resolvePromise) => {
+    let resolved = false;
+
+    function finish(result: MonitorResult): void {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(statusTimer);
+      clearInterval(pidTimer);
+      if (opts.signal) {
+        opts.signal.removeEventListener('abort', onAbort);
+      }
+      resolvePromise(result);
+    }
+
+    // Poll run-status.json
+    const statusTimer = setInterval(() => {
+      if (resolved) return;
+      const status = readRunStatus(runDir);
+      if (status && status.status !== 'running') {
+        finish({ reason: 'status_change', finalStatus: status });
+      }
+    }, statusPollMs);
+
+    // Poll PID liveness
+    const pidTimer = setInterval(() => {
+      if (resolved) return;
+      if (!isProcessAlive(pid)) {
+        // Mark as crashed
+        const status = readRunStatus(runDir);
+        if (status && status.status === 'running') {
+          status.status = 'crashed';
+          status.completedAt = new Date().toISOString();
+          writeRunStatus(runDir, status);
+          finish({ reason: 'pid_dead', finalStatus: status });
+        } else {
+          finish({ reason: 'pid_dead', finalStatus: status ?? undefined });
+        }
+      }
+    }, pidPollMs);
+
+    // Handle abort signal
+    function onAbort(): void {
+      finish({ reason: 'aborted', finalStatus: undefined });
+    }
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        finish({ reason: 'aborted', finalStatus: undefined });
+        return;
+      }
+      opts.signal.addEventListener('abort', onAbort);
+    }
+  });
+}
+
+/**
+ * Build the finalization message shown when a run ends.
+ * Returns plain text message and appropriate exit code.
+ */
+export function buildFinalizationMessage(
+  status: RunStatus,
+  verdict: string,
+  totalFindings: number,
+  reportPath: string | null,
+): { message: string; exitCode: number } {
+  const lines: string[] = [];
+  lines.push('  ' + '─'.repeat(60));
+
+  if (status.status === 'done') {
+    const duration = status.completedAt
+      ? formatDuration(new Date(status.completedAt).getTime() - new Date(status.startedAt).getTime())
+      : '—';
+    lines.push(`  verdict     ${verdict}`);
+    lines.push(`  findings    ${totalFindings} findings`);
+    lines.push(`  duration    ${duration}`);
+    if (reportPath) {
+      lines.push(`  report      ${reportPath}`);
+    }
+    const exitCode = verdict === 'CLEAN' ? 0 : 1;
+    return { message: lines.join('\n'), exitCode };
+  }
+
+  if (status.status === 'failed') {
+    lines.push(`  Run failed: ${status.error ?? 'unknown error'}`);
+    return { message: lines.join('\n'), exitCode: 1 };
+  }
+
+  if (status.status === 'crashed') {
+    lines.push('  Run crashed (PID was alive at start of attach but died during the run)');
+    return { message: lines.join('\n'), exitCode: 2 };
+  }
+
+  // Fallback
+  lines.push(`  Run ended with status: ${status.status}`);
+  return { message: lines.join('\n'), exitCode: 1 };
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,7 +367,7 @@ export function registerAttachCommand(program: Command): void {
     .description('Attach a live read-only viewer to a running audit')
     .option('--from-start', 'replay log from the beginning instead of tail-only')
     .option('--no-color', 'disable colors for piping')
-    .action((runId?: string, opts?: { fromStart?: boolean }) => {
+    .action(async (runId?: string, opts?: { fromStart?: boolean }) => {
       const projectRoot = process.cwd();
       const result = resolveAttachTarget(projectRoot, runId);
 
@@ -266,13 +396,64 @@ export function registerAttachCommand(program: Command): void {
         },
       });
 
-      // Termination handling will be added in Story 53.6.
-      // For now, just handle SIGINT to stop cleanly.
+      // Termination handling — Story 53.6
+      const abortController = new AbortController();
+
+      // SIGINT handler: detach cleanly without affecting the run
       process.on('SIGINT', () => {
         tailHandle.stop();
+        abortController.abort();
         console.log('');
         console.log(`  detached from run ${result.runId}`);
         process.exit(130);
       });
+
+      // Monitor run status + PID liveness
+      const monitorResult = await monitorRunStatus(
+        result.runDir,
+        result.status.pid,
+        { signal: abortController.signal },
+      );
+
+      // Stop tailing
+      tailHandle.stop();
+
+      if (monitorResult.reason === 'aborted') {
+        // SIGINT already handled above
+        return;
+      }
+
+      const finalStatus = monitorResult.finalStatus;
+      if (!finalStatus) {
+        console.error('  Could not read final run status.');
+        process.exit(1);
+      }
+
+      // Compute verdict for done runs
+      let verdict = 'CLEAN';
+      let totalFindings = 0;
+      let reportPath: string | null = null;
+
+      if (finalStatus.status === 'done') {
+        const reviews = loadReviews(projectRoot, result.runDir);
+        verdict = computeGlobalVerdict(reviews);
+
+        for (const review of reviews) {
+          for (const s of review.symbols) {
+            if (s.utility === 'DEAD') totalFindings++;
+            if (s.duplication === 'DUPLICATE') totalFindings++;
+            if (s.overengineering === 'OVER') totalFindings++;
+            if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
+          }
+        }
+
+        const rp = resolve(result.runDir, 'report.md');
+        if (existsSync(rp)) reportPath = rp;
+      }
+
+      console.log('');
+      const finalization = buildFinalizationMessage(finalStatus, verdict, totalFindings, reportPath);
+      console.log(finalization.message);
+      process.exit(finalization.exitCode);
     });
 }
