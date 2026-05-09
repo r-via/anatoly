@@ -207,6 +207,12 @@ The `run` command executes the full pipeline: **scan** → **estimate** → **tr
 - **Disable the Claude Code hooks** — remove the `anatoly` block from `.claude/settings.json`
 - **Full uninstall** — `rm -rf .anatoly/ && npm un -g @r-via/anatoly`
 
+### Storage
+
+Anatoly stores all data under `<project>/.anatoly/`. Cross-project shared caches (reviews, pricing, grammars, models) live at `~/.anatoly/shared/` and are accessed via symlinks from each project. Bootstrap is automatic on the first `anatoly run` -- no manual setup required.
+
+See [Cache Layout](docs/02-Architecture/09-Cache-Layout.md) for the full directory structure and [ADR-07](docs/07-Design-Decisions/07-Cache-Layout-Overhaul.md) for design rationale.
+
 ## Usage
 
 ```bash
@@ -240,6 +246,8 @@ npx anatoly clean sync documentation      # Sync completed clean tasks back to t
 # Maintenance
 npx anatoly status               # Show current audit progress
 npx anatoly rag-status           # Show RAG index stats
+npx anatoly clean shared         # Clear user-wide shared cache (~/.anatoly/shared/)
+npx anatoly clean shared --yes   # Same, skip confirmation (CI)
 npx anatoly clean runs           # Delete old runs (--keep <n>, --yes)
 npx anatoly reset                # Wipe all state (runs, cache, RAG, internal docs)
 npx anatoly reset --keep-docs    # Wipe state but keep internal docs
