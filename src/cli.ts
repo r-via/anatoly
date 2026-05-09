@@ -24,6 +24,7 @@ import {
   registerProvidersCommand,
   registerNotificationsCommand,
   registerAuditCommand,
+  registerAttachCommand,
   registerGitCommand,
   runAutoGitCleanup,
 } from './commands/index.js';
@@ -96,6 +97,7 @@ export function createProgram(): Command {
   registerRunCommand(program);
   registerWatchCommand(program);
   registerStatusCommand(program);
+  registerAttachCommand(program);
   // Parent "clean" command with subcommands: generate, run, sync
   const cleanCmd = program.command('clean').description('Clean loop commands (generate, run, sync)');
   registerCleanCommand(cleanCmd);
