@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 // --- Types ---
 
@@ -25,6 +26,7 @@ export interface GrammarRegistryEntry {
 interface ManifestEntry {
   version: string;
   sha256: string;
+  source_url: string;
   downloadedAt: string;
 }
 
@@ -61,8 +63,6 @@ export const GRAMMAR_REGISTRY: Record<string, GrammarRegistryEntry> = {
   json: { npmPackage: 'tree-sitter-json', wasmFile: 'tree-sitter-json.wasm', version: '0.24.8' },
 };
 
-const GRAMMARS_DIR = '.anatoly/grammars';
-
 // --- Helpers ---
 
 function loadManifest(path: string): Record<string, ManifestEntry> {
@@ -77,7 +77,7 @@ function loadManifest(path: string): Record<string, ManifestEntry> {
 
 /**
  * Creates a {@link GrammarManager} that lazily downloads and caches tree-sitter
- * WASM grammars under `<projectRoot>/.anatoly/grammars/`.
+ * WASM grammars under `<projectRoot>/.anatoly/shared/grammars/`.
  *
  * On first call to `resolve(languageId)`, the grammar is fetched from the
  * jsdelivr CDN and written to disk alongside an integrity manifest. Subsequent
@@ -93,7 +93,7 @@ export function createGrammarManager(
   projectRoot: string,
   fetcher?: (url: string) => Promise<Buffer | null>,
 ): GrammarManager {
-  const grammarsDir = join(projectRoot, GRAMMARS_DIR);
+  const grammarsDir = anatolyPath(projectRoot, 'shared/grammars');
   const manifestPath = join(grammarsDir, 'manifest.json');
   const tracked = { cached: 0, downloaded: [] as string[] };
 
@@ -126,6 +126,7 @@ export function createGrammarManager(
       manifest[languageId] = {
         version: entry.version,
         sha256,
+        source_url: url,
         downloadedAt: new Date().toISOString().split('T')[0],
       };
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));

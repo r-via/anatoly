@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * Download GGUF embedding models (advanced tier) into `~/.anatoly/models/`
+ * Download GGUF embedding models (advanced tier) into `shared/models/gguf/`
  * with SHA-256 integrity verification.
  *
  * Fires structured progress events that the CLI layer translates into a
@@ -11,10 +11,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { GGUF_CODE_MODEL_FILE, GGUF_NLP_MODEL_FILE } from './hardware-detect.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -28,7 +28,9 @@ export type GgufPrefetchProgress =
   | { kind: 'error'; filename: string; error: Error };
 
 export interface GgufPrefetchOptions {
-  /** Override models directory (default: `~/.anatoly/models`). Useful for tests. */
+  /** Project root — used to resolve `shared/models/gguf` via anatolyPath. */
+  root?: string;
+  /** Override models directory. Useful for tests. */
   modelsDir?: string;
   /** Called for every progress event. No-op if omitted. */
   onProgress?: (ev: GgufPrefetchProgress) => void;
@@ -58,9 +60,10 @@ export const GGUF_MODELS: readonly GgufModelDef[] = [
   },
 ] as const;
 
-/** Default models directory. */
-export function defaultModelsDir(): string {
-  return resolve(homedir(), '.anatoly', 'models');
+/** Default models directory. Uses `shared/models/gguf` via anatolyPath when root provided. */
+export function defaultModelsDir(root?: string): string {
+  if (root) return anatolyPath(root, 'shared/models/gguf');
+  return anatolyPath(process.cwd(), 'shared/models/gguf');
 }
 
 // ---------------------------------------------------------------------------
@@ -177,11 +180,37 @@ export async function downloadGgufFile(
  * - If the download fails, an error event is emitted but the function
  *   continues with the next model. The caller decides whether to fall back.
  */
+/** Manifest entry tracking a downloaded GGUF model. */
+interface GgufManifestEntry {
+  filename: string;
+  sha256: string;
+  source_url: string;
+  downloaded_at: string;
+}
+
+type GgufManifest = Record<string, GgufManifestEntry>;
+
+function loadGgufManifest(manifestPath: string): GgufManifest {
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf-8')) as GgufManifest;
+  } catch {
+    return {};
+  }
+}
+
+function saveGgufManifest(manifestPath: string, manifest: GgufManifest): void {
+  const tmp = `${manifestPath}.tmp.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(manifest, null, 2));
+  renameSync(tmp, manifestPath);
+}
+
 export async function prefetchGgufModels(opts?: GgufPrefetchOptions): Promise<void> {
-  const modelsDir = opts?.modelsDir ?? defaultModelsDir();
+  const modelsDir = opts?.modelsDir ?? defaultModelsDir(opts?.root);
   const emit = opts?.onProgress ?? (() => {});
 
   mkdirSync(modelsDir, { recursive: true });
+
+  const manifestPath = resolve(modelsDir, 'manifest.json');
 
   for (const model of GGUF_MODELS) {
     const targetPath = resolve(modelsDir, model.filename);
@@ -213,6 +242,16 @@ export async function prefetchGgufModels(opts?: GgufPrefetchOptions): Promise<vo
         });
         continue;
       }
+
+      // Update manifest
+      const manifest = loadGgufManifest(manifestPath);
+      manifest[model.filename] = {
+        filename: model.filename,
+        sha256: model.sha256,
+        source_url: `https://huggingface.co/${model.hfRepo}/resolve/main/${model.filename}`,
+        downloaded_at: new Date().toISOString(),
+      };
+      saveGgufManifest(manifestPath, manifest);
 
       emit({ kind: 'done', filename: model.filename });
     } catch (err) {

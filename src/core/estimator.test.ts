@@ -4,9 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
 import {
   estimateProject,
   loadTasks,
@@ -268,9 +267,10 @@ describe('forecastRun', () => {
   function seedPricing(
     models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number }>,
   ): void {
-    mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
+    const pricingPath = PRICING_PATHS.normalized(projectRoot);
+    mkdirSync(dirname(pricingPath), { recursive: true });
     writeFileSync(
-      resolve(projectRoot, PRICING_PATHS.normalized),
+      pricingPath,
       JSON.stringify({
         generated_at: new Date().toISOString(),
         models: Object.fromEntries(

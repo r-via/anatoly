@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   PRICING_PATHS,
   _resetPricingCache,
@@ -80,7 +80,7 @@ describe('ensurePricing — first run (no cache)', () => {
 
     await ensurePricing(['anthropic/claude-sonnet-4-6', 'anthropic/claude-haiku-4-5-20251001'], projectRoot);
 
-    const path = resolve(projectRoot, PRICING_PATHS.normalized);
+    const path = PRICING_PATHS.normalized(projectRoot);
     expect(existsSync(path)).toBe(true);
     const file = JSON.parse(readFileSync(path, 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toMatchObject({
@@ -117,7 +117,7 @@ describe('ensurePricing — first run (no cache)', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['openrouter/qwen/qwen3-embedding-8b']).toMatchObject({
       // 1e-8 * 1M = 0.01
       input: 0.01,
@@ -130,7 +130,7 @@ describe('ensurePricing — first run (no cache)', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
     await ensurePricing(['mistral/codestral-embed-2505', 'voyage/voyage-code-3'], projectRoot);
 
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['mistral/codestral-embed-2505']).toMatchObject({ input: 0.15, output: 0 });
     expect(file.models['voyage/voyage-code-3']).toMatchObject({ input: 0.18, output: 0 });
   });
@@ -141,7 +141,7 @@ describe('ensurePricing — first run (no cache)', () => {
     await ensurePricing(['anthropic/totally-fake-model'], projectRoot, {
       log: (lvl, msg) => logged.push([lvl, msg]),
     });
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['anthropic/totally-fake-model']).toBeUndefined();
     expect(logged.some(([lvl, msg]) => lvl === 'warn' && msg.includes('totally-fake-model'))).toBe(true);
   });
@@ -150,8 +150,8 @@ describe('ensurePricing — first run (no cache)', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v42"' }));
     await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
 
-    const rawPath = resolve(projectRoot, PRICING_PATHS.litellmRaw);
-    const metaPath = resolve(projectRoot, PRICING_PATHS.litellmMeta);
+    const rawPath = PRICING_PATHS.litellmRaw(projectRoot);
+    const metaPath = PRICING_PATHS.litellmMeta(projectRoot);
     expect(existsSync(rawPath)).toBe(true);
     expect(existsSync(metaPath)).toBe(true);
     const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -174,7 +174,7 @@ describe('ensurePricing — conditional GET', () => {
     fetchMock.mockResolvedValueOnce(notModifiedResponse());
     await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
 
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toMatchObject({ input: 3, output: 15 });
   });
 
@@ -198,7 +198,7 @@ describe('ensurePricing — conditional GET', () => {
     _resetPricingCache();
 
     // Simulate operator wipe of just the body (e.g., partial cleanup).
-    rmSync(resolve(projectRoot, PRICING_PATHS.litellmRaw), { force: true });
+    rmSync(PRICING_PATHS.litellmRaw(projectRoot), { force: true });
 
     // Next run must NOT send conditional headers — body is gone, so 304 would
     // be unrecoverable. It should send an unconditional GET and rebuild.
@@ -208,7 +208,7 @@ describe('ensurePricing — conditional GET', () => {
     const secondCall = fetchMock.mock.calls[1];
     const headers = (secondCall[1].headers ?? {}) as Record<string, string>;
     expect(headers['If-None-Match']).toBeUndefined();
-    expect(existsSync(resolve(projectRoot, PRICING_PATHS.litellmRaw))).toBe(true);
+    expect(existsSync(PRICING_PATHS.litellmRaw(projectRoot))).toBe(true);
   });
 });
 
@@ -227,7 +227,7 @@ describe('ensurePricing — network failure', () => {
     fetchMock.mockRejectedValueOnce(new Error('ENETUNREACH'));
     await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
 
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toMatchObject({ input: 3 });
   });
 
@@ -238,18 +238,16 @@ describe('ensurePricing — network failure', () => {
       log: (lvl, msg) => logged.push([lvl, msg]),
     });
 
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toBeUndefined();
     expect(logged.some(([lvl]) => lvl === 'warn')).toBe(true);
   });
 
   it('treats a corrupt on-disk cache as missing instead of crashing', async () => {
     // Seed an unparseable body file under the expected path.
-    mkdirSync(resolve(projectRoot, '.anatoly/sources'), { recursive: true });
-    writeFileSync(
-      resolve(projectRoot, PRICING_PATHS.litellmRaw),
-      'not-json-{<HTML error page>',
-    );
+    const litellmPath = PRICING_PATHS.litellmRaw(projectRoot);
+    mkdirSync(dirname(litellmPath), { recursive: true });
+    writeFileSync(litellmPath, 'not-json-{<HTML error page>');
 
     // Network is offline, so the only source available is the corrupt cache.
     fetchMock.mockRejectedValueOnce(new Error('ENETUNREACH'));
@@ -258,7 +256,7 @@ describe('ensurePricing — network failure', () => {
     ).resolves.toBeUndefined();
 
     // Resolves cleanly — model is simply unpriced.
-    const file = JSON.parse(readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8'));
+    const file = JSON.parse(readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8'));
     expect(file.models['anthropic/claude-sonnet-4-6']).toBeUndefined();
   });
 });
@@ -305,7 +303,7 @@ describe('ensurePricing — strict mode', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
     await ensurePricing(['anthropic/claude-sonnet-4-6'], projectRoot);
     _resetPricingCache();
-    const before = readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8');
+    const before = readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8');
 
     fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
     await expect(
@@ -319,7 +317,7 @@ describe('ensurePricing — strict mode', () => {
     // The pre-existing cache must remain unchanged — strict failure cannot
     // overwrite it with a half-resolved map. Diagnostics surface via the
     // thrown error's message and the non-strict `anatoly providers` command.
-    const after = readFileSync(resolve(projectRoot, PRICING_PATHS.normalized), 'utf-8');
+    const after = readFileSync(PRICING_PATHS.normalized(projectRoot), 'utf-8');
     expect(after).toBe(before);
   });
 });
@@ -360,10 +358,12 @@ describe('lookupPrice', () => {
 
   it('tolerates prefix drift by falling back to a stripped-prefix lookup', async () => {
     // Seed using a bare key so that `lookupPrice` has to hunt by stripped prefix.
-    mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
+    const normalizedPath = PRICING_PATHS.normalized(projectRoot);
+    mkdirSync(dirname(normalizedPath), { recursive: true });
     writeFileSync(
-      resolve(projectRoot, PRICING_PATHS.normalized),
+      normalizedPath,
       JSON.stringify({
+        _meta: { schema: 1, prompt_hash: 'n/a', model_id: 'pricing-aggregator-v1', created_at: new Date().toISOString() },
         generated_at: new Date().toISOString(),
         models: {
           'anthropic/claude-sonnet-4-6': { input: 3, output: 15, source: 'litellm' },

@@ -13,8 +13,8 @@
 
 import { execSync, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import {
   GGUF_DOCKER_IMAGE,
   GGUF_CODE_PORT,
@@ -215,7 +215,7 @@ export async function startGgufContainers(
   projectRoot: string,
   onLog?: (message: string) => void,
 ): Promise<boolean> {
-  modelsDirectory = resolve(homedir(), '.anatoly', 'models');
+  modelsDirectory = anatolyPath(projectRoot, 'shared/models/gguf');
   logFn = onLog;
 
   // Verify model files exist

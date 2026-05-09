@@ -14,7 +14,7 @@
  * If-Modified-Since), so steady-state runs after the first fetch only pay a
  * few hundred bytes per provider per session.
  *
- * The result is normalised into `.anatoly/pricing.json` keyed by the exact
+ * The result is normalised into `shared/pricing/normalized.json` keyed by the exact
  * model identifier the user has in their config (e.g. `anthropic/claude-sonnet-4-6`,
  * `mistral/codestral-embed-2505`, `openrouter/qwen/qwen3-embedding-8b`). At
  * lookup time `calculateCost` does a direct map read — no resolution,
@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, resolve } from 'node:path';
 import { extractProvider, stripPrefix } from '../core/transports/index.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
+import { anatolyPath } from './anatoly-paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,7 +55,15 @@ interface NormalizedEntry extends ModelPricing {
   source: PricingSource;
 }
 
+interface NormalizedFileMeta {
+  schema: number;
+  prompt_hash: string;
+  model_id: string;
+  created_at: string;
+}
+
 interface NormalizedFile {
+  _meta: NormalizedFileMeta;
   generated_at: string;
   models: Record<string, NormalizedEntry>;
 }
@@ -78,15 +87,15 @@ const OPENROUTER_EMBEDDINGS_URL = 'https://openrouter.ai/api/v1/embeddings/model
  * when the upstream registry hangs. The cached snapshot covers the recovery. */
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** Paths under projectRoot. Centralised so tests can introspect them. */
+/** Path resolvers under `<root>/.anatoly/shared/pricing/`. */
 export const PRICING_PATHS = {
-  normalized: '.anatoly/pricing.json',
-  litellmRaw: '.anatoly/sources/litellm.json',
-  litellmMeta: '.anatoly/sources/litellm.meta.json',
-  openrouterChatRaw: '.anatoly/sources/openrouter-chat.json',
-  openrouterChatMeta: '.anatoly/sources/openrouter-chat.meta.json',
-  openrouterEmbeddingsRaw: '.anatoly/sources/openrouter-embeddings.json',
-  openrouterEmbeddingsMeta: '.anatoly/sources/openrouter-embeddings.meta.json',
+  normalized: (root: string) => anatolyPath(root, 'shared/pricing', 'normalized.json'),
+  litellmRaw: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'litellm.json'),
+  litellmMeta: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'litellm.meta.json'),
+  openrouterChatRaw: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'openrouter-chat.json'),
+  openrouterChatMeta: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'openrouter-chat.meta.json'),
+  openrouterEmbeddingsRaw: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'openrouter-embeddings.json'),
+  openrouterEmbeddingsMeta: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'openrouter-embeddings.meta.json'),
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -223,8 +232,8 @@ interface OpenRouterPayload {
 }
 
 async function loadLitellm(projectRoot: string): Promise<LitellmRaw | null> {
-  const bodyPath = resolve(projectRoot, PRICING_PATHS.litellmRaw);
-  const metaPath = resolve(projectRoot, PRICING_PATHS.litellmMeta);
+  const bodyPath = PRICING_PATHS.litellmRaw(projectRoot);
+  const metaPath = PRICING_PATHS.litellmMeta(projectRoot);
   try {
     return (await fetchJsonConditional(LITELLM_URL, bodyPath, metaPath)) as LitellmRaw;
   } catch {
@@ -244,8 +253,8 @@ async function loadOpenRouter(projectRoot: string): Promise<Map<string, OpenRout
       PRICING_PATHS.openrouterEmbeddingsMeta,
     ],
   ] as const) {
-    const bodyPath = resolve(projectRoot, bodyKey);
-    const metaPath = resolve(projectRoot, metaKey);
+    const bodyPath = bodyKey(projectRoot);
+    const metaPath = metaKey(projectRoot);
     let payload: OpenRouterPayload | null = null;
     try {
       payload = (await fetchJsonConditional(url, bodyPath, metaPath)) as OpenRouterPayload;
@@ -339,7 +348,7 @@ export interface EnsurePricingOptions {
 
 /**
  * Resolve pricing for the given active model identifiers and persist the
- * result to `.anatoly/pricing.json`. Should be called once per run, after
+ * result to `shared/pricing/normalized.json`. Should be called once per run, after
  * `loadConfig`. Network failures degrade gracefully: existing on-disk caches
  * are preserved and the in-memory map is hydrated from whatever's available.
  */
@@ -395,11 +404,18 @@ export async function ensurePricing(
     );
   }
 
+  const now = new Date().toISOString();
   const file: NormalizedFile = {
-    generated_at: new Date().toISOString(),
+    _meta: {
+      schema: 1,
+      prompt_hash: 'n/a',
+      model_id: 'pricing-aggregator-v1',
+      created_at: now,
+    },
+    generated_at: now,
     models,
   };
-  const outPath = resolve(projectRoot, PRICING_PATHS.normalized);
+  const outPath = PRICING_PATHS.normalized(projectRoot);
   ensureDir(dirname(outPath));
   writeFileAtomic(outPath, JSON.stringify(file, null, 2));
 
@@ -409,7 +425,7 @@ export async function ensurePricing(
 
 /**
  * Synchronous price lookup. Lazily hydrates the in-memory cache from
- * `.anatoly/pricing.json` if `ensurePricing` hasn't run this session. Returns
+ * `shared/pricing/normalized.json` if `ensurePricing` hasn't run this session. Returns
  * `null` when no entry is known, allowing callers to decide their fallback.
  */
 export function lookupPrice(modelId: string, projectRoot?: string): ModelPricing | null {
@@ -439,7 +455,7 @@ function toPricing(entry: NormalizedEntry): ModelPricing {
 }
 
 function hydrateFromDisk(projectRoot: string): void {
-  const path = resolve(projectRoot, PRICING_PATHS.normalized);
+  const path = PRICING_PATHS.normalized(projectRoot);
   if (!existsSync(path)) {
     if (!warnedMissing) {
       warnedMissing = true;

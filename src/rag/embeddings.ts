@@ -124,13 +124,45 @@ async function embedViaOnnx(text: string): Promise<number[]> {
 }
 
 // ---------------------------------------------------------------------------
+// HuggingFace transformers loader (cached singleton)
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let hfModule: any = null;
+
+/**
+ * Load the HuggingFace transformers module, redirecting its cache directory
+ * to `shared/models/hf-cache/` via the env vars set by `bootstrapAnatoly`.
+ *
+ * The module is cached so only the first call triggers import + configuration.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function loadHfTransformers(): Promise<any> {
+  if (hfModule) return hfModule;
+  const mod = await import('@huggingface/transformers');
+  const hfCacheDir = process.env.HF_HOME;
+  if (hfCacheDir) {
+    mod.env.cacheDir = hfCacheDir;
+    // @ts-expect-error — localModelPath may exist on newer HF SDK versions
+    if ('localModelPath' in mod.env) mod.env.localModelPath = hfCacheDir;
+  }
+  hfModule = mod;
+  return mod;
+}
+
+/** Test seam — clears the cached HF module so tests start fresh. */
+export function _resetHfModule(): void {
+  hfModule = null;
+}
+
+// ---------------------------------------------------------------------------
 // ONNX model loading (lazy singletons per model type)
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadOnnxModel(modelId: string): Promise<any> {
   onLog(`loading ONNX embedding model ${modelId} (first time: ~50-150 MB download from HuggingFace, cached locally afterwards)...`);
-  const { pipeline } = await import('@huggingface/transformers');
+  const { pipeline } = await loadHfTransformers();
 
   // Throttle per-file progress so we surface the download without flooding logs.
   const lastBucket = new Map<string, number>();

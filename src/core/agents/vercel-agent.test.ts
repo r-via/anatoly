@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
 import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
@@ -38,9 +38,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
 let testProjectRoot = '/tmp/test-project';
 
 function seedPricingFor(root: string): void {
-  mkdirSync(resolve(root, '.anatoly'), { recursive: true });
+  const pricingPath = PRICING_PATHS.normalized(root);
+  mkdirSync(dirname(pricingPath), { recursive: true });
   writeFileSync(
-    resolve(root, PRICING_PATHS.normalized),
+    pricingPath,
     JSON.stringify({
       generated_at: new Date().toISOString(),
       models: {

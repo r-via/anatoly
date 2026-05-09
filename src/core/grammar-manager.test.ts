@@ -46,12 +46,12 @@ describe('createGrammarManager', () => {
 
     const result = await gm.resolve('python');
 
-    expect(result).toBe('/project/.anatoly/grammars/tree-sitter-python.wasm');
+    expect(result).toBe('/project/.anatoly/shared/grammars/tree-sitter-python.wasm');
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0]![0]).toContain('tree-sitter-python');
     // WASM file was written
     expect(mockedWrite).toHaveBeenCalledWith(
-      '/project/.anatoly/grammars/tree-sitter-python.wasm',
+      '/project/.anatoly/shared/grammars/tree-sitter-python.wasm',
       FAKE_WASM,
     );
   });
@@ -66,7 +66,7 @@ describe('createGrammarManager', () => {
 
     const result = await gm.resolve('python');
 
-    expect(result).toBe('/project/.anatoly/grammars/tree-sitter-python.wasm');
+    expect(result).toBe('/project/.anatoly/shared/grammars/tree-sitter-python.wasm');
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -106,6 +106,7 @@ describe('createGrammarManager', () => {
     expect(manifest.python).toBeDefined();
     expect(manifest.python.version).toBe(GRAMMAR_REGISTRY.python.version);
     expect(manifest.python.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.python.source_url).toContain('tree-sitter-python');
     expect(manifest.python.downloadedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
@@ -228,7 +229,7 @@ describe('createGrammarManager', () => {
     await gm.resolve('bash');
 
     expect(mkdirSync).toHaveBeenCalledWith(
-      '/project/.anatoly/grammars',
+      '/project/.anatoly/shared/grammars',
       { recursive: true },
     );
   });

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { calculateCost } from './cost-calculator.js';
 import { PRICING_PATHS, _resetPricingCache } from './pricing-cache.js';
 
@@ -18,9 +18,10 @@ import { PRICING_PATHS, _resetPricingCache } from './pricing-cache.js';
 let projectRoot: string;
 
 function seedPricing(models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number; source?: string }>): void {
-  mkdirSync(resolve(projectRoot, '.anatoly'), { recursive: true });
+  const pricingPath = PRICING_PATHS.normalized(projectRoot);
+  mkdirSync(dirname(pricingPath), { recursive: true });
   writeFileSync(
-    resolve(projectRoot, PRICING_PATHS.normalized),
+    pricingPath,
     JSON.stringify({
       generated_at: new Date().toISOString(),
       models: Object.fromEntries(
