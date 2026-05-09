@@ -262,23 +262,43 @@ describe('clearShared', () => {
     delete process.env.TRANSFORMERS_CACHE;
   });
 
-  it('clears shared content but preserves user/', () => {
+  it('clears all shared sub-dirs but preserves user/ and dir structure', () => {
     const root = join(tempDir, 'project');
     mkdirSync(root);
     bootstrapAnatoly(root);
 
-    // Seed shared with data
-    writeFileSync(
-      join(fakeHome, '.anatoly', 'shared', 'reviews', 'test.rev.json'),
-      '{}',
-    );
+    const sharedBase = join(fakeHome, '.anatoly', 'shared');
+
+    // Seed every clearable shared sub-dir
+    writeFileSync(join(sharedBase, 'reviews', 'test.rev.json'), '{}');
+    writeFileSync(join(sharedBase, 'refinements', 'ref.json'), '{}');
+    writeFileSync(join(sharedBase, 'nlp-summaries', 'nlp.json'), '{}');
+    writeFileSync(join(sharedBase, 'pricing', 'normalized.json'), '{}');
+    mkdirSync(join(sharedBase, 'grammars'), { recursive: true });
+    writeFileSync(join(sharedBase, 'grammars', 'python.wasm'), 'wasm');
+    mkdirSync(join(sharedBase, 'models', 'gguf'), { recursive: true });
+    writeFileSync(join(sharedBase, 'models', 'gguf', 'code.gguf'), 'gguf');
+
     // Seed user with data
     writeFileSync(join(fakeHome, '.anatoly', 'user', 'prefs.json'), '{}');
 
     clearShared();
 
-    // Shared content cleared
-    expect(existsSync(join(fakeHome, '.anatoly', 'shared', 'reviews', 'test.rev.json'))).toBe(false);
+    // All shared content cleared
+    expect(existsSync(join(sharedBase, 'reviews', 'test.rev.json'))).toBe(false);
+    expect(existsSync(join(sharedBase, 'refinements', 'ref.json'))).toBe(false);
+    expect(existsSync(join(sharedBase, 'nlp-summaries', 'nlp.json'))).toBe(false);
+    expect(existsSync(join(sharedBase, 'pricing', 'normalized.json'))).toBe(false);
+    expect(existsSync(join(sharedBase, 'grammars', 'python.wasm'))).toBe(false);
+    expect(existsSync(join(sharedBase, 'models', 'gguf', 'code.gguf'))).toBe(false);
+
+    // Directory structure preserved (empty dirs still exist)
+    expect(existsSync(join(sharedBase, 'reviews'))).toBe(true);
+    expect(existsSync(join(sharedBase, 'refinements'))).toBe(true);
+    expect(existsSync(join(sharedBase, 'nlp-summaries'))).toBe(true);
+    expect(existsSync(join(sharedBase, 'pricing'))).toBe(true);
+    expect(existsSync(join(sharedBase, 'grammars'))).toBe(true);
+    expect(existsSync(join(sharedBase, 'models'))).toBe(true);
 
     // User untouched
     expect(existsSync(join(fakeHome, '.anatoly', 'user', 'prefs.json'))).toBe(true);

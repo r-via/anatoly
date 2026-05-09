@@ -94,6 +94,17 @@ const SHARED_CLEARABLE = [
   'models',
 ] as const;
 
+/** Cached HF cache path, set by bootstrapAnatoly. */
+let hfCachePath_: string | null = null;
+
+/**
+ * Return the HF cache directory set during bootstrap.
+ * Falls back to computing it from `~/.anatoly/shared/models/hf-cache`.
+ */
+export function getHfCachePath(): string {
+  return hfCachePath_ ?? join(userWideRoot(), 'shared', 'models', 'hf-cache');
+}
+
 /**
  * Idempotent bootstrap of the `.anatoly/` layout for a project root.
  *
@@ -130,9 +141,9 @@ export function bootstrapAnatoly(root: string): void {
   }
 
   // 5. Env vars for HF SDK (written, never read by Anatoly)
-  const hfCachePath = anatolyPath(root, 'shared/models/hf-cache');
-  process.env.HF_HOME = hfCachePath;
-  process.env.TRANSFORMERS_CACHE = hfCachePath;
+  hfCachePath_ = anatolyPath(root, 'shared/models/hf-cache');
+  process.env.HF_HOME = hfCachePath_;
+  process.env.TRANSFORMERS_CACHE = hfCachePath_;
 }
 
 /**

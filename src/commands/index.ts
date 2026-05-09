@@ -15,6 +15,7 @@ export { registerHookCommand } from './hook.js';
 export { registerCleanCommand } from './clean.js';
 export { registerCleanRunCommand } from './clean-run.js';
 export { registerCleanSyncCommand } from './clean-sync.js';
+export { registerCleanSharedCommand } from './clean-shared.js';
 export { registerLocalEmbeddingsCommand } from './local-embeddings.js';
 export { registerInitCommand } from './init.js';
 export { registerDocsCommand } from './docs.js';

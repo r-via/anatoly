@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { defaultModelsDir } from './gguf-prefetch.js';
 import { loadHfTransformers, _resetHfModule } from './embeddings.js';
 import { PRICING_PATHS } from '../utils/pricing-cache.js';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath, bootstrapAnatoly } from '../utils/anatoly-paths.js';
 
 // ---------------------------------------------------------------------------
 // AC7: GGUF migration — defaultModelsDir(root) resolves correctly
@@ -51,31 +51,40 @@ describe('GGUF defaultModelsDir migration (AC7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadHfTransformers cache redirect (AC6)', () => {
-  const originalHfHome = process.env.HF_HOME;
+  let tempRoot: string;
+  const savedHome = process.env.HOME;
 
   beforeEach(() => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'hf-redirect-'));
+    const fakeHome = join(tempRoot, 'fakehome');
+    mkdirSync(fakeHome, { recursive: true });
+    process.env.HOME = fakeHome;
     _resetHfModule();
   });
 
   afterEach(() => {
     _resetHfModule();
-    if (originalHfHome !== undefined) {
-      process.env.HF_HOME = originalHfHome;
-    } else {
-      delete process.env.HF_HOME;
-    }
+    process.env.HOME = savedHome;
+    delete process.env.HF_HOME;
+    delete process.env.TRANSFORMERS_CACHE;
+    rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('sets mod.env.cacheDir from HF_HOME when env var is set', async () => {
-    const testCachePath = '/tmp/test-hf-cache';
-    process.env.HF_HOME = testCachePath;
+  it('sets mod.env.cacheDir from getHfCachePath after bootstrap', async () => {
+    const projectRoot = join(tempRoot, 'project');
+    mkdirSync(projectRoot, { recursive: true });
+    bootstrapAnatoly(projectRoot);
 
     const mod = await loadHfTransformers();
-    expect(mod.env.cacheDir).toBe(testCachePath);
+    const expectedPath = join(projectRoot, '.anatoly', 'shared', 'models', 'hf-cache');
+    expect(mod.env.cacheDir).toBe(expectedPath);
   });
 
   it('returns cached module on second call', async () => {
-    process.env.HF_HOME = '/tmp/hf-cache-2';
+    const projectRoot = join(tempRoot, 'project');
+    mkdirSync(projectRoot, { recursive: true });
+    bootstrapAnatoly(projectRoot);
+
     const mod1 = await loadHfTransformers();
     const mod2 = await loadHfTransformers();
     expect(mod1).toBe(mod2);

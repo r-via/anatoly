@@ -12,6 +12,7 @@
  */
 
 import { execFileSync, execSync } from 'node:child_process';
+import { getHfCachePath } from '../utils/anatoly-paths.js';
 
 export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
@@ -58,7 +59,8 @@ function runContainer(
 ): void {
   removeContainer(name);
 
-  const dataDir = cacheDir ?? `${process.env.HOME}/.cache/huggingface`;
+  // Use getHfCachePath() (set by bootstrapAnatoly)
+  const dataDir = cacheDir ?? getHfCachePath();
   const args = [
     'run',
     '--gpus', 'all',

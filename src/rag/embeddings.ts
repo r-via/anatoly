@@ -6,6 +6,7 @@ import { embed as aiEmbed, embedMany as aiEmbedMany } from 'ai';
 import type { EmbeddingModelV3 } from '@ai-sdk/provider';
 import { MODEL_REGISTRY, type ResolvedModels } from './hardware-detect.js';
 import { getVercelEmbeddingModel } from './sdk-embedding.js';
+import { getHfCachePath } from '../utils/anatoly-paths.js';
 
 // ---------------------------------------------------------------------------
 // Defaults (used when configureModels() has not been called)
@@ -140,11 +141,10 @@ let hfModule: any = null;
 export async function loadHfTransformers(): Promise<any> {
   if (hfModule) return hfModule;
   const mod = await import('@huggingface/transformers');
-  const hfCacheDir = process.env.HF_HOME;
+  const hfCacheDir = getHfCachePath();
   if (hfCacheDir) {
     mod.env.cacheDir = hfCacheDir;
-    // @ts-expect-error — localModelPath may exist on newer HF SDK versions
-    if ('localModelPath' in mod.env) mod.env.localModelPath = hfCacheDir;
+    if ('localModelPath' in mod.env) (mod.env as Record<string, unknown>).localModelPath = hfCacheDir;
   }
   hfModule = mod;
   return mod;
