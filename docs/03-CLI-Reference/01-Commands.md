@@ -341,15 +341,17 @@ anatoly watch --axes duplication,correction
 
 ## status
 
-Show current audit progress and a findings summary.
+Show current audit progress, background runs, and findings summary. For a live streaming view of a running audit, use [`attach`](#attach) instead.
 
 ```
-anatoly status
+anatoly status [runId]
 ```
 
 ### Options
 
-No command-specific options.
+| Flag | Type | Description |
+|------|------|-------------|
+| `[runId]` | positional | Show detailed view for a specific run. Omit for the overview. |
 
 ### Output
 
@@ -380,6 +382,85 @@ anatoly -- status
 
 ```bash
 anatoly status
+```
+
+---
+
+## attach
+
+Attach a live read-only viewer to a running audit. Tails the run's ndjson log, renders progress and findings in real time, and exits with the appropriate code when the run completes.
+
+```
+anatoly attach [runId] [--from-start] [--no-color]
+```
+
+### Options
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `[runId]` | positional | Run ID to attach to. If omitted, auto-selects the only active run. |
+| `--from-start` | boolean | Replay the log from the beginning instead of tail-only. |
+| `--no-color` | boolean | Disable colors for piping output to files or other tools. |
+
+### Behavior
+
+- **Auto-selection**: When invoked without a `runId`, the command lists all runs with `status: running` and a live PID. If exactly one is found, it attaches automatically. Zero matches → error. Multiple matches → prompts you to specify a run ID.
+- **Crash detection**: If the target run's PID dies during the attach session, the command marks the run as `crashed` in `run-status.json` and exits with code 2.
+- **Read-only**: The attach process never writes to the run's `anatoly.ndjson` log. The only write it may perform is updating `run-status.json` when detecting a crash.
+- **SIGINT**: Press Ctrl-C to detach without affecting the target run. Exit code 130.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Run completed with verdict `CLEAN` |
+| 1 | Run completed with non-CLEAN verdict, or run failed |
+| 2 | Run crashed (PID died) |
+| 130 | Detached via Ctrl-C |
+
+### Output
+
+```
+anatoly — attach
+
+  run         2026-05-09_143022
+  pid         12345
+  started     2026-05-09T14:30:22.000Z
+  branch      main
+  commit      abc1234
+  background  true
+  log         .anatoly/runs/2026-05-09_143022/anatoly.ndjson
+  attached at 2026-05-09T14:31:05.000Z
+
+  (Press Ctrl-C to detach — does not stop the run)
+
+  ▸ phase: scan
+  ▹ phase: scan done (2s)
+  ▸ phase: review
+  CLEAN  src/utils/format.ts
+  NEEDS_REFACTOR  src/core/scanner.ts
+  ▹ phase: review done (45s)
+  ──────────────────────────────────────────────────────────────
+  verdict     NEEDS_REFACTOR
+  findings    3 findings
+  duration    1m 12s
+  report      .anatoly/runs/2026-05-09_143022/report.md
+```
+
+### Examples
+
+```bash
+# Attach to the only active run
+anatoly attach
+
+# Attach to a specific run by ID
+anatoly attach 2026-05-09_143022
+
+# Replay full log history then continue tailing
+anatoly attach --from-start
+
+# Pipe output to a file (no ANSI codes)
+anatoly attach --no-color > attach.log
 ```
 
 ---

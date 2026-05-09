@@ -244,7 +244,8 @@ npx anatoly clean run documentation       # Generate + run clean loop to auto-cl
 npx anatoly clean sync documentation      # Sync completed clean tasks back to the report
 
 # Maintenance
-npx anatoly status               # Show current audit progress
+npx anatoly status               # Show current audit progress (snapshot)
+npx anatoly attach               # Attach live viewer to a running audit
 npx anatoly rag-status           # Show RAG index stats
 npx anatoly clean shared         # Clear user-wide shared cache (~/.anatoly/shared/)
 npx anatoly clean shared --yes   # Same, skip confirmation (CI)
