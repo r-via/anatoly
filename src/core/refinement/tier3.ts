@@ -3,7 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { dirname, resolve } from 'node:path';
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
+import { writeCacheWithMeta, loadCacheWithMeta } from '../../utils/cache-meta.js';
+import { atomicWriteJson } from '../../utils/cache.js';
 import type { ReviewFile } from '../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
 import {
@@ -59,6 +62,8 @@ export interface Tier3Context {
   freshFiles?: Set<string>;
   /** Progress callback fired after each shard completes. */
   onShardDone?: (shardIndex: number, totalShards: number, result: ShardResult) => void;
+  /** Content hashes per file path — used for content-addressable refinement cache. */
+  fileHashes?: Map<string, string>;
 }
 
 export interface QueryParams {
@@ -112,31 +117,136 @@ export interface Tier3Result {
 }
 
 // ---------------------------------------------------------------------------
-// Refinement cache I/O
+// Refinement cache I/O — content-addressable in shared/refinements/
 // ---------------------------------------------------------------------------
 
-function findingCacheKey(file: string, symbol: string, axis: string): string {
-  return `${file}::${symbol}::${axis}`;
+/** Manifest tracking which refinement findings have been cached. */
+export interface RefinementManifest {
+  version: 1;
+  keys: Record<string, { sharedPath: string; updated_at: string }>;
 }
 
-// Refinement caching disabled — will be refactored to shared/refinements/ in Story 52.4
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function _cachePath(_projectRoot: string): string {
-  return '';
+/**
+ * Build a cache key for a single refinement finding.
+ * Format: `<contentHash>__<symbol>__<axis>`
+ */
+export function findingCacheKey(contentHash: string, symbol: string, axis: string): string {
+  return `${contentHash}__${symbol}__${axis}`;
 }
 
-export function loadRefinementCache(_projectRoot: string): RefinementCache {
-  // Refinement caching refactored to shared/refinements/ in Story 52.4
-  return { investigated: {} };
+/**
+ * Content-addressable path for a single refinement finding.
+ * `shared/refinements/<contentHash[0:2]>/<contentHash>/<symbol>__<axis>.json`
+ */
+function sharedRefinementPath(root: string, contentHash: string, symbol: string, axis: string): string {
+  const safeName = `${symbol}__${axis}.json`;
+  return anatolyPath(root, 'shared/refinements', contentHash.slice(0, 2), contentHash, safeName);
 }
 
-export function clearRefinementCache(_projectRoot: string): void {
-  // No-op: refinement caching refactored to shared/refinements/ in Story 52.4
+function refinementManifestPath(root: string): string {
+  return anatolyPath(root, 'cache', 'refinement-manifest.json');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function saveRefinementCache(_projectRoot: string, _cache: RefinementCache): void {
-  // No-op: refinement caching refactored to shared/refinements/ in Story 52.4
+function loadRefinementManifest(root: string): RefinementManifest {
+  const path = refinementManifestPath(root);
+  if (!existsSync(path)) return { version: 1, keys: {} };
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as RefinementManifest;
+    if (raw.version !== 1) return { version: 1, keys: {} };
+    return raw;
+  } catch {
+    return { version: 1, keys: {} };
+  }
+}
+
+function saveRefinementManifest(root: string, manifest: RefinementManifest): void {
+  atomicWriteJson(refinementManifestPath(root), manifest);
+}
+
+/**
+ * Write a single refinement finding to the shared content-addressable store.
+ */
+function writeRefinementFinding(
+  root: string,
+  contentHash: string,
+  symbol: string,
+  axis: string,
+  data: InvestigatedFindingCache,
+): void {
+  const path = sharedRefinementPath(root, contentHash, symbol, axis);
+  writeCacheWithMeta(path, data, {
+    schema: 1,
+    prompt_hash: 'sha256:refinement-tier3',
+    model_id: 'tier3-investigation',
+  });
+
+  const manifest = loadRefinementManifest(root);
+  const key = findingCacheKey(contentHash, symbol, axis);
+  manifest.keys[key] = { sharedPath: path, updated_at: new Date().toISOString() };
+  saveRefinementManifest(root, manifest);
+}
+
+/**
+ * Load a single refinement finding from the shared content-addressable store.
+ */
+function loadRefinementFinding(
+  root: string,
+  contentHash: string,
+  symbol: string,
+  axis: string,
+): InvestigatedFindingCache | null {
+  const path = sharedRefinementPath(root, contentHash, symbol, axis);
+  return loadCacheWithMeta<InvestigatedFindingCache>(path, {
+    schema: 1,
+    promptHash: 'sha256:refinement-tier3',
+  });
+}
+
+/**
+ * Load the full refinement cache from shared content-addressable store.
+ * Reads the manifest and loads each finding individually.
+ */
+export function loadRefinementCache(projectRoot: string): RefinementCache {
+  const manifest = loadRefinementManifest(projectRoot);
+  const investigated: Record<string, InvestigatedFindingCache> = {};
+
+  for (const [key, entry] of Object.entries(manifest.keys)) {
+    const data = loadCacheWithMeta<InvestigatedFindingCache>(entry.sharedPath, {
+      schema: 1,
+      promptHash: 'sha256:refinement-tier3',
+    });
+    if (data) {
+      investigated[key] = data;
+    }
+  }
+
+  return { investigated };
+}
+
+/**
+ * Clear the refinement manifest (project-local).
+ * Does not delete shared payloads (other projects may reference them).
+ */
+export function clearRefinementCache(projectRoot: string): void {
+  const path = refinementManifestPath(projectRoot);
+  if (existsSync(path)) {
+    try { rmSync(path); } catch { /* best-effort */ }
+  }
+}
+
+/**
+ * Save refinement cache: write each investigated finding to shared store.
+ */
+function saveRefinementCache(projectRoot: string, cache: RefinementCache): void {
+  for (const [key, entry] of Object.entries(cache.investigated)) {
+    // Parse key: <contentHash>__<symbol>__<axis>
+    const parts = key.split('__');
+    if (parts.length < 3) continue;
+    const [contentHash, ...rest] = parts;
+    const axis = rest.pop()!;
+    const symbol = rest.join('__'); // symbol name might contain __ (unlikely but safe)
+    writeRefinementFinding(projectRoot, contentHash, symbol, axis, entry);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -207,12 +317,17 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   // Load refinement cache — skip findings already investigated in a previous run
   const cache = loadRefinementCache(ctx.projectRoot);
 
-  // Evict cache entries for files that were freshly reviewed (their findings may have changed)
-  if (ctx.freshFiles && ctx.freshFiles.size > 0) {
+  // Evict cache entries for freshly reviewed files (findings may have changed)
+  if (ctx.freshFiles && ctx.freshFiles.size > 0 && ctx.fileHashes) {
     let evicted = 0;
+    const freshHashes = new Set<string>();
+    for (const file of ctx.freshFiles) {
+      const hash = ctx.fileHashes.get(file);
+      if (hash) freshHashes.add(hash);
+    }
     for (const key of Object.keys(cache.investigated)) {
-      const file = key.split('::')[0];
-      if (ctx.freshFiles.has(file)) {
+      const contentHash = key.split('__')[0];
+      if (freshHashes.has(contentHash)) {
         delete cache.investigated[key];
         evicted++;
       }
@@ -225,7 +340,8 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   for (const shard of shards) {
     const uncached: EscalatedFinding[] = [];
     for (const f of shard.findings) {
-      const key = findingCacheKey(f.file, f.symbolName, f.axis);
+      const contentHash = ctx.fileHashes?.get(f.file) ?? f.file;
+      const key = findingCacheKey(contentHash, f.symbolName, f.axis);
       const cached = cache.investigated[key];
       if (cached) {
         // Apply cached deliberation to the review
@@ -302,10 +418,11 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
           for (const axis of DELIBERATION_AXES) {
             const orig = sym.original[axis];
             if (!orig || orig === '-') continue;
-            // Find the matching escalated finding to get the file path
+            // Find the matching escalated finding to get the file path + content hash
             const finding = shard.findings.find(f => f.symbolName === sym.name && f.axis === axis);
             if (!finding) continue;
-            const key = findingCacheKey(finding.file, sym.name, axis);
+            const contentHash = ctx.fileHashes?.get(finding.file) ?? finding.file;
+            const key = findingCacheKey(contentHash, sym.name, axis);
             cache.investigated[key] = {
               original: sym.original as Record<string, string | number>,
               deliberated: sym.deliberated as Record<string, string | number>,

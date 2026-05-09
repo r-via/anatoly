@@ -2,12 +2,16 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { tmpdir } from 'node:os';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildShards,
   runTier3,
+  findingCacheKey,
+  loadRefinementCache,
+  clearRefinementCache,
   type Shard,
   type Tier3Context,
 } from './tier3.js';
@@ -178,8 +182,10 @@ describe('buildShards', () => {
 describe('runTier3', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    // Clear any stale global cache from previous test runs
+    // Clear any stale cache from previous test runs
     try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinement-cache.json'), { force: true }); } catch { /* ok */ }
+    try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinement-manifest.json'), { force: true }); } catch { /* ok */ }
+    try { rmSync(join('/tmp/test-project', '.anatoly', 'shared', 'refinements'), { recursive: true, force: true }); } catch { /* ok */ }
   });
 
   // --- AC: Agent investigates and produces confirmed/reclassified verdicts ---
@@ -665,5 +671,93 @@ describe('runTier3', () => {
 
     // Should not throw, shard marked as failed
     expect(result.shardResults[0].status).toBe('failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — content-addressable refinement cache (Story 52.4)
+// ---------------------------------------------------------------------------
+
+describe('refinement cache (shared/refinements)', () => {
+  let tempRoot: string;
+
+  beforeEach(() => {
+    tempRoot = mkdtempSync(join(tmpdir(), 'anatoly-tier3-cache-'));
+    mkdirSync(join(tempRoot, '.anatoly', 'shared', 'refinements'), { recursive: true });
+    mkdirSync(join(tempRoot, '.anatoly', 'cache'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it('findingCacheKey produces contentHash__symbol__axis format', () => {
+    const key = findingCacheKey('abc123', 'myFunc', 'correction');
+    expect(key).toBe('abc123__myFunc__correction');
+  });
+
+  it('loadRefinementCache returns empty when no manifest exists', () => {
+    const cache = loadRefinementCache(tempRoot);
+    expect(cache.investigated).toEqual({});
+  });
+
+  it('clearRefinementCache removes the manifest', () => {
+    // Write some data first by running tier3 with a mock
+    const cache = loadRefinementCache(tempRoot);
+    expect(cache.investigated).toEqual({});
+    clearRefinementCache(tempRoot);
+    // Should still be empty after clear
+    const afterClear = loadRefinementCache(tempRoot);
+    expect(afterClear.investigated).toEqual({});
+  });
+
+  it('should cache findings via shared/refinements after tier3 run', async () => {
+    const deliberation = makeDeliberationResponse({
+      symbols: [{
+        name: 'doWork',
+        original: { correction: 'NEEDS_FIX', confidence: 60 },
+        deliberated: { correction: 'OK', confidence: 85 },
+        reasoning: 'Code is actually correct after checking implementation',
+      }],
+    });
+
+    const shards: Shard[] = [{
+      module: 'src/core',
+      findings: [makeEscalated({ file: 'src/core/example.ts', symbolName: 'doWork', axis: 'correction' })],
+    }];
+
+    const fileHashes = new Map([['src/core/example.ts', 'deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678']]);
+
+    const ctx = makeCtx({
+      projectRoot: tempRoot,
+      queryFn: vi.fn().mockResolvedValue({
+        data: deliberation,
+        costUsd: 0.50,
+        durationMs: 3000,
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        transcript: 'test transcript',
+      }),
+      reviewsByFile: new Map([['src/core/example.ts', makeReview()]]),
+      fileHashes,
+    });
+
+    await runTier3(shards, ctx);
+
+    // Check that the shared refinement file was written
+    const expectedPath = join(
+      tempRoot, '.anatoly', 'shared', 'refinements',
+      'de', 'deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678',
+      'doWork__correction.json',
+    );
+    expect(existsSync(expectedPath)).toBe(true);
+
+    // Load from cache and verify
+    const cache = loadRefinementCache(tempRoot);
+    const key = findingCacheKey('deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678', 'doWork', 'correction');
+    expect(cache.investigated[key]).toBeDefined();
+    expect(cache.investigated[key].reasoning).toBe('Code is actually correct after checking implementation');
   });
 });

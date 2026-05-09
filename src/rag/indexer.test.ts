@@ -18,8 +18,12 @@ import {
   loadNlpSummaryCache,
   saveNlpSummaryCache,
   computeBodyHash,
+  writeSharedNlpSummary,
+  loadSharedNlpSummary,
+  sharedNlpSummaryPath,
 } from './indexer.js';
 import type { RagCache, NlpSummaryCache } from './indexer.js';
+import { readFileSync } from 'node:fs';
 import type { SymbolInfo, Task } from '../schemas/task.js';
 
 describe('buildFunctionId', () => {
@@ -472,5 +476,57 @@ describe('saveNlpSummaryCache', () => {
     saveNlpSummaryCache(tmpRoot, cache);
     const loaded = loadNlpSummaryCache(tmpRoot);
     expect(loaded).toEqual(cache);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared NLP Summary Cache (Story 52.4)
+// ---------------------------------------------------------------------------
+
+describe('shared NLP summary cache', () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = resolve(tmpdir(), `anatoly-shared-nlp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'shared', 'nlp-summaries'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('should write NLP summary to shared/nlp-summaries with sharding', () => {
+    const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' };
+    const bodyHash = 'abcdef1234567890';
+
+    writeSharedNlpSummary(tmpRoot, bodyHash, summary, 'flash-2.0');
+
+    const path = sharedNlpSummaryPath(tmpRoot, bodyHash);
+    expect(existsSync(path)).toBe(true);
+
+    // Check sharding — path includes shard prefix from bodyHash[0:2]
+    expect(path).toMatch(/nlp-summaries[/\\]ab[/\\]/);
+
+    // Check _meta header
+    const raw = JSON.parse(readFileSync(path, 'utf-8'));
+    expect(raw._meta.schema).toBe(1);
+    expect(raw._meta.model_id).toBe('flash-2.0');
+    expect(raw.data.summary).toBe('Formats dates');
+  });
+
+  it('should load shared NLP summary by body hash', () => {
+    const summary = { summary: 'Parses JSON', docSummary: '', keyConcepts: ['json'], behavioralProfile: 'pure' };
+    const bodyHash = '1234abcd5678ef90';
+
+    writeSharedNlpSummary(tmpRoot, bodyHash, summary, 'flash-2.0');
+
+    const loaded = loadSharedNlpSummary(tmpRoot, bodyHash);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.summary).toBe('Parses JSON');
+  });
+
+  it('should return null for missing summary', () => {
+    expect(loadSharedNlpSummary(tmpRoot, 'nonexistent')).toBeNull();
   });
 });

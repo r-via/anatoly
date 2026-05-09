@@ -200,7 +200,7 @@
   > AC: Given le flag CLI `--no-cache` sur `anatoly run`, When il est invoqué, Then il appelle `clearCache(root)` (project-only), And ne touche pas `~/.anatoly/shared/`, And un log info indique : `"--no-cache: cleared project cache. Shared cache (~/.anatoly/shared/) untouched. Use 'anatoly clean --shared' to clear it."`
   > AC: Given la suite `npm run test` complète, When elle est exécutée après cette story, Then zéro régression sur les tests qui consomment ces caches/state, And un grep `grep -rn "resolve.*['\"]\.anatoly['\"]" src/` ne retourne aucun résultat hors de `anatoly-paths.ts` (NFR10 partial — sera complété par 52.4 + 52.5)
   > Spec: specs/planning-artifacts/epic-52-cache-layout-overhaul.md#story-52-3
-- [ ] Story 52.4: Migration `shared/` content-addressable (reviews, refinements, NLP) avec sharding + manifests
+- [x] Story 52.4: Migration `shared/` content-addressable (reviews, refinements, NLP) avec sharding + manifests
   > As a utilisateur d'anatoly
   > I want que les reviews, délibérations refinement et résumés NLP soient automatiquement partagés entre mes projets quand le contenu est identique, So que je ne paye qu'une seule fois pour évaluer un fichier vendored, un util commun, ou un fork.
   > AC: Given [src/core/scanner.ts](src/core/scanner.ts) (calcul du hash), When il est mis à jour, Then la fonction `computeFileHash(content: string): string` normalise les line endings : `content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')` puis calcule `sha256` (sans le préfixe `'sha256:'` ici — c'est juste l'hex)

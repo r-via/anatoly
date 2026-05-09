@@ -9,11 +9,28 @@ import { ProgressSchema } from '../schemas/progress.js';
 import type { Progress } from '../schemas/progress.js';
 
 /**
- * Compute SHA-256 hash of a file's content.
+ * Normalise content for hashing: convert all line-ending variants to `\n`.
+ * Ensures cross-platform parity (Windows CRLF / old-Mac CR / Unix LF).
+ */
+function normalizeLineEndings(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+/**
+ * Compute SHA-256 hash of a file's content with line-ending normalisation.
+ * Files with CRLF vs LF produce identical hashes.
  */
 export function computeFileHash(filePath: string): string {
-  const content = readFileSync(filePath);
-  return createHash('sha256').update(content).digest('hex');
+  const raw = readFileSync(filePath, 'utf-8');
+  return createHash('sha256').update(normalizeLineEndings(raw)).digest('hex');
+}
+
+/**
+ * Compute SHA-256 hash of a string content with line-ending normalisation.
+ * Used for content-addressable cache keys (shared reviews, NLP summaries).
+ */
+export function computeContentHash(content: string): string {
+  return createHash('sha256').update(normalizeLineEndings(content)).digest('hex');
 }
 
 /**

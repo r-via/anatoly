@@ -10,6 +10,7 @@ import type { ReclassificationEntry } from '../correction-memory.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
 import { buildShards, runTier3, type Tier3Context } from './tier3.js';
+import { computeContentHash } from '../../utils/cache.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -181,6 +182,12 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
   if (allEscalated.length > 0 && ctx.queryFn) {
     const shards = buildShards(allEscalated);
 
+    // Build file hashes for content-addressable refinement cache
+    const fileHashes = new Map<string, string>();
+    for (const [filePath, content] of ctx.fileContents) {
+      fileHashes.set(filePath, computeContentHash(content));
+    }
+
     const tier3Ctx: Tier3Context = {
       projectRoot: ctx.projectRoot,
       runDir: ctx.runDir,
@@ -189,6 +196,7 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
       reviewsByFile: finalReviews,
       budgetUsd: 30,
       freshFiles: ctx.freshFiles,
+      fileHashes,
       queryFn: ctx.queryFn,
       recordFn: ctx.recordFn,
       onShardDone: (idx, total, result) => {

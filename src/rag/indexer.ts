@@ -10,6 +10,7 @@ import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
+import { writeCacheWithMeta, loadCacheWithMeta } from '../utils/cache-meta.js';
 import type { NlpSummary } from './nlp-summarizer.js';
 
 export interface RagCache {
@@ -460,4 +461,66 @@ export function loadNlpSummaryCache(projectRoot: string): NlpSummaryCache {
  */
 export function saveNlpSummaryCache(projectRoot: string, cache: NlpSummaryCache): void {
   atomicWriteJson(nlpCachePath(projectRoot), cache);
+}
+
+// ---------------------------------------------------------------------------
+// Shared NLP Summary Cache — content-addressable in shared/nlp-summaries/
+// ---------------------------------------------------------------------------
+
+/** Path to a shared NLP summary: `shared/nlp-summaries/<hash[0:2]>/<hash>.json` */
+export function sharedNlpSummaryPath(root: string, bodyHash: string): string {
+  return anatolyPath(root, 'shared/nlp-summaries', bodyHash.slice(0, 2), bodyHash + '.json');
+}
+
+/** Path to the per-project NLP summary key index. */
+function nlpSummaryKeysPath(root: string): string {
+  return anatolyPath(root, 'cache/rag', 'nlp-summary-keys.json');
+}
+
+export interface NlpSummaryKeysIndex {
+  version: 1;
+  keys: Record<string, { updated_at: string }>;
+}
+
+function loadNlpSummaryKeys(root: string): NlpSummaryKeysIndex {
+  const path = nlpSummaryKeysPath(root);
+  if (!existsSync(path)) return { version: 1, keys: {} };
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as NlpSummaryKeysIndex;
+  } catch {
+    return { version: 1, keys: {} };
+  }
+}
+
+/**
+ * Write an NLP summary to the shared content-addressable store.
+ */
+export function writeSharedNlpSummary(
+  root: string,
+  bodyHash: string,
+  summary: NlpSummary,
+  modelId: string,
+): void {
+  const path = sharedNlpSummaryPath(root, bodyHash);
+  writeCacheWithMeta(path, summary, {
+    schema: 1,
+    prompt_hash: 'sha256:nlp-summarizer',
+    model_id: modelId,
+  });
+
+  // Update per-project key index
+  const index = loadNlpSummaryKeys(root);
+  index.keys[bodyHash] = { updated_at: new Date().toISOString() };
+  atomicWriteJson(nlpSummaryKeysPath(root), index);
+}
+
+/**
+ * Load a shared NLP summary by body hash.
+ */
+export function loadSharedNlpSummary(root: string, bodyHash: string): NlpSummary | null {
+  const path = sharedNlpSummaryPath(root, bodyHash);
+  return loadCacheWithMeta<NlpSummary>(path, {
+    schema: 1,
+    promptHash: 'sha256:nlp-summarizer',
+  });
 }

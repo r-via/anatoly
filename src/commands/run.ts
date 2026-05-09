@@ -23,7 +23,7 @@ import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type T
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
-import { toOutputName } from '../utils/cache.js';
+import { toOutputName, computeContentHash } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { isSystemLocalProvider } from '../rag/system-providers.js';
@@ -86,6 +86,9 @@ import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runn
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
 import { createWorktreeManager } from '../core/worktree-manager.js';
 import { anatolyPath, runPath, clearCache } from '../utils/anatoly-paths.js';
+import { writeSharedReview, loadSharedReview } from '../core/shared-review-cache.js';
+import { computePromptHash } from '../utils/cache-meta.js';
+import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -2379,6 +2382,9 @@ async function runReviewPhase(
   if (ctx.axesFilter) {
     warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
   }
+  const axisIds = evaluators.map((e) => e.id);
+  const reviewModelId = evaluators.map((e) => resolveAxisModel(e, ctx.config)).sort().join('+');
+  const reviewPromptHash = computeAxesPromptHash(axisIds, reviewModelId);
   // A file counts toward evaluateTotal when at least one axis evaluator
   // actually runs on it. Skip-tier files with a partial-axes policy
   // (e.g. trivial files keeping correction/duplication/utility via
@@ -2417,7 +2423,7 @@ async function runReviewPhase(
 
       // Handle cached files: load existing review, count findings, display [CACHED]
       if (cached) {
-        const cachedReview = loadCachedReview(ctx.projectRoot, filePath, evaluators.map((e) => e.id));
+        const cachedReview = loadCachedReview(ctx.projectRoot, filePath, evaluators.map((e) => e.id), reviewPromptHash, ctx.sourceRoot);
         if (cachedReview) {
           // Copy into current run dir so the report is complete
           writeReviewOutput(ctx.projectRoot, cachedReview, ctx.runDir);
@@ -2458,7 +2464,7 @@ async function runReviewPhase(
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
         const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter, usageGraph);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
-        cacheReview(ctx.projectRoot, skipReview);
+        cacheReview(ctx.projectRoot, skipReview, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         ctx.filesReviewed++;
         ctx.reviewCounts.skipped++;
@@ -2543,7 +2549,7 @@ async function runReviewPhase(
         );
 
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
-        cacheReview(ctx.projectRoot, result.review);
+        cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
           ? fileEvaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
@@ -3016,16 +3022,66 @@ function runReportPhase(ctx: RunContext): void {
 }
 
 /**
- * Load a single cached review from the persistent cache directory.
+ * Filter a review to only contain data for the specified enabled axes.
+ * Blanks disabled axis verdicts to '-' and removes disabled-axis actions.
+ */
+function filterReviewAxes(review: ReviewFile, enabledAxes: AxisId[]): ReviewFile {
+  const enabledSet = new Set<AxisId>(enabledAxes);
+  const disabledSymbolAxes: Array<{ key: keyof import('../schemas/review.js').SymbolReview; axis: AxisId }> = [
+    { key: 'correction', axis: 'correction' },
+    { key: 'utility', axis: 'utility' },
+    { key: 'duplication', axis: 'duplication' },
+    { key: 'overengineering', axis: 'overengineering' },
+    { key: 'tests', axis: 'tests' },
+    { key: 'documentation', axis: 'documentation' },
+  ];
+
+  const filteredSymbols = review.symbols.map((s) => {
+    const next = { ...s };
+    for (const { key, axis } of disabledSymbolAxes) {
+      if (!enabledSet.has(axis) && next[key] !== '-') {
+        (next as Record<string, unknown>)[key] = '-';
+      }
+    }
+    if (!enabledSet.has('duplication')) next.duplicate_target = undefined;
+    return next;
+  });
+
+  const disabledActionSources = new Set<string>();
+  for (const axis of ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation', 'best_practices'] as AxisId[]) {
+    if (!enabledSet.has(axis)) disabledActionSources.add(axis);
+  }
+  if (!enabledSet.has('best_practices')) disabledActionSources.add('best-practices');
+
+  const filteredActions = review.actions.filter((a) => !a.source || !disabledActionSources.has(a.source));
+  const bestPractices = enabledSet.has('best_practices') ? review.best_practices : undefined;
+
+  return { ...review, symbols: filteredSymbols, actions: filteredActions, best_practices: bestPractices };
+}
+
+/**
+ * Load a single cached review from the shared content-addressable store
+ * or the legacy project-local cache directory.
  * Returns the parsed ReviewFile or undefined if not found / malformed.
  *
  * When `enabledAxes` is provided, filters out stale data for axes that are
- * no longer enabled in the current config: per-symbol verdicts are blanked
- * to '-' and actions whose `source` matches a disabled axis are removed.
- * This prevents stale cache from an old run (where an axis was enabled)
- * from leaking into the current run's report.
+ * no longer enabled in the current config.
  */
-function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: AxisId[]): ReviewFile | undefined {
+function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: AxisId[], promptHash?: string, sourceRoot?: string): ReviewFile | undefined {
+  // Try shared content-addressable cache first
+  if (promptHash && enabledAxes) {
+    try {
+      const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
+      const absPath = resolve(effectiveRoot, filePath);
+      const fileContent = readFileSync(absPath, 'utf-8');
+      const shared = loadSharedReview(projectRoot, filePath, fileContent, promptHash, enabledAxes);
+      if (shared) return filterReviewAxes(shared, enabledAxes);
+    } catch {
+      // Fall through to legacy cache
+    }
+  }
+
+  // Legacy project-local cache fallback
   const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
   const baseName = toOutputName(filePath);
   const src = join(cacheReviewsDir, `${baseName}.rev.json`);
@@ -3034,62 +3090,61 @@ function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: A
     const raw = JSON.parse(readFileSync(src, 'utf-8'));
     const review = ReviewFileSchema.parse(raw);
     if (!enabledAxes) return review;
-
-    const enabledSet = new Set<AxisId>(enabledAxes);
-    const disabledSymbolAxes: Array<{ key: keyof import('../schemas/review.js').SymbolReview; axis: AxisId }> = [
-      { key: 'correction', axis: 'correction' },
-      { key: 'utility', axis: 'utility' },
-      { key: 'duplication', axis: 'duplication' },
-      { key: 'overengineering', axis: 'overengineering' },
-      { key: 'tests', axis: 'tests' },
-      { key: 'documentation', axis: 'documentation' },
-    ];
-
-    const filteredSymbols = review.symbols.map((s) => {
-      const next = { ...s };
-      for (const { key, axis } of disabledSymbolAxes) {
-        if (!enabledSet.has(axis) && next[key] !== '-') {
-          (next as Record<string, unknown>)[key] = '-';
-        }
-      }
-      if (!enabledSet.has('duplication')) next.duplicate_target = undefined;
-      return next;
-    });
-
-    // Map ReportAxisId <-> AxisId for best-practices source tag.
-    const disabledActionSources = new Set<string>();
-    for (const axis of ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation', 'best_practices'] as AxisId[]) {
-      if (!enabledSet.has(axis)) disabledActionSources.add(axis);
-    }
-    // Action source can also be the hyphenated form for best-practices.
-    if (!enabledSet.has('best_practices')) disabledActionSources.add('best-practices');
-
-    const filteredActions = review.actions.filter((a) => !a.source || !disabledActionSources.has(a.source));
-
-    const bestPractices = enabledSet.has('best_practices') ? review.best_practices : undefined;
-
-    return { ...review, symbols: filteredSymbols, actions: filteredActions, best_practices: bestPractices };
+    return filterReviewAxes(review, enabledAxes);
   } catch {
     return undefined;
   }
 }
 
 /**
- * Persist a .rev.json and .rev.md into the accumulative cache directory.
- * Always overwrites — the latest review is the source of truth.
+ * Compute a combined prompt hash for all enabled axis system prompts.
+ * Used as the `prompt_hash` in shared review cache `_meta` headers.
+ */
+function computeAxesPromptHash(axisIds: string[], modelId: string): string {
+  const sortedAxes = [...axisIds].sort();
+  const systemPrompts = sortedAxes.map((id) => {
+    try { return resolveSystemPrompt(id); } catch { return id; }
+  }).join('\0');
+  return computePromptHash({
+    schemaVersion: 1,
+    modelId,
+    systemPrompt: systemPrompts,
+    userTemplate: '', // User template varies per file — we use content hash for that
+  });
+}
+
+/**
+ * Persist a review to the shared content-addressable store and a local .rev.md.
  * Failures are silently swallowed (non-fatal, logged at debug level).
  *
  * @param projectRoot Absolute path to the project root.
  * @param review Parsed review file to cache.
  */
-function cacheReview(projectRoot: string, review: ReviewFile): void {
+function cacheReview(
+  projectRoot: string,
+  review: ReviewFile,
+  promptHash: string,
+  modelId: string,
+  axes: string[],
+  sourceRoot?: string,
+): void {
+  const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
+  // Write to shared content-addressable store
+  try {
+    const absPath = resolve(effectiveRoot, review.file);
+    const fileContent = readFileSync(absPath, 'utf-8');
+    writeSharedReview(projectRoot, review, fileContent, promptHash, modelId, axes);
+  } catch (err) {
+    getLogger().debug({ file: review.file, err }, 'failed to write shared review cache (non-fatal)');
+  }
+
+  // Also keep local accumulative .rev.md for human readability
   const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
   mkdirSync(cacheReviewsDir, { recursive: true });
   const baseName = toOutputName(review.file);
   try {
-    writeFileSync(join(cacheReviewsDir, `${baseName}.rev.json`), JSON.stringify(review, null, 2) + '\n');
     writeFileSync(join(cacheReviewsDir, `${baseName}.rev.md`), renderReviewMarkdown(review));
   } catch (err) {
-    getLogger().debug({ baseName, err }, 'failed to cache review (non-fatal)');
+    getLogger().debug({ baseName, err }, 'failed to cache review markdown (non-fatal)');
   }
 }
