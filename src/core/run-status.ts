@@ -88,6 +88,20 @@ export function isProcessAlive(pid: number): boolean {
 }
 
 /**
+ * Sort run statuses for display: running runs first, then by startedAt descending.
+ * Does not mutate the input array.
+ */
+export function sortRunStatusesForDisplay(statuses: RunStatus[]): RunStatus[] {
+  return [...statuses].sort((a, b) => {
+    // Running runs first
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (a.status !== 'running' && b.status === 'running') return 1;
+    // Then by startedAt descending (most recent first)
+    return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+  });
+}
+
+/**
  * Get current git branch and short commit hash.
  * Returns undefined values if not in a git repo.
  */

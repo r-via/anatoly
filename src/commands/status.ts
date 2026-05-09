@@ -11,7 +11,7 @@ import { ProgressManager } from '../core/progress-manager.js';
 import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
 import { buildProgressBar, verdictColor } from '../utils/format.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
-import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
+import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, sortRunStatusesForDisplay, type RunStatus } from '../core/run-status.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -36,7 +36,7 @@ export function formatDuration(ms: number): string {
  * Build a text table summarising all run statuses.
  * Returns plain text (no chalk) suitable for testing.
  */
-export function buildRunTable(statuses: RunStatus[]): string {
+export function buildRunTable(statuses: RunStatus[], activeRunId?: string): string {
   if (statuses.length === 0) return '  No recent reviews found.';
 
   const lines: string[] = [];
@@ -54,8 +54,13 @@ export function buildRunTable(statuses: RunStatus[]): string {
     const branch = s.branch ?? '—';
     const commit = s.commit ?? '—';
 
+    let statusLabel = s.status.padEnd(10);
+    if (activeRunId && s.runId === activeRunId) {
+      statusLabel = chalk.cyan(s.status).padEnd(10 + (chalk.cyan('').length));
+    }
+
     lines.push(
-      `  ${s.runId.padEnd(25)} ${s.status.padEnd(10)}${duration.padEnd(11)}${branch.padEnd(14)}${commit}`,
+      `  ${s.runId.padEnd(25)} ${statusLabel}${duration.padEnd(11)}${branch.padEnd(14)}${commit}`,
     );
   }
 
@@ -150,12 +155,19 @@ export function registerStatusCommand(program: Command): void {
         }
       }
 
+      // Find active run (running + PID alive)
+      const activeRun = allStatuses.find((s) => s.status === 'running');
+      const activeRunId = activeRun?.runId;
+
+      // Sort for display: running first, then by startedAt descending
+      const displayStatuses = sortRunStatusesForDisplay(allStatuses);
+
       // If there are background runs, show them first
-      if (allStatuses.length > 0) {
+      if (displayStatuses.length > 0) {
         console.log(chalk.bold('anatoly — status'));
         console.log('');
         console.log(chalk.bold('  Runs'));
-        console.log(buildRunTable(allStatuses));
+        console.log(buildRunTable(displayStatuses, activeRunId));
         console.log('');
       }
 
@@ -198,8 +210,9 @@ export function registerStatusCommand(program: Command): void {
       if (summary.TIMEOUT > 0) console.log(`  timeout     ${chalk.yellow(String(summary.TIMEOUT))}`);
       console.log('');
 
-      // Load reviews for findings summary — try run-scoped first, then legacy
-      const latestRunDir = resolveRunDir(projectRoot);
+      // Load reviews for findings summary — prefer active run dir, then latest, then legacy
+      const activeRunDir = activeRunId ? resolveRunDir(projectRoot, activeRunId) : undefined;
+      const latestRunDir = activeRunDir ?? resolveRunDir(projectRoot);
       const reviews = latestRunDir
         ? loadReviews(projectRoot, latestRunDir)
         : loadReviews(projectRoot);
@@ -228,6 +241,9 @@ export function registerStatusCommand(program: Command): void {
         if (overCount > 0) console.log(`    over      ${overCount}`);
         if (errCount > 0) console.log(`    errors    ${errCount}`);
         console.log('');
+      } else if (activeRun) {
+        // Active run but no reviews yet — omit findings, show in-progress hint
+        console.log('');
       }
 
       // Show latest run info
@@ -241,7 +257,9 @@ export function registerStatusCommand(program: Command): void {
       const rel = (p: string) => relative(process.cwd(), p) || '.';
       if (latestRunDir) {
         const reportInRun = resolve(latestRunDir, 'report.md');
-        if (existsSync(reportInRun)) {
+        if (activeRun && !existsSync(reportInRun)) {
+          console.log(`  report      ${chalk.dim('(in progress)')}`);
+        } else if (existsSync(reportInRun)) {
           console.log(`  report      ${chalk.cyan(rel(reportInRun))}`);
         }
         console.log(`  reviews     ${chalk.cyan(rel(resolve(latestRunDir, 'reviews')) + '/')}`);

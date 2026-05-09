@@ -195,16 +195,7 @@
 
 - [x] Story 53.1: Écriture initiale `run-status.json` côté foreground
 - [x] Story 53.2: Correction du chemin `progress.json` dans `anatoly status`
-  > As a utilisateur d'anatoly
-  > I want que la barre de progression apparaisse dans `anatoly status` quand un run est en cours, So que je voie l'avancement réel et pas juste un message "no audit in progress" alors que le run est actif.
-  > AC: Given [src/commands/status.ts:162](src/commands/status.ts#L162), When la ligne `const progressPath = resolve(projectRoot, '.anatoly', 'progress.json');` est lue, Then elle est corrigée en `const progressPath = resolve(projectRoot, '.anatoly', 'cache', 'progress.json');`
-  > AC: Given la totalité du fichier `src/commands/status.ts`, When un audit complet est fait, Then aucun autre `progress.json` mal-pathé n'est trouvé (recherche exhaustive), And les chemins de réviews ([status.ts:248-253](src/commands/status.ts#L248-L253)) restent inchangés (ils pointent correctement sur `.anatoly/reviews/` legacy ou sur `<runDir>/reviews/`)
-  > AC: Given un projet avec un run actif qui a écrit dans `.anatoly/cache/progress.json` (au moins un fichier passé en `IN_PROGRESS` ou `DONE`), When `anatoly status` est invoqué dans un autre terminal, Then la branche `existsSync(progressPath)` à [status.ts:170](src/commands/status.ts#L170) est vraie, And la barre de progression est rendue (lignes 187-198), And le pourcentage affiché correspond à `(DONE + CACHED) / total * 100`
-  > AC: Given un projet sans run jamais lancé (pas de `.anatoly/cache/progress.json`), When `anatoly status` est invoqué, Then la branche "no audit in progress" reste affichée (comportement attendu pour un projet vierge)
-  > AC: Given un test unit `status-progress-path.test.ts`, When il prépare un projet temporaire avec `.anatoly/cache/progress.json` rempli et `.anatoly/progress.json` absent, Then le test capture la sortie de `anatoly status` et assert qu'elle contient `progress    █` (la barre), And un autre cas du même test prépare un projet avec UNIQUEMENT `.anatoly/progress.json` (legacy bug), assert que cette fois la barre n'est pas affichée (parce qu'on a corrigé le path et qu'on ne lit plus le legacy)
-  > AC: Given un script grep préventif est ajouté à la story, When la PR est review, Then un grep `'\.anatoly/progress\.json'` (sans `cache/`) sur tout `src/` retourne zéro match en dehors de tests qui documentent explicitement le bug
-  > Spec: specs/planning-artifacts/epic-53-in-flight-run-visibility.md#story-53-2
-- [ ] Story 53.3: Enrichissement `anatoly status` pour run actif (progress + findings + tri)
+- [x] Story 53.3: Enrichissement `anatoly status` pour run actif (progress + findings + tri)
   > As a utilisateur d'anatoly
   > I want que `anatoly status` mette en évidence le run actuellement actif et affiche son avancement détaillé, So que d'un coup d'œil je sache : (a) y a-t-il un run en cours, (b) où en est-il, (c) où sont les artefacts pour aller plus loin.
   > AC: Given la fonction `buildRunTable` dans [src/commands/status.ts:38-62](src/commands/status.ts#L38-L62), When elle est étendue avec un paramètre `activeRunId?: string` qui identifie le run `running` à mettre en évidence, Then la ligne du run actif est colorée en cyan sur la colonne `STATUS`, And les autres lignes restent en couleur par défaut (le statut `done` reste vert, `failed`/`crashed` restent rouges — comportement existant à confirmer)
