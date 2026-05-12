@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, rmSync, cpSync, lstatSync, readdirSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, rmSync, readdirSync } from 'node:fs';
 
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -973,9 +973,14 @@ export function registerRunCommand(program: Command): void {
         }
 
         // --- Phase: bootstrap doc (first run only, skipped in quick-win) — Story 29.21 ---
-        // In lite mode, skip LLM-based scaffold/generation and build a deterministic digest instead (Story 54.6)
+        // Mode guards: lite builds a deterministic digest (Story 54.6), off skips entirely (Story 54.7)
         const internalDocMode = ctx.config.documentation?.internal?.mode;
-        if (internalDocMode === 'lite' && !ctx.interrupted) {
+        if (internalDocMode === 'off' && !ctx.interrupted) {
+          const log = getLogger();
+          log.info('internal docs mode=off — skipping scaffold, generation, and coherence');
+          ctx.renderer?.logPlain('[internal-docs] mode=off — skipping scaffold, generation, and coherence');
+          ctx.pipelineState?.completeTask('bootstrap-doc', 'off');
+        } else if (internalDocMode === 'lite' && !ctx.interrupted) {
           const log = getLogger();
           log.info('internal docs mode=lite — building deterministic digest (no LLM)');
           ctx.renderer?.logPlain('[internal-docs] mode=lite — building deterministic digest (no LLM)');
@@ -1140,11 +1145,14 @@ export function registerRunCommand(program: Command): void {
 
         // --- Phase: update internal docs — Story 29.21 ---
         // In lite mode, rebuild the deterministic digest (no LLM). Story 54.6.
-        if (internalDocMode === 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
+        // Mode off: skip doc update entirely (Story 54.7)
+        if (internalDocMode === 'off' && !ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'off');
+        } else if (internalDocMode === 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
           ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
           ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
         // Skip when no files were reviewed (nothing changed → docs are still current)
-        } else if (internalDocMode !== 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
+        } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && ctx.filesReviewed > 0) {
           await runWithContext({ phase: 'internal-docs' }, async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
@@ -1165,12 +1173,6 @@ export function registerRunCommand(program: Command): void {
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
-        }
-
-        // --- Phase: sync project docs (dedup mode only) ---
-        if (!ctx.interrupted && ctx.docsIdentical) {
-          ctx.pipelineState?.insertTaskBefore('report', 'sync-project-docs', 'Synchronising project docs');
-          syncProjectDocsFromInternal(ctx);
         }
 
         if (ctx.interrupted) {
@@ -1943,49 +1945,6 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
 }
 
 /**
- * Copy .anatoly/docs/ → docs/ when in dedup mode, keeping project docs in sync.
- */
-function syncProjectDocsFromInternal(ctx: RunContext): void {
-  const taskId = 'sync-project-docs';
-  const log = getLogger();
-  ctx.pipelineState?.startTask(taskId, 'copying…');
-
-  try {
-    const docsPath = getDocsDir(ctx.config);
-    const absInternal = anatolyPath(ctx.projectRoot, 'state/internal-docs');
-    const absProject = resolve(ctx.projectRoot, docsPath);
-
-    if (!existsSync(absInternal)) {
-      ctx.pipelineState?.completeTask(taskId, 'no internal docs');
-      return;
-    }
-
-    // Guard against symlinks (rmSync on a symlink target would destroy the source)
-    if (existsSync(absProject)) {
-      try {
-        if (lstatSync(absProject).isSymbolicLink()) {
-          log.info('sync skipped — docs/ is a symlink');
-          ctx.pipelineState?.completeTask(taskId, 'skipped (symlink)');
-          return;
-        }
-      } catch { /* lstat failed — proceed normally */ }
-      rmSync(absProject, { recursive: true, force: true });
-    }
-    cpSync(absInternal, absProject, { recursive: true });
-
-    // Remove internal-only artifacts from the copy
-    const cachePath = join(absProject, '.cache.json');
-    if (existsSync(cachePath)) rmSync(cachePath);
-
-    log.info({ phase: taskId }, `synced .anatoly/docs/ → ${docsPath}/`);
-    ctx.pipelineState?.completeTask(taskId, 'synced');
-  } catch (err) {
-    log.warn({ err }, `${taskId} failed — continuing`);
-    ctx.pipelineState?.completeTask(taskId, 'failed');
-  }
-}
-
-/**
  * Re-index doc sections after the doc-update pipeline has modified `.anatoly/docs/`.
  *
  * 1. Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate chunk cache.
@@ -2001,8 +1960,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
-  // Skip project docs when dedup mode — syncProjectDocsFromInternal will overwrite them
-  // and the alias in the vector store already maps internal → project.
+  // Skip project docs when dedup mode — the alias in the vector store maps internal → project.
   const projChunked = ctx.docsIdentical ? 0 : smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
 
   if (intChunked + projChunked === 0) return; // nothing changed

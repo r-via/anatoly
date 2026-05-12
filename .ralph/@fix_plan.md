@@ -206,16 +206,7 @@
 - [x] Story 54.4: `reference-docs-resolver` — collecte unifiée des sources humaines
 - [x] Story 54.5: Split contexte axes — `renderReferenceDocsContext` vs `renderInternalDocsContext`
 - [x] Story 54.6: Mode `lite` — digest interne déterministe + cache fingerprint
-  > As a utilisateur qui veut un signal documentaire injecté dans les axes sans payer le coût d'une génération LLM complète
-  > I want un digest interne synthétique et borné en tokens, généré sans LLM, et invalidé automatiquement quand le code change
-  > So that le run reste rapide et le contexte injecté reste pertinent et frais.
-  > AC: Given une config en mode `lite` avec `max_tokens: 4000, refresh_on: ["code_change"]`, When `buildInternalDocsDigest(projectScan, referenceDocs, config)` est appelé pour la première fois sur un projet de 500 fichiers, Then il retourne `{ tokens, content, fingerprint }` avec `tokens <= 4000`, `content` non-vide, `fingerprint` est un hash SHA-256 des inputs sérialisés, And `content` est un markdown structuré contenant : (1) un index `## Modules` listant les modules détectés avec leurs paths, (2) une section `## Public surface` listant les signatures publiques par module, (3) une section `## Reference index` listant les paths de reference docs trouvés (sans leur contenu, juste les paths), (4) une section `## Inline doc-comments` listant les commentaires structurés (titre = `symbol`, body = `cleaned`), And aucun appel LLM n'est effectué (vérifiable par mock du provider qui doit ne pas être touché)
-  > AC: Given un second appel à `buildInternalDocsDigest` immédiatement après le premier, sans modification du projet, When le digest est calculé, Then le fingerprint est identique au précédent, And le digest est servi depuis un cache (`.anatoly/cache/internal-digest.json` ou équivalent) sans recalcul des sections, And le temps de retour est < 100 ms (NFR4)
-  > AC: Given une modification dans un fichier source (mtime change), When `buildInternalDocsDigest` est rappelé avec `refresh_on: ["code_change"]`, Then le fingerprint diffère du précédent, And le digest est recalculé intégralement, And le nouveau résultat est écrit dans le cache
-  > AC: Given un projet où le contenu collecté excède 4000 tokens, When le digest est construit, Then la troncature est appliquée par priorité : reference docs d'abord, doc-comments ensuite, modules en dernier (FR12), And un footer dans le markdown indique `(truncated to {N} tokens; dropped {M} entries)`
-  > AC: Given le mode `lite` est actif, When le pipeline doc tourne via `runDocPipeline`, Then `runDocScaffold` et `runDocGeneration` (qui appellent le LLM) sont skippés, And un log info clair : `internal docs mode=lite — building deterministic digest (no LLM)`, And le digest est rendu disponible dans le contexte d'axe via un nouveau champ `axisContext.internalDigest: { tokens, content, fingerprint } | null`
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-6
-- [ ] Story 54.7: Mode `off` gracieux + suppression sèche du sync `.anatoly/docs/ → docs/`
+- [x] Story 54.7: Mode `off` gracieux + suppression sèche du sync `.anatoly/docs/ → docs/`
   > As a utilisateur qui ne veut pas du tout de doc interne (par exemple parce que ma doc humaine me suffit)
   > I want que le mode `off` désactive intégralement la génération et le sync, sans aucun effet de bord
   > So that anatoly reste un outil d'audit sans polluer mon repo avec des artefacts dérivés du code.
