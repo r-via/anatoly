@@ -223,15 +223,16 @@ export function bootstrapAnatoly(root: string): void {
   ensureLink(dotAnatoly, 'shared', join(uwRoot, 'shared'));
   ensureLink(dotAnatoly, 'user', join(uwRoot, 'user'));
 
-  // 4. Project-only subdirs
+  // 4. Migrate legacy state files (pre-Epic-52 layout). MUST run BEFORE
+  // project-subdir creation: otherwise mkdir would create empty target dirs
+  // (e.g. cache/rag/lancedb) which would trick the migration's "target has
+  // content" check into deleting the legacy source instead of renaming it.
+  migrateLegacyState(dotAnatoly);
+
+  // 5. Project-only subdirs — fills in whatever migration didn't provide.
   for (const sub of PROJECT_SUBDIRS) {
     mkdirSync(join(dotAnatoly, sub), { recursive: true, mode: 0o700 });
   }
-
-  // 5. Migrate legacy state files (pre-Epic-52 layout). Files at `.anatoly/`
-  // root that should live under `state/` are moved in place — zero data loss,
-  // zero user action required.
-  migrateLegacyState(dotAnatoly);
 
   // 6. Env vars for HF SDK (written, never read by Anatoly)
   hfCachePath_ = anatolyPath(root, 'shared/models/hf-cache');
@@ -286,18 +287,41 @@ function migrateLegacyState(dotAnatoly: string): void {
     if (!existsSync(legacy)) continue;
     try {
       if (!lstatSync(legacy).isDirectory()) continue;
-      const targetHasContent = existsSync(target) && readdirSync(target).length > 0;
+      // "Has content" = at least one regular FILE somewhere in the tree.
+      // Empty subdirectories (created by previous bootstrap PROJECT_SUBDIRS)
+      // don't count as content — they're just structural placeholders.
+      const targetHasContent = existsSync(target) && containsAnyFile(target);
       if (targetHasContent) {
-        // New code already populated the canonical location — legacy is dead.
+        // Canonical location already has real data — legacy copy is stale.
         rmSync(legacy, { recursive: true, force: true });
       } else {
+        // First migration. Drop empty placeholder target if present, ensure
+        // parent exists for renameSync, then rename.
         if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+        mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
         renameSync(legacy, target);
       }
     } catch (err) {
       getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
     }
   }
+}
+
+/** Recursively check whether a directory contains at least one regular file. */
+function containsAnyFile(dir: string): boolean {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (entry.isFile()) return true;
+    if (entry.isDirectory()) {
+      if (containsAnyFile(join(dir, entry.name))) return true;
+    }
+  }
+  return false;
 }
 
 /**
