@@ -7,6 +7,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -205,9 +206,20 @@ export function bootstrapAnatoly(root: string): void {
     // home; shared/ exposes them via symlink so anatolyPath resolution still
     // works without forcing the user to mv 10+ GB of weights.
     if (sub === join('models', 'gguf') && shouldLinkLegacyModels(uwRoot, target)) {
+      const legacyModels = join(uwRoot, 'models');
+      // If a correct symlink already exists, skip silently (idempotent).
+      if (symlinkExists(target) && (() => {
+        try { return readlinkSync(target) === legacyModels; } catch { return false; }
+      })()) {
+        continue;
+      }
+      // Drop any stale entry, then create the symlink.
+      if (existsSync(target) || symlinkExists(target)) {
+        try { rmSync(target, { recursive: true, force: true }); } catch { /* best-effort */ }
+      }
       mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
       try {
-        symlinkSync(join(uwRoot, 'models'), target, 'dir');
+        symlinkSync(legacyModels, target, 'dir');
         continue;
       } catch (err) {
         getLogger().warn(
