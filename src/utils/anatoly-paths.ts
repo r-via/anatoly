@@ -223,18 +223,11 @@ export function bootstrapAnatoly(root: string): void {
   ensureLink(dotAnatoly, 'shared', join(uwRoot, 'shared'));
   ensureLink(dotAnatoly, 'user', join(uwRoot, 'user'));
 
-  // 4a. Migrate legacy state files (pre-Epic-52 layout). MUST run BEFORE
+  // 4. Migrate legacy state files (pre-Epic-52 layout). MUST run BEFORE
   // project-subdir creation: otherwise mkdir would create empty target dirs
   // (e.g. cache/rag/lancedb) which would trick the migration's "target has
   // content" check into deleting the legacy source instead of renaming it.
   migrateLegacyState(dotAnatoly);
-
-  // 4b. Clean up SHARED subdirs that were created by older versions of
-  // bootstrap when reviews/refinements/nlp-summaries lived under shared/.
-  // Those moved to project-local cache/ (post-rollback of cross-project
-  // sharing) — the user-wide empty placeholders are leftovers. Remove only
-  // when empty (anatoly never wrote data here, but be defensive).
-  cleanupObsoleteSharedSubdirs(uwRoot);
 
   // 5. Project-only subdirs — fills in whatever migration didn't provide.
   for (const sub of PROJECT_SUBDIRS) {
@@ -310,33 +303,6 @@ function migrateLegacyState(dotAnatoly: string): void {
       }
     } catch (err) {
       getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
-    }
-  }
-}
-
-/**
- * Remove empty user-wide shared/ subdirs that should no longer exist —
- * reviews, refinements, nlp-summaries used to live there but are now
- * project-local under cache/. Empty-only removal protects against any
- * payload that might have been written before the rollback.
- */
-function cleanupObsoleteSharedSubdirs(uwRoot: string): void {
-  const sharedRoot = join(uwRoot, 'shared');
-  for (const sub of ['reviews', 'refinements', 'nlp-summaries']) {
-    const dir = join(sharedRoot, sub);
-    if (!existsSync(dir)) continue;
-    try {
-      if (!lstatSync(dir).isDirectory()) continue;
-      if (containsAnyFile(dir)) {
-        getLogger().warn(
-          { dir, sub },
-          'shared/' + sub + '/ still has content — manual review needed (data should be project-local under cache/)',
-        );
-        continue;
-      }
-      rmSync(dir, { recursive: true, force: true });
-    } catch (err) {
-      getLogger().warn({ err: String(err), sub }, 'failed to remove obsolete shared subdir');
     }
   }
 }
