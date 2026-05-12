@@ -208,21 +208,17 @@ describe('resolveEmbeddingModels — external backend (Story 50.5)', () => {
     expect(result.nlpEnvKey).toBe('VOYAGE_API_KEY');
   });
 
-  // TODO(epic-50): `qwen` (dashscope) is referenced as a provider in this test but is not
-  // registered in KNOWN_EMBEDDING_PROVIDERS (only openai/voyage/openrouter/cohere/mistral/local-advanced).
-  // Re-enable once the qwen provider entry is added to known-embedding-providers.ts with
-  // default_nlp_model: 'text-embedding-v4'.
-  it.skip('should use default models from registry when model not in config', async () => {
+  it('should use default models from registry when model not in config', async () => {
     const config = {
       ...defaultConfig,
       embedding: {
         code: { provider: 'voyage' },
-        nlp: { provider: 'qwen' },
+        nlp: { provider: 'openrouter' },
       },
     };
     const result = await resolveEmbeddingModels(config, liteHardware, undefined, externalFlag);
     expect(result.codeModel).toBe('voyage-code-3');
-    expect(result.nlpModel).toBe('text-embedding-v4');
+    expect(result.nlpModel).toBe('qwen/qwen3-embedding-8b');
   });
 
   // FR8: bidirectional duplication — only code configured → nlp inherits
