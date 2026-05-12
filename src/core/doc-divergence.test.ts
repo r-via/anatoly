@@ -362,7 +362,7 @@ describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
   it('attach.ts renders doc mode in terminated-run snapshot', () => {
     const content = readFileSync(resolve(__dirname, '../commands/attach.ts'), 'utf-8');
     expect(content).toContain('renderDocModeLine');
-    expect(content).toContain('documentation');
+    expect(content).toContain('resolveDocMode');
   });
 });
 

@@ -4,6 +4,7 @@
 
 import type { RelevantDoc } from '../axis-evaluator.js';
 import type { Config } from '../../schemas/config.js';
+import { resolveDocMode } from '../run-config.js';
 
 /**
  * Render the internal-docs section for business-logic axis prompts.
@@ -21,7 +22,7 @@ export function renderInternalDocsContext(
   config: Config,
 ): string {
   // Only inject in full mode — lite and off skip internal docs context
-  if (config.documentation?.internal?.mode !== 'full') return '';
+  if (resolveDocMode(config) !== 'full') return '';
 
   const internalDocs = relevantDocs?.filter((d) => d.source === 'internal') ?? [];
   if (internalDocs.length === 0) return '';

@@ -8,7 +8,17 @@ import type { Config } from '../schemas/config.js';
 import type { AxisId } from './axis-evaluator.js';
 import { pkgVersion, pkgCommit } from '../utils/version.js';
 
+export type DocMode = 'off' | 'lite' | 'full';
 export type RagMode = 'lite' | 'advanced' | 'auto';
+
+/**
+ * Resolve the documentation internal mode from a validated Config.
+ * Returns a strict union — never undefined, never a generic string.
+ * Centralizes the check so call-sites don't repeat optional-chaining.
+ */
+export function resolveDocMode(config: Config): DocMode {
+  return config.documentation.internal.mode;
+}
 
 export interface RunConfigBadge {
   enabled: boolean;

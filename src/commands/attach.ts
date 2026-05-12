@@ -22,6 +22,7 @@ import { formatDuration, verdictColor } from '../utils/format.js';
 import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporter.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { ProgressManager } from '../core/progress-manager.js';
+import { resolveDocMode } from '../core/run-config.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -538,7 +539,7 @@ export function registerAttachCommand(parent: Command): void {
         let docMode: 'full' | 'lite' | 'off' | undefined;
         try {
           const config = loadConfig(projectRoot);
-          docMode = (config.documentation?.internal?.mode ?? 'off') as 'full' | 'lite' | 'off';
+          docMode = resolveDocMode(config);
         } catch {
           // Config not available — omit doc mode line
         }
@@ -649,7 +650,7 @@ export function registerAttachCommand(parent: Command): void {
       let docMode: 'full' | 'lite' | 'off' | undefined;
       try {
         const config = loadConfig(projectRoot);
-        docMode = (config.documentation?.internal?.mode ?? 'off') as 'full' | 'lite' | 'off';
+        docMode = resolveDocMode(config);
       } catch {
         // Config not available — omit doc mode line
       }

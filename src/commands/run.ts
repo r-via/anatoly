@@ -70,7 +70,7 @@ import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { printSetupToAuditTransition } from '../utils/transitions.js';
 import { printNotice } from '../utils/notice.js';
-import { buildRunConfig, writeRunConfig } from '../core/run-config.js';
+import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
@@ -974,7 +974,7 @@ export function registerRunCommand(program: Command): void {
 
         // --- Phase: bootstrap doc (first run only, skipped in quick-win) — Story 29.21 ---
         // Mode guards: lite builds a deterministic digest (Story 54.6), off skips entirely (Story 54.7)
-        const internalDocMode = ctx.config.documentation?.internal?.mode;
+        const internalDocMode = resolveDocMode(ctx.config);
         if (internalDocMode === 'off' && !ctx.interrupted) {
           const log = getLogger();
           log.info('internal docs mode=off — skipping scaffold, generation, and coherence');
