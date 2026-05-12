@@ -80,12 +80,11 @@ import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type Pro
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, writeScaffoldStatus } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
-import { clearRefinementCache } from '../core/refinement/tier3.js';
 import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
 import { createWorktreeManager } from '../core/worktree-manager.js';
-import { anatolyPath, runPath, clearCache } from '../utils/anatoly-paths.js';
+import { anatolyPath, runPath } from '../utils/anatoly-paths.js';
 import { writeSharedReview, loadSharedReview } from '../core/shared-review-cache.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
@@ -2329,12 +2328,15 @@ async function runReviewPhase(
       }
     }
   } else if (ctx.noCache) {
-    clearCache(ctx.projectRoot);
-    log.info('--no-cache: cleared project cache. Shared cache (~/.anatoly/shared/) untouched. Use \'anatoly clean --shared\' to clear it.');
+    // --no-cache: BYPASS the cache, never destroy it. Mark CACHED files as
+    // PENDING so they're re-evaluated this run. cacheReview() and
+    // writeSharedReview() are gated separately to skip writes too. If the
+    // run fails, the cache on disk is unchanged — `anatoly reset` is the
+    // command that actually wipes it.
+    log.info('--no-cache: bypassing cache for this run (no files deleted).');
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
     }
-    clearRefinementCache(ctx.projectRoot);
   }
 
   let pending = pm.getPendingFiles();
@@ -2462,7 +2464,7 @@ async function runReviewPhase(
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
         const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter, usageGraph);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
-        cacheReview(ctx.projectRoot, skipReview, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
+        if (!ctx.noCache) cacheReview(ctx.projectRoot, skipReview, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         ctx.filesReviewed++;
         ctx.reviewCounts.skipped++;
@@ -2550,7 +2552,7 @@ async function runReviewPhase(
         );
 
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
-        cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
+        if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
           ? fileEvaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))

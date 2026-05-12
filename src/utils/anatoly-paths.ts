@@ -432,12 +432,15 @@ function isMountPoint(p: string): boolean {
 /**
  * Clear the project-local cache: removes all contents under `<root>/.anatoly/cache/`.
  * Does NOT touch state/, runs/, or shared/.
+ *
+ * Note: NOT called by `--no-cache` — that flag is supposed to bypass the
+ * cache in-memory, not destroy it on disk. This function is reserved for
+ * destructive commands like `anatoly reset`.
  */
 export function clearCache(root: string): void {
   const cacheDir = anatolyPath(root, 'cache');
   if (!existsSync(cacheDir)) return;
 
-  // Remove contents, not the dir itself
   for (const entry of readdirSync(cacheDir)) {
     rmSync(join(cacheDir, entry), { recursive: true, force: true });
   }
