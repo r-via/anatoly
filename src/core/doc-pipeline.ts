@@ -165,13 +165,15 @@ export function runDocGeneration(
   // Check cache
   const cacheResult = checkDocCache(cache, pageMappings, currentHashes);
 
-  // Load README.md as context (read-only, may be stale)
-  let readme: string | undefined;
-  try {
-    readme = readFileSync(resolve(projectRoot, 'README.md'), 'utf-8');
-  } catch {
-    // No README — that's fine
-  }
+  // Internal docs are derived strictly from code at this stage. The
+  // human-authored reference docs (README, specs, etc.) are NOT consumed
+  // here — they may be wrong, just as the code may be wrong. The two
+  // sources are reconciled only through the arbitration loop
+  // (doc-conflict-detector + `anatoly docs arbitrate`). A `doc-wins`
+  // verdict eventually rewrites the affected internal-doc fragment to
+  // bake in the human-validated intention; without arbitration, the
+  // internal-doc stays code-truthful and non-authoritative.
+  const readme: string | undefined = undefined;
 
   // Collect type-specific context once (e.g. CLI --help output)
   const typeContext = collectTypeContext(projectRoot, scaffoldResult.projectTypes, packageJson);
