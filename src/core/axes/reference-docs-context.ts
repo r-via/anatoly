@@ -80,7 +80,7 @@ export function renderReferenceDocsContext(
     parts.push('### ARBITRATED INTENTS (human-validated via `anatoly docs arbitrate`)');
     parts.push('');
     parts.push(
-      'A human arbitrator confirmed the following statements as the intended behavior of the code (verdict: doc-wins). Treat them as authoritative — flag code that contradicts them as a `doc_divergence` finding.',
+      'A human arbitrator has CONFIRMED the following statements as the intended behavior of the code (verdict: doc-wins). These are not "documentation that the code might disagree with" — they are the agreed-upon contract. If the code under review contradicts one of these statements, that is a **regular correctness bug**: emit it as a normal finding on your axis (e.g. `correction: NEEDS_FIX`) with a clear `detail` referencing the arbitrated intent. Do NOT emit `doc_divergence` for these — divergences from arbitrated intents are bugs, not unresolved doc/code disagreements.',
     );
     parts.push('');
 
