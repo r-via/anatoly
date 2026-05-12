@@ -67,13 +67,13 @@ function formatSize(kb: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-export function registerAuditCommand(program: Command): void {
-  const auditCmd = program
-    .command('audit')
-    .description('Manage audit runs (list, remove, repair)');
+export function registerRunsCommand(program: Command): Command {
+  const runsCmd = program
+    .command('runs')
+    .description('Manage audit runs (list, attach, remove, repair)');
 
   // --- anatoly runs list ---
-  auditCmd
+  runsCmd
     .command('list')
     .description('List all runs with status information')
     .option('--empty', 'show only empty (phantom) runs')
@@ -82,7 +82,7 @@ export function registerAuditCommand(program: Command): void {
       const runs = listRuns(projectRoot);
 
       if (runs.length === 0) {
-        console.log('anatoly — audit list');
+        console.log('anatoly — runs list');
         console.log('  No runs found.');
         return;
       }
@@ -95,12 +95,12 @@ export function registerAuditCommand(program: Command): void {
       }
 
       if (infos.length === 0) {
-        console.log('anatoly — audit list');
+        console.log('anatoly — runs list');
         console.log('  No empty runs found.');
         return;
       }
 
-      console.log('anatoly — audit list');
+      console.log('anatoly — runs list');
       console.log('');
 
       const table = new Table({
@@ -125,8 +125,8 @@ export function registerAuditCommand(program: Command): void {
       console.log(`  ${infos.length} run(s)${emptyCount > 0 ? `, ${chalk.yellow(`${emptyCount} empty`)}` : ''}`);
     });
 
-  // --- anatoly audit remove ---
-  auditCmd
+  // --- anatoly runs remove ---
+  runsCmd
     .command('remove')
     .description('Remove runs (by ID, --empty, --all, or --keep N)')
     .option('--empty', 'remove all empty (phantom) runs with 0 reviews')
@@ -174,21 +174,21 @@ export function registerAuditCommand(program: Command): void {
         toDelete = runIds;
       } else {
         console.error('Specify run IDs to remove or use --empty / --all / --keep N.');
-        console.error('  Usage: anatoly audit remove <runId...>');
-        console.error('  Usage: anatoly audit remove --empty');
-        console.error('  Usage: anatoly audit remove --all');
-        console.error('  Usage: anatoly audit remove --keep 5');
+        console.error('  Usage: anatoly runs remove <runId...>');
+        console.error('  Usage: anatoly runs remove --empty');
+        console.error('  Usage: anatoly runs remove --all');
+        console.error('  Usage: anatoly runs remove --keep 5');
         process.exitCode = 1;
         return;
       }
 
       if (toDelete.length === 0) {
-        console.log('anatoly — audit remove');
+        console.log('anatoly — runs remove');
         console.log('  Nothing to remove.');
         return;
       }
 
-      console.log('anatoly — audit remove');
+      console.log('anatoly — runs remove');
       console.log('');
       for (const id of toDelete) {
         console.log(`  ${chalk.dim('•')} ${id}`);
@@ -232,14 +232,14 @@ export function registerAuditCommand(program: Command): void {
       console.log(`  Deleted ${chalk.bold(String(toDelete.length))} run(s).`);
     });
 
-  // --- anatoly audit repair ---
-  auditCmd
+  // --- anatoly runs repair ---
+  runsCmd
     .command('repair')
     .description('Fix stale run statuses (PID dead → crashed)')
     .action(() => {
       const projectRoot = process.cwd();
 
-      console.log(chalk.bold('anatoly — audit repair'));
+      console.log(chalk.bold('anatoly — runs repair'));
       console.log('');
 
       let fixedCount = 0;
@@ -262,4 +262,6 @@ export function registerAuditCommand(program: Command): void {
         console.log('  Nothing to repair.');
       }
     });
+
+  return runsCmd;
 }

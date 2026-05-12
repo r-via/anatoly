@@ -25,7 +25,6 @@ describe('CLI program', () => {
         'report',
         'run',
         'watch',
-        'status',
         'clean',
         'reset',
         'rag-status',
@@ -35,12 +34,11 @@ describe('CLI program', () => {
         'docs',
         'providers',
         'notifications',
-        'audit',
-        'attach',
+        'runs',
         'git',
       ]),
     );
-    expect(commandNames).toHaveLength(18);
+    expect(commandNames).toHaveLength(16);
   });
 
   it('should register all global options', () => {

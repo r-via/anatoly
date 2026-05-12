@@ -6,6 +6,21 @@ import chalk from 'chalk';
 import type { ReviewFile } from '../schemas/review.js';
 
 /**
+ * Format a duration in milliseconds to a human-readable string.
+ * Examples: "45s", "2m 15s", "1h 2m 3s"
+ */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/**
  * Build a Unicode progress bar.
  */
 export function buildProgressBar(current: number, total: number, width: number = 20): string {

@@ -99,26 +99,25 @@ describe('resolveAttachTarget', () => {
     }
   });
 
-  it('with runId, returns error for done run (not active)', () => {
+  it('with runId, returns terminated run for snapshot view (done)', () => {
     writeStatus('run-done', { status: 'done', pid: 99999999 });
 
     const result = resolveAttachTarget(tmpRoot, 'run-done');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain('not active');
-      expect(result.message).toContain('done');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runId).toBe('run-done');
+      expect(result.status.status).toBe('done');
     }
   });
 
-  it('with runId, detects crashed run (running but PID dead)', () => {
+  it('with runId, reconciles zombie run (running + dead PID) to crashed', () => {
     writeStatus('run-zombie', { status: 'running', pid: 99999999 });
 
     const result = resolveAttachTarget(tmpRoot, 'run-zombie');
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain('dead');
-      expect(result.message).toContain('crashed');
-      expect(result.exitCode).toBe(2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.status.status).toBe('crashed');
+      expect(result.status.completedAt).toBeDefined();
     }
   });
 });

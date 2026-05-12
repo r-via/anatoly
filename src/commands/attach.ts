@@ -18,9 +18,9 @@ import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
-import { buildProgressBar } from '../utils/format.js';
-import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
-import { formatDuration } from './status.js';
+import { buildProgressBar, formatDuration, verdictColor } from '../utils/format.js';
+import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporter.js';
+import { loadConfig } from '../utils/config-loader.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -54,29 +54,16 @@ function resolveExplicitRun(projectRoot: string, runId: string): ResolveResult {
   if (!status) {
     return {
       ok: false,
-      message: `Run "${runId}" is not active (status: unknown). Use 'anatoly status ${runId}' for details.`,
+      message: `Run "${runId}" has no status information.`,
       exitCode: 1,
     };
   }
 
-  if (status.status !== 'running') {
-    return {
-      ok: false,
-      message: `Run "${runId}" is not active (status: ${status.status}). Use 'anatoly status ${runId}' for details.`,
-      exitCode: 1,
-    };
-  }
-
-  // Check if PID is actually alive
-  if (!isProcessAlive(status.pid)) {
+  // If marked running but PID is dead, reconcile to crashed on disk.
+  if (status.status === 'running' && !isProcessAlive(status.pid)) {
     status.status = 'crashed';
     status.completedAt = new Date().toISOString();
     writeRunStatus(runDir, status);
-    return {
-      ok: false,
-      message: `Run "${runId}" was running but PID ${status.pid} is dead — marked as crashed.`,
-      exitCode: 2,
-    };
   }
 
   return { ok: true, runId: status.runId, runDir, status };
@@ -89,7 +76,7 @@ function resolveAutoRun(projectRoot: string): ResolveResult {
   if (activeRuns.length === 0) {
     return {
       ok: false,
-      message: "No active run found. Use 'anatoly status' to list all runs.",
+      message: "No active run found. Use 'anatoly runs list' to see all runs, or 'anatoly runs attach <runId>' to inspect a finished one.",
       exitCode: 1,
     };
   }
@@ -98,7 +85,7 @@ function resolveAutoRun(projectRoot: string): ResolveResult {
     const runList = activeRuns.map((s) => `  - ${s.runId}`).join('\n');
     return {
       ok: false,
-      message: `Multiple active runs:\n${runList}\nSpecify a run ID with: anatoly attach <runId>`,
+      message: `Multiple active runs:\n${runList}\nSpecify a run ID with: anatoly runs attach <runId>`,
       exitCode: 1,
     };
   }
@@ -360,11 +347,49 @@ export function buildFinalizationMessage(
 /*  CLI registration                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Registers the `attach` CLI sub-command on the given Commander program. */
-export function registerAttachCommand(program: Command): void {
-  program
+/**
+ * Build a snapshot view for a terminated run (done / failed / crashed).
+ * Exported for testing.
+ */
+export function buildTerminatedSnapshot(
+  status: RunStatus,
+  verdict: string,
+  totalFindings: number,
+  reportPath: string | null,
+  docMode?: 'full' | 'lite' | 'off',
+): string {
+  const lines: string[] = [];
+  const duration = status.completedAt
+    ? formatDuration(new Date(status.completedAt).getTime() - new Date(status.startedAt).getTime())
+    : '—';
+
+  lines.push(`  run         ${status.runId}`);
+  lines.push(`  status      ${status.status}`);
+  lines.push(`  started     ${status.startedAt}`);
+  if (status.completedAt) lines.push(`  completed   ${status.completedAt}`);
+  lines.push(`  duration    ${duration}`);
+  if (status.branch) lines.push(`  branch      ${status.branch}`);
+  if (status.commit) lines.push(`  commit      ${status.commit}`);
+  if (status.error) lines.push(`  error       ${status.error}`);
+
+  if (status.status === 'done') {
+    lines.push(`  verdict     ${verdictColor(verdict)}`);
+    lines.push(`  findings    ${totalFindings}`);
+  }
+
+  if (docMode) {
+    lines.push(`  docs        ${renderDocModeLine({ mode: docMode })}`);
+  }
+
+  lines.push(`  report      ${reportPath ?? '(not generated)'}`);
+  return lines.join('\n');
+}
+
+/** Registers the `attach` CLI sub-command on the given Commander parent (`runs`). */
+export function registerAttachCommand(parent: Command): void {
+  parent
     .command('attach [runId]')
-    .description('Attach a live read-only viewer to a running audit')
+    .description('Inspect a run — live tail if running, snapshot if finished')
     .option('--from-start', 'replay log from the beginning instead of tail-only')
     .option('--no-color', 'disable colors for piping')
     .action(async (runId?: string, opts?: { fromStart?: boolean }) => {
@@ -376,10 +401,54 @@ export function registerAttachCommand(program: Command): void {
         process.exit(result.exitCode);
       }
 
+      // Branch on run state: live tail for running, snapshot for terminated.
+      if (result.status.status !== 'running') {
+        console.log(chalk.bold('anatoly — runs attach'));
+        console.log('');
+
+        let verdict = 'CLEAN';
+        let totalFindings = 0;
+        let reportPath: string | null = null;
+
+        if (result.status.status === 'done') {
+          const reviews = loadReviews(projectRoot, result.runDir);
+          verdict = computeGlobalVerdict(reviews);
+          for (const review of reviews) {
+            for (const s of review.symbols) {
+              if (s.utility === 'DEAD') totalFindings++;
+              if (s.duplication === 'DUPLICATE') totalFindings++;
+              if (s.overengineering === 'OVER') totalFindings++;
+              if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
+            }
+          }
+          const rp = resolve(result.runDir, 'report.md');
+          if (existsSync(rp)) reportPath = rp;
+        }
+
+        let docMode: 'full' | 'lite' | 'off' | undefined;
+        try {
+          const config = loadConfig(projectRoot);
+          docMode = (config.documentation?.internal?.mode ?? 'off') as 'full' | 'lite' | 'off';
+        } catch {
+          // Config not available — omit doc mode line
+        }
+
+        console.log(buildTerminatedSnapshot(result.status, verdict, totalFindings, reportPath, docMode));
+
+        // Exit code: CLEAN done → 0, done with findings or failed → 1, crashed → 2.
+        if (result.status.status === 'done') {
+          process.exit(verdict === 'CLEAN' ? 0 : 1);
+        }
+        if (result.status.status === 'crashed') {
+          process.exit(2);
+        }
+        process.exit(1);
+      }
+
       const logPath = join(result.runDir, 'anatoly.ndjson');
 
       // Print header
-      console.log(chalk.bold('anatoly — attach'));
+      console.log(chalk.bold('anatoly — runs attach'));
       console.log('');
       console.log(buildAttachHeader(result.status, logPath));
       console.log('');

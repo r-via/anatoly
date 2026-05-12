@@ -357,10 +357,10 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 });
 
-// AC4: anatoly status shows doc mode
-describe('Story 54.9 — AC4: anatoly status shows doc mode', () => {
-  it('status.ts contains Documentation mode display logic', () => {
-    const content = readFileSync(resolve(__dirname, '../commands/status.ts'), 'utf-8');
+// AC4: doc-mode is surfaced in `anatoly runs attach` snapshot view (post-refactor).
+describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
+  it('attach.ts renders doc mode in terminated-run snapshot', () => {
+    const content = readFileSync(resolve(__dirname, '../commands/attach.ts'), 'utf-8');
     expect(content).toContain('renderDocModeLine');
     expect(content).toContain('documentation');
   });

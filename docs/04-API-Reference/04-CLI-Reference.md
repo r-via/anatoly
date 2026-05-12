@@ -145,12 +145,20 @@ anatoly report [--run <id>]
 
 ---
 
-### `status`
+### `runs list`
 
-Prints current audit progress, a visual progress bar, per-status file counts (`PENDING`, `IN_PROGRESS`, `DONE`, `CACHED`, `ERROR`, `TIMEOUT`), and a findings summary from the latest completed run.
+Lists all audit runs as a clean table (id, reviews, logs, size, status). Scriptable and non-interactive.
 
 ```bash
-anatoly status
+anatoly runs list [--empty]
+```
+
+### `runs attach`
+
+Inspects a run. Live tail of the ndjson log if the run is still running; final snapshot (verdict, findings count, report path) if it has finished.
+
+```bash
+anatoly runs attach [runId] [--from-start] [--no-color]
 ```
 
 ---
@@ -206,12 +214,12 @@ anatoly reset [options]
 
 ---
 
-### `audit remove`
+### `runs remove`
 
 Deletes run directories from `.anatoly/runs/`. Modes are mutually exclusive.
 
 ```bash
-anatoly audit remove [runIds...] [options]
+anatoly runs remove [runIds...] [options]
 ```
 
 | Option | Description |
@@ -432,7 +440,7 @@ npx anatoly reset --keep-rag --yes
 ### Keep only the three most recent runs
 
 ```bash
-npx anatoly audit remove --keep 3 --yes
+npx anatoly runs remove --keep 3 --yes
 ```
 
 ### Autonomous remediation loop

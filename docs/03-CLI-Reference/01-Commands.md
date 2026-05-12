@@ -339,59 +339,35 @@ anatoly watch --axes duplication,correction
 
 ---
 
-## status
+## runs list
 
-Show current audit progress, background runs, and findings summary. For a live streaming view of a running audit, use [`attach`](#attach) instead.
+List all known audit runs as a clean table (id, reviews, logs, size, status). Pure read-only and scriptable.
 
 ```
-anatoly status [runId]
+anatoly runs list [--empty]
 ```
 
 ### Options
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `[runId]` | positional | Show detailed view for a specific run. Omit for the overview. |
-
-### Output
-
-```
-anatoly -- status
-
-  progress    [=========>          ] 45% (58/128)
-
-  total       128
-  pending     70
-  done        48
-  cached      10
-  error       0
-
-  verdict     NEEDS_REFACTOR
-  findings    12
-    dead      3
-    dup       2
-    over      4
-    errors    3
-
-  latest run  20260315-120000
-  report      /path/to/.anatoly/runs/20260315-120000/report.md
-  reviews     /path/to/.anatoly/runs/20260315-120000/reviews/
-```
+| `--empty` | boolean | Show only empty (phantom) runs with 0 reviews. |
 
 ### Examples
 
 ```bash
-anatoly status
+anatoly runs list
+anatoly runs list --empty
 ```
 
 ---
 
-## attach
+## runs attach
 
-Attach a live read-only viewer to a running audit. Tails the run's ndjson log, renders progress and findings in real time, and exits with the appropriate code when the run completes.
+Inspect a run. If the run is still alive, tails its ndjson log live and renders progress and findings in real time. If the run has finished (done / failed / crashed), prints a final snapshot with verdict, findings count, and report path.
 
 ```
-anatoly attach [runId] [--from-start] [--no-color]
+anatoly runs attach [runId] [--from-start] [--no-color]
 ```
 
 ### Options
@@ -404,10 +380,12 @@ anatoly attach [runId] [--from-start] [--no-color]
 
 ### Behavior
 
-- **Auto-selection**: When invoked without a `runId`, the command lists all runs with `status: running` and a live PID. If exactly one is found, it attaches automatically. Zero matches → error. Multiple matches → prompts you to specify a run ID.
-- **Crash detection**: If the target run's PID dies during the attach session, the command marks the run as `crashed` in `run-status.json` and exits with code 2.
-- **Read-only**: The attach process never writes to the run's `anatoly.ndjson` log. The only write it may perform is updating `run-status.json` when detecting a crash.
-- **SIGINT**: Press Ctrl-C to detach without affecting the target run. Exit code 130.
+- **Live mode (running run)**: tails the ndjson log, renders progress + findings, finalises when the run ends.
+- **Snapshot mode (finished run)**: prints status, duration, verdict, findings count, and the report path. Exits immediately.
+- **Auto-selection (no `runId`)**: requires exactly one running run. Zero or many → error. To snapshot a finished run, pass its `runId` explicitly (see `runs list`).
+- **Crash detection**: if a running run's PID is dead, status is reconciled to `crashed` on disk before rendering.
+- **Read-only**: the attach process never writes to the run's `anatoly.ndjson` log. The only write it may perform is updating `run-status.json` when detecting a crash.
+- **SIGINT (live mode)**: Press Ctrl-C to detach without affecting the target run. Exit code 130.
 
 ### Exit codes
 
@@ -451,16 +429,16 @@ anatoly — attach
 
 ```bash
 # Attach to the only active run
-anatoly attach
+anatoly runs attach
 
 # Attach to a specific run by ID
-anatoly attach 2026-05-09_143022
+anatoly runs attach 2026-05-09_143022
 
 # Replay full log history then continue tailing
-anatoly attach --from-start
+anatoly runs attach --from-start
 
 # Pipe output to a file (no ANSI codes)
-anatoly attach --no-color > attach.log
+anatoly runs attach --no-color > attach.log
 ```
 
 ---
@@ -520,12 +498,12 @@ anatoly rag-status --all --json
 
 ---
 
-## audit remove
+## runs remove
 
 Delete run directories from `.anatoly/runs/`.
 
 ```
-anatoly audit remove [runIds...] [--empty | --all | --keep <n>] [-y|--yes]
+anatoly runs remove [runIds...] [--empty | --all | --keep <n>] [-y|--yes]
 ```
 
 ### Options
@@ -548,16 +526,16 @@ anatoly audit remove [runIds...] [--empty | --all | --keep <n>] [-y|--yes]
 
 ```bash
 # Remove only empty/phantom runs
-anatoly audit remove --empty
+anatoly runs remove --empty
 
 # Delete all runs (with confirmation)
-anatoly audit remove --all
+anatoly runs remove --all
 
 # Keep the 3 most recent, delete the rest
-anatoly audit remove --keep 3
+anatoly runs remove --keep 3
 
 # CI: delete all runs without prompting
-anatoly audit remove --all --yes
+anatoly runs remove --all --yes
 ```
 
 ---
