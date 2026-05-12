@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { buildDocumentationSystemPrompt, buildDocumentationUserMessage } from './documentation.js';
 import type { AxisContext } from '../axis-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
-import { ConfigSchema } from '../../schemas/config.js';
 
 const mockTask: Task = {
   version: 1,
@@ -21,7 +21,7 @@ const mockTask: Task = {
   scanned_at: '2026-03-18T00:00:00Z',
 };
 
-const mockConfig: Config = ConfigSchema.parse({});
+const mockConfig: Config = parseTestConfig({});
 
 function createCtx(overrides: Partial<AxisContext> = {}): AxisContext {
   return {

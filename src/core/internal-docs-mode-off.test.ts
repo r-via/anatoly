@@ -3,20 +3,20 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderInternalDocsContext } from './axes/internal-docs-context.js';
 import { buildDocumentationUserMessage } from './axes/documentation.js';
 import type { AxisContext } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
-import { ConfigSchema } from '../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeOffConfig(): Config {
-  return ConfigSchema.parse({
+  return parseTestConfig({
     documentation: {
       reference: { paths: ['README.md'], inline_comments: { enabled: false } },
       internal: { mode: 'off' },

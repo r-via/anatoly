@@ -3,12 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { ConfigSchema } from '../schemas/config.js';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { enumerateActiveModels } from './active-models.js';
 
 describe('enumerateActiveModels', () => {
   it('returns the three default tier models when no overrides are set', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     const models = enumerateActiveModels(config);
     // Defaults from DEFAULT_MODELS
     expect(models).toContain('anthropic/claude-sonnet-4-6');
@@ -17,7 +17,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('deduplicates identical model ids across sources', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       models: {
         quality: 'anthropic/claude-sonnet-4-6',
         fast: 'anthropic/claude-sonnet-4-6',
@@ -29,7 +29,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('includes axis-level model overrides', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       axes: {
         utility: { enabled: true, model: 'google/gemini-2.5-flash-lite' },
         duplication: { enabled: true, model: 'google/gemini-2.5-flash' },
@@ -41,7 +41,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('includes optional models.code_summary', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       models: {
         quality: 'anthropic/claude-sonnet-4-6',
         fast: 'anthropic/claude-haiku-4-5-20251001',
@@ -54,7 +54,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('includes optional agents overrides', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       agents: {
         enabled: true,
         scaffolding: 'anthropic/claude-haiku-4-5-20251001',
@@ -69,7 +69,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('includes embedding code/nlp model when configured', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         enabled: true,
         code_model: 'auto',
@@ -87,7 +87,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('skips embedding entries without an explicit model', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         enabled: true,
         code_model: 'auto',
@@ -103,7 +103,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('returns a stable sorted order so callers can hash it deterministically', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     const a = enumerateActiveModels(config);
     const b = enumerateActiveModels(config);
     expect(a).toEqual(b);
@@ -112,7 +112,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('drops embedding models when enableRag is false', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         enabled: true,
         code_model: 'auto',
@@ -130,7 +130,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('drops the deliberation tier when enableDeliberation is false', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       models: {
         quality: 'anthropic/claude-sonnet-4-6',
         fast: 'anthropic/claude-haiku-4-5-20251001',
@@ -149,7 +149,7 @@ describe('enumerateActiveModels', () => {
   });
 
   it('restricts axis-model collection to the listed axesFilter', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       axes: {
         utility: { enabled: true, model: 'google/gemini-2.5-flash-lite' },
         duplication: { enabled: true, model: 'google/gemini-2.5-flash' },
@@ -220,6 +220,17 @@ routing:
   embeddings:
     code: mistral/mistral-embed
     text: openrouter/qwen/qwen3-embedding-8b
+evaluation:
+  axes:
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
 `;
 
   it('returns generation slots, embeddings, and dedupes', () => {
@@ -267,6 +278,17 @@ routing:
   embeddings:
     code: local-lite/jinaai/jina-embeddings-v2-base-code
     text: local-lite/Xenova/all-MiniLM-L6-v2
+evaluation:
+  axes:
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
 `);
     const models = enumerateActiveModels(config);
     expect(models).not.toContain('local-lite/jinaai/jina-embeddings-v2-base-code');
@@ -275,20 +297,33 @@ routing:
   });
 
   it('includes per-axis model overrides when axes are in object form', () => {
-    const config = loadV3(`${baseV3.trimEnd()}
-evaluation:
+    // baseV3 already declares evaluation.axes.documentation; override correction here.
+    const config = loadV3(baseV3.replace(
+      /evaluation:\s*\n\s*axes:\s*\n\s*documentation:[\s\S]*$/m,
+      `evaluation:
   axes:
     correction:
       enabled: true
       model: anthropic/claude-opus-4-6
-`);
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
+`,
+    ));
     const models = enumerateActiveModels(config);
     expect(models).toContain('anthropic/claude-opus-4-6');
   });
 
   it('respects axesFilter for object-form overrides', () => {
-    const config = loadV3(`${baseV3.trimEnd()}
-evaluation:
+    const config = loadV3(baseV3.replace(
+      /evaluation:\s*\n\s*axes:\s*\n\s*documentation:[\s\S]*$/m,
+      `evaluation:
   axes:
     correction:
       enabled: true
@@ -296,7 +331,17 @@ evaluation:
     tests:
       enabled: true
       model: anthropic/claude-haiku-4-5-20251001
-`);
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
+`,
+    ));
     const models = enumerateActiveModels(config, { axesFilter: ['correction'] });
     expect(models).toContain('anthropic/claude-opus-4-6');
     // tests override is filtered out — but haiku stays via routing.fast/summarization

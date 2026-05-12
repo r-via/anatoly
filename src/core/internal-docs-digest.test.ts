@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -10,14 +11,13 @@ import { buildInternalDocsDigest } from './internal-docs-digest.js';
 import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import type { Config } from '../schemas/config.js';
-import { ConfigSchema } from '../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeLiteConfig(maxTokens = 4000): Config {
-  return ConfigSchema.parse({
+  return parseTestConfig({
     documentation: {
       reference: { paths: ['README.md'], inline_comments: { enabled: false } },
       internal: { mode: 'lite', lite: { max_tokens: maxTokens, refresh_on: ['code_change'] } },

@@ -12,6 +12,17 @@ import { adaptV3ToV2 } from '../schemas/config-v3-adapter.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
 
 /**
+ * Minimal-valid `documentation` block used by `loadConfig` when no .anatoly.yml
+ * is present (or the file is empty). Once the user runs `anatoly init`, the
+ * generated YAML declares reference + internal explicitly and this default
+ * is no longer applied. Documented breaking change vs pre-Story 54.1.
+ */
+const DEFAULT_DOC_FOR_MISSING_CONFIG = {
+  reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+  internal: { mode: 'off' as const },
+};
+
+/**
  * Hidden property where `loadConfig` stashes the original parsed v3 config
  * (when the YAML used `version: 3`). Consumers that want the raw v3 — to read
  * provider transport metadata, declared model lists, etc. — should call
@@ -56,8 +67,12 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
   try {
     raw = readFileSync(filePath, 'utf-8');
   } catch {
-    // No config file → return defaults
-    return ConfigSchema.parse({});
+    // No config file → return defaults. Inject a minimal-valid documentation
+    // block so the schema-level no-magic policy (Story 54.1) doesn't break
+    // commands that legitimately run without prior `anatoly init` (e.g.
+    // `anatoly status` from a fresh repo). Once the user runs `anatoly init`,
+    // their YAML must declare reference + internal explicitly.
+    return ConfigSchema.parse({ documentation: DEFAULT_DOC_FOR_MISSING_CONFIG });
   }
 
   let parsed: unknown;
@@ -74,7 +89,7 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
 
   // yaml.load returns undefined for empty files, null for "null" content
   if (parsed == null) {
-    return ConfigSchema.parse({});
+    return ConfigSchema.parse({ documentation: DEFAULT_DOC_FOR_MISSING_CONFIG });
   }
 
   // Guard against non-object YAML (arrays, scalars)

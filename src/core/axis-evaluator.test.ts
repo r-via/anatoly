@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, composeAxisSystemPrompt } from './axis-evaluator.js';
 import type { AxisTiming } from './file-evaluator.js';
 import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
 import type { Config } from '../schemas/config.js';
-import { ConfigSchema } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
 import { buildBestPracticesUserMessage } from './axes/best-practices.js';
 import { buildDocumentationUserMessage } from './axes/documentation.js';
@@ -22,7 +22,7 @@ import { buildTestsUserMessage } from './axes/tests.js';
 // ---------------------------------------------------------------------------
 
 function makeConfig(overrides: Record<string, unknown> = {}): Config {
-  return ConfigSchema.parse(overrides);
+  return parseTestConfig(overrides);
 }
 
 function makeEvaluator(defaultModel: 'sonnet' | 'haiku', opts?: { id?: string }): AxisEvaluator {
@@ -498,6 +498,17 @@ routing:
   embeddings:
     code: local-lite/jinaai/jina-embeddings-v2-base-code
     text: local-lite/Xenova/all-MiniLM-L6-v2
+evaluation:
+  axes:
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
 `;
 
   describe('resolveAxisModel', () => {
@@ -514,13 +525,17 @@ routing:
     });
 
     it('honours per-axis override declared in evaluation.axes.<id>.model', () => {
-      const config = loadV3(`${baseV3.trimEnd()}
-evaluation:
+      // baseV3 already declares evaluation.axes.documentation — splice in
+      // the correction override without duplicating the evaluation key.
+      const config = loadV3(baseV3.replace(
+        /evaluation:\s*\n\s*axes:\s*\n/,
+        `evaluation:
   axes:
     correction:
       enabled: true
       model: anthropic/claude-opus-4-6
-`);
+`,
+      ));
       const evaluator = { id: 'correction', defaultModel: 'sonnet' } as AxisEvaluator;
       expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-opus-4-6');
     });

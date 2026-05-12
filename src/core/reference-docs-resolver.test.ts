@@ -5,9 +5,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- tree-sitter mock AST nodes use any for shape flexibility */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { ConfigSchema, type Config } from '../schemas/config.js';
+import { type Config } from '../schemas/config.js';
 import { resolveReferenceDocs, classifySource } from './reference-docs-resolver.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_reference_docs_resolver__');
@@ -27,7 +28,7 @@ function makeConfig(overrides: {
   inline_comments?: { enabled: boolean; kinds?: string[]; include?: string[] };
   internal_mode?: string;
 } = {}): Config {
-  return ConfigSchema.parse({
+  return parseTestConfig({
     documentation: {
       reference: {
         paths: overrides.paths ?? ['docs/**/*.md', 'README.md'],
@@ -112,7 +113,7 @@ describe('resolveReferenceDocs — markdown files', () => {
   });
 
   it('returns empty array when no config documentation', async () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     const result = await resolveReferenceDocs(TMP, config);
     expect(result).toEqual([]);
   });

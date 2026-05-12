@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { buildProviderChecks, formatProvidersTable, formatAuthLabel, type ProviderCheckResult } from './providers.js';
-import { ConfigSchema } from '../schemas/config.js';
 import type { Config } from '../schemas/config.js';
 import { ConfigV3Schema } from '../schemas/config-v3.js';
 import { adaptV3ToV2 } from '../schemas/config-v3-adapter.js';
@@ -14,7 +14,7 @@ import { adaptV3ToV2 } from '../schemas/config-v3-adapter.js';
 // ---------------------------------------------------------------------------
 
 function makeConfig(overrides: Record<string, unknown> = {}): Config {
-  return ConfigSchema.parse(overrides);
+  return parseTestConfig(overrides);
 }
 
 /**
@@ -25,7 +25,7 @@ function makeConfig(overrides: Record<string, unknown> = {}): Config {
 function makeV3Config(v3Yaml: Record<string, unknown>): Config {
   const v3 = ConfigV3Schema.parse(v3Yaml);
   const adapted = adaptV3ToV2(v3);
-  const final = ConfigSchema.parse(adapted);
+  const final = parseTestConfig(adapted);
   Object.defineProperty(final, Symbol.for('anatoly.config.v3Source'), {
     value: structuredClone(v3),
     enumerable: false,
@@ -58,6 +58,15 @@ const MINIMAL_V3 = {
     embeddings: {
       code: 'local-onnx/all-MiniLM-L6-v2',
       text: 'local-onnx/all-MiniLM-L6-v2',
+    },
+  },
+  evaluation: {
+    axes: {
+      documentation: {
+        enabled: true,
+        reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'off' },
+      },
     },
   },
 } as const;

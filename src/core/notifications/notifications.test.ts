@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConfigSchema } from '../../schemas/config.js';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 
 const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
 vi.mock('../../utils/logger.js', () => ({
@@ -52,13 +52,13 @@ describe('sendNotifications', () => {
   });
 
   it('should skip silently when config.notifications is undefined', async () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     await sendNotifications(config, basePayload);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('should skip silently when telegram is not enabled', async () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: false } },
     });
     await sendNotifications(config, basePayload);
@@ -67,7 +67,7 @@ describe('sendNotifications', () => {
 
   it('should send notification when telegram is enabled and token exists', async () => {
     process.env.ANATOLY_TELEGRAM_BOT_TOKEN = 'test-token-123';
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     await sendNotifications(config, basePayload);
@@ -76,7 +76,7 @@ describe('sendNotifications', () => {
 
   it('should warn and skip when bot token env var is missing', async () => {
     delete process.env.ANATOLY_TELEGRAM_BOT_TOKEN;
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     await sendNotifications(config, basePayload);
@@ -86,7 +86,7 @@ describe('sendNotifications', () => {
 
   it('should warn and skip when bot token env var is empty', async () => {
     process.env.ANATOLY_TELEGRAM_BOT_TOKEN = '';
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     await sendNotifications(config, basePayload);
@@ -101,7 +101,7 @@ describe('sendNotifications', () => {
       status: 401,
       json: async () => ({ ok: false, description: 'Unauthorized' }),
     });
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     // Should NOT throw — fire-and-forget with warning
@@ -112,7 +112,7 @@ describe('sendNotifications', () => {
   it('should warn but not crash on network failure', async () => {
     process.env.ANATOLY_TELEGRAM_BOT_TOKEN = 'test-token';
     fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123' } },
     });
     await sendNotifications(config, basePayload);
@@ -121,7 +121,7 @@ describe('sendNotifications', () => {
 
   it('should use custom bot_token_env when specified', async () => {
     process.env.MY_CUSTOM_TOKEN = 'custom-token';
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: { telegram: { enabled: true, chat_id: '-100123', bot_token_env: 'MY_CUSTOM_TOKEN' } },
     });
     await sendNotifications(config, basePayload);

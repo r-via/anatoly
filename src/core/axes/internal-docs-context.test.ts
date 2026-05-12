@@ -3,9 +3,9 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import type { Config } from '../../schemas/config.js';
-import { ConfigSchema } from '../../schemas/config.js';
 
 function makeConfig(mode: 'full' | 'lite' | 'off' = 'full'): Config {
   const base: Record<string, unknown> & { documentation: Record<string, unknown> } = {
@@ -17,7 +17,7 @@ function makeConfig(mode: 'full' | 'lite' | 'off' = 'full'): Config {
   const doc = base.documentation as Record<string, Record<string, unknown>>;
   if (mode === 'full') doc.internal.full = { sync_to_repo: false };
   if (mode === 'lite') doc.internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
-  return ConfigSchema.parse(base);
+  return parseTestConfig(base);
 }
 
 describe('renderInternalDocsContext', () => {

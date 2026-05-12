@@ -320,10 +320,11 @@ export const ConfigSchema = z.object({
     verdict: false,
     link: 'https://github.com/r-via/anatoly',
   }),
-  documentation: DocumentationConfigSchema.default({
-    reference: { paths: ['README.md'], inline_comments: { enabled: false } },
-    internal: { mode: 'off' },
-  }),
+  // Required — Story 54.1 FR1/FR2: no magic defaults. Users must declare
+  // their reference paths and internal mode explicitly via `anatoly init`
+  // or `anatoly init --reconfigure-docs`. A missing block fails the load
+  // with an actionable error pointing to the wizard.
+  documentation: DocumentationConfigSchema,
   search: SearchConfigSchema.default({}),
   notifications: NotificationsConfigSchema.optional(),
 });

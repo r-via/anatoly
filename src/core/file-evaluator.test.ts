@@ -3,12 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { evaluateFile } from './file-evaluator.js';
 import type { EvaluateFileOptions } from './file-evaluator.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { AxisEvaluator, AxisResult } from './axis-evaluator.js';
-import { ConfigSchema } from '../schemas/config.js';
 import { readFileSync } from 'node:fs';
 import * as deliberationModule from './deliberation.js';
 import * as axisEvaluatorModule from './axis-evaluator.js';
@@ -32,7 +32,7 @@ const mockTask: Task = {
   scanned_at: '2026-02-25T00:00:00Z',
 };
 
-const mockConfig: Config = ConfigSchema.parse({});
+const mockConfig: Config = parseTestConfig({});
 
 function makeMockEvaluator(id: string, result: Partial<AxisResult> = {}): AxisEvaluator {
   return {
@@ -192,7 +192,7 @@ describe('evaluateFile', () => {
     const applySpy = vi.spyOn(deliberationModule, 'applyDeliberation');
     const querySpy = vi.spyOn(axisEvaluatorModule, 'runSingleTurnQuery');
 
-    const deliberationConfig = ConfigSchema.parse({ llm: { deliberation: true } });
+    const deliberationConfig = parseTestConfig({ llm: { deliberation: true } });
     const opts = makeOptions({ config: deliberationConfig, deliberation: true });
     const result = await evaluateFile(opts);
 

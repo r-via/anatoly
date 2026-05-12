@@ -3,13 +3,14 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { autoDetectScanGlobs } from './scan-autodetect.js';
 import { collectFiles } from './scanner.js';
-import { ConfigSchema, type Config } from '../schemas/config.js';
+import { type Config } from '../schemas/config.js';
 import type { ProjectProfile } from './language-detect.js';
 
 function buildProfile(overrides: Partial<ProjectProfile> = {}): ProjectProfile {
@@ -24,7 +25,7 @@ function buildProfile(overrides: Partial<ProjectProfile> = {}): ProjectProfile {
 }
 
 function loadCfg(scan: Partial<Config['scan']>): Config {
-  return ConfigSchema.parse({
+  return parseTestConfig({
     scan: { include: ['**/*'], exclude: [], ...scan },
     providers: { anthropic: { mode: 'subscription', concurrency: 24 } },
   });

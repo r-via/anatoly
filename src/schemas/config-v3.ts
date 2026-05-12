@@ -278,35 +278,48 @@ export const AxisSchema = z.union([z.boolean(), AxisObjectSchema]);
 
 export type Axis = z.infer<typeof AxisSchema>;
 
-/** Documentation axis carries extra fields (reference, internal config). */
+/**
+ * Documentation axis carries extra fields (reference, internal config).
+ *
+ * Story 54.1 FR1/FR2: `reference.paths` and `internal.mode` are REQUIRED
+ * with no schema-level defaults. A missing or partial declaration fails
+ * the load with an actionable error pointing to `anatoly init --reconfigure-docs`.
+ */
 export const DocumentationAxisSchema = AxisObjectSchema.extend({
   /** Reference docs config — paths to human-authored documentation. */
   reference: z.object({
-    paths: z.array(z.string()).min(1).default(['README.md']),
+    paths: z.array(z.string()).min(1, 'at least one reference path is required'),
     inline_comments: z.object({
-      enabled: z.boolean().default(false),
+      enabled: z.boolean(),
       kinds: z.array(z.string()).optional(),
       include: z.array(z.string()).optional(),
-    }).default({ enabled: false }),
+    }),
     module_mapping: z.record(z.string(), z.array(z.string())).optional(),
-  }).default({ paths: ['README.md'], inline_comments: { enabled: false } }),
-  /** Internal documentation mode — required, no default at schema level. */
+  }),
+  /** Internal documentation mode — REQUIRED, no default. */
   internal: z.object({
-    mode: z.enum(['full', 'lite', 'off']).default('off'),
+    mode: z.enum(['full', 'lite', 'off']),
     lite: z.object({
-      max_tokens: z.int().min(100).default(4000),
-      refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])).optional(),
+      max_tokens: z.int().min(100),
+      refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])),
     }).optional(),
     full: z.object({
-      sync_to_repo: z.boolean().default(false),
+      sync_to_repo: z.boolean(),
     }).optional(),
-  }).default({ mode: 'off' }),
+  }),
 });
 
 export type DocumentationAxis = z.infer<typeof DocumentationAxisSchema>;
 
-/** Documentation axis can also be the bool short form. */
-export const DocumentationAxisFieldSchema = z.union([z.boolean(), DocumentationAxisSchema]);
+/**
+ * Documentation axis schema in v3 yaml.
+ *
+ * Story 54.1: the bool short form (`documentation: true`) is REMOVED in v3
+ * because it bypasses the required `reference` and `internal` declarations.
+ * Users must provide the full object form, or run `anatoly init` to generate
+ * a valid yaml.
+ */
+export const DocumentationAxisFieldSchema = DocumentationAxisSchema;
 
 export const EvaluationAxesSchema = z.object({
   utility: AxisSchema.default(true),
@@ -315,21 +328,16 @@ export const EvaluationAxesSchema = z.object({
   overengineering: AxisSchema.default(true),
   tests: AxisSchema.default(true),
   best_practices: AxisSchema.default(true),
-  documentation: DocumentationAxisFieldSchema.default(true),
+  documentation: DocumentationAxisFieldSchema,
 });
 
 export type EvaluationAxes = z.infer<typeof EvaluationAxesSchema>;
 
+// Story 54.1 no-magic: `axes` is REQUIRED at the v3 level because the
+// documentation axis (with its mandatory reference + internal blocks)
+// cannot be inferred from a default. The wizard always writes it.
 export const EvaluationConfigSchema = z.object({
-  axes: EvaluationAxesSchema.default({
-    utility: true,
-    duplication: true,
-    correction: true,
-    overengineering: true,
-    tests: true,
-    best_practices: true,
-    documentation: true,
-  }),
+  axes: EvaluationAxesSchema,
 });
 
 export type EvaluationConfig = z.infer<typeof EvaluationConfigSchema>;
@@ -411,17 +419,10 @@ const PreConfigSchema = z.object({
   // Restructured v3 sections.
   providers: ProvidersConfigSchema,
   routing: RoutingConfigSchema,
-  evaluation: EvaluationConfigSchema.default({
-    axes: {
-      utility: true,
-      duplication: true,
-      correction: true,
-      overengineering: true,
-      tests: true,
-      best_practices: true,
-      documentation: true,
-    },
-  }),
+  // Story 54.1 no-magic: `evaluation` is REQUIRED because its
+  // `axes.documentation` block carries mandatory user-supplied paths
+  // and internal-mode declaration that cannot be inferred from a default.
+  evaluation: EvaluationConfigSchema,
   runtime: RuntimeConfigSchema.default({
     concurrency: 8,
     timeout_per_file: 600,

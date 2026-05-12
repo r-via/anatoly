@@ -525,15 +525,31 @@ function buildAnnotatedV3Yaml(
     activeYaml({ routing: routingForTier(tier) }),
     '',
     sectionHeader('evaluation'),
-    activeYaml({ evaluation: { axes: Object.fromEntries(AXIS_IDS.map((id) => [id, true])) } }),
+    // Story 54.1 no-magic: the documentation axis MUST be written in its full
+    // object form with explicit reference.paths and internal.mode. The bool
+    // short form (`documentation: true`) is no longer accepted by the schema.
+    activeYaml({
+      evaluation: {
+        axes: {
+          ...Object.fromEntries(AXIS_IDS.filter((id) => id !== 'documentation').map((id) => [id, true])),
+          documentation: {
+            enabled: true,
+            reference: {
+              paths: ['README.md'],
+              inline_comments: { enabled: false },
+            },
+            internal: { mode: 'lite', lite: { max_tokens: 4000, refresh_on: ['code_change'] } },
+          },
+        },
+      },
+    }),
     '# Per-axis override example — replaces routing.generation.quality for that axis:',
     '#   correction:',
     '#     enabled: true',
     '#     model: anthropic/claude-opus-4-6',
-    '# Documentation axis model override:',
-    '#   documentation:',
-    '#     enabled: true',
-    '#     model: anthropic/claude-sonnet-4-6',
+    '# Documentation axis: edit reference.paths to point at your human docs,',
+    '# and internal.mode to "full" for LLM-generated internal pages or "off"',
+    '# to disable internal doc generation entirely. See docs for details.',
     '',
     sectionHeader('runtime (optional — defaults shown)'),
     commentedYaml({

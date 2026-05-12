@@ -3,20 +3,20 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, expect, it } from 'vitest';
-import { ConfigSchema } from './config.js';
+import { parseTestConfig } from './test-fixtures.js';
 import { ConfigV3Schema } from './config-v3.js';
 import { adaptV3ToV2 } from './config-v3-adapter.js';
 
 /**
  * Build a fully-valid v3 config and run it through the adapter. Returns the
  * raw adapter output (v2-shape), as well as the result of feeding that output
- * back through `ConfigSchema.parse()` so tests can verify both the raw mapping
+ * back through `parseTestConfig()` so tests can verify both the raw mapping
  * and that the result is shape-compatible with v2.
  */
 function adapt(v3Input: unknown): { v2: ReturnType<typeof adaptV3ToV2>; parsed: unknown } {
   const v3 = ConfigV3Schema.parse(v3Input);
   const v2 = adaptV3ToV2(v3);
-  const parsed = ConfigSchema.parse(v2);
+  const parsed = parseTestConfig(v2);
   return { v2, parsed };
 }
 
@@ -145,6 +145,15 @@ describe('adaptV3ToV2 — providers', () => {
           text: 'local-lite/Xenova/all-MiniLM-L6-v2',
         },
       },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
+        },
+      },
     };
     const { v2 } = adapt(v3);
     expect(v2.providers).not.toHaveProperty('local-lite');
@@ -181,6 +190,15 @@ describe('adaptV3ToV2 — providers', () => {
           summarization: 'anthropic/claude-haiku-4-5',
         },
         embeddings: { code: 'anthropic/claude-sonnet-4-6', text: 'anthropic/claude-sonnet-4-6' },
+      },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
+        },
       },
     };
     // Note: routing.embeddings pointing to claude_agent_sdk would normally fail
@@ -319,6 +337,15 @@ describe('adaptV3ToV2 — rag (ONNX local embeddings)', () => {
           text: 'local-lite/Xenova/all-MiniLM-L6-v2',
         },
       },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
+        },
+      },
     };
     const { v2 } = adapt(v3);
     expect(v2.rag.code_model).toBe('jinaai/jina-embeddings-v2-base-code');
@@ -356,6 +383,15 @@ describe('adaptV3ToV2 — rag (ONNX local embeddings)', () => {
         embeddings: {
           code: 'local-lite/jinaai/jina-embeddings-v2-base-code',
           text: 'openrouter/qwen/qwen3-embedding-8b',
+        },
+      },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
         },
       },
     };
@@ -419,21 +455,31 @@ describe('adaptV3ToV2 — documentation', () => {
     expect(v2.documentation.internal.mode).toBe('off');
   });
 
-  it('omits the documentation section when axis is bool', () => {
+  it('Story 54.1: bool short form for documentation is rejected by v3 schema', () => {
+    // The schema-level breaking change: the bool form bypasses required
+    // reference + internal declarations and is therefore no longer accepted.
     const v3 = fullV3() as Record<string, Record<string, Record<string, unknown>>>;
     v3.evaluation.axes.documentation = true as unknown as Record<string, unknown>;
-    const { v2 } = adapt(v3);
-    expect(v2.documentation).toBeUndefined();
+    expect(() => adapt(v3)).toThrow();
   });
 
-  it('emits default reference/internal when axis is in object form', () => {
+  it('Story 54.1: object form without reference/internal is rejected (no defaults)', () => {
     const v3 = fullV3() as Record<string, Record<string, Record<string, unknown>>>;
     v3.evaluation.axes.documentation = { enabled: true } as unknown as Record<string, unknown>;
+    // No schema-level default — explicit reference + internal required.
+    expect(() => adapt(v3)).toThrow();
+  });
+
+  it('Story 54.1: lifts explicit reference + internal into v2.documentation', () => {
+    const v3 = fullV3() as Record<string, Record<string, Record<string, unknown>>>;
+    v3.evaluation.axes.documentation = {
+      enabled: true,
+      reference: { paths: ['CUSTOM_README.md'], inline_comments: { enabled: true, kinds: ['jsdoc'], include: ['src/**/*.ts'] } },
+      internal: { mode: 'lite', lite: { max_tokens: 8000, refresh_on: ['code_change'] } },
+    } as unknown as Record<string, unknown>;
     const { v2 } = adapt(v3);
-    // DocumentationAxisSchema fills reference/internal with defaults, so any
-    // object-form axis carries them even without explicit user input.
-    expect(v2.documentation.reference.paths).toEqual(['README.md']);
-    expect(v2.documentation.internal.mode).toBe('off');
+    expect(v2.documentation.reference.paths).toEqual(['CUSTOM_README.md']);
+    expect(v2.documentation.internal.mode).toBe('lite');
   });
 });
 
@@ -469,7 +515,7 @@ describe('adaptV3ToV2 — output and logging', () => {
 // ---------------------------------------------------------------------------
 
 describe('adaptV3ToV2 — round-trip through ConfigSchema', () => {
-  it('produces a v2-shape that ConfigSchema.parse() accepts', () => {
+  it('produces a v2-shape that parseTestConfig() accepts', () => {
     const { parsed } = adapt(fullV3());
     expect(parsed).toBeDefined();
   });

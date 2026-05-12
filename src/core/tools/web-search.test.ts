@@ -3,12 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { getSearchTool } from './web-search.js';
-import { ConfigSchema } from '../../schemas/config.js';
 import type { Config } from '../../schemas/config.js';
 
 function makeConfig(overrides: Record<string, unknown> = {}): Config {
-  return ConfigSchema.parse(overrides);
+  return parseTestConfig(overrides);
 }
 
 describe('getSearchTool', () => {

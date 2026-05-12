@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Config } from '../../schemas/config.js';
-import { ConfigSchema } from '../../schemas/config.js';
 import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ import { runVercelAgent, type VercelAgentParams } from './vercel-agent.js';
 // ---------------------------------------------------------------------------
 
 function makeConfig(overrides: Record<string, unknown> = {}): Config {
-  return ConfigSchema.parse(overrides);
+  return parseTestConfig(overrides);
 }
 
 let testProjectRoot = '/tmp/test-project';

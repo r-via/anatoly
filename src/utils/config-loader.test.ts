@@ -12,6 +12,26 @@ import { AnatolyError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Story 54.1 no-magic: every v2 yaml MUST declare a documentation: block.
+// This helper appends a minimal-valid block when the test fixture doesn't
+// already provide one, so tests stay focused on the section under test.
+const V2_DOC_BLOCK = `documentation:
+  reference:
+    paths:
+      - README.md
+    inline_comments:
+      enabled: false
+  internal:
+    mode: off
+`;
+
+function writeYml(filePath: string, content: string): void {
+  const body = /^\s*documentation\s*:/m.test(content)
+    ? content
+    : `${content.trimEnd()}\n${V2_DOC_BLOCK}`;
+  writeFileSync(filePath, body);
+}
+
 describe('loadConfig', () => {
   let tempDir: string;
 
@@ -38,7 +58,7 @@ describe('loadConfig', () => {
 
   it('should accept a custom config path', () => {
     const customPath = join(tempDir, 'custom-config.yml');
-    writeFileSync(customPath, 'project:\n  name: custom\n');
+    writeYml(customPath, 'project:\n  name: custom\n');
     const config = loadConfig(tempDir, customPath);
     expect(config.project.name).toBe('custom');
   });
@@ -90,7 +110,7 @@ providers:
 runtime:
   concurrency: 8
 `;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.providers.google).toBeUndefined();
     expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
@@ -128,7 +148,7 @@ axes:
   correction:
     model: anthropic/claude-opus-4-6
 `;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.models.quality).toBe('anthropic/claude-opus-4-6');
     expect(config.providers.anthropic!.concurrency).toBe(16);
@@ -164,7 +184,7 @@ rag:
       provider: openai
       model: text-embedding-3-large
 `;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.rag.embedding!.code!.provider).toBe('openai');
     expect(config.rag.embedding!.code!.model).toBe('text-embedding-3-large');
@@ -188,7 +208,7 @@ rag:
       model: text-embedding-v4
       env_key: DASHSCOPE_API_KEY
 `;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.rag.embedding!.code!.provider).toBe('voyage');
     expect(config.rag.embedding!.code!.model).toBe('voyage-code-3');
@@ -207,7 +227,7 @@ rag:
   code_model: auto
   nlp_model: auto
 `;
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+    writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
     expect(config.rag.embedding).toBeUndefined();
     expect(config.rag.code_model).toBe('auto');
@@ -231,8 +251,27 @@ describe('loadConfig — v3 schema', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  function writeV3(yml: string): void {
-    writeFileSync(join(tempDir, '.anatoly.yml'), yml);
+  // Story 54.1 no-magic: every v3 yaml MUST declare evaluation.axes.documentation
+  // explicitly. We inject this block automatically in tests via writeV3 — tests
+  // that need a custom documentation block can opt out via writeV3(yml, { skipDocInjection: true }).
+  const V3_DOC_BLOCK = `evaluation:
+  axes:
+    documentation:
+      enabled: true
+      reference:
+        paths:
+          - README.md
+        inline_comments:
+          enabled: false
+      internal:
+        mode: off
+`;
+
+  function writeV3(yml: string, opts: { skipDocInjection?: boolean } = {}): void {
+    const body = opts.skipDocInjection || /^\s*evaluation\s*:/m.test(yml)
+      ? yml
+      : `${yml.trimEnd()}\n${V3_DOC_BLOCK}`;
+    writeFileSync(join(tempDir, '.anatoly.yml'), body);
   }
 
   const minimalV3Yaml = `
@@ -288,7 +327,7 @@ routing:
   });
 
   it('falls through to v2 path when no version key is present', () => {
-    writeFileSync(join(tempDir, '.anatoly.yml'), `
+    writeYml(join(tempDir, '.anatoly.yml'), `
 models:
   quality: anthropic/claude-sonnet-4-6
   fast: anthropic/claude-haiku-4-5-20251001
@@ -449,7 +488,7 @@ evaluation:
   });
 
   it('returns undefined from getV3Source for legacy (non-v3) YAML', () => {
-    writeFileSync(join(tempDir, '.anatoly.yml'), `
+    writeYml(join(tempDir, '.anatoly.yml'), `
 models:
   quality: anthropic/claude-sonnet-4-6
   fast: anthropic/claude-haiku-4-5-20251001

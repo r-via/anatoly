@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildDocsTree, resolveRelevantDocs, resolveAllRelevantDocs } from './docs-resolver.js';
 import type { Config } from '../schemas/config.js';
-import { ConfigSchema } from '../schemas/config.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_docs_resolver__');
 
@@ -22,7 +22,7 @@ function writeDoc(relPath: string, content: string): void {
 }
 
 function makeConfig(overrides: Partial<{ module_mapping: Record<string, string[]> }> = {}): Config {
-  return ConfigSchema.parse({
+  return parseTestConfig({
     documentation: {
       reference: {
         paths: ['docs/**/*.md'],

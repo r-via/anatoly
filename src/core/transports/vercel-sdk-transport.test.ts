@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -44,14 +45,13 @@ vi.mock('../agents/vercel-agent.js', () => ({ runVercelAgent: mockRunVercelAgent
 // Import after mocks
 import { VercelSdkTransport, getVercelModel } from './vercel-sdk-transport.js';
 import type { Config } from '../../schemas/config.js';
-import { ConfigSchema } from '../../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeConfig(overrides: Record<string, unknown> = {}): Config {
-  return ConfigSchema.parse(overrides);
+  return parseTestConfig(overrides);
 }
 
 // Seeded by beforeEach so calculateCost can resolve a non-zero price for the

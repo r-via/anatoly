@@ -3,12 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseFile, scanProject, loadCoverage } from './scanner.js';
 import type { Config } from '../schemas/config.js';
-import { ConfigSchema } from '../schemas/config.js';
 
 describe('parseFile', () => {
   it('should extract exported function declarations', async () => {
@@ -114,7 +114,7 @@ describe('scanProject', () => {
       `export const MAX_SIZE = 100;\nexport type ID = string;\n`,
     );
 
-    config = ConfigSchema.parse({
+    config = parseTestConfig({
       scan: {
         include: ['src/**/*.ts'],
         exclude: ['**/*.test.ts'],
@@ -211,7 +211,7 @@ describe('loadCoverage', () => {
   });
 
   function makeConfig(overrides: Partial<{ enabled: boolean; report_path: string }> = {}): Config {
-    return ConfigSchema.parse({
+    return parseTestConfig({
       coverage: {
         enabled: overrides.enabled ?? true,
         report_path: overrides.report_path ?? 'coverage/coverage-final.json',
@@ -333,7 +333,7 @@ describe('loadCoverage', () => {
       JSON.stringify(istanbul),
     );
 
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       scan: { include: ['src/**/*.ts'], exclude: [] },
       coverage: { enabled: true, report_path: 'coverage/coverage-final.json' },
     });
@@ -360,7 +360,7 @@ describe('loadCoverage', () => {
       `export function main() { return 1; }\n`,
     );
 
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       scan: { include: ['src/**/*.ts'], exclude: [] },
       coverage: { enabled: false },
     });

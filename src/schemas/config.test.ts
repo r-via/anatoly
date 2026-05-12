@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { parseTestConfig } from './test-fixtures.js';
 import {
   ConfigSchema,
   AxisConfigSchema,
@@ -11,7 +12,7 @@ import {
 
 describe('ConfigSchema — v1.0 new sections', () => {
   it('should apply all defaults when given empty object', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.project.monorepo).toBe(false);
     // Schema is language-agnostic — the default include is empty so users
     // who add a config file without `scan` get an explicit "no patterns"
@@ -35,6 +36,10 @@ describe('ConfigSchema — v1.0 new sections', () => {
       },
       runtime: { timeout_per_file: 300, max_retries: 5 },
       models: { quality: 'claude-opus-4-6' },
+      documentation: {
+        reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'off' as const },
+      },
     };
     const result = ConfigSchema.safeParse(input);
     expect(result.success).toBe(true);
@@ -48,17 +53,17 @@ describe('ConfigSchema — v1.0 new sections', () => {
 
 describe('ProvidersConfigSchema', () => {
   it('should default anthropic.concurrency to 24', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.providers.anthropic!.concurrency).toBe(24);
   });
 
   it('should default google to undefined (Gemini disabled)', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.providers.google).toBeUndefined();
   });
 
   it('should accept providers.google with empty object — defaults applied', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { google: {} },
     });
     expect(config.providers.google).toBeDefined();
@@ -67,7 +72,7 @@ describe('ProvidersConfigSchema', () => {
   });
 
   it('should accept providers.google.mode = api', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { google: { mode: 'api' } },
     });
     expect(config.providers.google!.mode).toBe('api');
@@ -81,7 +86,7 @@ describe('ProvidersConfigSchema', () => {
   });
 
   it('should accept custom anthropic concurrency', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { anthropic: { concurrency: 16 } },
     });
     expect(config.providers.anthropic!.concurrency).toBe(16);
@@ -91,12 +96,12 @@ describe('ProvidersConfigSchema', () => {
 describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   // --- Anthropic mode ---
   it('should default anthropic.mode to subscription', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.providers.anthropic!.mode).toBe('subscription');
   });
 
   it('should accept anthropic.mode = api', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { anthropic: { mode: 'api' } },
     });
     expect(config.providers.anthropic!.mode).toBe('api');
@@ -111,7 +116,7 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
 
   // --- single_turn / agents split ---
   it('should accept anthropic single_turn and agents mode overrides', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { anthropic: { single_turn: 'subscription', agents: 'api' } },
     });
     expect(config.providers.anthropic!.single_turn).toBe('subscription');
@@ -119,7 +124,7 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   });
 
   it('should accept google single_turn and agents mode overrides', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { google: { single_turn: 'api', agents: 'subscription' } },
     });
     expect(config.providers.google!.single_turn).toBe('api');
@@ -127,14 +132,14 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   });
 
   it('should default single_turn and agents to undefined', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.providers.anthropic!.single_turn).toBeUndefined();
     expect(config.providers.anthropic!.agents).toBeUndefined();
   });
 
   // --- anthropic optional ---
   it('should allow anthropic to be absent when google is present', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { google: {} },
     });
     expect(config.providers.anthropic).toBeUndefined();
@@ -149,7 +154,7 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
 
   // --- GenericProviderConfigSchema / catchall ---
   it('should accept a custom provider via catchall (e.g., ollama)', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { ollama: { mode: 'api' } },
     });
     expect(config.providers.ollama).toBeDefined();
@@ -157,21 +162,21 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   });
 
   it('should default custom provider concurrency to 8', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { qwen: {} },
     });
     expect(config.providers.qwen!.concurrency).toBe(8);
   });
 
   it('should default custom provider mode to api', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { deepseek: {} },
     });
     expect(config.providers.deepseek!.mode).toBe('api');
   });
 
   it('should accept custom provider with base_url and env_key', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: { ollama: { mode: 'api', base_url: 'http://localhost:11434', env_key: 'OLLAMA_KEY' } },
     });
     expect(config.providers.ollama!.base_url).toBe('http://localhost:11434');
@@ -179,7 +184,7 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   });
 
   it('should accept multiple providers simultaneously', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       providers: {
         anthropic: { mode: 'api' },
         google: { mode: 'api' },
@@ -217,26 +222,26 @@ describe('GenericProviderConfigSchema standalone', () => {
 
 describe('ModelsConfigSchema', () => {
   it('should have non-empty defaults for quality, fast, deliberation', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.models.quality).toBeTruthy();
     expect(config.models.fast).toBeTruthy();
     expect(config.models.deliberation).toBeTruthy();
   });
 
   it('should use provider/model format for defaults', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.models.quality).toContain('/');
     expect(config.models.fast).toContain('/');
     expect(config.models.deliberation).toContain('/');
   });
 
   it('should default code_summary to undefined', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.models.code_summary).toBeUndefined();
   });
 
   it('should accept custom models', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       models: { quality: 'custom-model', code_summary: 'gemini-2.5-flash' },
     });
     expect(config.models.quality).toBe('custom-model');
@@ -246,19 +251,19 @@ describe('ModelsConfigSchema', () => {
 
 describe('AgentsConfigSchema', () => {
   it('should default enabled to true', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.agents.enabled).toBe(true);
   });
 
   it('should default scaffolding, review, deliberation to undefined', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.agents.scaffolding).toBeUndefined();
     expect(config.agents.review).toBeUndefined();
     expect(config.agents.deliberation).toBeUndefined();
   });
 
   it('should accept agent overrides', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       agents: { deliberation: 'custom-model' },
     });
     expect(config.agents.deliberation).toBe('custom-model');
@@ -268,32 +273,32 @@ describe('AgentsConfigSchema', () => {
 
 describe('RuntimeConfigSchema', () => {
   it('should default timeout_per_file to 600', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.runtime.timeout_per_file).toBe(600);
   });
 
   it('should default max_retries to 3', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.runtime.max_retries).toBe(3);
   });
 
   it('should default concurrency to 8', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.runtime.concurrency).toBe(8);
   });
 
   it('should default min_confidence to 70', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.runtime.min_confidence).toBe(70);
   });
 
   it('should default max_stop_iterations to 3', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.runtime.max_stop_iterations).toBe(3);
   });
 
   it('should accept custom runtime values', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       runtime: { timeout_per_file: 300, concurrency: 4 },
     });
     expect(config.runtime.timeout_per_file).toBe(300);
@@ -315,13 +320,13 @@ describe('RuntimeConfigSchema', () => {
 
 describe('AxesConfigSchema (top-level)', () => {
   it('should enable all axes by default when config is empty', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.axes.utility?.enabled).toBe(true);
     expect(config.axes.correction?.enabled).toBe(true);
   });
 
   it('should set present axes to enabled by default', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       axes: { utility: {}, duplication: {} },
     });
     expect(config.axes.utility?.enabled).toBe(true);
@@ -330,7 +335,7 @@ describe('AxesConfigSchema (top-level)', () => {
   });
 
   it('should accept per-axis model override at top level', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       axes: {
         correction: { model: 'claude-opus-4-20250514' },
       },
@@ -340,7 +345,7 @@ describe('AxesConfigSchema (top-level)', () => {
   });
 
   it('should accept disabling an axis at top level', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       axes: {
         best_practices: { enabled: false },
         utility: {},
@@ -360,19 +365,19 @@ describe('AxesConfigSchema (top-level)', () => {
 describe('Legacy llm section removed (Story 42.4)', () => {
   it('should reject unknown llm key in strict parse', () => {
     // llm is no longer in the schema — Zod strips unknown keys by default
-    const config = ConfigSchema.parse({ llm: { model: 'custom' } });
+    const config = parseTestConfig({ llm: { model: 'custom' } });
     expect((config as Record<string, unknown>).llm).toBeUndefined();
   });
 });
 
 describe('NotificationsConfigSchema — Story 45.1', () => {
   it('should default notifications to undefined when absent from YAML', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.notifications).toBeUndefined();
   });
 
   it('should accept notifications.telegram with enabled and chat_id', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: { enabled: true, chat_id: '-1001234567890' },
       },
@@ -382,7 +387,7 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 
   it('should default bot_token_env to ANATOLY_TELEGRAM_BOT_TOKEN', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: { enabled: true, chat_id: '-100123' },
       },
@@ -409,7 +414,7 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 
   it('should accept a valid report_url', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: {
           enabled: true,
@@ -422,7 +427,7 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 
   it('should default report_url to undefined when absent', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: { enabled: true, chat_id: '-100123' },
       },
@@ -431,7 +436,7 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 
   it('should accept custom bot_token_env', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: { enabled: true, chat_id: '-100123', bot_token_env: 'MY_BOT_TOKEN' },
       },
@@ -440,7 +445,7 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
   });
 
   it('should accept telegram.enabled=false without chat_id', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       notifications: {
         telegram: { enabled: false },
       },
@@ -455,12 +460,12 @@ describe('NotificationsConfigSchema — Story 45.1', () => {
 
 describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   it('should default rag.embedding to undefined when absent', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.rag.embedding).toBeUndefined();
   });
 
   it('should preserve existing rag defaults when embedding absent', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.rag.enabled).toBe(true);
     expect(config.rag.code_model).toBe('auto');
     expect(config.rag.nlp_model).toBe('auto');
@@ -468,7 +473,7 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 
   it('should accept embedding.code only (nlp undefined)', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         embedding: {
           code: { provider: 'openai', model: 'text-embedding-3-large' },
@@ -481,7 +486,7 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 
   it('should accept best-of-breed code + nlp combo', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         embedding: {
           code: { provider: 'voyage', model: 'voyage-code-3' },
@@ -499,7 +504,7 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 
   it('should accept custom provider with base_url and env_key', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         embedding: {
           code: {
@@ -526,7 +531,7 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 
   it('should accept local-advanced provider', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: {
         embedding: {
           code: { provider: 'local-advanced' },
@@ -539,7 +544,7 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 
   it('should accept empty embedding object (both code and nlp undefined)', () => {
-    const config = ConfigSchema.parse({
+    const config = parseTestConfig({
       rag: { embedding: {} },
     });
     expect(config.rag.embedding).toBeDefined();
@@ -741,9 +746,9 @@ describe('DocumentationConfigSchema — Story 54.1', () => {
     }
   });
 
-  // ConfigSchema.parse({}) still works — documentation gets default
+  // parseTestConfig({}) still works — documentation gets default
   it('should apply documentation defaults when config is empty', () => {
-    const config = ConfigSchema.parse({});
+    const config = parseTestConfig({});
     expect(config.documentation).toBeDefined();
     expect(config.documentation.internal.mode).toBe('off');
     expect(config.documentation.reference.paths.length).toBeGreaterThan(0);

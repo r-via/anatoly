@@ -55,6 +55,15 @@ function baseConfig(): unknown {
         text: 'openrouter/qwen/qwen3-embedding-8b',
       },
     },
+    evaluation: {
+      axes: {
+        documentation: {
+          enabled: true,
+          reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+          internal: { mode: 'off' },
+        },
+      },
+    },
   };
 }
 
@@ -361,16 +370,29 @@ describe('RoutingConfigSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('EvaluationConfigSchema', () => {
-  it('applies defaults when omitted', () => {
-    const r = EvaluationConfigSchema.parse({});
+  const docAxisFixture = {
+    enabled: true,
+    reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+    internal: { mode: 'off' as const },
+  };
+
+  it('applies defaults when only documentation is provided', () => {
+    const r = EvaluationConfigSchema.parse({ axes: { documentation: docAxisFixture } });
     expect(r.axes.utility).toBe(true);
     expect(r.axes.duplication).toBe(true);
-    expect(r.axes.documentation).toBe(true);
   });
 
-  it('accepts bool short form', () => {
+  it('rejects when documentation axis is missing (Story 54.1 no-magic)', () => {
+    expect(() => EvaluationConfigSchema.parse({})).toThrow();
+  });
+
+  it('rejects bool short form for documentation (Story 54.1)', () => {
+    expect(() => EvaluationConfigSchema.parse({ axes: { documentation: true } })).toThrow();
+  });
+
+  it('accepts bool short form for non-documentation axes', () => {
     const r = EvaluationConfigSchema.parse({
-      axes: { utility: false, duplication: true },
+      axes: { utility: false, duplication: true, documentation: docAxisFixture },
     });
     expect(r.axes.utility).toBe(false);
     expect(r.axes.duplication).toBe(true);
@@ -380,6 +402,7 @@ describe('EvaluationConfigSchema', () => {
     const r = EvaluationConfigSchema.parse({
       axes: {
         correction: { enabled: true, model: 'anthropic/claude-opus-4-6' },
+        documentation: docAxisFixture,
       },
     });
     expect(r.axes.correction).toEqual({ enabled: true, model: 'anthropic/claude-opus-4-6' });
@@ -483,6 +506,11 @@ describe('ConfigV3Schema — happy path', () => {
     cfg.evaluation = {
       axes: {
         correction: { enabled: true, model: 'anthropic/claude-opus-4-6' },
+        documentation: {
+          enabled: true,
+          reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+          internal: { mode: 'off' },
+        },
       },
     };
     const r = ConfigV3Schema.parse(cfg);
@@ -516,6 +544,15 @@ describe('ConfigV3Schema — happy path', () => {
         embeddings: {
           code: 'local-lite/jina-v2-base-code',
           text: 'local-lite/all-MiniLM-L6-v2',
+        },
+      },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
         },
       },
     };
@@ -576,7 +613,14 @@ describe('ConfigV3Schema — cross-reference: provider existence', () => {
   it('rejects evaluation override pointing to unknown provider', () => {
     const cfg = baseConfig() as Record<string, unknown>;
     cfg.evaluation = {
-      axes: { correction: { enabled: true, model: 'ghost/big-model' } },
+      axes: {
+        correction: { enabled: true, model: 'ghost/big-model' },
+        documentation: {
+          enabled: true,
+          reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+          internal: { mode: 'off' },
+        },
+      },
     };
     const r = ConfigV3Schema.safeParse(cfg);
     expect(r.success).toBe(false);
@@ -652,6 +696,15 @@ describe('ConfigV3Schema — transport capability checks', () => {
         embeddings: {
           code: 'local-lite/jina-v2-base-code',
           text: 'local-lite/all-MiniLM-L6-v2',
+        },
+      },
+      evaluation: {
+        axes: {
+          documentation: {
+            enabled: true,
+            reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+            internal: { mode: 'off' },
+          },
         },
       },
     };

@@ -936,15 +936,20 @@ describe('writeFirstRunConfig', () => {
     expect(anthropic.env_key).toBe('ANTHROPIC_API_KEY');
   });
 
-  it('writes all 7 axes as enabled (bool short form) for default tier', async () => {
+  it('writes the 6 non-doc axes as enabled (bool short form) plus doc as full object (Story 54.1)', async () => {
     await writeFirstRunConfig(dir);
     const yaml = await import('js-yaml');
     const parsed = yaml.load(readFileSync(join(dir, '.anatoly.yml'), 'utf-8')) as {
       evaluation: { axes: Record<string, unknown> };
     };
-    for (const axis of ['utility', 'duplication', 'correction', 'overengineering', 'tests', 'best_practices', 'documentation']) {
+    for (const axis of ['utility', 'duplication', 'correction', 'overengineering', 'tests', 'best_practices']) {
       expect(parsed.evaluation.axes[axis]).toBe(true);
     }
+    // documentation must be the full object form with reference + internal
+    const doc = parsed.evaluation.axes.documentation as Record<string, unknown>;
+    expect(doc.enabled).toBe(true);
+    expect(doc.reference).toMatchObject({ paths: ['README.md'] });
+    expect(doc.internal).toMatchObject({ mode: 'lite' });
   });
 
   it('declares routing.generation slots prefixed with anthropic/', async () => {
@@ -1170,7 +1175,7 @@ describe('writeFirstRunConfig', () => {
     expect(content).toContain('# Per-axis override example');
     expect(content).toContain('#   correction:');
     expect(content).toContain('#     model: anthropic/claude-opus-4-6');
-    expect(content).toContain('# Documentation axis model override');
+    expect(content).toContain('# Documentation axis:');
   });
 
   it('full annotated YAML still parses to a valid v3 (commented sections are inert)', async () => {

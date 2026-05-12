@@ -384,6 +384,15 @@ function buildV3(input: {
         text: `${textProvider}/${textModel}`,
       },
     },
+    evaluation: {
+      axes: {
+        documentation: {
+          enabled: true,
+          reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+          internal: { mode: 'off' },
+        },
+      },
+    },
   });
 }
 
