@@ -10,7 +10,7 @@ import {
   rmSync,
   symlinkSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { getLogger } from './logger.js';
 
@@ -56,6 +56,46 @@ export function runPath(root: string, runId: string, ...rest: string[]): string 
 /** Resolve the user-wide anatoly root (`~/.anatoly/`). */
 function userWideRoot(): string {
   return join(process.env.HOME ?? homedir(), '.anatoly');
+}
+
+/**
+ * Should `~/.anatoly/shared/models/gguf` be a symlink to `~/.anatoly/models/`?
+ *
+ * Yes when:
+ *   - `~/.anatoly/models/` exists with at least one `.gguf` file (canonical
+ *     model home, populated by `anatoly local-embeddings install` or manual
+ *     downloads), AND
+ *   - `target` (the shared/models/gguf path) is not already a real directory
+ *     with content (would be lost by replacing with a symlink).
+ *
+ * The empty-or-missing target case is the common path: bootstrap creates the
+ * symlink before any model is downloaded into the shared tree.
+ */
+function shouldLinkLegacyModels(uwRoot: string, target: string): boolean {
+  const canonical = join(uwRoot, 'models');
+  if (!existsSync(canonical)) return false;
+
+  try {
+    const ggufFiles = readdirSync(canonical).filter((f) => f.endsWith('.gguf'));
+    if (ggufFiles.length === 0) return false;
+  } catch {
+    return false;
+  }
+
+  // If target already exists, only replace it when it's empty or a stale symlink.
+  if (existsSync(target) || symlinkExists(target)) {
+    try {
+      const stat = lstatSync(target);
+      if (stat.isSymbolicLink()) return true; // existing symlink → safe to recreate
+      if (stat.isDirectory()) {
+        const entries = readdirSync(target);
+        return entries.length === 0;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Shared sub-directories that must exist under `~/.anatoly/shared/`. */
@@ -128,7 +168,24 @@ export function bootstrapAnatoly(root: string): void {
   mkdirSync(join(uwRoot, 'user'), { recursive: true, mode: 0o700 });
 
   for (const sub of SHARED_SUBDIRS) {
-    mkdirSync(join(uwRoot, 'shared', sub), { recursive: true, mode: 0o700 });
+    const target = join(uwRoot, 'shared', sub);
+    // Special case: `models/gguf` symlinks to `~/.anatoly/models/` when that
+    // legacy location exists with GGUF files. Models stay at their canonical
+    // home; shared/ exposes them via symlink so anatolyPath resolution still
+    // works without forcing the user to mv 10+ GB of weights.
+    if (sub === join('models', 'gguf') && shouldLinkLegacyModels(uwRoot, target)) {
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+      try {
+        symlinkSync(join(uwRoot, 'models'), target, 'dir');
+        continue;
+      } catch (err) {
+        getLogger().warn(
+          { err: String(err) },
+          'failed to symlink shared/models/gguf to ~/.anatoly/models — falling back to mkdir',
+        );
+      }
+    }
+    mkdirSync(target, { recursive: true, mode: 0o700 });
   }
 
   // 3. Symlinks (or respect existing real dirs / mount-points)
