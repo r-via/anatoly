@@ -83,27 +83,76 @@ export function applyVerdict(
 // Display helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Wrap a long string to {@link width} columns at word boundaries, preserving
+ * the given indent on each output line. Single oversized words are emitted
+ * on their own line rather than truncated.
+ */
+function wrapText(text: string, width: number, indent: string): string[] {
+  const words = text.replace(/\s+/g, ' ').trim().split(' ');
+  const out: string[] = [];
+  let current = indent;
+  for (const word of words) {
+    if (current.length + word.length + 1 > width && current.length > indent.length) {
+      out.push(current);
+      current = indent + word;
+    } else if (current === indent) {
+      current = indent + word;
+    } else {
+      current = current + ' ' + word;
+    }
+  }
+  if (current !== indent) out.push(current);
+  return out.length > 0 ? out : [indent + text];
+}
+
+/** Format an ISO timestamp as "Nd ago (YYYY-MM-DD)" relative to now. */
+function formatRelativeDate(iso: string | undefined): string {
+  if (!iso) return 'unknown';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const days = Math.round((Date.now() - t) / (1000 * 60 * 60 * 24));
+  const ymd = iso.slice(0, 10);
+  if (days < 1) return `today (${ymd})`;
+  if (days === 1) return `1d ago (${ymd})`;
+  return `${days}d ago (${ymd})`;
+}
+
 function formatConflictNote(entry: DocConflict): string {
+  const WIDTH = 78; // matches clack's default note width budget on standard terminals
   const lines: string[] = [];
-  lines.push(`File:        ${entry.anchor.file}`);
-  if (entry.anchor.symbol) {
-    lines.push(`Symbol:      ${entry.anchor.symbol}`);
+
+  // Header — single line, file + symbol + lines compactly
+  const sym = entry.anchor.symbol ? `::${entry.anchor.symbol}` : '';
+  const lr = entry.anchor.line_range
+    ? `  (L${entry.anchor.line_range[0]}${entry.anchor.line_range[0] !== entry.anchor.line_range[1] ? `–L${entry.anchor.line_range[1]}` : ''})`
+    : '';
+  lines.push(`${entry.anchor.file}${sym}${lr}`);
+
+  // Reference section — wrapped excerpt under the path
+  lines.push('');
+  lines.push(`Reference doc — ${entry.reference_excerpt.path}`);
+  for (const line of wrapText(`"${entry.reference_excerpt.text}"`, WIDTH, '  ')) {
+    lines.push(line);
   }
-  if (entry.anchor.line_range) {
-    lines.push(`Lines:       ${entry.anchor.line_range[0]}–${entry.anchor.line_range[1]}`);
+
+  // Code section — wrapped summary
+  lines.push('');
+  lines.push('Code observed');
+  for (const line of wrapText(entry.code_summary, WIDTH, '  ')) {
+    lines.push(line);
   }
+
+  // Signals — compact aligned block
   lines.push('');
-  lines.push(`Reference:   ${entry.reference_excerpt.path}`);
-  lines.push(`  "${entry.reference_excerpt.text}"`);
-  lines.push('');
-  lines.push(`Code says:   ${entry.code_summary}`);
-  lines.push('');
-  lines.push(`Presumption: ${entry.signals.presumption}`);
+  lines.push('Signals');
+  lines.push(`  presumption    ${entry.signals.presumption}`);
   if (entry.signals.test_covers_current_behavior !== undefined) {
-    lines.push(`Tests cover: ${entry.signals.test_covers_current_behavior ? 'yes' : 'no'}`);
+    lines.push(`  tests cover    ${entry.signals.test_covers_current_behavior ? 'yes' : 'no'}`);
   }
-  lines.push(`Doc touched: ${entry.signals.doc_last_touched}`);
-  lines.push(`Code touched: ${entry.signals.code_last_touched}`);
+  lines.push(`  doc touched    ${formatRelativeDate(entry.signals.doc_last_touched)}`);
+  lines.push(`  code touched   ${formatRelativeDate(entry.signals.code_last_touched)}`);
+
   return lines.join('\n');
 }
 
@@ -159,7 +208,10 @@ export async function runArbitrateWizard(
 
   for (let i = 0; i < targets.length; i++) {
     const entry = targets[i];
-    const label = `[${i + 1}/${targets.length}] ${entry.id}`;
+    // Short id is enough — full id is in the lock file. Keeps the box
+    // header tight so the ──── line doesn't span the whole terminal.
+    const shortId = entry.id.slice(0, 8);
+    const label = `Conflict ${i + 1}/${targets.length}  ·  ${shortId}`;
 
     // Display conflict details
     p.note(formatConflictNote(entry), label);
