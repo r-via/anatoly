@@ -90,6 +90,7 @@ import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
+import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -1001,6 +1002,17 @@ export function registerRunCommand(program: Command): void {
               runId: ctx.runId,
             });
           }
+
+          // Run doc-conflict detection after bootstrap — Story 55.4 FR5
+          if (!ctx.interrupted) {
+            const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
+            await runDocConflictDetection({
+              projectRoot: ctx.projectRoot,
+              config: ctx.config,
+              tasks: setup.tasks,
+              fragmentsDir,
+            });
+          }
         }
 
         await runWithContext({ phase: 'rag-index' }, async () => {
@@ -1034,6 +1046,17 @@ export function registerRunCommand(program: Command): void {
             writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
               mode: 'update',
               runId: ctx.runId,
+            });
+          }
+
+          // Run doc-conflict detection after update — Story 55.4 FR5
+          if (!ctx.interrupted) {
+            const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
+            await runDocConflictDetection({
+              projectRoot: ctx.projectRoot,
+              config: ctx.config,
+              tasks: setup.tasks,
+              fragmentsDir,
             });
           }
         } else if (!ctx.interrupted) {
