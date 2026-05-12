@@ -14,7 +14,7 @@
  * If-Modified-Since), so steady-state runs after the first fetch only pay a
  * few hundred bytes per provider per session.
  *
- * The result is normalised into `shared/pricing/normalized.json` keyed by the exact
+ * The result is normalised into `cache/pricing.json` keyed by the exact
  * model identifier the user has in their config (e.g. `anthropic/claude-sonnet-4-6`,
  * `mistral/codestral-embed-2505`, `openrouter/qwen/qwen3-embedding-8b`). At
  * lookup time `calculateCost` does a direct map read — no resolution,
@@ -87,9 +87,20 @@ const OPENROUTER_EMBEDDINGS_URL = 'https://openrouter.ai/api/v1/embeddings/model
  * when the upstream registry hangs. The cached snapshot covers the recovery. */
 const FETCH_TIMEOUT_MS = 10_000;
 
-/** Path resolvers under `<root>/.anatoly/shared/pricing/`. */
+/**
+ * Path resolvers for pricing artifacts.
+ *
+ * Sources (litellm/openrouter raw + meta) are shared cross-project — the raw
+ * registry data is the same regardless of which project consumes it, so we
+ * dedupe under `shared/pricing/sources/`.
+ *
+ * The normalized table, however, is keyed by the exact set of providers and
+ * models the **project's** config declares. Two projects with different
+ * `routing` blocks produce different normalized tables from the same sources,
+ * so this file is project-local under `cache/pricing.json`.
+ */
 export const PRICING_PATHS = {
-  normalized: (root: string) => anatolyPath(root, 'shared/pricing', 'normalized.json'),
+  normalized: (root: string) => anatolyPath(root, 'cache', 'pricing.json'),
   litellmRaw: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'litellm.json'),
   litellmMeta: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'litellm.meta.json'),
   openrouterChatRaw: (root: string) => anatolyPath(root, 'shared/pricing/sources', 'openrouter-chat.json'),
@@ -348,7 +359,7 @@ export interface EnsurePricingOptions {
 
 /**
  * Resolve pricing for the given active model identifiers and persist the
- * result to `shared/pricing/normalized.json`. Should be called once per run, after
+ * result to `cache/pricing.json`. Should be called once per run, after
  * `loadConfig`. Network failures degrade gracefully: existing on-disk caches
  * are preserved and the in-memory map is hydrated from whatever's available.
  */
@@ -425,7 +436,7 @@ export async function ensurePricing(
 
 /**
  * Synchronous price lookup. Lazily hydrates the in-memory cache from
- * `shared/pricing/normalized.json` if `ensurePricing` hasn't run this session. Returns
+ * `cache/pricing.json` if `ensurePricing` hasn't run this session. Returns
  * `null` when no entry is known, allowing callers to decide their fallback.
  */
 export function lookupPrice(modelId: string, projectRoot?: string): ModelPricing | null {

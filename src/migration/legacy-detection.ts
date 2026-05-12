@@ -7,7 +7,7 @@
  * shell commands for the user to run to migrate to the new layout.
  *
  * Legacy paths checked:
- *   - <root>/.anatoly/pricing.json         (→ shared/pricing/normalized.json)
+ *   - <root>/.anatoly/pricing.json         (→ cache/pricing.json)
  *   - <root>/.anatoly/sources/             (→ shared/pricing/sources/)
  *   - <root>/.anatoly/grammars/            (→ shared/grammars/)
  *   - <root>/.anatoly/cache/refinement-cache.json (→ shared/refinements/)

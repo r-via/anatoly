@@ -118,10 +118,13 @@ describe('Grammar manager paths (AC8)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Pricing paths migration', () => {
-  it('normalized.json resolves under shared/pricing/', () => {
+  it('pricing.json resolves under cache/ (project-local, not shared)', () => {
+    // The normalized pricing table is keyed by the project's specific provider+model
+    // config, so it cannot be shared cross-project. Sources stay shared; the
+    // normalized derivative lives next to other project caches.
     const root = '/project';
     const path = PRICING_PATHS.normalized(root);
-    expect(path).toBe(join(root, '.anatoly', 'shared', 'pricing', 'normalized.json'));
+    expect(path).toBe(join(root, '.anatoly', 'cache', 'pricing.json'));
   });
 
   it('source files resolve under shared/pricing/sources/', () => {
