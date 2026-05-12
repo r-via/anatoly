@@ -207,14 +207,7 @@
 - [x] Story 54.5: Split contexte axes — `renderReferenceDocsContext` vs `renderInternalDocsContext`
 - [x] Story 54.6: Mode `lite` — digest interne déterministe + cache fingerprint
 - [x] Story 54.7: Mode `off` gracieux + suppression sèche du sync `.anatoly/docs/ → docs/`
-  > As a utilisateur qui ne veut pas du tout de doc interne (par exemple parce que ma doc humaine me suffit)
-  > I want que le mode `off` désactive intégralement la génération et le sync, sans aucun effet de bord
-  > So that anatoly reste un outil d'audit sans polluer mon repo avec des artefacts dérivés du code.
-  > AC: Given une config avec `documentation.internal.mode: "off"`, When `anatoly run` est lancé sur un projet, Then `runDocScaffold` n'est pas appelé, And `runDocGeneration` n'est pas appelé, And `runDocCoherenceReview` n'est pas appelé, And aucun fichier n'est créé ni modifié sous `.anatoly/docs/` (vérifiable par un test : snapshot du dossier avant/après run), And un log info : `internal docs mode=off — skipping scaffold, generation, and coherence`, And l'axe documentation reste exécutable et score la couverture sur la reference uniquement (pas de plantage parce que `.anatoly/docs/` est vide)
-  > AC: Given [src/commands/run.ts:1947](src/commands/run.ts#L1947) (sync actuel `synced .anatoly/docs/ → docs/`), When le code du run est refactoré, Then la ligne de sync est supprimée intégralement (pas commentée, supprimée), And la fonction sous-jacente qui faisait le sync est supprimée ou rendue inaccessible (pas de chemin mort), And aucun flag de config ne ré-active le sync, And un test de non-régression vérifie qu'après `anatoly run`, le contenu de `docs/` (si présent) est byte-identique à son état avant le run
-  > AC: Given un test d'intégration sur un projet en mode `off`, When on lance `anatoly run` puis `anatoly run` une seconde fois, Then aucun fichier sous `.anatoly/docs/` n'apparaît, même pas vide, And le rapport mentionne `Documentation: off` dans son en-tête (FR18)
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-7
-- [ ] Story 54.8: Coherence 3-way en mode `full` (reference ↔ internal ↔ surface code)
+- [x] Story 54.8: Coherence 3-way en mode `full` (reference ↔ internal ↔ surface code)
   > As a utilisateur en mode `full` (qui veut une doc interne complète et navigable)
   > I want que la phase coherence ne réécrive jamais ma doc humaine, ne contredise jamais la reference, et flagge les divergences code/reference au lieu de les masquer
   > So that mon expérience reste prévisible : la reference reste maîtresse, l'internal complète sans imposer, et les vrais conflits remontent en findings explicites.

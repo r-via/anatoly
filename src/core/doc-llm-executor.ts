@@ -22,6 +22,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { contextLogger } from '../utils/log-context.js';
 import { recordLlmCall } from '../utils/llm-calls-sink.js';
+import { buildCoherenceUserMessage, assertCoherenceWritePath } from './doc-coherence-3way.js';
 
 // --- Public interfaces ---
 
@@ -650,6 +651,10 @@ export interface DocCoherenceReviewParams {
   callbacks?: {
     onToolUse?: (tool: string, filePath: string) => void;
   };
+  /** Human-authored reference docs for 3-way coherence (Story 54.8). */
+  referenceDocs?: import('./reference-docs-resolver.js').ReferenceDoc[];
+  /** Code surface summary for 3-way coherence (Story 54.8). */
+  codeSurface?: string;
 }
 
 /**
@@ -673,6 +678,8 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     logDir,
     router,
     callbacks,
+    referenceDocs,
+    codeSurface,
   } = params;
 
   const start = Date.now();
@@ -696,38 +703,54 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   const baselineLint = reviewDocStructure(outputDir, projectRoot, docsPath);
   const linterIssuesBefore = baselineLint.issues.filter(i => !i.fixed).length;
 
-  // Build user message
-  const parts: string[] = [];
-
-  if (contentInjected) {
-    parts.push(
-      `Below are all ${files.length} documentation files with their full content.`,
-      `Fix any structural coherence issues using the Write tool.`,
-      ``,
-      allContent,
-    );
-  } else {
-    const fileListing = files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
-    parts.push(
-      `The documentation directory is your current working directory.`,
-      ``,
-      `## Files in this documentation site (${files.length} total)`,
-      fileListing,
-      ``,
-      `Please read all pages, identify coherence issues, and fix them.`,
-    );
-  }
-
-  // Include linter issues as starting context
+  // Build user message — use 3-way builder when reference docs or code surface provided (Story 54.8)
   const unfixed = baselineLint.issues.filter(i => !i.fixed);
-  if (unfixed.length > 0) {
-    parts.push(``, `## Known structural issues (from linter)`, ``);
-    for (const i of unfixed) {
-      parts.push(`- **${i.path}**: [${i.rule}] ${i.detail}`);
-    }
-  }
+  let userMessage: string;
 
-  const userMessage = parts.join('\n');
+  if (referenceDocs?.length || codeSurface) {
+    // 3-way coherence mode
+    const internalDocsContent = contentInjected
+      ? allContent
+      : files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
+    userMessage = buildCoherenceUserMessage({
+      internalDocsContent,
+      referenceDocs,
+      codeSurface,
+      linterIssues: unfixed.length > 0
+        ? unfixed.map(i => ({ path: i.path ?? '', rule: i.rule, detail: i.detail }))
+        : undefined,
+      contentInjected,
+      fileCount: files.length,
+    });
+  } else {
+    // Legacy 2-way mode (structural only)
+    const parts: string[] = [];
+    if (contentInjected) {
+      parts.push(
+        `Below are all ${files.length} documentation files with their full content.`,
+        `Fix any structural coherence issues using the Write tool.`,
+        ``,
+        allContent,
+      );
+    } else {
+      const fileListing = files.map(f => `  - ${relative(outputDir, f.fullPath)}`).join('\n');
+      parts.push(
+        `The documentation directory is your current working directory.`,
+        ``,
+        `## Files in this documentation site (${files.length} total)`,
+        fileListing,
+        ``,
+        `Please read all pages, identify coherence issues, and fix them.`,
+      );
+    }
+    if (unfixed.length > 0) {
+      parts.push(``, `## Known structural issues (from linter)`, ``);
+      for (const i of unfixed) {
+        parts.push(`- **${i.path}**: [${i.rule}] ${i.detail}`);
+      }
+    }
+    userMessage = parts.join('\n');
+  }
 
   // Determine allowed tools based on whether content was injected
   const allowedTools = contentInjected ? ['Write'] : ['Read', 'Write'];
@@ -792,12 +815,17 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
               throw new Error(`SDK error [${message.subtype}]: ${errMsg}`);
             }
           }
-          // Track tool use for UI display
-          if (message.type === 'assistant' && callbacks?.onToolUse) {
+          // Track tool use for UI display + path guard (Story 54.8)
+          if (message.type === 'assistant') {
             const msg = message as { content?: Array<{ type: string; name?: string; input?: { file_path?: string } }> };
             for (const block of msg.content ?? []) {
               if (block.type === 'tool_use' && block.name && block.input?.file_path) {
-                callbacks.onToolUse(block.name, block.input.file_path);
+                // Path guard: validate Write targets stay within outputDir
+                if (block.name === 'Write') {
+                  const writePath = resolve(outputDir, block.input.file_path);
+                  assertCoherenceWritePath(writePath, outputDir);
+                }
+                callbacks?.onToolUse?.(block.name, block.input.file_path);
               }
             }
           }

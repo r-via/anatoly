@@ -90,6 +90,7 @@ import { writeSharedReview, loadSharedReview } from '../core/shared-review-cache
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
+import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -1792,6 +1793,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             abortController: ac,
             logDir: coherenceLogDir,
             router: ctx.router,
+            codeSurface: buildCodeSurfaceSummary(ctx.allTasks),
             callbacks: {
               onToolUse: (_tool, filePath) => {
                 const name = filePath.split('/').pop() ?? filePath;
