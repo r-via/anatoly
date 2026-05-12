@@ -212,13 +212,7 @@
 ### Doc Conflicts Arbitration — boucle d'arbitrage humain pour promouvoir la doc interne au rang d'autorité
 
 - [x] Story 55.1: Utilitaire `resolveDocMode` et refactor des call-sites inline
-  > **As an** Anatoly developer **I want** une fonction unique `resolveDocMode(config): 'off' | 'lite' | 'full'` **So that** les comportements mode-dependent de l'epic 55 ne dupliquent pas les checks ad-hoc actuellement disséminés dans le code.
-  > AC: Given [src/core/run-config.ts](src/core/run-config.ts) sans utilitaire centralisé de résolution du mode doc, When `resolveDocMode(config)` est implémenté et exporté, Then la fonction retourne le type union strict `'off' | 'lite' | 'full'` (pas d'`undefined`, pas de `string`)
-  > AC: Given les call-sites inline actuels (`internal-docs-context.ts:24`, `run.ts:977-988`, `run.ts:1149-1156`, autres trouvés au grep), When le refactor remplace chaque check `config.documentation?.internal?.mode === '…'` par `resolveDocMode(config)`, Then aucun check inline ne subsiste dans le codebase (vérifié par grep CI)
-  > AC: Given la suite de tests `src/core/run-config.test.ts`, When elle est exécutée après refactor, Then elle couvre les 3 valeurs valides retournées et la levée d'erreur Zod si `documentation.internal.mode` est absent (cohérent avec le "no-magic" de epic 54)
-  > AC: Given un run complet avant et après refactor sur un projet fixture, When les outputs sont comparés, Then aucun changement comportemental observable (pur refactor)
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-1
-- [ ] Story 55.2: Déplacement de `runDocUpdate` en pré-review
+- [x] Story 55.2: Déplacement de `runDocUpdate` en pré-review
   > **As an** architecte pipeline **I want** que la mise à jour de la doc interne se fasse avant la phase review **So that** les arbitrages humains appliqués par le `doc-conflict-detector` puissent informer la review du run courant, pas seulement du run suivant.
   > AC: Given le pipeline actuel où `runDocUpdate` est appelé en post-review ([run.ts:1146-1176](src/commands/run.ts#L1146-L1176)), When le déplacement en pré-review est effectué, Then `runDocUpdate` est appelé entre la phase scan/triage et la phase RAG indexing, et le bloc actuel `run.ts:1146-1176` est supprimé
   > AC: Given l'ancien gate de skip `filesReviewed > 0` (incompatible avec pré-review), When le déplacement est effectué, Then le gate devient `triage.tier === 'evaluate'` vide (pas de fichier code modifié = pas de régénération)

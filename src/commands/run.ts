@@ -954,11 +954,11 @@ export function registerRunCommand(program: Command): void {
           pipelineState.addTask('rag-doc-project', 'Chunking & embedding project docs');
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
+        pipelineState.addTask('internal-docs', 'Updating internal docs');
         pipelineState.addTask('review', 'Reviewing files');
         if (ctx.deliberation) {
           pipelineState.addTask('refinement', 'Deliberation');
         }
-        pipelineState.addTask('internal-docs', 'Updating internal docs');
         pipelineState.addTask('report', 'Generating report');
         ctx.pipelineState = pipelineState;
 
@@ -1005,6 +1005,40 @@ export function registerRunCommand(program: Command): void {
 
         await runWithContext({ phase: 'rag-index' }, async () => {
         const ragContext = await runRagPhase(ctx, setup.tasks);
+        if (ctx.interrupted) return;
+
+        // --- Phase: update internal docs (pre-review) — Story 55.2 ---
+        // Moved from post-review to pre-review so that doc-conflict arbitration
+        // results are available during the review phase of the current run.
+        // Gate: triage-based (evaluable files exist) instead of filesReviewed > 0.
+        const hasEvaluableFiles = [...setup.triageMap.values()].some(t => t.tier === 'evaluate');
+        if (internalDocMode === 'off' && !ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'off');
+        } else if (internalDocMode === 'lite' && !ctx.interrupted && hasEvaluableFiles) {
+          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
+          ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
+        } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
+          await runWithContext({ phase: 'internal-docs' }, async () => {
+            await runDocUpdate(ctx, setup.tasks);
+          });
+
+          // Re-index doc sections that changed after the doc-update pipeline.
+          // Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate
+          // chunk cache → restart embedding containers → re-embed + upsert → stop.
+          if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
+            await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
+          }
+
+          // Refresh the scaffold-status tag to record this successful update.
+          if (!ctx.interrupted) {
+            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
+              mode: 'update',
+              runId: ctx.runId,
+            });
+          }
+        } else if (!ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
+        }
         if (ctx.interrupted) return;
 
         // --- Phase: review (pass 1) ---
@@ -1141,38 +1175,6 @@ export function registerRunCommand(program: Command): void {
           });
         } else if (!ctx.interrupted && ctx.filesReviewed > 0) {
           ctx.pipelineState?.completeTask('refinement', 'skipped — deliberation disabled');
-        }
-
-        // --- Phase: update internal docs — Story 29.21 ---
-        // In lite mode, rebuild the deterministic digest (no LLM). Story 54.6.
-        // Mode off: skip doc update entirely (Story 54.7)
-        if (internalDocMode === 'off' && !ctx.interrupted) {
-          ctx.pipelineState?.completeTask('internal-docs', 'off');
-        } else if (internalDocMode === 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
-          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
-          ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
-        // Skip when no files were reviewed (nothing changed → docs are still current)
-        } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && ctx.filesReviewed > 0) {
-          await runWithContext({ phase: 'internal-docs' }, async () => {
-            await runDocUpdate(ctx, setup.tasks);
-          });
-
-          // Re-index doc sections that changed after the doc-update pipeline.
-          // Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate
-          // chunk cache → restart embedding containers → re-embed + upsert → stop.
-          if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
-            await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
-          }
-
-          // Refresh the scaffold-status tag to record this successful update.
-          if (!ctx.interrupted) {
-            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
-              mode: 'update',
-              runId: ctx.runId,
-            });
-          }
-        } else if (!ctx.interrupted) {
-          ctx.pipelineState?.completeTask('internal-docs', 'skipped — no files reviewed');
         }
 
         if (ctx.interrupted) {
