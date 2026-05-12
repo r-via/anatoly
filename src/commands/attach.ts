@@ -12,15 +12,16 @@
  */
 
 import type { Command } from 'commander';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
-import { buildProgressBar, formatDuration, verdictColor } from '../utils/format.js';
+import { formatDuration, verdictColor } from '../utils/format.js';
 import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporter.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { ProgressManager } from '../core/progress-manager.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */
@@ -119,6 +120,69 @@ export function buildAttachHeader(status: RunStatus, logPath: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Live state snapshot — derives phase/progress at attach time       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Scan the ndjson log to find the most recent phase whose `phase_start`
+ * has no matching `phase_end`. Returns null if no phases are open.
+ *
+ * Reads the file as a whole — typical runs produce ndjson under a few MB
+ * and this only runs once at attach time, not in the hot path.
+ */
+export function readCurrentPhase(logPath: string): string | null {
+  if (!existsSync(logPath)) return null;
+  let content: string;
+  try {
+    content = readFileSync(logPath, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const openPhases: string[] = [];
+  for (const line of content.split('\n')) {
+    if (!line) continue;
+    let ev: Record<string, unknown>;
+    try { ev = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+    const eventType = ev.event as string | undefined;
+    const phase = ev.phase as string | undefined;
+    if (!phase) continue;
+    if (eventType === 'phase_start') {
+      openPhases.push(phase);
+    } else if (eventType === 'phase_end') {
+      const idx = openPhases.lastIndexOf(phase);
+      if (idx >= 0) openPhases.splice(idx, 1);
+    }
+  }
+  return openPhases.length > 0 ? openPhases[openPhases.length - 1] : null;
+}
+
+/** Snapshot data computed at attach time, used to render the initial state. */
+export interface LiveSnapshot {
+  phase: string | null;
+  reviewedFiles: number;
+  totalFiles: number;
+  elapsedMs: number;
+}
+
+/**
+ * Build the initial "what's happening right now" block printed once on
+ * attach, before the live tail starts streaming.
+ */
+export function buildLiveSnapshot(snapshot: LiveSnapshot): string {
+  const lines: string[] = [];
+  lines.push(`  phase       ${snapshot.phase ?? '—'}`);
+  if (snapshot.totalFiles > 0) {
+    const pct = Math.round((snapshot.reviewedFiles / snapshot.totalFiles) * 100);
+    lines.push(`  progress    ${snapshot.reviewedFiles}/${snapshot.totalFiles} (${pct}%)`);
+  } else {
+    lines.push(`  progress    — (not yet estimated)`);
+  }
+  lines.push(`  elapsed     ${formatDuration(snapshot.elapsedMs)}`);
+  return lines.join('\n');
+}
+
+/* ------------------------------------------------------------------ */
 /*  Live TUI event handler — Story 53.5                               */
 /* ------------------------------------------------------------------ */
 
@@ -134,22 +198,45 @@ export interface AttachRenderState {
 }
 
 /**
+ * Format the inline `[ 12/128]` counter prefix used on each file line.
+ * The numerator is padded so columns stay aligned as count grows.
+ */
+function formatCounter(current: number, total: number): string {
+  if (total <= 0) return `[${String(current).padStart(3)}    ]`;
+  const w = String(total).length;
+  return `[${String(current).padStart(w)}/${total}]`;
+}
+
+const VERDICT_LABEL_WIDTH = 14; // widest known label "NEEDS_REFACTOR"
+
+function colorVerdict(verdict: string): string {
+  if (verdict === 'CLEAN') return chalk.green(verdict);
+  if (verdict === 'ERROR') return chalk.red(verdict);
+  return chalk.yellow(verdict);
+}
+
+/**
  * Create an event handler for ndjson events that renders TUI output.
  * Returns the handler function and the mutable state object.
  *
- * Design note (Story 53.5 AC): Progress is event-driven (file_review_end
- * increments the counter) rather than polling progress.json. This avoids
- * filesystem reads every second and provides instant updates. The progress
- * bar is re-rendered on each file_review_end event.
+ * Design note: progress is event-driven. Each `file_review_end` prints a
+ * single line carrying its own `[N/M]` counter — there is no separate
+ * persistent progress bar (the previous `\r`-based bar was overwritten by
+ * the verdict line that followed it). The counter scrolls with history,
+ * which is what an attach session actually needs.
+ *
+ * `totalFiles` may be pre-seeded from progress.json at attach time so the
+ * counter is meaningful even when the user joins after `estimate_total`
+ * already fired.
  */
-export function createAttachEventHandler(): {
+export function createAttachEventHandler(initial?: { totalFiles?: number; reviewedFiles?: number }): {
   handleEvent: (event: unknown) => void;
   state: AttachRenderState;
 } {
   const state: AttachRenderState = {
     currentPhase: '',
-    reviewedFiles: 0,
-    totalFiles: 0,
+    reviewedFiles: initial?.reviewedFiles ?? 0,
+    totalFiles: initial?.totalFiles ?? 0,
     findings: [],
   };
 
@@ -163,7 +250,7 @@ export function createAttachEventHandler(): {
       case 'phase_start': {
         const phase = ev.phase as string;
         state.currentPhase = phase;
-        console.log(chalk.dim(`  ▸ phase: ${phase}`));
+        console.log(chalk.cyan(`  ▸ phase: ${phase}`));
         break;
       }
 
@@ -182,18 +269,9 @@ export function createAttachEventHandler(): {
         state.reviewedFiles++;
         state.findings.push({ file, verdict });
 
-        // Render progress bar
-        if (state.totalFiles > 0) {
-          const bar = buildProgressBar(state.reviewedFiles, state.totalFiles, 30);
-          const pct = Math.round((state.reviewedFiles / state.totalFiles) * 100);
-          process.stdout.write(`\r  progress    ${bar} ${pct}% (${state.reviewedFiles}/${state.totalFiles})`);
-        }
-
-        // Render finding line
-        const verdictLabel = verdict === 'CLEAN' ? chalk.green(verdict) :
-                             verdict === 'ERROR' ? chalk.red(verdict) :
-                             chalk.yellow(verdict);
-        console.log(`  ${verdictLabel}  ${chalk.dim(file)}`);
+        const counter = chalk.dim(formatCounter(state.reviewedFiles, state.totalFiles));
+        const verdictLabel = colorVerdict(verdict).padEnd(VERDICT_LABEL_WIDTH + 9); // +9 ANSI escape budget
+        console.log(`  ${counter} ${verdictLabel} ${chalk.dim(file)}`);
         break;
       }
 
@@ -485,8 +563,33 @@ export function registerAttachCommand(parent: Command): void {
       console.log(buildAttachHeader(result.status, logPath));
       console.log('');
 
+      // Snapshot of current run state — so the user sees the phase/progress
+      // immediately, even if `estimate_total` fired before they attached.
+      let snapshotTotal = 0;
+      let snapshotReviewed = 0;
+      try {
+        const pm = new ProgressManager(projectRoot);
+        const summary = pm.getSummary();
+        snapshotTotal = pm.totalFiles();
+        snapshotReviewed = summary.DONE + summary.CACHED;
+      } catch {
+        // progress.json missing or unreadable — leave counts at 0
+      }
+      const currentPhase = readCurrentPhase(logPath);
+      const elapsedMs = Date.now() - new Date(result.status.startedAt).getTime();
+      console.log(buildLiveSnapshot({
+        phase: currentPhase,
+        reviewedFiles: snapshotReviewed,
+        totalFiles: snapshotTotal,
+        elapsedMs,
+      }));
+      console.log('  ' + chalk.dim('─'.repeat(60)));
+
       // Start tailing ndjson — Story 53.5
-      const { handleEvent } = createAttachEventHandler();
+      const { handleEvent } = createAttachEventHandler({
+        totalFiles: snapshotTotal,
+        reviewedFiles: snapshotReviewed,
+      });
       const fromStart = opts?.fromStart ?? false;
 
       const tailHandle: TailHandle = tailNdjson(logPath, {
