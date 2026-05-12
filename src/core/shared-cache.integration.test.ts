@@ -122,7 +122,7 @@ describe('cross-project review sharing (AC6)', () => {
 
   it('NLP summary written by project A is readable by project B', () => {
     const { projA, projB } = env;
-    const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' };
+    const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' as const };
     const bodyHash = computeBodyHash('function formatDate(d) { return d.toISOString(); }');
 
     writeSharedNlpSummary(projA, bodyHash, summary, 'flash-2.0');

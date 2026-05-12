@@ -497,7 +497,7 @@ describe('shared NLP summary cache', () => {
   });
 
   it('should write NLP summary to shared/nlp-summaries with sharding', () => {
-    const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' };
+    const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' as const };
     const bodyHash = 'abcdef1234567890';
 
     writeSharedNlpSummary(tmpRoot, bodyHash, summary, 'flash-2.0');
@@ -516,7 +516,7 @@ describe('shared NLP summary cache', () => {
   });
 
   it('should load shared NLP summary by body hash', () => {
-    const summary = { summary: 'Parses JSON', docSummary: '', keyConcepts: ['json'], behavioralProfile: 'pure' };
+    const summary = { summary: 'Parses JSON', docSummary: '', keyConcepts: ['json'], behavioralProfile: 'pure' as const };
     const bodyHash = '1234abcd5678ef90';
 
     writeSharedNlpSummary(tmpRoot, bodyHash, summary, 'flash-2.0');
