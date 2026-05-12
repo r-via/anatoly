@@ -201,14 +201,7 @@
 ### Reference-First Documentation
 
 - [x] Story 54.1: Schema config étendu + suppression `docs_path` + erreur de validation actionnable
-  > As a mainteneur d'anatoly
-  > I want que `documentation.reference.paths` et `documentation.internal.mode` soient des champs requis du YAML sans default magique
-  > So that l'utilisateur voit explicitement dans son fichier de config quel régime documentaire est appliqué, et qu'aucun comportement par défaut surprise ne se déclenche.
-  > AC: Given [src/schemas/config.ts:171-175, 231-249](src/schemas/config.ts) (DocumentationConfigSchema actuel avec `docs_path: 'docs'` et `module_mapping?`), When le schema est refactoré, Then le nouveau schema correspond exactement au YAML décrit en FR1, sans `docs_path`, avec `reference.paths`, `reference.inline_comments`, `internal.mode`, `internal.lite?`, `internal.full?`, And `internal.mode` est un `z.enum(["full", "lite", "off"])` sans `.default()` (la validation échoue si le champ est absent), And `reference.paths` est un `z.array(z.string()).min(1)` (au moins une entrée requise), And un `.refine()` sur les paths rejette tout chemin commençant par `/`, `\\`, ou contenant `..` (NFR8), And quand `internal.mode === "lite"`, `internal.lite` est requis avec ses 2 sous-champs, And quand `internal.mode === "full"`, `internal.full` est requis avec `sync_to_repo`
-  > AC: Given une config existante `.anatoly.yml` qui contient encore `documentation.docs_path: "docs"` et pas de `reference` ni d'`internal`, When anatoly tente de charger la config (au démarrage de n'importe quelle commande), Then le load échoue avec un exit code non-zero, And le message d'erreur affiche : (1) le path du fichier de config, (2) les chemins Zod fautifs (`documentation.reference.paths: required`, `documentation.internal.mode: required`), (3) la commande de remédiation `anatoly init --reconfigure-docs`, (4) un lien vers la section du CHANGELOG décrivant le breaking change, And aucune commande anatoly ne tourne tant que la config n'est pas corrigée (pas de mode dégradé silencieux)
-  > AC: Given la suite de tests `src/schemas/config.test.ts`, When elle est exécutée après l'epic, Then au moins 6 cas explicites sont couverts : (1) config valide en mode `lite`, (2) config valide en mode `full`, (3) config valide en mode `off`, (4) `internal.mode` absent → erreur, (5) `reference.paths` vide → erreur, (6) path absolu dans `reference.paths` → erreur
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-1
-- [ ] Story 54.2: Wizard interactif doc + `init --reconfigure-docs`
+- [x] Story 54.2: Wizard interactif doc + `init --reconfigure-docs`
   > As a nouvel utilisateur d'anatoly (ou un utilisateur existant migrant après le breaking change)
   > I want un wizard qui me pose 3 questions claires sur ma doc et écrit le YAML explicitement
   > So that ma config reflète mes intentions sans devinette et reste éditable sans surprise.

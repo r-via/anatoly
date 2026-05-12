@@ -3,11 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
+import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { DEFAULT_MODELS } from '../core/default-models.js';
@@ -37,6 +38,14 @@ export interface WizardSelections {
   };
 }
 
+export interface DocWizardSelections {
+  referencePaths: string[];
+  inlineCommentsEnabled: boolean;
+  inlineCommentKinds?: DocCommentKind[];
+  inlineCommentInclude?: string[];
+  internalMode: 'full' | 'lite' | 'off';
+}
+
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
 }
@@ -44,6 +53,138 @@ function isCancelled(value: unknown): value is symbol {
 // ---------------------------------------------------------------------------
 // Pure logic (testable)
 // ---------------------------------------------------------------------------
+
+/**
+ * Mapping from programming language name (as returned by detectProjectProfile)
+ * to the doc-comment kinds applicable to that language.
+ */
+export const LANGUAGE_DOC_KINDS: Record<string, DocCommentKind[]> = {
+  TypeScript: ['jsdoc', 'tsdoc'],
+  JavaScript: ['jsdoc'],
+  Python: ['docstring'],
+  Go: ['godoc'],
+  Java: ['javadoc'],
+  'C#': ['xmldoc'],
+  Rust: ['module_header'],
+  Shell: ['module_header'],
+  Bash: ['module_header'],
+};
+
+/** Well-known doc file/directory candidates for auto-detection. */
+const DOC_CANDIDATES: { path: string; glob: string; isDir: boolean }[] = [
+  { path: 'docs', glob: 'docs/**/*.md', isDir: true },
+  { path: 'README.md', glob: 'README.md', isDir: false },
+  { path: 'ARCHITECTURE.md', glob: 'ARCHITECTURE.md', isDir: false },
+  { path: 'CONTRIBUTING.md', glob: 'CONTRIBUTING.md', isDir: false },
+  { path: 'specs', glob: 'specs/**/*.md', isDir: true },
+];
+
+/**
+ * Auto-detect documentation paths present in the project root.
+ * Returns an array of glob patterns for detected doc sources.
+ */
+export function detectDocPaths(projectRoot: string): string[] {
+  const found: string[] = [];
+  for (const candidate of DOC_CANDIDATES) {
+    const fullPath = join(projectRoot, candidate.path);
+    try {
+      if (candidate.isDir) {
+        if (existsSync(fullPath) && statSync(fullPath).isDirectory()) {
+          // Verify the directory has content
+          const entries = readdirSync(fullPath);
+          if (entries.length > 0) found.push(candidate.glob);
+        }
+      } else {
+        if (existsSync(fullPath) && statSync(fullPath).isFile()) {
+          found.push(candidate.glob);
+        }
+      }
+    } catch {
+      // Skip inaccessible paths
+    }
+  }
+  return found;
+}
+
+/**
+ * Build a documentation config object from wizard selections.
+ * Returns an object matching the DocumentationConfigSchema shape.
+ */
+export function buildDocumentationConfig(selections: DocWizardSelections): {
+  reference: {
+    paths: string[];
+    inline_comments: {
+      enabled: boolean;
+      kinds?: DocCommentKind[];
+      include?: string[];
+    };
+  };
+  internal: {
+    mode: 'full' | 'lite' | 'off';
+    lite?: { max_tokens: number; refresh_on: string[] };
+    full?: { sync_to_repo: boolean };
+  };
+} {
+  const reference: {
+    paths: string[];
+    inline_comments: {
+      enabled: boolean;
+      kinds?: DocCommentKind[];
+      include?: string[];
+    };
+  } = {
+    paths: selections.referencePaths,
+    inline_comments: { enabled: selections.inlineCommentsEnabled },
+  };
+
+  if (selections.inlineCommentsEnabled && selections.inlineCommentKinds) {
+    reference.inline_comments.kinds = selections.inlineCommentKinds;
+    reference.inline_comments.include = selections.inlineCommentInclude ?? [];
+  }
+
+  const internal: {
+    mode: 'full' | 'lite' | 'off';
+    lite?: { max_tokens: number; refresh_on: string[] };
+    full?: { sync_to_repo: boolean };
+  } = { mode: selections.internalMode };
+
+  if (selections.internalMode === 'lite') {
+    internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
+  } else if (selections.internalMode === 'full') {
+    internal.full = { sync_to_repo: false };
+  }
+
+  return { reference, internal };
+}
+
+/**
+ * Merge a new documentation config into an existing YAML string.
+ * Preserves all non-documentation sections. Used by --reconfigure-docs.
+ * Deterministic: same inputs always produce identical output (NFR7).
+ */
+export function mergeDocumentationIntoYaml(
+  existingYaml: string,
+  docConfig: ReturnType<typeof buildDocumentationConfig>,
+): string {
+  // Parse existing YAML to preserve all other sections
+  const parsed = yaml.load(existingYaml) as Record<string, unknown> ?? {};
+
+  // Replace documentation section
+  parsed.documentation = docConfig;
+
+  // Serialize back — use consistent YAML options for determinism
+  const docComment = `# Generated by anatoly init on ${new Date().toISOString().slice(0, 10)}. Re-run with: anatoly init --reconfigure-docs`;
+  const yamlStr = yaml.dump(parsed, { lineWidth: 120, noRefs: true, sortKeys: false });
+
+  // Insert the doc comment before the documentation: key
+  const lines = yamlStr.split('\n');
+  const docIdx = lines.findIndex((l) => l.startsWith('documentation:'));
+  if (docIdx >= 0) {
+    lines.splice(docIdx, 0, docComment);
+  }
+
+  return lines.join('\n');
+}
 
 const SUBSCRIPTION_PROVIDERS = new Set(['anthropic', 'google']);
 
@@ -222,6 +363,112 @@ async function runInitWizard(): Promise<WizardSelections> {
 }
 
 // ---------------------------------------------------------------------------
+// Interactive doc wizard (Story 54.2)
+// ---------------------------------------------------------------------------
+
+async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
+  // 1. Reference paths — auto-detect then let user adjust
+  const detected = detectDocPaths(projectRoot);
+  let referencePaths: string[] = [];
+
+  if (detected.length > 0) {
+    p.log.info(`Detected documentation paths: ${detected.join(', ')}`);
+    const selected = await p.multiselect({
+      message: 'Select reference documentation paths',
+      options: detected.map((d) => ({ value: d, label: d })),
+      initialValues: detected,
+      required: false,
+    });
+    if (isCancelled(selected)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    referencePaths = selected;
+  }
+
+  // Let user add custom paths
+  const addCustom = await p.confirm({
+    message: 'Add custom reference paths (glob patterns)?',
+    initialValue: referencePaths.length === 0,
+  });
+  if (isCancelled(addCustom)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  if (addCustom) {
+    const custom = await p.text({
+      message: 'Enter additional paths (comma-separated globs)',
+      placeholder: 'e.g., wiki/**/*.md, CHANGELOG.md',
+      validate: (v) => v.trim().length === 0 ? 'Enter at least one path' : undefined,
+    });
+    if (isCancelled(custom)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    const customPaths = custom.split(',').map((s) => s.trim()).filter(Boolean);
+    referencePaths = [...referencePaths, ...customPaths];
+  }
+
+  // Validate at least one path
+  while (referencePaths.length === 0) {
+    p.log.warn('At least one reference path is required.');
+    const fallback = await p.text({
+      message: 'Enter at least one reference documentation path',
+      placeholder: 'README.md',
+      validate: (v) => v.trim().length === 0 ? 'At least one reference path is required' : undefined,
+    });
+    if (isCancelled(fallback)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    referencePaths = fallback.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  // 2. Inline doc-comments — toggle
+  const inlineEnabled = await p.confirm({
+    message: 'Extract inline doc-comments (JSDoc, docstrings, etc.) from source code?',
+    initialValue: false,
+  });
+  if (isCancelled(inlineEnabled)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  let inlineCommentKinds: DocCommentKind[] | undefined;
+  let inlineCommentInclude: string[] | undefined;
+
+  if (inlineEnabled) {
+    // Gather applicable kinds from all known languages
+    const allKinds = new Set<DocCommentKind>();
+    for (const kinds of Object.values(LANGUAGE_DOC_KINDS)) {
+      for (const k of kinds) allKinds.add(k);
+    }
+    const kindOptions = [...allKinds].map((k) => ({ value: k, label: k }));
+
+    const selectedKinds = await p.multiselect({
+      message: 'Select doc-comment kinds to extract',
+      options: kindOptions,
+      required: true,
+    });
+    if (isCancelled(selectedKinds)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    inlineCommentKinds = selectedKinds as DocCommentKind[];
+
+    const includeGlobs = await p.text({
+      message: 'Source file patterns to scan for doc-comments',
+      defaultValue: 'src/**/*.ts',
+      placeholder: 'src/**/*.ts, src/**/*.py',
+    });
+    if (isCancelled(includeGlobs)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    inlineCommentInclude = includeGlobs.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  // 3. Internal documentation mode
+  const internalMode = await p.select({
+    message: 'Internal documentation generation mode',
+    options: [
+      { value: 'lite' as const, label: 'Lite', hint: 'deterministic digest, no LLM, fast' },
+      { value: 'full' as const, label: 'Full', hint: 'LLM-generated docs, coherence review' },
+      { value: 'off' as const, label: 'Off', hint: 'no internal docs, reference-only audit' },
+    ],
+  });
+  if (isCancelled(internalMode)) { p.cancel('Setup cancelled.'); process.exit(0); }
+
+  return {
+    referencePaths,
+    inlineCommentsEnabled: inlineEnabled,
+    ...(inlineCommentKinds ? { inlineCommentKinds } : {}),
+    ...(inlineCommentInclude ? { inlineCommentInclude } : {}),
+    internalMode,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Legacy: generate commented-out defaults
 // ---------------------------------------------------------------------------
 
@@ -253,9 +500,39 @@ export function registerInitCommand(program: Command): void {
     .description('Interactive wizard to generate a multi-provider .anatoly.yml config')
     .option('--force', 'overwrite existing .anatoly.yml')
     .option('--defaults', 'generate commented-out defaults (non-interactive)')
-    .action(async (opts: { force?: boolean; defaults?: boolean }) => {
+    .option('--reconfigure-docs', 'reconfigure only the documentation section')
+    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean }) => {
       const projectRoot = process.cwd();
       const configPath = resolve(projectRoot, CONFIG_FILENAME);
+
+      // --reconfigure-docs: only replay doc prompts on existing config
+      if (opts.reconfigureDocs) {
+        if (!existsSync(configPath)) {
+          p.log.error('no .anatoly.yml found; run `anatoly init` first to create one');
+          process.exit(1);
+        }
+
+        p.intro('anatoly init --reconfigure-docs');
+
+        const docSelections = await runDocWizard(projectRoot);
+        const docConfig = buildDocumentationConfig(docSelections);
+
+        const existingContent = readFileSync(configPath, 'utf-8');
+        const newContent = mergeDocumentationIntoYaml(existingContent, docConfig);
+
+        p.note(newContent, 'Preview');
+
+        const confirmed = await p.confirm({ message: 'Write updated config?' });
+        if (isCancelled(confirmed) || !confirmed) {
+          p.cancel('Aborted.');
+          return;
+        }
+
+        writeFileSync(configPath, newContent);
+        p.log.success(`${CONFIG_FILENAME} documentation section updated.`);
+        p.outro('Done');
+        return;
+      }
 
       // Check for existing config
       if (existsSync(configPath) && !opts.force) {
@@ -276,8 +553,21 @@ export function registerInitCommand(program: Command): void {
 
       const selections = await runInitWizard();
       const configObj = buildInitConfig(selections);
-      const yamlStr = yaml.dump(configObj, { lineWidth: 120 });
-      const content = `# Anatoly multi-provider configuration (v2)\n# Generated by anatoly init\n\n${yamlStr}`;
+
+      // Documentation wizard — runs after providers/models
+      const docSelections = await runDocWizard(projectRoot);
+      const docConfig = buildDocumentationConfig(docSelections);
+
+      const configWithDocs = { ...configObj, documentation: docConfig };
+      const docComment = `# Generated by anatoly init on ${new Date().toISOString().slice(0, 10)}. Re-run with: anatoly init --reconfigure-docs`;
+      const yamlStr = yaml.dump(configWithDocs, { lineWidth: 120, noRefs: true });
+
+      // Insert doc comment before documentation: key
+      const yamlLines = yamlStr.split('\n');
+      const docIdx = yamlLines.findIndex((l) => l.startsWith('documentation:'));
+      if (docIdx >= 0) yamlLines.splice(docIdx, 0, docComment);
+
+      const content = `# Anatoly multi-provider configuration (v2)\n# Generated by anatoly init\n\n${yamlLines.join('\n')}`;
 
       p.note(content, 'Preview');
 
@@ -291,10 +581,9 @@ export function registerInitCommand(program: Command): void {
       p.log.success(`${CONFIG_FILENAME} written.`);
       p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
       p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
+      p.log.info(`Documentation: mode=${docSelections.internalMode}, ${docSelections.referencePaths.length} reference paths`);
 
-      // Pre-warm the pricing registry so the first `anatoly run` doesn't pay
-      // a cold-fetch on top of its actual work. Best-effort — failures are
-      // silent here because the file was just written successfully.
+      // Pre-warm the pricing registry
       try {
         const config = loadConfig(projectRoot, configPath);
         await ensurePricing(enumerateActiveModels(config), projectRoot);
