@@ -80,7 +80,7 @@ xychart-beta
     line [40.7, 43.2, 46.8, 43.5, 56.8, 65.5, 62.7, 61.0, 65.0, 57.8, 67.8, 63.8, 72.9, 64.2, 69.9, 65.5]
 ```
 
-Per-axis curves, change-log, and remaining misses: [anatoly-bench](https://github.com/r-via/anatoly-bench).
+Per-axis curves, change-log, and remaining misses: [slot-engine results](https://github.com/r-via/anatoly-bench/blob/main/docs/02-slot-engine-results.md).
 
 ---
 
