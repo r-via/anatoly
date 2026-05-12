@@ -213,16 +213,7 @@
 
 - [x] Story 55.1: Utilitaire `resolveDocMode` et refactor des call-sites inline
 - [x] Story 55.2: Déplacement de `runDocUpdate` en pré-review
-  > **As an** architecte pipeline **I want** que la mise à jour de la doc interne se fasse avant la phase review **So that** les arbitrages humains appliqués par le `doc-conflict-detector` puissent informer la review du run courant, pas seulement du run suivant.
-  > AC: Given le pipeline actuel où `runDocUpdate` est appelé en post-review ([run.ts:1146-1176](src/commands/run.ts#L1146-L1176)), When le déplacement en pré-review est effectué, Then `runDocUpdate` est appelé entre la phase scan/triage et la phase RAG indexing, et le bloc actuel `run.ts:1146-1176` est supprimé
-  > AC: Given l'ancien gate de skip `filesReviewed > 0` (incompatible avec pré-review), When le déplacement est effectué, Then le gate devient `triage.tier === 'evaluate'` vide (pas de fichier code modifié = pas de régénération)
-  > AC: Given `pipelineState.addTask('internal-docs', ...)` actuellement positionné après refinement, When la phase est déplacée, Then la task `internal-docs` est repositionnée dans le pipeline display pour refléter le nouvel ordre pré-review
-  > AC: Given un projet fixture où la doc interne a été générée avec succès, When un nouveau run est lancé après le déplacement, Then `writeScaffoldStatus(... mode: 'update' ...)` est appelé au même moment fonctionnel (après update réussie) avec son nouveau timing pré-review
-  > AC: Given un fixture stable et un même état de code entre 2 runs, When un run avant déplacement et un run après déplacement produisent leur output, Then les fragments doc internes générés sont identiques (test d'invariance) et la phase `internal-docs` dans `run-metrics.json` apparaît avant la phase `review`
-  > AC: Given un grep exhaustif du codebase pour les consommateurs internes de la phase `internal-docs`, When le déplacement est effectué, Then aucun consumer ne casse (aucun code ne dépendait du timing post-review)
-  > AC: Given un cas où `runDocUpdate` échoue en pré-review (LLM down, fichier corrompu, etc.), When l'erreur survient, Then le run abort immédiatement (exit code 2, statut `failed`) avec un message d'erreur clair, plutôt que de continuer la review avec une doc potentiellement stale ou des arbitrages obsolètes
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-2
-- [ ] Story 55.3: Schéma `DocConflictSchema` + YAML I/O + hash anchoring
+- [x] Story 55.3: Schéma `DocConflictSchema` + YAML I/O + hash anchoring
   > **As an** Anatoly developer **I want** un schéma Zod strict pour la persistance des conflits doc/code **So that** chaque lecture du fichier soit validée et toute corruption détectée immédiatement avec un message actionnable.
   > AC: Given l'absence d'un schéma persistant pour les conflits doc/code, When `src/schemas/doc-conflict.ts` est implémenté selon FR2/FR3, Then il exporte `DocConflictSchema`, `DocConflictsLockSchema`, `DocConflictVerdict`, `DocConflictStatus` avec tous les champs requis (id, anchor avec code_hash, reference_excerpt, code_summary, signals, verdict, status)
   > AC: Given le besoin de lire/écrire `doc-conflicts.yaml` de manière fiable, When `src/core/doc-conflict-store.ts` est implémenté, Then les helpers `loadDocConflicts(projectRoot)` et `saveDocConflicts(projectRoot, lock)` font de l'I/O YAML atomique (NFR1 — temp + rename), valident strictement via Zod, et écrivent des commentaires YAML auto-générés sur les champs `signals`
