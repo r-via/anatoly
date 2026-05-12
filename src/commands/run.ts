@@ -1058,6 +1058,7 @@ export function registerRunCommand(program: Command): void {
                 config: ctx.config,
                 tasks: setup.tasks,
                 fragmentsDir,
+                runDir: ctx.runDir,
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });
@@ -1117,6 +1118,7 @@ export function registerRunCommand(program: Command): void {
                 config: ctx.config,
                 tasks: setup.tasks,
                 fragmentsDir,
+                runDir: ctx.runDir,
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });

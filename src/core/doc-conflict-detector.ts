@@ -61,6 +61,11 @@ export interface DocConflictDetectionOpts {
   router?: TransportRouter;
   /** Optional abort controller (used for graceful shutdown during agentic call). */
   abortController?: AbortController;
+  /** Absolute path to the current run directory — used to dump the LLM
+   *  conversation transcript per batch into `<runDir>/conversations/`
+   *  for debugging and audit. When omitted, the agentic call still
+   *  runs but no transcript is persisted. */
+  runDir?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,6 +504,12 @@ export async function detectNewConflictsViaLlm(
         responseSchema: DetectionResponseSchema,
         temperature: EVALUATOR_TEMPERATURE,
         attempt: 1,
+        ...(opts.runDir
+          ? {
+              conversationDir: join(opts.runDir, 'conversations'),
+              conversationPrefix: `doc-conflict-detection__batch-${batchIdx + 1}`,
+            }
+          : {}),
       });
       responseText = response.text;
     } catch (err) {
