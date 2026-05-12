@@ -29,7 +29,8 @@ import {
   runAutoGitCleanup,
 } from './commands/index.js';
 import { pkgVersionString } from './utils/version.js';
-import { initLogger, resolveLogLevel, LOG_LEVELS } from './utils/logger.js';
+import { initLogger, resolveLogLevel, LOG_LEVELS, getLogger } from './utils/logger.js';
+import { bootstrapAnatoly } from './utils/anatoly-paths.js';
 
 // Respect $NO_COLOR convention (https://no-color.org/)
 if ('NO_COLOR' in process.env) {
@@ -89,6 +90,20 @@ export function createProgram(): Command {
 
     // Auto-cleanup orphaned worktrees before any command (Story 47.7)
     runAutoGitCleanup(process.cwd());
+
+    // Bootstrap user-wide `~/.anatoly/` + project `.anatoly/` symlinks
+    // (Story 52.5). Idempotent: respects existing real directories
+    // (isolated mode), creates symlinks otherwise, and links the legacy
+    // `~/.anatoly/models/*.gguf` location under `shared/models/gguf/`.
+    try {
+      bootstrapAnatoly(process.cwd());
+    } catch (err) {
+      // Bootstrap is best-effort — paths still resolve lazily via anatolyPath.
+      // Log and continue so a broken HOME or read-only filesystem doesn't
+      // brick every command.
+      const log = getLogger();
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'bootstrap failed — continuing without symlinks');
+    }
   });
 
   registerEstimateCommand(program);
