@@ -82,7 +82,7 @@ export function registerRunsCommand(program: Command): Command {
       const runs = listRuns(projectRoot);
 
       if (runs.length === 0) {
-        console.log('anatoly — runs list');
+        console.log(chalk.bold('anatoly — runs list'));
         console.log('  No runs found.');
         return;
       }
@@ -95,12 +95,12 @@ export function registerRunsCommand(program: Command): Command {
       }
 
       if (infos.length === 0) {
-        console.log('anatoly — runs list');
+        console.log(chalk.bold('anatoly — runs list'));
         console.log('  No empty runs found.');
         return;
       }
 
-      console.log('anatoly — runs list');
+      console.log(chalk.bold('anatoly — runs list'));
       console.log('');
 
       const table = new Table({
@@ -183,12 +183,12 @@ export function registerRunsCommand(program: Command): Command {
       }
 
       if (toDelete.length === 0) {
-        console.log('anatoly — runs remove');
+        console.log(chalk.bold('anatoly — runs remove'));
         console.log('  Nothing to remove.');
         return;
       }
 
-      console.log('anatoly — runs remove');
+      console.log(chalk.bold('anatoly — runs remove'));
       console.log('');
       for (const id of toDelete) {
         console.log(`  ${chalk.dim('•')} ${id}`);

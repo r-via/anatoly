@@ -308,8 +308,9 @@ export function monitorRunStatus(
 export function buildFinalizationMessage(
   status: RunStatus,
   verdict: string,
-  totalFindings: number,
+  breakdown: FindingsBreakdown,
   reportPath: string | null,
+  docMode?: 'full' | 'lite' | 'off',
 ): { message: string; exitCode: number } {
   const lines: string[] = [];
   lines.push('  ' + '─'.repeat(60));
@@ -318,9 +319,13 @@ export function buildFinalizationMessage(
     const duration = status.completedAt
       ? formatDuration(new Date(status.completedAt).getTime() - new Date(status.startedAt).getTime())
       : '—';
-    lines.push(`  verdict     ${verdict}`);
-    lines.push(`  findings    ${totalFindings} findings`);
+    lines.push(`  verdict     ${verdictColor(verdict)}`);
+    lines.push(`  findings    ${breakdown.total}`);
+    pushBreakdownLines(lines, breakdown);
     lines.push(`  duration    ${duration}`);
+    if (docMode) {
+      lines.push(`  docs        ${renderDocModeLine({ mode: docMode })}`);
+    }
     if (reportPath) {
       lines.push(`  report      ${reportPath}`);
     }
@@ -351,10 +356,43 @@ export function buildFinalizationMessage(
  * Build a snapshot view for a terminated run (done / failed / crashed).
  * Exported for testing.
  */
+/** Per-axis tally of findings shown in attach summaries. */
+export interface FindingsBreakdown {
+  total: number;
+  dead: number;
+  dup: number;
+  over: number;
+  errors: number;
+}
+
+/** Compute the per-axis breakdown across all reviews of a run. */
+export function computeFindingsBreakdown(
+  reviews: ReadonlyArray<{ symbols: ReadonlyArray<{ utility?: string; duplication?: string; overengineering?: string; correction?: string }> }>,
+): FindingsBreakdown {
+  let dead = 0, dup = 0, over = 0, errors = 0;
+  for (const review of reviews) {
+    for (const s of review.symbols) {
+      if (s.utility === 'DEAD') dead++;
+      if (s.duplication === 'DUPLICATE') dup++;
+      if (s.overengineering === 'OVER') over++;
+      if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') errors++;
+    }
+  }
+  return { total: dead + dup + over + errors, dead, dup, over, errors };
+}
+
+/** Append the axis breakdown lines (only those with count > 0). */
+function pushBreakdownLines(lines: string[], b: FindingsBreakdown): void {
+  if (b.dead > 0) lines.push(`    dead      ${b.dead}`);
+  if (b.dup > 0) lines.push(`    dup       ${b.dup}`);
+  if (b.over > 0) lines.push(`    over      ${b.over}`);
+  if (b.errors > 0) lines.push(`    errors    ${b.errors}`);
+}
+
 export function buildTerminatedSnapshot(
   status: RunStatus,
   verdict: string,
-  totalFindings: number,
+  breakdown: FindingsBreakdown,
   reportPath: string | null,
   docMode?: 'full' | 'lite' | 'off',
 ): string {
@@ -374,7 +412,8 @@ export function buildTerminatedSnapshot(
 
   if (status.status === 'done') {
     lines.push(`  verdict     ${verdictColor(verdict)}`);
-    lines.push(`  findings    ${totalFindings}`);
+    lines.push(`  findings    ${breakdown.total}`);
+    pushBreakdownLines(lines, breakdown);
   }
 
   if (docMode) {
@@ -407,20 +446,13 @@ export function registerAttachCommand(parent: Command): void {
         console.log('');
 
         let verdict = 'CLEAN';
-        let totalFindings = 0;
+        let breakdown: FindingsBreakdown = { total: 0, dead: 0, dup: 0, over: 0, errors: 0 };
         let reportPath: string | null = null;
 
         if (result.status.status === 'done') {
           const reviews = loadReviews(projectRoot, result.runDir);
           verdict = computeGlobalVerdict(reviews);
-          for (const review of reviews) {
-            for (const s of review.symbols) {
-              if (s.utility === 'DEAD') totalFindings++;
-              if (s.duplication === 'DUPLICATE') totalFindings++;
-              if (s.overengineering === 'OVER') totalFindings++;
-              if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
-            }
-          }
+          breakdown = computeFindingsBreakdown(reviews);
           const rp = resolve(result.runDir, 'report.md');
           if (existsSync(rp)) reportPath = rp;
         }
@@ -433,7 +465,7 @@ export function registerAttachCommand(parent: Command): void {
           // Config not available — omit doc mode line
         }
 
-        console.log(buildTerminatedSnapshot(result.status, verdict, totalFindings, reportPath, docMode));
+        console.log(buildTerminatedSnapshot(result.status, verdict, breakdown, reportPath, docMode));
 
         // Exit code: CLEAN done → 0, done with findings or failed → 1, crashed → 2.
         if (result.status.status === 'done') {
@@ -500,28 +532,27 @@ export function registerAttachCommand(parent: Command): void {
 
       // Compute verdict for done runs
       let verdict = 'CLEAN';
-      let totalFindings = 0;
+      let breakdown: FindingsBreakdown = { total: 0, dead: 0, dup: 0, over: 0, errors: 0 };
       let reportPath: string | null = null;
 
       if (finalStatus.status === 'done') {
         const reviews = loadReviews(projectRoot, result.runDir);
         verdict = computeGlobalVerdict(reviews);
-
-        for (const review of reviews) {
-          for (const s of review.symbols) {
-            if (s.utility === 'DEAD') totalFindings++;
-            if (s.duplication === 'DUPLICATE') totalFindings++;
-            if (s.overengineering === 'OVER') totalFindings++;
-            if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') totalFindings++;
-          }
-        }
-
+        breakdown = computeFindingsBreakdown(reviews);
         const rp = resolve(result.runDir, 'report.md');
         if (existsSync(rp)) reportPath = rp;
       }
 
+      let docMode: 'full' | 'lite' | 'off' | undefined;
+      try {
+        const config = loadConfig(projectRoot);
+        docMode = (config.documentation?.internal?.mode ?? 'off') as 'full' | 'lite' | 'off';
+      } catch {
+        // Config not available — omit doc mode line
+      }
+
       console.log('');
-      const finalization = buildFinalizationMessage(finalStatus, verdict, totalFindings, reportPath);
+      const finalization = buildFinalizationMessage(finalStatus, verdict, breakdown, reportPath, docMode);
       console.log(finalization.message);
       process.exit(finalization.exitCode);
     });

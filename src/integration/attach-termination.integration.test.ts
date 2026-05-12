@@ -69,10 +69,10 @@ describe('buildFinalizationMessage', () => {
       commit: 'abc',
     };
 
-    const result = buildFinalizationMessage(status, 'CLEAN', 0, '/path/to/report.md');
+    const result = buildFinalizationMessage(status, 'CLEAN', { total: 0, dead: 0, dup: 0, over: 0, errors: 0 }, '/path/to/report.md');
     expect(result.exitCode).toBe(0);
     expect(result.message).toContain('CLEAN');
-    expect(result.message).toContain('0 findings');
+    expect(result.message).toContain('findings    0');
     expect(result.message).toContain('report.md');
   });
 
@@ -86,10 +86,12 @@ describe('buildFinalizationMessage', () => {
       background: false,
     };
 
-    const result = buildFinalizationMessage(status, 'NEEDS_REFACTOR', 5, '/path/to/report.md');
+    const result = buildFinalizationMessage(status, 'NEEDS_REFACTOR', { total: 5, dead: 2, dup: 1, over: 1, errors: 1 }, '/path/to/report.md');
     expect(result.exitCode).toBe(1);
     expect(result.message).toContain('NEEDS_REFACTOR');
-    expect(result.message).toContain('5 findings');
+    expect(result.message).toContain('findings    5');
+    expect(result.message).toContain('dead      2');
+    expect(result.message).toContain('errors    1');
   });
 
   it('returns failed message with exit 1', () => {
@@ -103,7 +105,7 @@ describe('buildFinalizationMessage', () => {
       error: 'Out of tokens',
     };
 
-    const result = buildFinalizationMessage(status, 'CLEAN', 0, null);
+    const result = buildFinalizationMessage(status, 'CLEAN', { total: 0, dead: 0, dup: 0, over: 0, errors: 0 }, null);
     expect(result.exitCode).toBe(1);
     expect(result.message).toContain('Run failed');
     expect(result.message).toContain('Out of tokens');
@@ -119,7 +121,7 @@ describe('buildFinalizationMessage', () => {
       background: false,
     };
 
-    const result = buildFinalizationMessage(status, 'CLEAN', 0, null);
+    const result = buildFinalizationMessage(status, 'CLEAN', { total: 0, dead: 0, dup: 0, over: 0, errors: 0 }, null);
     expect(result.exitCode).toBe(2);
     expect(result.message).toContain('crashed');
   });
