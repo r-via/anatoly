@@ -1421,8 +1421,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // --- Phase: scan ---
   const scanStart = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'scan' });
-  log.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
-  rl?.info({ phase: 'scan', runId: ctx.runId }, 'phase started');
+  log.info({ event: 'phase_start', phase: 'scan', runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: 'scan', runId: ctx.runId }, 'phase started');
   const scanResult = await scanProject(srcRoot, ctx.config, evaluators.map(e => e.id));
   const scanDuration = Date.now() - scanStart;
   ctx.phaseDurations.scan = scanDuration;
@@ -1436,7 +1436,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     docScanProject = countChangedDocs(srcRoot, docsPath, ragSuffix);
     docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
   }
-  const scanCompleted = { phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
+  const scanCompleted = { event: 'phase_end', phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
   log.info(scanCompleted, 'phase completed');
   rl?.info(scanCompleted, 'phase completed');
   if (ctx.verbose) {
@@ -1446,8 +1446,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // --- Phase: estimate ---
   const estStart = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'estimate' });
-  log.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
-  rl?.info({ phase: 'estimate', runId: ctx.runId }, 'phase started');
+  log.info({ event: 'phase_start', phase: 'estimate', runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: 'estimate', runId: ctx.runId }, 'phase started');
   const rawTasks = loadTasks(srcRoot);
   // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
   const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
@@ -1472,7 +1472,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // estimateTokenLabel is built after triage so it reflects evalFileCount
   ctx.phaseDurations.estimate = Date.now() - estStart;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'estimate', durationMs: ctx.phaseDurations.estimate });
-  const estCompleted = { phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
+  const estCompleted = { event: 'phase_end', phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
   log.info(estCompleted, 'phase completed');
   rl?.info(estCompleted, 'phase completed');
 
@@ -2035,8 +2035,8 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const rl = ctx.runLog;
   const ragStart = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'rag-index' });
-  log.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
-  rl?.info({ phase: 'rag-index', runId: ctx.runId }, 'phase started');
+  log.info({ event: 'phase_start', phase: 'rag-index', runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
   // Detect hardware and determine backend BEFORE starting any embedding server
   const hardware = detectHardware();
@@ -2286,7 +2286,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   }
 
   const ragCompleted = {
-    phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
+    event: 'phase_end' as const, phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
     cardsGenerated: ragResult?.cardsIndexed ?? 0, cached: (ragResult?.totalCards ?? 0) - (ragResult?.cardsIndexed ?? 0),
     costUsd: ragResult?.costUsd ?? 0,
   };
@@ -2314,8 +2314,8 @@ async function runReviewPhase(
   const rl = ctx.runLog;
   const reviewStart = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'review' });
-  log.info({ phase: 'review', runId: ctx.runId }, 'phase started');
-  rl?.info({ phase: 'review', runId: ctx.runId, concurrency: ctx.concurrency }, 'phase started');
+  log.info({ event: 'phase_start', phase: 'review', runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: 'review', runId: ctx.runId, concurrency: ctx.concurrency }, 'phase started');
 
   const pm = new ProgressManager(ctx.projectRoot);
 
@@ -2355,6 +2355,9 @@ async function runReviewPhase(
   }
 
   ctx.totalFiles = pending.length + cachedFiles.length;
+  // Story 53.5 FR6: announce total file count so `anatoly attach` can render
+  // the progress bar denominator (pending + cached).
+  rl?.info({ event: 'estimate_total', phase: 'review', total: ctx.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
 
   const allTasks = loadTasks(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
   const taskMap = new Map<string, Task>();
@@ -2429,6 +2432,8 @@ async function runReviewPhase(
             ctx.renderer?.logPlain(`[review] [CACHED] ${filePath} → ${cachedReview.verdict}${note}`);
           }
           rl?.info({ event: 'file_cached', phase: 'review', file: filePath, verdict: cachedReview.verdict }, 'file loaded from cache');
+          // Story 53.5 FR6: drive attach progress bar
+          rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: cachedReview.verdict, source: 'cache' }, 'file review end');
         }
         return;
       }
@@ -2462,6 +2467,8 @@ async function runReviewPhase(
         ctx.filesReviewed++;
         ctx.reviewCounts.skipped++;
         rl?.info({ event: 'file_skip', phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
+        // Story 53.5 FR6: drive attach progress bar
+        rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: skipReview.verdict, source: 'skip' }, 'file review end');
         return;
       }
 
@@ -2557,6 +2564,8 @@ async function runReviewPhase(
         if (result.failedAxes.length > 0) {
           ctx.degradedReviews++;
         }
+        // Story 53.5 FR6: drive attach progress bar + finding ticker
+        rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: result.review.verdict, source: 'evaluated' }, 'file review end');
         for (const at of result.axisTiming) {
           recordLlmCost(ctx, {
             provider: at.provider,
@@ -2630,7 +2639,7 @@ async function runReviewPhase(
   ctx.phaseDurations.review = reviewDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'review', durationMs: reviewDuration });
   const reviewCompleted = {
-    phase: 'review', runId: ctx.runId, durationMs: reviewDuration,
+    event: 'phase_end' as const, phase: 'review', runId: ctx.runId, durationMs: reviewDuration,
     filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency,
   };
   log.info(reviewCompleted, 'phase completed');
@@ -2642,8 +2651,8 @@ function runReportPhase(ctx: RunContext): void {
   const rl = ctx.runLog;
   const reportStart = Date.now();
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'report' });
-  log.info({ phase: 'report', runId: ctx.runId }, 'phase started');
-  rl?.info({ phase: 'report', runId: ctx.runId }, 'phase started');
+  log.info({ event: 'phase_start', phase: 'report', runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: 'report', runId: ctx.runId }, 'phase started');
 
   const pm = new ProgressManager(ctx.projectRoot);
   const errorFiles: string[] = [];
@@ -2886,8 +2895,8 @@ function runReportPhase(ctx: RunContext): void {
   const reportDuration = Date.now() - reportStart;
   ctx.phaseDurations.report = reportDuration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'report', durationMs: reportDuration });
-  log.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
-  rl?.info({ phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
+  log.info({ event: 'phase_end', phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
+  rl?.info({ event: 'phase_end', phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
 
   // Run summary
   const totalDurationMs = Date.now() - ctx.startTime;
