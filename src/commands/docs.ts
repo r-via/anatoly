@@ -20,6 +20,7 @@ import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
+import { runArbitrateWizard } from './docs-arbitrate.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -1034,5 +1035,37 @@ export function registerDocsCommand(program: Command): void {
 
       console.log(`  ${chalk.green('✓')} Replaced ${projectDocsPath}/ with .anatoly/docs/`);
       console.log('  Doc trees are now identical — RAG indexing will deduplicate automatically.');
+    });
+
+  // --- Story 55.6: arbitrate ---
+
+  docs
+    .command('arbitrate')
+    .description('Interactive wizard to resolve doc-code conflicts')
+    .option('--list', 'Display summary table without interactive wizard')
+    .option('--review', 'Re-review previously applied verdicts')
+    .action(async (opts: { list?: boolean; review?: boolean }) => {
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await runArbitrateWizard(projectRoot, opts);
+
+      if (result.error) {
+        console.error(chalk.red(result.error));
+      }
+      if (result.message) {
+        console.log(result.message);
+      }
+      if (result.table) {
+        console.log(result.table);
+      }
+      if (result.exitCode !== 0) {
+        process.exitCode = result.exitCode;
+      }
     });
 }

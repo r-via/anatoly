@@ -216,12 +216,7 @@
 - [x] Story 55.3: Schéma `DocConflictSchema` + YAML I/O + hash anchoring
 - [x] Story 55.4: Agent `doc-conflict-detector` + branchement pipeline
 - [x] Story 55.5: Mode `lite` digest marqué `evaluated`
-  > **As an** utilisateur en mode `lite` **I want** que le digest de la reference produit en mode lite soit consommable par l'axe correction comme reference supplémentaire (compacte) **So that** je bénéficie de l'économie de tokens du mode lite sans perdre la traçabilité documentaire.
-  > AC: Given `buildInternalDocsDigest` actuel ([internal-docs-digest.ts](src/core/internal-docs-digest.ts)) qui produit un digest sans frontmatter, When la fonction est étendue pour mode `lite`, Then le digest produit porte un frontmatter explicite `status: evaluated, source: reference-digest` (autoritaire par construction puisque dérivé du contenu humain)
-  > AC: Given le digest mode lite marqué `status: evaluated`, When `renderReferenceDocsContext` est appelé par l'axe correction (et homologues best_practices, overengineering), Then ce digest est reconnu et injecté dans la section "Reference docs", pas dans la section "Internal docs (context only)"
-  > AC: Given un projet fixture configuré en mode `lite` avec une reference humaine non-triviale, When un run complet est lancé, Then le digest est produit, l'axe correction le voit comme reference autoritaire, et aucune entrée n'apparaît dans `doc-conflicts.yaml` (le fichier reste absent ou vide — court-circuit du détecteur défini dans Story 55.4 AC6)
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-5
-- [ ] Story 55.6: Commande `anatoly docs arbitrate` (wizard)
+- [x] Story 55.6: Commande `anatoly docs arbitrate` (wizard)
   > **As an** utilisateur Anatoly **I want** un wizard CLI pour arbitrer les conflits doc/code détectés **So that** je n'aie pas à éditer manuellement un fichier YAML pour rendre mes décisions.
   > AC: Given un `doc-conflicts.yaml` contenant au moins une entrée `verdict: pending`, When l'utilisateur lance `anatoly docs arbitrate` sans argument, Then un wizard `@clack/prompts` s'ouvre et itère sur les entrées `pending`
   > AC: Given une entrée pending affichée dans le wizard, When l'utilisateur la consulte, Then l'affichage présente l'ancre (file, symbol, line range), le `reference_excerpt`, le `code_summary`, les `signals` (avec présomption mise en avant), et propose les choix `doc-wins`, `code-wins`, `skip`, `defer` plus une note optionnelle multi-ligne
