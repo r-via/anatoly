@@ -7,9 +7,10 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence } from '../schemas/review.js';
+import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../schemas/review.js';
 import type { AxisId } from './axis-evaluator.js';
 import { toOutputName } from '../utils/cache.js';
+import { loadCodeWinsAsStaleReferences } from './doc-stale-reference.js';
 
 
 export interface TriageStats {
@@ -273,6 +274,44 @@ export function renderDivergenceSection(divergences: DocDivergence[]): string {
     lines.push(`- **[${d.axis_origin} · ${d.severity}]** ${loc}`);
     lines.push(`  - Reference (\`${d.reference_source}\`): _"${d.reference_excerpt}"_`);
     lines.push(`  - Observed: ${d.observed_behavior}`);
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Story 55.8: Stale reference aggregation + rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect all doc_stale_references from review files into a flat array.
+ */
+export function aggregateStaleReferences(reviews: ReviewFile[]): DocStaleReference[] {
+  const result: DocStaleReference[] = [];
+  for (const r of reviews) {
+    if (r.doc_stale_references) {
+      result.push(...r.doc_stale_references);
+    }
+  }
+  return result;
+}
+
+/**
+ * Render a markdown section for stale reference findings (Story 55.8).
+ * Returns empty string when there are no stale references.
+ */
+export function renderStaleReferenceSection(refs: DocStaleReference[]): string {
+  if (refs.length === 0) return '';
+  const lines: string[] = [];
+  lines.push('### Documentation marked stale by arbitration (code-wins)');
+  lines.push('');
+  for (const r of refs) {
+    const loc = r.reference_line_range
+      ? `\`${r.reference_path}\` (lines ${r.reference_line_range[0]}–${r.reference_line_range[1]})`
+      : `\`${r.reference_path}\``;
+    lines.push(`- ${loc} — arbitrated ${r.arbitrated_at}`);
+    if (r.arbitration_note) {
+      lines.push(`  - Note: ${r.arbitration_note}`);
+    }
   }
   return lines.join('\n');
 }
@@ -2321,15 +2360,20 @@ export function generateReport(
   const allDivergences = aggregateDivergences(reviews);
   const divergenceSection = renderDivergenceSection(allDivergences);
 
+  // Load stale reference findings directly from doc-conflicts.yaml (Story 55.8)
+  const allStaleRefs = loadCodeWinsAsStaleReferences(projectRoot);
+  const staleRefSection = renderStaleReferenceSection(allStaleRefs);
+  const combinedDivergenceSection = [divergenceSection, staleRefSection].filter(Boolean).join('\n\n');
+
   const baseDir = runDir ?? join(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
   // Write master index (internal, full detail)
-  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, divergenceSection, docMode));
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, combinedDivergenceSection, docMode));
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, divergenceSection, docMode));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode));
 
   // Write per-axis folders
   for (const report of axisReports) {

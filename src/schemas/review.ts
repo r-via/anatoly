@@ -202,6 +202,25 @@ export const DocDivergenceSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Doc stale reference finding — Story 55.8
+// ---------------------------------------------------------------------------
+
+/**
+ * A stale reference finding emitted when a human arbitrator marked a
+ * doc-conflict as `code-wins` (the documentation is obsolete). These are
+ * deterministically injected from `doc-conflicts.yaml`, not from LLM output.
+ */
+export const DocStaleReferenceSchema = z.object({
+  kind: z.literal('doc_stale_reference'),
+  reference_path: z.string(),
+  reference_line_range: z.tuple([z.int().min(1), z.int().min(1)]).optional(),
+  arbitrated_at: z.string(),
+  arbitration_note: z.string().optional(),
+});
+
+export type DocStaleReference = z.infer<typeof DocStaleReferenceSchema>;
+
+// ---------------------------------------------------------------------------
 // Axis metadata (v2)
 // ---------------------------------------------------------------------------
 
@@ -261,6 +280,9 @@ export const ReviewFileSchema = z.object({
 
   /** Doc divergence findings from any axis (Epic 54 — Story 54.9, FR15). Optional: producers may omit when empty. */
   doc_divergences: z.array(DocDivergenceSchema).optional(),
+
+  /** Stale reference findings from code-wins arbitration (Epic 55 — Story 55.8). Deterministic, not LLM-produced. */
+  doc_stale_references: z.array(DocStaleReferenceSchema).optional(),
 
   /** Deliberation pass summary (when Opus deliberation ran for this file) */
   deliberation: z.object({

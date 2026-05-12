@@ -218,13 +218,7 @@
 - [x] Story 55.5: Mode `lite` digest marqué `evaluated`
 - [x] Story 55.6: Commande `anatoly docs arbitrate` (wizard)
 - [x] Story 55.7: Axe correction consomme les arbitrages `doc-wins`
-  > **As an** axe correction **I want** consommer les fragments internal-doc marqués `status: evaluated` comme reference supplémentaire **So that** un arbitrage humain `doc-wins` se traduise par des findings correction quand le code contredit l'intention validée.
-  > AC: Given `renderReferenceDocsContext` actuel ([src/core/axes/reference-docs-context.ts:17](src/core/axes/reference-docs-context.ts#L17)) — utilisé par les axes correction, best_practices, overengineering, When la fonction est étendue pour reconnaître les fragments internal-doc marqués `status: evaluated`, Then elle les injecte en section "Arbitrated internal docs (human-validated)" dans le prompt, et l'extension prend effet automatiquement sur les 3 axes sans modification spécifique
-  > AC: Given des fragments internal-doc avec `status: unevaluated` (cas par défaut hors arbitrage), When les axes consomment leur contexte, Then ces fragments restent injectés via `renderInternalDocsContext` (contexte faible, sans autorité), comportement epic 54 inchangé
-  > AC: Given la suite de tests de prompt pour les 3 axes consommateurs, When elle est exécutée avec un mix de fragments `evaluated` et `unevaluated`, Then les deux sections coexistent sans collision et leurs marquages d'autorité sont visiblement distincts dans le texte produit
-  > AC: Given un fixture anatoly-bench avec une divergence arbitrée `doc-wins, applied`, When un run est lancé après extension, Then l'axe correction produit une finding qui pointe le code contredisant l'intention validée, et le delta F1 mesuré est positif ou neutre par rapport à la baseline pré-epic-55
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-7
-- [ ] Story 55.8: Axe documentation rapporte les `code-wins` comme "reference stale"
+- [x] Story 55.8: Axe documentation rapporte les `code-wins` comme "reference stale"
   > **As an** axe documentation **I want** rapporter les portions de doc humaine que l'utilisateur a explicitement marquées obsolètes via `verdict: code-wins` **So that** la dette documentaire identifiée par arbitrage humain devienne visible dans le rapport et scorée comme une finding axe documentation.
   > AC: Given le schéma de findings axe documentation actuel, When il est étendu pour epic 55, Then un nouveau kind `doc_stale_reference` est ajouté avec les champs `reference_path`, `reference_line_range?`, `arbitrated_at`, `arbitration_note?`
   > AC: Given un `doc-conflicts.yaml` contenant des entrées `verdict: code-wins, status: applied`, When l'axe documentation build son contexte au run suivant, Then il lit le fichier, filtre ces entrées, et émet une finding `doc_stale_reference` par entrée pointant la portion de reference concernée
