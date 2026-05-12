@@ -6,6 +6,9 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const external = [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.devDependencies ?? {}),
+  // Keep main.js external so the dynamic import from index.js stays a
+  // runtime path lookup instead of being inlined back into the bootstrap.
+  './main.js',
 ];
 
 function resolveGitCommit(): string {
@@ -23,7 +26,10 @@ function resolveGitCommit(): string {
 }
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // Two entries: index.ts is a thin bootstrap (cwd recovery), main.ts is
+  // the real app. Splitting them keeps the ESM-import hoisting from
+  // loading the Claude Agent SDK before our cwd recovery runs.
+  entry: ['src/index.ts', 'src/main.ts'],
   format: ['esm'],
   target: 'node20',
   dts: true,
