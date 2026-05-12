@@ -1054,6 +1054,7 @@ export function registerRunCommand(program: Command): void {
               config: ctx.config,
               tasks: setup.tasks,
               fragmentsDir,
+              ...(ctx.router ? { router: ctx.router } : {}),
             });
             ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }
@@ -1103,6 +1104,7 @@ export function registerRunCommand(program: Command): void {
               config: ctx.config,
               tasks: setup.tasks,
               fragmentsDir,
+              ...(ctx.router ? { router: ctx.router } : {}),
             });
             ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }

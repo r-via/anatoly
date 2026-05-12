@@ -11,10 +11,20 @@ import { resolveDocMode } from './run-config.js';
 import {
   loadDocConflicts,
   saveDocConflicts,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Story 55.10 (LLM detection of new conflicts), kept here for the phase 1 surface
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
+import { resolveReferenceDocs } from './reference-docs-resolver.js';
+import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
+import {
+  buildDetectionUserMessage,
+  collectInternalDocFragments,
+  DETECTION_SYSTEM_PROMPT,
+  DetectionResponseSchema,
+  parseDetectionResponse,
+  type DetectedConflictItem,
+} from './doc-conflict-llm.js';
+import type { TransportRouter } from './transports/index.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../schemas/doc-conflict.js';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
@@ -35,6 +45,12 @@ export interface DocConflictDetectionOpts {
   config: Config;
   tasks: Task[];
   fragmentsDir: string;
+  /** Optional transport router for LLM-driven new conflict detection.
+   *  When omitted, the detector still runs stale verification and verdict
+   *  application but skips new-conflict detection (used in tests). */
+  router?: TransportRouter;
+  /** Optional abort controller (used for graceful shutdown during agentic call). */
+  abortController?: AbortController;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +208,177 @@ export function generateConflictId(anchor: { file: string; symbol?: string; line
 }
 
 // ---------------------------------------------------------------------------
+// Convert a raw LLM-detected item into a persistent DocConflict — Story 55.10
+// ---------------------------------------------------------------------------
+
+/**
+ * Enrich a raw LLM detection result with persistent metadata: code hash,
+ * arbitration signals, stable id, timestamp. Returns null when the anchor
+ * cannot be resolved (file missing or unreadable) — these cases are
+ * silently skipped to keep the detector resilient on partial fixtures.
+ */
+export function enrichDetectedConflict(
+  projectRoot: string,
+  item: DetectedConflictItem,
+): DocConflict | null {
+  const codePath = join(projectRoot, item.file);
+  let codeContent: string;
+  try {
+    codeContent = readFileSync(codePath, 'utf-8');
+  } catch {
+    return null;
+  }
+
+  const lineRange: [number, number] | undefined =
+    item.line_start && item.line_end ? [item.line_start, item.line_end] : undefined;
+
+  const codeHash = hashCodeAnchor(item.file, item.symbol, lineRange, codeContent);
+
+  const anchor = {
+    file: item.file,
+    ...(item.symbol ? { symbol: item.symbol } : {}),
+    ...(lineRange ? { line_range: lineRange } : {}),
+    code_hash: codeHash,
+  };
+
+  const id = generateConflictId({
+    file: item.file,
+    symbol: item.symbol,
+    line_range: lineRange,
+  });
+
+  const docTouched = getGitTimestamp(projectRoot, item.reference_path);
+  const codeTouched = getGitTimestamp(projectRoot, item.file);
+  const testCoverage = checkTestCoverage(projectRoot, item.symbol);
+
+  const signals: ArbitrationSignals = {
+    doc_last_touched: docTouched,
+    code_last_touched: codeTouched,
+    ...(testCoverage !== undefined ? { test_covers_current_behavior: testCoverage } : {}),
+    presumption: derivePresumption({
+      doc_last_touched: docTouched,
+      code_last_touched: codeTouched,
+      presumption: 'unknown',
+    }),
+  };
+
+  const referenceLineRange: [number, number] | undefined =
+    item.reference_line_start && item.reference_line_end
+      ? [item.reference_line_start, item.reference_line_end]
+      : undefined;
+
+  return {
+    id,
+    detected_at: new Date().toISOString(),
+    anchor,
+    reference_excerpt: {
+      path: item.reference_path,
+      ...(referenceLineRange ? { line_range: referenceLineRange } : {}),
+      text: item.reference_text,
+    },
+    code_summary: item.code_summary,
+    signals,
+    verdict: 'pending',
+    status: 'active',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Detect new conflicts via LLM — Story 55.10
+// ---------------------------------------------------------------------------
+
+/**
+ * Call the LLM with a 3-way prompt (reference / internal / code surface)
+ * to detect new conflicts not yet in the lock. Returns the list of
+ * enriched DocConflict entries ready to merge.
+ *
+ * Errors (LLM unavailable, invalid JSON, timeout) are logged as warnings
+ * and the function returns `[]` — the run continues with whatever lock
+ * state existed before.
+ */
+export async function detectNewConflictsViaLlm(
+  opts: DocConflictDetectionOpts,
+  existingIds: Set<string>,
+): Promise<DocConflict[]> {
+  const log = getLogger();
+  const { projectRoot, config, tasks, fragmentsDir, router, abortController } = opts;
+
+  if (!router) {
+    log.info('doc-conflict-detection: no router available — skipping LLM detection');
+    return [];
+  }
+
+  // Resolve inputs
+  const referenceDocs = await resolveReferenceDocs(projectRoot, config);
+  const internalFragments = collectInternalDocFragments(fragmentsDir);
+  const codeSurface = buildCodeSurfaceSummary(tasks);
+
+  if (referenceDocs.length === 0 && internalFragments.length === 0) {
+    log.info('doc-conflict-detection: no reference docs and no internal fragments — nothing to compare');
+    return [];
+  }
+
+  // Build prompt with already-known conflict descriptions to deduplicate at the LLM layer
+  const knownDescriptions: string[] = [];
+  for (const id of existingIds) {
+    knownDescriptions.push(`id=${id}`);
+  }
+
+  const userMessage = buildDetectionUserMessage({
+    referenceDocs,
+    internalFragments,
+    codeSurface,
+    ...(knownDescriptions.length > 0 ? { knownConflictDescriptions: knownDescriptions } : {}),
+  });
+
+  // Resolve model: prefer agents.scaffolding, fallback to models.quality
+  const model = config.agents.scaffolding ?? config.models.quality;
+  if (!model) {
+    log.warn('doc-conflict-detection: no scaffolding/quality model configured — skipping LLM detection');
+    return [];
+  }
+
+  // Single-turn structured query (no tools needed — pure JSON output)
+  const ac = abortController ?? new AbortController();
+  let responseText: string;
+  try {
+    const response = await router.agenticQuery({
+      systemPrompt: DETECTION_SYSTEM_PROMPT,
+      userMessage,
+      model,
+      projectRoot,
+      abortController: ac,
+      allowedTools: [],
+      config,
+      responseSchema: DetectionResponseSchema,
+      attempt: 1,
+    });
+    responseText = response.text;
+  } catch (err) {
+    log.warn({ err: err instanceof Error ? err.message : String(err) }, 'doc-conflict-detection: LLM call failed — preserving existing lock state');
+    return [];
+  }
+
+  const parsed = parseDetectionResponse(responseText);
+  if (!parsed) {
+    log.warn('doc-conflict-detection: failed to parse LLM response — preserving existing lock state');
+    return [];
+  }
+
+  // Enrich + dedupe by id
+  const newConflicts: DocConflict[] = [];
+  for (const item of parsed.conflicts) {
+    const enriched = enrichDetectedConflict(projectRoot, item);
+    if (!enriched) continue;
+    if (existingIds.has(enriched.id)) continue;
+    existingIds.add(enriched.id);
+    newConflicts.push(enriched);
+  }
+
+  return newConflicts;
+}
+
+// ---------------------------------------------------------------------------
 // Main detection entry point — Story 55.4 AC1
 // ---------------------------------------------------------------------------
 
@@ -255,7 +442,12 @@ export async function runDocConflictDetection(
   const applyResult = applyResolvedVerdicts(entries);
   entries = applyResult.entries;
 
-  // Step 3: Write updated lock
+  // Step 3: Detect new conflicts via LLM (Story 55.10, FR4d-e)
+  const existingIds = new Set(entries.map(e => e.id));
+  const newConflicts = await detectNewConflictsViaLlm(opts, existingIds);
+  entries = [...entries, ...newConflicts];
+
+  // Step 4: Write updated lock
   const updatedLock: DocConflictsLock = {
     version: 1,
     generated_at: new Date().toISOString(),
@@ -266,7 +458,7 @@ export async function runDocConflictDetection(
   const pendingCount = entries.filter(e => e.verdict === 'pending').length;
 
   const summary: DetectionSummary = {
-    newConflicts: 0, // New conflict detection via LLM deferred to Story 55.4 phase 2
+    newConflicts: newConflicts.length,
     applied: applyResult.appliedCount,
     stale: staleResult.staleCount,
     pending: pendingCount,
