@@ -8,6 +8,7 @@ import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
+import { renderReferenceDocsContext } from './reference-docs-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
@@ -113,7 +114,12 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
 
-  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs);
+  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs);
+  if (referenceDocsSection) {
+    parts.push(referenceDocsSection);
+  }
+
+  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs, ctx.config);
   if (internalDocsSection) {
     parts.push(internalDocsSection);
   }

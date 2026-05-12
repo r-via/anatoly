@@ -4,52 +4,99 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderInternalDocsContext } from './internal-docs-context.js';
+import type { Config } from '../../schemas/config.js';
+import { ConfigSchema } from '../../schemas/config.js';
+
+function makeConfig(mode: 'full' | 'lite' | 'off' = 'full'): Config {
+  const base: any = {
+    documentation: {
+      reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+      internal: { mode },
+    },
+  };
+  if (mode === 'full') base.documentation.internal.full = { sync_to_repo: false };
+  if (mode === 'lite') base.documentation.internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
+  return ConfigSchema.parse(base);
+}
 
 describe('renderInternalDocsContext', () => {
   it('returns empty string when relevantDocs is undefined', () => {
-    expect(renderInternalDocsContext(undefined)).toBe('');
+    expect(renderInternalDocsContext(undefined, makeConfig('full'))).toBe('');
   });
 
   it('returns empty string when relevantDocs has no internal docs', () => {
-    const result = renderInternalDocsContext([
-      { path: 'docs/api.md', content: '# API', source: 'project' },
-    ]);
+    const result = renderInternalDocsContext(
+      [{ path: 'docs/api.md', content: '# API', source: 'project' }],
+      makeConfig('full'),
+    );
     expect(result).toBe('');
   });
 
-  it('renders the section heading and ground-truth instruction', () => {
-    const result = renderInternalDocsContext([
-      { path: '.anatoly/docs/01-Getting-Started/01-Overview.md', content: '# Overview\nRTP=95%', source: 'internal' },
-    ]);
-    expect(result).toContain('## Internal Reference Documentation (project-level ground truth)');
-    expect(result).toContain('authoritative');
-    expect(result).toContain('Cite the page path');
+  it('AC 54.5b: renders the DERIVED section heading (not authoritative)', () => {
+    const result = renderInternalDocsContext(
+      [{ path: '.anatoly/docs/overview.md', content: '# Overview', source: 'internal' }],
+      makeConfig('full'),
+    );
+    expect(result).toContain('## INTERNAL DOCUMENTATION (DERIVED FROM CODE — context only, not ground truth)');
+    expect(result).toContain('Do NOT use this section to flag code');
+    expect(result).toContain('reference wins');
+  });
+
+  it('AC 54.5d: does NOT contain "authoritative" anywhere', () => {
+    const result = renderInternalDocsContext(
+      [{ path: '.anatoly/docs/overview.md', content: '# Overview', source: 'internal' }],
+      makeConfig('full'),
+    );
+    expect(result.toLowerCase()).not.toContain('authoritative');
   });
 
   it('includes each internal doc verbatim under its path heading', () => {
-    const result = renderInternalDocsContext([
-      { path: '.anatoly/docs/01-Getting-Started/01-Overview.md', content: 'Overview body', source: 'internal' },
-      { path: '.anatoly/docs/02-Architecture/01-System.md', content: 'Arch body', source: 'internal' },
-    ]);
-    expect(result).toContain('### `.anatoly/docs/01-Getting-Started/01-Overview.md`');
+    const result = renderInternalDocsContext(
+      [
+        { path: '.anatoly/docs/01-Overview.md', content: 'Overview body', source: 'internal' },
+        { path: '.anatoly/docs/02-Arch.md', content: 'Arch body', source: 'internal' },
+      ],
+      makeConfig('full'),
+    );
+    expect(result).toContain('### `.anatoly/docs/01-Overview.md`');
     expect(result).toContain('Overview body');
-    expect(result).toContain('### `.anatoly/docs/02-Architecture/01-System.md`');
+    expect(result).toContain('### `.anatoly/docs/02-Arch.md`');
     expect(result).toContain('Arch body');
   });
 
   it('filters out project docs even when mixed with internal docs', () => {
-    const result = renderInternalDocsContext([
-      { path: 'docs/api.md', content: 'project doc', source: 'project' },
-      { path: '.anatoly/docs/01-Overview.md', content: 'internal doc', source: 'internal' },
-    ]);
+    const result = renderInternalDocsContext(
+      [
+        { path: 'docs/api.md', content: 'project doc', source: 'project' },
+        { path: '.anatoly/docs/01-Overview.md', content: 'internal doc', source: 'internal' },
+      ],
+      makeConfig('full'),
+    );
     expect(result).not.toContain('project doc');
     expect(result).toContain('internal doc');
   });
 
   it('handles docs with missing source field as non-internal', () => {
-    const result = renderInternalDocsContext([
-      { path: 'docs/api.md', content: 'no source field' },
-    ]);
+    const result = renderInternalDocsContext(
+      [{ path: 'docs/api.md', content: 'no source field' }],
+      makeConfig('full'),
+    );
+    expect(result).toBe('');
+  });
+
+  it('AC 54.5b: returns empty when mode is lite', () => {
+    const result = renderInternalDocsContext(
+      [{ path: '.anatoly/docs/overview.md', content: '# Overview', source: 'internal' }],
+      makeConfig('lite'),
+    );
+    expect(result).toBe('');
+  });
+
+  it('AC 54.5b: returns empty when mode is off', () => {
+    const result = renderInternalDocsContext(
+      [{ path: '.anatoly/docs/overview.md', content: '# Overview', source: 'internal' }],
+      makeConfig('off'),
+    );
     expect(result).toBe('');
   });
 });

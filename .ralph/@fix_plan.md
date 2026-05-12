@@ -204,15 +204,7 @@
 - [x] Story 54.2: Wizard interactif doc + `init --reconfigure-docs`
 - [x] Story 54.3: `LanguageAdapter.extractDocComments` + implémentations
 - [x] Story 54.4: `reference-docs-resolver` — collecte unifiée des sources humaines
-  > As a moteur de l'axe documentation
-  > I want une fonction unique qui me retourne toutes les sources documentaires humaines du projet (md + READMEs + specs + doc-comments)
-  > So that les axes consomment la reference de façon uniforme sans connaître les détails de collecte.
-  > AC: Given une config valide avec `reference.paths: ["docs//*.md", "README.md", "ARCHITECTURE.md"]` et `inline_comments.enabled: true, kinds: ["jsdoc", "docstring"], include: ["src//*.ts", "src//*.py"]`, When `resolveReferenceDocs(projectRoot, config)` est appelé, Then il retourne un `ReferenceDoc[]` contenant : tous les markdown matchés par les globs + tous les doc-comments structurés extraits des fichiers `.ts` et `.py` du `src/`, And chaque entrée a son champ `source` correctement rempli (`md` pour les .md de `docs/`, `readme` pour `README.md`, `comment` pour les doc-comments), And les entrées de type `comment` ont leur `symbol` et `lang` remplis
-  > AC: Given la config a `inline_comments.enabled: false`, When `resolveReferenceDocs` est appelé, Then aucune entrée `source: "comment"` n'apparaît dans le résultat, And aucun parsing tree-sitter supplémentaire n'est déclenché pour cette extraction (perf : on ne paie pas si désactivé)
-  > AC: Given une config avec un path qui ne match aucun fichier (`specs//*.md` mais `specs/` n'existe pas), When `resolveReferenceDocs` est appelé, Then le résolveur n'échoue pas — il loggue un info `no files matched for pattern {pattern}` et retourne les autres entrées, And un compteur global est loggué : `resolved {N} reference docs (md: X, readme: Y, spec: Z, comment: W)`
-  > AC: Given un benchmark perf sur un repo de 500 fichiers source avec `inline_comments.enabled: true`, When `resolveReferenceDocs` tourne 3 fois consécutivement, Then le 3e run termine en moins de 15% au-dessus du temps de scan baseline sans extraction de doc-comments (NFR5)
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-4
-- [ ] Story 54.5: Split contexte axes — `renderReferenceDocsContext` vs `renderInternalDocsContext`
+- [x] Story 54.5: Split contexte axes — `renderReferenceDocsContext` vs `renderInternalDocsContext`
   > As un axe business (correction, best_practices, overengineering, tests)
   > I want recevoir séparément la doc humaine autoritative et la doc dérivée du code non-autoritative
   > So that je ne renforce plus jamais une boucle de context-rot entre le code et la doc générée à partir de lui.

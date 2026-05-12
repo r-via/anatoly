@@ -10,6 +10,7 @@ import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
+import { renderReferenceDocsContext } from './reference-docs-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (overengineering axis only)
@@ -62,7 +63,12 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs);
+  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs);
+  if (referenceDocsSection) {
+    parts.push(referenceDocsSection);
+  }
+
+  const internalDocsSection = renderInternalDocsContext(ctx.relevantDocs, ctx.config);
   if (internalDocsSection) {
     parts.push(internalDocsSection);
   }

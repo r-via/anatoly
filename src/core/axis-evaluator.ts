@@ -12,6 +12,7 @@ import type { FileDependencyContext } from './dependency-meta.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import type { UserInstructions } from '../utils/user-instructions.js';
+import type { ReferenceDoc } from './reference-docs-resolver.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
@@ -91,6 +92,8 @@ export interface AxisContext {
   docsTree?: string | null;
   /** Relevant documentation pages resolved for the current file */
   relevantDocs?: RelevantDoc[];
+  /** Human-authored reference docs (README, specs, doc-comments) resolved for the run */
+  referenceDocs?: ReferenceDoc[];
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */
   conversationDir?: string;
   /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */
