@@ -496,7 +496,7 @@ describe('shared NLP summary cache', () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('should write NLP summary to shared/nlp-summaries with sharding', () => {
+  it('should write NLP summary to cache/nlp-summaries with sharding', () => {
     const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' as const };
     const bodyHash = 'abcdef1234567890';
 

@@ -18,7 +18,7 @@ import type { ReviewFile } from '../schemas/review.js';
 function makeTempProject(): string {
   const root = mkdtempSync(join(tmpdir(), 'anatoly-shared-review-'));
   // Create required directory structure
-  mkdirSync(join(root, '.anatoly', 'shared', 'reviews'), { recursive: true });
+  mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
   mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
   return root;
 }
@@ -47,7 +47,7 @@ describe('shared-review-cache', () => {
     it('should use 2-hex-char sharding prefix', () => {
       const hash = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
       const path = sharedReviewPath(root, hash);
-      expect(path).toContain(join('shared', 'reviews', 'ab', hash + '.rev.json'));
+      expect(path).toContain(join('cache', 'reviews', 'ab', hash + '.rev.json'));
     });
   });
 
@@ -88,7 +88,7 @@ describe('shared-review-cache', () => {
       const review = makeReview('src/bar.ts');
       const content = 'export function bar() {}';
       const hash = computeContentHash(content);
-      const shardDir = join(root, '.anatoly', 'shared', 'reviews', hash.slice(0, 2));
+      const shardDir = join(root, '.anatoly', 'cache', 'reviews', hash.slice(0, 2));
 
       writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction']);
 

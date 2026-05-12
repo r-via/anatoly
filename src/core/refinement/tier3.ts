@@ -117,7 +117,7 @@ export interface Tier3Result {
 }
 
 // ---------------------------------------------------------------------------
-// Refinement cache I/O — content-addressable in shared/refinements/
+// Refinement cache I/O — content-addressable in cache/refinements/
 // ---------------------------------------------------------------------------
 
 /** Manifest tracking which refinement findings have been cached. */
@@ -136,11 +136,11 @@ export function findingCacheKey(contentHash: string, symbol: string, axis: strin
 
 /**
  * Content-addressable path for a single refinement finding.
- * `shared/refinements/<contentHash[0:2]>/<contentHash>/<symbol>__<axis>.json`
+ * `cache/refinements/<contentHash[0:2]>/<contentHash>/<symbol>__<axis>.json`
  */
 function sharedRefinementPath(root: string, contentHash: string, symbol: string, axis: string): string {
   const safeName = `${symbol}__${axis}.json`;
-  return anatolyPath(root, 'shared/refinements', contentHash.slice(0, 2), contentHash, safeName);
+  return anatolyPath(root, 'cache/refinements', contentHash.slice(0, 2), contentHash, safeName);
 }
 
 function refinementManifestPath(root: string): string {

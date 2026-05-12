@@ -15,12 +15,21 @@ import { homedir } from 'node:os';
 import { getLogger } from './logger.js';
 
 /**
- * All known sub-folders under `<root>/.anatoly/`.
+ * Storage areas under `<project>/.anatoly/`.
+ *
+ * - `shared/*` — **multi-tenant safe**: provider-public pricing sources,
+ *   language-public tree-sitter WASM, product-public GGUF weights. Bind-
+ *   mountable on multi-tenant infra. Nothing derived from user code lives here.
+ * - `cache/*` — project-local derived artifacts: reviews, refinements, NLP
+ *   summaries, RAG vectors, doc-build snapshots. Always lives directly under
+ *   `<project>/.anatoly/cache/` because the content is about THIS project's
+ *   code. Safe to delete; will be regenerated.
+ * - `state/*`, `runs/`, `runtime/`, `setup/` — project-local non-cache state.
+ * - `user/*` — reserved for cross-project, single-user configurations
+ *   (e.g. user prefs that apply to all of this user's projects). Not used
+ *   for code-derived artifacts.
  */
 export type AnatolyArea =
-  | 'shared/reviews'
-  | 'shared/refinements'
-  | 'shared/nlp-summaries'
   | 'shared/pricing'
   | 'shared/pricing/sources'
   | 'shared/grammars'
@@ -28,6 +37,9 @@ export type AnatolyArea =
   | 'shared/models/gguf'
   | 'shared/models/hf-cache'
   | 'user'
+  | 'cache/reviews'
+  | 'cache/refinements'
+  | 'cache/nlp-summaries'
   | 'state'
   | 'state/internal-docs'
   | 'cache'
@@ -98,11 +110,15 @@ function shouldLinkLegacyModels(uwRoot: string, target: string): boolean {
   return true;
 }
 
-/** Shared sub-directories that must exist under `~/.anatoly/shared/`. */
+/**
+ * Multi-tenant safe sub-directories under `~/.anatoly/shared/`.
+ *
+ * Contents are provider/language/product-public: pricing sources from
+ * litellm/openrouter, tree-sitter WASM, GGUF model weights. None of these
+ * derive from user code — they're safe to share across tenants on a
+ * multi-tenant deployment.
+ */
 const SHARED_SUBDIRS = [
-  'reviews',
-  'refinements',
-  'nlp-summaries',
   'pricing',
   join('pricing', 'sources'),
   'grammars',
@@ -111,9 +127,24 @@ const SHARED_SUBDIRS = [
   join('models', 'hf-cache'),
 ] as const;
 
-/** Project-only sub-directories created under `<root>/.anatoly/`. */
+/**
+ * Project-only sub-directories created under `<root>/.anatoly/`.
+ *
+ * The `cache/` subtree holds project-local derived artifacts:
+ *   - `cache/reviews/`         — per-file review payloads (content-addressable)
+ *   - `cache/refinements/`     — tier3 investigation cache (content-addressable)
+ *   - `cache/nlp-summaries/`   — RAG NLP summaries (content-addressable by bodyHash)
+ *   - `cache/rag/lancedb/`     — RAG vector store
+ *   - `cache/doc-build/`       — doc generation cache
+ *   - `cache/pricing.json`     — normalized pricing keyed by project's model set
+ * All safe to delete; will be regenerated. Not shared across projects because
+ * the content is fundamentally about THIS project's code.
+ */
 const PROJECT_SUBDIRS = [
   'state',
+  join('cache', 'reviews'),
+  join('cache', 'refinements'),
+  join('cache', 'nlp-summaries'),
   join('cache', 'rag', 'lancedb'),
   join('cache', 'doc-build'),
   'runs',
@@ -124,11 +155,10 @@ const PROJECT_SUBDIRS = [
 /**
  * Shared content directories whose contents are cleared by {@link clearShared}.
  * Subset of SHARED_SUBDIRS — only top-level data folders (not structural parents).
+ * Project-local caches (reviews/refinements/nlp-summaries) live under cache/
+ * and are cleared by `anatoly reset` or `rm -rf .anatoly/cache/`.
  */
 const SHARED_CLEARABLE = [
-  'reviews',
-  'refinements',
-  'nlp-summaries',
   'pricing',
   'grammars',
   'models',
@@ -288,8 +318,9 @@ export function clearCache(root: string): void {
 
 /**
  * Clear the user-wide shared cache: removes all contents under
- * `~/.anatoly/shared/{reviews,refinements,nlp-summaries,pricing,grammars,models}/`.
- * Does NOT touch `~/.anatoly/user/`.
+ * `~/.anatoly/shared/{pricing,grammars,models}/`. Multi-tenant safe content
+ * only — does NOT touch `~/.anatoly/user/` (which holds per-tenant caches
+ * derived from user code).
  */
 export function clearShared(): void {
   const sharedDir = join(userWideRoot(), 'shared');
@@ -307,3 +338,4 @@ export function clearShared(): void {
     }
   }
 }
+

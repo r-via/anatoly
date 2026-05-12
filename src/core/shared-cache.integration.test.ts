@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, existsSync, readdirSync, symlinkSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -61,10 +61,18 @@ function setupCrossProjectEnv(): { projA: string; projB: string; sharedDir: stri
 }
 
 // ---------------------------------------------------------------------------
-// AC6: Cross-project integration test
+// Regression guard: code-derived artifacts MUST NOT leak cross-project
 // ---------------------------------------------------------------------------
+//
+// Pre-existing design (Story 52.4-52.5 "AC6") tried to dedupe reviews and NLP
+// summaries cross-project via `~/.anatoly/shared/{reviews,nlp-summaries}/`.
+// That was rolled back: reviews and NLP summaries describe the user's CODE
+// (confidential per project on a multi-tenant deployment), so they must live
+// project-local under `cache/`. These tests assert the isolation, so any
+// future regression that re-routes these artifacts under shared/ trips a CI
+// alarm.
 
-describe('cross-project review sharing (AC6)', () => {
+describe('isolation guard: reviews + NLP summaries are project-local', () => {
   let env: ReturnType<typeof setupCrossProjectEnv>;
 
   beforeEach(() => {
@@ -75,52 +83,27 @@ describe('cross-project review sharing (AC6)', () => {
     env.cleanup();
   });
 
-  it('review written by project A is readable by project B when file content is identical', () => {
+  it('review path resolves under project-local cache/, not shared/', () => {
+    const { projA } = env;
+    const hash = computeContentHash('const x = 1;\n');
+    const path = sharedReviewPath(projA, hash);
+    expect(path).toContain(join(projA, '.anatoly', 'cache', 'reviews'));
+    expect(path).not.toContain(join(projA, '.anatoly', 'shared'));
+  });
+
+  it('review written by project A is NOT readable by project B (no cross-project leak)', () => {
     const { projA, projB } = env;
     const fileContent = 'export function util() { return 42; }\n';
     const review = makeReview('src/util.ts');
 
-    // Project A writes the review
     writeSharedReview(projA, review, fileContent, 'sha256:prompt-v1', 'claude-3.5-sonnet', ['correction', 'utility']);
 
-    // Project B reads the review (same file content → same hash → cache hit)
+    // Same content, same axes, but DIFFERENT project — must miss.
     const loaded = loadSharedReview(projB, 'src/util.ts', fileContent, 'sha256:prompt-v1', ['correction', 'utility']);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.file).toBe('src/util.ts');
-    expect(loaded!.verdict).toBe('CLEAN');
-  });
-
-  it('review written by project A is NOT found by project B when file content differs', () => {
-    const { projA, projB } = env;
-    const contentA = 'export function util() { return 42; }\n';
-    const contentB = 'export function util() { return 99; }\n';
-    const review = makeReview('src/util.ts');
-
-    writeSharedReview(projA, review, contentA, 'sha256:prompt-v1', 'model', ['correction']);
-
-    // Project B has different content → different hash → cache miss
-    const loaded = loadSharedReview(projB, 'src/util.ts', contentB, 'sha256:prompt-v1', ['correction']);
     expect(loaded).toBeNull();
   });
 
-  it('shared review payload is byte-identical between projects', () => {
-    const { projA, projB } = env;
-    const fileContent = 'const x = 1;\n';
-    const hash = computeContentHash(fileContent);
-    const review = makeReview('src/foo.ts');
-
-    writeSharedReview(projA, review, fileContent, 'sha256:p', 'model', ['correction']);
-
-    // Both projects point to the same shared file via symlink
-    const pathA = sharedReviewPath(projA, hash);
-    const pathB = sharedReviewPath(projB, hash);
-
-    const rawA = readFileSync(pathA, 'utf-8');
-    const rawB = readFileSync(pathB, 'utf-8');
-    expect(rawA).toBe(rawB);
-  });
-
-  it('NLP summary written by project A is readable by project B', () => {
+  it('NLP summary written by project A is NOT readable by project B', () => {
     const { projA, projB } = env;
     const summary = { summary: 'Formats dates', docSummary: '', keyConcepts: ['date'], behavioralProfile: 'pure' as const };
     const bodyHash = computeBodyHash('function formatDate(d) { return d.toISOString(); }');
@@ -128,8 +111,7 @@ describe('cross-project review sharing (AC6)', () => {
     writeSharedNlpSummary(projA, bodyHash, summary, 'flash-2.0');
 
     const loaded = loadSharedNlpSummary(projB, bodyHash);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.summary).toBe('Formats dates');
+    expect(loaded).toBeNull();
   });
 });
 

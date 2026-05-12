@@ -464,12 +464,13 @@ export function saveNlpSummaryCache(projectRoot: string, cache: NlpSummaryCache)
 }
 
 // ---------------------------------------------------------------------------
-// Shared NLP Summary Cache — content-addressable in shared/nlp-summaries/
+// Per-tenant NLP Summary Cache — content-addressable in cache/nlp-summaries/
+// (derives from user code → not multi-tenant safe, lives under user/ not shared/)
 // ---------------------------------------------------------------------------
 
-/** Path to a shared NLP summary: `shared/nlp-summaries/<hash[0:2]>/<hash>.json` */
+/** Path to a per-tenant NLP summary: `cache/nlp-summaries/<hash[0:2]>/<hash>.json` */
 export function sharedNlpSummaryPath(root: string, bodyHash: string): string {
-  return anatolyPath(root, 'shared/nlp-summaries', bodyHash.slice(0, 2), bodyHash + '.json');
+  return anatolyPath(root, 'cache/nlp-summaries', bodyHash.slice(0, 2), bodyHash + '.json');
 }
 
 /** Path to the per-project NLP summary key index. */

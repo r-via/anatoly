@@ -10,7 +10,7 @@
  *   - <root>/.anatoly/pricing.json         (→ cache/pricing.json)
  *   - <root>/.anatoly/sources/             (→ shared/pricing/sources/)
  *   - <root>/.anatoly/grammars/            (→ shared/grammars/)
- *   - <root>/.anatoly/cache/refinement-cache.json (→ shared/refinements/)
+ *   - <root>/.anatoly/cache/refinement-cache.json (→ cache/refinements/)
  *   - <root>/.anatoly/correction-memory.json      (removed)
  *   - ~/.cache/anatoly/wasm/               (removed)
  *   - ~/.anatoly/models/*.gguf             (→ shared/models/gguf/)

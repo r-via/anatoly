@@ -29,11 +29,12 @@ export interface ReviewIndex {
 // ---------------------------------------------------------------------------
 
 /**
- * Content-addressable path for a shared review payload.
- * Uses 2-hex-char sharding: `shared/reviews/<hash[0:2]>/<hash>.rev.json`
+ * Content-addressable path for a review payload.
+ * Uses 2-hex-char sharding: `cache/reviews/<hash[0:2]>/<hash>.rev.json`
+ * (per-tenant — reviews derive from user code, not multi-tenant safe.)
  */
 export function sharedReviewPath(root: string, contentHash: string): string {
-  return anatolyPath(root, 'shared/reviews', contentHash.slice(0, 2), contentHash + '.rev.json');
+  return anatolyPath(root, 'cache/reviews', contentHash.slice(0, 2), contentHash + '.rev.json');
 }
 
 /**
@@ -51,7 +52,7 @@ export function reviewIndexPath(root: string): string {
  * Write a review to the shared content-addressable store.
  *
  * 1. Computes content hash from file content (with line-ending normalization).
- * 2. Writes the review payload to `shared/reviews/<hash[0:2]>/<hash>.rev.json`
+ * 2. Writes the review payload to `cache/reviews/<hash[0:2]>/<hash>.rev.json`
  *    with `_meta` headers via `writeCacheWithMeta`.
  * 3. Updates the per-project `cache/review-index.json`.
  */
@@ -93,7 +94,7 @@ export function writeSharedReview(
  *
  * 1. Computes content hash from file content.
  * 2. Checks `cache/review-index.json` for matching hash + axes coverage.
- * 3. Reads `shared/reviews/<hash[0:2]>/<hash>.rev.json` via `loadCacheWithMeta`.
+ * 3. Reads `cache/reviews/<hash[0:2]>/<hash>.rev.json` via `loadCacheWithMeta`.
  * 4. Returns the review on hit, `null` on any miss.
  */
 export function loadSharedReview(
@@ -124,9 +125,11 @@ export function loadSharedReview(
     return loadCacheWithMeta<ReviewFile>(sharedPath, { schema: 1, promptHash });
   }
 
-  // Cross-project fallback: no index entry but shared payload may exist
-  // (written by another project sharing the same ~/.anatoly/shared/).
-  // Validate via _meta (prompt_hash + schema match).
+  // No index entry → fall back to content-addressable lookup within THIS
+  // project's cache/reviews/ store. This catches the case where the same
+  // file content appeared under a different path within the same project
+  // (renames, vendored duplicates). Cross-project sharing is naturally
+  // prevented because cache/reviews/ is project-local.
   return loadCacheWithMeta<ReviewFile>(sharedPath, { schema: 1, promptHash });
 }
 

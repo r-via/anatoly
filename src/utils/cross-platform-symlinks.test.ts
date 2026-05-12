@@ -76,7 +76,7 @@ describe('cross-platform symlinks', () => {
     mkdirSync(root);
     bootstrapAnatoly(root);
 
-    const sharedSubdirs = ['reviews', 'refinements', 'nlp-summaries', 'pricing', 'grammars', 'models'];
+    const sharedSubdirs = ['pricing', 'grammars', 'models'];
     for (const sub of sharedSubdirs) {
       expect(existsSync(join(fakeHome, '.anatoly', 'shared', sub))).toBe(true);
     }

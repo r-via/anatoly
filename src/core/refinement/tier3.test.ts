@@ -678,7 +678,7 @@ describe('runTier3', () => {
 // Tests — content-addressable refinement cache (Story 52.4)
 // ---------------------------------------------------------------------------
 
-describe('refinement cache (shared/refinements)', () => {
+describe('refinement cache (cache/refinements)', () => {
   let tempRoot: string;
 
   beforeEach(() => {
@@ -711,7 +711,7 @@ describe('refinement cache (shared/refinements)', () => {
     expect(afterClear.investigated).toEqual({});
   });
 
-  it('should cache findings via shared/refinements after tier3 run', async () => {
+  it('should cache findings via cache/refinements after tier3 run', async () => {
     const deliberation = makeDeliberationResponse({
       symbols: [{
         name: 'doWork',
@@ -748,7 +748,7 @@ describe('refinement cache (shared/refinements)', () => {
 
     // Check that the shared refinement file was written
     const expectedPath = join(
-      tempRoot, '.anatoly', 'shared', 'refinements',
+      tempRoot, '.anatoly', 'cache', 'refinements',
       'de', 'deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678',
       'doWork__correction.json',
     );

@@ -12,22 +12,22 @@ import { anatolyPath, runPath, bootstrapAnatoly, clearCache, clearShared } from 
 
 describe('anatolyPath', () => {
   it('resolves area under <root>/.anatoly/', () => {
-    expect(anatolyPath('/tmp/proj-A', 'shared/reviews')).toBe(
-      join('/tmp/proj-A', '.anatoly', 'shared', 'reviews'),
+    expect(anatolyPath('/tmp/proj-A', 'cache/reviews')).toBe(
+      join('/tmp/proj-A', '.anatoly', 'cache', 'reviews'),
     );
   });
 
   it('resolves area with rest segments', () => {
-    expect(anatolyPath('/tmp/proj-A', 'shared/reviews', 'ab', 'abcdef.rev.json')).toBe(
-      join('/tmp/proj-A', '.anatoly', 'shared', 'reviews', 'ab', 'abcdef.rev.json'),
+    expect(anatolyPath('/tmp/proj-A', 'cache/reviews', 'ab', 'abcdef.rev.json')).toBe(
+      join('/tmp/proj-A', '.anatoly', 'cache', 'reviews', 'ab', 'abcdef.rev.json'),
     );
   });
 
   it('resolves all known areas', () => {
     const areas: AnatolyArea[] = [
-      'shared/reviews',
-      'shared/refinements',
-      'shared/nlp-summaries',
+      'cache/reviews',
+      'cache/refinements',
+      'cache/nlp-summaries',
       'shared/pricing',
       'shared/pricing/sources',
       'shared/grammars',
@@ -103,9 +103,11 @@ describe('bootstrapAnatoly', () => {
     expect(existsSync(join(fakeHome, '.anatoly', 'shared'))).toBe(true);
     expect(existsSync(join(fakeHome, '.anatoly', 'user'))).toBe(true);
 
-    // Shared subdirs in user-wide
+    // Shared subdirs in user-wide — multi-tenant safe content only
+    // (pricing/grammars/models). Code-derived artifacts live project-local
+    // under cache/, not in shared/.
     const sharedSubdirs = [
-      'reviews', 'refinements', 'nlp-summaries', 'pricing', 'pricing/sources',
+      'pricing', 'pricing/sources',
       'grammars', 'models', 'models/gguf', 'models/hf-cache',
     ];
     for (const sub of sharedSubdirs) {
@@ -125,8 +127,13 @@ describe('bootstrapAnatoly', () => {
       join(fakeHome, '.anatoly', 'user'),
     );
 
-    // Project-only subdirs
-    const projectSubdirs = ['state', 'cache', 'cache/rag', 'cache/rag/lancedb', 'cache/doc-build', 'runs', 'runtime', 'setup'];
+    // Project-only subdirs — code-derived caches live here, not in shared/.
+    const projectSubdirs = [
+      'state',
+      'cache', 'cache/reviews', 'cache/refinements', 'cache/nlp-summaries',
+      'cache/rag', 'cache/rag/lancedb', 'cache/doc-build',
+      'runs', 'runtime', 'setup',
+    ];
     for (const sub of projectSubdirs) {
       expect(existsSync(join(root, '.anatoly', ...sub.split('/')))).toBe(true);
     }
@@ -269,10 +276,7 @@ describe('clearShared', () => {
 
     const sharedBase = join(fakeHome, '.anatoly', 'shared');
 
-    // Seed every clearable shared sub-dir
-    writeFileSync(join(sharedBase, 'reviews', 'test.rev.json'), '{}');
-    writeFileSync(join(sharedBase, 'refinements', 'ref.json'), '{}');
-    writeFileSync(join(sharedBase, 'nlp-summaries', 'nlp.json'), '{}');
+    // Seed every clearable shared sub-dir (multi-tenant safe content only)
     writeFileSync(join(sharedBase, 'pricing', 'normalized.json'), '{}');
     mkdirSync(join(sharedBase, 'grammars'), { recursive: true });
     writeFileSync(join(sharedBase, 'grammars', 'python.wasm'), 'wasm');
@@ -285,17 +289,11 @@ describe('clearShared', () => {
     clearShared();
 
     // All shared content cleared
-    expect(existsSync(join(sharedBase, 'reviews', 'test.rev.json'))).toBe(false);
-    expect(existsSync(join(sharedBase, 'refinements', 'ref.json'))).toBe(false);
-    expect(existsSync(join(sharedBase, 'nlp-summaries', 'nlp.json'))).toBe(false);
     expect(existsSync(join(sharedBase, 'pricing', 'normalized.json'))).toBe(false);
     expect(existsSync(join(sharedBase, 'grammars', 'python.wasm'))).toBe(false);
     expect(existsSync(join(sharedBase, 'models', 'gguf', 'code.gguf'))).toBe(false);
 
     // Directory structure preserved (empty dirs still exist)
-    expect(existsSync(join(sharedBase, 'reviews'))).toBe(true);
-    expect(existsSync(join(sharedBase, 'refinements'))).toBe(true);
-    expect(existsSync(join(sharedBase, 'nlp-summaries'))).toBe(true);
     expect(existsSync(join(sharedBase, 'pricing'))).toBe(true);
     expect(existsSync(join(sharedBase, 'grammars'))).toBe(true);
     expect(existsSync(join(sharedBase, 'models'))).toBe(true);
