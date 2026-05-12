@@ -48,8 +48,14 @@ export type ReferenceExcerpt = z.infer<typeof ReferenceExcerptSchema>;
 // ---------------------------------------------------------------------------
 
 export const ArbitrationSignalsSchema = z.object({
-  doc_last_touched: z.string(),
-  code_last_touched: z.string(),
+  /** ISO 8601 timestamp of the reference doc's last git commit. Optional —
+   * `undefined` when the file is untracked, git is unavailable, or any other
+   * lookup error. Callers must treat the absence as "unknown" rather than
+   * "never touched". */
+  doc_last_touched: z.string().optional(),
+  /** ISO 8601 timestamp of the code file's last git commit. Same caveats as
+   * {@link doc_last_touched}. */
+  code_last_touched: z.string().optional(),
   test_covers_current_behavior: z.boolean().optional(),
   presumption: PresumptionSchema,
 });

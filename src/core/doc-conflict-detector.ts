@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../utils/logger.js';
@@ -24,10 +24,20 @@ import {
   parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
-import type { TransportRouter } from './transports/index.js';
+import { EVALUATOR_TEMPERATURE, type TransportRouter } from './transports/index.js';
+import { countTokens } from './estimator.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../schemas/doc-conflict.js';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';
+
+/** Token budget for a single detection batch. Below the Sonnet 200k window
+ * with margin for system prompt + output. When the assembled prompt exceeds
+ * this, the detector batches the internal fragments. */
+const DETECTION_PROMPT_TOKEN_BUDGET = 120_000;
+
+/** Hard timeout on the detection LLM call. Above this the run continues
+ * with no new conflicts rather than hanging. */
+const DETECTION_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -59,11 +69,22 @@ export interface DocConflictDetectionOpts {
 
 /**
  * Derive the presumption from arbitration signals.
- * Rule: if code was touched after doc → doc-stale; if doc after code → code-drift; else unknown.
+ *
+ * Rule: if code was touched after doc → doc-stale; if doc after code →
+ * code-drift; else unknown. When either timestamp is missing (untracked
+ * file, git unavailable, etc.) the rule cannot fire — returns `unknown`
+ * rather than guessing.
  */
 export function derivePresumption(signals: ArbitrationSignals): Presumption {
+  if (!signals.doc_last_touched || !signals.code_last_touched) {
+    return 'unknown';
+  }
+
   const docTime = new Date(signals.doc_last_touched).getTime();
   const codeTime = new Date(signals.code_last_touched).getTime();
+  if (Number.isNaN(docTime) || Number.isNaN(codeTime)) {
+    return 'unknown';
+  }
 
   if (codeTime > docTime) return 'doc-stale';
   if (docTime > codeTime) return 'code-drift';
@@ -154,17 +175,20 @@ export function applyResolvedVerdicts(
 
 /**
  * Get the last commit timestamp (ISO 8601) for a file via git log.
- * Returns a fallback timestamp if git is unavailable or file is untracked.
+ * Returns `undefined` if git is unavailable, the file is untracked, or any
+ * other error occurs. Callers should treat `undefined` as "unknown" — never
+ * substitute `new Date()` (that would falsely claim the file was touched
+ * "now" and mislead the presumption heuristic).
  */
-export function getGitTimestamp(projectRoot: string, filePath: string): string {
+export function getGitTimestamp(projectRoot: string, filePath: string): string | undefined {
   try {
     const result = execFileSync('git', ['log', '-1', '--format=%cI', '--', filePath], {
       cwd: projectRoot,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).toString().trim();
-    return result || new Date().toISOString();
+    return result || undefined;
   } catch {
-    return new Date().toISOString();
+    return undefined;
   }
 }
 
@@ -211,26 +235,76 @@ export function generateConflictId(anchor: { file: string; symbol?: string; line
 // Convert a raw LLM-detected item into a persistent DocConflict — Story 55.10
 // ---------------------------------------------------------------------------
 
+/** Max file size we'll read when computing a hash, to avoid blocking the
+ * event loop on generated lockfiles / snapshots. Conflicts on such files
+ * are dropped explicitly rather than freezing the detector. */
+const MAX_ANCHOR_FILE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Resolve the line range of an LLM-reported symbol via the scanner's task
+ * output. Provides a symbol-grained hash anchor when the LLM gave a symbol
+ * name but no explicit line range (FR4 Story 55.3 AC3).
+ *
+ * Returns `undefined` when the symbol is not found in the scanner output —
+ * caller falls back to the file-level hash.
+ */
+function resolveSymbolLineRange(
+  tasks: Task[],
+  file: string,
+  symbol: string,
+): [number, number] | undefined {
+  const task = tasks.find(t => t.file === file);
+  if (!task) return undefined;
+  const sym = task.symbols.find(s => s.name === symbol);
+  if (!sym) return undefined;
+  return [sym.line_start, sym.line_end];
+}
+
 /**
  * Enrich a raw LLM detection result with persistent metadata: code hash,
  * arbitration signals, stable id, timestamp. Returns null when the anchor
- * cannot be resolved (file missing or unreadable) — these cases are
- * silently skipped to keep the detector resilient on partial fixtures.
+ * cannot be resolved (file missing or unreadable, file too large) — these
+ * cases are silently skipped to keep the detector resilient on partial
+ * fixtures.
  */
 export function enrichDetectedConflict(
   projectRoot: string,
   item: DetectedConflictItem,
+  opts: { tasks?: Task[]; allowedReferencePaths?: Set<string> } = {},
 ): DocConflict | null {
+  const log = getLogger();
+
+  // Validate reference_path against the configured allow-list when provided
+  // — prevents the LLM from anchoring to paths outside reference.paths and
+  // protects against hallucinated path traversal.
+  if (opts.allowedReferencePaths && !opts.allowedReferencePaths.has(item.reference_path)) {
+    log.warn({ file: item.file, reference_path: item.reference_path },
+      'doc-conflict-detection: dropping conflict — reference_path not in documentation.reference.paths');
+    return null;
+  }
+
   const codePath = join(projectRoot, item.file);
+
+  // File-size guard: synchronous reads on multi-MB files block the event loop.
   let codeContent: string;
   try {
+    const stat = statSync(codePath);
+    if (stat.size > MAX_ANCHOR_FILE_BYTES) {
+      log.warn({ file: item.file, size: stat.size },
+        'doc-conflict-detection: dropping conflict — file exceeds anchor size limit');
+      return null;
+    }
     codeContent = readFileSync(codePath, 'utf-8');
   } catch {
     return null;
   }
 
-  const lineRange: [number, number] | undefined =
+  // Determine line range — prefer LLM-provided, otherwise look up symbol in tasks.
+  let lineRange: [number, number] | undefined =
     item.line_start && item.line_end ? [item.line_start, item.line_end] : undefined;
+  if (!lineRange && item.symbol && opts.tasks) {
+    lineRange = resolveSymbolLineRange(opts.tasks, item.file, item.symbol);
+  }
 
   const codeHash = hashCodeAnchor(item.file, item.symbol, lineRange, codeContent);
 
@@ -252,12 +326,12 @@ export function enrichDetectedConflict(
   const testCoverage = checkTestCoverage(projectRoot, item.symbol);
 
   const signals: ArbitrationSignals = {
-    doc_last_touched: docTouched,
-    code_last_touched: codeTouched,
+    ...(docTouched ? { doc_last_touched: docTouched } : {}),
+    ...(codeTouched ? { code_last_touched: codeTouched } : {}),
     ...(testCoverage !== undefined ? { test_covers_current_behavior: testCoverage } : {}),
     presumption: derivePresumption({
-      doc_last_touched: docTouched,
-      code_last_touched: codeTouched,
+      ...(docTouched ? { doc_last_touched: docTouched } : {}),
+      ...(codeTouched ? { code_last_touched: codeTouched } : {}),
       presumption: 'unknown',
     }),
   };
@@ -284,6 +358,47 @@ export function enrichDetectedConflict(
 }
 
 // ---------------------------------------------------------------------------
+// Batching helper — Story 55.10 NFR3
+// ---------------------------------------------------------------------------
+
+/**
+ * Split internal-doc fragments into batches such that each assembled prompt
+ * stays under the detection token budget. Reference docs and code surface
+ * are constant overhead per batch — fragments are the variable part that
+ * grows with project size.
+ *
+ * The fixed overhead (reference + surface + scaffolding) is computed once;
+ * each fragment is added to the current batch while it still fits, then
+ * starts a new batch. A single oversized fragment ends up alone in its
+ * batch (acceptable — the model will simply truncate or fail validation,
+ * caller handles either case).
+ */
+export function batchFragmentsByTokenBudget(
+  fragments: Array<{ relPath: string; content: string }>,
+  fixedOverheadTokens: number,
+  budget: number = DETECTION_PROMPT_TOKEN_BUDGET,
+): Array<Array<{ relPath: string; content: string }>> {
+  if (fragments.length === 0) return [[]];
+
+  const batches: Array<Array<{ relPath: string; content: string }>> = [];
+  let current: Array<{ relPath: string; content: string }> = [];
+  let currentTokens = fixedOverheadTokens;
+
+  for (const f of fragments) {
+    const fragTokens = countTokens(f.relPath) + countTokens(f.content) + 16; // small markup overhead
+    if (current.length > 0 && currentTokens + fragTokens > budget) {
+      batches.push(current);
+      current = [];
+      currentTokens = fixedOverheadTokens;
+    }
+    current.push(f);
+    currentTokens += fragTokens;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+// ---------------------------------------------------------------------------
 // Detect new conflicts via LLM — Story 55.10
 // ---------------------------------------------------------------------------
 
@@ -292,13 +407,18 @@ export function enrichDetectedConflict(
  * to detect new conflicts not yet in the lock. Returns the list of
  * enriched DocConflict entries ready to merge.
  *
- * Errors (LLM unavailable, invalid JSON, timeout) are logged as warnings
- * and the function returns `[]` — the run continues with whatever lock
- * state existed before.
+ * Errors (LLM unavailable, invalid JSON, timeout, oversized prompts) are
+ * logged as warnings and the function returns whatever conflicts it did
+ * successfully detect — the run continues with at-least-as-much state as
+ * before, never crashes.
+ *
+ * The {@link existingIds} set passed by the caller is read-only — this
+ * function does not mutate it. Internal dedup tracking lives in a local
+ * copy.
  */
 export async function detectNewConflictsViaLlm(
   opts: DocConflictDetectionOpts,
-  existingIds: Set<string>,
+  existingIds: ReadonlySet<string>,
 ): Promise<DocConflict[]> {
   const log = getLogger();
   const { projectRoot, config, tasks, fragmentsDir, router, abortController } = opts;
@@ -318,61 +438,92 @@ export async function detectNewConflictsViaLlm(
     return [];
   }
 
-  // Build prompt with already-known conflict descriptions to deduplicate at the LLM layer
-  const knownDescriptions: string[] = [];
-  for (const id of existingIds) {
-    knownDescriptions.push(`id=${id}`);
-  }
-
-  const userMessage = buildDetectionUserMessage({
-    referenceDocs,
-    internalFragments,
-    codeSurface,
-    ...(knownDescriptions.length > 0 ? { knownConflictDescriptions: knownDescriptions } : {}),
-  });
-
-  // Resolve model: prefer agents.scaffolding, fallback to models.quality
+  // Resolve model: prefer agents.scaffolding, fallback to models.quality.
+  // Note: scaffolding is the closest existing model slot for non-axis doc
+  // work; a future epic may introduce agents.doc_conflict explicitly.
   const model = config.agents.scaffolding ?? config.models.quality;
   if (!model) {
     log.warn('doc-conflict-detection: no scaffolding/quality model configured — skipping LLM detection');
     return [];
   }
 
-  // Single-turn structured query (no tools needed — pure JSON output)
-  const ac = abortController ?? new AbortController();
-  let responseText: string;
-  try {
-    const response = await router.agenticQuery({
-      systemPrompt: DETECTION_SYSTEM_PROMPT,
-      userMessage,
-      model,
-      projectRoot,
-      abortController: ac,
-      allowedTools: [],
-      config,
-      responseSchema: DetectionResponseSchema,
-      attempt: 1,
-    });
-    responseText = response.text;
-  } catch (err) {
-    log.warn({ err: err instanceof Error ? err.message : String(err) }, 'doc-conflict-detection: LLM call failed — preserving existing lock state');
-    return [];
+  // Compute fixed overhead (reference + code surface + system prompt) once
+  // so batching only varies on internal fragments.
+  const overheadMessage = buildDetectionUserMessage({
+    referenceDocs,
+    internalFragments: [],
+    codeSurface,
+  });
+  const fixedOverheadTokens = countTokens(overheadMessage) + countTokens(DETECTION_SYSTEM_PROMPT);
+
+  // Snapshot of known ids — grown internally per batch to dedupe across batches.
+  // We intentionally clone so the caller's set is never mutated.
+  const seenIds = new Set(existingIds);
+  const knownDescriptions = Array.from(seenIds).map(id => `id=${id}`);
+
+  const batches = batchFragmentsByTokenBudget(internalFragments, fixedOverheadTokens);
+  if (batches.length > 1) {
+    log.info({ batchCount: batches.length, fragmentCount: internalFragments.length },
+      'doc-conflict-detection: token budget exceeded — splitting into batches');
   }
 
-  const parsed = parseDetectionResponse(responseText);
-  if (!parsed) {
-    log.warn('doc-conflict-detection: failed to parse LLM response — preserving existing lock state');
-    return [];
-  }
+  // Build allow-list for reference_path validation.
+  const allowedReferencePaths = new Set(referenceDocs.map(d => d.path));
 
-  // Enrich + dedupe by id
   const newConflicts: DocConflict[] = [];
-  for (const item of parsed.conflicts) {
-    const enriched = enrichDetectedConflict(projectRoot, item);
-    if (!enriched) continue;
-    if (existingIds.has(enriched.id)) continue;
-    existingIds.add(enriched.id);
-    newConflicts.push(enriched);
+
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const batch = batches[batchIdx];
+
+    const userMessage = buildDetectionUserMessage({
+      referenceDocs,
+      internalFragments: batch,
+      codeSurface,
+      ...(knownDescriptions.length > 0 ? { knownConflictDescriptions: knownDescriptions } : {}),
+    });
+
+    // Per-batch abort wired to a hard timeout — protects against stuck LLM.
+    const ac = abortController ?? new AbortController();
+    const timeoutHandle = setTimeout(() => ac.abort(), DETECTION_TIMEOUT_MS);
+
+    let responseText: string;
+    try {
+      const response = await router.agenticQuery({
+        systemPrompt: DETECTION_SYSTEM_PROMPT,
+        userMessage,
+        model,
+        projectRoot,
+        abortController: ac,
+        allowedTools: [],
+        config,
+        responseSchema: DetectionResponseSchema,
+        temperature: EVALUATOR_TEMPERATURE,
+        attempt: 1,
+      });
+      responseText = response.text;
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx },
+        'doc-conflict-detection: LLM call failed — skipping batch');
+      continue;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+
+    const parsed = parseDetectionResponse(responseText);
+    if (!parsed) {
+      log.warn({ batchIdx }, 'doc-conflict-detection: failed to parse LLM response — skipping batch');
+      continue;
+    }
+
+    // Enrich + dedupe by id, validate reference_path against allow-list.
+    for (const item of parsed.conflicts) {
+      const enriched = enrichDetectedConflict(projectRoot, item, { tasks, allowedReferencePaths });
+      if (!enriched) continue;
+      if (seenIds.has(enriched.id)) continue;
+      seenIds.add(enriched.id);
+      knownDescriptions.push(`id=${enriched.id}`);
+      newConflicts.push(enriched);
+    }
   }
 
   return newConflicts;

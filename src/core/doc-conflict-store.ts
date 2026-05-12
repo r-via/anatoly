@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import { DocConflictsLockSchema, type DocConflictsLock, type DocConflict } from '../schemas/doc-conflict.js';
 import { anatolyPath } from '../utils/anatoly-paths.js';
+import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Path helper
@@ -87,12 +88,23 @@ function normalise(content: string): string {
 
 /**
  * Extract lines from content by 1-based line range [start, end] inclusive.
+ *
+ * Out-of-range values are clamped — and the clamp is **logged** when it
+ * actually rewrites the range. Silent clamping was previously masking
+ * false-positive conflicts where the LLM emitted line numbers far past
+ * EOF; the resulting hash anchored to one stray line and the entry was
+ * marked stale on the next run regardless of code changes.
  */
 function extractLines(content: string, lineRange: [number, number]): string {
   const lines = content.split('\n');
-  // Clamp to valid range
   const start = Math.max(1, lineRange[0]);
   const end = Math.min(lines.length, lineRange[1]);
+  if (start !== lineRange[0] || end !== lineRange[1]) {
+    getLogger().warn(
+      { requested: lineRange, clamped: [start, end], fileLines: lines.length },
+      'doc-conflict-store: line range clamped to file bounds — anchor may not match the intended fragment',
+    );
+  }
   return lines.slice(start - 1, end).join('\n');
 }
 

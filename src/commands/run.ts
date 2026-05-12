@@ -1049,12 +1049,14 @@ export function registerRunCommand(program: Command): void {
           if (!ctx.interrupted) {
             const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
-            await runDocConflictDetection({
-              projectRoot: ctx.projectRoot,
-              config: ctx.config,
-              tasks: setup.tasks,
-              fragmentsDir,
-              ...(ctx.router ? { router: ctx.router } : {}),
+            await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
+              await runDocConflictDetection({
+                projectRoot: ctx.projectRoot,
+                config: ctx.config,
+                tasks: setup.tasks,
+                fragmentsDir,
+                ...(ctx.router ? { router: ctx.router } : {}),
+              });
             });
             ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }
@@ -1099,12 +1101,14 @@ export function registerRunCommand(program: Command): void {
           if (!ctx.interrupted) {
             const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
-            await runDocConflictDetection({
-              projectRoot: ctx.projectRoot,
-              config: ctx.config,
-              tasks: setup.tasks,
-              fragmentsDir,
-              ...(ctx.router ? { router: ctx.router } : {}),
+            await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
+              await runDocConflictDetection({
+                projectRoot: ctx.projectRoot,
+                config: ctx.config,
+                tasks: setup.tasks,
+                fragmentsDir,
+                ...(ctx.router ? { router: ctx.router } : {}),
+              });
             });
             ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }
