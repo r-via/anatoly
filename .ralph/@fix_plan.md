@@ -217,17 +217,7 @@
 - [x] Story 55.4: Agent `doc-conflict-detector` + branchement pipeline
 - [x] Story 55.5: Mode `lite` digest marqué `evaluated`
 - [x] Story 55.6: Commande `anatoly docs arbitrate` (wizard)
-  > **As an** utilisateur Anatoly **I want** un wizard CLI pour arbitrer les conflits doc/code détectés **So that** je n'aie pas à éditer manuellement un fichier YAML pour rendre mes décisions.
-  > AC: Given un `doc-conflicts.yaml` contenant au moins une entrée `verdict: pending`, When l'utilisateur lance `anatoly docs arbitrate` sans argument, Then un wizard `@clack/prompts` s'ouvre et itère sur les entrées `pending`
-  > AC: Given une entrée pending affichée dans le wizard, When l'utilisateur la consulte, Then l'affichage présente l'ancre (file, symbol, line range), le `reference_excerpt`, le `code_summary`, les `signals` (avec présomption mise en avant), et propose les choix `doc-wins`, `code-wins`, `skip`, `defer` plus une note optionnelle multi-ligne
-  > AC: Given un wizard en cours d'arbitrage, When l'utilisateur rend chaque verdict, Then `doc-conflicts.yaml` est sauvegardé de manière incrémentale après chaque réponse (NFR8), et un Ctrl+C préserve les arbitrages déjà rendus
-  > AC: Given un `doc-conflicts.yaml` avec des entrées `status: applied`, When l'utilisateur lance `anatoly docs arbitrate --review`, Then le wizard itère aussi sur les entrées appliquées et propose de re-basculer en `pending` (pour reconsidérer un ancien arbitrage)
-  > AC: Given un `doc-conflicts.yaml` contenant N entrées, When l'utilisateur lance `anatoly docs arbitrate --list`, Then un tableau récap (id, file, symbol, verdict, status) est affiché sans wizard
-  > AC: Given un projet sans `doc-conflicts.yaml` (ou avec un fichier vide), When l'utilisateur lance `anatoly docs arbitrate`, Then un message clair "No conflicts to arbitrate. Run `anatoly run` first to generate conflicts." est affiché et la commande quitte sans erreur
-  > AC: Given un `doc-conflicts.yaml` malformé (YAML invalide ou schéma Zod non respecté), When la commande tente de le charger, Then une erreur claire avec ligne fautive est affichée, et la commande quitte en exit code non-zéro
-  > AC: Given la suite de tests E2E avec injection clack, When un parcours complet de 3 entrées simulé est exécuté, Then le fichier YAML écrit en sortie est correct, valide Zod, et reflète les 3 verdicts simulés
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-6
-- [ ] Story 55.7: Axe correction consomme les arbitrages `doc-wins`
+- [x] Story 55.7: Axe correction consomme les arbitrages `doc-wins`
   > **As an** axe correction **I want** consommer les fragments internal-doc marqués `status: evaluated` comme reference supplémentaire **So that** un arbitrage humain `doc-wins` se traduise par des findings correction quand le code contredit l'intention validée.
   > AC: Given `renderReferenceDocsContext` actuel ([src/core/axes/reference-docs-context.ts:17](src/core/axes/reference-docs-context.ts#L17)) — utilisé par les axes correction, best_practices, overengineering, When la fonction est étendue pour reconnaître les fragments internal-doc marqués `status: evaluated`, Then elle les injecte en section "Arbitrated internal docs (human-validated)" dans le prompt, et l'extension prend effet automatiquement sur les 3 axes sans modification spécifique
   > AC: Given des fragments internal-doc avec `status: unevaluated` (cas par défaut hors arbitrage), When les axes consomment leur contexte, Then ces fragments restent injectés via `renderInternalDocsContext` (contexte faible, sans autorité), comportement epic 54 inchangé

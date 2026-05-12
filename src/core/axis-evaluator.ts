@@ -96,6 +96,8 @@ export interface AxisContext {
   referenceDocs?: ReferenceDoc[];
   /** Lite-mode internal digest (deterministic, no LLM). Null when mode is not lite. */
   internalDigest?: { tokens: number; content: string; fingerprint: string } | null;
+  /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
+  arbitratedFragments?: import('./axes/reference-docs-context.js').ArbitratedFragment[];
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */
   conversationDir?: string;
   /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */

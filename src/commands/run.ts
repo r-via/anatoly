@@ -91,6 +91,30 @@ import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
+import { loadDocConflicts } from '../core/doc-conflict-store.js';
+import type { ArbitratedFragment } from '../core/axes/reference-docs-context.js';
+
+// ---------------------------------------------------------------------------
+// Story 55.7: Extract doc-wins arbitrated fragments from doc-conflicts.yaml
+// ---------------------------------------------------------------------------
+
+function loadArbitratedFragments(projectRoot: string): ArbitratedFragment[] {
+  try {
+    const lock = loadDocConflicts(projectRoot);
+    if (!lock) return [];
+    return lock.entries
+      .filter((e) => e.verdict === 'doc-wins' && e.status === 'applied')
+      .map((e) => ({
+        referencePath: e.reference_excerpt.path,
+        lineRange: e.reference_excerpt.line_range,
+        text: e.reference_excerpt.text,
+        arbitratedAt: e.verdict_set_at ?? e.detected_at,
+        note: e.verdict_note,
+      }));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -214,6 +238,8 @@ export interface RunContext {
   gitInfo?: { branch?: string; commit?: string };
   /** Lite-mode internal digest — set when documentation.internal.mode === 'lite'. */
   internalDigest?: import('../core/internal-docs-digest.js').DigestResult | null;
+  /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
+  arbitratedFragments?: import('../core/axes/reference-docs-context.js').ArbitratedFragment[];
 }
 
 /**
@@ -1062,6 +1088,11 @@ export function registerRunCommand(program: Command): void {
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
         }
+        // Story 55.7: load doc-wins arbitrated fragments for axis prompts
+        if (!ctx.interrupted) {
+          ctx.arbitratedFragments = loadArbitratedFragments(ctx.projectRoot);
+        }
+
         if (ctx.interrupted) return;
 
         // --- Phase: review (pass 1) ---
@@ -2546,6 +2577,7 @@ async function runReviewPhase(
               router: ctx.router,
               userInstructions: ctx.userInstructions,
               internalDigest: ctx.internalDigest,
+              arbitratedFragments: ctx.arbitratedFragments,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

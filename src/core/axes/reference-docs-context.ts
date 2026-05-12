@@ -4,6 +4,19 @@
 
 import type { ReferenceDoc } from '../reference-docs-resolver.js';
 
+// ---------------------------------------------------------------------------
+// Story 55.7: Arbitrated fragment — a doc-wins entry promoted to authority
+// ---------------------------------------------------------------------------
+
+/** A doc fragment that a human arbitrator validated as authoritative via `doc-wins`. */
+export interface ArbitratedFragment {
+  referencePath: string;
+  lineRange?: [number, number];
+  text: string;
+  arbitratedAt: string;
+  note?: string;
+}
+
 /**
  * Render the reference-docs section for business-logic axis prompts.
  *
@@ -17,6 +30,7 @@ import type { ReferenceDoc } from '../reference-docs-resolver.js';
 export function renderReferenceDocsContext(
   referenceDocs: ReferenceDoc[] | null | undefined,
   internalDigest?: { tokens: number; content: string; fingerprint: string } | null,
+  arbitratedFragments?: ArbitratedFragment[],
 ): string {
   if (!referenceDocs || referenceDocs.length === 0) return '';
 
@@ -44,6 +58,28 @@ export function renderReferenceDocsContext(
     parts.push('');
     parts.push(internalDigest.content);
     parts.push('');
+  }
+
+  // Story 55.7: append arbitrated doc-wins fragments when present
+  if (arbitratedFragments && arbitratedFragments.length > 0) {
+    parts.push('## ARBITRATED INTERNAL DOCS (human-validated)');
+    parts.push('');
+    parts.push(
+      'The following internal documentation fragments were validated by a human arbitrator as correct (verdict: doc-wins). Treat them as authoritative — flag code that contradicts them as a `doc_divergence` finding.',
+    );
+    parts.push('');
+
+    for (const frag of arbitratedFragments) {
+      const lineInfo = frag.lineRange ? ` (lines ${frag.lineRange[0]}–${frag.lineRange[1]})` : '';
+      parts.push(`### \`${frag.referencePath}\`${lineInfo}`);
+      parts.push('');
+      parts.push(frag.text);
+      if (frag.note) {
+        parts.push('');
+        parts.push(`> Note: ${frag.note}`);
+      }
+      parts.push('');
+    }
   }
 
   return parts.join('\n');
