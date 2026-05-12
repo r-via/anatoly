@@ -185,7 +185,7 @@ describe('runTier3', () => {
     // Clear any stale cache from previous test runs
     try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinement-cache.json'), { force: true }); } catch { /* ok */ }
     try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinement-manifest.json'), { force: true }); } catch { /* ok */ }
-    try { rmSync(join('/tmp/test-project', '.anatoly', 'shared', 'refinements'), { recursive: true, force: true }); } catch { /* ok */ }
+    try { rmSync(join('/tmp/test-project', '.anatoly', 'cache', 'refinements'), { recursive: true, force: true }); } catch { /* ok */ }
   });
 
   // --- AC: Agent investigates and produces confirmed/reclassified verdicts ---
@@ -683,7 +683,7 @@ describe('refinement cache (cache/refinements)', () => {
 
   beforeEach(() => {
     tempRoot = mkdtempSync(join(tmpdir(), 'anatoly-tier3-cache-'));
-    mkdirSync(join(tempRoot, '.anatoly', 'shared', 'refinements'), { recursive: true });
+    mkdirSync(join(tempRoot, '.anatoly', 'cache', 'refinements'), { recursive: true });
     mkdirSync(join(tempRoot, '.anatoly', 'cache'), { recursive: true });
   });
 

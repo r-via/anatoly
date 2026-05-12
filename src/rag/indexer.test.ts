@@ -488,7 +488,7 @@ describe('shared NLP summary cache', () => {
 
   beforeEach(() => {
     tmpRoot = resolve(tmpdir(), `anatoly-shared-nlp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    mkdirSync(resolve(tmpRoot, '.anatoly', 'shared', 'nlp-summaries'), { recursive: true });
+    mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'nlp-summaries'), { recursive: true });
     mkdirSync(resolve(tmpRoot, '.anatoly', 'cache', 'rag'), { recursive: true });
   });
 

@@ -38,9 +38,10 @@ function makeReview(file: string): ReviewFile {
  */
 function setupCrossProjectEnv(): { projA: string; projB: string; sharedDir: string; cleanup: () => void } {
   const base = mkdtempSync(join(tmpdir(), 'anatoly-cross-'));
+  // shared/ only holds multi-tenant safe dirs now (pricing/grammars/models).
+  // No reviews/refinements/nlp-summaries — those are project-local under cache/.
   const sharedDir = join(base, 'shared');
-  mkdirSync(join(sharedDir, 'reviews'), { recursive: true });
-  mkdirSync(join(sharedDir, 'nlp-summaries'), { recursive: true });
+  mkdirSync(sharedDir, { recursive: true });
 
   const projA = join(base, 'proj-A');
   const projB = join(base, 'proj-B');

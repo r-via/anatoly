@@ -37,8 +37,9 @@ export function registerCleanSharedCommand(program: Command): void {
       if (!opts.yes) {
         const ok = await confirm(
           chalk.yellow(
-            'This will clear ~/.anatoly/shared/ (reviews, refinements, NLP summaries, pricing, grammars, models).\n' +
-            'This affects ALL projects sharing this cache. Continue? [y/N] ',
+            'This will clear ~/.anatoly/shared/ (pricing, grammars, models).\n' +
+            'This affects ALL projects sharing this cache. Project-local caches\n' +
+            '(reviews, refinements, NLP summaries under cache/) are NOT touched. Continue? [y/N] ',
           ),
         );
         if (!ok) {

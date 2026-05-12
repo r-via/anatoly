@@ -38,7 +38,7 @@ describe('prompt invalidation integration', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'anatoly-prompt-'));
-    mkdirSync(join(root, '.anatoly', 'shared', 'reviews'), { recursive: true });
+    mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
     mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
   });
 
