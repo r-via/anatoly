@@ -21,6 +21,7 @@ import picomatch from 'picomatch';
 import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/usage-graph.js';
 import { needsBootstrap } from '../core/doc-bootstrap.js';
+import { resolveDocMode } from '../core/run-config.js';
 import { computeScaffoldPageList } from '../core/doc-pipeline.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/language-detect.js';
 import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
@@ -638,6 +639,7 @@ export function registerEstimateCommand(program: Command): void {
         ...(internalDocsOverride !== false && docPageCount > 0
           ? { docContext: { mode: docMode, pageCount: docPageCount, scaffoldingModel } }
           : {}),
+        docConflictDetection: internalDocsOverride !== false && resolveDocMode(config) === 'full',
         resolveBillingMode: makeBillingResolver(config),
         calibration,
         concurrency,

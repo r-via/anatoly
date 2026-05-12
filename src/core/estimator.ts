@@ -480,6 +480,12 @@ export interface ForecastInputs {
    * known-local embedding labels.
    */
   resolveBillingMode: (modelId: string) => ForecastStepBillingMode;
+  /**
+   * When true, the forecast includes a `conflict-detection` step under
+   * `internal-doc` category (1 Sonnet call). Set to true when docMode is
+   * `full`, false otherwise.
+   */
+  docConflictDetection?: boolean;
   calibration: CalibrationData;
   concurrency: number;
   ragEnabled: boolean;
@@ -534,8 +540,21 @@ export const DOC_COHERENCE_PER_PAGE = {
   output: 12500,
 } as const;
 
+/**
+ * Token budget for the doc-conflict-detector agent — a single LLM call per run
+ * in `full` mode that reads internal doc fragments + code anchors and identifies
+ * doc-code conflicts. Modeled as 1 Sonnet call with moderate context.
+ *
+ * Calibrated conservatively: the detector reads ~4K tokens of doc fragments and
+ * ~4K of code context, emits a structured YAML response of ~2K tokens.
+ */
+export const DOC_CONFLICT_DETECTOR_TOKENS = {
+  input: 8000,
+  output: 2000,
+} as const;
+
 export function forecastRun(args: ForecastInputs): RunForecast {
-  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, resolveBillingMode, calibration, concurrency, ragEnabled, deliberation } = args;
+  const { projectRoot, evalTasks, totalFiles, axes, embed, summaryModel, deliberationModel, docContext, docConflictDetection, resolveBillingMode, calibration, concurrency, ragEnabled, deliberation } = args;
   const steps: ForecastStep[] = [];
 
   // Per-pass token cost (one axis × all eval files) — `estimateTasksTokens`
@@ -720,6 +739,28 @@ export function forecastRun(args: ForecastInputs): RunForecast {
           read: cohCacheRead,
           creation: cohCacheCreation,
         }),
+        approximate: true,
+      });
+    }
+  }
+
+  // Doc-conflict detection: single LLM call per run in full mode.
+  // Uses the scaffolding model (or falls back to axes[0] model) to read
+  // internal doc fragments and code anchors, then emits a structured
+  // conflict list. Marked approximate since the real token shape depends
+  // on the number of doc fragments.
+  if (docConflictDetection) {
+    const detectorModel = docContext?.scaffoldingModel ?? axes[0]?.model;
+    if (detectorModel) {
+      const ct = DOC_CONFLICT_DETECTOR_TOKENS;
+      steps.push({
+        category: 'internal-doc',
+        name: 'conflict-detection',
+        model: detectorModel,
+        billingMode: resolveBillingMode(detectorModel),
+        inputTokens: ct.input,
+        outputTokens: ct.output,
+        costUsd: calculateCost(detectorModel, ct.input, ct.output, projectRoot),
         approximate: true,
       });
     }

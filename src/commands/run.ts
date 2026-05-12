@@ -7,6 +7,7 @@ import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, cre
 
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
+import * as p from '@clack/prompts';
 import picomatch from 'picomatch';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
@@ -113,6 +114,20 @@ function loadArbitratedFragments(projectRoot: string): ArbitratedFragment[] {
       }));
   } catch {
     return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Story 55.9: Count pending doc conflicts for start/end hints
+// ---------------------------------------------------------------------------
+
+function countPendingDocConflicts(projectRoot: string): number {
+  try {
+    const lock = loadDocConflicts(projectRoot);
+    if (!lock) return 0;
+    return lock.entries.filter((e) => e.verdict === 'pending').length;
+  } catch {
+    return 0;
   }
 }
 
@@ -1030,7 +1045,9 @@ export function registerRunCommand(program: Command): void {
           }
 
           // Run doc-conflict detection after bootstrap — Story 55.4 FR5
+          // Story 55.9: track phase duration for run-metrics.json
           if (!ctx.interrupted) {
+            const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runDocConflictDetection({
               projectRoot: ctx.projectRoot,
@@ -1038,6 +1055,7 @@ export function registerRunCommand(program: Command): void {
               tasks: setup.tasks,
               fragmentsDir,
             });
+            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }
         }
 
@@ -1076,7 +1094,9 @@ export function registerRunCommand(program: Command): void {
           }
 
           // Run doc-conflict detection after update — Story 55.4 FR5
+          // Story 55.9: track phase duration for run-metrics.json
           if (!ctx.interrupted) {
+            const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runDocConflictDetection({
               projectRoot: ctx.projectRoot,
@@ -1084,6 +1104,7 @@ export function registerRunCommand(program: Command): void {
               tasks: setup.tasks,
               fragmentsDir,
             });
+            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
@@ -1657,6 +1678,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       const providers = ctx.config.providers as Record<string, { mode?: 'subscription' | 'api' } | undefined>;
       return providers[provider]?.mode === 'subscription' ? 'subscription' : 'api';
     },
+    docConflictDetection: resolveDocMode(ctx.config) === 'full',
     calibration,
     concurrency: ctx.concurrency,
     ragEnabled: ctx.enableRag,
@@ -1679,6 +1701,19 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       hardware,
       telegramEnabled: ctx.config.notifications?.telegram?.enabled === true,
     });
+  }
+
+  // Story 55.9: Show pending doc conflicts hint at run start (FR16)
+  {
+    const pendingConflicts = countPendingDocConflicts(ctx.projectRoot);
+    if (pendingConflicts > 0) {
+      const hintMsg = `${pendingConflicts} doc conflict${pendingConflicts === 1 ? '' : 's'} pending — run \`anatoly docs arbitrate\` to resolve`;
+      if (!ctx.plain && process.stdout.isTTY) {
+        p.note(hintMsg, chalk.yellow('doc conflicts'));
+      } else {
+        process.stderr.write(`[doc-conflicts] ${hintMsg}\n`);
+      }
+    }
   }
 
   // Render setup summary table
@@ -2947,6 +2982,15 @@ function runReportPhase(ctx: RunContext): void {
     console.log('');
     console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
     console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
+  }
+
+  // Story 55.9: end-of-run reminder about pending doc conflicts (FR17)
+  if (!ctx.interrupted) {
+    const endPendingConflicts = countPendingDocConflicts(ctx.projectRoot);
+    if (endPendingConflicts > 0) {
+      console.log('');
+      console.log(chalk.yellow(`  ${endPendingConflicts} doc conflicts pending — run \`anatoly docs arbitrate\``));
+    }
   }
 
   if (ctx.shouldOpen) openFile(reportPath);

@@ -219,14 +219,7 @@
 - [x] Story 55.6: Commande `anatoly docs arbitrate` (wizard)
 - [x] Story 55.7: Axe correction consomme les arbitrages `doc-wins`
 - [x] Story 55.8: Axe documentation rapporte les `code-wins` comme "reference stale"
-  > **As an** axe documentation **I want** rapporter les portions de doc humaine que l'utilisateur a explicitement marquées obsolètes via `verdict: code-wins` **So that** la dette documentaire identifiée par arbitrage humain devienne visible dans le rapport et scorée comme une finding axe documentation.
-  > AC: Given le schéma de findings axe documentation actuel, When il est étendu pour epic 55, Then un nouveau kind `doc_stale_reference` est ajouté avec les champs `reference_path`, `reference_line_range?`, `arbitrated_at`, `arbitration_note?`
-  > AC: Given un `doc-conflicts.yaml` contenant des entrées `verdict: code-wins, status: applied`, When l'axe documentation build son contexte au run suivant, Then il lit le fichier, filtre ces entrées, et émet une finding `doc_stale_reference` par entrée pointant la portion de reference concernée
-  > AC: Given des findings `doc_stale_reference` produites par l'axe documentation, When le scoring du rapport est calculé, Then elles sont scorées au même titre que les findings de gap actuelles et impactent la F1 globale de l'axe documentation
-  > AC: Given un fixture avec un arbitrage `code-wins, applied` pré-existant, When un run est lancé, Then une finding `doc_stale_reference` apparaît dans le rapport pointant la portion de reference que l'humain a explicitement marquée obsolète
-  > AC: Given le repo sibling `../anatoly-bench` qui maintient le catalogue de scoring, When epic 55 est mergé, Then le nouveau kind `doc_stale_reference` est ajouté au catalogue (PR jumelle dans anatoly-bench) pour les fixtures qui le testent
-  > Spec: specs/planning-artifacts/epic-55-doc-conflicts-arbitration.md#story-55-8
-- [ ] Story 55.9: Intégration `estimate` + run-metrics + hints démarrage/fin
+- [x] Story 55.9: Intégration `estimate` + run-metrics + hints démarrage/fin
   > **As an** utilisateur Anatoly **I want** que `anatoly estimate` reflète fidèlement le coût de chaque run avec epic 55 activé **So that** je ne sois pas surpris en aval par un coût LLM caché.
   > AC: Given `forecastRun` dans [src/commands/estimate.ts](src/commands/estimate.ts) qui aujourd'hui ne forecaste pas le doc-conflict-detector, When epic 55 est implémenté, Then une ligne dédiée au `doc-conflict-detector` est ajoutée à la prévision (1 appel par run en mode `full`, 0 en lite/off)
   > AC: Given la dette pré-existante : `runDocCoherenceReview` non intégré à estimate, When epic 55 rattrape cette dette, Then son coût est aussi inclus dans `forecastRun`, de sorte qu'aucun agent doc-pipeline ne reste invisible au forecasting
