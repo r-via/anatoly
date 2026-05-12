@@ -94,6 +94,8 @@ export interface AxisContext {
   relevantDocs?: RelevantDoc[];
   /** Human-authored reference docs (README, specs, doc-comments) resolved for the run */
   referenceDocs?: ReferenceDoc[];
+  /** Lite-mode internal digest (deterministic, no LLM). Null when mode is not lite. */
+  internalDigest?: { tokens: number; content: string; fingerprint: string } | null;
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */
   conversationDir?: string;
   /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */

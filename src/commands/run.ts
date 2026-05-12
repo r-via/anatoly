@@ -89,6 +89,7 @@ import { anatolyPath, runPath, clearCache } from '../utils/anatoly-paths.js';
 import { writeSharedReview, loadSharedReview } from '../core/shared-review-cache.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
+import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
 
 /**
  * Mutable context bag threaded through every phase of a single `run` command
@@ -210,6 +211,8 @@ export interface RunContext {
   connectivityCheck: boolean;
   /** Git branch + commit captured once during initRunDir, reused in done/failed status writes. */
   gitInfo?: { branch?: string; commit?: string };
+  /** Lite-mode internal digest — set when documentation.internal.mode === 'lite'. */
+  internalDigest?: import('../core/internal-docs-digest.js').DigestResult | null;
 }
 
 /**
@@ -970,7 +973,15 @@ export function registerRunCommand(program: Command): void {
         }
 
         // --- Phase: bootstrap doc (first run only, skipped in quick-win) — Story 29.21 ---
-        if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
+        // In lite mode, skip LLM-based scaffold/generation and build a deterministic digest instead (Story 54.6)
+        const internalDocMode = ctx.config.documentation?.internal?.mode;
+        if (internalDocMode === 'lite' && !ctx.interrupted) {
+          const log = getLogger();
+          log.info('internal docs mode=lite — building deterministic digest (no LLM)');
+          ctx.renderer?.logPlain('[internal-docs] mode=lite — building deterministic digest (no LLM)');
+          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
+          ctx.pipelineState?.completeTask('bootstrap-doc', 'lite digest');
+        } else if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
           await runWithContext({ phase: 'bootstrap-doc' }, async () => {
             await runDocBootstrap(ctx, setup.tasks);
           });
@@ -1128,8 +1139,12 @@ export function registerRunCommand(program: Command): void {
         }
 
         // --- Phase: update internal docs — Story 29.21 ---
+        // In lite mode, rebuild the deterministic digest (no LLM). Story 54.6.
+        if (internalDocMode === 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
+          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
+          ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
         // Skip when no files were reviewed (nothing changed → docs are still current)
-        if (!ctx.interrupted && ctx.filesReviewed > 0) {
+        } else if (internalDocMode !== 'lite' && !ctx.interrupted && ctx.filesReviewed > 0) {
           await runWithContext({ phase: 'internal-docs' }, async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
@@ -2536,6 +2551,7 @@ async function runReviewPhase(
               conversationDir: join(ctx.runDir, 'conversations'),
               router: ctx.router,
               userInstructions: ctx.userInstructions,
+              internalDigest: ctx.internalDigest,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },

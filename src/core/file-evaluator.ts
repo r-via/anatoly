@@ -78,6 +78,8 @@ export interface EvaluateFileOptions {
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — passed to each axis evaluator for prompt calibration */
   userInstructions?: import('../utils/user-instructions.js').UserInstructions;
+  /** Lite-mode internal digest (deterministic, no LLM). Story 54.6. */
+  internalDigest?: { tokens: number; content: string; fingerprint: string } | null;
 }
 
 export interface AxisTiming {
@@ -271,6 +273,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     conversationFileSlug: fileSlug,
     router: opts.router,
     userInstructions: opts.userInstructions,
+    internalDigest: opts.internalDigest,
   };
 
   // Filter out evaluators whose axes.*.skip patterns match this file
