@@ -82,6 +82,7 @@ describe('idempotent bootstrap integration', () => {
     mkdirSync(fakeHome, { recursive: true });
     savedHome = process.env.HOME ?? homedir();
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
   });
 
   afterEach(() => {

@@ -59,6 +59,7 @@ describe('loadHfTransformers cache redirect (AC6)', () => {
     const fakeHome = join(tempRoot, 'fakehome');
     mkdirSync(fakeHome, { recursive: true });
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
     _resetHfModule();
   });
 

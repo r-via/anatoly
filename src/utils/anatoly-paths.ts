@@ -195,45 +195,56 @@ export function bootstrapAnatoly(root: string): void {
   // 1. Project-level root
   mkdirSync(dotAnatoly, { recursive: true, mode: 0o700 });
 
-  // 2. User-wide roots + shared subdirs
-  mkdirSync(join(uwRoot, 'shared'), { recursive: true, mode: 0o700 });
-  mkdirSync(join(uwRoot, 'user'), { recursive: true, mode: 0o700 });
+  // 2. User-wide bootstrap is ONLY done when running on a local install
+  // (`~/.anatoly/` already exists). When it doesn't exist, we're either on
+  // a fresh machine (waiting for `anatoly init` to create it explicitly)
+  // or in a sandbox/container where the orchestrator bind-mounts the
+  // user-wide tree from outside — anatoly must NOT create anything there.
+  const isLocalInstall = existsSync(uwRoot);
 
-  for (const sub of SHARED_SUBDIRS) {
-    const target = join(uwRoot, 'shared', sub);
-    // Special case: `models/gguf` symlinks to `~/.anatoly/models/` when that
-    // legacy location exists with GGUF files. Models stay at their canonical
-    // home; shared/ exposes them via symlink so anatolyPath resolution still
-    // works without forcing the user to mv 10+ GB of weights.
-    if (sub === join('models', 'gguf') && shouldLinkLegacyModels(uwRoot, target)) {
-      const legacyModels = join(uwRoot, 'models');
-      // If a correct symlink already exists, skip silently (idempotent).
-      if (symlinkExists(target) && (() => {
-        try { return readlinkSync(target) === legacyModels; } catch { return false; }
-      })()) {
-        continue;
+  if (isLocalInstall) {
+    // Ensure user-wide shared/ + user/ roots exist (idempotent — mkdir
+    // recursive on existing dir is a no-op).
+    mkdirSync(join(uwRoot, 'shared'), { recursive: true, mode: 0o700 });
+    mkdirSync(join(uwRoot, 'user'), { recursive: true, mode: 0o700 });
+
+    // Ensure user-wide subdirs exist (idempotent — mkdir recursive on
+    // existing dir is a no-op). Symlinks are created ONLY if the source
+    // directory exists; if it doesn't, the layout is already managed
+    // externally (sandbox mount-point case).
+    for (const sub of SHARED_SUBDIRS) {
+      const target = join(uwRoot, 'shared', sub);
+      // models/gguf is a special case: symlink to ~/.anatoly/models/ (canonical
+      // home for GGUF weights) instead of duplicating storage. Created only
+      // when (a) the legacy location exists with .gguf files, and (b) the
+      // symlink doesn't already point at the right target.
+      if (sub === join('models', 'gguf') && shouldLinkLegacyModels(uwRoot, target)) {
+        const legacyModels = join(uwRoot, 'models');
+        if (symlinkPointsAt(target, legacyModels)) continue;
+        if (existsSync(target) || symlinkExists(target)) {
+          try { rmSync(target, { recursive: true, force: true }); } catch { /* best-effort */ }
+        }
+        mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+        try {
+          symlinkSync(legacyModels, target, 'dir');
+          continue;
+        } catch (err) {
+          getLogger().warn({ err: String(err) }, 'failed to symlink shared/models/gguf — falling back to mkdir');
+        }
       }
-      // Drop any stale entry, then create the symlink.
-      if (existsSync(target) || symlinkExists(target)) {
-        try { rmSync(target, { recursive: true, force: true }); } catch { /* best-effort */ }
-      }
-      mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-      try {
-        symlinkSync(legacyModels, target, 'dir');
-        continue;
-      } catch (err) {
-        getLogger().warn(
-          { err: String(err) },
-          'failed to symlink shared/models/gguf to ~/.anatoly/models — falling back to mkdir',
-        );
-      }
+      mkdirSync(target, { recursive: true, mode: 0o700 });
     }
-    mkdirSync(target, { recursive: true, mode: 0o700 });
-  }
 
-  // 3. Symlinks (or respect existing real dirs / mount-points)
-  ensureLink(dotAnatoly, 'shared', join(uwRoot, 'shared'));
-  ensureLink(dotAnatoly, 'user', join(uwRoot, 'user'));
+    // Project ↔ user-wide symlinks: created only when the user-wide source
+    // exists (it does here, since we checked isLocalInstall). ensureLink is
+    // idempotent and respects existing real dirs (project isolated mode).
+    ensureLink(dotAnatoly, 'shared', join(uwRoot, 'shared'));
+    ensureLink(dotAnatoly, 'user', join(uwRoot, 'user'));
+  }
+  // Sandbox mode (uwRoot doesn't exist): leave shared/ and user/ alone —
+  // they're either bind-mounted by the orchestrator or simply unavailable.
+  // anatolyPath will still resolve relative to <project>/.anatoly/; reads
+  // that hit a missing dir will fail cleanly at the call site.
 
   // 4. Migrate legacy state files (pre-Epic-52 layout). MUST run BEFORE
   // project-subdir creation: otherwise mkdir would create empty target dirs
@@ -316,6 +327,19 @@ function migrateLegacyState(dotAnatoly: string): void {
     } catch (err) {
       getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
     }
+  }
+}
+
+/**
+ * Returns true if `linkPath` exists as a symlink that points at exactly
+ * `expectedTarget`. Safe wrapper around readlinkSync — any error returns false.
+ */
+function symlinkPointsAt(linkPath: string, expectedTarget: string): boolean {
+  if (!symlinkExists(linkPath)) return false;
+  try {
+    return readlinkSync(linkPath) === expectedTarget;
+  } catch {
+    return false;
   }
 }
 

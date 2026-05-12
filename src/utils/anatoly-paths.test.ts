@@ -80,6 +80,7 @@ describe('bootstrapAnatoly', () => {
     fakeHome = join(tempDir, 'fakehome');
     mkdirSync(fakeHome, { recursive: true });
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
   });
 
   afterEach(() => {
@@ -211,6 +212,7 @@ describe('clearCache', () => {
     fakeHome = join(tempDir, 'fakehome');
     mkdirSync(fakeHome, { recursive: true });
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
   });
 
   afterEach(() => {
@@ -260,6 +262,7 @@ describe('clearShared', () => {
     fakeHome = join(tempDir, 'fakehome');
     mkdirSync(fakeHome, { recursive: true });
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
   });
 
   afterEach(() => {

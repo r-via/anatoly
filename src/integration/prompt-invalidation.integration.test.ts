@@ -46,6 +46,7 @@ describe('prompt invalidation integration (Story 52.7)', () => {
     mkdirSync(fakeHome, { recursive: true });
     savedHome = process.env.HOME!;
     process.env.HOME = fakeHome;
+    mkdirSync(join(fakeHome, '.anatoly'), { recursive: true });  // simulate local install
 
     root = join(base, 'project');
     mkdirSync(root, { recursive: true });
