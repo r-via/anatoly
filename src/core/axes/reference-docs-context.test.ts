@@ -21,7 +21,8 @@ describe('renderReferenceDocsContext', () => {
       { source: 'readme', path: 'README.md', content: '# Project' },
     ];
     const result = renderReferenceDocsContext(docs);
-    expect(result).toContain('## REFERENCE DOCUMENTATION (AUTHORITATIVE — human-authored)');
+    expect(result).toContain('## REFERENCE DOCUMENTATION (AUTHORITATIVE');
+    expect(result).toContain('human-authored');
     expect(result).toContain('ground truth');
     expect(result).toContain('doc_divergence');
   });

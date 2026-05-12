@@ -32,46 +32,61 @@ export function renderReferenceDocsContext(
   internalDigest?: { tokens: number; content: string; fingerprint: string } | null,
   arbitratedFragments?: ArbitratedFragment[],
 ): string {
-  if (!referenceDocs || referenceDocs.length === 0) return '';
+  const hasReferenceDocs = referenceDocs && referenceDocs.length > 0;
+  const hasInternalDigest = !!internalDigest?.content?.includes('status: evaluated');
+  const hasArbitratedFragments = !!arbitratedFragments && arbitratedFragments.length > 0;
+
+  // Early-return only when no authoritative source is available. Without
+  // this guard, an empty referenceDocs would suppress the arbitrated
+  // fragments (Story 55.7) and the lite-mode evaluated digest (Story
+  // 55.5) — both of which are independent authoritative sources.
+  if (!hasReferenceDocs && !hasInternalDigest && !hasArbitratedFragments) {
+    return '';
+  }
 
   const parts: string[] = [];
-  parts.push('## REFERENCE DOCUMENTATION (AUTHORITATIVE — human-authored)');
+  parts.push('## REFERENCE DOCUMENTATION (AUTHORITATIVE — human-authored or human-validated)');
   parts.push('');
   parts.push(
     'Use the following as ground truth. If the code you are reviewing contradicts an invariant, convention, or non-goal stated here, flag it as a `doc_divergence` finding (not as a regular bug).',
   );
   parts.push('');
 
-  for (const doc of referenceDocs) {
-    const label = doc.symbol
-      ? `### \`${doc.path}\` (source: ${doc.source}, symbol: ${doc.symbol})`
-      : `### \`${doc.path}\` (source: ${doc.source})`;
-    parts.push(label);
-    parts.push('');
-    parts.push(doc.content);
-    parts.push('');
+  // 1. Human-authored reference docs (README, specs, doc-comments)
+  if (hasReferenceDocs) {
+    for (const doc of referenceDocs!) {
+      const label = doc.symbol
+        ? `### \`${doc.path}\` (source: ${doc.source}, symbol: ${doc.symbol})`
+        : `### \`${doc.path}\` (source: ${doc.source})`;
+      parts.push(label);
+      parts.push('');
+      parts.push(doc.content);
+      parts.push('');
+    }
   }
 
-  // Story 55.5: append evaluated internal digest when present
-  if (internalDigest?.content?.includes('status: evaluated')) {
+  // 2. Story 55.5: evaluated internal digest (lite-mode reference compression)
+  if (hasInternalDigest) {
     parts.push('### Internal Reference Digest (source: reference-digest)');
     parts.push('');
-    parts.push(internalDigest.content);
+    parts.push(internalDigest!.content);
     parts.push('');
   }
 
-  // Story 55.7: append arbitrated doc-wins fragments when present
-  if (arbitratedFragments && arbitratedFragments.length > 0) {
-    parts.push('## ARBITRATED INTERNAL DOCS (human-validated)');
+  // 3. Story 55.7: arbitrated doc-wins fragments (human-validated intent
+  //    baked in via the arbitration loop — independent authoritative source
+  //    even when no reference docs are configured)
+  if (hasArbitratedFragments) {
+    parts.push('### ARBITRATED INTENTS (human-validated via `anatoly docs arbitrate`)');
     parts.push('');
     parts.push(
-      'The following internal documentation fragments were validated by a human arbitrator as correct (verdict: doc-wins). Treat them as authoritative — flag code that contradicts them as a `doc_divergence` finding.',
+      'A human arbitrator confirmed the following statements as the intended behavior of the code (verdict: doc-wins). Treat them as authoritative — flag code that contradicts them as a `doc_divergence` finding.',
     );
     parts.push('');
 
-    for (const frag of arbitratedFragments) {
+    for (const frag of arbitratedFragments!) {
       const lineInfo = frag.lineRange ? ` (lines ${frag.lineRange[0]}–${frag.lineRange[1]})` : '';
-      parts.push(`### \`${frag.referencePath}\`${lineInfo}`);
+      parts.push(`#### \`${frag.referencePath}\`${lineInfo}`);
       parts.push('');
       parts.push(frag.text);
       if (frag.note) {

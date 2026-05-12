@@ -30,7 +30,7 @@ describe('Story 55.7 — renderReferenceDocsContext with arbitrated fragments', 
 
     const result = renderReferenceDocsContext(baseDocs, null, fragments);
     // Must contain the distinct section header
-    expect(result).toContain('ARBITRATED INTERNAL DOCS (human-validated)');
+    expect(result).toContain('ARBITRATED INTENTS (human-validated');
     // Must contain the fragment text
     expect(result).toContain('computeBar must never return null');
     // Must contain the reference path
@@ -133,7 +133,7 @@ describe('Story 55.7 — AC3: reference + arbitrated + internal coexist', () => 
 
     // All three sections present
     expect(result).toContain('REFERENCE DOCUMENTATION (AUTHORITATIVE');
-    expect(result).toContain('ARBITRATED INTERNAL DOCS (human-validated)');
+    expect(result).toContain('ARBITRATED INTENTS (human-validated');
     expect(result).toContain('Internal Reference Digest (source: reference-digest)');
 
     // Content from each section present
