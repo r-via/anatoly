@@ -20,6 +20,7 @@
     "test": "vitest run",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run build",
     "prepare": "tsup"
   },
   "repository": {
