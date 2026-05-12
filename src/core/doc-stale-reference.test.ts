@@ -113,8 +113,6 @@ describe('Story 55.8 — AC1: DocStaleReferenceSchema', () => {
 
 describe('Story 55.8 — AC1: ReviewFileSchema field', () => {
   it('ReviewFileSchema accepts doc_stale_references array', async () => {
-    const { ReviewFileSchema } = await import('../schemas/review.js');
-    // Build a minimal ReviewFile with doc_stale_references
     const reviewSrc = readFileSync(
       join(process.cwd(), 'src', 'schemas', 'review.ts'),
       'utf-8',
@@ -176,7 +174,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'a.md', arbitrated_at: '2025-01-01' }] },
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'b.md', arbitrated_at: '2025-01-02' }] },
       {},
-    ] as any[];
+    ] as Parameters<typeof aggregateStaleReferences>[0];
     const result = aggregateStaleReferences(reviews);
     expect(result).toHaveLength(2);
   });
@@ -186,7 +184,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
     const refs = [
       { kind: 'doc_stale_reference' as const, reference_path: 'docs/arch.md', arbitrated_at: '2025-01-16', arbitration_note: 'outdated' },
     ];
-    const result = renderStaleReferenceSection(refs as any[]);
+    const result = renderStaleReferenceSection(refs);
     expect(result).toContain('docs/arch.md');
     expect(result).toContain('outdated');
     expect(result).toContain('stale');

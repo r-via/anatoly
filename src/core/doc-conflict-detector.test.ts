@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rmSync } from 'node:fs';
@@ -11,10 +11,9 @@ import {
   derivePresumption,
   applyResolvedVerdicts,
   markStaleEntries,
-  type DetectionSummary,
 } from './doc-conflict-detector.js';
-import { loadDocConflicts, saveDocConflicts, hashCodeAnchor } from './doc-conflict-store.js';
-import type { DocConflict, DocConflictsLock } from '../schemas/doc-conflict.js';
+import { hashCodeAnchor } from './doc-conflict-store.js';
+import type { DocConflict } from '../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,14 +52,6 @@ function makeEntry(overrides: Partial<DocConflict> = {}): DocConflict {
     verdict: 'pending',
     status: 'active',
     ...overrides,
-  };
-}
-
-function makeLock(entries: DocConflict[]): DocConflictsLock {
-  return {
-    version: 1,
-    generated_at: '2025-06-01T12:00:00Z',
-    entries,
   };
 }
 

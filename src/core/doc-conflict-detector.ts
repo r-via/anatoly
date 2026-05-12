@@ -11,6 +11,7 @@ import { resolveDocMode } from './run-config.js';
 import {
   loadDocConflicts,
   saveDocConflicts,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used by Story 55.10 (LLM detection of new conflicts), kept here for the phase 1 surface
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
