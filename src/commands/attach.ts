@@ -115,8 +115,6 @@ export function buildAttachHeader(status: RunStatus, logPath: string): string {
   lines.push(`  background  ${status.background}`);
   lines.push(`  log         ${logPath}`);
   lines.push(`  attached at ${new Date().toISOString()}`);
-  lines.push('');
-  lines.push('  (Press Ctrl-C to detach — does not stop the run)');
   return lines.join('\n');
 }
 
@@ -183,6 +181,24 @@ export function buildLiveSnapshot(snapshot: LiveSnapshot): string {
   return lines.join('\n');
 }
 
+/**
+ * One-line status renderer for live refresh at the bottom of the attach
+ * output. Designed to coexist with scrolling event lines via the
+ * `clear-and-rewrite` pattern (\r + ANSI clear-line).
+ */
+export function buildStatusLine(snapshot: LiveSnapshot): string {
+  const parts: string[] = [];
+  parts.push(`phase: ${snapshot.phase ?? '—'}`);
+  if (snapshot.totalFiles > 0) {
+    const pct = Math.round((snapshot.reviewedFiles / snapshot.totalFiles) * 100);
+    parts.push(`${snapshot.reviewedFiles}/${snapshot.totalFiles} (${pct}%)`);
+  } else {
+    parts.push(`waiting on estimate`);
+  }
+  parts.push(`elapsed ${formatDuration(snapshot.elapsedMs)}`);
+  return `  ${parts.join(' · ')}`;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Live TUI event handler — Story 53.5                               */
 /* ------------------------------------------------------------------ */
@@ -230,7 +246,7 @@ function colorVerdict(verdict: string): string {
  * counter is meaningful even when the user joins after `estimate_total`
  * already fired.
  */
-export function createAttachEventHandler(initial?: { totalFiles?: number; reviewedFiles?: number }): {
+export function createAttachEventHandler(initial?: { totalFiles?: number; reviewedFiles?: number; onLineEmitted?: () => void }): {
   handleEvent: (event: unknown) => void;
   state: AttachRenderState;
 } {
@@ -240,6 +256,11 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
     totalFiles: initial?.totalFiles ?? 0,
     findings: [],
   };
+
+  function emit(line: string): void {
+    console.log(line);
+    initial?.onLineEmitted?.();
+  }
 
   function handleEvent(event: unknown): void {
     if (!event || typeof event !== 'object') return;
@@ -251,7 +272,7 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
       case 'phase_start': {
         const phase = ev.phase as string;
         state.currentPhase = phase;
-        console.log(chalk.cyan(`  ▸ phase: ${phase}`));
+        emit(chalk.cyan(`  ▸ phase: ${phase}`));
         break;
       }
 
@@ -259,7 +280,7 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
         const phase = ev.phase as string;
         const durationMs = ev.durationMs as number | undefined;
         const durStr = durationMs != null ? ` (${Math.round(durationMs / 1000)}s)` : '';
-        console.log(chalk.dim(`  ▹ phase: ${phase} done${durStr}`));
+        emit(chalk.dim(`  ▹ phase: ${phase} done${durStr}`));
         state.currentPhase = '';
         break;
       }
@@ -272,7 +293,7 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
 
         const counter = chalk.dim(formatCounter(state.reviewedFiles, state.totalFiles));
         const verdictLabel = colorVerdict(verdict).padEnd(VERDICT_LABEL_WIDTH + 9); // +9 ANSI escape budget
-        console.log(`  ${counter} ${verdictLabel} ${chalk.dim(file)}`);
+        emit(`  ${counter} ${verdictLabel} ${chalk.dim(file)}`);
         break;
       }
 
@@ -577,27 +598,71 @@ export function registerAttachCommand(parent: Command): void {
         // progress.json missing or unreadable — leave counts at 0
       }
       const currentPhase = readCurrentPhase(logPath);
-      const elapsedMs = Date.now() - new Date(result.status.startedAt).getTime();
-      console.log(buildLiveSnapshot({
-        phase: currentPhase,
-        reviewedFiles: snapshotReviewed,
-        totalFiles: snapshotTotal,
-        elapsedMs,
-      }));
       console.log('  ' + chalk.dim('─'.repeat(60)));
+      console.log('  ' + chalk.dim('(Press Ctrl-C to detach — does not stop the run)'));
+      console.log('');
+
+      // Live status line — single line at the bottom that refreshes in
+      // place via \r + ANSI clear-line. Events from the tail handler
+      // clear this line before printing themselves, then it's redrawn.
+      // A 1s timer also refreshes it so elapsed time advances visually
+      // even when no event fires.
+      const startedAtMs = new Date(result.status.startedAt).getTime();
+      let statusLineDrawn = false;
+
+      function clearStatusLine(): void {
+        if (!statusLineDrawn) return;
+        process.stdout.write('\r\x1b[K');
+        statusLineDrawn = false;
+      }
+
+      function drawStatusLine(): void {
+        const snap = {
+          phase: state.currentPhase || readCurrentPhase(logPath),
+          reviewedFiles: state.reviewedFiles,
+          totalFiles: state.totalFiles,
+          elapsedMs: Date.now() - startedAtMs,
+        };
+        process.stdout.write('\r\x1b[K' + chalk.cyan(buildStatusLine(snap)));
+        statusLineDrawn = true;
+      }
 
       // Start tailing ndjson — Story 53.5
-      const { handleEvent } = createAttachEventHandler({
+      const { handleEvent, state } = createAttachEventHandler({
         totalFiles: snapshotTotal,
         reviewedFiles: snapshotReviewed,
+        // Each emitted event line is preceded by a status-line clear and
+        // followed by a redraw — so the status always sits below history.
+        onLineEmitted: () => {
+          drawStatusLine();
+        },
       });
-      const fromStart = opts?.fromStart ?? false;
 
+      // Seed currentPhase from the ndjson snapshot so the very first
+      // status-line draw shows the right phase before any new event fires.
+      if (currentPhase) state.currentPhase = currentPhase;
+
+      // Initial draw + periodic refresh for elapsed time.
+      drawStatusLine();
+      const refreshTimer = setInterval(() => {
+        // Re-read the current phase opportunistically — useful when the
+        // run is between events but inside a long-running phase.
+        const livePhase = state.currentPhase || readCurrentPhase(logPath);
+        if (livePhase) state.currentPhase = livePhase;
+        drawStatusLine();
+      }, 1000);
+
+      const fromStart = opts?.fromStart ?? false;
       const tailHandle: TailHandle = tailNdjson(logPath, {
         fromStart,
-        onEvent: handleEvent,
+        onEvent: (ev) => {
+          clearStatusLine();
+          handleEvent(ev);
+        },
         onError: (err) => {
+          clearStatusLine();
           console.error(chalk.dim(`  warning: ${err.message}`));
+          drawStatusLine();
         },
       });
 
@@ -607,6 +672,8 @@ export function registerAttachCommand(parent: Command): void {
       // SIGINT handler: detach cleanly without affecting the run
       process.on('SIGINT', () => {
         tailHandle.stop();
+        clearInterval(refreshTimer);
+        clearStatusLine();
         abortController.abort();
         console.log('');
         console.log(`  detached from run ${result.runId}`);
@@ -620,8 +687,10 @@ export function registerAttachCommand(parent: Command): void {
         { signal: abortController.signal },
       );
 
-      // Stop tailing
+      // Stop tailing + clean up refresh timer + status line
       tailHandle.stop();
+      clearInterval(refreshTimer);
+      clearStatusLine();
 
       if (monitorResult.reason === 'aborted') {
         // SIGINT already handled above

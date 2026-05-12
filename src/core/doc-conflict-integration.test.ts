@@ -68,9 +68,11 @@ describe('Story 55.9 — AC4: run-metrics includes doc-conflict-detection', () =
     // Both calls (after bootstrap and after update) should be timed
     const calls = [...src.matchAll(/runDocConflictDetection\(/g)];
     expect(calls.length).toBe(2);
-    // Each call should have a Date.now() timing measurement nearby
+    // Each call should have a Date.now() timing measurement nearby.
+    // Window widened to 600 chars on each side after phase_start/phase_end
+    // ndjson emissions were added inline to the call site (UI bug fix).
     for (const call of calls) {
-      const nearby = src.slice(Math.max(0, call.index! - 300), call.index! + 300);
+      const nearby = src.slice(Math.max(0, call.index! - 600), call.index! + 600);
       expect(nearby).toContain('Date.now()');
     }
   });

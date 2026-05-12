@@ -1049,6 +1049,9 @@ export function registerRunCommand(program: Command): void {
           if (!ctx.interrupted) {
             const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
+            ctx.timeline.push({ t: conflictDetStart - ctx.startTime, event: 'phase_start', phase: 'doc-conflict-detection' });
+            getLogger().info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
+            ctx.runLog?.info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
             await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
               await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
@@ -1058,7 +1061,11 @@ export function registerRunCommand(program: Command): void {
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });
-            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
+            const conflictDetDuration = Date.now() - conflictDetStart;
+            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + conflictDetDuration;
+            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration });
+            getLogger().info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
+            ctx.runLog?.info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
           }
         }
 
@@ -1101,6 +1108,9 @@ export function registerRunCommand(program: Command): void {
           if (!ctx.interrupted) {
             const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
+            ctx.timeline.push({ t: conflictDetStart - ctx.startTime, event: 'phase_start', phase: 'doc-conflict-detection' });
+            getLogger().info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
+            ctx.runLog?.info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
             await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
               await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
@@ -1110,7 +1120,11 @@ export function registerRunCommand(program: Command): void {
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });
-            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + (Date.now() - conflictDetStart);
+            const conflictDetDuration = Date.now() - conflictDetStart;
+            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + conflictDetDuration;
+            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration });
+            getLogger().info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
+            ctx.runLog?.info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
@@ -1938,7 +1952,10 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
   const srcRoot = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
+  const phaseStartedAt = Date.now();
+  ctx.timeline.push({ t: phaseStartedAt - ctx.startTime, event: 'phase_start', phase: taskId });
+  log.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
 
   try {
     let pkg: Record<string, unknown> = {};
@@ -1974,6 +1991,11 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   } catch (err) {
     log.warn({ err }, `${taskId} failed — continuing`);
     rl?.warn({ err }, `${taskId} failed`);
+  } finally {
+    const durationMs = Date.now() - phaseStartedAt;
+    ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs });
+    log.info({ event: 'phase_end', phase: taskId, durationMs, runId: ctx.runId }, 'phase ended');
+    rl?.info({ event: 'phase_end', phase: taskId, durationMs, runId: ctx.runId }, 'phase ended');
   }
 }
 
@@ -1990,6 +2012,8 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
+  log.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
+  rl?.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
   const start = Date.now();
 
   try {
@@ -2040,6 +2064,8 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const duration = Date.now() - start;
   ctx.phaseDurations[taskId] = duration;
   ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs: duration });
+  log.info({ event: 'phase_end', phase: taskId, durationMs: duration, runId: ctx.runId }, 'phase ended');
+  rl?.info({ event: 'phase_end', phase: taskId, durationMs: duration, runId: ctx.runId }, 'phase ended');
 }
 
 /**

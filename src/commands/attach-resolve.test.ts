@@ -146,7 +146,8 @@ describe('buildAttachHeader', () => {
     expect(header).toContain('false');
     expect(header).toContain('log.ndjson');
     expect(header).toContain('attached at');
-    expect(header).toContain('Ctrl-C to detach');
+    // Ctrl-C hint moved into the live section by Story 53.x hardening —
+    // header is now purely metadata.
   });
 
   it('shows background true when set', () => {
