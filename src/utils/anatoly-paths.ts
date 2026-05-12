@@ -276,25 +276,26 @@ function migrateLegacyState(dotAnatoly: string): void {
     }
   }
 
-  // Directory migration: .anatoly/docs/ → .anatoly/state/internal-docs/
-  const legacyDocs = join(dotAnatoly, 'docs');
-  const targetDocs = join(stateDir, 'internal-docs');
-  if (existsSync(legacyDocs) && lstatSync(legacyDocs).isDirectory()) {
+  // Directory migrations: legacy dirs at .anatoly/ root → their canonical home.
+  const dirMigrations: Array<{ legacy: string; target: string; label: string }> = [
+    { legacy: join(dotAnatoly, 'docs'),    target: join(stateDir, 'internal-docs'),         label: 'docs/ → state/internal-docs/' },
+    { legacy: join(dotAnatoly, 'rag'),     target: join(dotAnatoly, 'cache', 'rag'),        label: 'rag/ → cache/rag/' },
+  ];
+
+  for (const { legacy, target, label } of dirMigrations) {
+    if (!existsSync(legacy)) continue;
     try {
-      const targetHasContent = existsSync(targetDocs) && readdirSync(targetDocs).length > 0;
+      if (!lstatSync(legacy).isDirectory()) continue;
+      const targetHasContent = existsSync(target) && readdirSync(target).length > 0;
       if (targetHasContent) {
-        // New code already populated state/internal-docs/ — legacy docs/ is dead.
-        rmSync(legacyDocs, { recursive: true, force: true });
+        // New code already populated the canonical location — legacy is dead.
+        rmSync(legacy, { recursive: true, force: true });
       } else {
-        // First migration — move docs/ into state/internal-docs/.
-        if (existsSync(targetDocs)) rmSync(targetDocs, { recursive: true, force: true });
-        renameSync(legacyDocs, targetDocs);
+        if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+        renameSync(legacy, target);
       }
     } catch (err) {
-      getLogger().warn(
-        { err: String(err) },
-        'failed to migrate legacy docs/ to state/internal-docs/ — leaving in place',
-      );
+      getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
     }
   }
 }
