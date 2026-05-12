@@ -22,7 +22,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { extractProvider, stripPrefix } from '../core/transports/index.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
 import { anatolyPath } from './anatoly-paths.js';

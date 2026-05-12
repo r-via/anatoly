@@ -563,14 +563,6 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
 // DocumentationConfigSchema — Story 54.1: Reference-first documentation config
 // ---------------------------------------------------------------------------
 
-/** Helper to build a minimal valid documentation config for test reuse. */
-function validDocConfig(overrides: Record<string, unknown> = {}) {
-  return {
-    reference: { paths: ['docs/**/*.md'], inline_comments: { enabled: false } },
-    internal: { mode: 'off' },
-    ...overrides,
-  };
-}
 
 describe('DocumentationConfigSchema — Story 54.1', () => {
   // AC3 case 1: valid config in mode `lite`

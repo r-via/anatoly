@@ -17,13 +17,12 @@ import {
   rmSync,
   lstatSync,
   existsSync,
-  writeFileSync,
-  readFileSync,
   unlinkSync,
+  readdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
-import { bootstrapAnatoly, anatolyPath } from '../utils/anatoly-paths.js';
+import { bootstrapAnatoly } from '../utils/anatoly-paths.js';
 import {
   writeSharedReview,
   loadSharedReview,
@@ -114,8 +113,7 @@ describe('isolated mode integration', () => {
     const userWideReviews = join(fakeHome, '.anatoly', 'shared', 'reviews');
     if (existsSync(userWideReviews)) {
       // If it exists, check no review was written there
-      const { readdirSync } = require('node:fs');
-      const entries = readdirSync(userWideReviews, { recursive: true });
+      const entries = readdirSync(userWideReviews, { recursive: true }) as string[];
       // Entries could be subdirs from bootstrap, but no .rev.json files
       const jsonFiles = entries.filter((e: string) => e.endsWith('.json'));
       expect(jsonFiles.length).toBe(0);

@@ -16,6 +16,7 @@ import {
   rmSync,
   lstatSync,
   existsSync,
+  readlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir, platform } from 'node:os';
@@ -63,7 +64,6 @@ describe('cross-platform symlinks', () => {
     mkdirSync(root);
     bootstrapAnatoly(root);
 
-    const { readlinkSync } = require('node:fs');
     const sharedTarget = readlinkSync(join(root, '.anatoly', 'shared'));
     expect(sharedTarget).toBe(join(fakeHome, '.anatoly', 'shared'));
 

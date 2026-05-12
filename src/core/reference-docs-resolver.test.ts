@@ -2,11 +2,13 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- tree-sitter mock AST nodes use any for shape flexibility */
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConfigSchema, type Config } from '../schemas/config.js';
-import { resolveReferenceDocs, classifySource, type ReferenceDoc } from './reference-docs-resolver.js';
+import { resolveReferenceDocs, classifySource } from './reference-docs-resolver.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_reference_docs_resolver__');
 
@@ -135,7 +137,6 @@ describe('resolveReferenceDocs — inline comments', () => {
     // This test uses real tree-sitter parsing with TypeScript adapter
     // It may need the grammar available, so we mock parseToRootNode
     const mockModule = await import('./scanner.js');
-    const mockNode = await import('./language-adapters.js');
 
     // Create a TypeScript file with a JSDoc comment before an exported function
     writeFile('src/example.ts', [
@@ -156,7 +157,6 @@ describe('resolveReferenceDocs — inline comments', () => {
     });
 
     // Mock parseToRootNode to return a mock AST that extractDocComments can use
-    const tsAdapter = new mockNode.TypeScriptAdapter();
     vi.spyOn(mockModule, 'parseToRootNode').mockImplementation(async (_source, adapter) => {
       if (adapter.languageId === 'typescript') {
         // Build a mock node that produces the right symbol from extractSymbols

@@ -224,7 +224,7 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
 function resolveAxisModelV3(
   evaluator: AxisEvaluator,
   v3: ConfigV3,
-  config: Config,
+  _config: Config,
 ): string {
   const axis = v3.evaluation.axes[evaluator.id as keyof typeof v3.evaluation.axes];
   if (axis && typeof axis === 'object' && 'model' in axis && axis.model) {

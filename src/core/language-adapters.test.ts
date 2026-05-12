@@ -21,9 +21,7 @@ import {
   ADAPTER_REGISTRY,
   type LanguageAdapter,
   type ImportRef,
-  type DocComment,
 } from './language-adapters.js';
-import type { DocCommentKind } from '../schemas/config.js';
 
 // --- Mock tree-sitter node builder ---
 interface MockData {

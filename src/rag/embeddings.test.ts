@@ -159,7 +159,7 @@ describe('embeddings.ts — ONNX runtime preserved (Story 50.4 NFR9)', () => {
     nlpDim: 384,
     nlpRuntime: 'onnx',
     backend: 'lite',
-  } as any;
+  } as unknown as Parameters<typeof configureModels>[0];
 
   it('should NOT call getVercelEmbeddingModel for onnx runtime', () => {
     configureModels(onnxResolved);

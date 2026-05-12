@@ -10,7 +10,6 @@ import {
   writeSharedReview,
   loadSharedReview,
   sharedReviewPath,
-  reviewIndexPath,
   loadReviewIndex,
 } from './shared-review-cache.js';
 import { computeContentHash } from '../utils/cache.js';

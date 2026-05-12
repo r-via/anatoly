@@ -17,8 +17,6 @@ import {
   rmSync,
   lstatSync,
   readlinkSync,
-  readFileSync,
-  existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, platform } from 'node:os';

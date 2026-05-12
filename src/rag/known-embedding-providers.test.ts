@@ -7,7 +7,6 @@ import {
   KNOWN_EMBEDDING_PROVIDERS,
   resolveEmbeddingProvider,
   findExternalConfigIssues,
-  type KnownEmbeddingProviderEntry,
 } from './known-embedding-providers.js';
 
 // ---------------------------------------------------------------------------
@@ -25,7 +24,7 @@ describe('KNOWN_EMBEDDING_PROVIDERS registry', () => {
   });
 
   it('should have required fields on every entry', () => {
-    for (const [id, entry] of Object.entries(KNOWN_EMBEDDING_PROVIDERS)) {
+    for (const entry of Object.values(KNOWN_EMBEDDING_PROVIDERS)) {
       expect(entry).toHaveProperty('base_url');
       expect(entry).toHaveProperty('env_key');
       expect(entry).toHaveProperty('type');

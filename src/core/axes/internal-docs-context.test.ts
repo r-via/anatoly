@@ -8,14 +8,15 @@ import type { Config } from '../../schemas/config.js';
 import { ConfigSchema } from '../../schemas/config.js';
 
 function makeConfig(mode: 'full' | 'lite' | 'off' = 'full'): Config {
-  const base: any = {
+  const base: Record<string, unknown> & { documentation: Record<string, unknown> } = {
     documentation: {
       reference: { paths: ['README.md'], inline_comments: { enabled: false } },
       internal: { mode },
     },
   };
-  if (mode === 'full') base.documentation.internal.full = { sync_to_repo: false };
-  if (mode === 'lite') base.documentation.internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
+  const doc = base.documentation as Record<string, Record<string, unknown>>;
+  if (mode === 'full') doc.internal.full = { sync_to_repo: false };
+  if (mode === 'lite') doc.internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
   return ConfigSchema.parse(base);
 }
 

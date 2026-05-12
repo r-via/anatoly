@@ -2,11 +2,11 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildInternalDocsDigest, type DigestResult } from './internal-docs-digest.js';
+import { buildInternalDocsDigest } from './internal-docs-digest.js';
 import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import type { Config } from '../schemas/config.js';

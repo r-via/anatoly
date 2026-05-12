@@ -12,7 +12,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   mkdtempSync,
-  mkdirSync,
   writeFileSync,
   readFileSync,
   rmSync,

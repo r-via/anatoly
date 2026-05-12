@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, readdirSync } from 'node:fs';
 
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -23,7 +23,7 @@ import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type T
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
-import { toOutputName, computeContentHash } from '../utils/cache.js';
+import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { isSystemLocalProvider } from '../rag/system-providers.js';

@@ -15,7 +15,6 @@ import {
   mkdirSync,
   rmSync,
   readdirSync,
-  statSync,
   lstatSync,
 } from 'node:fs';
 import { join } from 'node:path';

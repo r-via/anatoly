@@ -388,6 +388,6 @@ describe('Story 54.9 — FR17: divergences are non-penalizing', () => {
         axis_origin: 'correction' as const,
       }],
     };
-    expect(computeFileVerdict(review as any)).toBe('CLEAN');
+    expect(computeFileVerdict(review as Parameters<typeof computeFileVerdict>[0])).toBe('CLEAN');
   });
 });

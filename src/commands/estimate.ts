@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
@@ -106,15 +106,6 @@ const KV_NO_SEP_CHARS = {
   bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
   left: '  ', 'left-mid': '',
   mid: '', 'mid-mid': '',
-  right: '', 'right-mid': '',
-  middle: '   ',
-};
-
-const TABLE_CHARS = {
-  top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
-  bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
-  left: '  ', 'left-mid': '  ',
-  mid: '─', 'mid-mid': ' ',
   right: '', 'right-mid': '',
   middle: '   ',
 };

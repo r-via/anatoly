@@ -2,8 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { dirname, resolve } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { writeCacheWithMeta, loadCacheWithMeta } from '../../utils/cache-meta.js';
 import { atomicWriteJson } from '../../utils/cache.js';
@@ -184,22 +184,6 @@ function writeRefinementFinding(
   const key = findingCacheKey(contentHash, symbol, axis);
   manifest.keys[key] = { sharedPath: path, updated_at: new Date().toISOString() };
   saveRefinementManifest(root, manifest);
-}
-
-/**
- * Load a single refinement finding from the shared content-addressable store.
- */
-function loadRefinementFinding(
-  root: string,
-  contentHash: string,
-  symbol: string,
-  axis: string,
-): InvestigatedFindingCache | null {
-  const path = sharedRefinementPath(root, contentHash, symbol, axis);
-  return loadCacheWithMeta<InvestigatedFindingCache>(path, {
-    schema: 1,
-    promptHash: 'sha256:refinement-tier3',
-  });
 }
 
 /**

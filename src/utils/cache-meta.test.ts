@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import type { CacheMeta, CacheFile } from './cache-meta.js';
+import type { CacheFile } from './cache-meta.js';
 import { computePromptHash, loadCacheWithMeta, writeCacheWithMeta } from './cache-meta.js';
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 // Story 53.6 — attach termination integration tests
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, readFileSync, appendFileSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -11,7 +11,6 @@ import { tailNdjson } from '../core/ndjson-tail.js';
 import {
   buildFinalizationMessage,
   monitorRunStatus,
-  type MonitorResult,
 } from '../commands/attach.js';
 
 /* ------------------------------------------------------------------ */

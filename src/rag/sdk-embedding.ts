@@ -193,7 +193,7 @@ export async function ensureEmbeddingDims(
   const flag = ctx.readyFlag;
   if (
     flag &&
-    (flag as any).embedding_signature === sig &&
+    (flag as { embedding_signature?: string }).embedding_signature === sig &&
     flag.dim_code != null &&
     flag.dim_nlp != null
   ) {

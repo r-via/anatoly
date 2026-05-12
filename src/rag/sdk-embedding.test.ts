@@ -2,6 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+/* eslint-disable @typescript-eslint/no-explicit-any -- SDK mock fixtures use any for embedding model shapes */
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 

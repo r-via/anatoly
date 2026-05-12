@@ -12,8 +12,8 @@ describe('renderReferenceDocsContext', () => {
   });
 
   it('returns empty string when referenceDocs is null/undefined', () => {
-    expect(renderReferenceDocsContext(null as any)).toBe('');
-    expect(renderReferenceDocsContext(undefined as any)).toBe('');
+    expect(renderReferenceDocsContext(null as unknown as ReferenceDoc[])).toBe('');
+    expect(renderReferenceDocsContext(undefined as unknown as ReferenceDoc[])).toBe('');
   });
 
   it('AC 54.5a: renders AUTHORITATIVE heading and instruction', () => {

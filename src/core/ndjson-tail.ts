@@ -79,7 +79,7 @@ export function tailNdjson(filePath: string, opts: TailNdjsonOptions): TailHandl
       try {
         const parsed = JSON.parse(trimmed);
         opts.onEvent(parsed);
-      } catch (err) {
+      } catch {
         opts.onError(new Error(`Failed to parse ndjson line: ${trimmed}`));
       }
     }

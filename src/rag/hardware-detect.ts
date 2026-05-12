@@ -5,7 +5,6 @@
 import { totalmem, cpus } from 'node:os';
 import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { KNOWN_EMBEDDING_PROVIDERS } from './known-embedding-providers.js';
 import { isSystemLocalProvider } from './system-providers.js';
