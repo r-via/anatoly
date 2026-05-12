@@ -87,7 +87,7 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs);
+  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.internalDigest);
   if (referenceDocsSection) {
     parts.push(referenceDocsSection);
   }

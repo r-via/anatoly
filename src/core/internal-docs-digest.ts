@@ -260,8 +260,12 @@ export async function buildInternalDocsDigest(
     maxTokens,
   );
 
-  const tokens = estimateTokens(content);
-  const result: DigestResult = { tokens, content, fingerprint };
+  // Prepend frontmatter marking the digest as authoritative (Story 55.5)
+  const frontmatter = '---\nstatus: evaluated\nsource: reference-digest\n---\n';
+  const fullContent = frontmatter + content;
+
+  const tokens = estimateTokens(fullContent);
+  const result: DigestResult = { tokens, content: fullContent, fingerprint };
 
   // Write cache
   writeCache(projectRoot, result);

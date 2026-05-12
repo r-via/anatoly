@@ -14,7 +14,10 @@ import type { ReferenceDoc } from '../reference-docs-resolver.js';
  * Returns an empty string when no reference docs are available so the
  * prompt builder can append it unconditionally.
  */
-export function renderReferenceDocsContext(referenceDocs: ReferenceDoc[] | null | undefined): string {
+export function renderReferenceDocsContext(
+  referenceDocs: ReferenceDoc[] | null | undefined,
+  internalDigest?: { tokens: number; content: string; fingerprint: string } | null,
+): string {
   if (!referenceDocs || referenceDocs.length === 0) return '';
 
   const parts: string[] = [];
@@ -32,6 +35,14 @@ export function renderReferenceDocsContext(referenceDocs: ReferenceDoc[] | null 
     parts.push(label);
     parts.push('');
     parts.push(doc.content);
+    parts.push('');
+  }
+
+  // Story 55.5: append evaluated internal digest when present
+  if (internalDigest?.content?.includes('status: evaluated')) {
+    parts.push('### Internal Reference Digest (source: reference-digest)');
+    parts.push('');
+    parts.push(internalDigest.content);
     parts.push('');
   }
 

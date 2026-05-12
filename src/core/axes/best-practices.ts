@@ -117,7 +117,7 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
 
-  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs);
+  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.internalDigest);
   if (referenceDocsSection) {
     parts.push(referenceDocsSection);
   }

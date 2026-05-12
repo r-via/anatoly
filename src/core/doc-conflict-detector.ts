@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../utils/logger.js';
 import { resolveDocMode } from './run-config.js';
@@ -209,7 +209,7 @@ export async function runDocConflictDetection(
   opts: DocConflictDetectionOpts,
 ): Promise<DetectionSummary> {
   const log = getLogger();
-  const { projectRoot, config, tasks } = opts;
+  const { projectRoot, config } = opts;
   const mode = resolveDocMode(config);
 
   // AC6: Short-circuit for lite and off modes
