@@ -110,8 +110,11 @@ export function generateSchemaExample(schema: z.ZodType, hint?: string): unknown
     case 'boolean':
       return true;
 
-    case 'literal':
-      return (def as unknown as { value: unknown }).value ?? null;
+    case 'literal': {
+      const litDef = def as unknown as { value?: unknown; values?: unknown[] };
+      // Zod v4 stores literals in `values` array; v3 used `value`
+      return litDef.values?.[0] ?? litDef.value ?? null;
+    }
 
     case 'optional':
     case 'default':

@@ -7,6 +7,7 @@ import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.j
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { DocDivergenceSchema } from '../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
 
@@ -36,6 +37,8 @@ export const BestPracticesResponseSchema = z.object({
   score: z.number().min(0).max(10),
   rules: z.array(BestPracticesRuleResponseSchema),
   suggestions: z.array(BestPracticesSuggestionSchema).default([]),
+  /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
+  doc_divergences: z.array(DocDivergenceSchema).default([]),
 });
 
 type BestPracticesResponse = z.infer<typeof BestPracticesResponseSchema>;

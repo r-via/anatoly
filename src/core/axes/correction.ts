@@ -10,6 +10,7 @@ import { extractRelevantReadmeSections } from '../dependency-meta.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
+import { DocDivergenceSchema } from '../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
 
@@ -52,6 +53,8 @@ const CorrectionActionSchema = z.object({
 export const CorrectionResponseSchema = z.object({
   symbols: z.array(CorrectionSymbolSchema),
   actions: z.array(CorrectionActionSchema).default([]),
+  /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
+  doc_divergences: z.array(DocDivergenceSchema).default([]),
 });
 
 type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;

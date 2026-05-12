@@ -36,3 +36,25 @@ Output ONLY a raw JSON object (no markdown fences, no explanation):
     }
   ]
 }
+
+## Documentation divergence (doc_divergence)
+
+If REFERENCE documentation (README, specs, design docs) is provided in context and it contradicts the observed code behavior, do NOT emit a normal overengineering finding. Instead, emit a `doc_divergence` entry in the top-level `doc_divergences` array:
+
+{
+  "doc_divergences": [
+    {
+      "kind": "doc_divergence",
+      "severity": "info | warn",
+      "file": "src/path/to/file.ts",
+      "line": 42,
+      "symbol": "functionName",
+      "reference_excerpt": "exact quote from the reference doc",
+      "reference_source": "README.md#section",
+      "observed_behavior": "what the code actually does",
+      "axis_origin": "overengineering"
+    }
+  ]
+}
+
+A divergence is NOT a code issue — it means the reference documentation may be outdated or the code may have intentionally diverged. Use severity `warn` when the divergence could cause user confusion, `info` for minor discrepancies. Never use `error`.

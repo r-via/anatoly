@@ -55,7 +55,7 @@ describe('buildTestsSystemPrompt', () => {
     expect(prompt).toContain('NONE');
     expect(prompt).not.toContain('correction');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(50);
+    expect(prompt.split('\n').length).toBeLessThan(75);
   });
 });
 

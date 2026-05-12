@@ -9,6 +9,7 @@ import { getSymbolUsage, getTypeOnlySymbolUsage } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
+import { DocDivergenceSchema } from '../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
 
@@ -23,6 +24,8 @@ const OverengineeringSymbolSchema = BaseSymbolSchema.extend({
 /** Zod schema validating the LLM response for the overengineering axis. */
 export const OverengineeringResponseSchema = z.object({
   symbols: z.array(OverengineeringSymbolSchema),
+  /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
+  doc_divergences: z.array(DocDivergenceSchema).default([]),
 });
 
 type OverengineeringResponse = z.infer<typeof OverengineeringResponseSchema>;

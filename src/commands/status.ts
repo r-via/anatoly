@@ -8,7 +8,8 @@ import { resolve, relative } from 'node:path';
 import chalk from 'chalk';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { loadReviews, computeGlobalVerdict } from '../core/reporter.js';
+import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporter.js';
+import { loadConfig } from '../utils/config-loader.js';
 import { buildProgressBar, verdictColor } from '../utils/format.js';
 import { listRuns, resolveRunDir } from '../utils/run-id.js';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, sortRunStatusesForDisplay, type RunStatus } from '../core/run-status.js';
@@ -208,6 +209,16 @@ export function registerStatusCommand(program: Command): void {
       console.log(`  cached      ${summary.CACHED}`);
       if (summary.ERROR > 0) console.log(`  error       ${chalk.red(String(summary.ERROR))}`);
       if (summary.TIMEOUT > 0) console.log(`  timeout     ${chalk.yellow(String(summary.TIMEOUT))}`);
+
+      // Documentation mode (Story 54.9, FR18)
+      try {
+        const config = loadConfig(projectRoot);
+        const docMode = config.documentation?.internal?.mode ?? 'off';
+        const info = { mode: docMode as 'full' | 'lite' | 'off' };
+        console.log(`  docs        ${renderDocModeLine(info)}`);
+      } catch {
+        // Config not available — skip doc mode display
+      }
       console.log('');
 
       // Load reviews for findings summary — prefer active run dir, then latest, then legacy

@@ -158,3 +158,25 @@ The `findings` array is OPTIONAL. Omit it (or leave it empty) for symbols
 with `correction: OK` and for single-defect symbols. Use it whenever a
 symbol carries 2+ independent issues — concise per-defect entries beat
 a single dense paragraph for downstream consumers.
+
+## Documentation divergence (doc_divergence)
+
+If REFERENCE documentation (README, specs, design docs) is provided in context and it contradicts the observed code behavior, do NOT emit a normal bug finding. Instead, emit a `doc_divergence` entry in the top-level `doc_divergences` array:
+
+{
+  "doc_divergences": [
+    {
+      "kind": "doc_divergence",
+      "severity": "info | warn",
+      "file": "src/path/to/file.ts",
+      "line": 42,
+      "symbol": "functionName",
+      "reference_excerpt": "exact quote from the reference doc",
+      "reference_source": "README.md#section",
+      "observed_behavior": "what the code actually does",
+      "axis_origin": "correction"
+    }
+  ]
+}
+
+A divergence is NOT a code bug — it means the reference documentation may be outdated or the code may have intentionally diverged. Use severity `warn` when the divergence could cause user confusion, `info` for minor discrepancies. Never use `error`.

@@ -181,6 +181,27 @@ export const DocRecommendationSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Doc divergence findings (Epic 54 — Story 54.9, FR15)
+// ---------------------------------------------------------------------------
+
+/**
+ * A documentation divergence finding emitted when reference documentation
+ * contradicts observed code behavior. These are informational — they do NOT
+ * affect scoring or verdicts (FR17).
+ */
+export const DocDivergenceSchema = z.object({
+  kind: z.literal('doc_divergence'),
+  severity: z.enum(['info', 'warn']),
+  file: z.string(),
+  line: z.int().min(1).optional(),
+  symbol: z.string().optional(),
+  reference_excerpt: z.string(),
+  reference_source: z.string(),
+  observed_behavior: z.string(),
+  axis_origin: z.enum(['correction', 'best_practices', 'overengineering', 'tests']),
+});
+
+// ---------------------------------------------------------------------------
 // Axis metadata (v2)
 // ---------------------------------------------------------------------------
 
@@ -238,6 +259,9 @@ export const ReviewFileSchema = z.object({
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
   axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
 
+  /** Doc divergence findings from any axis (Epic 54 — Story 54.9, FR15) */
+  doc_divergences: z.array(DocDivergenceSchema).default([]),
+
   /** Deliberation pass summary (when Opus deliberation ran for this file) */
   deliberation: z.object({
     verdict_before: VerdictSchema,
@@ -282,3 +306,4 @@ export type AxisMetaEntry = z.infer<typeof AxisMetaEntrySchema>;
 export type ReviewFile = z.infer<typeof ReviewFileSchema>;
 export type DocsCoverage = NonNullable<ReviewFile['docs_coverage']>;
 export type DocRecommendation = z.infer<typeof DocRecommendationSchema>;
+export type DocDivergence = z.infer<typeof DocDivergenceSchema>;

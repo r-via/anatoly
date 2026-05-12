@@ -9,6 +9,7 @@ import { getSymbolUsage } from '../usage-graph.js';
 import { resolveSystemPrompt } from '../prompt-resolver.js';
 import { formatReclassificationsForAxis } from '../correction-memory.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
+import { DocDivergenceSchema } from '../../schemas/review.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (tests axis only)
@@ -21,6 +22,8 @@ const TestsSymbolSchema = BaseSymbolSchema.extend({
 /** Zod schema validating the LLM response for the tests axis. */
 export const TestsResponseSchema = z.object({
   symbols: z.array(TestsSymbolSchema),
+  /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
+  doc_divergences: z.array(DocDivergenceSchema).default([]),
 });
 
 type TestsResponse = z.infer<typeof TestsResponseSchema>;

@@ -7,7 +7,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import type { ReviewFile, Verdict, Action, SymbolReview, Category } from '../schemas/review.js';
+import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence } from '../schemas/review.js';
 import type { AxisId } from './axis-evaluator.js';
 import { toOutputName } from '../utils/cache.js';
 
@@ -231,6 +231,66 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
     counts,
     actions: allActions,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Doc divergence aggregation (Story 54.9, FR17)
+// ---------------------------------------------------------------------------
+
+/** Documentation mode info for report header (FR18). */
+export interface DocModeInfo {
+  mode: 'full' | 'lite' | 'off';
+  digestTokens?: number;
+  lastCoherence?: string;
+}
+
+/**
+ * Collect all doc_divergences from review files into a flat array.
+ */
+export function aggregateDivergences(reviews: ReviewFile[]): DocDivergence[] {
+  const result: DocDivergence[] = [];
+  for (const r of reviews) {
+    if (r.doc_divergences) {
+      result.push(...r.doc_divergences);
+    }
+  }
+  return result;
+}
+
+/**
+ * Render a markdown section for doc divergences (FR17).
+ * Returns empty string when there are no divergences.
+ */
+export function renderDivergenceSection(divergences: DocDivergence[]): string {
+  if (divergences.length === 0) return '';
+  const lines: string[] = [];
+  lines.push('### Divergences code ↔ reference');
+  lines.push('');
+  for (const d of divergences) {
+    const loc = d.symbol
+      ? `\`${d.symbol}\` in \`${d.file}\`${d.line ? `:${d.line}` : ''}`
+      : `\`${d.file}\`${d.line ? `:${d.line}` : ''}`;
+    lines.push(`- **[${d.axis_origin} · ${d.severity}]** ${loc}`);
+    lines.push(`  - Reference (\`${d.reference_source}\`): _"${d.reference_excerpt}"_`);
+    lines.push(`  - Observed: ${d.observed_behavior}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render the Documentation mode line for the report header (FR18).
+ */
+export function renderDocModeLine(info: DocModeInfo): string {
+  switch (info.mode) {
+    case 'off':
+      return 'Documentation: off';
+    case 'lite':
+      return `Documentation: lite (digest ${info.digestTokens ?? '?'} tokens)`;
+    case 'full':
+      return info.lastCoherence
+        ? `Documentation: full (last coherence: ${info.lastCoherence})`
+        : 'Documentation: full';
+  }
 }
 
 /**
@@ -1278,7 +1338,7 @@ function renderDeliberationSummary(data: ReportData): string[] {
  * @param docReferenceSection - Optional markdown section listing referenced documentation.
  * @returns The full markdown string for the master report index page.
  */
-export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string): string {
+export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, divergenceSection?: string, docMode?: DocModeInfo): string {
   const lines: string[] = [];
 
   lines.push('<p align="center">');
@@ -1298,6 +1358,9 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   }
   if (data.degradedFiles.length > 0) {
     lines.push(`- **Degraded reviews (axis crashes):** ${data.degradedFiles.length}`);
+  }
+  if (docMode) {
+    lines.push(`- **${renderDocModeLine(docMode)}**`);
   }
   lines.push('');
 
@@ -1333,6 +1396,12 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   // Documentation Reference section (Epic 29)
   if (docReferenceSection) {
     lines.push(docReferenceSection);
+    lines.push('');
+  }
+
+  // Divergence section (Story 54.9, FR17)
+  if (divergenceSection) {
+    lines.push(divergenceSection);
     lines.push('');
   }
 
@@ -1782,7 +1851,7 @@ function renderPublicDocSection(raw: string): string[] {
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
  */
-export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string): string {
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo): string {
   const lines: string[] = [];
 
   // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
@@ -1806,6 +1875,9 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   if (errorSymbols.length > 0) verdictParts.push(`${errorSymbols.length} critical bug${errorSymbols.length > 1 ? 's' : ''} found`);
   verdictParts.push(`${totalFindings} finding${totalFindings !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`);
   lines.push(`> ${verdictParts.join(' · ')}`);
+  if (docMode) {
+    lines.push(`> ${renderDocModeLine(docMode)}`);
+  }
   lines.push('');
 
   // ── 2. AXES OVERVIEW (health + findings + links — single source of truth) ──
@@ -2238,21 +2310,26 @@ export function generateReport(
   runStats?: RunStats,
   docReferenceSection?: string,
   reportsBaseUrl?: string,
+  docMode?: DocModeInfo,
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
   const axisReports = buildAxisReports(data);
 
+  // Aggregate doc divergences across all reviews (Story 54.9, FR17)
+  const allDivergences = aggregateDivergences(reviews);
+  const divergenceSection = renderDivergenceSection(allDivergences);
+
   const baseDir = runDir ?? join(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
   // Write master index (internal, full detail)
-  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection));
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, divergenceSection, docMode));
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, divergenceSection, docMode));
 
   // Write per-axis folders
   for (const report of axisReports) {
