@@ -21,7 +21,9 @@ import {
   ADAPTER_REGISTRY,
   type LanguageAdapter,
   type ImportRef,
+  type DocComment,
 } from './language-adapters.js';
+import type { DocCommentKind } from '../schemas/config.js';
 
 // --- Mock tree-sitter node builder ---
 interface MockData {
@@ -1479,5 +1481,667 @@ describe('JsonAdapter.extractImports', () => {
 describe('JsonAdapter registry', () => {
   it('resolves .json to JsonAdapter', () => {
     expect(resolveAdapter('.json')).toBeInstanceOf(JsonAdapter);
+  });
+});
+
+// --- extractDocComments tests (Story 54.3) ---
+
+describe('TypeScriptAdapter.extractDocComments', () => {
+  const adapter = new TypeScriptAdapter();
+
+  // Source fixture with exact line numbers:
+  // Line 1: /**
+  // Line 2:  * Documented exported function
+  // Line 3:  * @param x - number
+  // Line 4:  */
+  // Line 5: export function foo(x: number): string {
+  // Line 6:   return String(x);
+  // Line 7: }
+  // Line 8: (empty)
+  // Line 9: /**
+  // Line 10:  * Non-exported function doc
+  // Line 11:  */
+  // Line 12: function bar(): void {}
+  // Line 13: (empty)
+  // Line 14: // implementation comment
+  // Line 15: export function baz(): void {}
+  // Line 16-18: (empty x3)
+  // Line 19: /**
+  // Line 20:  * Too far from declaration
+  // Line 21:  */
+  // Line 22-24: (empty x3)
+  // Line 25: export function qux(): void {}
+  const tsSource = [
+    '/**',
+    ' * Documented exported function',
+    ' * @param x - number',
+    ' */',
+    'export function foo(x: number): string {',
+    '  return String(x);',
+    '}',
+    '',
+    '/**',
+    ' * Non-exported function doc',
+    ' */',
+    'function bar(): void {}',
+    '',
+    '// implementation comment',
+    'export function baz(): void {}',
+    '',
+    '',
+    '',
+    '/**',
+    ' * Too far from declaration',
+    ' */',
+    '',
+    '',
+    '',
+    'export function qux(): void {}',
+  ].join('\n');
+
+  const tsRoot = mockNode({
+    type: 'program',
+    text: '',
+    children: [
+      {
+        type: 'export_statement',
+        text: 'export function foo',
+        startRow: 4, endRow: 6,
+        children: [{
+          type: 'function_declaration',
+          text: 'function foo',
+          startRow: 4, endRow: 6,
+          fields: { name: { type: 'identifier', text: 'foo' } },
+        }],
+      },
+      {
+        type: 'function_declaration',
+        text: 'function bar',
+        startRow: 11, endRow: 11,
+        fields: { name: { type: 'identifier', text: 'bar' } },
+      },
+      {
+        type: 'export_statement',
+        text: 'export function baz',
+        startRow: 14, endRow: 14,
+        children: [{
+          type: 'function_declaration',
+          text: 'function baz',
+          startRow: 14, endRow: 14,
+          fields: { name: { type: 'identifier', text: 'baz' } },
+        }],
+      },
+      {
+        type: 'export_statement',
+        text: 'export function qux',
+        startRow: 24, endRow: 24,
+        children: [{
+          type: 'function_declaration',
+          text: 'function qux',
+          startRow: 24, endRow: 24,
+          fields: { name: { type: 'identifier', text: 'qux' } },
+        }],
+      },
+    ],
+  });
+
+  it('AC 54.3a: extracts JSDoc before exported function', () => {
+    const result = adapter.extractDocComments!(tsRoot, tsSource, ['jsdoc']);
+    const foo = result.find(r => r.symbol === 'foo');
+    expect(foo).toBeDefined();
+    expect(foo!.kind).toBe('jsdoc');
+    expect(foo!.startLine).toBe(1);
+    expect(foo!.endLine).toBe(4);
+    expect(foo!.cleaned).toContain('Documented exported function');
+    expect(foo!.cleaned).toContain('@param x - number');
+    // Cleaned should NOT contain delimiters
+    expect(foo!.cleaned).not.toContain('/**');
+    expect(foo!.cleaned).not.toContain('*/');
+  });
+
+  it('AC 54.3b: excludes JSDoc before non-exported function', () => {
+    const result = adapter.extractDocComments!(tsRoot, tsSource, ['jsdoc']);
+    expect(result.find(r => r.symbol === 'bar')).toBeUndefined();
+  });
+
+  it('AC 54.3c: excludes implementation comments', () => {
+    const result = adapter.extractDocComments!(tsRoot, tsSource, ['jsdoc']);
+    // baz has only a // comment before it, not a /** */ block
+    expect(result.find(r => r.symbol === 'baz')).toBeUndefined();
+  });
+
+  it('AC 54.3d: excludes JSDoc separated by 3 blank lines', () => {
+    const result = adapter.extractDocComments!(tsRoot, tsSource, ['jsdoc']);
+    expect(result.find(r => r.symbol === 'qux')).toBeUndefined();
+  });
+});
+
+describe('PythonAdapter.extractDocComments', () => {
+  const adapter = new PythonAdapter();
+
+  // Line 1: def _private():
+  // Line 2:     """Private docstring."""
+  // Line 3:     pass
+  // Line 4: (empty)
+  // Line 5: def public_func():
+  // Line 6:     """Public function docstring.
+  // Line 7:
+  // Line 8:     Multi-line description.
+  // Line 9:     """
+  // Line 10:     pass
+  // Line 11: (empty)
+  // Line 12: # regular comment
+  // Line 13: def another():
+  // Line 14:     pass
+  const pySource = [
+    'def _private():',
+    '    """Private docstring."""',
+    '    pass',
+    '',
+    'def public_func():',
+    '    """Public function docstring.',
+    '',
+    '    Multi-line description.',
+    '    """',
+    '    pass',
+    '',
+    '# regular comment',
+    'def another():',
+    '    pass',
+  ].join('\n');
+
+  const pyRoot = mockNode({
+    type: 'module',
+    text: '',
+    children: [
+      {
+        type: 'function_definition',
+        text: 'def _private',
+        startRow: 0, endRow: 2,
+        fields: { name: { type: 'identifier', text: '_private' } },
+      },
+      {
+        type: 'function_definition',
+        text: 'def public_func',
+        startRow: 4, endRow: 9,
+        fields: { name: { type: 'identifier', text: 'public_func' } },
+      },
+      {
+        type: 'function_definition',
+        text: 'def another',
+        startRow: 12, endRow: 13,
+        fields: { name: { type: 'identifier', text: 'another' } },
+      },
+    ],
+  });
+
+  it('AC 54.3: extracts docstring of exported function', () => {
+    const result = adapter.extractDocComments!(pyRoot, pySource, ['docstring']);
+    const pub = result.find(r => r.symbol === 'public_func');
+    expect(pub).toBeDefined();
+    expect(pub!.kind).toBe('docstring');
+    expect(pub!.cleaned).toContain('Public function docstring.');
+    expect(pub!.cleaned).toContain('Multi-line description.');
+    expect(pub!.cleaned).not.toContain('"""');
+  });
+
+  it('AC 54.3: excludes docstring of non-exported (_prefixed) function', () => {
+    const result = adapter.extractDocComments!(pyRoot, pySource, ['docstring']);
+    expect(result.find(r => r.symbol === '_private')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes regular # comments', () => {
+    const result = adapter.extractDocComments!(pyRoot, pySource, ['docstring']);
+    expect(result.find(r => r.symbol === 'another')).toBeUndefined();
+  });
+});
+
+describe('RustAdapter.extractDocComments', () => {
+  const adapter = new RustAdapter();
+
+  // Line 1: /// Documented public function
+  // Line 2: /// Second line of docs
+  // Line 3: pub fn foo() -> i32 {
+  // Line 4:     42
+  // Line 5: }
+  // Line 6: (empty)
+  // Line 7: /// Non-public function doc
+  // Line 8: fn bar() {}
+  // Line 9: (empty)
+  // Line 10: // regular comment
+  // Line 11: pub fn baz() {}
+  const rustSource = [
+    '/// Documented public function',
+    '/// Second line of docs',
+    'pub fn foo() -> i32 {',
+    '    42',
+    '}',
+    '',
+    '/// Non-public function doc',
+    'fn bar() {}',
+    '',
+    '// regular comment',
+    'pub fn baz() {}',
+  ].join('\n');
+
+  const rustRoot = mockNode({
+    type: 'source_file',
+    text: '',
+    children: [
+      {
+        type: 'function_item',
+        text: 'pub fn foo',
+        startRow: 2, endRow: 4,
+        children: [
+          { type: 'visibility_modifier', text: 'pub', startRow: 2, endRow: 2 },
+        ],
+        fields: { name: { type: 'identifier', text: 'foo' } },
+      },
+      {
+        type: 'function_item',
+        text: 'fn bar',
+        startRow: 7, endRow: 7,
+        fields: { name: { type: 'identifier', text: 'bar' } },
+      },
+      {
+        type: 'function_item',
+        text: 'pub fn baz',
+        startRow: 10, endRow: 10,
+        children: [
+          { type: 'visibility_modifier', text: 'pub', startRow: 10, endRow: 10 },
+        ],
+        fields: { name: { type: 'identifier', text: 'baz' } },
+      },
+    ],
+  });
+
+  it('AC 54.3: extracts /// doc before pub function', () => {
+    const result = adapter.extractDocComments!(rustRoot, rustSource, ['module_header']);
+    const foo = result.find(r => r.symbol === 'foo');
+    expect(foo).toBeDefined();
+    expect(foo!.kind).toBe('module_header');
+    expect(foo!.startLine).toBe(1);
+    expect(foo!.endLine).toBe(2);
+    expect(foo!.cleaned).toBe('Documented public function\nSecond line of docs');
+  });
+
+  it('AC 54.3: excludes /// doc before non-pub function', () => {
+    const result = adapter.extractDocComments!(rustRoot, rustSource, ['module_header']);
+    expect(result.find(r => r.symbol === 'bar')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes // regular comments', () => {
+    const result = adapter.extractDocComments!(rustRoot, rustSource, ['module_header']);
+    expect(result.find(r => r.symbol === 'baz')).toBeUndefined();
+  });
+});
+
+describe('GoAdapter.extractDocComments', () => {
+  const adapter = new GoAdapter();
+
+  // Line 1: // Foo is a documented exported function.
+  // Line 2: // Second line of docs.
+  // Line 3: func Foo() int {
+  // Line 4:     return 42
+  // Line 5: }
+  // Line 6: (empty)
+  // Line 7: // bar is a non-exported function.
+  // Line 8: func bar() {}
+  // Line 9: (empty)
+  // Line 10: func Baz() {}
+  const goSource = [
+    '// Foo is a documented exported function.',
+    '// Second line of docs.',
+    'func Foo() int {',
+    '    return 42',
+    '}',
+    '',
+    '// bar is a non-exported function.',
+    'func bar() {}',
+    '',
+    'func Baz() {}',
+  ].join('\n');
+
+  const goRoot = mockNode({
+    type: 'source_file',
+    text: '',
+    children: [
+      {
+        type: 'function_declaration',
+        text: 'func Foo',
+        startRow: 2, endRow: 4,
+        fields: { name: { type: 'identifier', text: 'Foo' } },
+      },
+      {
+        type: 'function_declaration',
+        text: 'func bar',
+        startRow: 7, endRow: 7,
+        fields: { name: { type: 'identifier', text: 'bar' } },
+      },
+      {
+        type: 'function_declaration',
+        text: 'func Baz',
+        startRow: 9, endRow: 9,
+        fields: { name: { type: 'identifier', text: 'Baz' } },
+      },
+    ],
+  });
+
+  it('AC 54.3: extracts godoc before exported function', () => {
+    const result = adapter.extractDocComments!(goRoot, goSource, ['godoc']);
+    const foo = result.find(r => r.symbol === 'Foo');
+    expect(foo).toBeDefined();
+    expect(foo!.kind).toBe('godoc');
+    expect(foo!.cleaned).toBe('Foo is a documented exported function.\nSecond line of docs.');
+  });
+
+  it('AC 54.3: excludes godoc before non-exported function', () => {
+    const result = adapter.extractDocComments!(goRoot, goSource, ['godoc']);
+    expect(result.find(r => r.symbol === 'bar')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes function with no doc comment', () => {
+    const result = adapter.extractDocComments!(goRoot, goSource, ['godoc']);
+    expect(result.find(r => r.symbol === 'Baz')).toBeUndefined();
+  });
+});
+
+describe('JavaAdapter.extractDocComments', () => {
+  const adapter = new JavaAdapter();
+
+  // Line 1: /**
+  // Line 2:  * Public class Javadoc.
+  // Line 3:  */
+  // Line 4: public class Foo {
+  // Line 5:     /**
+  // Line 6:      * Public method doc.
+  // Line 7:      */
+  // Line 8:     public void bar() {}
+  // Line 9: (empty)
+  // Line 10:     /**
+  // Line 11:      * Private method doc.
+  // Line 12:      */
+  // Line 13:     private void baz() {}
+  // Line 14: (empty)
+  // Line 15:     // implementation comment
+  // Line 16:     public void qux() {}
+  // Line 17: }
+  const javaSource = [
+    '/**',
+    ' * Public class Javadoc.',
+    ' */',
+    'public class Foo {',
+    '    /**',
+    '     * Public method doc.',
+    '     */',
+    '    public void bar() {}',
+    '',
+    '    /**',
+    '     * Private method doc.',
+    '     */',
+    '    private void baz() {}',
+    '',
+    '    // implementation comment',
+    '    public void qux() {}',
+    '}',
+  ].join('\n');
+
+  const javaRoot = mockNode({
+    type: 'program',
+    text: '',
+    children: [{
+      type: 'class_declaration',
+      text: 'public class Foo',
+      startRow: 3, endRow: 16,
+      children: [
+        { type: 'modifiers', text: 'public', startRow: 3, endRow: 3 },
+        {
+          type: 'class_body',
+          text: '{ ... }',
+          startRow: 3, endRow: 16,
+          children: [
+            {
+              type: 'method_declaration',
+              text: 'public void bar() {}',
+              startRow: 7, endRow: 7,
+              children: [
+                { type: 'modifiers', text: 'public', startRow: 7, endRow: 7 },
+              ],
+              fields: { name: { type: 'identifier', text: 'bar' } },
+            },
+            {
+              type: 'method_declaration',
+              text: 'private void baz() {}',
+              startRow: 12, endRow: 12,
+              children: [
+                { type: 'modifiers', text: 'private', startRow: 12, endRow: 12 },
+              ],
+              fields: { name: { type: 'identifier', text: 'baz' } },
+            },
+            {
+              type: 'method_declaration',
+              text: 'public void qux() {}',
+              startRow: 15, endRow: 15,
+              children: [
+                { type: 'modifiers', text: 'public', startRow: 15, endRow: 15 },
+              ],
+              fields: { name: { type: 'identifier', text: 'qux' } },
+            },
+          ],
+        },
+      ],
+      fields: { name: { type: 'identifier', text: 'Foo' } },
+    }],
+  });
+
+  it('AC 54.3: extracts Javadoc before public class and method', () => {
+    const result = adapter.extractDocComments!(javaRoot, javaSource, ['javadoc']);
+    expect(result.find(r => r.symbol === 'Foo')).toBeDefined();
+    expect(result.find(r => r.symbol === 'bar')).toBeDefined();
+    expect(result.find(r => r.symbol === 'bar')!.cleaned).toContain('Public method doc.');
+  });
+
+  it('AC 54.3: excludes Javadoc before private method', () => {
+    const result = adapter.extractDocComments!(javaRoot, javaSource, ['javadoc']);
+    expect(result.find(r => r.symbol === 'baz')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes implementation comment', () => {
+    const result = adapter.extractDocComments!(javaRoot, javaSource, ['javadoc']);
+    expect(result.find(r => r.symbol === 'qux')).toBeUndefined();
+  });
+});
+
+describe('CSharpAdapter.extractDocComments', () => {
+  const adapter = new CSharpAdapter();
+
+  // Line 1: /// <summary>
+  // Line 2: /// Public class docs.
+  // Line 3: /// </summary>
+  // Line 4: public class Foo {
+  // Line 5:     /// <summary>
+  // Line 6:     /// Public method.
+  // Line 7:     /// </summary>
+  // Line 8:     public void Bar() {}
+  // Line 9: (empty)
+  // Line 10:     /// <summary>
+  // Line 11:     /// Private method.
+  // Line 12:     /// </summary>
+  // Line 13:     private void Baz() {}
+  // Line 14: (empty)
+  // Line 15:     // implementation comment
+  // Line 16:     public void Qux() {}
+  // Line 17: }
+  const csSource = [
+    '/// <summary>',
+    '/// Public class docs.',
+    '/// </summary>',
+    'public class Foo {',
+    '    /// <summary>',
+    '    /// Public method.',
+    '    /// </summary>',
+    '    public void Bar() {}',
+    '',
+    '    /// <summary>',
+    '    /// Private method.',
+    '    /// </summary>',
+    '    private void Baz() {}',
+    '',
+    '    // implementation comment',
+    '    public void Qux() {}',
+    '}',
+  ].join('\n');
+
+  const csRoot = mockNode({
+    type: 'compilation_unit',
+    text: '',
+    children: [{
+      type: 'class_declaration',
+      text: 'public class Foo',
+      startRow: 3, endRow: 16,
+      children: [
+        { type: 'modifier', text: 'public', startRow: 3, endRow: 3 },
+        {
+          type: 'declaration_list',
+          text: '{ ... }',
+          startRow: 3, endRow: 16,
+          children: [
+            {
+              type: 'method_declaration',
+              text: 'public void Bar() {}',
+              startRow: 7, endRow: 7,
+              children: [
+                { type: 'modifier', text: 'public', startRow: 7, endRow: 7 },
+              ],
+              fields: { name: { type: 'identifier', text: 'Bar' } },
+            },
+            {
+              type: 'method_declaration',
+              text: 'private void Baz() {}',
+              startRow: 12, endRow: 12,
+              children: [
+                { type: 'modifier', text: 'private', startRow: 12, endRow: 12 },
+              ],
+              fields: { name: { type: 'identifier', text: 'Baz' } },
+            },
+            {
+              type: 'method_declaration',
+              text: 'public void Qux() {}',
+              startRow: 15, endRow: 15,
+              children: [
+                { type: 'modifier', text: 'public', startRow: 15, endRow: 15 },
+              ],
+              fields: { name: { type: 'identifier', text: 'Qux' } },
+            },
+          ],
+        },
+      ],
+      fields: { name: { type: 'identifier', text: 'Foo' } },
+    }],
+  });
+
+  it('AC 54.3: extracts XML doc before public class and method', () => {
+    const result = adapter.extractDocComments!(csRoot, csSource, ['xmldoc']);
+    expect(result.find(r => r.symbol === 'Foo')).toBeDefined();
+    expect(result.find(r => r.symbol === 'Bar')).toBeDefined();
+    expect(result.find(r => r.symbol === 'Bar')!.cleaned).toContain('Public method.');
+  });
+
+  it('AC 54.3: excludes XML doc before private method', () => {
+    const result = adapter.extractDocComments!(csRoot, csSource, ['xmldoc']);
+    expect(result.find(r => r.symbol === 'Baz')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes // implementation comment', () => {
+    const result = adapter.extractDocComments!(csRoot, csSource, ['xmldoc']);
+    expect(result.find(r => r.symbol === 'Qux')).toBeUndefined();
+  });
+});
+
+describe('BashAdapter.extractDocComments', () => {
+  const adapter = new BashAdapter();
+
+  // Line 1: # Main function description
+  // Line 2: # Second line
+  // Line 3: main() {
+  // Line 4:     echo "hello"
+  // Line 5: }
+  // Line 6: (empty)
+  // Line 7: # Private function
+  // Line 8: _helper() {
+  // Line 9:     echo "help"
+  // Line 10: }
+  // Line 11: (empty)
+  // Line 12: # standalone comment
+  // Line 13: echo "not a function"
+  const bashSource = [
+    '# Main function description',
+    '# Second line',
+    'main() {',
+    '    echo "hello"',
+    '}',
+    '',
+    '# Private function',
+    '_helper() {',
+    '    echo "help"',
+    '}',
+    '',
+    '# standalone comment',
+    'echo "not a function"',
+  ].join('\n');
+
+  const bashRoot = mockNode({
+    type: 'program',
+    text: '',
+    children: [
+      {
+        type: 'function_definition',
+        text: 'main()',
+        startRow: 2, endRow: 4,
+        fields: { name: { type: 'word', text: 'main' } },
+      },
+      {
+        type: 'function_definition',
+        text: '_helper()',
+        startRow: 7, endRow: 9,
+        fields: { name: { type: 'word', text: '_helper' } },
+      },
+    ],
+  });
+
+  it('AC 54.3: extracts # header before exported function', () => {
+    const result = adapter.extractDocComments!(bashRoot, bashSource, ['module_header']);
+    const main = result.find(r => r.symbol === 'main');
+    expect(main).toBeDefined();
+    expect(main!.kind).toBe('module_header');
+    expect(main!.cleaned).toBe('Main function description\nSecond line');
+  });
+
+  it('AC 54.3: excludes # header before _private function', () => {
+    const result = adapter.extractDocComments!(bashRoot, bashSource, ['module_header']);
+    expect(result.find(r => r.symbol === '_helper')).toBeUndefined();
+  });
+
+  it('AC 54.3: excludes standalone comment not before any function', () => {
+    const result = adapter.extractDocComments!(bashRoot, bashSource, ['module_header']);
+    // Only main should be in results
+    expect(result).toHaveLength(1);
+  });
+});
+
+describe('extractDocComments — graceful degradation (NFR6)', () => {
+  it('adapters without tree-sitter do not expose extractDocComments', () => {
+    const sql = new SqlAdapter();
+    const yaml = new YamlAdapter();
+    const json = new JsonAdapter();
+    expect(sql.extractDocComments).toBeUndefined();
+    expect(yaml.extractDocComments).toBeUndefined();
+    expect(json.extractDocComments).toBeUndefined();
+  });
+
+  it('returns [] for unsupported kinds', () => {
+    const adapter = new TypeScriptAdapter();
+    const root = mockNode({ type: 'program', text: '', children: [] });
+    expect(adapter.extractDocComments!(root, '', ['docstring'])).toEqual([]);
   });
 });

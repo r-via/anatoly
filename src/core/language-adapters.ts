@@ -12,12 +12,23 @@
 
 import type { Node as TSNode } from 'web-tree-sitter';
 import type { SymbolInfo, SymbolKind } from '../schemas/task.js';
+import type { DocCommentKind } from '../schemas/config.js';
 
 // --- Public types ---
 
 export interface ImportRef {
   source: string;
   type: 'import' | 'source' | 'require';
+}
+
+/** Structured doc-comment extracted by a LanguageAdapter. */
+export interface DocComment {
+  kind: DocCommentKind;
+  symbol?: string;
+  raw: string;
+  cleaned: string;
+  startLine: number;
+  endLine: number;
 }
 
 /**
@@ -32,6 +43,182 @@ export interface LanguageAdapter {
   extractImports(source: string): ImportRef[];
   /** AST-based import extraction. When implemented, preferred over regex-based extractImports. */
   extractImportsFromAst?(rootNode: TSNode): ImportRef[];
+  /** Extract structured doc-comments from source, filtered by requested kinds. */
+  extractDocComments?(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[];
+}
+
+// --- Doc-comment extraction helpers (Story 54.3) ---
+
+interface RawComment {
+  raw: string;
+  startLine: number;
+  endLine: number;
+  kind: DocCommentKind;
+}
+
+/** Find block doc-comments (/** ... *​/) in source text. */
+function findBlockDocComments(source: string, kind: DocCommentKind): RawComment[] {
+  const results: RawComment[] = [];
+  const re = /\/\*\*[\s\S]*?\*\//g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source)) !== null) {
+    const before = source.slice(0, m.index);
+    const startLine = before.split('\n').length;
+    const endLine = startLine + m[0].split('\n').length - 1;
+    results.push({ raw: m[0], startLine, endLine, kind });
+  }
+  return results;
+}
+
+/** Find consecutive line-prefix doc-comments (e.g. ///, //, #). */
+function findLineDocComments(source: string, linePrefix: RegExp, kind: DocCommentKind): RawComment[] {
+  const lines = source.split('\n');
+  const results: RawComment[] = [];
+  let blockStart = -1;
+  let blockLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (linePrefix.test(lines[i]!)) {
+      if (blockStart === -1) blockStart = i + 1;
+      blockLines.push(lines[i]!);
+    } else {
+      if (blockLines.length > 0) {
+        results.push({
+          raw: blockLines.join('\n'),
+          startLine: blockStart,
+          endLine: blockStart + blockLines.length - 1,
+          kind,
+        });
+        blockStart = -1;
+        blockLines = [];
+      }
+    }
+  }
+  if (blockLines.length > 0) {
+    results.push({
+      raw: blockLines.join('\n'),
+      startLine: blockStart,
+      endLine: blockStart + blockLines.length - 1,
+      kind,
+    });
+  }
+  return results;
+}
+
+/** Find Python triple-quoted docstrings. */
+function findDocstrings(source: string): RawComment[] {
+  const results: RawComment[] = [];
+  const re = /"{3}[\s\S]*?"{3}|'{3}[\s\S]*?'{3}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source)) !== null) {
+    const before = source.slice(0, m.index);
+    const startLine = before.split('\n').length;
+    const endLine = startLine + m[0].split('\n').length - 1;
+    results.push({ raw: m[0], startLine, endLine, kind: 'docstring' });
+  }
+  return results;
+}
+
+/** Match pre-declaration comments to the nearest following exported symbol. Max gap in blank lines. */
+function matchPreDeclComments(
+  comments: RawComment[],
+  symbols: SymbolInfo[],
+  maxGap = 2,
+): DocComment[] {
+  const results: DocComment[] = [];
+  for (const comment of comments) {
+    let nearest: SymbolInfo | null = null;
+    let nearestGap = Infinity;
+    for (const sym of symbols) {
+      const gap = sym.line_start - comment.endLine - 1;
+      if (gap >= 0 && gap < nearestGap) {
+        nearest = sym;
+        nearestGap = gap;
+      }
+    }
+    if (nearest && nearestGap <= maxGap && nearest.exported) {
+      results.push({
+        kind: comment.kind,
+        symbol: nearest.name,
+        raw: comment.raw,
+        cleaned: cleanDocComment(comment.raw, comment.kind),
+        startLine: comment.startLine,
+        endLine: comment.endLine,
+      });
+    }
+  }
+  return results;
+}
+
+/** Match Python in-body docstrings to the enclosing exported symbol. */
+function matchInBodyDocstrings(
+  comments: RawComment[],
+  symbols: SymbolInfo[],
+): DocComment[] {
+  const results: DocComment[] = [];
+  for (const comment of comments) {
+    const enclosing = symbols.find(
+      (s) =>
+        s.exported &&
+        comment.startLine > s.line_start &&
+        comment.startLine <= s.line_start + 2 &&
+        comment.endLine <= s.line_end,
+    );
+    if (enclosing) {
+      results.push({
+        kind: comment.kind,
+        symbol: enclosing.name,
+        raw: comment.raw,
+        cleaned: cleanDocComment(comment.raw, comment.kind),
+        startLine: comment.startLine,
+        endLine: comment.endLine,
+      });
+    }
+  }
+  return results;
+}
+
+/** Strip delimiters and per-line prefixes from a raw doc-comment. */
+function cleanDocComment(raw: string, kind: DocCommentKind): string {
+  switch (kind) {
+    case 'jsdoc':
+    case 'tsdoc':
+    case 'javadoc': {
+      const body = raw.replace(/^\/\*\*\s*\n?/, '').replace(/\n?\s*\*\/\s*$/, '');
+      return body
+        .split('\n')
+        .map((l) => l.replace(/^\s*\*\s?/, ''))
+        .join('\n')
+        .trim();
+    }
+    case 'docstring': {
+      return raw
+        .replace(/^(?:"""|''')[\s\n]*/, '')
+        .replace(/[\s\n]*(?:"""|''')$/, '')
+        .trim();
+    }
+    case 'godoc': {
+      return raw
+        .split('\n')
+        .map((l) => l.replace(/^\s*\/\/\s?/, ''))
+        .join('\n')
+        .trim();
+    }
+    case 'xmldoc': {
+      return raw
+        .split('\n')
+        .map((l) => l.replace(/^\s*\/\/\/\s?/, ''))
+        .join('\n')
+        .trim();
+    }
+    case 'module_header': {
+      return raw
+        .split('\n')
+        .map((l) => l.replace(/^\s*(?:\/\/[/!]\s?|#\s?)/, ''))
+        .join('\n')
+        .trim();
+    }
+  }
 }
 
 // --- TypeScript-specific constants (moved from scanner.ts) ---
@@ -199,6 +386,14 @@ export class TypeScriptAdapter implements LanguageAdapter {
     }
     return imports;
   }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    const supported = kinds.filter((k): k is 'jsdoc' | 'tsdoc' => k === 'jsdoc' || k === 'tsdoc');
+    if (!supported.length) return [];
+    const symbols = this.extractSymbols(rootNode);
+    const comments = supported.flatMap((k) => findBlockDocComments(source, k));
+    return matchPreDeclComments(comments, symbols);
+  }
 }
 
 export class TsxAdapter extends TypeScriptAdapter {
@@ -284,6 +479,13 @@ export class BashAdapter implements LanguageAdapter {
     };
     visit(rootNode);
     return imports;
+  }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('module_header')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    const comments = findLineDocComments(source, /^\s*#\s/, 'module_header');
+    return matchPreDeclComments(comments, symbols);
   }
 }
 
@@ -425,6 +627,13 @@ export class PythonAdapter implements LanguageAdapter {
       });
     }
   }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('docstring')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    const comments = findDocstrings(source);
+    return matchInBodyDocstrings(comments, symbols);
+  }
 }
 
 // --- Rust import extraction helpers ---
@@ -549,6 +758,14 @@ export class RustAdapter implements LanguageAdapter {
   extractImportsFromAst(rootNode: TSNode): ImportRef[] {
     return extractRustImportsFromAst(rootNode);
   }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('module_header')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    // Rust /// doc comments (not // regular comments)
+    const comments = findLineDocComments(source, /^\s*\/\/\//, 'module_header');
+    return matchPreDeclComments(comments, symbols);
+  }
 }
 
 // --- Go import extraction helpers ---
@@ -660,6 +877,14 @@ export class GoAdapter implements LanguageAdapter {
     }
     return imports;
   }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('godoc')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    // Go doc comments: consecutive // lines (but not ///)
+    const comments = findLineDocComments(source, /^\s*\/\/(?!\/)/, 'godoc');
+    return matchPreDeclComments(comments, symbols);
+  }
 }
 
 // --- Java import extraction helpers ---
@@ -764,6 +989,13 @@ export class JavaAdapter implements LanguageAdapter {
       });
     }
   }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('javadoc')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    const comments = findBlockDocComments(source, 'javadoc');
+    return matchPreDeclComments(comments, symbols);
+  }
 }
 
 // --- C# import extraction helpers ---
@@ -864,6 +1096,14 @@ export class CSharpAdapter implements LanguageAdapter {
         line_end: node.endPosition.row + 1,
       });
     }
+  }
+
+  extractDocComments(rootNode: TSNode, source: string, kinds: DocCommentKind[]): DocComment[] {
+    if (!kinds.includes('xmldoc')) return [];
+    const symbols = this.extractSymbols(rootNode);
+    // C# XML doc comments: consecutive /// lines
+    const comments = findLineDocComments(source, /^\s*\/\/\//, 'xmldoc');
+    return matchPreDeclComments(comments, symbols);
   }
 }
 
