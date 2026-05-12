@@ -8,7 +8,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { glob } from 'tinyglobby';
-import { Parser, Language } from 'web-tree-sitter';
+import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
 import type { Config } from '../schemas/config.js';
 import type { Task, SymbolInfo, CoverageData } from '../schemas/task.js';
 import type { Progress, FileProgress } from '../schemas/progress.js';
@@ -16,7 +16,7 @@ import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '..
 import { getGitTrackedFiles } from '../utils/git.js';
 import { detectProjectProfile, classifyFile } from './language-detect.js';
 import type { FrameworkInfo } from './language-detect.js';
-import { resolveAdapter, heuristicParse, type ImportRef } from './language-adapters.js';
+import { resolveAdapter, heuristicParse, type ImportRef, type LanguageAdapter } from './language-adapters.js';
 import { contextLogger } from '../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
@@ -89,6 +89,27 @@ async function loadLanguage(wasmModule: string): Promise<Language> {
 export interface ParseResult {
   symbols: SymbolInfo[];
   imports: ImportRef[];
+}
+
+/**
+ * Parse source code using the adapter's tree-sitter grammar and return the root AST node.
+ * Returns null if the adapter has no grammar or the grammar cannot be loaded.
+ */
+export async function parseToRootNode(
+  source: string,
+  adapter: LanguageAdapter,
+): Promise<TSNode | null> {
+  if (!adapter.wasmModule) return null;
+  const parser = await getParser();
+  let lang: Language;
+  try {
+    lang = await loadLanguage(adapter.wasmModule);
+  } catch {
+    return null;
+  }
+  parser.setLanguage(lang);
+  const tree = parser.parse(source);
+  return tree?.rootNode ?? null;
 }
 
 /**

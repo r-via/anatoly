@@ -203,15 +203,7 @@
 - [x] Story 54.1: Schema config étendu + suppression `docs_path` + erreur de validation actionnable
 - [x] Story 54.2: Wizard interactif doc + `init --reconfigure-docs`
 - [x] Story 54.3: `LanguageAdapter.extractDocComments` + implémentations
-  > As a mainteneur d'anatoly
-  > I want une méthode `extractDocComments` standardisée par langage, basée sur tree-sitter
-  > So that l'extraction de doc-comments structurés reste cohérente, testable, et extensible aux nouveaux langages sans refactor.
-  > AC: Given [src/core/language-adapters.ts](src/core/language-adapters.ts) (interface `LanguageAdapter` actuelle, déjà utilisée par scanner et symbol-extractor), When l'interface est étendue, Then elle expose `extractDocComments(tree: Tree, source: string, kinds: DocCommentKind[]): DocComment[]`, And le type `DocComment = { kind: DocCommentKind; symbol?: string; raw: string; cleaned: string; startLine: number; endLine: number }` est exporté, And `cleaned` est le contenu doc-comment débarrassé des délimiteurs (`/ */`, `///`, `# `, `"""`) et des préfixes de ligne (`* `, ` * `, etc.)
-  > AC: Given un fichier TypeScript fixture contenant : (a) un JSDoc valide avant `export function foo()`, (b) un JSDoc avant une fonction non exportée, (c) un `// comment` d'implémentation, (d) un JSDoc séparé de la déclaration par 3 lignes blanches, When `tsAdapter.extractDocComments(tree, source, ["jsdoc", "tsdoc"])` est appelé, Then seul le doc-comment du cas (a) est retourné, avec `symbol: "foo"`, `kind: "jsdoc"`, `startLine`/`endLine` corrects, And les cas (b), (c), (d) sont absents du résultat
-  > AC: Given des fixtures équivalentes pour Python (docstring de fonction et de classe), Rust (`///`, `//!`), Go (godoc), Java (Javadoc), C# (XML doc `///`), Bash (en-tête de fonction), When chaque adapter exécute sa méthode `extractDocComments`, Then les 3 cas (valide / non-exporté / implementation) sont testés explicitement par langage (FR6), And les tests sont localisés dans `src/core/language-adapters.test.ts` (ou un fichier par langage selon la convention existante)
-  > AC: Given un projet utilisant un langage dont la grammar tree-sitter n'est pas (encore) téléchargée et indisponible offline, When le scan tente d'extraire des doc-comments pour ce langage, Then un warning structuré est loggé (`skipping doc-comment extraction for {lang}: grammar not available`), And le scan continue sans erreur fatale (NFR6)
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-3
-- [ ] Story 54.4: `reference-docs-resolver` — collecte unifiée des sources humaines
+- [x] Story 54.4: `reference-docs-resolver` — collecte unifiée des sources humaines
   > As a moteur de l'axe documentation
   > I want une fonction unique qui me retourne toutes les sources documentaires humaines du projet (md + READMEs + specs + doc-comments)
   > So that les axes consomment la reference de façon uniforme sans connaître les détails de collecte.
