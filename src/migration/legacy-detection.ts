@@ -131,18 +131,11 @@ function generateMigrationInstructions(root: string, paths: string[], home: stri
     lines.push('rmdir ~/.anatoly/models 2>/dev/null || true');
   }
 
-  // Optional: preserve human-validated state
   lines.push('');
-  lines.push('# Optional: preserve human-validated state');
-  lines.push(`mkdir -p ${root}/.anatoly/state`);
-  lines.push(
-    `mv ${root}/.anatoly/deliberation-memory.json ${root}/.anatoly/state/ 2>/dev/null || true`,
-  );
-  lines.push(
-    `mv ${root}/.anatoly/calibration.json ${root}/.anatoly/state/ 2>/dev/null || true`,
-  );
-  lines.push('');
-  lines.push('# Then re-run anatoly. Bootstrap will recreate ~/.anatoly/ structure and symlinks automatically.');
+  lines.push('# Human-validated state (calibration.json, deliberation-memory.json,');
+  lines.push('# docs/) and GGUF model weights are migrated automatically by');
+  lines.push('# bootstrapAnatoly on the next anatoly invocation — no manual mv needed.');
+  lines.push('# Re-run anatoly to trigger the migration.');
 
   return lines.join('\n');
 }

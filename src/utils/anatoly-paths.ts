@@ -7,6 +7,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
 } from 'node:fs';
@@ -227,10 +228,75 @@ export function bootstrapAnatoly(root: string): void {
     mkdirSync(join(dotAnatoly, sub), { recursive: true, mode: 0o700 });
   }
 
-  // 5. Env vars for HF SDK (written, never read by Anatoly)
+  // 5. Migrate legacy state files (pre-Epic-52 layout). Files at `.anatoly/`
+  // root that should live under `state/` are moved in place — zero data loss,
+  // zero user action required.
+  migrateLegacyState(dotAnatoly);
+
+  // 6. Env vars for HF SDK (written, never read by Anatoly)
   hfCachePath_ = anatolyPath(root, 'shared/models/hf-cache');
   process.env.HF_HOME = hfCachePath_;
   process.env.TRANSFORMERS_CACHE = hfCachePath_;
+}
+
+/**
+ * Move pre-Epic-52 state artifacts from `.anatoly/` root to `.anatoly/state/`.
+ *
+ * - `.anatoly/calibration.json`        → `.anatoly/state/calibration.json`
+ * - `.anatoly/deliberation-memory.json`→ `.anatoly/state/deliberation-memory.json`
+ * - `.anatoly/docs/`                   → `.anatoly/state/internal-docs/`
+ *   (unless `state/internal-docs/` already has content — then the legacy
+ *    copy is removed as stale)
+ *
+ * Idempotent: if the new location already holds the file (newer version
+ * written by current code), the legacy copy is removed without overwrite.
+ */
+function migrateLegacyState(dotAnatoly: string): void {
+  const stateDir = join(dotAnatoly, 'state');
+
+  // Simple file migrations
+  for (const filename of ['calibration.json', 'deliberation-memory.json']) {
+    const legacyPath = join(dotAnatoly, filename);
+    const targetPath = join(stateDir, filename);
+    if (!existsSync(legacyPath)) continue;
+    try {
+      const legacyStat = lstatSync(legacyPath);
+      if (!legacyStat.isFile()) continue;
+      if (existsSync(targetPath)) {
+        // Already migrated — remove the stale legacy copy.
+        rmSync(legacyPath, { force: true });
+      } else {
+        renameSync(legacyPath, targetPath);
+      }
+    } catch (err) {
+      getLogger().warn(
+        { err: String(err), file: filename },
+        'failed to migrate legacy state file — leaving in place',
+      );
+    }
+  }
+
+  // Directory migration: .anatoly/docs/ → .anatoly/state/internal-docs/
+  const legacyDocs = join(dotAnatoly, 'docs');
+  const targetDocs = join(stateDir, 'internal-docs');
+  if (existsSync(legacyDocs) && lstatSync(legacyDocs).isDirectory()) {
+    try {
+      const targetHasContent = existsSync(targetDocs) && readdirSync(targetDocs).length > 0;
+      if (targetHasContent) {
+        // New code already populated state/internal-docs/ — legacy docs/ is dead.
+        rmSync(legacyDocs, { recursive: true, force: true });
+      } else {
+        // First migration — move docs/ into state/internal-docs/.
+        if (existsSync(targetDocs)) rmSync(targetDocs, { recursive: true, force: true });
+        renameSync(legacyDocs, targetDocs);
+      }
+    } catch (err) {
+      getLogger().warn(
+        { err: String(err) },
+        'failed to migrate legacy docs/ to state/internal-docs/ — leaving in place',
+      );
+    }
+  }
 }
 
 /**
