@@ -11,7 +11,7 @@ import picomatch from 'picomatch';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
-import type { Config } from '../schemas/config.js';
+import { getDocsDir, type Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, forecastRun } from '../core/estimator.js';
@@ -1414,7 +1414,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   let docScanInternal: ReturnType<typeof countChangedDocs> = null;
   if (ctx.enableRag) {
     const ragSuffix = ctx.resolvedRagMode ?? 'lite';
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
     docScanProject = countChangedDocs(srcRoot, docsPath, ragSuffix);
     docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
   }
@@ -1501,7 +1501,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     const ragFiles = allTasks.filter((t) =>
       t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
     ).length;
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
     embedForecast = estimateEmbedTokens(srcRoot, allTasks, [docsPath, join('.anatoly', 'state', 'internal-docs')]);
     pipelineRows.push({
       phase: 'rag',
@@ -1514,7 +1514,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // detailed `anatoly estimate` view). ---
   const usageGraph = buildUsageGraph(srcRoot, allTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
-  const docsTree = buildDocsTree(srcRoot, ctx.config.documentation?.docs_path ?? 'docs');
+  const docsTree = buildDocsTree(srcRoot, getDocsDir(ctx.config));
   const internalDocsDir = anatolyPath(srcRoot, 'state/internal-docs');
   const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'state', 'internal-docs'));
 
@@ -1728,7 +1728,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     log.info({ pagesWritten: result.pagesWritten, pagesFailed: result.pagesFailed, costUsd: result.totalCostUsd }, 'doc generation complete');
 
     // Structure lint — deterministic preamble/fence cleanup
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
     if (result.pagesWritten > 0 && !ctx.interrupted) {
       ctx.pipelineState?.updateTask(taskId, 'linting docs…');
       ctx.renderer?.logPlain(`[${taskId}] linting doc structure…`);
@@ -1830,7 +1830,7 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
     try {
       pkg = JSON.parse(readFileSync(resolve(srcRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
     } catch { /* no package.json — non-JS project */ }
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
 
     // Scaffold + generate (first time)
     ctx.renderer?.logPlain(`[${taskId}] scaffolding & generating internal documentation...`);
@@ -1882,7 +1882,7 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     try {
       pkg = JSON.parse(readFileSync(resolve(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), 'package.json'), 'utf-8')) as Record<string, unknown>;
     } catch { /* no package.json — non-JS project */ }
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
 
     // Scaffold only for new modules (idempotent, skips existing pages)
     if (!ctx.profile) throw new Error('project profile not detected — cannot run doc pipeline');
@@ -1936,7 +1936,7 @@ function syncProjectDocsFromInternal(ctx: RunContext): void {
   ctx.pipelineState?.startTask(taskId, 'copying…');
 
   try {
-    const docsPath = ctx.config.documentation?.docs_path ?? 'docs';
+    const docsPath = getDocsDir(ctx.config);
     const absInternal = anatolyPath(ctx.projectRoot, 'state/internal-docs');
     const absProject = resolve(ctx.projectRoot, docsPath);
 
@@ -1982,7 +1982,7 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
   const log = getLogger();
   const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
   const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
-  const docsDir = ctx.config.documentation?.docs_path ?? 'docs';
+  const docsDir = getDocsDir(ctx.config);
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
@@ -2215,7 +2215,7 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       indexModel,
       resolvedModels: ctx.resolvedModels,
       ragMode: ctx.resolvedRagMode,
-      docsDir: ctx.config.documentation?.docs_path ?? 'docs',
+      docsDir: getDocsDir(ctx.config),
       onLog: (msg) => {
         ctx.runLog?.debug({ phase: 'rag-index' }, msg);
         ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
@@ -2725,7 +2725,7 @@ function runReportPhase(ctx: RunContext): void {
         idealPageCount,
         cacheResult,
         newPageSources,
-        docsPath: ctx.config.documentation?.docs_path ?? 'docs',
+        docsPath: getDocsDir(ctx.config),
       });
       docReferenceSection = ctx.docReportResult.renderedSection;
       log.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict, recommendations: ctx.docReportResult.recommendations.length }, 'doc report aggregated');
@@ -2745,7 +2745,7 @@ function runReportPhase(ctx: RunContext): void {
         reviews,
         tasks: ctx.allTasks,
         idealPageCount: 0,
-        docsPath: ctx.config.documentation?.docs_path ?? 'docs',
+        docsPath: getDocsDir(ctx.config),
       });
       docReferenceSection = ctx.docReportResult.renderedSection;
       log.info({ docScore: ctx.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');

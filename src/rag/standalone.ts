@@ -11,6 +11,7 @@
  */
 
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
+import { getDocsDir } from '../schemas/config.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type EmbeddingBackend, type EmbeddingsReadyFlag } from './hardware-detect.js';
 import { startGgufContainers, stopGgufContainers } from './docker-gguf.js';
 import { stopTeiContainers } from './docker-tei.js';
@@ -125,7 +126,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       indexModel: config.models.fast,
       resolvedModels,
       ragMode,
-      docsDir: docsDir ?? config.documentation?.docs_path ?? 'docs',
+      docsDir: docsDir ?? getDocsDir(config),
       onLog,
       onProgress,
       onPhase,

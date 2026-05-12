@@ -24,7 +24,7 @@
  * - `routing.embeddings.{code,text}` → `rag.embedding.{code,nlp}` for network
  *   providers; for ONNX providers the model id is set on `rag.{code,nlp}_model`.
  * - `evaluation.axes.<id>` (bool or object) → `axes.<id>` with `enabled`/`model`/
- *   `skip` preserved. The documentation axis's `docs_path` and `module_mapping`
+ *   `skip` preserved. The documentation axis's `reference` and `internal`
  *   are lifted out into the top-level `documentation` section.
  * - `runtime.*` → spread across v2's `runtime`, `agents.max_turns`,
  *   `rag.code_weight`, `output.max_runs`, and `logging.*`.
@@ -78,7 +78,7 @@ export function adaptV3ToV2(v3: ConfigV3): LooseRecord {
   v2.rag = adaptRag(v3);
 
   // 6. axes — bool or object normalized; documentation axis stripped of its
-  //    docs_path / module_mapping (those move to documentation section below)
+  //    reference / internal (those move to documentation section below)
   v2.axes = adaptAxes(v3);
 
   // 7. documentation — extracted from the documentation axis (if object form)
@@ -180,7 +180,7 @@ function buildEmbeddingEntry(
 /**
  * Translate v3's `evaluation.axes` (each entry is bool or object) into v2's
  * `axes` (each entry is `{ enabled, model?, skip? }`). The documentation
- * axis's `docs_path` and `module_mapping` are not retained here — they are
+ * axis's `reference` and `internal` are not retained here — they are
  * lifted into v2's top-level `documentation` section by `adaptDocumentation`.
  */
 function adaptAxes(v3: ConfigV3): LooseRecord {
@@ -199,7 +199,7 @@ function adaptAxes(v3: ConfigV3): LooseRecord {
 }
 
 /**
- * Lift documentation-axis–specific fields (`docs_path`, `module_mapping`) into
+ * Lift documentation-axis–specific fields (`reference`, `internal`) into
  * v2's top-level `documentation` section. Returns null when the axis is in
  * bool form (no extra fields).
  */
@@ -207,10 +207,8 @@ function adaptDocumentation(v3: ConfigV3): LooseRecord | null {
   const axis = v3.evaluation.axes.documentation;
   if (typeof axis === 'boolean') return null;
   const out: LooseRecord = {};
-  if ('docs_path' in axis && axis.docs_path !== undefined) out.docs_path = axis.docs_path;
-  if ('module_mapping' in axis && axis.module_mapping !== undefined) {
-    out.module_mapping = axis.module_mapping;
-  }
+  if ('reference' in axis && axis.reference !== undefined) out.reference = axis.reference;
+  if ('internal' in axis && axis.internal !== undefined) out.internal = axis.internal;
   return Object.keys(out).length > 0 ? out : null;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

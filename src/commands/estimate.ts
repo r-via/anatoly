@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';
-import type { Config } from '../schemas/config.js';
+import { getDocsDir, type Config } from '../schemas/config.js';
 import { extractProvider } from '../core/transports/index.js';
 import { scanProject } from '../core/scanner.js';
 import { forecastRun, formatTokenCount, loadTasks, FORECAST_STEP_CATEGORY_ORDER, type ForecastStep } from '../core/estimator.js';
@@ -519,7 +519,7 @@ export function registerEstimateCommand(program: Command): void {
       let docScanInternal: ReturnType<typeof countChangedDocs> = null;
       if (enableRag) {
         const ragSuffix = resolvedRagSuffix;
-        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const docsPath = getDocsDir(config);
         docScanProject = countChangedDocs(projectRoot, docsPath, ragSuffix);
         docScanInternal = countChangedDocs(projectRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
       }
@@ -551,7 +551,7 @@ export function registerEstimateCommand(program: Command): void {
         const ragFiles = allTasksUnfiltered.filter(t =>
           t.symbols.some(s => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
         ).length;
-        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const docsPath = getDocsDir(config);
         embedForecast = estimateEmbedTokens(projectRoot, allTasksUnfiltered, [docsPath, join('.anatoly', 'state', 'internal-docs')]);
         ragScopeFragment = ` — ${ragFiles} files · ${embedForecast.codeUnits} fns · ${embedForecast.nlpUnits} chunks`;
       }

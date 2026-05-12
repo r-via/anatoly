@@ -28,7 +28,7 @@ import { PipelineState } from './pipeline-state.js';
 import { ScreenRenderer } from './screen-renderer.js';
 import { printBanner } from '../utils/banner.js';
 import { loadConfig } from '../utils/config-loader.js';
-import type { Config } from '../schemas/config.js';
+import { getDocsDir, type Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import type { DocExecutor } from '../core/doc-llm-executor.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
@@ -143,7 +143,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   } catch {
     // No package.json (Go, Rust, Python projects) — continue with empty manifest
   }
-  const docsPath = config.documentation?.docs_path ?? 'docs';
+  const docsPath = getDocsDir(config);
   const profile = await detectProjectProfile(projectRoot);
 
   // Validate Anthropic provider auth — fail fast if misconfigured.

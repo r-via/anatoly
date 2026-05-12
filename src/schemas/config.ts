@@ -168,10 +168,84 @@ export const LoggingConfigSchema = z.object({
   pretty: z.boolean().default(true),
 });
 
-export const DocumentationConfigSchema = z.object({
-  docs_path: z.string().default('docs'),
-  /** Map from doc page name (key) to source module globs (values) that the page covers. */
+// --- Documentation (Story 54.1: Reference-first documentation) ---
+
+/** Doc-comment kinds extracted by LanguageAdapter.extractDocComments. */
+export const DocCommentKindSchema = z.enum([
+  'jsdoc', 'tsdoc', 'docstring', 'godoc', 'javadoc', 'xmldoc', 'module_header',
+]);
+
+export type DocCommentKind = z.infer<typeof DocCommentKindSchema>;
+
+/** Inline doc-comment extraction config — opt-in, structured comments only. */
+export const InlineCommentsConfigSchema = z.object({
+  enabled: z.boolean(),
+  /** Which doc-comment kinds to extract. Required when enabled=true. */
+  kinds: z.array(DocCommentKindSchema).optional(),
+  /** Glob patterns for source files to scan. Required when enabled=true. */
+  include: z.array(z.string()).optional(),
+}).refine(
+  (data) => !data.enabled || (data.kinds !== undefined && data.kinds.length > 0),
+  { message: 'kinds is required when inline_comments is enabled', path: ['kinds'] },
+).refine(
+  (data) => !data.enabled || (data.include !== undefined && data.include.length > 0),
+  { message: 'include is required when inline_comments is enabled', path: ['include'] },
+);
+
+export type InlineCommentsConfig = z.infer<typeof InlineCommentsConfigSchema>;
+
+/** Reference documentation config — paths to human-authored docs. */
+export const ReferenceDocsConfigSchema = z.object({
+  /** Glob patterns for reference documentation files. At least one required. */
+  paths: z.array(z.string()).min(1, 'at least one reference path is required'),
+  /** Inline doc-comment extraction settings. */
+  inline_comments: InlineCommentsConfigSchema.default({ enabled: false }),
+  /** Map from doc page name (key) to source module globs (values). */
   module_mapping: z.record(z.string(), z.array(z.string())).optional(),
+}).refine(
+  (data) => data.paths.every((p) => !p.startsWith('/') && !p.startsWith('\\') && !p.includes('..')),
+  { message: 'reference paths must be relative (no leading / or \\, no ..)', path: ['paths'] },
+);
+
+export type ReferenceDocsConfig = z.infer<typeof ReferenceDocsConfigSchema>;
+
+/** Internal docs lite-mode config. */
+export const InternalDocsLiteConfigSchema = z.object({
+  max_tokens: z.int().min(100).default(4000),
+  refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])).min(1),
+});
+
+export type InternalDocsLiteConfig = z.infer<typeof InternalDocsLiteConfigSchema>;
+
+/** Internal docs full-mode config. */
+export const InternalDocsFullConfigSchema = z.object({
+  sync_to_repo: z.boolean(),
+});
+
+export type InternalDocsFullConfig = z.infer<typeof InternalDocsFullConfigSchema>;
+
+/** Internal documentation config — mode determines pipeline behavior. */
+export const InternalDocsConfigSchema = z.object({
+  /** Documentation generation mode. No default — must be explicitly chosen. */
+  mode: z.enum(['full', 'lite', 'off']),
+  /** Required when mode=lite. */
+  lite: InternalDocsLiteConfigSchema.optional(),
+  /** Required when mode=full. */
+  full: InternalDocsFullConfigSchema.optional(),
+}).refine(
+  (data) => data.mode !== 'lite' || data.lite !== undefined,
+  { message: 'internal.lite is required when mode is "lite"', path: ['lite'] },
+).refine(
+  (data) => data.mode !== 'full' || data.full !== undefined,
+  { message: 'internal.full is required when mode is "full"', path: ['full'] },
+);
+
+export type InternalDocsConfig = z.infer<typeof InternalDocsConfigSchema>;
+
+/** Top-level documentation config — reference (human) + internal (derived). */
+export const DocumentationConfigSchema = z.object({
+  reference: ReferenceDocsConfigSchema,
+  internal: InternalDocsConfigSchema,
 });
 
 export const OutputConfigSchema = z.object({
@@ -246,7 +320,10 @@ export const ConfigSchema = z.object({
     verdict: false,
     link: 'https://github.com/r-via/anatoly',
   }),
-  documentation: DocumentationConfigSchema.default({ docs_path: 'docs' }),
+  documentation: DocumentationConfigSchema.default({
+    reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+    internal: { mode: 'off' },
+  }),
   search: SearchConfigSchema.default({}),
   notifications: NotificationsConfigSchema.optional(),
 });
@@ -265,4 +342,22 @@ export type TelegramNotificationConfig = z.infer<typeof TelegramNotificationSche
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type EmbeddingProviderConfig = z.infer<typeof EmbeddingProviderConfigSchema>;
 export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
+export type DocumentationConfig = z.infer<typeof DocumentationConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
+
+/**
+ * Derive the primary docs directory from reference.paths.
+ * Backward-compatible bridge replacing the removed `docs_path` field.
+ * Extracts the first directory prefix from glob patterns (e.g. "docs/**\/*.md" → "docs").
+ * Returns 'docs' when no directory-like path is found.
+ */
+export function getDocsDir(config: Config): string {
+  const paths = config.documentation?.reference?.paths;
+  if (!paths?.length) return 'docs';
+  for (const p of paths) {
+    // Match directory prefixes like "docs/", "docs/**/*.md", "site/docs/"
+    const match = p.match(/^([^*{[?]+?)\//);
+    if (match?.[1]) return match[1];
+  }
+  return 'docs';
+}

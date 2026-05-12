@@ -1170,9 +1170,7 @@ describe('writeFirstRunConfig', () => {
     expect(content).toContain('# Per-axis override example');
     expect(content).toContain('#   correction:');
     expect(content).toContain('#     model: anthropic/claude-opus-4-6');
-    expect(content).toContain('# Documentation extras');
-    expect(content).toContain('#     docs_path: docs');
-    expect(content).toContain('#     module_mapping:');
+    expect(content).toContain('# Documentation axis model override');
   });
 
   it('full annotated YAML still parses to a valid v3 (commented sections are inert)', async () => {

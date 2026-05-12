@@ -17,6 +17,7 @@ import { detectProjectProfile } from '../core/language-detect.js';
 import { loadTasks } from '../core/estimator.js';
 import { aggregateDocReport } from '../core/doc-report-aggregator.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { getDocsDir } from '../schemas/config.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 
 /** Registers the `report` CLI sub-command on the given Commander program. @param program The root Commander instance. */
@@ -81,7 +82,7 @@ export function registerReportCommand(program: Command): void {
             reviews,
             tasks,
             idealPageCount: 0,
-            docsPath: config.documentation?.docs_path ?? 'docs',
+            docsPath: getDocsDir(config),
           });
           docReferenceSection = result.renderedSection;
         } catch {

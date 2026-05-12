@@ -21,11 +21,15 @@ function writeDoc(relPath: string, content: string): void {
   writeFileSync(fullPath, content, 'utf-8');
 }
 
-function makeConfig(overrides: Partial<{ docs_path: string; module_mapping: Record<string, string[]> }> = {}): Config {
+function makeConfig(overrides: Partial<{ module_mapping: Record<string, string[]> }> = {}): Config {
   return ConfigSchema.parse({
     documentation: {
-      docs_path: 'docs',
-      ...overrides,
+      reference: {
+        paths: ['docs/**/*.md'],
+        inline_comments: { enabled: false },
+        ...(overrides.module_mapping ? { module_mapping: overrides.module_mapping } : {}),
+      },
+      internal: { mode: 'off' },
     },
   });
 }

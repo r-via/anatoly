@@ -123,11 +123,19 @@ export function loadConfig(projectRoot: string, configPath?: string): Config {
       .map((i) => `  ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     const firstKey = result.error.issues[0]?.path.join('.') ?? 'unknown';
+    // Detect documentation-related validation failures and emit an actionable
+    // remediation message pointing to the init wizard (Story 54.1 AC2).
+    const hasDocIssue = result.error.issues.some(
+      (i) => i.path[0] === 'documentation',
+    );
+    const hint = hasDocIssue
+      ? `run \`anatoly init --reconfigure-docs\` to update the documentation section in ${filePath} — see CHANGELOG for the breaking change in documentation config`
+      : `fix the \`${firstKey}\` key in ${filePath} — see documentation for valid values`;
     throw new AnatolyError(
       `Invalid configuration in ${filePath}:\n${issues}`,
       ERROR_CODES.CONFIG_INVALID,
       false,
-      `fix the \`${firstKey}\` key in ${filePath} — see documentation for valid values`,
+      hint,
     );
   }
 

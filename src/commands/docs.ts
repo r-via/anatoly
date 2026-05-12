@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { getDocsDir } from '../schemas/config.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
@@ -200,7 +201,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       const config = loadConfig(projectRoot);
-      const projectDocsPath = config.documentation?.docs_path ?? 'docs';
+      const projectDocsPath = getDocsDir(config);
       const internalDocsDir = anatolyPath(projectRoot, 'state/internal-docs');
       const projectDocsDir = resolve(projectRoot, projectDocsPath);
 
@@ -462,7 +463,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       const config = loadConfig(projectRoot);
-      const docsPath = config.documentation?.docs_path ?? 'docs';
+      const docsPath = getDocsDir(config);
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const logDir = anatolyPath(projectRoot, 'cache', 'logs', 'docs', `structure-review_${ts}`);
@@ -532,7 +533,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       const config = loadConfig(projectRoot);
-      const docsPath = config.documentation?.docs_path ?? 'docs';
+      const docsPath = getDocsDir(config);
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
       // Step 1: Deterministic lint
@@ -839,7 +840,7 @@ export function registerDocsCommand(program: Command): void {
       }
 
       const config = loadConfig(projectRoot);
-      const docsPath = config.documentation?.docs_path ?? 'docs';
+      const docsPath = getDocsDir(config);
       const targetDir = scope === 'internal' ? join('.anatoly', 'state', 'internal-docs') : docsPath;
 
       if (!existsSync(resolve(projectRoot, targetDir))) {
@@ -930,7 +931,7 @@ export function registerDocsCommand(program: Command): void {
     .action(() => {
       const projectRoot = process.cwd();
       const config = loadConfig(projectRoot);
-      const projectDocsDir = config.documentation?.docs_path ?? 'docs';
+      const projectDocsDir = getDocsDir(config);
       const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
 
       const absProject = resolve(projectRoot, projectDocsDir);
@@ -976,7 +977,7 @@ export function registerDocsCommand(program: Command): void {
     .action(async (opts: { yes?: boolean }) => {
       const projectRoot = process.cwd();
       const config = loadConfig(projectRoot);
-      const projectDocsPath = config.documentation?.docs_path ?? 'docs';
+      const projectDocsPath = getDocsDir(config);
       const absProject = resolve(projectRoot, projectDocsPath);
       const absInternal = anatolyPath(projectRoot, 'state/internal-docs');
 

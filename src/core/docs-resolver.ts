@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, dirname, basename, sep, extname } from 'node:path';
 import type { RelevantDoc } from './axis-evaluator.js';
-import type { Config } from '../schemas/config.js';
+import { getDocsDir, type Config } from '../schemas/config.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { embedNlp } from '../rag/embeddings.js';
 
@@ -131,11 +131,11 @@ export function resolveRelevantDocs(
 ): RelevantDoc[] {
   if (docsTree === null) return [];
 
-  const docsDir = opts?.docsDir ?? join(projectRoot, config.documentation.docs_path);
+  const docsDir = opts?.docsDir ?? join(projectRoot, getDocsDir(config));
   if (!existsSync(docsDir)) return [];
 
   const source = opts?.source;
-  const mapping = config.documentation.module_mapping;
+  const mapping = config.documentation.reference?.module_mapping;
   const docs: RelevantDoc[] = [];
 
   const tagDoc = (doc: RelevantDoc): RelevantDoc =>

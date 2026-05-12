@@ -65,8 +65,12 @@ function fullV3(): unknown {
         correction: { enabled: true, model: 'anthropic/claude-opus-4-6' },
         documentation: {
           enabled: true,
-          docs_path: 'site/docs',
-          module_mapping: { 'site/docs/auth.md': ['src/auth/**/*.ts'] },
+          reference: {
+            paths: ['site/docs/**/*.md'],
+            inline_comments: { enabled: false },
+            module_mapping: { 'site/docs/auth.md': ['src/auth/**/*.ts'] },
+          },
+          internal: { mode: 'off' },
         },
       },
     },
@@ -395,11 +399,11 @@ describe('adaptV3ToV2 — axes', () => {
     expect(v2.axes.utility).toEqual({ enabled: true, skip: ['legacy/**'] });
   });
 
-  it('does not retain docs_path / module_mapping inside axes.documentation', () => {
+  it('does not retain reference / internal inside axes.documentation', () => {
     const { v2 } = adapt(fullV3());
     expect(v2.axes.documentation).toEqual({ enabled: true });
-    expect(v2.axes.documentation).not.toHaveProperty('docs_path');
-    expect(v2.axes.documentation).not.toHaveProperty('module_mapping');
+    expect(v2.axes.documentation).not.toHaveProperty('reference');
+    expect(v2.axes.documentation).not.toHaveProperty('internal');
   });
 });
 
@@ -408,12 +412,11 @@ describe('adaptV3ToV2 — axes', () => {
 // ---------------------------------------------------------------------------
 
 describe('adaptV3ToV2 — documentation', () => {
-  it('lifts docs_path and module_mapping into top-level documentation', () => {
+  it('lifts reference and internal into top-level documentation', () => {
     const { v2 } = adapt(fullV3());
-    expect(v2.documentation).toEqual({
-      docs_path: 'site/docs',
-      module_mapping: { 'site/docs/auth.md': ['src/auth/**/*.ts'] },
-    });
+    expect(v2.documentation.reference.paths).toEqual(['site/docs/**/*.md']);
+    expect(v2.documentation.reference.module_mapping).toEqual({ 'site/docs/auth.md': ['src/auth/**/*.ts'] });
+    expect(v2.documentation.internal.mode).toBe('off');
   });
 
   it('omits the documentation section when axis is bool', () => {
@@ -423,13 +426,14 @@ describe('adaptV3ToV2 — documentation', () => {
     expect(v2.documentation).toBeUndefined();
   });
 
-  it('emits the default docs_path when axis is in object form', () => {
+  it('emits default reference/internal when axis is in object form', () => {
     const v3 = fullV3() as Record<string, Record<string, Record<string, unknown>>>;
     v3.evaluation.axes.documentation = { enabled: true } as unknown as Record<string, unknown>;
     const { v2 } = adapt(v3);
-    // DocumentationAxisSchema fills docs_path with 'docs' by default, so any
-    // object-form axis carries docs_path even without explicit user input.
-    expect(v2.documentation).toEqual({ docs_path: 'docs' });
+    // DocumentationAxisSchema fills reference/internal with defaults, so any
+    // object-form axis carries them even without explicit user input.
+    expect(v2.documentation.reference.paths).toEqual(['README.md']);
+    expect(v2.documentation.internal.mode).toBe('off');
   });
 });
 

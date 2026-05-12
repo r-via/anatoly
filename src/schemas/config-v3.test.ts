@@ -390,15 +390,20 @@ describe('EvaluationConfigSchema', () => {
       axes: {
         documentation: {
           enabled: true,
-          docs_path: 'site/docs',
-          module_mapping: { 'site/docs/auth.md': ['src/auth/**/*.ts'] },
+          reference: {
+            paths: ['site/docs/**/*.md'],
+            inline_comments: { enabled: false },
+            module_mapping: { 'site/docs/auth.md': ['src/auth/**/*.ts'] },
+          },
+          internal: { mode: 'off' },
         },
       },
     });
     const doc = r.axes.documentation;
     if (typeof doc === 'boolean') throw new Error('expected object form');
-    expect(doc.docs_path).toBe('site/docs');
-    expect(doc.module_mapping).toEqual({ 'site/docs/auth.md': ['src/auth/**/*.ts'] });
+    expect(doc.reference.paths).toEqual(['site/docs/**/*.md']);
+    expect(doc.reference.module_mapping).toEqual({ 'site/docs/auth.md': ['src/auth/**/*.ts'] });
+    expect(doc.internal.mode).toBe('off');
   });
 });
 

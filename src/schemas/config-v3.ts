@@ -278,11 +278,29 @@ export const AxisSchema = z.union([z.boolean(), AxisObjectSchema]);
 
 export type Axis = z.infer<typeof AxisSchema>;
 
-/** Documentation axis carries extra fields (docs_path, module_mapping). */
+/** Documentation axis carries extra fields (reference, internal config). */
 export const DocumentationAxisSchema = AxisObjectSchema.extend({
-  docs_path: z.string().default('docs'),
-  /** Map from doc page (key) to source globs (values). */
-  module_mapping: z.record(z.string(), z.array(z.string())).optional(),
+  /** Reference docs config — paths to human-authored documentation. */
+  reference: z.object({
+    paths: z.array(z.string()).min(1).default(['README.md']),
+    inline_comments: z.object({
+      enabled: z.boolean().default(false),
+      kinds: z.array(z.string()).optional(),
+      include: z.array(z.string()).optional(),
+    }).default({ enabled: false }),
+    module_mapping: z.record(z.string(), z.array(z.string())).optional(),
+  }).default({ paths: ['README.md'], inline_comments: { enabled: false } }),
+  /** Internal documentation mode — required, no default at schema level. */
+  internal: z.object({
+    mode: z.enum(['full', 'lite', 'off']).default('off'),
+    lite: z.object({
+      max_tokens: z.int().min(100).default(4000),
+      refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])).optional(),
+    }).optional(),
+    full: z.object({
+      sync_to_repo: z.boolean().default(false),
+    }).optional(),
+  }).default({ mode: 'off' }),
 });
 
 export type DocumentationAxis = z.infer<typeof DocumentationAxisSchema>;

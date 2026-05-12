@@ -10,6 +10,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { getDocsDir } from '../schemas/config.js';
 import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
 
 /**
@@ -287,7 +288,7 @@ export function registerCleanCommand(program: Command): void {
       const hasDocAxis = axis === 'all' || axis === 'documentation';
       if (hasDocAxis) {
         const config = loadConfig(projectRoot);
-        const docsPath = config.documentation?.docs_path ?? 'docs';
+        const docsPath = getDocsDir(config);
         const projectDocsDir = resolve(projectRoot, docsPath);
         const internalDocsDir = anatolyPath(projectRoot, 'state/internal-docs');
         if (!existsSync(projectDocsDir) && existsSync(internalDocsDir)) {

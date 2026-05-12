@@ -420,16 +420,22 @@ evaluation:
   axes:
     documentation:
       enabled: true
-      docs_path: site/docs
-      module_mapping:
-        site/docs/auth.md:
-          - src/auth/**/*.ts
+      reference:
+        paths: ['site/docs/**/*.md']
+        inline_comments:
+          enabled: false
+        module_mapping:
+          site/docs/auth.md:
+            - src/auth/**/*.ts
+      internal:
+        mode: 'off'
 `);
     const config = loadConfig(tempDir);
-    expect(config.documentation.docs_path).toBe('site/docs');
-    expect(config.documentation.module_mapping).toEqual({
+    expect(config.documentation.reference.paths).toEqual(['site/docs/**/*.md']);
+    expect(config.documentation.reference.module_mapping).toEqual({
       'site/docs/auth.md': ['src/auth/**/*.ts'],
     });
+    expect(config.documentation.internal.mode).toBe('off');
   });
 
   it('exposes the v3 source via getV3Source when the YAML is v3', () => {

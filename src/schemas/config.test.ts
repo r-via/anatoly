@@ -559,6 +559,205 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// DocumentationConfigSchema — Story 54.1: Reference-first documentation config
+// ---------------------------------------------------------------------------
+
+/** Helper to build a minimal valid documentation config for test reuse. */
+function validDocConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    reference: { paths: ['docs/**/*.md'], inline_comments: { enabled: false } },
+    internal: { mode: 'off' },
+    ...overrides,
+  };
+}
+
+describe('DocumentationConfigSchema — Story 54.1', () => {
+  // AC3 case 1: valid config in mode `lite`
+  it('should accept a valid config in mode lite', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: {
+          paths: ['docs/**/*.md', 'README.md'],
+          inline_comments: { enabled: false },
+        },
+        internal: {
+          mode: 'lite',
+          lite: { max_tokens: 4000, refresh_on: ['code_change'] },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.documentation.internal.mode).toBe('lite');
+      expect(result.data.documentation.internal.lite!.max_tokens).toBe(4000);
+      expect(result.data.documentation.reference.paths).toEqual(['docs/**/*.md', 'README.md']);
+    }
+  });
+
+  // AC3 case 2: valid config in mode `full`
+  it('should accept a valid config in mode full', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: {
+          paths: ['docs/**/*.md'],
+          inline_comments: { enabled: true, kinds: ['jsdoc'], include: ['src/**/*.ts'] },
+        },
+        internal: {
+          mode: 'full',
+          full: { sync_to_repo: false },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.documentation.internal.mode).toBe('full');
+      expect(result.data.documentation.internal.full!.sync_to_repo).toBe(false);
+      expect(result.data.documentation.reference.inline_comments.enabled).toBe(true);
+    }
+  });
+
+  // AC3 case 3: valid config in mode `off`
+  it('should accept a valid config in mode off', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: {
+          paths: ['README.md'],
+          inline_comments: { enabled: false },
+        },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.documentation.internal.mode).toBe('off');
+      expect(result.data.documentation.internal.lite).toBeUndefined();
+      expect(result.data.documentation.internal.full).toBeUndefined();
+    }
+  });
+
+  // AC3 case 4: internal.mode absent → error
+  it('should reject documentation with internal.mode absent', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['docs/**/*.md'], inline_comments: { enabled: false } },
+        internal: {},
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // AC3 case 5: reference.paths empty → error
+  it('should reject documentation with empty reference.paths', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: [], inline_comments: { enabled: false } },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // AC3 case 6: absolute path in reference.paths → error (NFR8)
+  it('should reject absolute paths in reference.paths', () => {
+    const resultSlash = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['/etc/docs/**/*.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(resultSlash.success).toBe(false);
+
+    const resultBackslash = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['\\docs\\**\\*.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(resultBackslash.success).toBe(false);
+
+    const resultDotDot = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['../other-project/docs/**'], inline_comments: { enabled: false } },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(resultDotDot.success).toBe(false);
+  });
+
+  // Extra: mode lite requires lite sub-object
+  it('should reject mode lite without lite sub-object', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'lite' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // Extra: mode full requires full sub-object
+  it('should reject mode full without full sub-object', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+        internal: { mode: 'full' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // Extra: old docs_path format is no longer accepted
+  it('should not accept old docs_path format', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: { docs_path: 'docs' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // Extra: inline_comments enabled requires kinds and include
+  it('should reject inline_comments enabled without kinds', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: {
+          paths: ['README.md'],
+          inline_comments: { enabled: true },
+        },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // Extra: module_mapping is preserved
+  it('should accept optional module_mapping', () => {
+    const result = ConfigSchema.safeParse({
+      documentation: {
+        reference: {
+          paths: ['docs/**/*.md'],
+          inline_comments: { enabled: false },
+          module_mapping: { 'api-reference': ['src/api/**'] },
+        },
+        internal: { mode: 'off' },
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.documentation.reference.module_mapping).toEqual({
+        'api-reference': ['src/api/**'],
+      });
+    }
+  });
+
+  // ConfigSchema.parse({}) still works — documentation gets default
+  it('should apply documentation defaults when config is empty', () => {
+    const config = ConfigSchema.parse({});
+    expect(config.documentation).toBeDefined();
+    expect(config.documentation.internal.mode).toBe('off');
+    expect(config.documentation.reference.paths.length).toBeGreaterThan(0);
+  });
+});
+
 describe('Exported schemas', () => {
   it('should export all v1.0 + v2.0 + embedding schema names', async () => {
     const mod = await import('./config.js');
