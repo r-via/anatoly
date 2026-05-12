@@ -394,7 +394,7 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
     const custom = await p.text({
       message: 'Enter additional paths (comma-separated globs)',
       placeholder: 'e.g., wiki/**/*.md, CHANGELOG.md',
-      validate: (v) => v.trim().length === 0 ? 'Enter at least one path' : undefined,
+      validate: (v) => !v || v.trim().length === 0 ? 'Enter at least one path' : undefined,
     });
     if (isCancelled(custom)) { p.cancel('Setup cancelled.'); process.exit(0); }
     const customPaths = custom.split(',').map((s) => s.trim()).filter(Boolean);
@@ -407,7 +407,7 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
     const fallback = await p.text({
       message: 'Enter at least one reference documentation path',
       placeholder: 'README.md',
-      validate: (v) => v.trim().length === 0 ? 'At least one reference path is required' : undefined,
+      validate: (v) => !v || v.trim().length === 0 ? 'At least one reference path is required' : undefined,
     });
     if (isCancelled(fallback)) { p.cancel('Setup cancelled.'); process.exit(0); }
     referencePaths = fallback.split(',').map((s) => s.trim()).filter(Boolean);

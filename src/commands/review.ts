@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { relative } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import { loadConfig } from '../utils/config-loader.js';

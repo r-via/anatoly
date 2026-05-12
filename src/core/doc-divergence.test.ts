@@ -117,7 +117,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
       file_level: {},
     };
     const result = ReviewFileSchema.parse(review);
-    expect(result.doc_divergences).toEqual([]);
+    expect(result.doc_divergences).toBeUndefined();
   });
 });
 
@@ -198,16 +198,16 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
     expect(result.doc_divergences).toHaveLength(1);
   });
 
-  it('all 4 axis schemas default doc_divergences to empty when absent', async () => {
+  it('all 4 axis schemas treat doc_divergences as optional when absent', async () => {
     const { CorrectionResponseSchema } = await import('./axes/correction.js');
     const { OverengineeringResponseSchema } = await import('./axes/overengineering.js');
     const { TestsResponseSchema } = await import('./axes/tests.js');
     const { BestPracticesResponseSchema } = await import('./axes/best-practices.js');
 
-    expect(CorrectionResponseSchema.parse({ symbols: [], actions: [] }).doc_divergences).toEqual([]);
-    expect(OverengineeringResponseSchema.parse({ symbols: [] }).doc_divergences).toEqual([]);
-    expect(TestsResponseSchema.parse({ symbols: [] }).doc_divergences).toEqual([]);
-    expect(BestPracticesResponseSchema.parse({ score: 10, rules: [] }).doc_divergences).toEqual([]);
+    expect(CorrectionResponseSchema.parse({ symbols: [], actions: [] }).doc_divergences).toBeUndefined();
+    expect(OverengineeringResponseSchema.parse({ symbols: [] }).doc_divergences).toBeUndefined();
+    expect(TestsResponseSchema.parse({ symbols: [] }).doc_divergences).toBeUndefined();
+    expect(BestPracticesResponseSchema.parse({ score: 10, rules: [] }).doc_divergences).toBeUndefined();
   });
 });
 

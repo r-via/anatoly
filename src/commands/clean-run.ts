@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import chalk from 'chalk';

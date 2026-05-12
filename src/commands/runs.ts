@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import { readdirSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';

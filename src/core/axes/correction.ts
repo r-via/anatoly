@@ -54,7 +54,7 @@ export const CorrectionResponseSchema = z.object({
   symbols: z.array(CorrectionSymbolSchema),
   actions: z.array(CorrectionActionSchema).default([]),
   /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
-  doc_divergences: z.array(DocDivergenceSchema).default([]),
+  doc_divergences: z.array(DocDivergenceSchema).optional(),
 });
 
 type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;

@@ -23,7 +23,7 @@ const TestsSymbolSchema = BaseSymbolSchema.extend({
 export const TestsResponseSchema = z.object({
   symbols: z.array(TestsSymbolSchema),
   /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
-  doc_divergences: z.array(DocDivergenceSchema).default([]),
+  doc_divergences: z.array(DocDivergenceSchema).optional(),
 });
 
 type TestsResponse = z.infer<typeof TestsResponseSchema>;

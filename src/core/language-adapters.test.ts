@@ -2131,9 +2131,9 @@ describe('BashAdapter.extractDocComments', () => {
 
 describe('extractDocComments — graceful degradation (NFR6)', () => {
   it('adapters without tree-sitter do not expose extractDocComments', () => {
-    const sql = new SqlAdapter();
-    const yaml = new YamlAdapter();
-    const json = new JsonAdapter();
+    const sql: LanguageAdapter = new SqlAdapter();
+    const yaml: LanguageAdapter = new YamlAdapter();
+    const json: LanguageAdapter = new JsonAdapter();
     expect(sql.extractDocComments).toBeUndefined();
     expect(yaml.extractDocComments).toBeUndefined();
     expect(json.extractDocComments).toBeUndefined();

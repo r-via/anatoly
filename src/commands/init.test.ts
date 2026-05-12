@@ -17,6 +17,7 @@ import {
   type WizardSelections,
   type DocWizardSelections,
 } from './init.js';
+import type { DocCommentKind } from '../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // validateProviderMode
@@ -319,9 +320,9 @@ documentation:
     const newDocConfig = {
       reference: {
         paths: ['docs/**/*.md', 'README.md'],
-        inline_comments: { enabled: true, kinds: ['jsdoc'], include: ['src/**/*.ts'] },
+        inline_comments: { enabled: true, kinds: ['jsdoc'] as DocCommentKind[], include: ['src/**/*.ts'] },
       },
-      internal: { mode: 'lite' as const, lite: { max_tokens: 4000, refresh_on: ['code_change'] } },
+      internal: { mode: 'lite' as const, lite: { max_tokens: 4000, refresh_on: ['code_change'] as ('code_change' | 'schema_change' | 'manual')[] } },
     };
     const result = mergeDocumentationIntoYaml(existingYaml, newDocConfig);
     // Parse the result to verify structure

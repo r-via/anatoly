@@ -209,15 +209,6 @@
 - [x] Story 54.7: Mode `off` gracieux + suppression sèche du sync `.anatoly/docs/ → docs/`
 - [x] Story 54.8: Coherence 3-way en mode `full` (reference ↔ internal ↔ surface code)
 - [x] Story 54.9: Findings `doc_divergence` transversaux + agrégation sous axe doc + mode doc dans rapport
-  > As a lecteur du rapport anatoly
-  > I want voir les divergences code ↔ reference regroupées sous l'axe documentation, distinctement des bugs classiques, avec citation exacte des passages contradictoires
-  > So that je peux décider en un coup d'œil si la doc est obsolète ou si le code a dérivé.
-  > AC: Given le schema commun de findings (probablement dans `src/schemas/finding.ts` ou équivalent), When il est étendu, Then un nouveau type `doc_divergence` est ajouté avec la forme exacte décrite en FR15, And la `severity` est limitée à `info | warn` (pas de `error`, pas de plantage du score sur ce type)
-  > AC: Given les axes `correction`, `best_practices`, `overengineering`, `tests`, When leur system prompt est étendu, Then une nouvelle instruction est ajoutée (cf FR16) demandant à l'axe d'émettre un finding `doc_divergence` plutôt qu'un finding bug classique quand la reference contredit le code observé, And le schema Zod de la réponse de chaque axe accepte des entrées `doc_divergence` parallèlement aux findings classiques, And un test fixture par axe (4 tests) valide que sur un cas de divergence connue, c'est bien un `doc_divergence` qui est retourné, pas un finding bug
-  > AC: Given un run complet où plusieurs axes ont émis des `doc_divergence`, When le rapport final est généré, Then tous les `doc_divergence` (peu importe `axis_origin`) sont agrégés sous la section de l'axe `documentation`, dans un sous-titre distinct `### Divergences code ↔ reference`, And chaque entrée affiche : le `symbol` ou `file:line`, l'`axis_origin`, la `reference_excerpt` citée verbatim (avec son `reference_source` cliquable), et l'`observed_behavior`, And le score F1 de l'axe documentation n'est pas modifié par ces findings (ils sont comptés mais non pénalisants — FR17)
-  > AC: Given l'en-tête du rapport final, When il est rendu, Then une ligne `Documentation: {mode}` apparaît, avec le mode actif (`lite (digest {N} tokens)`, `full (last coherence: {date})`, ou `off`) — FR18, And la même information apparaît dans la sortie de `anatoly status`
-  > AC: Given un benchmark anatoly-bench post-epic en mode `full`, When il est exécuté, Then le score F1 de l'axe documentation ne baisse pas de plus de 0.05 par rapport à la baseline pré-epic (NFR3), And les résultats sont archivés dans `_bmad-output/benchmark-results/epic-54-full.json`, And des baselines séparées sont établies et archivées pour `lite` et `off` (`epic-54-lite.json`, `epic-54-off.json`)
-  > Spec: specs/planning-artifacts/epic-54-reference-first-documentation.md#story-54-9
 
 ## Completed
 

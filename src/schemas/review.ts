@@ -259,8 +259,8 @@ export const ReviewFileSchema = z.object({
   /** Per-axis evaluation metadata (v2 only) — partial record, only axes that ran */
   axis_meta: z.record(AxisIdSchema, AxisMetaEntrySchema.optional()).optional(),
 
-  /** Doc divergence findings from any axis (Epic 54 — Story 54.9, FR15) */
-  doc_divergences: z.array(DocDivergenceSchema).default([]),
+  /** Doc divergence findings from any axis (Epic 54 — Story 54.9, FR15). Optional: producers may omit when empty. */
+  doc_divergences: z.array(DocDivergenceSchema).optional(),
 
   /** Deliberation pass summary (when Opus deliberation ran for this file) */
   deliberation: z.object({

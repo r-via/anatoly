@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { relative, extname } from 'node:path';
+import { relative, extname, resolve } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { spawn } from 'node:child_process';

@@ -253,7 +253,7 @@ export function registerWatchCommand(program: Command): void {
         }
 
         // Remove review file
-        const reviewPath = resolve(anatolyDir, 'reviews', `${toOutputName(relPath)}.rev.json`);
+        const reviewPath = anatolyPath(projectRoot, 'shared/reviews', `${toOutputName(relPath)}.rev.json`);
         try {
           if (existsSync(reviewPath)) unlinkSync(reviewPath);
         } catch {

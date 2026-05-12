@@ -25,7 +25,7 @@ const OverengineeringSymbolSchema = BaseSymbolSchema.extend({
 export const OverengineeringResponseSchema = z.object({
   symbols: z.array(OverengineeringSymbolSchema),
   /** Doc divergence findings when reference docs contradict code (Story 54.9, FR15). */
-  doc_divergences: z.array(DocDivergenceSchema).default([]),
+  doc_divergences: z.array(DocDivergenceSchema).optional(),
 });
 
 type OverengineeringResponse = z.infer<typeof OverengineeringResponseSchema>;
