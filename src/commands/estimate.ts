@@ -89,17 +89,10 @@ function sortSteps(steps: ForecastStep[]): ForecastStep[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Two cli-table3 char sets used by the estimate view:
- *
- *   - `KV_NO_SEP_CHARS`: no inter-row separator, used for blocks rendered as
- *     a single multi-line cli-table3 row (key/value pairs joined by `\n`).
- *     Avoids the noisy `─` line between every entry in 3-4-row kv sections.
- *
- *   - `TABLE_CHARS`: visible `─` separator between rows. Used only for truly
- *     tabular sections (Cost breakdown sub-tables, Pipeline Plan) where the
- *     separator helps the eye scan rows.
- *
- * Both share: no top/bottom borders, 2-space left indent, 3-space inter-column gap.
+ * cli-table3 char set used by the estimate view: no inter-row separator,
+ * no top/bottom borders, 2-space left indent, 3-space inter-column gap.
+ * Used for blocks rendered as a single multi-line row (kv pairs joined by `\n`)
+ * and for tabular sections like the Pipeline Plan.
  */
 const KV_NO_SEP_CHARS = {
   top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
