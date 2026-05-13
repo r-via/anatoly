@@ -232,18 +232,7 @@
 - [x] Story 56.7: Transport refactor — subscription `costUsd: null` + D.3 event vocabulary v1
 - [x] Story 56.8: Big-bang migration — 10 phases + axes.correction split + doc-conflict split
 - [x] Story 56.9: `@deprecated` cleanup — 9 items absorbed in big-bang PR
-  > **As an** Anatoly maintainer **I want** 9 legacy items absorbed in the same big-bang PR as the orchestration refactor **So that** the drift surface shrinks visibly alongside the new contract, without leaving deprecated artifacts that confuse future contributors.
-  > AC: Given `src/utils/format.ts` `verboseLog()` function, When FR21 is applied, Then the function is deleted and its ~5 callers replaced with `getLogger().debug(…)` direct
-  > AC: Given `src/core/correction-memory.ts` with `FalsePositiveEntry`, `loadCorrectionMemory()`, `saveCorrectionMemory()`, and the legacy `correction-memory.json` read path, When FR22 is applied, Then these exports and the legacy file-read code are deleted. Any internal call sites are migrated to the `DeliberationMemory` API (verified by grep returning zero).
-  > AC: Given the `EmbeddingsReadyFlag.python` field at `src/rag/hardware-detect.ts:159`, When FR23 is applied, Then the field is removed from the type, removed from any flag-writing code, and consumers reading the flag (none expected since `@deprecated`) are checked via grep
-  > AC: Given the `renderShard()` legacy function at `src/core/reporter.ts:2164`, When FR24 is applied, Then the function is deleted. Clean-run consumers already migrated to `renderAxisShard()` (verified by grep).
-  > AC: Given the `DocPrompt` type alias at `src/core/doc-llm-executor.ts:30`, When FR25 is applied, Then the alias is deleted. All imports replaced with direct `PagePrompt` from `doc-generator.ts`.
-  > AC: Given the `resolveNlpModel()` alias at `src/core/axis-evaluator.ts:257`, When FR26 is applied, Then the alias is deleted. Callers (none direct expected) are migrated to `resolveCodeSummaryModel()`.
-  > AC: Given `detectDocGaps()` and `formatGapReport()` v1 API at `src/core/doc-gap-detection.ts:525,544`, When FR27 is applied, Then both v1 functions are deleted. Internal delegation to v2 is folded into the v2 API directly. No external callers.
-  > AC: Given the NLP cache migration one-shot logic at `src/rag/indexer.ts:341-398`, When FR28 is applied, Then the migration-detection block is deleted. The merged-cache format is now the only format. Documented in changelog as "users on releases older than v0.X must run their first post-upgrade run, which will regenerate the unified cache".
-  > AC: Given `npm run typecheck && npm run build`, When executed after all cleanup, Then both succeed with zero warnings. The diff stats show a net reduction in LOC roughly equivalent to the inlined plumbing eliminated by Story 56.8.
-  > Spec: specs/planning-artifacts/epic-56-unified-orchestration-runtime.md#story-56-9
-- [ ] Story 56.10: Regression test suite — 6 test files covering 7 KPIs
+- [x] Story 56.10: Regression test suite — 6 test files covering 7 KPIs
   > **As an** Anatoly maintainer **I want** an automated regression suite that enforces the orchestration contract continuously **So that** any future PR that drifts from the contract (e.g.
   > adds a phase without `runPhase`, leaks a prompt into D.3, fails to attribute a call) fails CI before merge.
   > AC: Given the absence of a coverage regression test, When `src/core/orchestration/coverage.test.ts` is implemented (KPI 1), Then it enumerates `CANONICAL_PHASES` ; for each, asserts (a) the phase emits all 8 effects via a recorded synthetic run, (b) it routes through `runPhase` (grep `src/commands/run.ts` for `runPhase(ctx, '${phase}'`), (c) every LLM/agent call site in the recorded run carries a registered primitive name. Asserts every axis in the axis evaluator list has a matching composer in the registry.

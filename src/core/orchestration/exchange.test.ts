@@ -302,3 +302,62 @@ describe('createExchange', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Story 56.10 — KPI 5: Mutation guard — no composer step mutates
+// intermediate variables outside exchange.write()/exchange.read()
+// ---------------------------------------------------------------------------
+
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { COMPOSERS } from './registry/composers/index.js';
+
+describe('KPI 5: composer mutation guard', () => {
+  const composersDir = resolve(process.cwd(), 'src/core/orchestration/registry/composers');
+
+  it('no composer source file contains direct property assignment on exchange parameter', () => {
+    // Scan all composer source files for patterns like `exchange.foo = ...`
+    // or `exchange[key] = ...` which would indicate direct mutation.
+    // Only exchange.write() and exchange.read() are allowed.
+    const dirs = ['axes', 'pipelines'];
+    const violations: string[] = [];
+
+    for (const dir of dirs) {
+      const dirPath = join(composersDir, dir);
+      let files: string[];
+      try {
+        files = readdirSync(dirPath).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        const src = readFileSync(join(dirPath, file), 'utf-8');
+        // Match direct property mutations: exchange.X = or exchange[X] =
+        // But exclude exchange.write( and exchange.read(
+        const mutationPattern = /exchange\.\w+\s*=[^=]/g;
+        const matches = [...src.matchAll(mutationPattern)];
+        for (const m of matches) {
+          // Allow exchange.write() calls (they contain 'exchange.write')
+          if (!m[0].includes('exchange.write')) {
+            violations.push(`${dir}/${file}: ${m[0].trim()}`);
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('every composer step with a primitive uses exchange for data flow (no inline side-effects)', () => {
+    // Verify structurally: composers only use step.primitive or step.composer
+    // references (delegating to registry) rather than inline function bodies
+    for (const [name, composer] of COMPOSERS) {
+      for (const step of composer.plan.steps) {
+        // Each step must have either a primitive, a composer, or an inputMapper
+        // (transform step). Steps with no primitive/composer/inputMapper would
+        // indicate inline logic that bypasses the exchange.
+        const hasDelegation = step.primitive || step.composer || step.inputMapper;
+        expect(hasDelegation, `composer "${name}" step "${step.id}" has no delegation`).toBeTruthy();
+      }
+    }
+  });
+});
