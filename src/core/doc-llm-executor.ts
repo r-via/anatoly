@@ -852,7 +852,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   }
 
   // Emit a structured llm_call event so the coherence pass shows up in
-  // run-metrics aggregates and llm-calls.ndjson alongside bootstrap and
+  // run-metrics aggregates and costs/ledger.ndjson alongside bootstrap and
   // axis calls. Without this, the coherence cost was captured in
   // coherence-review.md but invisible to the run-level token accounting
   // (the python-dotenv run had $1.81 of coherence cost missing from the

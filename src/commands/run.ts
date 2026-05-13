@@ -1800,7 +1800,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     });
 
     // Aggregate doc generation LLM costs. Per-call tokens aren't surfaced
-    // by `executeDocPrompts` — they remain visible in `llm-calls.ndjson`.
+    // by `executeDocPrompts` — they remain visible in `costs/ledger.ndjson`.
     recordLlmCost(ctx, {
       provider: 'anthropic',
       phase: taskId,

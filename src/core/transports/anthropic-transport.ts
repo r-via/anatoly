@@ -205,7 +205,7 @@ export class AnthropicTransport implements LlmTransport {
               // upstream `BetaUsage` type, which mirrors the Anthropic API and
               // uses snake_case keys (`input_tokens`, `output_tokens`, …). The
               // prior camelCase reads silently fell through to `?? 0` on every
-              // call, which is why every entry in `llm-calls.ndjson` and the
+              // call, which is why every entry in `costs/ledger.ndjson` and the
               // run-metrics axisStats reported 0 tokens despite a non-zero
               // costUsd. Fall back to camelCase shapes only as a defensive
               // path in case a future SDK version normalizes the keys.
