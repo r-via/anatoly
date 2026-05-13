@@ -1,5 +1,6 @@
 import tseslint from 'typescript-eslint';
 import d1PurityRule from './eslint-rules/d1-purity.js';
+import d3EventPurityRule from './eslint-rules/d3-event-purity.js';
 
 export default tseslint.config(
   {
@@ -26,6 +27,16 @@ export default tseslint.config(
     },
     rules: {
       'anatoly/d1-purity': 'error',
+    },
+  },
+  {
+    files: ['src/core/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    plugins: {
+      'anatoly-d3': { rules: { 'd3-event-purity': d3EventPurityRule } },
+    },
+    rules: {
+      'anatoly-d3/d3-event-purity': 'error',
     },
   },
 );
