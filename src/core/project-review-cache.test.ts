@@ -7,16 +7,16 @@ import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync } from 'node:f
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  writeSharedReview,
-  loadSharedReview,
-  sharedReviewPath,
+  writeProjectReview,
+  loadProjectReview,
+  projectReviewPath,
   loadReviewIndex,
-} from './shared-review-cache.js';
+} from './project-review-cache.js';
 import { computeContentHash } from '../utils/cache.js';
 import type { ReviewFile } from '../schemas/review.js';
 
 function makeTempProject(): string {
-  const root = mkdtempSync(join(tmpdir(), 'anatoly-shared-review-'));
+  const root = mkdtempSync(join(tmpdir(), 'anatoly-project-review-'));
   // Create required directory structure
   mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
   mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
@@ -32,7 +32,7 @@ function makeReview(file: string): ReviewFile {
   } as unknown as ReviewFile;
 }
 
-describe('shared-review-cache', () => {
+describe('project-review-cache', () => {
   let root: string;
 
   beforeEach(() => {
@@ -43,26 +43,26 @@ describe('shared-review-cache', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  describe('sharedReviewPath', () => {
+  describe('projectReviewPath', () => {
     it('should use 2-hex-char sharding prefix', () => {
       const hash = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
-      const path = sharedReviewPath(root, hash);
+      const path = projectReviewPath(root, hash);
       expect(path).toContain(join('cache', 'reviews', 'ab', hash + '.rev.json'));
     });
   });
 
-  describe('writeSharedReview', () => {
-    it('should write review to shared store with _meta header', () => {
+  describe('writeProjectReview', () => {
+    it('should write review to project cache with _meta header', () => {
       const review = makeReview('src/foo.ts');
       const content = 'const x = 42;\n';
       const hash = computeContentHash(content);
 
-      writeSharedReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
+      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
 
-      const sharedPath = sharedReviewPath(root, hash);
-      expect(existsSync(sharedPath)).toBe(true);
+      const cachePath = projectReviewPath(root, hash);
+      expect(existsSync(cachePath)).toBe(true);
 
-      const raw = JSON.parse(readFileSync(sharedPath, 'utf-8'));
+      const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
       expect(raw._meta).toBeDefined();
       expect(raw._meta.schema).toBe(1);
       expect(raw._meta.prompt_hash).toBe('sha256:prompt123');
@@ -75,7 +75,7 @@ describe('shared-review-cache', () => {
       const content = 'const x = 42;\n';
       const hash = computeContentHash(content);
 
-      writeSharedReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
+      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
 
       const index = loadReviewIndex(root);
       expect(index.files['src/foo.ts']).toBeDefined();
@@ -90,26 +90,26 @@ describe('shared-review-cache', () => {
       const hash = computeContentHash(content);
       const shardDir = join(root, '.anatoly', 'cache', 'reviews', hash.slice(0, 2));
 
-      writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
 
       expect(existsSync(shardDir)).toBe(true);
     });
   });
 
-  describe('loadSharedReview', () => {
+  describe('loadProjectReview', () => {
     it('should return review on cache hit', () => {
       const review = makeReview('src/foo.ts');
       const content = 'const x = 42;\n';
 
-      writeSharedReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
+      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
 
-      const loaded = loadSharedReview(root, 'src/foo.ts', content, 'sha256:prompt123', ['correction', 'utility']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:prompt123', ['correction', 'utility']);
       expect(loaded).not.toBeNull();
       expect(loaded!.file).toBe('src/foo.ts');
     });
 
     it('should return null when file not in index', () => {
-      const result = loadSharedReview(root, 'src/missing.ts', 'content', 'sha256:p', ['correction']);
+      const result = loadProjectReview(root, 'src/missing.ts', 'content', 'sha256:p', ['correction']);
       expect(result).toBeNull();
     });
 
@@ -118,9 +118,9 @@ describe('shared-review-cache', () => {
       const oldContent = 'const x = 42;\n';
       const newContent = 'const x = 99;\n';
 
-      writeSharedReview(root, review, oldContent, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, oldContent, 'sha256:p', 'model', ['correction']);
 
-      const loaded = loadSharedReview(root, 'src/foo.ts', newContent, 'sha256:p', ['correction']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', newContent, 'sha256:p', ['correction']);
       expect(loaded).toBeNull();
     });
 
@@ -128,9 +128,9 @@ describe('shared-review-cache', () => {
       const review = makeReview('src/foo.ts');
       const content = 'const x = 42;\n';
 
-      writeSharedReview(root, review, content, 'sha256:old-prompt', 'model', ['correction']);
+      writeProjectReview(root, review, content, 'sha256:old-prompt', 'model', ['correction']);
 
-      const loaded = loadSharedReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
       expect(loaded).toBeNull();
     });
 
@@ -138,10 +138,10 @@ describe('shared-review-cache', () => {
       const review = makeReview('src/foo.ts');
       const content = 'const x = 42;\n';
 
-      writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
 
       // Now asking for correction + utility but only correction was cached
-      const loaded = loadSharedReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
       expect(loaded).toBeNull();
     });
 
@@ -149,10 +149,10 @@ describe('shared-review-cache', () => {
       const review = makeReview('src/foo.ts');
       const content = 'const x = 42;\n';
 
-      writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction', 'utility', 'duplication']);
+      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction', 'utility', 'duplication']);
 
       // Requesting fewer axes than what's cached — should hit
-      const loaded = loadSharedReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
       expect(loaded).not.toBeNull();
     });
 
@@ -162,10 +162,10 @@ describe('shared-review-cache', () => {
       const contentCRLF = 'line1\r\nline2\r\n';
 
       // Written from a Unix system
-      writeSharedReview(root, review, contentLF, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, contentLF, 'sha256:p', 'model', ['correction']);
 
       // Read from a Windows system (CRLF file)
-      const loaded = loadSharedReview(root, 'src/foo.ts', contentCRLF, 'sha256:p', ['correction']);
+      const loaded = loadProjectReview(root, 'src/foo.ts', contentCRLF, 'sha256:p', ['correction']);
       expect(loaded).not.toBeNull();
     });
   });
@@ -180,10 +180,10 @@ describe('shared-review-cache', () => {
         seenPrefixes.add(hash.slice(0, 2));
 
         const review = makeReview(`src/file-${i}.ts`);
-        writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction']);
+        writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
 
-        const sharedPath = sharedReviewPath(root, hash);
-        expect(existsSync(sharedPath)).toBe(true);
+        const cachePath = projectReviewPath(root, hash);
+        expect(existsSync(cachePath)).toBe(true);
       }
 
       // With 100 random contents, we should see at least a few different prefixes

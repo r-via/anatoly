@@ -6,31 +6,32 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ReviewFile, Action } from '../schemas/review.js';
 import { atomicWriteJson, toOutputName } from '../utils/cache.js';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { getLogger } from '../utils/logger.js';
 
 /**
- * Write both .rev.json and .rev.md for a completed review.
- * When runDir is provided, writes into the run-scoped reviews directory.
- * Returns the paths to both files.
+ * Write both .rev.json and .rev.md for a completed review into the
+ * run-scoped reviews directory. Returns the paths to both files.
+ *
+ * `projectRoot` is currently only used for diagnostic logging; kept in the
+ * signature so callers don't have to be rewired if/when relative-path
+ * reporting needs to thread through here.
  */
 export function writeReviewOutput(
   projectRoot: string,
   review: ReviewFile,
-  runDir?: string,
+  runDir: string,
 ): { jsonPath: string; mdPath: string } {
-  const reviewsDir = runDir ? join(runDir, 'reviews') : anatolyPath(projectRoot, 'cache', 'reviews');
+  const reviewsDir = join(runDir, 'reviews');
   mkdirSync(reviewsDir, { recursive: true });
 
   const baseName = toOutputName(review.file);
   const jsonPath = join(reviewsDir, `${baseName}.rev.json`);
   const mdPath = join(reviewsDir, `${baseName}.rev.md`);
 
-  // Write JSON (atomic)
   atomicWriteJson(jsonPath, review);
+  writeFileSync(mdPath, renderReviewMarkdown(review));
 
-  // Write Markdown
-  const markdown = renderReviewMarkdown(review);
-  writeFileSync(mdPath, markdown);
+  getLogger().debug({ projectRoot, file: review.file, jsonPath }, 'review output written');
 
   return { jsonPath, mdPath };
 }

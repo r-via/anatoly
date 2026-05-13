@@ -7,10 +7,10 @@ import { mkdtempSync, mkdirSync, symlinkSync, existsSync, readdirSync, rmSync } 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  writeSharedReview,
-  loadSharedReview,
-  sharedReviewPath,
-} from './shared-review-cache.js';
+  writeProjectReview,
+  loadProjectReview,
+  projectReviewPath,
+} from './project-review-cache.js';
 import {
   writeSharedNlpSummary,
   loadSharedNlpSummary,
@@ -87,7 +87,7 @@ describe('isolation guard: reviews + NLP summaries are project-local', () => {
   it('review path resolves under project-local cache/, not shared/', () => {
     const { projA } = env;
     const hash = computeContentHash('const x = 1;\n');
-    const path = sharedReviewPath(projA, hash);
+    const path = projectReviewPath(projA, hash);
     expect(path).toContain(join(projA, '.anatoly', 'cache', 'reviews'));
     expect(path).not.toContain(join(projA, '.anatoly', 'shared'));
   });
@@ -97,10 +97,10 @@ describe('isolation guard: reviews + NLP summaries are project-local', () => {
     const fileContent = 'export function util() { return 42; }\n';
     const review = makeReview('src/util.ts');
 
-    writeSharedReview(projA, review, fileContent, 'sha256:prompt-v1', 'claude-3.5-sonnet', ['correction', 'utility']);
+    writeProjectReview(projA, review, fileContent, 'sha256:prompt-v1', 'claude-3.5-sonnet', ['correction', 'utility']);
 
     // Same content, same axes, but DIFFERENT project — must miss.
-    const loaded = loadSharedReview(projB, 'src/util.ts', fileContent, 'sha256:prompt-v1', ['correction', 'utility']);
+    const loaded = loadProjectReview(projB, 'src/util.ts', fileContent, 'sha256:prompt-v1', ['correction', 'utility']);
     expect(loaded).toBeNull();
   });
 
@@ -125,8 +125,7 @@ describe('sharding distribution (AC7)', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'anatoly-shard-'));
-    mkdirSync(join(root, '.anatoly', 'shared', 'reviews'), { recursive: true });
-    mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
+    mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
   });
 
   afterEach(() => {
@@ -144,11 +143,10 @@ describe('sharding distribution (AC7)', () => {
       seenPrefixes.add(prefix);
 
       const review = makeReview(`src/file-${i}.ts`);
-      writeSharedReview(root, review, content, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
 
-      // Verify the file exists at the expected sharded path
-      const sharedPath = sharedReviewPath(root, hash);
-      expect(existsSync(sharedPath)).toBe(true);
+      const cachePath = projectReviewPath(root, hash);
+      expect(existsSync(cachePath)).toBe(true);
     }
 
     // With 256 random hashes, we should see a good distribution
@@ -156,7 +154,7 @@ describe('sharding distribution (AC7)', () => {
     expect(seenPrefixes.size).toBeGreaterThan(50);
 
     // Verify no shard directory contains an unreasonable number of files
-    const reviewsDir = join(root, '.anatoly', 'shared', 'reviews');
+    const reviewsDir = join(root, '.anatoly', 'cache', 'reviews');
     for (const prefix of readdirSync(reviewsDir)) {
       const prefixDir = join(reviewsDir, prefix);
       const files = readdirSync(prefixDir);
@@ -176,8 +174,7 @@ describe('prompt invalidation (AC8)', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'anatoly-prompt-inv-'));
-    mkdirSync(join(root, '.anatoly', 'shared', 'reviews'), { recursive: true });
-    mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
+    mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
   });
 
   afterEach(() => {
@@ -189,14 +186,14 @@ describe('prompt invalidation (AC8)', () => {
     const content = 'const x = 42;\n';
 
     // Write with prompt hash X
-    writeSharedReview(root, review, content, 'sha256:original-prompt-hash', 'model', ['correction']);
+    writeProjectReview(root, review, content, 'sha256:original-prompt-hash', 'model', ['correction']);
 
     // Verify cache hit with same hash
-    const hit = loadSharedReview(root, 'src/foo.ts', content, 'sha256:original-prompt-hash', ['correction']);
+    const hit = loadProjectReview(root, 'src/foo.ts', content, 'sha256:original-prompt-hash', ['correction']);
     expect(hit).not.toBeNull();
 
     // Simulate prompt modification → new prompt_hash Y
-    const miss = loadSharedReview(root, 'src/foo.ts', content, 'sha256:modified-prompt-hash', ['correction']);
+    const miss = loadProjectReview(root, 'src/foo.ts', content, 'sha256:modified-prompt-hash', ['correction']);
     expect(miss).toBeNull(); // Cache miss — review must be re-evaluated
   });
 
@@ -206,20 +203,20 @@ describe('prompt invalidation (AC8)', () => {
     const reviewV2 = { ...makeReview('src/foo.ts'), verdict: 'NEEDS_REFACTOR' as const };
 
     // Write v1 with old prompt
-    writeSharedReview(root, reviewV1, content, 'sha256:old-prompt', 'model', ['correction']);
+    writeProjectReview(root, reviewV1, content, 'sha256:old-prompt', 'model', ['correction']);
 
     // Can't load with new prompt
-    expect(loadSharedReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction'])).toBeNull();
+    expect(loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction'])).toBeNull();
 
-    // Write v2 with new prompt (overwrites same shared file since content hash is same)
-    writeSharedReview(root, reviewV2 as unknown as ReviewFile, content, 'sha256:new-prompt', 'model', ['correction']);
+    // Write v2 with new prompt (overwrites same cache entry since content hash is same)
+    writeProjectReview(root, reviewV2 as unknown as ReviewFile, content, 'sha256:new-prompt', 'model', ['correction']);
 
     // Now loads with new prompt
-    const loaded = loadSharedReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
+    const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
     expect(loaded).not.toBeNull();
     expect(loaded!.verdict).toBe('NEEDS_REFACTOR');
 
-    // Old prompt still misses (because shared file was overwritten)
-    expect(loadSharedReview(root, 'src/foo.ts', content, 'sha256:old-prompt', ['correction'])).toBeNull();
+    // Old prompt still misses (because cache entry was overwritten)
+    expect(loadProjectReview(root, 'src/foo.ts', content, 'sha256:old-prompt', ['correction'])).toBeNull();
   });
 });

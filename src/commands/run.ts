@@ -19,7 +19,7 @@ import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, 
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
 import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { writeReviewOutput, writeTranscript, renderReviewMarkdown } from '../core/review-writer.js';
+import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
@@ -39,7 +39,6 @@ import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
-import { ReviewFileSchema } from '../schemas/review.js';
 import { triageFile, generateSkipReview, evaluatorAxesForSkip, type TriageResult } from '../core/triage.js';
 import { buildUsageGraph, type UsageGraph } from '../core/usage-graph.js';
 import { loadDependencyMeta, type DependencyMeta } from '../core/dependency-meta.js';
@@ -86,7 +85,7 @@ import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runn
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
 import { createWorktreeManager } from '../core/worktree-manager.js';
 import { anatolyPath, runPath } from '../utils/anatoly-paths.js';
-import { writeSharedReview, loadSharedReview } from '../core/shared-review-cache.js';
+import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from '../core/project-review-cache.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
@@ -2455,7 +2454,7 @@ async function runReviewPhase(
   } else if (ctx.noCache) {
     // --no-cache: BYPASS the cache, never destroy it. Mark CACHED files as
     // PENDING so they're re-evaluated this run. cacheReview() and
-    // writeSharedReview() are gated separately to skip writes too. If the
+    // writeProjectReview() are gated separately to skip writes too. If the
     // run fails, the cache on disk is unchanged — `anatoly reset` is the
     // command that actually wipes it.
     log.info('--no-cache: bypassing cache for this run (no files deleted).');
@@ -3200,40 +3199,40 @@ function filterReviewAxes(review: ReviewFile, enabledAxes: AxisId[]): ReviewFile
 }
 
 /**
- * Load a single cached review from the shared content-addressable store
- * or the legacy project-local cache directory.
+ * Load a single cached review from the project-local content-addressable store.
  * Returns the parsed ReviewFile or undefined if not found / malformed.
  *
- * When `enabledAxes` is provided, filters out stale data for axes that are
- * no longer enabled in the current config.
+ * Both `enabledAxes` and `promptHash` are required: the cache key depends on
+ * both, and callers that want to bypass cache should simply not call this.
+ *
+ * Falls back to the pre-Story-52.4 path-based cache layout when the new store
+ * has no entry, so projects upgrading from an older anatoly version don't
+ * lose every cached review at once. The legacy fallback is read-only and
+ * will be removed in a future release.
+ *
+ * Filters out stale data for axes that are no longer enabled in the current config.
  */
-function loadCachedReview(projectRoot: string, filePath: string, enabledAxes?: AxisId[], promptHash?: string, sourceRoot?: string): ReviewFile | undefined {
-  // Try shared content-addressable cache first
-  if (promptHash && enabledAxes) {
-    try {
-      const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
-      const absPath = resolve(effectiveRoot, filePath);
-      const fileContent = readFileSync(absPath, 'utf-8');
-      const shared = loadSharedReview(projectRoot, filePath, fileContent, promptHash, enabledAxes);
-      if (shared) return filterReviewAxes(shared, enabledAxes);
-    } catch {
-      // Fall through to legacy cache
-    }
-  }
+function loadCachedReview(projectRoot: string, filePath: string, enabledAxes: AxisId[], promptHash: string, sourceRoot?: string): ReviewFile | undefined {
+  const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
+  const absPath = resolve(effectiveRoot, filePath);
 
-  // Legacy project-local cache fallback
-  const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
-  const baseName = toOutputName(filePath);
-  const src = join(cacheReviewsDir, `${baseName}.rev.json`);
-  if (!existsSync(src)) return undefined;
+  let fileContent: string;
   try {
-    const raw = JSON.parse(readFileSync(src, 'utf-8'));
-    const review = ReviewFileSchema.parse(raw);
-    if (!enabledAxes) return review;
-    return filterReviewAxes(review, enabledAxes);
-  } catch {
+    fileContent = readFileSync(absPath, 'utf-8');
+  } catch (err) {
+    getLogger().debug({ file: filePath, err }, 'cache lookup skipped: source file unreadable');
     return undefined;
   }
+
+  // Current content-addressable cache (post-Story-52.4)
+  const cached = loadProjectReview(projectRoot, filePath, fileContent, promptHash, enabledAxes);
+  if (cached) return filterReviewAxes(cached, enabledAxes);
+
+  // Transitional: legacy path-based cache. Warns once per process on first hit.
+  const legacy = loadLegacyPathBasedReview(projectRoot, filePath);
+  if (legacy) return filterReviewAxes(legacy, enabledAxes);
+
+  return undefined;
 }
 
 /**
@@ -3254,7 +3253,7 @@ function computeAxesPromptHash(axisIds: string[], modelId: string): string {
 }
 
 /**
- * Persist a review to the shared content-addressable store and a local .rev.md.
+ * Persist a review to the project-local content-addressable store.
  * Failures are silently swallowed (non-fatal, logged at debug level).
  *
  * @param projectRoot Absolute path to the project root.
@@ -3269,22 +3268,11 @@ function cacheReview(
   sourceRoot?: string,
 ): void {
   const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
-  // Write to shared content-addressable store
   try {
     const absPath = resolve(effectiveRoot, review.file);
     const fileContent = readFileSync(absPath, 'utf-8');
-    writeSharedReview(projectRoot, review, fileContent, promptHash, modelId, axes);
+    writeProjectReview(projectRoot, review, fileContent, promptHash, modelId, axes);
   } catch (err) {
-    getLogger().debug({ file: review.file, err }, 'failed to write shared review cache (non-fatal)');
-  }
-
-  // Also keep local accumulative .rev.md for human readability
-  const cacheReviewsDir = anatolyPath(projectRoot, 'cache', 'reviews');
-  mkdirSync(cacheReviewsDir, { recursive: true });
-  const baseName = toOutputName(review.file);
-  try {
-    writeFileSync(join(cacheReviewsDir, `${baseName}.rev.md`), renderReviewMarkdown(review));
-  } catch (err) {
-    getLogger().debug({ baseName, err }, 'failed to cache review markdown (non-fatal)');
+    getLogger().debug({ file: review.file, err }, 'failed to write project review cache (non-fatal)');
   }
 }

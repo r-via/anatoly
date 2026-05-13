@@ -20,9 +20,9 @@ import { tmpdir } from 'node:os';
 import { bootstrapAnatoly } from '../utils/anatoly-paths.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import {
-  writeSharedReview,
-  loadSharedReview,
-} from '../core/shared-review-cache.js';
+  writeProjectReview,
+  loadProjectReview,
+} from '../core/project-review-cache.js';
 import type { ReviewFile } from '../schemas/review.js';
 
 function makeReview(file: string, verdict: string): ReviewFile {
@@ -73,10 +73,10 @@ describe('prompt invalidation integration (Story 52.7)', () => {
     });
 
     const review = makeReview('src/app.ts', 'CLEAN');
-    writeSharedReview(root, review, fileContent, promptHash, 'claude-3.5-sonnet', ['correction']);
+    writeProjectReview(root, review, fileContent, promptHash, 'claude-3.5-sonnet', ['correction']);
 
     // Same prompt hash → cache hit
-    const loaded = loadSharedReview(root, 'src/app.ts', fileContent, promptHash, ['correction']);
+    const loaded = loadProjectReview(root, 'src/app.ts', fileContent, promptHash, ['correction']);
     expect(loaded).not.toBeNull();
     expect(loaded!.verdict).toBe('CLEAN');
   });
@@ -106,13 +106,13 @@ describe('prompt invalidation integration (Story 52.7)', () => {
 
     // Write review with V1 prompt
     const review = makeReview('src/app.ts', 'CLEAN');
-    writeSharedReview(root, review, fileContent, promptHashV1, 'claude-3.5-sonnet', ['correction']);
+    writeProjectReview(root, review, fileContent, promptHashV1, 'claude-3.5-sonnet', ['correction']);
 
     // Load with V1 → cache hit
-    expect(loadSharedReview(root, 'src/app.ts', fileContent, promptHashV1, ['correction'])).not.toBeNull();
+    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashV1, ['correction'])).not.toBeNull();
 
     // Load with V2 → cache miss (prompt changed)
-    expect(loadSharedReview(root, 'src/app.ts', fileContent, promptHashV2, ['correction'])).toBeNull();
+    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashV2, ['correction'])).toBeNull();
   });
 
   it('re-evaluated review replaces stale one after prompt change', () => {
@@ -122,23 +122,23 @@ describe('prompt invalidation integration (Story 52.7)', () => {
 
     // Write original review
     const reviewV1 = makeReview('src/app.ts', 'CLEAN');
-    writeSharedReview(root, reviewV1, fileContent, promptHashOld, 'model', ['correction']);
+    writeProjectReview(root, reviewV1, fileContent, promptHashOld, 'model', ['correction']);
 
     // Old prompt → hit
-    expect(loadSharedReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).not.toBeNull();
+    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).not.toBeNull();
     // New prompt → miss
-    expect(loadSharedReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction'])).toBeNull();
+    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction'])).toBeNull();
 
     // Re-evaluate: write new review with new prompt hash (overwrites shared file)
     const reviewV2 = makeReview('src/app.ts', 'NEEDS_REFACTOR');
-    writeSharedReview(root, reviewV2 as unknown as ReviewFile, fileContent, promptHashNew, 'model', ['correction']);
+    writeProjectReview(root, reviewV2 as unknown as ReviewFile, fileContent, promptHashNew, 'model', ['correction']);
 
     // New prompt → hit with updated verdict
-    const loaded = loadSharedReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction']);
+    const loaded = loadProjectReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction']);
     expect(loaded).not.toBeNull();
     expect(loaded!.verdict).toBe('NEEDS_REFACTOR');
 
     // Old prompt → miss (file was overwritten)
-    expect(loadSharedReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).toBeNull();
+    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).toBeNull();
   });
 });

@@ -18,9 +18,9 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  writeSharedReview,
-  loadSharedReview,
-} from './shared-review-cache.js';
+  writeProjectReview,
+  loadProjectReview,
+} from './project-review-cache.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import type { ReviewFile } from '../schemas/review.js';
 
@@ -62,10 +62,10 @@ describe('prompt invalidation integration', () => {
 
     // Write review with initial prompt hash
     const review = makeReview('src/hello.ts');
-    writeSharedReview(root, review, fileContent, hash1, modelId, ['correction']);
+    writeProjectReview(root, review, fileContent, hash1, modelId, ['correction']);
 
     // Verify cache hit with same prompt
-    const hit = loadSharedReview(root, 'src/hello.ts', fileContent, hash1, ['correction']);
+    const hit = loadProjectReview(root, 'src/hello.ts', fileContent, hash1, ['correction']);
     expect(hit).not.toBeNull();
     expect(hit!.verdict).toBe('CLEAN');
 
@@ -82,7 +82,7 @@ describe('prompt invalidation integration', () => {
     expect(hash2).not.toBe(hash1);
 
     // Cache miss with modified prompt
-    const miss = loadSharedReview(root, 'src/hello.ts', fileContent, hash2, ['correction']);
+    const miss = loadProjectReview(root, 'src/hello.ts', fileContent, hash2, ['correction']);
     expect(miss).toBeNull();
   });
 
@@ -94,10 +94,10 @@ describe('prompt invalidation integration', () => {
     const content = 'const x = 42;\n';
 
     // Write review for file A
-    writeSharedReview(root, makeReview('src/a.ts'), content, hash, modelId, ['correction']);
+    writeProjectReview(root, makeReview('src/a.ts'), content, hash, modelId, ['correction']);
 
     // Load for file B with identical content → cache hit (content-addressed)
-    const loaded = loadSharedReview(root, 'src/b.ts', content, hash, ['correction']);
+    const loaded = loadProjectReview(root, 'src/b.ts', content, hash, ['correction']);
     expect(loaded).not.toBeNull();
   });
 });

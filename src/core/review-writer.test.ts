@@ -153,7 +153,7 @@ describe('writeReviewOutput', () => {
   });
 
   it('should write both .rev.json and .rev.md files', () => {
-    const { jsonPath, mdPath } = writeReviewOutput(tempDir, sampleReview);
+    const { jsonPath, mdPath } = writeReviewOutput(tempDir, sampleReview, tempDir);
 
     expect(existsSync(jsonPath)).toBe(true);
     expect(existsSync(mdPath)).toBe(true);
@@ -162,7 +162,7 @@ describe('writeReviewOutput', () => {
   });
 
   it('should write valid JSON matching the review', () => {
-    const { jsonPath } = writeReviewOutput(tempDir, sampleReview);
+    const { jsonPath } = writeReviewOutput(tempDir, sampleReview, tempDir);
     const parsed = JSON.parse(readFileSync(jsonPath, 'utf-8'));
     expect(parsed.file).toBe('src/utils/format.ts');
     expect(parsed.verdict).toBe('NEEDS_REFACTOR');
@@ -170,7 +170,7 @@ describe('writeReviewOutput', () => {
   });
 
   it('should write readable Markdown', () => {
-    const { mdPath } = writeReviewOutput(tempDir, sampleReview);
+    const { mdPath } = writeReviewOutput(tempDir, sampleReview, tempDir);
     const md = readFileSync(mdPath, 'utf-8');
     expect(md).toContain('# Review: `src/utils/format.ts`');
     expect(md).toContain('NEEDS_REFACTOR');
