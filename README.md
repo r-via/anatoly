@@ -6,9 +6,16 @@
 
 *"Can I clean here?"*
 
-**The AI agent that deep-audits your codebase, and proves every finding.**
+**Like a senior code reviewer — that has to show its work.**
 
-Named after [a certain cleaning man](https://www.youtube.com/@vladimirfitness) who politely asks *"Can I clean here?"* — then deadlifts the entire rack.
+Anatoly is a deep-audit agent for existing codebases. It surfaces duplicates,
+dead code, silent bugs, over-engineering, and broken best practices — and
+**proves every finding with a file, a line, and the evidence trail that led
+to it.** No code is modified.
+
+Built for the codebases that grew faster than anyone could review them —
+especially the ones shipped with Cursor, Claude Code, Lovable, v0, Bolt,
+or Windsurf.
 
 [![Website](https://img.shields.io/badge/website-anatoly.cloud-1f6feb)](https://anatoly.cloud/) [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
@@ -18,7 +25,24 @@ npx @r-via/anatoly@latest run   # one command, full codebase audit
 
 ---
 
-## What is Anatoly?
+## The problem
+
+You shipped fast. Maybe with AI, maybe with a sprint that never ended.
+Now the codebase has:
+
+- functions that do the same thing under different names,
+- exports nobody imports,
+- silent logic bugs the type system can't catch,
+- bespoke abstractions wrapping three values,
+- "tested" code with no behavioral coverage.
+
+Linters won't find this. Type checkers won't either. A senior reviewer
+would — if they had a week. **Anatoly does it in minutes, and gives you a
+report you can defend.**
+
+---
+
+## What a run looks like
 
 <p align="center">
   <img src="assets/anims/demo.gif" alt="Anatoly demo"/>
@@ -51,17 +75,25 @@ Languages: TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON.
 
 ---
 
-## Who it's for
+## Who runs Anatoly
 
-Senior developers, Tech Leads, and teams shipping large amounts of AI-generated code (Claude Code, Cursor, Windsurf). Designed for projects from 20 to 1,000+ source files.
+| If you are… | You use Anatoly to… |
+|---|---|
+| **A senior dev or tech lead** shipping AI-generated code | Surface the duplicates, dead code, and silent bugs your AI tools left behind. |
+| **A team on a Claude or Cursor subscription** | Get Opus-grade deliberation on every audit — at **$0 per token**. |
+| **A regulated org** (finance, health, defense) | Audit **air-gapped** — embeddings local, LLM-optional local, **no source byte leaves your network**. |
+| **An M&A or legal expert** doing tech due diligence | Produce reports that **survive counter-expertise** — every claim pinned to file, line, and evidence. |
+| **A DevOps team** running CI/CD quality gates | Audit every PR with structured JSON output for your pipeline. |
 
-## What you get
+---
+
+## Why the findings hold up
 
 - **Evidence-backed** — every finding is grep'd, read, and cross-referenced before it's reported. No hallucinated issues.
 - **Semantic duplicate detection** — finds functions that *do the same thing* even when they look nothing alike.
+- **Deliberation pass** — multi-LLM arbitration on disputed findings.
 - **$0 on unchanged code** — SHA-256 cache. Re-running on a clean repo costs nothing.
-- **Run and walk away** — Telegram notification when done. Optional `watch` mode and Claude Code hook for write→audit→fix loops.
-- **Multi-language** — auto-detected, AST-parsed.
+- **Run and walk away** — Telegram when done. Watch mode and Claude Code hook for write → audit → fix loops.
 - **Local by default** — embeddings run on your machine. With Claude Code subscription, no API key needed.
 
 > Fair warning: this is context-and-time-hungry by design. Dream-quality code doesn't come cheap — it takes serious effort (and tokens) to get there.
