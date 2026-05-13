@@ -6,7 +6,7 @@
 
 *"Can I clean here?"*
 
-**Like a senior code reviewer that has to show its work.**
+**A no-frills code reviewer that out-lifts the giants without raising its voice.**
 
 Anatoly is a deep-audit agent for existing codebases. It evaluates every
 file on **seven axes**: silent bugs, dead code, semantic duplicates,
