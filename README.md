@@ -8,10 +8,11 @@
 
 **Like a senior code reviewer that has to show its work.**
 
-Anatoly is a deep-audit agent for existing codebases. It surfaces duplicates,
-dead code, silent bugs, over-engineering, and broken best practices, and
-**proves every finding with a file, a line, and the evidence trail that led
-to it.** No code is modified.
+Anatoly is a deep-audit agent for existing codebases. It evaluates every
+file on **seven axes**: silent bugs, dead code, semantic duplicates,
+over-engineering, weak tests, broken best practices, and stale
+documentation. **Every finding is proven with a file, a line, and the
+evidence trail that led to it.** No code is modified.
 
 Built for the codebases that grew faster than anyone could review them,
 especially the ones shipped with Cursor, Claude Code, Lovable, v0, Bolt,
@@ -34,7 +35,9 @@ Now the codebase has:
 - exports nobody imports,
 - silent logic bugs the type system can't catch,
 - bespoke abstractions wrapping three values,
-- "tested" code with no behavioral coverage.
+- "tested" code with no behavioral coverage,
+- best-practice rules the team agreed on but stopped enforcing,
+- public APIs whose `/docs/` pages drifted out of sync.
 
 Linters won't find this. Type checkers won't either. A senior reviewer
 would, if they had a week. **Anatoly does it in minutes, and gives you a
