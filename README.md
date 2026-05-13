@@ -6,14 +6,14 @@
 
 *"Can I clean here?"*
 
-**Like a senior code reviewer — that has to show its work.**
+**Like a senior code reviewer that has to show its work.**
 
 Anatoly is a deep-audit agent for existing codebases. It surfaces duplicates,
-dead code, silent bugs, over-engineering, and broken best practices — and
+dead code, silent bugs, over-engineering, and broken best practices, and
 **proves every finding with a file, a line, and the evidence trail that led
 to it.** No code is modified.
 
-Built for the codebases that grew faster than anyone could review them —
+Built for the codebases that grew faster than anyone could review them,
 especially the ones shipped with Cursor, Claude Code, Lovable, v0, Bolt,
 or Windsurf.
 
@@ -37,7 +37,7 @@ Now the codebase has:
 - "tested" code with no behavioral coverage.
 
 Linters won't find this. Type checkers won't either. A senior reviewer
-would — if they had a week. **Anatoly does it in minutes, and gives you a
+would, if they had a week. **Anatoly does it in minutes, and gives you a
 report you can defend.**
 
 ---
@@ -50,7 +50,7 @@ report you can defend.**
 
 You run one command. A few minutes later, you get a report like this:
 
-> **15 files reviewed in 10 min — $6.13 in AI analysis so you don't have to.**
+> **15 files reviewed in 10 min, $6.13 in AI analysis so you don't have to.**
 > Verdict: **NEEDS_REFACTOR** · 26 findings in 11 files
 >
 > | Axis | Health |
@@ -61,13 +61,13 @@ You run one command. A few minutes later, you get a report like this:
 > | Overengineering | 🟩🟩🟩🟩🟩🟩🟩🟩🟩⬜ 90% lean |
 > | Best Practices  | 🟥🟥🟥🟥🟥🟥🟥⬜⬜⬜ avg 7.4 / 10 |
 
-And findings like these — each one with file+line, a verdict, and the evidence that produced it:
+And findings like these, each one with file+line, a verdict, and the evidence that produced it:
 
-- 🐛 **`src/engine.ts` `computePayout`** — the house-edge multiplier sign is inverted: it *boosts* payout instead of reducing it. RTP is broken.
-- 🐛 **`src/rng.ts` `weightedPick`** — `Math.random()` used as the RNG source in a function whose own docstring says *"suitable for gaming RNG applications"*.
-- ♻️ **`src/types.ts` `LegacySpinResult`** — exported, imported by 0 files.
-- 📋 **`src/engine.ts` `checkLine`** ⇄ **`src/paytable.ts` `lineWins`** — semantically identical (RAG cosine 0.852): same WILD-skip, same consecutive-match loop, different names. A textual diff would never see it.
-- 🏗️ **`src/engine.ts` `EngineContainer`** — bespoke IoC container backed by a stringly-typed `Map<string, unknown>`, holding three values.
+- 🐛 **`src/engine.ts` `computePayout`**: the house-edge multiplier sign is inverted: it *boosts* payout instead of reducing it. RTP is broken.
+- 🐛 **`src/rng.ts` `weightedPick`**: `Math.random()` used as the RNG source in a function whose own docstring says *"suitable for gaming RNG applications"*.
+- ♻️ **`src/types.ts` `LegacySpinResult`**: exported, imported by 0 files.
+- 📋 **`src/engine.ts` `checkLine`** ⇄ **`src/paytable.ts` `lineWins`**: semantically identical (RAG cosine 0.852): same WILD-skip, same consecutive-match loop, different names. A textual diff would never see it.
+- 🏗️ **`src/engine.ts` `EngineContainer`**: bespoke IoC container backed by a stringly-typed `Map<string, unknown>`, holding three values.
 
 **One command. Full codebase. Evidence-backed findings. No code modified.**
 
@@ -80,33 +80,33 @@ Languages: TypeScript, Python, Rust, Go, Java, C#, Bash, SQL, YAML, JSON.
 | If you are… | You use Anatoly to… |
 |---|---|
 | **A senior dev or tech lead** shipping AI-generated code | Surface the duplicates, dead code, and silent bugs your AI tools left behind. |
-| **A team on a Claude or Cursor subscription** | Get Opus-grade deliberation on every audit — at **$0 per token**. |
-| **A regulated org** (finance, health, defense) | Audit **air-gapped** — embeddings local, LLM-optional local, **no source byte leaves your network**. |
-| **An M&A or legal expert** doing tech due diligence | Produce reports that **survive counter-expertise** — every claim pinned to file, line, and evidence. |
+| **A team on a Claude or Cursor subscription** | Get Opus-grade deliberation on every audit, at **$0 per token**. |
+| **A regulated org** (finance, health, defense) | Audit **air-gapped**: embeddings local, LLM-optional local, **no source byte leaves your network**. |
+| **An M&A or legal expert** doing tech due diligence | Produce reports that **survive counter-expertise**: every claim pinned to file, line, and evidence. |
 | **A DevOps team** running CI/CD quality gates | Audit every PR with structured JSON output for your pipeline. |
 
 ---
 
 ## Why the findings hold up
 
-- **Evidence-backed** — every finding is grep'd, read, and cross-referenced before it's reported. No hallucinated issues.
-- **Semantic duplicate detection** — finds functions that *do the same thing* even when they look nothing alike.
-- **Deliberation pass** — multi-LLM arbitration on disputed findings.
-- **$0 on unchanged code** — SHA-256 cache. Re-running on a clean repo costs nothing.
-- **Run and walk away** — Telegram when done. Watch mode and Claude Code hook for write → audit → fix loops.
-- **Local by default** — embeddings run on your machine. With Claude Code subscription, no API key needed.
+- **Evidence-backed**: every finding is grep'd, read, and cross-referenced before it's reported. No hallucinated issues.
+- **Semantic duplicate detection**: finds functions that *do the same thing* even when they look nothing alike.
+- **Deliberation pass**: multi-LLM arbitration on disputed findings.
+- **$0 on unchanged code**: SHA-256 cache. Re-running on a clean repo costs nothing.
+- **Run and walk away**: Telegram when done. Watch mode and Claude Code hook for write → audit → fix loops.
+- **Local by default**: embeddings run on your machine. With Claude Code subscription, no API key needed.
 
-> Fair warning: this is context-and-time-hungry by design. Dream-quality code doesn't come cheap — it takes serious effort (and tokens) to get there.
+> Fair warning: this is context-and-time-hungry by design. Dream-quality code doesn't come cheap. It takes serious effort (and tokens) to get there.
 
 ---
 
 ## Measured accuracy
 
-Anatoly is benchmarked against [anatoly-bench](https://github.com/r-via/anatoly-bench) — fixtures seeded with curated defects (bugs, dead code, semantic duplicates, over-engineering) and scored by F1 against a ground-truth catalog.
+Anatoly is benchmarked against [anatoly-bench](https://github.com/r-via/anatoly-bench): fixtures seeded with curated defects (bugs, dead code, semantic duplicates, over-engineering) and scored by F1 against a ground-truth catalog.
 
 ```mermaid
 xychart-beta
-    title "slot-engine fixture — global F1 (%) per Anatoly version"
+    title "slot-engine fixture, global F1 (%) per Anatoly version"
     x-axis [v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17]
     y-axis "F1 (%)" 0 --> 100
     line [40.7, 43.2, 46.8, 43.5, 56.8, 65.5, 62.7, 61.0, 65.0, 57.8, 67.8, 63.8, 72.9, 64.2, 69.9, 65.5]
@@ -129,10 +129,10 @@ anatoly run
 
 **Prerequisites:** Node.js >= 20.19, plus one LLM auth path:
 
-- **Claude Code subscription** (default) — no API key needed
-- **Gemini CLI** — Google OAuth, $0/token
-- **BYOK** — `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.
-- **Local** — Ollama, LM Studio, vLLM
+- **Claude Code subscription** (default): no API key needed
+- **Gemini CLI**: Google OAuth, $0/token
+- **BYOK**: `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.
+- **Local**: Ollama, LM Studio, vLLM
 
 See [Installation](docs/01-Getting-Started/01-Installation.md) and [Recommended LLM Setup](docs/01-Getting-Started/03-Recommended-LLM-Setup.md).
 
@@ -151,7 +151,7 @@ npx anatoly local-embeddings upgrade
 ```bash
 npx anatoly run                # Full audit
 npx anatoly watch              # Daemon: incremental re-audit on change
-npx anatoly estimate           # Forecast tokens, cost, time — no API calls
+npx anatoly estimate           # Forecast tokens, cost, time (no API calls)
 npx anatoly runs attach        # Inspect a run (live or finished)
 npx anatoly reset              # Wipe all state
 ```
@@ -196,8 +196,8 @@ By contributing, you agree to the [Contributor License Agreement](CLA.md) (Anato
 
 Dual-licensed:
 
-- **Open source** — [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0): free for open source, personal, and academic use.
-- **Commercial** — proprietary license available. See [COMMERCIAL.md](COMMERCIAL.md).
+- **Open source**: [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0). Free for open source, personal, and academic use.
+- **Commercial**: proprietary license available. See [COMMERCIAL.md](COMMERCIAL.md).
 
 ## Contact
 
