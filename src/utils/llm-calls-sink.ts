@@ -317,8 +317,11 @@ export function writeCostSummary(runDir: string): void {
   const ledgerPath = join(runDir, 'costs', 'ledger.ndjson');
   const records = readLedger(ledgerPath);
 
-  // Only aggregate actual calls (not estimates)
-  const actuals = records.filter((r) => r.costSource === 'actual');
+  // Aggregate actual + unknown calls (skip estimates — those go in variance.json).
+  // `unknown` records come from subscription-mode transports where the provider
+  // does not return a cost; tokens are still reported and we want them counted.
+  // costUsd is null on those records, treated as 0 in totalUsd (no fiction).
+  const actuals = records.filter((r) => r.costSource === 'actual' || r.costSource === 'unknown');
 
   const summary: CostSummary = {
     byPhase: {},
@@ -372,7 +375,8 @@ export function writeCostVariance(runDir: string): void {
   const records = readLedger(ledgerPath);
 
   const estimates = records.filter((r) => r.costSource === 'estimated');
-  const actuals = records.filter((r) => r.costSource === 'actual');
+  // Include `unknown` (subscription-mode) actuals — null costUsd treated as 0 below
+  const actuals = records.filter((r) => r.costSource === 'actual' || r.costSource === 'unknown');
 
   // Index estimates by composer+primitive for matching
   const estByKey = new Map<string, { costUsd: number; phase: string; composer: string }>();

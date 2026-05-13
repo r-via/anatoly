@@ -153,6 +153,8 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__overengineering` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('overengineering'),
+        composer: 'axes.overengineering',
+        primitive: 'axes.overengineering',
       },
       OverengineeringResponseSchema,
     );

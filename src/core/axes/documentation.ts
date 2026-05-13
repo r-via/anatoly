@@ -174,6 +174,8 @@ export class DocumentationEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__documentation` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('documentation'),
+        composer: 'axes.documentation',
+        primitive: 'axes.documentation',
       },
       DocumentationResponseSchema,
     );

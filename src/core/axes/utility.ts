@@ -195,6 +195,8 @@ export class UtilityEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__utility` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('utility'),
+        composer: 'axes.utility',
+        primitive: 'axes.utility',
       },
       refinedSchema,
     );

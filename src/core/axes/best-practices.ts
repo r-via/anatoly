@@ -186,6 +186,8 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__best-practices` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('best_practices'),
+        composer: 'axes.best-practices',
+        primitive: 'axes.best-practices',
       },
       BestPracticesResponseSchema,
     );

@@ -196,6 +196,8 @@ export class TestsEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__tests` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('tests'),
+        composer: 'axes.tests',
+        primitive: 'axes.tests',
       },
       TestsResponseSchema,
     );

@@ -343,6 +343,8 @@ export class CorrectionEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('correction'),
+        composer: 'axes.correction',
+        primitive: 'axes.correction-pass1',
       },
       CorrectionResponseSchema,
     );
@@ -373,6 +375,8 @@ export class CorrectionEvaluator implements AxisEvaluator {
             conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__correction-verify` : undefined,
             router: ctx.router,
             userInstructions: ctx.userInstructions?.forAxis('correction'),
+            composer: 'axes.correction',
+            primitive: 'axes.correction-verify',
           },
           VerificationResponseSchema,
         );

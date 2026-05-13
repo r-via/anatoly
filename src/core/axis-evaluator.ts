@@ -16,6 +16,7 @@ import type { ReferenceDoc } from './reference-docs-resolver.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
+import { runWithContext } from '../utils/log-context.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import type { LlmTransport, LlmResponse } from './transports/index.js';
 import type { TransportRouter } from './transports/index.js';
@@ -335,6 +336,12 @@ export interface SingleTurnQueryParams {
   router?: TransportRouter;
   /** User calibration text from ANATOLY.md (pre-resolved for this axis via forAxis()) */
   userInstructions?: string;
+  /** Story 56.11 — composer name (e.g. 'axes.correction'); opens an ALS scope so the
+   *  llm-calls-sink ledger record carries `composer` for D.4 aggregations. */
+  composer?: string;
+  /** Story 56.11 — primitive name (e.g. 'axes.correction-pass1'); opens an ALS scope
+   *  so the llm-calls-sink ledger record carries `primitive` for D.4 aggregations. */
+  primitive?: string;
 }
 
 export interface SingleTurnQueryResult<T> {
@@ -358,7 +365,7 @@ export async function runSingleTurnQuery<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, router, userInstructions } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, router, userInstructions, composer, primitive } = params;
 
   // Acquire concurrency slot + transport from router (handles breaker + semaphore)
   let release: ((opts?: { success: boolean }) => void) | undefined;
@@ -371,14 +378,24 @@ export async function runSingleTurnQuery<T>(
     effectiveTransport = new AnthropicTransport();
   }
 
-  let success = false;
-  try {
-    const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
-    success = true;
-    return result;
-  } finally {
-    release?.({ success });
+  // Story 56.11 — open ALS scope binding composer + primitive so recordLlmCall
+  // (called by transports during the SDK invocation below) enriches each ledger
+  // record with these fields, enabling D.4 byComposer / byPrimitive aggregations.
+  const exec = async (): Promise<SingleTurnQueryResult<T>> => {
+    let success = false;
+    try {
+      const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
+      success = true;
+      return result;
+    } finally {
+      release?.({ success });
+    }
+  };
+
+  if (composer || primitive) {
+    return runWithContext({ ...(composer ? { composer } : {}), ...(primitive ? { primitive } : {}) }, exec);
   }
+  return exec();
 }
 
 async function _runSingleTurnQueryInner<T>(

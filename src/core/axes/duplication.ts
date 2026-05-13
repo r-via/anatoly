@@ -253,6 +253,8 @@ export class DuplicationEvaluator implements AxisEvaluator {
         conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__duplication` : undefined,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('duplication'),
+        composer: 'axes.duplication',
+        primitive: 'axes.duplication',
       },
       DuplicationResponseSchema,
     );
