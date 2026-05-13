@@ -6,17 +6,11 @@
 
 *"Can I clean here?"*
 
-**A no-frills code reviewer that out-lifts the giants without raising its voice.**
+**An open source, no-frills code reviewer that out-lifts the giants without raising its voice.**
 
-Anatoly is a deep-audit agent for existing codebases. It evaluates every
-file on **seven axes**: silent bugs, dead code, semantic duplicates,
-over-engineering, weak tests, broken best practices, and stale
-documentation. **Every finding is proven with a file, a line, and the
-evidence trail that led to it.** No code is modified.
+Anatoly is a deep-audit agent for existing codebases. It evaluates every file on **seven axes**: silent bugs, dead code, semantic duplicates, over-engineering, weak tests, broken best practices, and stale documentation. **Every finding is proven with a file, a line, and the evidence trail that led to it.** No code is modified.
 
-Built for the codebases that grew faster than anyone could review them,
-especially the ones shipped with Cursor, Claude Code, Lovable, v0, Bolt,
-or Windsurf.
+Built for the codebases that grew faster than anyone could review them, especially the ones shipped with Cursor, Claude Code, Lovable, v0, Bolt, or Windsurf.
 
 [![Website](https://img.shields.io/badge/website-anatoly.cloud-1f6feb)](https://anatoly.cloud/) [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
