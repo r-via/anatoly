@@ -910,9 +910,9 @@ export function registerRunCommand(program: Command): void {
       // AbortSignal through the transport stack.
       const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 24, config.providers.google?.concurrency ?? 0);
       process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
-      const events = await import('node:events');
-      if (events.defaultMaxListeners < maxConcurrency + 10) {
-        events.defaultMaxListeners = maxConcurrency + 10;
+      const { EventEmitter } = await import('node:events');
+      if (EventEmitter.defaultMaxListeners < maxConcurrency + 10) {
+        EventEmitter.defaultMaxListeners = maxConcurrency + 10;
       }
       try {
         const { coreEvents } = await import('@google/gemini-cli-core');
