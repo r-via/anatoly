@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import picomatch from 'picomatch';
 import { recordLlmCost, type RunContext } from './run.js';
+import { CANONICAL_PHASES, runPhase, type RunPhaseContext } from '../core/orchestration/run-phase.js';
 
 function makeBookkeepingCtx(): Pick<RunContext, 'totalCostUsd' | 'providerStats' | 'phaseStats' | 'axisStats'> {
   return {
@@ -92,5 +93,69 @@ describe('picomatch glob matching (replaces matchGlob)', () => {
   it('should handle dots in file extensions', () => {
     expect(picomatch.isMatch('src/foo.ts', 'src/foo.ts')).toBe(true);
     expect(picomatch.isMatch('src/fooxts', 'src/foo.ts')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Story 56.8 — canonical phase plumbing contract
+// ---------------------------------------------------------------------------
+
+describe('Story 56.8 — canonical phase plumbing', () => {
+  it('CANONICAL_PHASES has exactly 11 entries', () => {
+    expect(CANONICAL_PHASES).toHaveLength(11);
+  });
+
+  it('doc-conflict-bootstrap and doc-conflict-update are distinct, doc-conflict-detection absent', () => {
+    expect(CANONICAL_PHASES).toContain('doc-conflict-bootstrap');
+    expect(CANONICAL_PHASES).toContain('doc-conflict-update');
+    expect(CANONICAL_PHASES).not.toContain('doc-conflict-detection');
+  });
+
+  it('phaseDurations keys form exactly the canonical set after runPhase calls', async () => {
+    const ctx: RunPhaseContext = {
+      runId: 'test-56.8',
+      startTime: Date.now(),
+      timeline: [],
+      phaseDurations: {},
+    };
+
+    for (const phase of CANONICAL_PHASES) {
+      await runPhase(ctx, phase, async () => {});
+    }
+
+    const keys = new Set(Object.keys(ctx.phaseDurations));
+    const expected = new Set<string>(CANONICAL_PHASES);
+    expect(keys).toEqual(expected);
+  });
+
+  it('doc-conflict-bootstrap and doc-conflict-update are distinct keys, never accumulated', async () => {
+    const ctx: RunPhaseContext = {
+      runId: 'test-accum',
+      startTime: Date.now(),
+      timeline: [],
+      phaseDurations: {},
+    };
+
+    await runPhase(ctx, 'doc-conflict-bootstrap', async () => {});
+    await runPhase(ctx, 'doc-conflict-update', async () => {});
+
+    expect(ctx.phaseDurations['doc-conflict-bootstrap']).toBeTypeOf('number');
+    expect(ctx.phaseDurations['doc-conflict-update']).toBeTypeOf('number');
+    // Distinct keys — never combined under a single key
+    expect(Object.keys(ctx.phaseDurations)).toContain('doc-conflict-bootstrap');
+    expect(Object.keys(ctx.phaseDurations)).toContain('doc-conflict-update');
+    expect(Object.keys(ctx.phaseDurations)).not.toContain('doc-conflict-detection');
+  });
+
+  it('duplicate phase throws DuplicatePhaseError', async () => {
+    const ctx: RunPhaseContext = {
+      runId: 'test-dup',
+      startTime: Date.now(),
+      timeline: [],
+      phaseDurations: {},
+    };
+
+    await runPhase(ctx, 'scan', async () => {});
+    await expect(runPhase(ctx, 'scan', async () => {})).rejects.toThrow('already executed');
   });
 });

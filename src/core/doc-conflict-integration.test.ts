@@ -57,23 +57,23 @@ describe('Story 55.9 — AC3: doc-pipeline costs separated', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.9 — AC4: run-metrics includes doc-conflict-detection', () => {
-  it('run.ts captures doc-conflict-detection duration in phaseDurations', () => {
+  it('run.ts captures doc-conflict timing via runPhase (bootstrap + update)', () => {
     const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
-    expect(src).toContain("'doc-conflict-detection'");
+    // Story 56.8 split doc-conflict-detection into two distinct phases
+    expect(src).toContain("'doc-conflict-bootstrap'");
+    expect(src).toContain("'doc-conflict-update'");
     expect(src).toContain('phaseDurations');
   });
 
-  it('run.ts records doc-conflict-detection timing around runDocConflictDetection calls', () => {
+  it('run.ts wraps runDocConflictDetection calls in runPhase for timing', () => {
     const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
-    // Both calls (after bootstrap and after update) should be timed
+    // Both calls (after bootstrap and after update) should be timed via runPhase
     const calls = [...src.matchAll(/runDocConflictDetection\(/g)];
     expect(calls.length).toBe(2);
-    // Each call should have a Date.now() timing measurement nearby.
-    // Window widened to 600 chars on each side after phase_start/phase_end
-    // ndjson emissions were added inline to the call site (UI bug fix).
+    // Each call should be wrapped in a runPhase call nearby (handles timing internally).
     for (const call of calls) {
-      const nearby = src.slice(Math.max(0, call.index! - 600), call.index! + 600);
-      expect(nearby).toContain('Date.now()');
+      const nearby = src.slice(Math.max(0, call.index! - 300), call.index! + 300);
+      expect(nearby).toContain('runPhase(');
     }
   });
 });

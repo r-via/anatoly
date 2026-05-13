@@ -91,6 +91,7 @@ import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
+import { runPhase } from '../core/orchestration/run-phase.js';
 import { loadDocConflicts } from '../core/doc-conflict-store.js';
 import type { ArbitratedFragment } from '../core/axes/reference-docs-context.js';
 
@@ -963,7 +964,7 @@ export function registerRunCommand(program: Command): void {
       process.on('SIGINT', onSigint);
 
       try {
-        await runWithContext({ runId, phase: 'setup' }, async () => {
+        await runWithContext({ runId }, async () => {
         const setup = await runSetupPhase(ctx);
         if (ctx.dryRun) return;
         if (ctx.interrupted) {
@@ -1028,7 +1029,7 @@ export function registerRunCommand(program: Command): void {
           ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
           ctx.pipelineState?.completeTask('bootstrap-doc', 'lite digest');
         } else if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
-          await runWithContext({ phase: 'bootstrap-doc' }, async () => {
+          await runPhase(ctx, 'bootstrap-doc', async () => {
             await runDocBootstrap(ctx, setup.tasks);
           });
           // Mark the docs as validly scaffolded — the canonical signal
@@ -1044,14 +1045,9 @@ export function registerRunCommand(program: Command): void {
           }
 
           // Run doc-conflict detection after bootstrap — Story 55.4 FR5
-          // Story 55.9: track phase duration for run-metrics.json
           if (!ctx.interrupted) {
-            const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
-            ctx.timeline.push({ t: conflictDetStart - ctx.startTime, event: 'phase_start', phase: 'doc-conflict-detection' });
-            getLogger().info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
-            ctx.runLog?.info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
-            await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
+            await runPhase(ctx, 'doc-conflict-bootstrap', async () => {
               await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
                 config: ctx.config,
@@ -1061,16 +1057,10 @@ export function registerRunCommand(program: Command): void {
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });
-            const conflictDetDuration = Date.now() - conflictDetStart;
-            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + conflictDetDuration;
-            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration });
-            getLogger().info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
-            ctx.runLog?.info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
           }
         }
 
-        await runWithContext({ phase: 'rag-index' }, async () => {
-        const ragContext = await runRagPhase(ctx, setup.tasks);
+        const ragContext = await runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, setup.tasks));
         if (ctx.interrupted) return;
 
         // --- Phase: update internal docs (pre-review) — Story 55.2 ---
@@ -1084,7 +1074,7 @@ export function registerRunCommand(program: Command): void {
           ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
           ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
         } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
-          await runWithContext({ phase: 'internal-docs' }, async () => {
+          await runPhase(ctx, 'internal-docs', async () => {
             await runDocUpdate(ctx, setup.tasks);
           });
 
@@ -1104,14 +1094,9 @@ export function registerRunCommand(program: Command): void {
           }
 
           // Run doc-conflict detection after update — Story 55.4 FR5
-          // Story 55.9: track phase duration for run-metrics.json
           if (!ctx.interrupted) {
-            const conflictDetStart = Date.now();
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
-            ctx.timeline.push({ t: conflictDetStart - ctx.startTime, event: 'phase_start', phase: 'doc-conflict-detection' });
-            getLogger().info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
-            ctx.runLog?.info({ event: 'phase_start', phase: 'doc-conflict-detection', runId: ctx.runId }, 'phase started');
-            await runWithContext({ phase: 'doc-conflict-detection' }, async () => {
+            await runPhase(ctx, 'doc-conflict-update', async () => {
               await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
                 config: ctx.config,
@@ -1121,11 +1106,6 @@ export function registerRunCommand(program: Command): void {
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
             });
-            const conflictDetDuration = Date.now() - conflictDetStart;
-            ctx.phaseDurations['doc-conflict-detection'] = (ctx.phaseDurations['doc-conflict-detection'] ?? 0) + conflictDetDuration;
-            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration });
-            getLogger().info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
-            ctx.runLog?.info({ event: 'phase_end', phase: 'doc-conflict-detection', durationMs: conflictDetDuration, runId: ctx.runId }, 'phase ended');
           }
         } else if (!ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
@@ -1138,8 +1118,8 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) return;
 
         // --- Phase: review (pass 1) ---
-        await runWithContext({ phase: 'review' }, async () => {
-        await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
+        await runPhase(ctx, 'review', async () => {
+          await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
         });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
@@ -1152,12 +1132,10 @@ export function registerRunCommand(program: Command): void {
 
         // --- Phase: refinement (tier 1 → tier 2 → tier 3) — Story 41.5 ---
         if (ctx.deliberation && ctx.filesReviewed > 0 && !ctx.interrupted) {
-          await runWithContext({ phase: 'refinement' }, async () => {
-            const refinementStart = Date.now();
-            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'refinement' });
-            ctx.pipelineState?.setPhase('refinement');
+          await runPhase(ctx, 'refinement', async () => {
             ctx.pipelineState?.startTask('refinement', 'auto-resolve');
 
+            const refinementStart = Date.now();
             const refinementResult = await runRefinementPhase({
               projectRoot: ctx.projectRoot,
               runDir: ctx.runDir,
@@ -1233,8 +1211,6 @@ export function registerRunCommand(program: Command): void {
             });
 
             const refinementDuration = Date.now() - refinementStart;
-            ctx.phaseDurations.refinement = refinementDuration;
-            ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'refinement', durationMs: refinementDuration });
 
             // Update findings counter to reflect post-refinement net
             const totalResolved = refinementResult.tier1Stats.resolved
@@ -1282,9 +1258,7 @@ export function registerRunCommand(program: Command): void {
           return;
         }
 
-        await runWithContext({ phase: 'report' }, async () => {
-        runReportPhase(ctx);
-        });
+        await runPhase(ctx, 'report', async () => { runReportPhase(ctx); });
 
         // Desktop notification for background runs (Story 47.5)
         if (process.env.ANATOLY_BACKGROUND_MODE && cmdOpts.notify !== false) {
@@ -1296,7 +1270,6 @@ export function registerRunCommand(program: Command): void {
 
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         ctx.lockPath = undefined;
-        });
         });
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
@@ -1516,14 +1489,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   // --- Phase: scan ---
-  const scanStart = Date.now();
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'scan' });
-  log.info({ event: 'phase_start', phase: 'scan', runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: 'scan', runId: ctx.runId }, 'phase started');
-  const scanResult = await scanProject(srcRoot, ctx.config, evaluators.map(e => e.id));
-  const scanDuration = Date.now() - scanStart;
-  ctx.phaseDurations.scan = scanDuration;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'scan', durationMs: scanDuration });
+  const scanResult = await runPhase(ctx, 'scan', async () => scanProject(srcRoot, ctx.config, evaluators.map(e => e.id)));
   pipelineRows.push({ phase: 'source files', detail: `${scanResult.filesScanned} files (${scanResult.filesNew} new, ${scanResult.filesCached} cached)` });
   let docScanProject: ReturnType<typeof countChangedDocs> = null;
   let docScanInternal: ReturnType<typeof countChangedDocs> = null;
@@ -1533,81 +1499,70 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     docScanProject = countChangedDocs(srcRoot, docsPath, ragSuffix);
     docScanInternal = countChangedDocs(srcRoot, join('.anatoly', 'state', 'internal-docs'), `${ragSuffix}-internal`);
   }
-  const scanCompleted = { event: 'phase_end', phase: 'scan', runId: ctx.runId, durationMs: scanDuration, filesScanned: scanResult.filesScanned };
-  log.info(scanCompleted, 'phase completed');
-  rl?.info(scanCompleted, 'phase completed');
   if (ctx.verbose) {
     log.debug({ filesScanned: scanResult.filesScanned, filesNew: scanResult.filesNew, filesCached: scanResult.filesCached }, 'scan complete');
   }
 
   // --- Phase: estimate ---
-  const estStart = Date.now();
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'estimate' });
-  log.info({ event: 'phase_start', phase: 'estimate', runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: 'estimate', runId: ctx.runId }, 'phase started');
-  const rawTasks = loadTasks(srcRoot);
-  // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
-  const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
-  allTasks = scannedFileSet ? rawTasks.filter((t) => scannedFileSet.has(t.file)) : rawTasks;
-  const estimateTasks = ctx.fileFilter
-    ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
-    : allTasks;
-  if (ctx.fileFilter && estimateTasks.length === 0) {
-    const cwdRel = relative(ctx.projectRoot, process.cwd()) || '.';
-    throw new AnatolyError(
-      `no files match --file '${ctx.fileFilter}'`,
-      ERROR_CODES.FILE_NOT_FOUND,
-      false,
-      'fix the --file path — it is interpreted as a glob relative to the project root, not your current directory',
-      undefined,
-      false,
-      [`project root: ${ctx.projectRoot}`, `cwd: ${cwdRel}`],
-    );
-  }
-  const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, estimateTasks);
-  estimateFiles = estimateTasks.length;
-  // estimateTokenLabel is built after triage so it reflects evalFileCount
-  ctx.phaseDurations.estimate = Date.now() - estStart;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'estimate', durationMs: ctx.phaseDurations.estimate });
-  const estCompleted = { event: 'phase_end', phase: 'estimate', runId: ctx.runId, durationMs: ctx.phaseDurations.estimate, totalTokens: inputTokens + outputTokens };
-  log.info(estCompleted, 'phase completed');
-  rl?.info(estCompleted, 'phase completed');
+  let estimateTasks: Task[];
+  await runPhase(ctx, 'estimate', async () => {
+    const rawTasks = loadTasks(srcRoot);
+    // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
+    const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
+    allTasks = scannedFileSet ? rawTasks.filter((t) => scannedFileSet.has(t.file)) : rawTasks;
+    estimateTasks = ctx.fileFilter
+      ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+      : allTasks;
+    if (ctx.fileFilter && estimateTasks.length === 0) {
+      const cwdRel = relative(ctx.projectRoot, process.cwd()) || '.';
+      throw new AnatolyError(
+        `no files match --file '${ctx.fileFilter}'`,
+        ERROR_CODES.FILE_NOT_FOUND,
+        false,
+        'fix the --file path — it is interpreted as a glob relative to the project root, not your current directory',
+        undefined,
+        false,
+        [`project root: ${ctx.projectRoot}`, `cwd: ${cwdRel}`],
+      );
+    }
+    const tokens = estimateTasksTokens(srcRoot, estimateTasks);
+    estimateFiles = estimateTasks.length;
+    return tokens;
+  });
+  // Safety: estimateTasks is always assigned inside runPhase before this point
+  estimateTasks = estimateTasks!;
 
   // --- Phase: triage ---
   if (!ctx.triageEnabled) {
     pipelineRows.push({ phase: 'triage', detail: 'disabled (--no-triage)' });
   } else {
-    const triageStart = Date.now();
-    ctx.timeline.push({ t: triageStart - ctx.startTime, event: 'phase_start', phase: 'triage' });
-    const tiers = { skip: 0, evaluate: 0 };
-    const triageTasks = ctx.fileFilter
-      ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
-      : allTasks;
+    await runPhase(ctx, 'triage', async () => {
+      const tiers = { skip: 0, evaluate: 0 };
+      const triageTasks = ctx.fileFilter
+        ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
+        : allTasks;
 
-    for (const task of triageTasks) {
-      const absPath = resolve(srcRoot, task.file);
-      let source: string;
-      try {
-        source = readFileSync(absPath, 'utf-8');
-      } catch {
-        triageMap.set(task.file, { tier: 'evaluate', reason: 'unreadable' });
-        tiers.evaluate++;
-        continue;
+      for (const task of triageTasks) {
+        const absPath = resolve(srcRoot, task.file);
+        let source: string;
+        try {
+          source = readFileSync(absPath, 'utf-8');
+        } catch {
+          triageMap.set(task.file, { tier: 'evaluate', reason: 'unreadable' });
+          tiers.evaluate++;
+          continue;
+        }
+
+        const result = triageFile(task, source);
+        triageMap.set(task.file, result);
+        tiers[result.tier]++;
+        rl?.info({ event: 'file_triage', phase: 'triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
       }
 
-      const result = triageFile(task, source);
-      triageMap.set(task.file, result);
-      tiers[result.tier]++;
-      rl?.info({ event: 'file_triage', phase: 'triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
-    }
-
-    const triageDuration = Date.now() - triageStart;
-    ctx.phaseDurations.triage = triageDuration;
-    ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'triage', durationMs: triageDuration, skip: tiers.skip, evaluate: tiers.evaluate });
-    pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });
-    const triageSummary = { phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length };
-    log.info(triageSummary, 'triage summary');
-    rl?.info(triageSummary, 'triage summary');
+      pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });
+      log.info({ phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length }, 'triage summary');
+      rl?.info({ phase: 'triage', runId: ctx.runId, skip: tiers.skip, evaluate: tiers.evaluate, total: allTasks.length }, 'triage summary');
+    });
   }
 
   // --- Phase: RAG (structural counts: files + functions + chunks) ---
@@ -1953,10 +1908,6 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
   const srcRoot = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
-  const phaseStartedAt = Date.now();
-  ctx.timeline.push({ t: phaseStartedAt - ctx.startTime, event: 'phase_start', phase: taskId });
-  log.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
 
   try {
     let pkg: Record<string, unknown> = {};
@@ -1992,11 +1943,6 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
   } catch (err) {
     log.warn({ err }, `${taskId} failed — continuing`);
     rl?.warn({ err }, `${taskId} failed`);
-  } finally {
-    const durationMs = Date.now() - phaseStartedAt;
-    ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs });
-    log.info({ event: 'phase_end', phase: taskId, durationMs, runId: ctx.runId }, 'phase ended');
-    rl?.info({ event: 'phase_end', phase: taskId, durationMs, runId: ctx.runId }, 'phase ended');
   }
 }
 
@@ -2012,10 +1958,6 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
   const taskId = 'internal-docs';
   const log = getLogger();
   const rl = ctx.runLog;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: taskId });
-  log.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: taskId, runId: ctx.runId }, 'phase started');
-  const start = Date.now();
 
   try {
     let pkg: Record<string, unknown> = {};
@@ -2062,11 +2004,6 @@ async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
     ctx.pipelineState?.completeTask(taskId, 'failed');
   }
 
-  const duration = Date.now() - start;
-  ctx.phaseDurations[taskId] = duration;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: taskId, durationMs: duration });
-  log.info({ event: 'phase_end', phase: taskId, durationMs: duration, runId: ctx.runId }, 'phase ended');
-  rl?.info({ event: 'phase_end', phase: taskId, durationMs: duration, runId: ctx.runId }, 'phase ended');
 }
 
 /**
@@ -2157,9 +2094,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   const log = getLogger();
   const rl = ctx.runLog;
   const ragStart = Date.now();
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'rag-index' });
-  log.info({ event: 'phase_start', phase: 'rag-index', runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: 'rag-index', runId: ctx.runId }, 'phase started');
 
   // Detect hardware and determine backend BEFORE starting any embedding server
   const hardware = detectHardware();
@@ -2383,8 +2317,6 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
   }
 
   const ragDuration = Date.now() - ragStart;
-  ctx.phaseDurations['rag-index'] = ragDuration;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'rag-index', durationMs: ragDuration });
 
   if (ctx.interrupted) {
     console.log('interrupted — rag indexing incomplete');
@@ -2408,13 +2340,16 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
     ctx.docsIdentical = true;
   }
 
-  const ragCompleted = {
-    event: 'phase_end' as const, phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
+  log.info({
+    phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
     cardsGenerated: ragResult?.cardsIndexed ?? 0, cached: (ragResult?.totalCards ?? 0) - (ragResult?.cardsIndexed ?? 0),
     costUsd: ragResult?.costUsd ?? 0,
-  };
-  log.info(ragCompleted, 'phase completed');
-  rl?.info(ragCompleted, 'phase completed');
+  }, 'rag-index details');
+  rl?.info({
+    phase: 'rag-index', durationMs: ragDuration,
+    cardsGenerated: ragResult?.cardsIndexed ?? 0,
+    costUsd: ragResult?.costUsd ?? 0,
+  }, 'rag-index details');
 
   if (ragResult) {
     return { ragEnabled: true, vectorStore: ragResult.vectorStore };
@@ -2435,10 +2370,6 @@ async function runReviewPhase(
 ): Promise<void> {
   const log = getLogger();
   const rl = ctx.runLog;
-  const reviewStart = Date.now();
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'review' });
-  log.info({ event: 'phase_start', phase: 'review', runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: 'review', runId: ctx.runId, concurrency: ctx.concurrency }, 'phase started');
 
   const pm = new ProgressManager(ctx.projectRoot);
 
@@ -2762,25 +2693,13 @@ async function runReviewPhase(
   state.completeTask('review', `${completedCount}/${evaluateTotal}${findingsNote}`);
   await pm.flush();
 
-  const reviewDuration = Date.now() - reviewStart;
-  ctx.phaseDurations.review = reviewDuration;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'review', durationMs: reviewDuration });
-  const reviewCompleted = {
-    event: 'phase_end' as const, phase: 'review', runId: ctx.runId, durationMs: reviewDuration,
-    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency,
-  };
-  log.info(reviewCompleted, 'phase completed');
-  rl?.info(reviewCompleted, 'phase completed');
+  log.info({ filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency }, 'review details');
+  rl?.info({ filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency }, 'review details');
 }
 
 function runReportPhase(ctx: RunContext): void {
   const log = getLogger();
   const rl = ctx.runLog;
-  const reportStart = Date.now();
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_start', phase: 'report' });
-  log.info({ event: 'phase_start', phase: 'report', runId: ctx.runId }, 'phase started');
-  rl?.info({ event: 'phase_start', phase: 'report', runId: ctx.runId }, 'phase started');
-
   const pm = new ProgressManager(ctx.projectRoot);
   const errorFiles: string[] = [];
   const progress = pm.getProgress();
@@ -3027,12 +2946,6 @@ function runReportPhase(ctx: RunContext): void {
   }
 
   if (ctx.shouldOpen) openFile(reportPath);
-
-  const reportDuration = Date.now() - reportStart;
-  ctx.phaseDurations.report = reportDuration;
-  ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'phase_end', phase: 'report', durationMs: reportDuration });
-  log.info({ event: 'phase_end', phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
-  rl?.info({ event: 'phase_end', phase: 'report', runId: ctx.runId, durationMs: reportDuration }, 'phase completed');
 
   // Run summary
   const totalDurationMs = Date.now() - ctx.startTime;
