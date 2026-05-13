@@ -16,6 +16,9 @@ export interface LogContext {
   axis?: string;
   phase?: string;
   worker?: number;
+  composer?: string;
+  primitive?: string;
+  callId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +81,9 @@ export function contextLogger(namespace?: string): Logger {
     if (ctx.axis) bindings.axis = ctx.axis;
     if (ctx.phase) bindings.phase = ctx.phase;
     if (ctx.worker !== undefined) bindings.worker = ctx.worker;
+    if (ctx.composer) bindings.composer = ctx.composer;
+    if (ctx.primitive) bindings.primitive = ctx.primitive;
+    if (ctx.callId) bindings.callId = ctx.callId;
   }
 
   if (namespace) {

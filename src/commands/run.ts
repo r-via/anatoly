@@ -975,8 +975,8 @@ export function registerRunCommand(program: Command): void {
         initRunDir();
 
         // Open the per-call LLM sink for the remainder of the run. Transports
-        // emit records via recordLlmCall(), persisted to llm-calls.ndjson.
-        enterLlmCallSink(join(ctx.runDir, 'llm-calls.ndjson'));
+        // emit records via recordLlmCall(), persisted to costs/ledger.ndjson.
+        enterLlmCallSink(join(ctx.runDir, 'costs', 'ledger.ndjson'));
 
         // Detect first run — Story 29.21
         ctx.isFirstRun = needsBootstrap(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));

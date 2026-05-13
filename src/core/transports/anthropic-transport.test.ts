@@ -334,7 +334,7 @@ describe('AnthropicTransport — SDK usage extraction', () => {
       expect(event.cacheReadTokens).toBe(1000);
       expect(event.cacheCreationTokens).toBe(10);
       expect(event.success).toBe(true);
-      expect(event.schemaVersion).toBe(1);
+      expect(event.schemaVersion).toBe(2);
     });
   });
 
