@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { getLogger } from '../../utils/logger.js';
+import { runWithContext } from '../../utils/log-context.js';
 import type { CentralExchange, ResourceGateway } from './types.js';
 import type { ComposerEntry, ExecutionStep } from './registry/composers/types.js';
 
@@ -73,9 +74,17 @@ export async function executeComposer<I, O>(
 
     if (toRun.length === 0) continue; // all ready steps were skipped, loop again
 
-    // Run ready steps concurrently
+    // Run ready steps concurrently, each in its own ALS sub-scope
     const results = await Promise.allSettled(
-      toRun.map((step) => runStep(step, input, exchange, gateway)),
+      toRun.map((step) =>
+        runWithContext(
+          {
+            composer: composer.name,
+            ...(step.primitive ? { primitive: step.primitive } : {}),
+          },
+          () => runStep(step, input, exchange, gateway),
+        ),
+      ),
     );
 
     // Process results

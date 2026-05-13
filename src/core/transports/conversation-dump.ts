@@ -4,6 +4,33 @@
 
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getLogContext } from '../../utils/log-context.js';
+
+/**
+ * Build the 4-segment dump slug from the active ALS context:
+ * `{phase}__{composer}__{primitive}__{callId}`.
+ *
+ * Throws if any required field is missing (the runtime always opens the
+ * scope before invoking transports).
+ */
+export function buildDumpSlug(): string {
+  const ctx = getLogContext();
+  const missing: string[] = [];
+  if (!ctx?.phase) missing.push('phase');
+  if (!ctx?.composer) missing.push('composer');
+  if (!ctx?.primitive) missing.push('primitive');
+  if (!ctx?.callId) missing.push('callId');
+
+  if (missing.length > 0) {
+    throw new Error(
+      `buildDumpSlug: missing ALS scope fields: ${missing.join(', ')}` +
+        ` (have: phase=${ctx?.phase}, composer=${ctx?.composer},` +
+        ` primitive=${ctx?.primitive}, callId=${ctx?.callId})`,
+    );
+  }
+
+  return `${ctx!.phase}__${ctx!.composer}__${ctx!.primitive}__${ctx!.callId}`;
+}
 
 /** Active conversation dump handle. */
 export interface ConvDump {
