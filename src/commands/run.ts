@@ -34,7 +34,7 @@ import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
-import { enterLlmCallSink, getActiveSinkTotals } from '../utils/llm-calls-sink.js';
+import { enterLlmCallSink, getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../utils/llm-calls-sink.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
@@ -902,9 +902,18 @@ export function registerRunCommand(program: Command): void {
       }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      // and gemini-cli-core Config instances that each add a model-changed listener
+      // and gemini-cli-core Config instances that each add a model-changed listener.
+      // Also bump events.defaultMaxListeners so child AbortSignal instances created
+      // by the SDK during parallel primitive invocations (DAG executor fan-out)
+      // don't trip the MaxListenersExceededWarning — epic 56 surfaced this by
+      // running 7 axis primitives concurrently, each propagating the same parent
+      // AbortSignal through the transport stack.
       const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 24, config.providers.google?.concurrency ?? 0);
       process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
+      const events = await import('node:events');
+      if (events.defaultMaxListeners < maxConcurrency + 10) {
+        events.defaultMaxListeners = maxConcurrency + 10;
+      }
       try {
         const { coreEvents } = await import('@google/gemini-cli-core');
         coreEvents.setMaxListeners(Math.max(coreEvents.getMaxListeners(), maxConcurrency + 10));
@@ -3030,6 +3039,14 @@ function runReportPhase(ctx: RunContext): void {
     writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
   } catch {
     log.warn({ runId: ctx.runId }, 'failed to write run-metrics.json');
+  }
+
+  // D.4 Cost Plane — emit summary.json + variance.json from the ledger (Story 56.5 FR10)
+  try {
+    writeCostSummary(ctx.runDir);
+    writeCostVariance(ctx.runDir);
+  } catch (err) {
+    log.warn({ runId: ctx.runId, err }, 'failed to write cost summary/variance');
   }
 
   // Recalibrate axis timing from all historical runs (including this one)
