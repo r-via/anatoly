@@ -518,30 +518,3 @@ function l2Normalize(v: number[]): number[] {
   return v.map(x => x / norm);
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Legacy v1 exports (kept for backward compat during migration)
-// ═══════════════════════════════════════════════════════════════════════
-
-/** @deprecated Use detectDocGapsV2 instead */
-export type GapClassification = 'NOT_FOUND' | 'FOUND_LOW_RELEVANCE' | 'FOUND_COVERED' | 'ORPHAN_DOC';
-/** Legacy V1 gap detection result with flat per-function classifications. @deprecated Use {@link GapReportV2} instead. */
-export interface GapDetectionResult {
-  totalFunctions: number;
-  totalDocSections: number;
-  notFound: Array<{ functionCard: FunctionCard; classification: 'NOT_FOUND'; bestMatch: DocSectionEntry | null; similarity: number }>;
-  lowRelevance: Array<{ functionCard: FunctionCard; classification: 'FOUND_LOW_RELEVANCE'; bestMatch: DocSectionEntry | null; similarity: number }>;
-  covered: Array<{ functionCard: FunctionCard; classification: 'FOUND_COVERED'; bestMatch: DocSectionEntry | null; similarity: number }>;
-  orphans: Array<{ docSection: DocSectionEntry; classification: 'ORPHAN_DOC'; bestMatchFunction: string | null; similarity: number }>;
-  byPage: Map<string, { pagePath: string; notFound: unknown[]; lowRelevance: unknown[]; covered: unknown[]; orphans: unknown[] }>;
-}
-/** @deprecated Use {@link detectDocGapsV2} instead. Note: `gapThreshold`/`driftThreshold` options are ignored when delegating to V2. */
-export async function detectDocGaps(vectorStore: VectorStore, options?: { scope?: GapDetectionScope; projectDocsPath?: string; gapThreshold?: number; driftThreshold?: number; onProgress?: (c: number, t: number) => void }): Promise<GapDetectionResult> {
-  // Delegate to v2 and map back to v1 format
-  const v2 = await detectDocGapsV2(vectorStore, { scope: options?.scope, projectDocsPath: options?.projectDocsPath });
-  const notFound = v2.domains.flatMap(d => d.functionsMissing.map(f => ({ functionCard: { name: f.name, filePath: f.file } as FunctionCard, classification: 'NOT_FOUND' as const, bestMatch: null, similarity: 0 })));
-  return { totalFunctions: v2.domains.reduce((s, d) => s + d.functionCount, 0), totalDocSections: 0, notFound, lowRelevance: [], covered: [], orphans: [], byPage: new Map() };
-}
-/** @deprecated Use formatGapReportV2 instead */
-export function formatGapSummary(_result: GapDetectionResult, _scope?: GapDetectionScope, _docsPath?: string): string {
-  return `(v1 deprecated — use v2 report)`;
-}

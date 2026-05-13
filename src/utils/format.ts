@@ -48,15 +48,6 @@ export function verdictColor(verdict: string): string {
 }
 
 /**
- * Format a verbose log line with [anatoly] prefix and timestamp.
- * @deprecated Use `getLogger().debug()` from `src/utils/logger.ts` instead.
- */
-export function verboseLog(message: string): void {
-  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
-  process.stderr.write(`[anatoly ${ts}] ${message}\n`);
-}
-
-/**
  * Format a token count for compact display in summary lines.
  *
  * Examples:

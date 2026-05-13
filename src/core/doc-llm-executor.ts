@@ -5,7 +5,7 @@
 /**
  * Doc LLM Executor — Story 29.17
  *
- * Executes PagePrompt[] via the SDK and writes generated content to disk.
+ * Executes PagePrompt prompts via the SDK and writes generated content to disk.
  * Uses the global semaphore for concurrency control and Promise.allSettled
  * for resilience (one page failure doesn't block others).
  */
@@ -26,9 +26,6 @@ import { buildCoherenceUserMessage, assertCoherenceWritePath } from './doc-coher
 
 // --- Public interfaces ---
 
-/** @deprecated Use PagePrompt from doc-generator.ts instead */
-export type DocPrompt = PagePrompt;
-
 export interface ExecutorResult {
   text: string;
   costUsd: number;
@@ -37,7 +34,7 @@ export interface ExecutorResult {
 export type DocExecutor = (prompt: { system: string; user: string; model: string }) => Promise<ExecutorResult>;
 
 export interface ExecuteDocPromptsParams {
-  prompts: DocPrompt[];
+  prompts: PagePrompt[];
   outputDir: string;
   projectRoot: string;
   docsPath?: string;
@@ -109,7 +106,7 @@ export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promis
  * not here — this keeps the slot scope tight.
  */
 async function executeOnePage(
-  prompt: DocPrompt,
+  prompt: PagePrompt,
   outputDir: string,
   projectRoot: string,
   docsPath: string,

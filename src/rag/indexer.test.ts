@@ -396,37 +396,12 @@ describe('loadNlpSummaryCache', () => {
     expect(cache.entries).toEqual({});
   });
 
-  it('migrates legacy mode-suffixed caches into the unified file (newest wins)', async () => {
-    const liteData: NlpSummaryCache = {
-      entries: {
-        fnA: { bodyHash: 'h1', summary: { summary: 'lite-only', docSummary: '', keyConcepts: ['a'], behavioralProfile: 'pure' } },
-        fnShared: { bodyHash: 'h2-lite', summary: { summary: 'from lite', docSummary: '', keyConcepts: ['x'], behavioralProfile: 'pure' } },
-      },
-    };
-    const advancedData: NlpSummaryCache = {
-      entries: {
-        fnB: { bodyHash: 'h3', summary: { summary: 'advanced-only', docSummary: '', keyConcepts: ['b'], behavioralProfile: 'utility' } },
-        fnShared: { bodyHash: 'h2-advanced', summary: { summary: 'from advanced', docSummary: '', keyConcepts: ['y'], behavioralProfile: 'utility' } },
-      },
-    };
+  it('ignores legacy mode-suffixed caches (migration removed in Story 56.9)', () => {
     const ragDir = resolve(tmpRoot, '.anatoly', 'cache', 'rag');
-    writeFileSync(resolve(ragDir, 'nlp_summary_cache_lite.json'), JSON.stringify(liteData));
-    // Ensure the advanced file has a strictly later mtime than the lite file
-    await new Promise((r) => setTimeout(r, 20));
-    writeFileSync(resolve(ragDir, 'nlp_summary_cache_advanced.json'), JSON.stringify(advancedData));
-
+    writeFileSync(resolve(ragDir, 'nlp_summary_cache_lite.json'), JSON.stringify({ entries: { fn: { bodyHash: 'h', summary: {} } } }));
+    // With migration removed, legacy files are ignored and an empty cache is returned
     const cache = loadNlpSummaryCache(tmpRoot);
-
-    // Both unique entries are preserved
-    expect(cache.entries['fnA'].summary.summary).toBe('lite-only');
-    expect(cache.entries['fnB'].summary.summary).toBe('advanced-only');
-    // On collision the most recently modified file wins (advanced was written later)
-    expect(cache.entries['fnShared'].summary.summary).toBe('from advanced');
-
-    // Unified file written, legacy files removed
-    expect(existsSync(resolve(ragDir, 'nlp_summary_cache.json'))).toBe(true);
-    expect(existsSync(resolve(ragDir, 'nlp_summary_cache_lite.json'))).toBe(false);
-    expect(existsSync(resolve(ragDir, 'nlp_summary_cache_advanced.json'))).toBe(false);
+    expect(cache.entries).toEqual({});
   });
 });
 

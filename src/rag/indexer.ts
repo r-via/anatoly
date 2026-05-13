@@ -2,8 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { readFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
@@ -338,54 +337,6 @@ function nlpCachePath(projectRoot: string): string {
 }
 
 /**
- * One-shot migration: merge any legacy mode-suffixed NLP caches
- * (`nlp_summary_cache_lite.json`, `..._advanced.json`) into the unified
- * `nlp_summary_cache.json` and remove the legacy files.
- *
- * NLP summaries are mode-agnostic (same model, same prompt, same input),
- * so siloing them by RAG mode caused redundant LLM calls when switching
- * between lite and advanced. Returns the merged cache.
- */
-function migrateLegacyNlpCaches(projectRoot: string): NlpSummaryCache {
-  const ragDir = anatolyPath(projectRoot, 'cache/rag');
-  if (!existsSync(ragDir)) return { entries: {} };
-
-  const legacyFiles: string[] = [];
-  try {
-    for (const name of readdirSync(ragDir)) {
-      if (/^nlp_summary_cache_.+\.json$/.test(name)) legacyFiles.push(name);
-    }
-  } catch {
-    return { entries: {} };
-  }
-  if (legacyFiles.length === 0) return { entries: {} };
-
-  // Sort by mtime ascending so the most recently modified file is merged last
-  // and wins on collisions — its summaries are the most likely to match the
-  // current code state.
-  legacyFiles.sort((a, b) => {
-    const ma = statSync(resolve(ragDir, a)).mtimeMs;
-    const mb = statSync(resolve(ragDir, b)).mtimeMs;
-    return ma - mb;
-  });
-  const merged: NlpSummaryCache = { entries: {} };
-  for (const file of legacyFiles) {
-    try {
-      const raw = JSON.parse(readFileSync(resolve(ragDir, file), 'utf-8')) as NlpSummaryCache;
-      Object.assign(merged.entries, raw.entries);
-    } catch {
-      // Skip corrupted file
-    }
-  }
-
-  atomicWriteJson(nlpCachePath(projectRoot), merged);
-  for (const file of legacyFiles) {
-    try { rmSync(resolve(ragDir, file)); } catch { /* ignore */ }
-  }
-  return merged;
-}
-
-/**
  * Load the RAG cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
  * When cacheSuffix is provided, loads cache_<suffix>.json instead of cache.json.
@@ -440,14 +391,14 @@ export function computeBodyHash(body: string): string {
  *
  * If only legacy mode-suffixed files exist (from before the cache was
  * unified), they are merged into the canonical `nlp_summary_cache.json`
- * and removed. The cache is mode-agnostic because summaries depend only
- * on the function body and the configured `models.fast` LLM, not on the
- * RAG embedding backend.
+ * The cache is mode-agnostic because summaries depend only on the
+ * function body and the configured `models.fast` LLM, not on the RAG
+ * embedding backend.
  */
 export function loadNlpSummaryCache(projectRoot: string): NlpSummaryCache {
   const path = nlpCachePath(projectRoot);
   if (!existsSync(path)) {
-    return migrateLegacyNlpCaches(projectRoot);
+    return { entries: {} };
   }
   try {
     return JSON.parse(readFileSync(path, 'utf-8')) as NlpSummaryCache;

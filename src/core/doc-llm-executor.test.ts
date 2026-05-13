@@ -6,7 +6,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { executeDocPrompts, type DocPrompt } from './doc-llm-executor.js';
+import { executeDocPrompts } from './doc-llm-executor.js';
+import type { PagePrompt } from './doc-generator.js';
 import { TransportRouter, type LlmTransport, type LlmResponse } from './transports/index.js';
 
 /** Build a mock TransportRouter with a given concurrency for the anthropic provider. */
@@ -26,7 +27,7 @@ function mockRouter(concurrency: number): TransportRouter {
  * and writes the LLM response to .anatoly/docs/.
  */
 
-function makePrompt(pagePath: string, _content = 'Test content'): DocPrompt {
+function makePrompt(pagePath: string, _content = 'Test content'): PagePrompt {
   return {
     pagePath,
     system: 'You are a documentation writer.',
@@ -53,7 +54,7 @@ describe('executeDocPrompts', () => {
 
   // --- AC1: Each PagePrompt sent to SDK, content written to .anatoly/docs/ ---
   it('should execute prompts via SDK and write content to output files', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/core.md'),
       makePrompt('01-Getting-Started/01-Overview.md'),
     ];
@@ -142,7 +143,7 @@ describe('executeDocPrompts', () => {
 
   // --- AC4: LLM failure on one page doesn't block others ---
   it('should continue generating other pages when one fails', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/good1.md'),
       makePrompt('05-Modules/bad.md'),
       makePrompt('05-Modules/good2.md'),
@@ -175,7 +176,7 @@ describe('executeDocPrompts', () => {
 
   it('should release router slot even on failure', async () => {
     const tightRouter = mockRouter(1);
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/fail.md'),
       makePrompt('05-Modules/pass.md'),
     ];
@@ -200,7 +201,7 @@ describe('executeDocPrompts', () => {
 
   // --- AC5: Cost tracking ---
   it('should accumulate total cost from all LLM calls', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/a.md'),
       makePrompt('05-Modules/b.md'),
       makePrompt('05-Modules/c.md'),
@@ -225,7 +226,7 @@ describe('executeDocPrompts', () => {
 
   // --- Callback hooks ---
   it('should call onPageComplete for each successful page', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/core.md'),
     ];
 
@@ -246,7 +247,7 @@ describe('executeDocPrompts', () => {
   });
 
   it('should call onPageError for each failed page', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('05-Modules/broken.md'),
     ];
 
@@ -267,7 +268,7 @@ describe('executeDocPrompts', () => {
   });
 
   it('should create subdirectories for nested page paths', async () => {
-    const prompts: DocPrompt[] = [
+    const prompts: PagePrompt[] = [
       makePrompt('02-Architecture/03-Data-Flow.md'),
     ];
 

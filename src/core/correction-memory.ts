@@ -38,8 +38,6 @@ export interface ReclassificationEntry {
   recorded_at: string;
 }
 
-/** @deprecated Use ReclassificationEntry instead */
-export type FalsePositiveEntry = ReclassificationEntry;
 
 /** V1 entry shape (per-axis), kept for migration. */
 interface LegacyReclassificationEntry {
@@ -62,8 +60,6 @@ export interface DeliberationMemory {
   false_positives: ReclassificationEntry[];
 }
 
-/** @deprecated Use DeliberationMemory instead */
-export type CorrectionMemory = DeliberationMemory;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -210,8 +206,6 @@ export function loadDeliberationMemory(projectRoot: string): DeliberationMemory 
   return { version: 2, false_positives: [] };
 }
 
-/** @deprecated Use loadDeliberationMemory instead */
-export const loadCorrectionMemory = loadDeliberationMemory;
 
 /**
  * Save the deliberation memory to disk (atomic write).
@@ -222,8 +216,6 @@ export function saveDeliberationMemory(projectRoot: string, memory: Deliberation
   atomicWriteJson(memPath, memory);
 }
 
-/** @deprecated Use saveDeliberationMemory instead */
-export const saveCorrectionMemory = saveDeliberationMemory;
 
 /**
  * Record a reclassification into the deliberation memory.

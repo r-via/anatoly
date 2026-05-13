@@ -17,7 +17,6 @@ import {
   buildShards,
   buildAxisReports,
   renderIndex,
-  renderShard,
   renderAxisIndex,
   renderAxisShard,
   makeActId,
@@ -681,81 +680,6 @@ describe('renderAxisShard', () => {
   });
 });
 
-describe('renderShard (legacy)', () => {
-  it('should include findings table', () => {
-    const reviews = [
-      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 90 })] }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    expect(md).toContain('# Shard 1');
-    expect(md).toContain('## Findings');
-    expect(md).toContain('`a.ts`');
-    expect(md).toContain('[details](./reviews/a.rev.md)');
-  });
-
-  it('should include actions scoped to shard', () => {
-    const reviews = [
-      makeReview({
-        file: 'a.ts',
-        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
-        actions: [
-          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, target_symbol: 'fn', target_lines: null },
-          { id: 2, description: 'Add tests', severity: 'low' as const, effort: 'small' as const, category: 'hygiene' as const, target_symbol: null, target_lines: null },
-        ],
-      }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    expect(md).toContain('## Quick Wins');
-    expect(md).toContain('## Hygiene');
-  });
-
-  it('should include BP Score column with best_practices data', () => {
-    const reviews = [
-      makeReview({
-        file: 'a.ts',
-        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
-        best_practices: {
-          score: 7.5,
-          rules: [{ rule_id: 1, rule_name: 'Error handling', status: 'PASS' as const, severity: 'CRITICAL' as const }],
-          suggestions: [],
-        },
-      }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    expect(md).toContain('BP Score');
-    expect(md).toContain('7.5/10');
-  });
-
-  it('should show dash for BP Score when no best_practices data', () => {
-    const reviews = [
-      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    expect(md).toContain('BP Score');
-    expect(md).toContain('| - |');
-  });
-
-  it('should not include actions section when no actions', () => {
-    const reviews = [
-      makeReview({ file: 'a.ts', symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })] }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    expect(md).not.toContain('## Quick Wins');
-    expect(md).not.toContain('## Refactors');
-    expect(md).not.toContain('## Hygiene');
-  });
-});
-
 describe('makeActId', () => {
   it('should produce deterministic IDs', () => {
     const id1 = makeActId('src/foo.ts', 1);
@@ -782,24 +706,6 @@ describe('makeActId', () => {
 });
 
 describe('renderAction checkboxes', () => {
-  it('should prefix actions with checkbox and ACT-ID in shards', () => {
-    const reviews = [
-      makeReview({
-        file: 'src/foo.ts',
-        symbols: [makeSymbol({ utility: 'DEAD', confidence: 80 })],
-        actions: [
-          { id: 1, description: 'Remove dead export', severity: 'high' as const, effort: 'trivial' as const, category: 'quickwin' as const, source: 'utility' as const, target_symbol: 'fn', target_lines: '1-5' },
-        ],
-      }),
-    ];
-    const data = aggregateReviews(reviews);
-    const shards = buildShards(data);
-    const md = renderShard(shards[0]);
-    const actId = makeActId('src/foo.ts', 1);
-    expect(md).toContain(`- [ ] <!-- ${actId} -->`);
-    expect(md).toContain('**[utility \u00B7 high \u00B7 trivial]**');
-  });
-
   it('should have ACT-IDs in axis shards too', () => {
     const reviews = [
       makeReview({

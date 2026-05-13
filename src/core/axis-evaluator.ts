@@ -253,11 +253,6 @@ export function resolveCodeSummaryModel(config: Config): string {
   return config.models.code_summary ?? config.models.fast;
 }
 
-/** @deprecated Alias kept for consumers not yet migrated (Story 42.4). */
-export function resolveNlpModel(config: Config): string {
-  return resolveCodeSummaryModel(config);
-}
-
 /**
  * Build per-provider stats from axis timing data.
  * Returns a `providers` object with call counts and cost per provider,

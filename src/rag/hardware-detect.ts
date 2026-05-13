@@ -156,8 +156,6 @@ export interface EmbeddingsReadyFlag {
   dim_code?: number;
   dim_nlp?: number;
   device: string;
-  /** @deprecated Python is no longer used. Kept for backwards compatibility. */
-  python?: string;
   setup_at?: string;
   checked_at?: string;
   code_quantize?: boolean;
