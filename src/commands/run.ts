@@ -1418,6 +1418,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   }
 
   projectInfoSpinner?.stop(projectInfo ? 'Project info ready' : 'Project info: nothing detected');
+  // clack's spinner.stop doesn't emit the trailing `│` separator that
+  // interactive prompts use to visually link to the next block. Add it
+  // ourselves so the next prompt doesn't look orphaned.
+  if (projectInfoSpinner) process.stdout.write(chalk.gray('│') + '\n');
 
   // --- Phase: config ---
   let hardware: ReturnType<typeof detectHardware> | undefined;
