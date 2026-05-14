@@ -26,6 +26,7 @@ import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
+import { setRagQueryTrail } from '../rag/vector-store.js';
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
@@ -928,6 +929,13 @@ export function registerRunCommand(program: Command): void {
         ctx.runLog = createFileLogger(runLogPath);
         ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
 
+        // Mirror `rag.query` observability events into the per-run ndjson trail.
+        // The global logger only surfaces info-level events at `--verbose` or
+        // above; this ensures every retrieval (who, when, what, returned what)
+        // is captured in `.anatoly/runs/<runId>/anatoly.ndjson` by default.
+        const runLogRef = ctx.runLog;
+        setRagQueryTrail((event) => runLogRef.info(event, 'rag.query'));
+
         const runConfig = buildRunConfig({
           runId,
           projectRoot,
@@ -1362,6 +1370,7 @@ export function registerRunCommand(program: Command): void {
         await stopGgufContainers(); // no-op if no containers running
         await stopTeiContainers(); // no-op if no containers running
         flushFileLogger();
+        setRagQueryTrail(undefined);
         process.removeListener('SIGINT', onSigint);
 
         // Cleanup worktree on error for background runs (Story 47.3)

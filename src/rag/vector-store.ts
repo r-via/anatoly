@@ -27,6 +27,25 @@ export interface RagQueryContext {
   filePath?: string;
 }
 
+/**
+ * Optional sink for structured `rag.query` events, registered by the run
+ * pipeline so events also reach the per-run `anatoly.ndjson` file (the global
+ * logger only writes to stderr at `--verbose` or above by default).
+ *
+ * Callers register with {@link setRagQueryTrail}; clear with `setRagQueryTrail(undefined)`.
+ */
+let _ragQueryTrail: ((event: Record<string, unknown>) => void) | undefined;
+
+/**
+ * Register a structured-event sink for `rag.query` observability events. The
+ * registered function is invoked exactly once per executed search alongside
+ * the regular `getLogger()` emit. Typical wiring: forward events to
+ * `ctx.runLog` so they land in `.anatoly/runs/<runId>/anatoly.ndjson`.
+ */
+export function setRagQueryTrail(fn: ((event: Record<string, unknown>) => void) | undefined): void {
+  _ragQueryTrail = fn;
+}
+
 /** Emit a structured `rag.query` log event for an executed search. */
 function logRagQuery(
   type: string,
@@ -36,27 +55,26 @@ function logRagQuery(
   durationMs: number,
 ): void {
   const top = results[0];
-  getLogger().info(
-    {
-      event: 'rag_query',
-      type,
-      caller: context?.caller ?? 'unknown',
-      ...(context?.axis ? { axis: context.axis } : {}),
-      ...(context?.filePath ? { filePath: context.filePath } : {}),
-      args,
-      durationMs,
-      resultCount: results.length,
-      topResult: top
-        ? {
-            id: top.card.id,
-            filePath: top.card.filePath,
-            name: top.card.name,
-            score: Number(top.score.toFixed(4)),
-          }
-        : null,
-    },
-    'rag.query',
-  );
+  const payload = {
+    event: 'rag_query',
+    type,
+    caller: context?.caller ?? 'unknown',
+    ...(context?.axis ? { axis: context.axis } : {}),
+    ...(context?.filePath ? { filePath: context.filePath } : {}),
+    args,
+    durationMs,
+    resultCount: results.length,
+    topResult: top
+      ? {
+          id: top.card.id,
+          filePath: top.card.filePath,
+          name: top.card.name,
+          score: Number(top.score.toFixed(4)),
+        }
+      : null,
+  };
+  getLogger().info(payload, 'rag.query');
+  _ragQueryTrail?.(payload);
 }
 
 /**
