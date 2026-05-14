@@ -136,7 +136,11 @@ function buildInlineDocCommentsSection(referenceDocs: ReferenceDoc[]): string {
 /**
  * Truncate sections to fit within maxTokens.
  * Priority (keep first): Reference index > Inline doc-comments > Public surface > Modules
- * Returns the final assembled markdown + a truncation footer if needed.
+ * Empty sections (no `- ` / `### ` entries) are skipped so placeholder text like
+ * `_No X found._` doesn't steal budget from sections that have real content.
+ * When truncation is needed, entries are dropped from the end of the
+ * lowest-priority section first — preserving the most useful info in each
+ * remaining section rather than dropping whole sections at once.
  */
 function truncateToFit(
   modulesSection: string,
@@ -145,41 +149,63 @@ function truncateToFit(
   docCommentsSection: string,
   maxTokens: number,
 ): { content: string; droppedEntries: number } {
-  // Sections in priority order (highest first = last to be dropped)
+  const ENTRY_RE = /^(?:- |### )/m;
+  const hasEntries = (text: string) => ENTRY_RE.test(text);
+
   const sections = [
     { name: 'reference-index', text: referenceIndexSection },
     { name: 'doc-comments', text: docCommentsSection },
     { name: 'public-surface', text: publicSurfaceSection },
     { name: 'modules', text: modulesSection },
-  ];
+  ].filter((s) => hasEntries(s.text));
 
-  // Try including all sections
+  if (sections.length === 0) {
+    return { content: '_No internal documentation context available._\n', droppedEntries: 0 };
+  }
+
   let assembled = sections.map((s) => s.text).join('\n');
   let tokens = estimateTokens(assembled);
-
   if (tokens <= maxTokens) {
     return { content: assembled, droppedEntries: 0 };
   }
 
-  // Drop sections from lowest priority (modules first, then public surface, etc.)
+  // Truncate within sections, starting from the lowest-priority one (end of array).
+  // Track a running char count to avoid O(N²) reassembly on large projects.
+  // Reserve ~16 tokens for the truncation footer we'll append below so the
+  // returned content still respects maxTokens.
+  const FOOTER_RESERVE_TOKENS = 16;
+  const truncationBudgetTokens = Math.max(0, maxTokens - FOOTER_RESERVE_TOKENS);
+  const charBudget = truncationBudgetTokens * 4;
+  const working = sections.map((s) => s.text.split('\n'));
+  let totalChars = assembled.length;
   let droppedEntries = 0;
-  const included = [...sections];
 
-  // Try removing from the end (lowest priority)
-  while (included.length > 0 && tokens > maxTokens) {
-    const dropped = included.pop()!;
-    // Count dropped entries (rough: count lines starting with '- ' or '### ')
-    const entryCount = (dropped.text.match(/^- /gm) || []).length + (dropped.text.match(/^### /gm) || []).length;
-    droppedEntries += entryCount;
-    assembled = included.map((s) => s.text).join('\n');
-    tokens = estimateTokens(assembled);
+  for (let i = working.length - 1; i >= 0 && totalChars > charBudget; i--) {
+    const lines = working[i];
+    while (lines.length > 0 && totalChars > charBudget) {
+      const last = lines[lines.length - 1];
+      lines.pop();
+      totalChars -= last.length + 1;
+      if (last.startsWith('- ') || last.startsWith('### ')) {
+        droppedEntries++;
+      }
+      if (last.startsWith('## ')) {
+        // Section header popped — section is now empty, move on.
+        break;
+      }
+    }
   }
 
-  // If still over budget, hard-truncate the remaining text
-  if (tokens > maxTokens) {
-    const charBudget = maxTokens * 4;
+  // Recompose, dropping sections that no longer have any entries.
+  assembled = working
+    .map((ls) => ls.join('\n'))
+    .filter((text) => ENTRY_RE.test(text))
+    .join('\n');
+
+  // Safety net: if we still overshoot (e.g. a single entry larger than budget),
+  // hard-truncate the trailing characters.
+  if (estimateTokens(assembled) > truncationBudgetTokens) {
     assembled = assembled.slice(0, charBudget);
-    // Don't count specific dropped entries for hard truncate
   }
 
   const footer = `\n_(truncated to ${estimateTokens(assembled)} tokens; dropped ${droppedEntries} entries)_\n`;
@@ -251,17 +277,21 @@ export async function buildInternalDocsDigest(
   const referenceIndexSection = buildReferenceIndexSection(referenceDocs);
   const docCommentsSection = buildInlineDocCommentsSection(referenceDocs);
 
+  // Frontmatter is prepended below; reserve its token cost so the final result
+  // (frontmatter + truncated content) stays within max_tokens.
+  const frontmatter = '---\nstatus: evaluated\nsource: reference-digest\n---\n';
+  const innerBudget = Math.max(0, maxTokens - estimateTokens(frontmatter));
+
   // Assemble with truncation
   const { content } = truncateToFit(
     modulesSection,
     publicSurfaceSection,
     referenceIndexSection,
     docCommentsSection,
-    maxTokens,
+    innerBudget,
   );
 
   // Prepend frontmatter marking the digest as authoritative (Story 55.5)
-  const frontmatter = '---\nstatus: evaluated\nsource: reference-digest\n---\n';
   const fullContent = frontmatter + content;
 
   const tokens = estimateTokens(fullContent);

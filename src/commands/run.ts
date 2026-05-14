@@ -90,6 +90,7 @@ import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
+import { resolveReferenceDocs, type ReferenceDoc } from '../core/reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
 import { runPhase } from '../core/orchestration/run-phase.js';
@@ -1028,6 +1029,10 @@ export function registerRunCommand(program: Command): void {
         // --- Phase: bootstrap doc (first run only, skipped in quick-win) — Story 29.21 ---
         // Mode guards: lite builds a deterministic digest (Story 54.6), off skips entirely (Story 54.7)
         const internalDocMode = resolveDocMode(ctx.config);
+        // Resolved once and reused by both lite branches below (bootstrap-doc and
+        // internal-docs update). Inline doc-comment extraction parses every source
+        // file via tree-sitter, so we avoid running it twice in the same run.
+        let liteReferenceDocs: ReferenceDoc[] | undefined;
         if (internalDocMode === 'off' && !ctx.interrupted) {
           const log = getLogger();
           log.info('internal docs mode=off — skipping scaffold, generation, and coherence');
@@ -1037,7 +1042,8 @@ export function registerRunCommand(program: Command): void {
           const log = getLogger();
           log.info('internal docs mode=lite — building deterministic digest (no LLM)');
           ctx.renderer?.logPlain('[internal-docs] mode=lite — building deterministic digest (no LLM)');
-          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
+          liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
+          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
           ctx.pipelineState?.completeTask('bootstrap-doc', 'lite digest');
         } else if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
@@ -1082,7 +1088,8 @@ export function registerRunCommand(program: Command): void {
         if (internalDocMode === 'off' && !ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'off');
         } else if (internalDocMode === 'lite' && !ctx.interrupted && hasEvaluableFiles) {
-          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, [], ctx.config);
+          liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
+          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
           ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
         } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
           await runPhase(ctx, 'internal-docs', async () => {

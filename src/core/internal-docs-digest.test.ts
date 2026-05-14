@@ -288,4 +288,50 @@ describe('buildInternalDocsDigest', () => {
     const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
     expect(result.content).toContain('## Modules');
   });
+
+  // --- Regression: empty reference sections must not steal budget from real content ---
+
+  it('skips empty reference/doc-comments sections when no reference docs are provided', async () => {
+    const tasks = [
+      makeTask({ file: 'src/a.ts' }),
+      makeTask({ file: 'src/b.ts', hash: 'h2' }),
+    ];
+    const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
+
+    expect(result.content).not.toContain('_No reference documents found._');
+    expect(result.content).not.toContain('_No inline doc-comments found._');
+    expect(result.content).not.toContain('## Reference index');
+    expect(result.content).not.toContain('## Inline doc-comments');
+    // The useful sections are kept
+    expect(result.content).toContain('## Modules');
+    expect(result.content).toContain('src/a.ts');
+  });
+
+  it('preserves Modules/Public-surface content over empty reference placeholders when budget is tight', async () => {
+    // Reproduces the awf-cli bug: 260+ tasks, no reference docs, tight budget.
+    // Old behaviour kept the empty "_No X found._" placeholders and dropped the
+    // entire Modules+Public-surface sections. New behaviour drops the empty
+    // sections first and truncates within Modules/Public-surface.
+    const config = makeLiteConfig(500);
+    const tasks: Task[] = [];
+    for (let i = 0; i < 200; i++) {
+      tasks.push(makeTask({
+        file: `src/module${i}/file${i}.ts`,
+        hash: `h${i}`,
+        symbols: [
+          { name: `func${i}`, kind: 'function', exported: true, line_start: 1, line_end: 5 },
+        ],
+      }));
+    }
+
+    const result = await buildInternalDocsDigest(root, tasks, [], config);
+
+    expect(result.tokens).toBeLessThanOrEqual(500);
+    // The digest must contain at least *some* concrete content, not just placeholders.
+    // The exact section kept depends on priority + budget, but at minimum a real
+    // module/file path or symbol must survive truncation.
+    expect(result.content).toMatch(/src\/module\d+\/file\d+\.ts/);
+    expect(result.content).not.toContain('_No reference documents found._');
+    expect(result.content).not.toContain('_No inline doc-comments found._');
+  });
 });
