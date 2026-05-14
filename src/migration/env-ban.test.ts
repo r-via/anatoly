@@ -89,8 +89,10 @@ describe('AC5: ban env var reads outside anatoly-paths.ts', () => {
 describe('AC6: ban ~/.cache/ references in application code', () => {
   it('no .cache/anatoly references in code (migration module OK)', () => {
     const matches = grepSrc(/\.cache\/anatoly/)
-      // Allow references in migration detection module
-      .filter((m) => !m.file.includes('legacy-detection.ts'));
+      // Allow references in migration code: legacy-detection (reports legacy
+      // paths to users) and anatoly-paths (auto-migrates them on bootstrap).
+      .filter((m) => !m.file.includes('legacy-detection.ts'))
+      .filter((m) => !m.file.includes('anatoly-paths.ts'));
 
     expect(matches).toEqual([]);
   });

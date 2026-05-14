@@ -25,7 +25,11 @@ let parserInstance: Parser | null = null;
 const languageCache = new Map<string, Language>();
 
 function getWasmCacheDir(): string {
-  return join(homedir(), '.cache', 'anatoly', 'wasm');
+  // Multi-tenant safe: tree-sitter WASM grammars are language-public, so
+  // they live alongside other shared artefacts under ~/.anatoly/shared/.
+  // bootstrapAnatoly creates this directory (and the project-side symlink)
+  // before any command runs, so we can write into it directly here.
+  return join(homedir(), '.anatoly', 'shared', 'grammars');
 }
 
 async function getParser(): Promise<Parser> {
@@ -54,7 +58,9 @@ async function resolveWasmPath(wasmModule: string): Promise<string> {
     // not bundled, continue
   }
 
-  // 2. Check local cache
+  // 2. Check canonical cache (shared across all projects via ~/.anatoly/shared/).
+  // Pre-Epic-52 grammars from the legacy XDG cache are forward-migrated into
+  // this directory by bootstrapAnatoly on startup.
   const cacheDir = getWasmCacheDir();
   const cachedPath = join(cacheDir, wasmFile);
   if (existsSync(cachedPath)) {
@@ -64,7 +70,7 @@ async function resolveWasmPath(wasmModule: string): Promise<string> {
 
   // 3. Download from npm package via unpkg CDN
   const url = `https://unpkg.com/${wasmModule}`;
-  process.stderr.write(`[scan] Downloading grammar: ${wasmFile} …\n`);
+  log.info({ grammar: wasmFile, source: 'unpkg' }, 'downloading tree-sitter grammar');
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to download ${url}: ${res.status} ${res.statusText}`);
@@ -73,7 +79,10 @@ async function resolveWasmPath(wasmModule: string): Promise<string> {
 
   mkdirSync(cacheDir, { recursive: true });
   writeFileSync(cachedPath, buffer);
-  process.stderr.write(`[scan] Cached grammar: ${wasmFile} (${(buffer.length / 1024).toFixed(0)} KB)\n`);
+  log.info(
+    { grammar: wasmFile, sizeKB: Math.round(buffer.length / 1024), cacheDir },
+    'cached tree-sitter grammar',
+  );
   return cachedPath;
 }
 

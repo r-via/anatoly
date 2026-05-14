@@ -178,6 +178,11 @@ export function bootstrapAnatoly(root: string): void {
     // idempotent and respects existing real dirs (project isolated mode).
     ensureLink(dotAnatoly, 'shared', join(uwRoot, 'shared'));
     ensureLink(dotAnatoly, 'user', join(uwRoot, 'user'));
+
+    // Forward-migrate pre-Epic-52 user-wide caches into the shared/ tree
+    // (best-effort — never throws). Currently handles only the legacy
+    // tree-sitter WASM cache; extend here when new user-wide migrations land.
+    migrateLegacyUserWideCaches(uwRoot);
   }
   // Sandbox mode (uwRoot doesn't exist): leave shared/ and user/ alone —
   // they're either bind-mounted by the orchestrator or simply unavailable.
@@ -278,6 +283,56 @@ function migrateLegacyState(dotAnatoly: string): void {
     } catch (err) {
       getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
     }
+  }
+}
+
+/**
+ * Move tree-sitter WASM grammars from the pre-Epic-52 location
+ * (`~/.cache/anatoly/wasm/`) into the canonical `~/.anatoly/shared/grammars/`
+ * directory so scanner downloads aren't repeated after the cache-layout move.
+ *
+ * Best-effort, idempotent, and silent when nothing needs migrating.
+ */
+function migrateLegacyUserWideCaches(uwRoot: string): void {
+  const legacyDir = join(homedir(), '.cache', 'anatoly', 'wasm');
+  if (!existsSync(legacyDir)) return;
+
+  const targetDir = join(uwRoot, 'shared', 'grammars');
+  let entries: string[];
+  try {
+    entries = readdirSync(legacyDir);
+  } catch {
+    return;
+  }
+
+  let movedAny = false;
+  for (const name of entries) {
+    if (!name.endsWith('.wasm')) continue;
+    const legacyPath = join(legacyDir, name);
+    const targetPath = join(targetDir, name);
+    if (existsSync(targetPath)) {
+      // Already in canonical location — drop the duplicate.
+      try { rmSync(legacyPath, { force: true }); } catch { /* best-effort */ }
+      continue;
+    }
+    try {
+      mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+      renameSync(legacyPath, targetPath);
+      movedAny = true;
+    } catch (err) {
+      getLogger().warn(
+        { err: String(err), grammar: name },
+        'failed to migrate legacy tree-sitter grammar — leaving in place',
+      );
+    }
+  }
+
+  // Remove the legacy directory once empty so subsequent runs short-circuit.
+  if (movedAny) {
+    try {
+      const remaining = readdirSync(legacyDir);
+      if (remaining.length === 0) rmSync(legacyDir, { recursive: false, force: true });
+    } catch { /* best-effort */ }
   }
 }
 
