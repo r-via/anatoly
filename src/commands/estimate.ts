@@ -10,6 +10,7 @@ import { loadConfig, getV3Source } from '../utils/config-loader.js';
 import { getDocsDir, type Config } from '../schemas/config.js';
 import { extractProvider } from '../core/transports/index.js';
 import { scanProject } from '../core/scanner.js';
+import { buildProjectTree } from '../core/project-tree.js';
 import { forecastRun, formatTokenCount, loadTasks, FORECAST_STEP_CATEGORY_ORDER, type ForecastStep } from '../core/estimator.js';
 import { loadCalibration, formatCalibratedTime } from '../core/calibration.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
@@ -345,6 +346,7 @@ export function registerEstimateCommand(program: Command): void {
     .option('--no-deliberation', 'forecast as if the deliberation pass were disabled')
     .option('--no-internal-docs', 'forecast as if internal-doc generation were skipped')
     .option('--no-cache', 'forecast as if running from scratch — ignore CACHED state, bill every file matched by scan')
+    .option('--dump-tree', 'print the project tree injected into best_practices prompts and exit (no forecast, no LLM calls)')
     .action(async (cmdOpts: {
       json?: boolean;
       files?: string;
@@ -352,6 +354,7 @@ export function registerEstimateCommand(program: Command): void {
       deliberation?: boolean;
       internalDocs?: boolean;
       cache?: boolean;
+      dumpTree?: boolean;
     }) => {
       const jsonMode = cmdOpts.json === true;
       const filesGlob = cmdOpts.files;
@@ -381,6 +384,21 @@ export function registerEstimateCommand(program: Command): void {
       const parentOpts = program.opts();
       const config = loadConfig(projectRoot, parentOpts.config as string | undefined);
       const concurrency = config.runtime.concurrency;
+
+      // --dump-tree short-circuits the forecast: same `allTasks` set as a
+      // real run would produce, fed through `buildProjectTree`, written to
+      // stdout. No pricing, no embeddings, no LLM calls — pure debug view
+      // of what gets injected into the best_practices user message.
+      if (cmdOpts.dumpTree === true) {
+        await scanProject(projectRoot, config);
+        const tasks = loadTasks(projectRoot);
+        const scoped = matchFiles ? tasks.filter((t) => matchFiles(t.file)) : tasks;
+        const tree = buildProjectTree(scoped.map((t) => t.file));
+        if (tree) {
+          process.stdout.write(tree + '\n');
+        }
+        return;
+      }
 
       // Resolve the embedding tier eagerly so the active-models list passed
       // to the pricing gate includes any external SDK models the user only

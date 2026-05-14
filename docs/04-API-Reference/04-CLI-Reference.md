@@ -71,8 +71,9 @@ anatoly init [--force]
 Pre-run forecast: tokens, dollars, and wall-clock time the next `anatoly run` will consume — no LLM calls (token counts via tiktoken, costs from the on-disk pricing cache, ETA from calibrated medians). Always rescans the source tree first so `.anatoly/tasks/` is in sync with the current files and the forecast reports fresh new/modified/cached counts.
 
 ```bash
-anatoly estimate          # rendered table (Project Info → Configuration → Cost breakdown → Forecast)
-anatoly estimate --json   # versioned JSON payload to stdout (schemaVersion: 1)
+anatoly estimate              # rendered table (Project Info → Configuration → Cost breakdown → Forecast)
+anatoly estimate --json       # versioned JSON payload to stdout (schemaVersion: 1)
+anatoly estimate --dump-tree  # print the project tree injected into best_practices prompts and exit
 ```
 
 The rendered view shows a per-step Cost breakdown with a `mode` column (`subscription` / `api` / `local`) and two totals — `billed` (what you actually pay) and `consumption` (pay-per-token equivalent). The Forecast section ends with a mode-aware cost line that distinguishes OAuth-covered work from real API spending. See [`docs/03-CLI-Reference/01-Commands.md#estimate`](../03-CLI-Reference/01-Commands.md#estimate) for the full schema and an example payload.

@@ -74,7 +74,7 @@ anatoly run --axes correction,tests
 Pre-run forecast — what the next `anatoly run` will cost in tokens, dollars, and wall-clock time. Makes **no LLM calls**: token counts come from tiktoken, costs from the on-disk pricing cache (litellm + OpenRouter), and the per-axis time estimate uses calibrated medians from past runs. Always rescans the source tree first, so `.anatoly/tasks/` reflects the current state and the forecast block reports fresh `new`/`modified`/`cached` counts (cached files cost $0; new + modified files require a full LLM evaluation).
 
 ```
-anatoly estimate [--json]
+anatoly estimate [--json] [--dump-tree]
 ```
 
 ### Options
@@ -82,6 +82,7 @@ anatoly estimate [--json]
 | Flag | Description |
 |------|-------------|
 | `--json` | Emit a machine-readable JSON payload to stdout instead of the rendered table (logs go to stderr, banner suppressed). Schema versioned via `schemaVersion: 1`. |
+| `--dump-tree` | Print the project tree injected into `best_practices` prompts and exit. Runs the scan, applies the same scope filters (`--files`, etc.), then prints the tree to stdout. No forecast, no pricing gate, no LLM calls. Useful when debugging audits where file placement or import-organization findings look off, since the tree is exactly what the LLM sees. |
 
 ### Output sections
 
