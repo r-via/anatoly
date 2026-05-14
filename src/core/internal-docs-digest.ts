@@ -2,9 +2,39 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
+/**
+ * Internal-documentation digest for lite mode (Story 54.6).
+ *
+ * Builds a compact, deterministic Markdown summary of the project's structure
+ * and surfaces it to the review axes in place of the LLM-generated docs that
+ * advanced mode produces in `.anatoly/state/internal-docs/`. No LLM calls,
+ * no network — pure projection over the scanner output and the resolved
+ * reference docs.
+ *
+ * Pipeline (see {@link buildInternalDocsDigest}):
+ *   inputs (tasks, referenceDocs, max_tokens)
+ *     → SHA-256 fingerprint
+ *     → cache hit ? return cached : rebuild
+ *     → assemble 4 sections (Modules, Public surface, Reference index, Inline doc-comments)
+ *     → truncateToFit (skip empty sections, drop trailing entries from lowest-priority section)
+ *     → prepend `status: evaluated` frontmatter
+ *     → split-write cache (.json metadata + .md content) and return
+ *
+ * Output is consumed by `renderReferenceDocsContext` (axes/reference-docs-context.ts),
+ * which injects the Markdown into axis prompts when the frontmatter declares
+ * `status: evaluated`. Off mode skips this entire module; advanced mode bypasses
+ * it and uses `state/internal-docs/*.md` directly.
+ *
+ * Cache layout (per project):
+ *   `.anatoly/cache/internal-digest.yaml` — `{ tokens, fingerprint, content }`
+ * YAML's block-scalar (`content: |`) keeps the Markdown un-escaped and directly
+ * readable in an editor, instead of being collapsed into a JSON string.
+ */
+
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import type { Config } from '../schemas/config.js';
@@ -215,21 +245,20 @@ function truncateToFit(
 }
 
 // ---------------------------------------------------------------------------
-// Cache
+// Cache (single YAML file — block-scalar keeps the Markdown directly readable)
 // ---------------------------------------------------------------------------
 
 function getCachePath(root: string): string {
-  return join(root, '.anatoly', 'cache', 'internal-digest.json');
+  return join(root, '.anatoly', 'cache', 'internal-digest.yaml');
 }
 
 function readCache(root: string): CachedDigest | null {
   const cachePath = getCachePath(root);
   if (!existsSync(cachePath)) return null;
   try {
-    const raw = readFileSync(cachePath, 'utf-8');
-    const parsed = JSON.parse(raw) as CachedDigest;
-    if (parsed.fingerprint && parsed.content && typeof parsed.tokens === 'number') {
-      return parsed;
+    const parsed = yamlParse(readFileSync(cachePath, 'utf-8')) as Partial<CachedDigest>;
+    if (typeof parsed?.tokens === 'number' && typeof parsed.fingerprint === 'string' && typeof parsed.content === 'string') {
+      return parsed as CachedDigest;
     }
     return null;
   } catch {
@@ -238,10 +267,15 @@ function readCache(root: string): CachedDigest | null {
 }
 
 function writeCache(root: string, result: DigestResult): void {
-  const cachePath = getCachePath(root);
   const dir = join(root, '.anatoly', 'cache');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(cachePath, JSON.stringify(result, null, 2), 'utf-8');
+  // `blockQuote: 'literal'` forces a `|`-scalar for `content`, preserving newlines
+  // and Markdown formatting in a directly-readable form.
+  const serialized = yamlStringify(
+    { tokens: result.tokens, fingerprint: result.fingerprint, content: result.content },
+    { blockQuote: 'literal', lineWidth: 0 },
+  );
+  writeFileSync(getCachePath(root), serialized, 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -251,10 +285,19 @@ function writeCache(root: string, result: DigestResult): void {
 /**
  * Build a deterministic internal documentation digest for lite mode.
  *
- * Produces a structured markdown summary of the project's modules, public
+ * Produces a structured Markdown summary of the project's modules, public
  * API surface, reference doc paths, and inline doc-comments — all without
- * any LLM calls. The result is bounded by `max_tokens` from config and
- * cached via SHA-256 fingerprint invalidation.
+ * any LLM calls. The result is bounded by `documentation.internal.lite.max_tokens`
+ * (default 4000) and cached via SHA-256 fingerprint invalidation: the
+ * fingerprint mixes sorted task hashes, sorted reference-doc paths, and the
+ * `max_tokens` value, so any code or doc change automatically invalidates.
+ *
+ * Output is persisted as a single `.anatoly/cache/internal-digest.yaml` file
+ * carrying `{ tokens, fingerprint, content }`. The YAML block-scalar
+ * (`content: |`) keeps the Markdown un-escaped and directly readable in an
+ * editor. Consumers receive the parsed {@link DigestResult} through
+ * `ctx.internalDigest`, which is injected into axis prompts by
+ * `renderReferenceDocsContext` when the frontmatter declares `status: evaluated`.
  */
 export async function buildInternalDocsDigest(
   projectRoot: string,

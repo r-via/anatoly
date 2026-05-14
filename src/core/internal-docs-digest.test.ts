@@ -7,6 +7,7 @@ import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parse as yamlParse } from 'yaml';
 import { buildInternalDocsDigest } from './internal-docs-digest.js';
 import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
@@ -178,18 +179,26 @@ describe('buildInternalDocsDigest', () => {
     expect(r1.content).toBe(r2.content);
   });
 
-  it('AC 54.6b: second call serves from cache file', async () => {
+  it('AC 54.6b: second call serves from cache file (single YAML)', async () => {
     const tasks = [makeTask()];
     const config = makeLiteConfig();
 
-    await buildInternalDocsDigest(root, tasks, [], config);
+    const first = await buildInternalDocsDigest(root, tasks, [], config);
 
-    // Cache file should exist
-    const cachePath = join(root, '.anatoly', 'cache', 'internal-digest.json');
-    const cached = JSON.parse(readFileSync(cachePath, 'utf-8'));
+    // Cache is a single YAML file with tokens + fingerprint + Markdown content.
+    const cachePath = join(root, '.anatoly', 'cache', 'internal-digest.yaml');
+    const raw = readFileSync(cachePath, 'utf-8');
+    const cached = yamlParse(raw);
     expect(cached).toHaveProperty('fingerprint');
     expect(cached).toHaveProperty('content');
     expect(cached).toHaveProperty('tokens');
+    expect(cached.content).toBe(first.content);
+    // The Markdown content is rendered as a YAML block scalar (un-escaped, readable).
+    expect(raw).toMatch(/^content: \|/m);
+
+    // Second call reads from cache and returns the same result.
+    const second = await buildInternalDocsDigest(root, tasks, [], config);
+    expect(second).toEqual(first);
   });
 
   // --- AC3: fingerprint invalidation on code change ---
