@@ -45,6 +45,22 @@ export interface RecoveryResult {
   recoveredTo: string | null;
 }
 
+/**
+ * True when `cwd` sits inside (or is) a `.anatoly/` working directory.
+ *
+ * `.anatoly/` is the per-project state folder Anatoly creates inside any
+ * codebase it audits (runs, cache, embeddings, RAG index, ...). If the
+ * user's shell is parked inside that folder, they almost certainly meant
+ * to run from the project root: launching here would treat Anatoly's own
+ * state as the codebase to audit, mangle paths, and pollute caches.
+ *
+ * Cross-platform: handles both `/` and `\` separators so the same check
+ * works on Linux/macOS and Windows.
+ */
+export function isInsideAnatolyDir(cwd: string): boolean {
+  return cwd.split(/[/\\]/).filter(Boolean).includes('.anatoly');
+}
+
 export function recoverCwdIfBroken(deps?: {
   cwdGetter?: () => string;
   chdirFn?: (p: string) => void;

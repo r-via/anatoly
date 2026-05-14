@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 
 import {
   firstExistingAncestor,
+  isInsideAnatolyDir,
   pickRecoveryCandidates,
   recoverCwdIfBroken,
 } from './boot-cwd.js';
@@ -57,6 +58,30 @@ describe('pickRecoveryCandidates', () => {
   it('drops non-absolute or missing entries', () => {
     const candidates = pickRecoveryCandidates({ PWD: 'relative', HOME: undefined });
     expect(candidates).toEqual(['/tmp', '/']);
+  });
+});
+
+describe('isInsideAnatolyDir', () => {
+  it('flags a cwd that is exactly the .anatoly folder', () => {
+    expect(isInsideAnatolyDir('/home/u/proj/.anatoly')).toBe(true);
+  });
+
+  it('flags a cwd nested below .anatoly', () => {
+    expect(isInsideAnatolyDir('/home/u/proj/.anatoly/runs/2026-01')).toBe(true);
+  });
+
+  it('does not flag a sibling folder that merely contains the substring', () => {
+    expect(isInsideAnatolyDir('/home/u/proj/.anatoly-backup')).toBe(false);
+    expect(isInsideAnatolyDir('/home/u/proj/my.anatoly.notes')).toBe(false);
+  });
+
+  it('does not flag a project root that has a .anatoly child', () => {
+    expect(isInsideAnatolyDir('/home/u/proj')).toBe(false);
+  });
+
+  it('handles Windows-style backslash separators', () => {
+    expect(isInsideAnatolyDir('C:\\Users\\u\\proj\\.anatoly\\runs')).toBe(true);
+    expect(isInsideAnatolyDir('C:\\Users\\u\\proj')).toBe(false);
   });
 });
 
