@@ -2286,6 +2286,17 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       onProgress: (current, total) => {
         const taskId = ragPhaseToTaskId[ragPhase];
         if (taskId) state.updateTask(taskId, `${current}/${total}`);
+        // Surface progress in the ndjson event stream so `anatoly runs attach`
+        // can render a meaningful counter during rag-index — otherwise the
+        // attach status line is stuck at `0/<totalFiles>` for the whole phase
+        // (file_review_end events only fire later, during the review phase).
+        ctx.runLog?.info({
+          event: 'rag_progress',
+          phase: 'rag-index',
+          subphase: ragPhase,
+          current,
+          total,
+        }, 'rag progress');
       },
       onPhase: (phase) => {
         const prevTaskId = ragPhaseToTaskId[ragPhase];

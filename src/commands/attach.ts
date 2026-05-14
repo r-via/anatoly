@@ -162,6 +162,13 @@ export interface LiveSnapshot {
   reviewedFiles: number;
   totalFiles: number;
   elapsedMs: number;
+  /**
+   * In-flight RAG sub-phase progress (e.g. `code 196/196`, `nlp 42/196`).
+   * Set during `rag-index`; never set during `review`. The renderer uses
+   * this to show meaningful progress before `file_review_end` events start
+   * arriving — otherwise the status line is stuck at `0/<totalFiles>`.
+   */
+  ragProgress?: { phase: string; current: number; total: number };
 }
 
 /**
@@ -171,9 +178,17 @@ export interface LiveSnapshot {
 export function buildLiveSnapshot(snapshot: LiveSnapshot): string {
   const lines: string[] = [];
   lines.push(`  phase       ${snapshot.phase ?? '—'}`);
-  if (snapshot.totalFiles > 0) {
+  // Prefer the live rag sub-phase counter (e.g. nlp 42/196) when we're not
+  // yet in review — otherwise `reviewedFiles/totalFiles` would lie with 0/N.
+  if (snapshot.ragProgress) {
+    const { phase, current, total } = snapshot.ragProgress;
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    lines.push(`  progress    rag ${phase} ${current}/${total} (${pct}%)`);
+  } else if (snapshot.reviewedFiles > 0 && snapshot.totalFiles > 0) {
     const pct = Math.round((snapshot.reviewedFiles / snapshot.totalFiles) * 100);
     lines.push(`  progress    ${snapshot.reviewedFiles}/${snapshot.totalFiles} (${pct}%)`);
+  } else if (snapshot.totalFiles > 0) {
+    lines.push(`  progress    waiting for review phase (${snapshot.totalFiles} files queued)`);
   } else {
     lines.push(`  progress    — (not yet estimated)`);
   }
@@ -189,9 +204,15 @@ export function buildLiveSnapshot(snapshot: LiveSnapshot): string {
 export function buildStatusLine(snapshot: LiveSnapshot): string {
   const parts: string[] = [];
   parts.push(`phase: ${snapshot.phase ?? '—'}`);
-  if (snapshot.totalFiles > 0) {
+  if (snapshot.ragProgress) {
+    const { phase, current, total } = snapshot.ragProgress;
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    parts.push(`rag ${phase} ${current}/${total} (${pct}%)`);
+  } else if (snapshot.reviewedFiles > 0 && snapshot.totalFiles > 0) {
     const pct = Math.round((snapshot.reviewedFiles / snapshot.totalFiles) * 100);
     parts.push(`${snapshot.reviewedFiles}/${snapshot.totalFiles} (${pct}%)`);
+  } else if (snapshot.totalFiles > 0) {
+    parts.push(`waiting on review phase`);
   } else {
     parts.push(`waiting on estimate`);
   }
@@ -212,6 +233,8 @@ export interface AttachRenderState {
   reviewedFiles: number;
   totalFiles: number;
   findings: Array<{ file: string; verdict: string }>;
+  /** Live rag-index sub-phase progress, populated from `rag_progress` events. */
+  ragProgress?: { phase: string; current: number; total: number };
 }
 
 /**
@@ -282,6 +305,9 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
         const durStr = durationMs != null ? ` (${Math.round(durationMs / 1000)}s)` : '';
         emit(chalk.dim(`  ▹ phase: ${phase} done${durStr}`));
         state.currentPhase = '';
+        // Drop the live rag sub-counter when the rag-index phase wraps up
+        // so it doesn't linger into the review phase's status line.
+        if (phase === 'rag-index') state.ragProgress = undefined;
         break;
       }
 
@@ -299,6 +325,16 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
 
       case 'estimate_total': {
         state.totalFiles = (ev.total as number) ?? state.totalFiles;
+        break;
+      }
+
+      case 'rag_progress': {
+        const subphase = ev.subphase as string | undefined;
+        const current = ev.current as number | undefined;
+        const total = ev.total as number | undefined;
+        if (subphase && typeof current === 'number' && typeof total === 'number') {
+          state.ragProgress = { phase: subphase, current, total };
+        }
         break;
       }
 
@@ -617,11 +653,12 @@ export function registerAttachCommand(parent: Command): void {
       }
 
       function drawStatusLine(): void {
-        const snap = {
+        const snap: LiveSnapshot = {
           phase: state.currentPhase || readCurrentPhase(logPath),
           reviewedFiles: state.reviewedFiles,
           totalFiles: state.totalFiles,
           elapsedMs: Date.now() - startedAtMs,
+          ragProgress: state.ragProgress,
         };
         process.stdout.write('\r\x1b[K' + chalk.cyan(buildStatusLine(snap)));
         statusLineDrawn = true;
