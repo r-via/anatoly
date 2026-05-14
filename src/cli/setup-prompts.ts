@@ -247,9 +247,13 @@ export async function runLitePrefetch(opts: {
   asFallback?: boolean;
 }): Promise<void> {
   const log = getLogger();
+  // Honest message: HF transformers doesn't surface a "verify" event — if the
+  // weights are cached, pipeline() just resolves instantly with no callbacks.
+  // So the spinner stays here until either a download initiates (event fires
+  // → message swaps to "↓ filename") or everything resolves from cache.
   const startMsg = opts.asFallback
-    ? 'Downloading lite ONNX fallback models…'
-    : 'Downloading lite embedding models…';
+    ? 'Checking lite ONNX fallback models (cached load instantly; download only if missing)…'
+    : 'Checking lite embedding models (cached load instantly; download only if missing)…';
   const doneMsg = opts.asFallback ? 'Lite ONNX fallback ready' : 'Embeddings (lite) ready';
 
   if (opts.isTTY && !opts.defaultsSettings) {
@@ -281,7 +285,7 @@ export async function runLitePrefetch(opts: {
     spinner.stop(doneMsg);
   } else {
     // Non-interactive: linear log
-    log.info(opts.asFallback ? 'downloading lite ONNX fallback models…' : 'downloading lite embedding models…');
+    log.info(opts.asFallback ? 'checking lite ONNX fallback models…' : 'checking lite embedding models…');
 
     await prefetchLiteModels({
       onProgress: (ev: PrefetchProgress) => {
