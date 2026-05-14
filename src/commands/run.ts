@@ -2302,6 +2302,11 @@ async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> 
       resolvedModels: ctx.resolvedModels,
       ragMode: ctx.resolvedRagMode,
       docsDir: getDocsDir(ctx.config),
+      // Pass the actual `documentation.reference.paths` globs so the indexer
+      // can pick up root-level files (README.md, ARCHITECTURE.md, etc.) that
+      // fall outside the single derived `docsDir`. Empty falls back to
+      // `docsDir` globbing.
+      referencePaths: ctx.config.documentation?.reference?.paths ?? [],
       onLog: (msg) => {
         ctx.runLog?.debug({ phase: 'rag-index' }, msg);
         ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);

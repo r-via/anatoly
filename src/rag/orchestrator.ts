@@ -15,7 +15,7 @@ import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { contextLogger } from '../utils/log-context.js';
-import { indexDocSections, areDocTreesIdentical } from './doc-indexer.js';
+import { indexDocSections, areDocTreesIdentical, resolveReferenceDocFiles } from './doc-indexer.js';
 import type { TransportRouter } from '../core/transports/index.js';
 
 /**
@@ -44,6 +44,13 @@ export interface RagIndexOptions {
   ragMode?: RagMode;
   /** Directory containing markdown docs for doc section indexing (default: 'docs'). */
   docsDir?: string;
+  /**
+   * `documentation.reference.paths` globs from the project config. When
+   * provided, the indexer enumerates files matching these globs (including
+   * root-level entries like `README.md` that fall outside any single
+   * `docsDir`). When absent, falls back to globbing `docsDir`.
+   */
+  referencePaths?: string[];
   /** When true, drops and rebuilds the LanceDB table and purges index caches. */
   rebuild?: boolean;
   /** Maximum number of files to process in parallel (default: 4). */
@@ -587,13 +594,20 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   let internalDocSections = 0;
   let internalDocsCached = false;
 
-  // Check if docs/ and .anatoly/docs/ are byte-identical to avoid double-chunking
+  // Check if docs/ and .anatoly/docs/ are byte-identical to avoid double-chunking.
+  // The alias optimization only handles a single source directory, so when the
+  // user declares explicit `reference.paths` (which may include root-level
+  // files like README.md outside docsDir), we always go through the per-file
+  // indexing path to avoid dropping content.
   const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
   let docsIdentical = false;
-  try {
-    docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);
-  } catch (err) {
-    onLog(`doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
+  const hasExplicitReferencePaths = (options.referencePaths?.length ?? 0) > 0;
+  if (!hasExplicitReferencePaths) {
+    try {
+      docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);
+    } catch (err) {
+      onLog(`doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
+    }
   }
 
   if (docsIdentical) {
@@ -634,12 +648,16 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   } else {
     // Trees differ — index both independently (original behavior)
 
-    // Project docs (docs/)
+    // Project docs (from documentation.reference.paths when configured, else docsDir glob)
     onPhase?.('doc-project');
+    const referenceFiles = options.referencePaths
+      ? resolveReferenceDocFiles(projectRoot, options.referencePaths)
+      : undefined;
     try {
       const projResult = await indexDocSections({
         projectRoot,
         vectorStore: store,
+        ...(referenceFiles && referenceFiles.length > 0 ? { files: referenceFiles } : {}),
         docsDir: options.docsDir,
         cacheSuffix,
         chunkModel: options.indexModel,

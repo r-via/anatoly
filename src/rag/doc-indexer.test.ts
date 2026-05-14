@@ -3,10 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseDocSections, stripCodeBlocks, buildDocSectionId, splitIntoBatches, MAX_BATCH_CHARS, areDocTreesIdentical, remapDocPath, smartChunkDoc } from './doc-indexer.js';
+import { parseDocSections, stripCodeBlocks, buildDocSectionId, splitIntoBatches, MAX_BATCH_CHARS, areDocTreesIdentical, remapDocPath, smartChunkDoc, resolveReferenceDocFiles } from './doc-indexer.js';
 import type { DocSection } from './doc-indexer.js';
 
 describe('stripCodeBlocks', () => {
@@ -452,5 +452,52 @@ Content of the first real section with enough text to be included in results.
 `;
     const sections = smartChunkDoc('docs/test.md', source);
     expect(sections[0].heading).toBe('Introduction');
+  });
+});
+
+describe('resolveReferenceDocFiles', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ref-resolve-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('resolves root-level files like README.md alongside docs/ globs', () => {
+    writeFileSync(join(tmpDir, 'README.md'), '# Project\n\nIntro.');
+    mkdirSync(join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(join(tmpDir, 'docs', 'guide.md'), '# Guide\n\nBody.');
+    mkdirSync(join(tmpDir, 'docs', 'nested'), { recursive: true });
+    writeFileSync(join(tmpDir, 'docs', 'nested', 'deep.md'), '# Deep\n\nBody.');
+
+    const files = resolveReferenceDocFiles(tmpDir, ['README.md', 'docs/**/*.md']);
+    const rels = files.map((f) => f.replace(tmpDir + '/', '')).sort();
+    expect(rels).toEqual(['README.md', 'docs/guide.md', 'docs/nested/deep.md']);
+  });
+
+  it('dedupes when globs overlap', () => {
+    writeFileSync(join(tmpDir, 'README.md'), '# Project');
+    mkdirSync(join(tmpDir, 'docs'), { recursive: true });
+    writeFileSync(join(tmpDir, 'docs', 'a.md'), '# A');
+
+    const files = resolveReferenceDocFiles(tmpDir, ['README.md', '**/*.md', 'docs/**/*.md']);
+    expect(files.length).toBe(2);
+  });
+
+  it('filters out non-Markdown files matched by broad globs', () => {
+    writeFileSync(join(tmpDir, 'README.md'), '# Project');
+    writeFileSync(join(tmpDir, 'README.txt'), 'plain text');
+    writeFileSync(join(tmpDir, 'config.yaml'), 'a: 1');
+
+    const files = resolveReferenceDocFiles(tmpDir, ['**/*']);
+    expect(files.length).toBe(1);
+    expect(files[0].endsWith('README.md')).toBe(true);
+  });
+
+  it('returns empty when no globs are provided', () => {
+    expect(resolveReferenceDocFiles(tmpDir, [])).toEqual([]);
   });
 });

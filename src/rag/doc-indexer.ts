@@ -660,6 +660,28 @@ export function buildDocSectionId(filePath: string, heading: string): string {
 export const parseDocSections = fallbackParseH2;
 
 /**
+ * Resolve `documentation.reference.paths` globs into a deduplicated list of
+ * absolute Markdown file paths under the project root.
+ *
+ * Unlike the directory-scoped indexer, this honours every glob in the config
+ * including root-level entries (e.g. `README.md`) that fall outside any single
+ * `docsDir`. Non-Markdown files matched by the globs are filtered out.
+ */
+export function resolveReferenceDocFiles(projectRoot: string, referencePaths: string[]): string[] {
+  if (!referencePaths || referencePaths.length === 0) return [];
+  const matched = globSync(referencePaths, { cwd: projectRoot, absolute: true });
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const abs of matched) {
+    if (!abs.toLowerCase().endsWith('.md')) continue;
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    out.push(abs);
+  }
+  return out;
+}
+
+/**
  * Collect all doc sections from Markdown files in the given docs directory.
  *
  * Globs `**\/*.md` under `{projectRoot}/{docsDir}` (default `'docs'`) and
@@ -696,7 +718,14 @@ export interface DocIndexOptions {
   projectRoot: string;
   /** Vector store used to upsert/delete doc section embeddings. */
   vectorStore: VectorStore;
-  /** Docs directory relative to projectRoot (default `'docs'`). */
+  /**
+   * Explicit list of absolute Markdown file paths to index. When provided,
+   * takes precedence over `docsDir`. Use this to index `reference.paths`
+   * exactly (including root-level files like `README.md` that fall outside
+   * any single `docsDir`).
+   */
+  files?: string[];
+  /** Docs directory relative to projectRoot (default `'docs'`). Used when `files` is absent. */
   docsDir?: string;
   /** Cache variant discriminator (default `'lite'`). */
   cacheSuffix?: string;
@@ -739,19 +768,30 @@ export interface DocIndexResult {
  * Uses SHA-256 per doc file to skip unchanged files.
  */
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
-  const { projectRoot, vectorStore, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, concurrency = 4, docSource = 'project' } = options;
+  const { projectRoot, vectorStore, files: filesOpt, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, concurrency = 4, docSource = 'project' } = options;
 
-  const absDocsDir = resolve(projectRoot, docsDir);
   const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
-  if (!existsSync(absDocsDir)) {
-    onLog(`no ${sourceLabel} docs/ directory found`);
-    return { sections: 0, cached: false, costUsd: 0 };
-  }
 
-  const files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
-  if (files.length === 0) {
-    onLog(`no ${sourceLabel} doc files found`);
-    return { sections: 0, cached: false, costUsd: 0 };
+  // File enumeration: when an explicit `files` list is provided (typically
+  // resolved from `documentation.reference.paths`), use it verbatim. Otherwise
+  // fall back to globbing `**/*.md` under `docsDir`. The fallback preserves
+  // back-compat for callers that still pass only `docsDir` (e.g. internal
+  // docs indexing under `.anatoly/state/internal-docs/`).
+  let files: string[];
+  if (filesOpt && filesOpt.length > 0) {
+    files = filesOpt;
+    onLog(`indexing ${files.length} ${sourceLabel} doc file(s) from reference.paths`);
+  } else {
+    const absDocsDir = resolve(projectRoot, docsDir);
+    if (!existsSync(absDocsDir)) {
+      onLog(`no ${sourceLabel} docs/ directory found`);
+      return { sections: 0, cached: false, costUsd: 0 };
+    }
+    files = globSync(['**/*.md'], { cwd: absDocsDir, absolute: true });
+    if (files.length === 0) {
+      onLog(`no ${sourceLabel} doc files found`);
+      return { sections: 0, cached: false, costUsd: 0 };
+    }
   }
 
   const cache = loadDocCacheFromRagCache(projectRoot, cacheSuffix);

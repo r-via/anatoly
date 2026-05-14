@@ -8,7 +8,56 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
 import { buildDocSectionId, remapDocPath } from './doc-indexer.js';
+import { getLogger } from '../utils/logger.js';
 const DEFAULT_TABLE_NAME = 'function_cards';
+
+/**
+ * Identifies a RAG query's origin for observability. Every `search*` method on
+ * {@link VectorStore} accepts an optional `RagQueryContext` and emits a
+ * structured `rag.query` log event on completion: caller, parameters, latency,
+ * result count, top hit. This lets the operator follow the entire chain of
+ * retrievals fired during a run (which axis on which file pulled which docs).
+ */
+export interface RagQueryContext {
+  /** Human-readable origin, e.g. `'axis:correction:file=pkg/retry/retryer.go'` or `'phase:rag-index'`. */
+  caller: string;
+  /** Optional axis name when the query is fired from an axis evaluator. */
+  axis?: string;
+  /** Optional path of the file under review. */
+  filePath?: string;
+}
+
+/** Emit a structured `rag.query` log event for an executed search. */
+function logRagQuery(
+  type: string,
+  context: RagQueryContext | undefined,
+  args: Record<string, unknown>,
+  results: ReadonlyArray<SimilarityResult>,
+  durationMs: number,
+): void {
+  const top = results[0];
+  getLogger().info(
+    {
+      event: 'rag_query',
+      type,
+      caller: context?.caller ?? 'unknown',
+      ...(context?.axis ? { axis: context.axis } : {}),
+      ...(context?.filePath ? { filePath: context.filePath } : {}),
+      args,
+      durationMs,
+      resultCount: results.length,
+      topResult: top
+        ? {
+            id: top.card.id,
+            filePath: top.card.filePath,
+            name: top.card.name,
+            score: Number(top.score.toFixed(4)),
+          }
+        : null,
+    },
+    'rag.query',
+  );
+}
 
 /**
  * Validate that an ID is a 16-char hex string (as produced by buildFunctionId).
@@ -255,36 +304,46 @@ export class VectorStore {
 
   /**
    * Search for similar functions by embedding vector (code-only).
+   *
+   * @param context Optional caller identity for the `rag.query` observability event.
    */
   async search(
     queryEmbedding: number[],
     limit: number = 8,
     minScore: number = 0.75,
+    context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
+    const t0 = Date.now();
 
     const results = await this.table
       .search(queryEmbedding)
       .limit(limit)
       .toArray();
 
-    return results.flatMap((row) => {
+    const out = results.flatMap((row) => {
       if (row.type === 'doc_section') return [];
       const score = distanceToCosineSimilarity(row._distance ?? 0);
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
+    logRagQuery('search', context, { limit, minScore }, out, Date.now() - t0);
+    return out;
   }
 
   /**
    * Search for similar functions by NLP embedding vector.
    * Excludes doc_section rows (use searchDocSections for those).
+   *
+   * @param context Optional caller identity for the `rag.query` observability event.
    */
   async searchByNlpVector(
     queryEmbedding: number[],
     limit: number = 8,
     minScore: number = 0.65,
+    context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
+    const t0 = Date.now();
 
     const results = await this.table
       .vectorSearch(queryEmbedding)
@@ -292,24 +351,32 @@ export class VectorStore {
       .limit(limit)
       .toArray();
 
-    return results.flatMap((row: Record<string, unknown>) => {
+    const out = results.flatMap((row: Record<string, unknown>) => {
       if (row.type === 'doc_section') return [];
       const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
+    logRagQuery('searchByNlpVector', context, { limit, minScore }, out, Date.now() - t0);
+    return out;
   }
 
   /**
    * Search doc sections by NLP embedding vector.
-   * Returns only type='doc_section' cards — used by the documentation axis.
+   * Returns only type='doc_section' cards — used by the documentation axis
+   * (and, going forward, by per-file reference-doc retrieval for the other
+   * business-logic axes).
+   *
+   * @param context Optional caller identity for the `rag.query` observability event.
    */
   async searchDocSections(
     queryEmbedding: number[],
     limit: number = 5,
     minScore: number = 0.50,
     docSource?: 'internal' | 'project',
+    context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
+    const t0 = Date.now();
 
     const results = await this.table
       .vectorSearch(queryEmbedding)
@@ -317,7 +384,7 @@ export class VectorStore {
       .limit(limit * 3)
       .toArray();
 
-    return results
+    const out = results
       .filter((row: Record<string, unknown>) =>
         row.type === 'doc_section' && (!docSource || row.source === docSource),
       )
@@ -326,6 +393,8 @@ export class VectorStore {
         return score >= minScore ? [{ card: rowToCard(row), score }] : [];
       })
       .slice(0, limit);
+    logRagQuery('searchDocSections', context, { limit, minScore, docSource }, out, Date.now() - t0);
+    return out;
   }
 
   /**
@@ -335,8 +404,10 @@ export class VectorStore {
     functionId: string,
     limit: number = 8,
     minScore: number = 0.75,
+    context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
+    const t0 = Date.now();
 
     const safeId = sanitizeId(functionId);
     const matches = await this.table
@@ -345,16 +416,22 @@ export class VectorStore {
       .limit(1)
       .toArray();
 
-    if (matches.length === 0) return [];
+    if (matches.length === 0) {
+      logRagQuery('searchById', context, { functionId, limit, minScore }, [], Date.now() - t0);
+      return [];
+    }
 
     const queryCard = rowToCard(matches[0]);
     const embedding = toNumberArray(matches[0].vector);
+    // Inner `search` is invoked without a context so we attribute the parent
+    // event to `searchById`. Avoids double-counting in the trail.
     const results = await this.search(embedding, limit + 1, minScore);
 
-    // Exclude self-matches: same ID (exact) or same file+name (stale entries from re-indexation)
-    return results.filter(
+    const filtered = results.filter(
       (r) => r.card.id !== functionId && !(r.card.filePath === queryCard.filePath && r.card.name === queryCard.name),
     );
+    logRagQuery('searchById', context, { functionId, limit, minScore }, filtered, Date.now() - t0);
+    return filtered;
   }
 
   /**
@@ -368,8 +445,10 @@ export class VectorStore {
     codeWeight: number = 0.6,
     limit: number = 8,
     minScore: number = 0.70,
+    context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
+    const t0 = Date.now();
 
     const safeId = sanitizeId(functionId);
     const matches = await this.table
@@ -378,7 +457,10 @@ export class VectorStore {
       .limit(1)
       .toArray();
 
-    if (matches.length === 0) return [];
+    if (matches.length === 0) {
+      logRagQuery('searchByIdHybrid', context, { functionId, codeWeight, limit, minScore }, [], Date.now() - t0);
+      return [];
+    }
 
     const queryCard = rowToCard(matches[0]);
     const codeEmbedding = toNumberArray(matches[0].vector);
@@ -386,12 +468,13 @@ export class VectorStore {
 
     // If no NLP vector or it's all zeros, fall back to code-only search
     if (nlpEmbedding.length === 0 || nlpEmbedding.every((v) => v === 0)) {
-      return this.searchById(functionId, limit, minScore);
+      return this.searchById(functionId, limit, minScore, context);
     }
 
     const nlpWeight = 1 - codeWeight;
 
-    // Run both searches in parallel with lower individual thresholds
+    // Inner searches invoked without context so we attribute the parent event
+    // to `searchByIdHybrid`. Avoids double-counting in the trail.
     const [codeResults, nlpResults] = await Promise.all([
       this.search(codeEmbedding, limit * 2, 0.5),
       this.searchByNlpVector(nlpEmbedding, limit * 2, 0.5),
@@ -427,7 +510,9 @@ export class VectorStore {
 
     // Sort by hybrid score descending, take top N
     hybridResults.sort((a, b) => b.score - a.score);
-    return hybridResults.slice(0, limit);
+    const out = hybridResults.slice(0, limit);
+    logRagQuery('searchByIdHybrid', context, { functionId, codeWeight, limit, minScore }, out, Date.now() - t0);
+    return out;
   }
 
   /**
