@@ -77,6 +77,7 @@ import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddings
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
+import { detectProjectIdentity } from '../core/project-version.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
 import { needsBootstrap, writeScaffoldStatus } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
@@ -1386,28 +1387,28 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const configRows: { key: string; value: string }[] = [];
   const pipelineRows: { phase: string; detail: string }[] = [];
 
-  // --- Read project info from package.json ---
-  let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined;
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(srcRoot, 'package.json'), 'utf-8')) as Record<string, unknown>;
-    if (typeof pkg.name === 'string' && typeof pkg.version === 'string') {
-      projectInfo = { name: pkg.name, version: pkg.version };
-    }
-  } catch (err) {
-    getLogger().debug({ err }, 'failed to read package.json for project info');
-  }
+  // --- Detect project identity (name + version) ---
+  // Tries language-specific manifests (package.json, Cargo.toml, pyproject.toml,
+  // go.mod) and falls back to the latest git tag for languages whose manifest
+  // doesn't carry a version (Go) or projects without any manifest.
+  const identity = detectProjectIdentity(srcRoot);
+  let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined = {
+    name: identity.name,
+    version: identity.version ?? '\u2014',
+  };
 
   // Detect languages & frameworks for project info display
   const profile = await detectProjectProfile(srcRoot);
   ctx.profile = profile;
   const langLine = formatLanguageLine(profile.languages.languages);
   const fwLine = formatFrameworkLine(profile.frameworks);
-  if (!projectInfo && (langLine || fwLine)) {
-    projectInfo = { name: basename(ctx.projectRoot), version: '\u2014' };
-  }
-  if (projectInfo) {
-    if (langLine) projectInfo.languages = langLine;
-    if (fwLine) projectInfo.frameworks = fwLine;
+  if (langLine) projectInfo.languages = langLine;
+  if (fwLine) projectInfo.frameworks = fwLine;
+
+  // If nothing whatsoever was detected (no manifest, no languages, no frameworks),
+  // suppress the project-info card to keep the summary clean.
+  if (!identity.version && !langLine && !fwLine && identity.name === basename(srcRoot)) {
+    projectInfo = undefined;
   }
 
   // --- Phase: config ---
