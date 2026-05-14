@@ -33,7 +33,7 @@ function makeLiteConfig(maxTokens = 4000): Config {
       reference: { paths: ['README.md'], inline_comments: { enabled: false } },
       internal: {
         mode: 'lite',
-        lite: { max_tokens: maxTokens, refresh_on: ['code_change'] },
+        lite: { max_tokens: maxTokens, refresh_on: ['code_change'], on_overflow: 'warn' },
       },
     },
   });
@@ -68,18 +68,21 @@ function makeRefDoc(overrides: Partial<ReferenceDoc> = {}): ReferenceDoc {
 describe('Story 55.5 — AC1: lite digest has evaluated frontmatter', () => {
   it('digest content includes status: evaluated frontmatter', async () => {
     const result = await buildInternalDocsDigest(tmpDir, [makeTask()], [makeRefDoc()], makeLiteConfig());
-    expect(result.content).toContain('status: evaluated');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('status: evaluated');
   });
 
   it('digest content includes source: reference-digest frontmatter', async () => {
     const result = await buildInternalDocsDigest(tmpDir, [makeTask()], [makeRefDoc()], makeLiteConfig());
-    expect(result.content).toContain('source: reference-digest');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('source: reference-digest');
   });
 
   it('frontmatter is at the beginning of the content', async () => {
     const result = await buildInternalDocsDigest(tmpDir, [makeTask()], [makeRefDoc()], makeLiteConfig());
-    expect(result.content).toMatch(/^---\n/);
-    expect(result.content).toMatch(/\n---\n/);
+    expect(result).not.toBeNull();
+    expect(result!.content).toMatch(/^---\n/);
+    expect(result!.content).toMatch(/\n---\n/);
   });
 });
 

@@ -134,7 +134,7 @@ describe('Story 55.7 — AC3: reference + arbitrated + internal coexist', () => 
     // All three sections present
     expect(result).toContain('REFERENCE DOCUMENTATION (AUTHORITATIVE');
     expect(result).toContain('ARBITRATED INTENTS (human-validated');
-    expect(result).toContain('Internal Reference Digest (source: reference-digest)');
+    expect(result).toContain('consolidated reference documentation (deterministic, no LLM)');
 
     // Content from each section present
     expect(result).toContain('# Project');

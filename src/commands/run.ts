@@ -89,7 +89,7 @@ import { anatolyPath, runPath } from '../utils/anatoly-paths.js';
 import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from '../core/project-review-cache.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../core/prompt-resolver.js';
-import { buildInternalDocsDigest } from '../core/internal-docs-digest.js';
+import { buildInternalDocsDigest, DigestOverflowError } from '../core/internal-docs-digest.js';
 import { resolveReferenceDocs, type ReferenceDoc } from '../core/reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
@@ -1043,7 +1043,15 @@ export function registerRunCommand(program: Command): void {
           log.info('internal docs mode=lite — building deterministic digest (no LLM)');
           ctx.renderer?.logPlain('[internal-docs] mode=lite — building deterministic digest (no LLM)');
           liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
-          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+          try {
+            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+          } catch (err) {
+            if (err instanceof DigestOverflowError) {
+              ctx.renderer?.logPlain(`[internal-docs] ${err.message}`);
+              log.error(err.message);
+            }
+            throw err;
+          }
           ctx.pipelineState?.completeTask('bootstrap-doc', 'lite digest');
         } else if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
@@ -1089,7 +1097,16 @@ export function registerRunCommand(program: Command): void {
           ctx.pipelineState?.completeTask('internal-docs', 'off');
         } else if (internalDocMode === 'lite' && !ctx.interrupted && hasEvaluableFiles) {
           liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
-          ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+          try {
+            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+          } catch (err) {
+            if (err instanceof DigestOverflowError) {
+              const log = getLogger();
+              ctx.renderer?.logPlain(`[internal-docs] ${err.message}`);
+              log.error(err.message);
+            }
+            throw err;
+          }
           ctx.pipelineState?.completeTask('internal-docs', 'lite digest refreshed');
         } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
           await runPhase(ctx, 'internal-docs', async () => {

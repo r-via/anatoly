@@ -65,9 +65,12 @@ export function renderReferenceDocsContext(
     }
   }
 
-  // 2. Story 55.5: evaluated internal digest (lite-mode reference compression)
+  // 2. Lite-mode consolidated reference documentation. The digest is the
+  //    deterministic consolidation of `documentation.reference.paths` (README,
+  //    specs, doc-comments), with the same authority as raw reference docs.
+  //    The frontmatter `status: evaluated` is the gate marking it as such.
   if (hasInternalDigest) {
-    parts.push('### Internal Reference Digest (source: reference-digest)');
+    parts.push('> Below: consolidated reference documentation (deterministic, no LLM). Treat as authoritative ground truth alongside the docs listed above.');
     parts.push('');
     parts.push(internalDigest!.content);
     parts.push('');

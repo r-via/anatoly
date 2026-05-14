@@ -211,8 +211,24 @@ export type ReferenceDocsConfig = z.infer<typeof ReferenceDocsConfigSchema>;
 
 /** Internal docs lite-mode config. */
 export const InternalDocsLiteConfigSchema = z.object({
-  max_tokens: z.int().min(100).default(4000),
+  /**
+   * Hard ceiling for the consolidated digest. Lite mode targets repos whose
+   * reference docs fit within this budget verbatim. The default (12000) is
+   * tuned for "small/medium repo" — projects whose docs exceed it should
+   * either raise the cap, prune `reference.paths`, or switch to mode=full
+   * (LLM-curated per-module pages).
+   */
+  max_tokens: z.int().min(100).default(12000),
   refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])).min(1),
+  /**
+   * Behaviour when the consolidated content exceeds `max_tokens`:
+   * - `warn` (default): emit a loud warning, ship a best-effort digest with
+   *   an explicit `> INCOMPLETE` marker so axes know the picture is partial.
+   * - `fail`: refuse to build the digest. The run aborts with a message
+   *   telling the user to raise the cap, prune reference paths, or migrate
+   *   to mode=full. Use in CI for strict configurations.
+   */
+  on_overflow: z.enum(['warn', 'fail']).default('warn'),
 });
 
 export type InternalDocsLiteConfig = z.infer<typeof InternalDocsLiteConfigSchema>;

@@ -121,7 +121,7 @@ export function buildDocumentationConfig(selections: DocWizardSelections): {
   };
   internal: {
     mode: 'full' | 'lite' | 'off';
-    lite?: { max_tokens: number; refresh_on: string[] };
+    lite?: { max_tokens: number; refresh_on: string[]; on_overflow: 'warn' | 'fail' };
     full?: { sync_to_repo: boolean };
   };
 } {
@@ -144,12 +144,12 @@ export function buildDocumentationConfig(selections: DocWizardSelections): {
 
   const internal: {
     mode: 'full' | 'lite' | 'off';
-    lite?: { max_tokens: number; refresh_on: string[] };
+    lite?: { max_tokens: number; refresh_on: string[]; on_overflow: 'warn' | 'fail' };
     full?: { sync_to_repo: boolean };
   } = { mode: selections.internalMode };
 
   if (selections.internalMode === 'lite') {
-    internal.lite = { max_tokens: 4000, refresh_on: ['code_change'] };
+    internal.lite = { max_tokens: 12000, refresh_on: ['code_change'], on_overflow: 'warn' };
   } else if (selections.internalMode === 'full') {
     internal.full = { sync_to_repo: false };
   }

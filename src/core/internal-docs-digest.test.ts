@@ -8,10 +8,24 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parse as yamlParse } from 'yaml';
-import { buildInternalDocsDigest } from './internal-docs-digest.js';
+import { buildInternalDocsDigest, DigestOverflowError } from './internal-docs-digest.js';
+import type { DigestResult } from './internal-docs-digest.js';
 import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import type { Config } from '../schemas/config.js';
+
+/** Wrapper that fails the test when the digest is null. Used for the (vast)
+ *  majority of cases where the fixture guarantees a non-empty digest. */
+async function buildOrFail(
+  root: string,
+  tasks: Task[],
+  refs: ReferenceDoc[],
+  config: Config,
+): Promise<DigestResult> {
+  const r = await buildInternalDocsDigest(root, tasks, refs, config);
+  expect(r).not.toBeNull();
+  return r!;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +35,22 @@ function makeLiteConfig(maxTokens = 4000): Config {
   return parseTestConfig({
     documentation: {
       reference: { paths: ['README.md'], inline_comments: { enabled: false } },
-      internal: { mode: 'lite', lite: { max_tokens: maxTokens, refresh_on: ['code_change'] } },
+      internal: {
+        mode: 'lite',
+        lite: { max_tokens: maxTokens, refresh_on: ['code_change'], on_overflow: 'warn' },
+      },
+    },
+  });
+}
+
+function makeLiteConfigWithOverflow(maxTokens: number, onOverflow: 'warn' | 'fail'): Config {
+  return parseTestConfig({
+    documentation: {
+      reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+      internal: {
+        mode: 'lite',
+        lite: { max_tokens: maxTokens, refresh_on: ['code_change'], on_overflow: onOverflow },
+      },
     },
   });
 }
@@ -75,7 +104,7 @@ describe('buildInternalDocsDigest', () => {
     const referenceDocs = [makeRefDoc()];
     const config = makeLiteConfig();
 
-    const result = await buildInternalDocsDigest(root, tasks, referenceDocs, config);
+    const result = await buildOrFail(root, tasks, referenceDocs, config);
 
     expect(result).toHaveProperty('tokens');
     expect(result).toHaveProperty('content');
@@ -85,16 +114,14 @@ describe('buildInternalDocsDigest', () => {
     expect(typeof result.fingerprint).toBe('string');
   });
 
-  it('AC 54.6a: content contains ## Modules section with module paths', async () => {
+  it('does NOT include a ## Modules section (covered by ctx.projectTree elsewhere)', async () => {
     const tasks = [
       makeTask({ file: 'src/utils/helper.ts' }),
       makeTask({ file: 'src/core/engine.ts', hash: 'def456', symbols: [{ name: 'Engine', kind: 'class', exported: true, line_start: 1, line_end: 50 }] }),
     ];
-    const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
+    const result = await buildOrFail(root, tasks, [], makeLiteConfig());
 
-    expect(result.content).toContain('## Modules');
-    expect(result.content).toContain('src/utils/helper.ts');
-    expect(result.content).toContain('src/core/engine.ts');
+    expect(result.content).not.toContain('## Modules');
   });
 
   it('AC 54.6a: content contains ## Public surface section with exported signatures', async () => {
@@ -106,7 +133,7 @@ describe('buildInternalDocsDigest', () => {
         ],
       }),
     ];
-    const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
+    const result = await buildOrFail(root, tasks, [], makeLiteConfig());
 
     expect(result.content).toContain('## Public surface');
     expect(result.content).toContain('helperFn');
@@ -114,25 +141,28 @@ describe('buildInternalDocsDigest', () => {
     expect(result.content).not.toMatch(/Public surface[\s\S]*internalFn/);
   });
 
-  it('AC 54.6a: content contains ## Reference index listing ref doc paths (no content)', async () => {
+  it('consolidates reference doc CONTENT (not just paths) under ## Reference content', async () => {
     const referenceDocs = [
-      makeRefDoc({ path: 'docs/guide.md', content: 'Some guide text that should NOT appear' }),
-      makeRefDoc({ path: 'README.md', source: 'readme', content: 'Project readme' }),
+      makeRefDoc({ path: 'docs/guide.md', content: 'Guide body that MUST appear in the digest.' }),
+      makeRefDoc({ path: 'README.md', source: 'readme', content: 'Project readme body.' }),
     ];
-    const result = await buildInternalDocsDigest(root, [], referenceDocs, makeLiteConfig());
+    const result = await buildOrFail(root, [], referenceDocs, makeLiteConfig());
 
-    expect(result.content).toContain('## Reference index');
+    expect(result.content).toContain('## Reference content');
     expect(result.content).toContain('docs/guide.md');
     expect(result.content).toContain('README.md');
-    // Content should NOT appear — just paths
-    expect(result.content).not.toContain('Some guide text that should NOT appear');
+    // Verbatim body must reach the digest (was the actual bug before this PR).
+    expect(result.content).toContain('Guide body that MUST appear in the digest.');
+    expect(result.content).toContain('Project readme body.');
+    // README has higher source priority than `md` — its block should appear first.
+    expect(result.content.indexOf('README.md')).toBeLessThan(result.content.indexOf('docs/guide.md'));
   });
 
   it('AC 54.6a: content contains ## Inline doc-comments section', async () => {
     const referenceDocs: ReferenceDoc[] = [
       { source: 'comment', path: 'src/foo.ts', content: 'Cleaned doc comment body', symbol: 'myFunc', lang: 'typescript' },
     ];
-    const result = await buildInternalDocsDigest(root, [makeTask()], referenceDocs, makeLiteConfig());
+    const result = await buildOrFail(root, [makeTask()], referenceDocs, makeLiteConfig());
 
     expect(result.content).toContain('## Inline doc-comments');
     expect(result.content).toContain('myFunc');
@@ -144,7 +174,7 @@ describe('buildInternalDocsDigest', () => {
   it('AC 54.6a: tokens <= max_tokens from config', async () => {
     const tasks = [makeTask()];
     const config = makeLiteConfig(4000);
-    const result = await buildInternalDocsDigest(root, tasks, [], config);
+    const result = await buildOrFail(root, tasks, [], config);
 
     expect(result.tokens).toBeLessThanOrEqual(4000);
   });
@@ -154,14 +184,14 @@ describe('buildInternalDocsDigest', () => {
   it('AC 54.6a: no LLM calls are made (provider mock is untouched)', async () => {
     // If an LLM call were made, it would fail because there is no router.
     // This test simply proves the function completes without any transport.
-    const result = await buildInternalDocsDigest(root, [makeTask()], [makeRefDoc()], makeLiteConfig());
+    const result = await buildOrFail(root, [makeTask()], [makeRefDoc()], makeLiteConfig());
     expect(result.content).toBeTruthy();
   });
 
   // --- AC1: fingerprint is SHA-256 ---
 
   it('AC 54.6a: fingerprint is a valid SHA-256 hex string', async () => {
-    const result = await buildInternalDocsDigest(root, [makeTask()], [], makeLiteConfig());
+    const result = await buildOrFail(root, [makeTask()], [], makeLiteConfig());
     expect(result.fingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -172,8 +202,8 @@ describe('buildInternalDocsDigest', () => {
     const refs = [makeRefDoc()];
     const config = makeLiteConfig();
 
-    const r1 = await buildInternalDocsDigest(root, tasks, refs, config);
-    const r2 = await buildInternalDocsDigest(root, tasks, refs, config);
+    const r1 = await buildOrFail(root, tasks, refs, config);
+    const r2 = await buildOrFail(root, tasks, refs, config);
 
     expect(r1.fingerprint).toBe(r2.fingerprint);
     expect(r1.content).toBe(r2.content);
@@ -183,7 +213,7 @@ describe('buildInternalDocsDigest', () => {
     const tasks = [makeTask()];
     const config = makeLiteConfig();
 
-    const first = await buildInternalDocsDigest(root, tasks, [], config);
+    const first = await buildOrFail(root, tasks, [], config);
 
     // Cache is a single YAML file with tokens + fingerprint + Markdown content.
     const cachePath = join(root, '.anatoly', 'cache', 'internal-digest.yaml');
@@ -197,7 +227,7 @@ describe('buildInternalDocsDigest', () => {
     expect(raw).toMatch(/^content: \|/m);
 
     // Second call reads from cache and returns the same result.
-    const second = await buildInternalDocsDigest(root, tasks, [], config);
+    const second = await buildOrFail(root, tasks, [], config);
     expect(second).toEqual(first);
   });
 
@@ -207,8 +237,8 @@ describe('buildInternalDocsDigest', () => {
     const config = makeLiteConfig();
     const refs = [makeRefDoc()];
 
-    const r1 = await buildInternalDocsDigest(root, [makeTask({ hash: 'aaa' })], refs, config);
-    const r2 = await buildInternalDocsDigest(root, [makeTask({ hash: 'bbb' })], refs, config);
+    const r1 = await buildOrFail(root, [makeTask({ hash: 'aaa' })], refs, config);
+    const r2 = await buildOrFail(root, [makeTask({ hash: 'bbb' })], refs, config);
 
     expect(r1.fingerprint).not.toBe(r2.fingerprint);
   });
@@ -217,130 +247,148 @@ describe('buildInternalDocsDigest', () => {
     const tasks = [makeTask()];
     const config = makeLiteConfig();
 
-    const r1 = await buildInternalDocsDigest(root, tasks, [makeRefDoc({ path: 'a.md' })], config);
-    const r2 = await buildInternalDocsDigest(root, tasks, [makeRefDoc({ path: 'b.md' })], config);
+    const r1 = await buildOrFail(root, tasks, [makeRefDoc({ path: 'a.md' })], config);
+    const r2 = await buildOrFail(root, tasks, [makeRefDoc({ path: 'b.md' })], config);
 
     expect(r1.fingerprint).not.toBe(r2.fingerprint);
   });
 
-  // --- AC4: truncation with priority ---
+  // --- AC4: overflow handling (warn | fail) ---
 
-  it('AC 54.6d: truncation respects priority and adds footer', async () => {
-    // Create a scenario with low max_tokens that will force truncation
-    const config = makeLiteConfig(200); // very small budget
+  it('overflow with on_overflow=warn drops public-surface first and ships an INCOMPLETE marker', async () => {
+    // Budget chosen so the small reference doc fits but the 50-task public surface forces overflow.
+    const config = makeLiteConfigWithOverflow(600, 'warn');
 
-    // Many tasks to fill up the token budget
     const tasks: Task[] = [];
     for (let i = 0; i < 50; i++) {
       tasks.push(makeTask({
         file: `src/module${i}/file${i}.ts`,
-        hash: `hash${i}`,
-        symbols: [
-          { name: `func${i}`, kind: 'function', exported: true, line_start: 1, line_end: 10 },
-        ],
+        hash: `h${i}`,
+        symbols: [{ name: `func${i}`, kind: 'function', exported: true, line_start: 1, line_end: 10 }],
       }));
     }
-
-    const referenceDocs = [
-      { source: 'comment' as const, path: 'src/foo.ts', content: 'Important doc comment', symbol: 'foo' },
+    const referenceDocs: ReferenceDoc[] = [
+      { source: 'md', path: 'docs/guide.md', content: 'guide body' },
     ];
 
-    const result = await buildInternalDocsDigest(root, tasks, referenceDocs, config);
+    const result = await buildOrFail(root, tasks, referenceDocs, config);
 
-    expect(result.tokens).toBeLessThanOrEqual(200);
-    expect(result.content).toContain('truncated');
+    expect(result.tokens).toBeLessThanOrEqual(600);
+    expect(result.incomplete).toBe(true);
+    expect(result.content).toContain('> INCOMPLETE');
+    expect(result.content).toContain('max_tokens');
+    // The reference content must survive — it's the highest priority slot.
+    expect(result.content).toContain('## Reference content');
+    expect(result.content).toContain('docs/guide.md');
   });
 
-  it('AC 54.6d: truncation keeps reference docs and doc-comments over modules', async () => {
-    const config = makeLiteConfig(300); // tight budget
-
+  it('overflow with on_overflow=fail throws DigestOverflowError listing what was dropped', async () => {
+    const config = makeLiteConfigWithOverflow(300, 'fail');
     const tasks: Task[] = [];
     for (let i = 0; i < 100; i++) {
       tasks.push(makeTask({
-        file: `src/deep/module${i}/longfilename${i}.ts`,
-        hash: `hash${i}`,
-        symbols: [
-          { name: `exportedFunc${i}`, kind: 'function', exported: true, line_start: 1, line_end: 10 },
-        ],
+        file: `src/module${i}/file${i}.ts`,
+        hash: `h${i}`,
+        symbols: [{ name: `func${i}`, kind: 'function', exported: true, line_start: 1, line_end: 10 }],
       }));
     }
+    await expect(
+      buildInternalDocsDigest(root, tasks, [], config),
+    ).rejects.toBeInstanceOf(DigestOverflowError);
+  });
 
-    const referenceDocs: ReferenceDoc[] = [
-      { source: 'comment', path: 'src/core.ts', content: 'Core doc', symbol: 'coreInit' },
-      { source: 'md', path: 'docs/guide.md', content: 'Guide content' },
-    ];
-
-    const result = await buildInternalDocsDigest(root, tasks, referenceDocs, config);
-
-    // Reference index should be present (highest priority)
-    expect(result.content).toContain('## Reference index');
-    expect(result.content).toContain('docs/guide.md');
-
-    // Doc-comments section should be present (second priority)
-    expect(result.content).toContain('## Inline doc-comments');
+  it('does NOT set incomplete when content fits within max_tokens', async () => {
+    const result = await buildOrFail(root, [makeTask()], [makeRefDoc({ content: 'short' })], makeLiteConfig());
+    expect(result.incomplete).toBe(false);
+    expect(result.content).not.toContain('> INCOMPLETE');
   });
 
   // --- Edge cases ---
 
-  it('returns non-empty content even with empty tasks and no reference docs', async () => {
+  it('returns null when there is nothing authoritative to ship (no refs, no exports)', async () => {
     const result = await buildInternalDocsDigest(root, [], [], makeLiteConfig());
-    expect(result.content).toBeTruthy();
-    expect(result.tokens).toBeGreaterThan(0);
+    // Empty digest => null. The caller (run.ts) sets ctx.internalDigest = null
+    // and renderReferenceDocsContext skips injection — no empty "AUTHORITATIVE"
+    // section in axis prompts.
+    expect(result).toBeNull();
   });
 
-  it('handles tasks with no exported symbols gracefully', async () => {
+  it('returns null when tasks have no exported symbols and no reference docs', async () => {
     const tasks = [makeTask({
       symbols: [
         { name: 'privateFn', kind: 'function', exported: false, line_start: 1, line_end: 10 },
       ],
     })];
     const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
-    expect(result.content).toContain('## Modules');
+    expect(result).toBeNull();
   });
 
-  // --- Regression: empty reference sections must not steal budget from real content ---
+  // --- Regression: empty reference sections must not appear with placeholders ---
 
-  it('skips empty reference/doc-comments sections when no reference docs are provided', async () => {
+  it('omits empty sections entirely (no "_No X found._" placeholders ever)', async () => {
     const tasks = [
       makeTask({ file: 'src/a.ts' }),
       makeTask({ file: 'src/b.ts', hash: 'h2' }),
     ];
-    const result = await buildInternalDocsDigest(root, tasks, [], makeLiteConfig());
+    const result = await buildOrFail(root, tasks, [], makeLiteConfig());
 
     expect(result.content).not.toContain('_No reference documents found._');
     expect(result.content).not.toContain('_No inline doc-comments found._');
-    expect(result.content).not.toContain('## Reference index');
+    expect(result.content).not.toContain('## Reference content');
     expect(result.content).not.toContain('## Inline doc-comments');
-    // The useful sections are kept
-    expect(result.content).toContain('## Modules');
+    // Public surface (the only non-empty section here) IS kept.
+    expect(result.content).toContain('## Public surface');
     expect(result.content).toContain('src/a.ts');
   });
 
-  it('preserves Modules/Public-surface content over empty reference placeholders when budget is tight', async () => {
-    // Reproduces the awf-cli bug: 260+ tasks, no reference docs, tight budget.
-    // Old behaviour kept the empty "_No X found._" placeholders and dropped the
-    // entire Modules+Public-surface sections. New behaviour drops the empty
-    // sections first and truncates within Modules/Public-surface.
-    const config = makeLiteConfig(500);
-    const tasks: Task[] = [];
-    for (let i = 0; i < 200; i++) {
-      tasks.push(makeTask({
-        file: `src/module${i}/file${i}.ts`,
-        hash: `h${i}`,
-        symbols: [
-          { name: `func${i}`, kind: 'function', exported: true, line_start: 1, line_end: 5 },
-        ],
+  it('fingerprint invalidates when reference doc CONTENT changes (not only its path)', async () => {
+    const r1 = await buildOrFail(root, [], [makeRefDoc({ content: 'first body' })], makeLiteConfig());
+    const r2 = await buildOrFail(root, [], [makeRefDoc({ content: 'second body' })], makeLiteConfig());
+    expect(r1.fingerprint).not.toBe(r2.fingerprint);
+    expect(r2.content).toContain('second body');
+  });
+
+  it('fingerprint is NOT affected by on_overflow when content fits within the budget', async () => {
+    const refs = [makeRefDoc({ content: 'short body' })];
+    const r1 = await buildOrFail(root, [makeTask()], refs, makeLiteConfigWithOverflow(4000, 'warn'));
+    const r2 = await buildOrFail(root, [makeTask()], refs, makeLiteConfigWithOverflow(4000, 'fail'));
+    // Same inputs + same budget => same content => same fingerprint, regardless
+    // of on_overflow (which only governs behaviour during overflow).
+    expect(r1.fingerprint).toBe(r2.fingerprint);
+  });
+
+  it('strips nested YAML frontmatter from reference doc bodies before embedding', async () => {
+    const refs = [
+      makeRefDoc({
+        path: 'docs/page.md',
+        content: '---\ntitle: Page\nauthor: someone\n---\nActual prose body of the page.',
+      }),
+    ];
+    const result = await buildOrFail(root, [], refs, makeLiteConfig());
+    // The doc's own frontmatter (title/author) must NOT appear inside the digest
+    // body — only the outer digest frontmatter is authoritative.
+    expect(result.content).not.toContain('title: Page');
+    expect(result.content).not.toContain('author: someone');
+    expect(result.content).toContain('Actual prose body of the page.');
+  });
+
+  it('respects max_tokens even when many reference docs are dropped (marker stays bounded)', async () => {
+    // Force overflow against a tight budget with 30 ref docs => the INCOMPLETE
+    // marker would balloon if it listed every dropped path.
+    const refs: ReferenceDoc[] = [];
+    for (let i = 0; i < 30; i++) {
+      refs.push(makeRefDoc({
+        path: `docs/file${i}-with-a-relatively-long-name.md`,
+        content: 'A '.repeat(200), // ~100 tokens per doc
       }));
     }
+    const config = makeLiteConfigWithOverflow(1000, 'warn');
+    const result = await buildOrFail(root, [], refs, config);
 
-    const result = await buildInternalDocsDigest(root, tasks, [], config);
-
-    expect(result.tokens).toBeLessThanOrEqual(500);
-    // The digest must contain at least *some* concrete content, not just placeholders.
-    // The exact section kept depends on priority + budget, but at minimum a real
-    // module/file path or symbol must survive truncation.
-    expect(result.content).toMatch(/src\/module\d+\/file\d+\.ts/);
-    expect(result.content).not.toContain('_No reference documents found._');
-    expect(result.content).not.toContain('_No inline doc-comments found._');
+    expect(result.tokens).toBeLessThanOrEqual(1000);
+    expect(result.incomplete).toBe(true);
+    expect(result.content).toContain('> INCOMPLETE');
+    // Marker enumerates at most 10 paths then summarises the tail.
+    expect(result.content).toMatch(/(… and \d+ more|Dropped reference docs)/);
   });
 });

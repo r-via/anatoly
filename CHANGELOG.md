@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Lite-mode digest now consolidates reference doc CONTENT (not just paths):** The lite digest (`.anatoly/cache/internal-digest.yaml`) used to list reference doc paths as a table of contents. It now embeds the verbatim Markdown body of `documentation.reference.paths` (README, specs, `docs/*.md`), so the `correction`, `best-practices`, and `overengineering` axes finally receive authoritative doc context in lite mode.
+- **`documentation.internal.lite.on_overflow`:** New required field (`warn` | `fail`, default `warn`). Controls the behaviour when consolidated reference content exceeds `max_tokens`. `warn` ships a best-effort digest with an `> INCOMPLETE` marker and a logger warning listing what was dropped. `fail` throws `DigestOverflowError` so CI catches misconfigured docs.
+- **Single readable YAML cache:** Digest cache is now `.anatoly/cache/internal-digest.yaml` with a literal block-scalar for `content`, so the Markdown is directly viewable in an editor. Previous JSON-with-escaped-string layout removed.
 - **In-flight run visibility (Epic 53):** `anatoly attach [runId]` command for live read-only viewing of running audits
   - Auto-selects the only active run, or specify a run ID explicitly
   - ndjson tail with `--from-start` replay and real-time TUI rendering (phases, progress bar, findings)
@@ -28,6 +31,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **`documentation.internal.lite.max_tokens` default raised from 4000 to 12000.** Lite is positioned as the mode for repos whose reference docs fit verbatim; 4000 was too tight for most projects with a meaningful README. Existing YAMLs that pin `max_tokens: 4000` are unaffected.
+- **Lite digest no longer emits `## Modules`.** Project structure was duplicated with `ctx.projectTree` (already injected into `best-practices`). The digest is now scoped to reference content, inline doc-comments, and public surface only.
+- **Lite digest fingerprint now hashes reference doc CONTENT (not just paths).** Editing a README correctly invalidates the cache on the next run.
 - Pricing cache moved from `.anatoly/pricing.json` to `.anatoly/shared/pricing/normalized.json`
 - Grammar WASM files moved from `.anatoly/grammars/` to `.anatoly/shared/grammars/`
 - GGUF models moved from `~/.anatoly/models/` to `~/.anatoly/shared/models/gguf/`

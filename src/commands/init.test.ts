@@ -264,8 +264,9 @@ describe('buildDocumentationConfig', () => {
     const config = buildDocumentationConfig(selections);
     expect(config.internal.mode).toBe('lite');
     expect(config.internal.lite).toBeDefined();
-    expect(config.internal.lite!.max_tokens).toBe(4000);
+    expect(config.internal.lite!.max_tokens).toBe(12000);
     expect(config.internal.lite!.refresh_on).toEqual(['code_change']);
+    expect(config.internal.lite!.on_overflow).toBe('warn');
   });
 
   it('builds full mode config', () => {
@@ -322,7 +323,7 @@ documentation:
         paths: ['docs/**/*.md', 'README.md'],
         inline_comments: { enabled: true, kinds: ['jsdoc'] as DocCommentKind[], include: ['src/**/*.ts'] },
       },
-      internal: { mode: 'lite' as const, lite: { max_tokens: 4000, refresh_on: ['code_change'] as ('code_change' | 'schema_change' | 'manual')[] } },
+      internal: { mode: 'lite' as const, lite: { max_tokens: 12000, refresh_on: ['code_change'] as ('code_change' | 'schema_change' | 'manual')[], on_overflow: 'warn' as const } },
     };
     const result = mergeDocumentationIntoYaml(existingYaml, newDocConfig);
     // Parse the result to verify structure

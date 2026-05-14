@@ -232,10 +232,67 @@ Controls README badge injection after a completed audit.
 
 ### `documentation`
 
+Anatoly distinguishes two documentation registers: **reference** (human-authored: READMEs, specs, doc-comments) and **internal** (derived from code by Anatoly itself). Both blocks are required since epic-54; the wizard (`anatoly init`) writes them explicitly.
+
+```yaml
+documentation:
+  reference:
+    paths: ['README.md', 'docs/**/*.md']
+    inline_comments:
+      enabled: true
+      kinds: ['jsdoc', 'tsdoc']
+      include: ['src/**/*.ts']
+  internal:
+    mode: 'lite'                # 'lite' | 'full' | 'off'
+    lite:
+      max_tokens: 12000
+      refresh_on: ['code_change']
+      on_overflow: 'warn'       # 'warn' | 'fail'
+    # full:
+    #   sync_to_repo: false
+```
+
+#### `documentation.reference`
+
+Human-authored docs treated as ground truth by the review axes.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `docs_path` | `string` | `'docs'` | Directory scanned for documentation files during RAG indexing |
-| `module_mapping` | `Record<string, string[]>` | — | Map from doc page name (key) to source module globs (values) the page covers |
+| `paths` | `string[]` | (required, ≥ 1) | Globs pointing to Markdown reference docs (READMEs, specs, guides). Paths must be relative to the project root. |
+| `inline_comments.enabled` | `boolean` | (required) | Opt-in extraction of structured doc-comments (JSDoc, Godoc, etc.) attached to exported symbols. |
+| `inline_comments.kinds` | `string[]` | (required when enabled) | Doc-comment dialects to extract: `jsdoc`, `tsdoc`, `docstring`, `godoc`, `javadoc`, `xmldoc`, `module_header`. |
+| `inline_comments.include` | `string[]` | (required when enabled) | Source-file globs to scan for doc-comments. |
+| `module_mapping` | `Record<string, string[]>` | (optional) | Map from doc page name (key) to source module globs (values) the page covers. Used by the documentation axis. |
+
+#### `documentation.internal.mode`
+
+Selects how Anatoly produces its own project documentation. **No default**: the wizard pre-checks `lite` but the field must be present in the YAML.
+
+| Mode | When to use | Behaviour |
+|------|-------------|-----------|
+| `lite` | Repos whose reference docs fit verbatim in a token budget. Deterministic, no LLM, free. | A YAML digest is produced at `.anatoly/cache/internal-digest.yaml`, consolidating the reference content for injection into the `correction`, `best-practices`, `overengineering` axes. |
+| `full` | Larger repos where reference docs cannot reasonably fit. LLM-curated. | Per-module pages are scaffolded and generated into `.anatoly/state/internal-docs/`, with 3-way coherence (reference vs internal vs code) and arbitration. |
+| `off` | You manage doc context yourself or do not want any internal doc artefact. | No scaffold, no generation, no digest. |
+
+#### `documentation.internal.lite`
+
+Required when `mode: lite`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `max_tokens` | `int (≥ 100)` | `12000` | Hard ceiling for the consolidated digest. Lite assumes reference docs fit within this budget verbatim. |
+| `refresh_on` | `('code_change' \| 'schema_change' \| 'manual')[]` | (required, ≥ 1) | Events that should re-trigger digest rebuilds. Today only `code_change` is wired (the SHA-256 fingerprint also invalidates automatically when reference doc content changes). |
+| `on_overflow` | `'warn' \| 'fail'` | `'warn'` | What to do when consolidated content exceeds `max_tokens`. `warn`: drop low-priority sections + individual reference docs from lowest source priority (md, then spec, then readme), emit a logger warning, and prepend an `> INCOMPLETE` marker in the digest. `fail`: throw a `DigestOverflowError` and abort the run. Use `fail` in CI to catch misconfigured docs. |
+
+The digest cache lives at `.anatoly/cache/internal-digest.yaml`. The YAML block-scalar (`content: |`) keeps the Markdown un-escaped so you can open and inspect it directly. Cache invalidation hashes both reference-doc paths and contents, so editing the README rebuilds the digest on the next run.
+
+#### `documentation.internal.full`
+
+Required when `mode: full`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `sync_to_repo` | `boolean` | (required) | Reserved for backwards compatibility. The implicit `.anatoly/state/internal-docs/ → docs/` sync was removed in epic-54. If you want to commit the curated docs, copy them manually (`cp -r .anatoly/state/internal-docs docs`). |
 
 ---
 
