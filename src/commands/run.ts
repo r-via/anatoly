@@ -1044,7 +1044,7 @@ export function registerRunCommand(program: Command): void {
           ctx.renderer?.logPlain('[internal-docs] mode=lite — building deterministic digest (no LLM)');
           liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
           try {
-            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, liteReferenceDocs, ctx.config);
           } catch (err) {
             if (err instanceof DigestOverflowError) {
               ctx.renderer?.logPlain(`[internal-docs] ${err.message}`);
@@ -1098,7 +1098,7 @@ export function registerRunCommand(program: Command): void {
         } else if (internalDocMode === 'lite' && !ctx.interrupted && hasEvaluableFiles) {
           liteReferenceDocs ??= await resolveReferenceDocs(ctx.projectRoot, ctx.config);
           try {
-            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, setup.tasks, liteReferenceDocs, ctx.config);
+            ctx.internalDigest = await buildInternalDocsDigest(ctx.projectRoot, liteReferenceDocs, ctx.config);
           } catch (err) {
             if (err instanceof DigestOverflowError) {
               const log = getLogger();

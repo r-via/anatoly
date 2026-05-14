@@ -12,16 +12,15 @@
  * and `overengineering` (see {@link renderReferenceDocsContext}).
  *
  * Pipeline:
- *   inputs (tasks, referenceDocs, max_tokens, on_overflow)
- *     → SHA-256 fingerprint (mixes content, not only paths)
+ *   inputs (referenceDocs, max_tokens, on_overflow)
+ *     → SHA-256 fingerprint over reference-doc content + budget
  *     → cache hit ? return cached : rebuild
- *     → assemble 3 sections in priority order:
+ *     → assemble 2 sections in priority order:
  *         1. `## Reference content`     (full content of README/specs/md docs — top priority)
  *         2. `## Inline doc-comments`   (jsdoc/godoc/etc. extracted via tree-sitter)
- *         3. `## Public surface`        (exported symbols, structural scope — lowest priority)
  *     → if it fits in max_tokens → done
  *     → otherwise apply `on_overflow`:
- *         - `warn` (default): drop low-priority sections, then individual ref docs
+ *         - `warn` (default): drop inline doc-comments, then individual ref docs
  *           from lowest-source-priority (md → spec → readme) until it fits.
  *           Emit a logger warning and prepend an `> INCOMPLETE:` marker so the
  *           LLM sees the picture is partial.
@@ -29,10 +28,14 @@
  *     → prepend `status: evaluated` frontmatter
  *     → write `.anatoly/cache/internal-digest.yaml` and return
  *
- * Lite intentionally does NOT include a flat `## Modules` list — that role is
- * covered by `ctx.projectTree` (directory tree built once and injected into
- * axes that need scope, today only best-practices). Adding it here would
- * duplicate info while stealing budget from authoritative content.
+ * The digest intentionally does NOT include a `## Modules` list (covered by
+ * `ctx.projectTree`, already injected into `best-practices` for rule 11) nor a
+ * `## Public surface` list of exported symbols. Public surface was dropped
+ * because it duplicates what a meaningful README already states at the
+ * semantic level, costs significant budget across N reviews × M axes, and the
+ * narrow anti-hallucination signal it provides is better served by RAG
+ * retrieval (which `duplication` already uses, and which can be wired into
+ * other axes as a follow-up).
  *
  * Lite is for *simple/medium* repos. For repos whose reference docs cannot fit
  * in any reasonable budget, switch to `documentation.internal.mode: full`,
@@ -50,7 +53,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
-import type { Task } from '../schemas/task.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import type { Config } from '../schemas/config.js';
 import { getLogger } from '../utils/logger.js';
@@ -105,25 +107,24 @@ function estimateTokens(text: string): number {
 
 /**
  * SHA-256 fingerprint over the serialised inputs that affect the output:
- *   - sorted `file:hash` pairs from tasks (code surface)
  *   - sorted `ref:path:source:contentHash` triplets (so editing a doc invalidates the cache)
- *   - lite config signature (max_tokens, on_overflow)
+ *   - lite config signature (max_tokens)
+ *
+ * `on_overflow` is intentionally NOT mixed: it only governs behaviour when
+ * overflow happens and produces identical content otherwise. Toggling it
+ * should not invalidate a cache whose underlying content is unchanged.
+ *
+ * Inline doc-comments (source='comment' entries in `referenceDocs`) carry the
+ * effective code-derived signal, so their content hash is enough — there is
+ * no need to mix raw task hashes.
  */
-function computeFingerprint(tasks: Task[], referenceDocs: ReferenceDoc[], config: Config): string {
+function computeFingerprint(referenceDocs: ReferenceDoc[], config: Config): string {
   const h = createHash('sha256');
-  const sortedTasks = [...tasks].sort((a, b) => a.file.localeCompare(b.file));
-  for (const t of sortedTasks) {
-    h.update(`${t.file}:${t.hash}\n`);
-  }
   const sortedRefs = [...referenceDocs].sort((a, b) => a.path.localeCompare(b.path));
   for (const r of sortedRefs) {
     const contentHash = createHash('sha256').update(r.content).digest('hex').slice(0, 16);
     h.update(`ref:${r.path}:${r.source}:${contentHash}\n`);
   }
-  // `max_tokens` shapes the output (governs truncation). `on_overflow` is
-  // intentionally NOT mixed: it only governs behaviour when overflow happens
-  // and produces identical content otherwise — toggling it should not
-  // invalidate a cache whose underlying content is unchanged.
   const lite = config.documentation?.internal?.lite;
   h.update(`max_tokens:${lite?.max_tokens ?? 12000}\n`);
   return h.digest('hex');
@@ -140,7 +141,7 @@ interface SectionEntry {
 }
 
 interface Section {
-  name: 'reference-content' | 'inline-doc-comments' | 'public-surface';
+  name: 'reference-content' | 'inline-doc-comments';
   header: string;
   entries: SectionEntry[];
 }
@@ -206,24 +207,6 @@ function buildInlineDocCommentsSection(referenceDocs: ReferenceDoc[]): Section {
   return { name: 'inline-doc-comments', header: '## Inline doc-comments', entries };
 }
 
-/**
- * Public surface — exported symbols grouped by file. Low-priority structural
- * scope info: useful for `overengineering` to judge whether an abstraction is
- * justified, but not authoritative. Dropped before any reference content when
- * the budget is tight.
- */
-function buildPublicSurfaceSection(tasks: Task[]): Section {
-  const sorted = [...tasks].sort((a, b) => a.file.localeCompare(b.file));
-  const entries: SectionEntry[] = [];
-  for (const t of sorted) {
-    const exported = t.symbols.filter((s) => s.exported);
-    if (exported.length === 0) continue;
-    const lines = exported.map((s) => `- ${s.kind} \`${s.name}\` (L${s.line_start}–L${s.line_end})`);
-    entries.push({ id: t.file, text: `### \`${t.file}\`\n\n${lines.join('\n')}\n` });
-  }
-  return { name: 'public-surface', header: '## Public surface', entries };
-}
-
 // ---------------------------------------------------------------------------
 // Assembly with budget-aware overflow handling
 // ---------------------------------------------------------------------------
@@ -240,12 +223,11 @@ interface AssemblyOutcome {
  * lowest-priority slot first when the budget is exceeded.
  *
  * Drop strategy (uniform per-entry):
- *   - Start from the lowest-priority section (`public-surface` first, then
- *     `inline-doc-comments`, then `reference-content`).
+ *   - Start from the lowest-priority section (`inline-doc-comments` first,
+ *     then `reference-content`).
  *   - Pop one entry at a time from the end. For `reference-content`, ordering
  *     by source priority (md → spec → readme) means the least-load-bearing
- *     doc disappears first. For `public-surface`, the alphabetically-last
- *     file goes first, which is arbitrary but uniform.
+ *     doc disappears first.
  *   - When a section becomes empty, mark it as a dropped section and remove
  *     it from the working set.
  *
@@ -274,7 +256,7 @@ function assembleWithBudget(sections: Section[], budgetTokens: number): Assembly
     const last = working[working.length - 1];
     // Uniform per-entry drop: pop the last entry from the lowest-priority
     // section. This keeps the granularity consistent so a single oversized
-    // file in `public-surface` doesn't wipe the whole section.
+    // doc doesn't wipe the whole section.
     const dropped = last.entries.pop();
     if (dropped) {
       touchedSections.add(last.name);
@@ -392,14 +374,13 @@ function writeCache(root: string, result: DigestResult): void {
  */
 export async function buildInternalDocsDigest(
   projectRoot: string,
-  tasks: Task[],
   referenceDocs: ReferenceDoc[],
   config: Config,
 ): Promise<DigestResult | null> {
   const liteConfig = config.documentation?.internal?.lite;
   const maxTokens = liteConfig?.max_tokens ?? 12000;
   const onOverflow = liteConfig?.on_overflow ?? 'warn';
-  const fingerprint = computeFingerprint(tasks, referenceDocs, config);
+  const fingerprint = computeFingerprint(referenceDocs, config);
 
   const cached = readCache(projectRoot);
   if (cached && cached.fingerprint === fingerprint) {
@@ -409,7 +390,6 @@ export async function buildInternalDocsDigest(
   const sections = [
     buildReferenceContentSection(referenceDocs),
     buildInlineDocCommentsSection(referenceDocs),
-    buildPublicSurfaceSection(tasks),
   ];
 
   // Nothing authoritative to ship — skip the digest entirely so the caller

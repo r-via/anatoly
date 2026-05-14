@@ -32,7 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **`documentation.internal.lite.max_tokens` default raised from 4000 to 12000.** Lite is positioned as the mode for repos whose reference docs fit verbatim; 4000 was too tight for most projects with a meaningful README. Existing YAMLs that pin `max_tokens: 4000` are unaffected.
-- **Lite digest no longer emits `## Modules`.** Project structure was duplicated with `ctx.projectTree` (already injected into `best-practices`). The digest is now scoped to reference content, inline doc-comments, and public surface only.
+- **Lite digest scope narrowed to reference content + inline doc-comments only.** Both `## Modules` and `## Public surface` were dropped. Modules duplicated `ctx.projectTree` (injected into `best-practices` for rule 11). Public surface was largely redundant with what a meaningful README states at the semantic level, cost significant tokens across reviews, and its narrow anti-hallucination value is better served by RAG retrieval (already used by `duplication`).
+- **`buildInternalDocsDigest` no longer accepts `tasks`.** Signature is `(projectRoot, referenceDocs, config)`. Inline doc-comments carry the only code-derived signal needed; raw task hashes no longer participate in the fingerprint.
 - **Lite digest fingerprint now hashes reference doc CONTENT (not just paths).** Editing a README correctly invalidates the cache on the next run.
 - Pricing cache moved from `.anatoly/pricing.json` to `.anatoly/shared/pricing/normalized.json`
 - Grammar WASM files moved from `.anatoly/grammars/` to `.anatoly/shared/grammars/`
