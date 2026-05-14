@@ -38,16 +38,12 @@ describe('Story 55.2 — pre-review doc update phase positioning', () => {
     expect(matches).toHaveLength(1);
   });
 
-  it('AC: lite digest build occurs before review phase', () => {
-    // The buildInternalDocsDigest call for the update phase should be before review
-    // Find the second buildInternalDocsDigest call (first is in bootstrap)
-    const allDigestCalls = [...runTsContent.matchAll(/buildInternalDocsDigest\(/g)];
-    expect(allDigestCalls.length).toBeGreaterThanOrEqual(2);
-    const reviewPhaseIdx = runTsContent.indexOf('await runReviewPhase(');
-    // The last digest call (update phase) should be before review
-    const lastDigestCall = allDigestCalls[allDigestCalls.length - 1];
-    expect(lastDigestCall.index).toBeLessThan(reviewPhaseIdx);
-  });
+  // The original AC required `buildInternalDocsDigest` to run before the
+  // review phase. The digest itself has been removed: lite mode now feeds
+  // reference content to the axes per file via RAG retrieval (see
+  // `retrieveRelevantDocsForFile`), so there is nothing to schedule at the
+  // run scope. The runDocUpdate ordering (covered above) is still enforced
+  // for `mode: full` runs.
 });
 
 describe('Story 55.2 — gate changed from filesReviewed to triage-based', () => {

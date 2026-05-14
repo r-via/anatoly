@@ -19,7 +19,9 @@ import type { DependencyMeta } from './dependency-meta.js';
 import { extractFileDeps } from './dependency-meta.js';
 import type { VectorStore } from '../rag/vector-store.js';
 import { buildFunctionId } from '../rag/indexer.js';
+import { retrieveRelevantDocsForFile } from '../rag/per-file-doc-retrieval.js';
 import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolver.js';
+import type { ReferenceDoc } from './reference-docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveAxisModel } from './axis-evaluator.js';
 import { getEffectiveSourceRoot } from './worktree-path-resolution.js';
@@ -256,6 +258,31 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     docPaths: relevantDocs?.map((d) => d.path) ?? [],
   }, 'docs resolved');
 
+  // Per-file reference-doc retrieval — feeds `correction`, `best-practices`,
+  // and `overengineering` via `ctx.referenceDocs` and replaces the
+  // lite-mode digest. Each retrieval emits a structured `rag.query` event
+  // tagged with the file under review so the chain is fully observable.
+  let referenceDocs: ReferenceDoc[] | undefined;
+  if (opts.ragEnabled && opts.vectorStore) {
+    try {
+      referenceDocs = await retrieveRelevantDocsForFile(
+        task.file,
+        opts.vectorStore,
+        effectiveSourceRoot,
+        { caller: `file-evaluator:file=${task.file}`, filePath: task.file },
+      );
+      contextLogger().info({
+        event: 'reference_docs_resolve',
+        file: task.file,
+        docsFound: referenceDocs.length,
+        docPaths: referenceDocs.map((d) => d.path),
+      }, 'per-file reference docs resolved');
+    } catch (err) {
+      contextLogger().warn({ file: task.file, err: String(err) }, 'per-file reference doc retrieval failed');
+      referenceDocs = undefined;
+    }
+  }
+
   const fileSlug = opts.conversationDir ? toOutputName(task.file) : undefined;
 
   const ctx: AxisContext = {
@@ -271,6 +298,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     testFileName,
     docsTree: opts.docsTree ?? undefined,
     relevantDocs,
+    referenceDocs,
     conversationDir: opts.conversationDir,
     conversationFileSlug: fileSlug,
     router: opts.router,
@@ -432,7 +460,11 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
   for (const symbol of functionSymbols) {
     const functionId = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
     try {
-      const results = await opts.vectorStore.searchByIdHybrid(functionId, codeWeight);
+      const results = await opts.vectorStore.searchByIdHybrid(functionId, codeWeight, undefined, undefined, {
+        caller: `axis:duplication:file=${task.file}:symbol=${symbol.name}`,
+        axis: 'duplication',
+        filePath: task.file,
+      });
       preResolved.push({ symbolName: symbol.name, lineStart: symbol.line_start, lineEnd: symbol.line_end, results });
       contextLogger().info({
         event: 'rag_search',
