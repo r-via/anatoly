@@ -1453,7 +1453,14 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
       (codeProvider !== undefined && !isSystemLocalProvider(codeProvider))
       || (nlpProvider !== undefined && !isSystemLocalProvider(nlpProvider));
     const isExternalReady = embeddingsReady?.backend === 'external' || hasExternalConfig;
-    const canAdvanced = hardware.hasGpu && embeddingsReady !== null && !isExternalReady;
+    // A previous successful setup that wrote advanced-gguf into the ready flag
+    // is stronger evidence of GPU availability than a runtime nvidia-smi probe
+    // (which fails when anatoly is launched from a non-login shell that misses
+    // nvidia-smi on PATH). Trust the flag: otherwise the GGUF SDK provider
+    // still gets wired via the config, but startGgufContainers is skipped,
+    // and lazy ensureModel calls bind-mount an empty `null` volume.
+    const ranAdvancedBefore = embeddingsReady?.backend === 'advanced-gguf';
+    const canAdvanced = (hardware.hasGpu || ranAdvancedBefore) && embeddingsReady !== null && !isExternalReady;
     const needsSidecar = ctx.ragMode === 'advanced'
       || (ctx.ragMode === 'auto' && canAdvanced && ctx.config.rag.code_model === 'auto');
     if (isExternalReady && ctx.ragMode === 'auto') {

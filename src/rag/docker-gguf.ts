@@ -65,6 +65,39 @@ function removeContainer(name: string): void {
 }
 
 /**
+ * Force-remove any `anatoly-*` container (other than `keepName`) currently
+ * publishing the given host port. Used right before `docker run` to clear
+ * leftovers from a crashed prior run that would otherwise win the port bind
+ * race and leave the freshly-started container in an unhealthy state.
+ *
+ * Best-effort and silent on failure — at worst the subsequent `docker run`
+ * will report a clear "port already allocated" error of its own.
+ */
+function removeOtherAnatolyContainersOnPort(keepName: string, hostPort: number): void {
+  let output: string;
+  try {
+    output = execFileSync(
+      'docker',
+      ['ps', '-a', '--filter', 'name=anatoly-', '--format', '{{.Names}}\t{{.Ports}}'],
+      { encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'ignore'] },
+    );
+  } catch {
+    return;
+  }
+  const portMarker = `:${hostPort}->`;
+  for (const line of output.split('\n')) {
+    if (!line.trim()) continue;
+    const [containerName, ports = ''] = line.split('\t');
+    if (!containerName || containerName === keepName) continue;
+    if (!ports.includes(portMarker)) continue;
+    try {
+      execFileSync('docker', ['rm', '-f', containerName], { stdio: 'ignore', timeout: 10_000 });
+      logFn?.(`removed stale anatoly container on port ${hostPort}: ${containerName}`);
+    } catch { /* best-effort */ }
+  }
+}
+
+/**
  * Start a detached Docker container running llama.cpp in embedding-serving
  * mode with GPU pass-through (`--gpus all`, `--embedding`, `--pooling last`).
  * Any previous container with the same name is force-removed first.
@@ -75,6 +108,12 @@ function removeContainer(name: string): void {
  */
 function runContainer(name: string, modelFile: string, hostPort: number): void {
   removeContainer(name);
+  // Belt-and-suspenders: also remove any *other* anatoly-gguf-* container that
+  // might be holding the same port. Leftovers from a crashed prior run, or
+  // a sibling debug container, would otherwise block `docker run -p hostPort:8080`
+  // before llama.cpp ever gets a chance to start, surfacing only as a stale
+  // "container failed to become healthy" timeout.
+  removeOtherAnatolyContainersOnPort(name, hostPort);
 
   const args = [
     'run',
@@ -152,6 +191,23 @@ function modelConfig(model: 'code' | 'nlp') {
  * model is already running.
  */
 export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
+  // Lazy-init modelsDirectory if startGgufContainers was never called.
+  // Without this, `-v null:/models:ro` quietly creates an empty docker volume
+  // named "null"; llama.cpp can't find the .gguf file and exits 1 with a
+  // misleading "container failed to become healthy" timeout at the call site.
+  if (modelsDirectory === null) {
+    modelsDirectory = anatolyPath(process.cwd(), 'shared/models/gguf');
+    logFn?.(`modelsDirectory not initialised — defaulting to ${modelsDirectory}`);
+  }
+  // Fail fast with a clear message if the model file isn't where we expect it.
+  const expectedFile = resolve(modelsDirectory, modelConfig(model).file);
+  if (!existsSync(expectedFile)) {
+    throw new Error(
+      `GGUF ${model} model file missing: ${expectedFile}. ` +
+      `Run 'anatoly local-embeddings upgrade' to download it.`,
+    );
+  }
+
   if (activeModel === model) {
     // Verify the container is still alive
     try {
