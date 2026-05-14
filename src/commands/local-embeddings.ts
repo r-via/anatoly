@@ -265,7 +265,7 @@ export function registerLocalEmbeddingsCommand(program: Command): void {
         message:
           'Remove the advanced backend? This stops anatoly-* containers, '
           + 'deletes the llama.cpp Docker image, and erases ~15 GB of GGUF '
-          + 'weights from `~/.anatoly/models/`. The lite (ONNX) backend is '
+          + 'weights from `~/.anatoly/shared/models/gguf/`. The lite (ONNX) backend is '
           + 'unaffected.',
         initialValue: false,
       });

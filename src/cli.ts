@@ -92,8 +92,7 @@ export function createProgram(): Command {
 
     // Bootstrap user-wide `~/.anatoly/` + project `.anatoly/` symlinks
     // (Story 52.5). Idempotent: respects existing real directories
-    // (isolated mode), creates symlinks otherwise, and links the legacy
-    // `~/.anatoly/models/*.gguf` location under `shared/models/gguf/`.
+    // (isolated mode), creates symlinks otherwise.
     try {
       bootstrapAnatoly(process.cwd());
     } catch (err) {

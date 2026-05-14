@@ -16,7 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${ANATOLY_PROJECT_ROOT:-$(pwd)}"
-MODELS_DIR="${HOME}/.anatoly/models"
+MODELS_DIR="${HOME}/.anatoly/shared/models/gguf"
 READY_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
 LOG_FILE="${PROJECT_ROOT}/.anatoly/setup.log"
 SAMPLES_FILE="${SCRIPT_DIR}/check-samples.json"

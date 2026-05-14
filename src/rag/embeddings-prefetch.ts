@@ -10,6 +10,8 @@
  * spinner or linear log depending on the environment.
  */
 
+import { loadHfTransformers } from './embeddings.js';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -42,7 +44,8 @@ export const LITE_MODEL_IDS = [
 
 /**
  * Download both lite ONNX embedding models (Jina v2 + MiniLM-L6) into the
- * HuggingFace cache (`~/.cache/huggingface/`).
+ * Anatoly shared HF cache (`~/.anatoly/shared/models/hf-cache/`) so the
+ * weights are reused across projects on the same machine.
  *
  * - If models are already cached, `pipeline()` resolves instantly.
  * - On network failure the error is reported via `onProgress` but the
@@ -54,7 +57,7 @@ export async function prefetchLiteModels(opts?: PrefetchOptions): Promise<void> 
 
   for (const modelId of LITE_MODEL_IDS) {
     try {
-      const { pipeline } = await import('@huggingface/transformers');
+      const { pipeline } = await loadHfTransformers();
       await pipeline('feature-extraction', modelId, {
         progress_callback: (info: unknown) => {
           const evt = info as { status?: string; file?: string; progress?: number };

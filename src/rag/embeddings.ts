@@ -142,7 +142,7 @@ export async function loadHfTransformers(): Promise<any> {
   if (hfModule) return hfModule;
   const mod = await import('@huggingface/transformers');
   const hfCacheDir = getHfCachePath();
-  if (hfCacheDir) {
+  if (hfCacheDir && mod.env) {
     mod.env.cacheDir = hfCacheDir;
     if ('localModelPath' in mod.env) (mod.env as Record<string, unknown>).localModelPath = hfCacheDir;
   }

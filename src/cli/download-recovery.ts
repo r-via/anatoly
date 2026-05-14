@@ -5,7 +5,7 @@
 import * as p from '@clack/prompts';
 import { statfsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
 import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ export interface RecoveryOptions {
   defaultsSettings: boolean;
   /** Approximate disk space needed in GB (shown in disk-full messages). */
   neededGB?: number;
-  /** Directory to check for free space (defaults to ~/.anatoly/models). */
+  /** Directory to check for free space (defaults to ~/.anatoly/shared/models/gguf). */
   modelDir?: string;
 }
 
@@ -99,11 +99,11 @@ export async function promptDownloadRecovery(opts: RecoveryOptions): Promise<Rec
       break;
     case 'disk-full': {
       const needed = opts.neededGB ?? 15;
-      const dir = opts.modelDir ?? resolve(homedir(), '.anatoly', 'models');
+      const dir = opts.modelDir ?? join(homedir(), '.anatoly', 'shared', 'models', 'gguf');
       const freeGB = getFreeDiskGB(dir);
       noteMessage = freeGB !== undefined
-        ? `Need ~${needed} GB in ~/.anatoly/models \u2014 currently ${freeGB} GB free`
-        : `Need ~${needed} GB in ~/.anatoly/models \u2014 disk appears full`;
+        ? `Need ~${needed} GB in ~/.anatoly/shared/models/gguf \u2014 currently ${freeGB} GB free`
+        : `Need ~${needed} GB in ~/.anatoly/shared/models/gguf \u2014 disk appears full`;
       break;
     }
     case 'docker':

@@ -13,6 +13,7 @@ const pipelineMock = vi.fn();
 
 vi.mock('@huggingface/transformers', () => ({
   pipeline: (...args: unknown[]) => pipelineMock(...args),
+  env: { cacheDir: '', localModelPath: '' },
 }));
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,6 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  readlinkSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -70,46 +69,6 @@ export function runPath(root: string, runId: string, ...rest: string[]): string 
 /** Resolve the user-wide anatoly root (`~/.anatoly/`). */
 function userWideRoot(): string {
   return join(process.env.HOME ?? homedir(), '.anatoly');
-}
-
-/**
- * Should `~/.anatoly/shared/models/gguf` be a symlink to `~/.anatoly/models/`?
- *
- * Yes when:
- *   - `~/.anatoly/models/` exists with at least one `.gguf` file (canonical
- *     model home, populated by `anatoly local-embeddings install` or manual
- *     downloads), AND
- *   - `target` (the shared/models/gguf path) is not already a real directory
- *     with content (would be lost by replacing with a symlink).
- *
- * The empty-or-missing target case is the common path: bootstrap creates the
- * symlink before any model is downloaded into the shared tree.
- */
-function shouldLinkLegacyModels(uwRoot: string, target: string): boolean {
-  const canonical = join(uwRoot, 'models');
-  if (!existsSync(canonical)) return false;
-
-  try {
-    const ggufFiles = readdirSync(canonical).filter((f) => f.endsWith('.gguf'));
-    if (ggufFiles.length === 0) return false;
-  } catch {
-    return false;
-  }
-
-  // If target already exists, only replace it when it's empty or a stale symlink.
-  if (existsSync(target) || symlinkExists(target)) {
-    try {
-      const stat = lstatSync(target);
-      if (stat.isSymbolicLink()) return true; // existing symlink → safe to recreate
-      if (stat.isDirectory()) {
-        const entries = readdirSync(target);
-        return entries.length === 0;
-      }
-    } catch {
-      return false;
-    }
-  }
-  return true;
 }
 
 /**
@@ -209,30 +168,9 @@ export function bootstrapAnatoly(root: string): void {
     mkdirSync(join(uwRoot, 'user'), { recursive: true, mode: 0o700 });
 
     // Ensure user-wide subdirs exist (idempotent — mkdir recursive on
-    // existing dir is a no-op). Symlinks are created ONLY if the source
-    // directory exists; if it doesn't, the layout is already managed
-    // externally (sandbox mount-point case).
+    // existing dir is a no-op).
     for (const sub of SHARED_SUBDIRS) {
-      const target = join(uwRoot, 'shared', sub);
-      // models/gguf is a special case: symlink to ~/.anatoly/models/ (canonical
-      // home for GGUF weights) instead of duplicating storage. Created only
-      // when (a) the legacy location exists with .gguf files, and (b) the
-      // symlink doesn't already point at the right target.
-      if (sub === join('models', 'gguf') && shouldLinkLegacyModels(uwRoot, target)) {
-        const legacyModels = join(uwRoot, 'models');
-        if (symlinkPointsAt(target, legacyModels)) continue;
-        if (existsSync(target) || symlinkExists(target)) {
-          try { rmSync(target, { recursive: true, force: true }); } catch { /* best-effort */ }
-        }
-        mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-        try {
-          symlinkSync(legacyModels, target, 'dir');
-          continue;
-        } catch (err) {
-          getLogger().warn({ err: String(err) }, 'failed to symlink shared/models/gguf — falling back to mkdir');
-        }
-      }
-      mkdirSync(target, { recursive: true, mode: 0o700 });
+      mkdirSync(join(uwRoot, 'shared', sub), { recursive: true, mode: 0o700 });
     }
 
     // Project ↔ user-wide symlinks: created only when the user-wide source
@@ -327,19 +265,6 @@ function migrateLegacyState(dotAnatoly: string): void {
     } catch (err) {
       getLogger().warn({ err: String(err), migration: label }, 'failed to migrate legacy directory — leaving in place');
     }
-  }
-}
-
-/**
- * Returns true if `linkPath` exists as a symlink that points at exactly
- * `expectedTarget`. Safe wrapper around readlinkSync — any error returns false.
- */
-function symlinkPointsAt(linkPath: string, expectedTarget: string): boolean {
-  if (!symlinkExists(linkPath)) return false;
-  try {
-    return readlinkSync(linkPath) === expectedTarget;
-  } catch {
-    return false;
   }
 }
 
