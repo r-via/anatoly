@@ -110,19 +110,11 @@ function detectFromPyprojectToml(root: string): ProjectIdentity | null {
   }
 }
 
-function detectFromGoMod(root: string): ProjectIdentity | null {
-  const path = join(root, 'go.mod');
-  if (!existsSync(path)) return null;
-  try {
-    const body = readFileSync(path, 'utf-8');
-    // `module github.com/owner/repo` on the first non-comment line.
-    const m = body.match(/^module\s+(\S+)/m);
-    if (!m) return null;
-    const modulePath = m[1]!;
-    const name = modulePath.split('/').pop() || modulePath;
-    // go.mod has no version field — leave null so the git-tag fallback fills it.
-    return { name, version: null };
-  } catch {
-    return null;
-  }
+function detectFromGoMod(_root: string): ProjectIdentity | null {
+  // go.mod has no version field, and its `module github.com/owner/repo` line
+  // gives an import path — not what the user thinks of as the project name.
+  // When the repo dir is "awf-cli" and the module is "github.com/awf-project/cli",
+  // the visible identity is "awf-cli" (basename), not "cli" (last module segment).
+  // Returning null lets the basename + git-tag fallback handle Go projects.
+  return null;
 }

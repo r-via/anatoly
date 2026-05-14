@@ -62,11 +62,13 @@ describe('detectProjectIdentity', () => {
     expect(detectProjectIdentity(dir)).toEqual({ name: 'old-poet', version: '1.0.0' });
   });
 
-  it('reads module name from go.mod and falls back to git tag for version', () => {
+  it('uses repo dir name (not the go.mod module path) for Go projects and pulls version from git tag', () => {
+    // go.mod's `module github.com/awf-project/cli` ends in "cli", but the repo
+    // dir might be "awf-cli" — the user sees the dir, not the import path.
     writeFileSync(join(dir, 'go.mod'), ['module github.com/awf-project/cli', '', 'go 1.25.8', ''].join('\n'));
     makeRepo(dir);
     tagAt(dir, 'v0.8.1');
-    expect(detectProjectIdentity(dir)).toEqual({ name: 'cli', version: 'v0.8.1' });
+    expect(detectProjectIdentity(dir)).toEqual({ name: basename(dir), version: 'v0.8.1' });
   });
 
   it('falls back to git tag even when no manifest exists', () => {

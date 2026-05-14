@@ -88,6 +88,13 @@ function runContainer(name: string, modelFile: string, hostPort: number): void {
     '--embedding',
     '--pooling', 'last',
     '--port', '8080',
+    // Match the bash setup script (scripts/lib/docker-helpers.sh): bind to
+    // 0.0.0.0 explicitly and offload every layer to GPU. llama.cpp's default
+    // listen address has flipped between releases, and without -ngl 999 it
+    // may load partly on CPU on some image tags — both flags removed an
+    // observed gap between "setup smoke test passes" and "runtime fails".
+    '--host', '0.0.0.0',
+    '-ngl', '999',
   ];
 
   execFileSync('docker', args, { encoding: 'utf-8', timeout: 30_000 });
