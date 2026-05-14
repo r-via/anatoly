@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${ANATOLY_PROJECT_ROOT:-$(pwd)}"
 MODELS_DIR="${HOME}/.anatoly/shared/models/gguf"
-READY_FILE="${PROJECT_ROOT}/.anatoly/embeddings-ready.json"
+READY_FILE="${PROJECT_ROOT}/.anatoly/setup/embeddings-ready.json"
 LOG_FILE="${PROJECT_ROOT}/.anatoly/setup.log"
 SAMPLES_FILE="${SCRIPT_DIR}/check-samples.json"
 
@@ -451,7 +451,7 @@ fi
 
 # Step 4: Download GGUF models
 log_separator
-log info "Downloading GGUF models..."
+log info "Checking GGUF models (will verify checksums, download only if missing or corrupt)..."
 download_gguf_model "$GGUF_CODE_MODEL_FILE" "$GGUF_CODE_HF_REPO" "$GGUF_CODE_SHA256"
 download_gguf_model "$GGUF_NLP_MODEL_FILE" "$GGUF_NLP_HF_REPO" "$GGUF_NLP_SHA256"
 

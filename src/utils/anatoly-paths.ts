@@ -202,10 +202,12 @@ export function bootstrapAnatoly(root: string): void {
 }
 
 /**
- * Move pre-Epic-52 state artifacts from `.anatoly/` root to `.anatoly/state/`.
+ * Move pre-Epic-52 state artifacts from `.anatoly/` root to their target
+ * subdirectory.
  *
  * - `.anatoly/calibration.json`        → `.anatoly/state/calibration.json`
  * - `.anatoly/deliberation-memory.json`→ `.anatoly/state/deliberation-memory.json`
+ * - `.anatoly/embeddings-ready.json`   → `.anatoly/setup/embeddings-ready.json`
  * - `.anatoly/docs/`                   → `.anatoly/state/internal-docs/`
  *   (unless `state/internal-docs/` already has content — then the legacy
  *    copy is removed as stale)
@@ -215,11 +217,21 @@ export function bootstrapAnatoly(root: string): void {
  */
 function migrateLegacyState(dotAnatoly: string): void {
   const stateDir = join(dotAnatoly, 'state');
+  const setupDir = join(dotAnatoly, 'setup');
 
-  // Simple file migrations
-  for (const filename of ['calibration.json', 'deliberation-memory.json']) {
+  // Simple file migrations into target subdirs.
+  const fileMigrations: Array<{ filename: string; targetDir: string }> = [
+    { filename: 'calibration.json', targetDir: stateDir },
+    { filename: 'deliberation-memory.json', targetDir: stateDir },
+    // embeddings-ready.json was historically written to .anatoly/ root by the
+    // bash setup script before the layout moved to setup/. Migrate any stray
+    // copy so readEmbeddingsReadyFlag (which looks under setup/) sees it.
+    { filename: 'embeddings-ready.json', targetDir: setupDir },
+  ];
+
+  for (const { filename, targetDir } of fileMigrations) {
     const legacyPath = join(dotAnatoly, filename);
-    const targetPath = join(stateDir, filename);
+    const targetPath = join(targetDir, filename);
     if (!existsSync(legacyPath)) continue;
     try {
       const legacyStat = lstatSync(legacyPath);
@@ -228,6 +240,7 @@ function migrateLegacyState(dotAnatoly: string): void {
         // Already migrated — remove the stale legacy copy.
         rmSync(legacyPath, { force: true });
       } else {
+        mkdirSync(targetDir, { recursive: true, mode: 0o700 });
         renameSync(legacyPath, targetPath);
       }
     } catch (err) {

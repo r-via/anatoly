@@ -323,9 +323,12 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
   let lastError: Error | undefined;
 
   if (opts.isTTY && !opts.defaultsSettings) {
-    // Interactive: spinner
+    // Interactive: spinner. The initial message reflects the first thing that
+    // happens — a checksum verify of any already-cached weights (~25s/5 GB).
+    // A real download only kicks in if a file is missing or its hash differs,
+    // in which case the spinner switches to a per-file progress bar.
     const spinner = p.spinner();
-    spinner.start('Downloading GGUF embedding models…');
+    spinner.start('Checking GGUF embedding models (verify cached files; download only if missing)…');
 
     await prefetchGgufModels({
       onProgress: (ev: GgufPrefetchProgress) => {
@@ -335,6 +338,8 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
               spinner.message(`GGUF model verified: ${ev.filename}`);
             } else if (ev.status === 'mismatch') {
               spinner.message(`SHA256 mismatch, re-downloading: ${ev.filename}`);
+            } else if (ev.status === 'missing') {
+              spinner.message(`Downloading missing GGUF model: ${ev.filename}`);
             }
             break;
           case 'progress':
@@ -354,7 +359,7 @@ export async function runGgufPrefetch(opts: { isTTY: boolean; defaultsSettings: 
     spinner.stop(hadError ? 'GGUF download failed' : 'GGUF models ready');
   } else {
     // Non-interactive: linear log
-    log.info('downloading GGUF embedding models…');
+    log.info('checking GGUF embedding models (verify cached, download only if missing)…');
 
     await prefetchGgufModels({
       onProgress: (ev: GgufPrefetchProgress) => {
