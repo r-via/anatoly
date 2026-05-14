@@ -2631,8 +2631,10 @@ async function runReviewPhase(
         if (result.failedAxes.length > 0) {
           ctx.degradedReviews++;
         }
-        // Story 53.5 FR6: drive attach progress bar + finding ticker
-        rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: result.review.verdict, source: 'evaluated' }, 'file review end');
+        // Story 53.5 FR6: drive attach progress bar + finding ticker. A single
+        // emission below (line ~2670 with the full review fields) carries the
+        // same event name — we previously emitted twice per file, which made
+        // the attach progress counter double-count (e.g. 26/13 = 200%).
         for (const at of result.axisTiming) {
           recordLlmCost(ctx, {
             provider: at.provider,

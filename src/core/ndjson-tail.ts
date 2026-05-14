@@ -89,7 +89,15 @@ export function tailNdjson(filePath: string, opts: TailNdjsonOptions): TailHandl
     // Set initial offset
     if (!opts.fromStart && existsSync(filePath)) {
       try {
-        offset = statSync(filePath).size;
+        // Read file content and align offset to AFTER the last completed
+        // newline. Avoids attaching mid-line when the writer is partway through
+        // emitting a record (statSync.size could point inside that partial
+        // line, so the next read would start mid-line and fail to parse).
+        // Using character index keeps offset semantics consistent with
+        // readFileSync('utf-8') + .slice(offset) below.
+        const initial = readFileSync(filePath, 'utf-8');
+        const lastNewline = initial.lastIndexOf('\n');
+        offset = lastNewline === -1 ? 0 : lastNewline + 1;
       } catch {
         offset = 0;
       }
