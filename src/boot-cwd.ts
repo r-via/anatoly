@@ -61,6 +61,28 @@ export function isInsideAnatolyDir(cwd: string): boolean {
   return cwd.split(/[/\\]/).filter(Boolean).includes('.anatoly');
 }
 
+/**
+ * True when `cwd` is the user's HOME directory.
+ *
+ * Anatoly's bootstrap creates `<root>/.anatoly/` to hold per-project state
+ * (cache, runs, state, setup, runtime). The same path `~/.anatoly/` is *also*
+ * the user-wide root that hosts the `shared/` and `user/` symlink targets.
+ * Running with `cwd == $HOME` collides these two roles: project-local subdirs
+ * get scattered alongside `shared/` and `user/`, permanently polluting the
+ * user-wide tree. Refuse early and tell the user to cd into the actual project.
+ */
+export function isCwdHome(cwd: string, home: string | undefined): boolean {
+  if (!home) return false;
+  return stripTrailingSep(cwd) === stripTrailingSep(home);
+}
+
+function stripTrailingSep(p: string): string {
+  if (p.length > 1 && (p.endsWith('/') || p.endsWith('\\'))) {
+    return p.slice(0, -1);
+  }
+  return p;
+}
+
 export function recoverCwdIfBroken(deps?: {
   cwdGetter?: () => string;
   chdirFn?: (p: string) => void;

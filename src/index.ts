@@ -10,7 +10,7 @@
 // still load the SDK first. The dynamic import below defers main.ts
 // evaluation until after recoverCwdIfBroken has run.
 
-import { isInsideAnatolyDir, recoverCwdIfBroken } from './boot-cwd.js';
+import { isCwdHome, isInsideAnatolyDir, recoverCwdIfBroken } from './boot-cwd.js';
 
 const recovery = recoverCwdIfBroken();
 if (
@@ -39,6 +39,26 @@ if (
         '',
         '`.anatoly/` is Anatoly\'s own state folder, not a codebase to audit.',
         'cd to your project root and try again.',
+        '',
+      ].join('\n') + '\n',
+    );
+    process.exit(1);
+  }
+
+  // Also refuse `cwd == $HOME`: ~/.anatoly/ is the user-wide root (only meant
+  // to host `shared/` and `user/`); running here would scatter project-local
+  // state (cache/, runs/, state/, setup/, runtime/) into it and break the
+  // separation between user-wide and project-local trees.
+  if (cwd && isCwdHome(cwd, process.env.HOME)) {
+    process.stderr.write(
+      [
+        '',
+        'anatoly: refusing to run from your HOME directory.',
+        `  cwd: ${cwd}`,
+        '',
+        '~/.anatoly/ is the user-wide root for shared/ and user/ symlink targets.',
+        'Running here would scatter per-project state (cache/, runs/, state/, …)',
+        'into the user-wide tree. cd into the actual project and try again.',
         '',
       ].join('\n') + '\n',
     );

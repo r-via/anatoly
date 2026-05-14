@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 
 import {
   firstExistingAncestor,
+  isCwdHome,
   isInsideAnatolyDir,
   pickRecoveryCandidates,
   recoverCwdIfBroken,
@@ -82,6 +83,31 @@ describe('isInsideAnatolyDir', () => {
   it('handles Windows-style backslash separators', () => {
     expect(isInsideAnatolyDir('C:\\Users\\u\\proj\\.anatoly\\runs')).toBe(true);
     expect(isInsideAnatolyDir('C:\\Users\\u\\proj')).toBe(false);
+  });
+});
+
+describe('isCwdHome', () => {
+  it('flags exact match', () => {
+    expect(isCwdHome('/home/u', '/home/u')).toBe(true);
+  });
+
+  it('flags exact match with trailing slash on either side', () => {
+    expect(isCwdHome('/home/u/', '/home/u')).toBe(true);
+    expect(isCwdHome('/home/u', '/home/u/')).toBe(true);
+  });
+
+  it('does not flag a subdirectory of HOME', () => {
+    expect(isCwdHome('/home/u/projects', '/home/u')).toBe(false);
+    expect(isCwdHome('/home/u/projects/cli', '/home/u')).toBe(false);
+  });
+
+  it('does not flag a sibling that shares a prefix', () => {
+    expect(isCwdHome('/home/user-two', '/home/u')).toBe(false);
+  });
+
+  it('handles unset HOME safely', () => {
+    expect(isCwdHome('/home/u', undefined)).toBe(false);
+    expect(isCwdHome('/home/u', '')).toBe(false);
   });
 });
 

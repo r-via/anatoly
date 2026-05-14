@@ -151,6 +151,19 @@ export function bootstrapAnatoly(root: string): void {
   const dotAnatoly = join(root, '.anatoly');
   const uwRoot = userWideRoot();
 
+  // Defense in depth: if the caller hands us the user-wide root as the
+  // project root (root == ~/.anatoly/..'s parent → dotAnatoly == ~/.anatoly/),
+  // creating PROJECT_SUBDIRS underneath would scatter cache/, runs/, state/,
+  // setup/, runtime/ alongside the shared/ and user/ symlink targets. The
+  // CLI's index.ts guard rejects this at boot, but bootstrapAnatoly is
+  // exported and can be called directly (tests, scripts) — bail loudly here.
+  if (dotAnatoly === uwRoot) {
+    throw new Error(
+      `bootstrapAnatoly refused: project root resolves to the user-wide root (~/.anatoly/). ` +
+      `Pass an actual project directory.`,
+    );
+  }
+
   // 1. Project-level root
   mkdirSync(dotAnatoly, { recursive: true, mode: 0o700 });
 

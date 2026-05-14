@@ -3,9 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import yaml from 'js-yaml';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { getLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -19,15 +18,19 @@ export interface Preferences {
 }
 
 // ---------------------------------------------------------------------------
-// Paths (lazy — must not call homedir() at module load time for testability)
+// Paths
 // ---------------------------------------------------------------------------
 
-function prefsDir(): string {
-  return resolve(homedir(), '.anatoly');
-}
-
-export function prefsFilePath(): string {
-  return resolve(prefsDir(), 'preferences.yml');
+/**
+ * Resolve the path to this project's preferences file:
+ * `<projectRoot>/.anatoly/setup/preferences.yml`.
+ *
+ * Preferences are project-local on purpose — a tier choice that fits one
+ * codebase (e.g. advanced GGUF on a large Go monorepo) shouldn't silently
+ * apply to every other project on the same machine.
+ */
+export function prefsFilePath(projectRoot: string): string {
+  return anatolyPath(projectRoot, 'setup', 'preferences.yml');
 }
 
 // ---------------------------------------------------------------------------
@@ -35,16 +38,17 @@ export function prefsFilePath(): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Load cross-project preferences from `~/.anatoly/preferences.yml`.
+ * Load project-local preferences from
+ * `<projectRoot>/.anatoly/setup/preferences.yml`.
  *
  * Returns `null` when:
- * - the file does not exist (first-ever run)
+ * - the file does not exist (first-ever run in this project)
  * - the YAML is invalid or unparseable (logged as warn)
  * - the parsed result is not an object
  */
-export function loadPreferences(): Preferences | null {
+export function loadPreferences(projectRoot: string): Preferences | null {
   try {
-    const raw = readFileSync(prefsFilePath(), 'utf-8');
+    const raw = readFileSync(prefsFilePath(projectRoot), 'utf-8');
     const parsed = yaml.load(raw);
     if (typeof parsed !== 'object' || parsed === null) return null;
     return parsed as Preferences;
@@ -60,15 +64,17 @@ export function loadPreferences(): Preferences | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Persist cross-project preferences to `~/.anatoly/preferences.yml`.
+ * Persist project-local preferences to
+ * `<projectRoot>/.anatoly/setup/preferences.yml`.
  *
  * Best-effort: logs a warning on failure but never throws.
  */
-export function savePreferences(prefs: Preferences): void {
+export function savePreferences(projectRoot: string, prefs: Preferences): void {
   try {
-    mkdirSync(prefsDir(), { recursive: true });
+    const path = prefsFilePath(projectRoot);
+    mkdirSync(anatolyPath(projectRoot, 'setup'), { recursive: true });
     const yamlStr = yaml.dump(prefs, { lineWidth: 120 });
-    writeFileSync(prefsFilePath(), yamlStr, 'utf-8');
+    writeFileSync(path, yamlStr, 'utf-8');
   } catch (err) {
     getLogger().warn({ err }, 'Could not save preference');
   }

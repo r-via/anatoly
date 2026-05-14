@@ -398,7 +398,7 @@ export function registerRunCommand(program: Command): void {
       if (!existsSync(resolve(projectRoot, '.anatoly.yml'))) {
         const hardware = detectHardware();
         const cliTierOverride = Boolean(parentOpts.ragLite || parentOpts.ragAdvanced);
-        const prefs = loadPreferences();
+        const prefs = loadPreferences(projectRoot);
         const savedPreference = prefs?.embeddings?.prefer as 'lite' | 'advanced' | undefined;
 
         wizardResult = await runFirstRunWizard({
@@ -517,11 +517,12 @@ export function registerRunCommand(program: Command): void {
           getLogger().warn({ err }, 'failed to write .anatoly.yml — continuing with defaults');
         }
 
-        // Story 49.2: save tier preference for future projects (best-effort).
-        // Only saved when (a) tier is advanced AND downloads+setup succeeded,
-        // and (b) the user didn't use --rag-lite / --rag-advanced (AC4).
+        // Save tier preference for this project so subsequent runs in the
+        // same project skip the prompt. Best-effort: only saved when (a) the
+        // tier is advanced AND downloads+setup succeeded, and (b) the user
+        // didn't force a tier via --rag-lite / --rag-advanced.
         if (wizardResult.tier === 'advanced' && !cliTierOverride) {
-          savePreferences({ embeddings: { prefer: 'advanced' } });
+          savePreferences(projectRoot, { embeddings: { prefer: 'advanced' } });
         }
 
         // External tier just landed: yaml + ready-flag are on disk but
