@@ -84,6 +84,9 @@ export function autoDetectScanGlobs(
     const v = LANGUAGE_VENDOR_EXCLUDES[lang.name];
     if (v) for (const e of v) excludeSet.add(e);
   }
+
+  const detectedLangs = new Set(langs.map((l) => l.name));
+
   // Test files: only add if a testing framework is in the profile, so we
   // don't silently drop tests in projects that audit them on purpose.
   const hasJsTesting = profile.frameworks.some((f) => f.id === 'vitest' || f.id === 'jest');
@@ -99,6 +102,20 @@ export function autoDetectScanGlobs(
     excludeSet.add('**/test_*.py');
     excludeSet.add('**/*_test.py');
     excludeSet.add('tests/**');
+  }
+  // Go: tests use the built-in `testing` package (no framework to detect) and
+  // `testdata/` is the canonical fixture directory — exclude both unconditionally.
+  // Generated code uses well-known suffixes (protobuf, mockgen, stringer, etc.)
+  // and isn't human-authored, so audits would just charge for boilerplate.
+  if (detectedLangs.has('Go')) {
+    excludeSet.add('**/*_test.go');
+    excludeSet.add('**/testdata/**');
+    excludeSet.add('**/*.pb.go');
+    excludeSet.add('**/*.pb.gw.go');
+    excludeSet.add('**/mock_*.go');
+    excludeSet.add('**/*_mock.go');
+    excludeSet.add('**/*_generated.go');
+    excludeSet.add('**/*_string.go');
   }
 
   return {

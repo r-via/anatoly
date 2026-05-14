@@ -105,6 +105,28 @@ describe('autoDetectScanGlobs', () => {
     expect(result.exclude).toContain('**/*.spec.ts');
   });
 
+  it('always excludes Go tests, testdata, and generated code when Go is detected', () => {
+    const profile = buildProfile({
+      languages: {
+        languages: [{ name: 'Go', percentage: 100, fileCount: 50 }],
+        totalFiles: 50,
+      },
+      primaryLanguage: 'Go',
+      // No framework needed — Go's `testing` package is stdlib.
+      frameworks: [],
+    });
+    const result = autoDetectScanGlobs(dir, profile);
+    expect(result.exclude).toContain('**/*_test.go');
+    expect(result.exclude).toContain('**/testdata/**');
+    expect(result.exclude).toContain('**/*.pb.go');
+    expect(result.exclude).toContain('**/*.pb.gw.go');
+    expect(result.exclude).toContain('**/mock_*.go');
+    expect(result.exclude).toContain('**/*_mock.go');
+    expect(result.exclude).toContain('**/*_generated.go');
+    expect(result.exclude).toContain('**/*_string.go');
+    expect(result.exclude).toContain('vendor/**');
+  });
+
   it('drops languages below the 5% noise threshold', () => {
     const profile = buildProfile({
       languages: {
