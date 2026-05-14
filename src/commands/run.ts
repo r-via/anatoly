@@ -1387,21 +1387,27 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const configRows: { key: string; value: string }[] = [];
   const pipelineRows: { phase: string; detail: string }[] = [];
 
-  // --- Detect project identity (name + version) ---
-  // Tries language-specific manifests (package.json, Cargo.toml, pyproject.toml,
-  // go.mod) and falls back to the latest git tag for languages whose manifest
-  // doesn't carry a version (Go) or projects without any manifest.
-  const identity = detectProjectIdentity(srcRoot);
-  let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined = {
-    name: identity.name,
-    version: identity.version ?? '\u2014',
-  };
+  // --- Detect project identity (name + version) + languages/frameworks ---
+  // detectProjectProfile walks the filesystem with linguist-js, which can take
+  // a few seconds on large repos \u2014 surface a spinner so the user knows we're
+  // not stuck after the banner. Non-TTY fallback emits a single log line so
+  // CI/pipe runs still get the signal.
+  const projectInfoSpinner = process.stdout.isTTY ? p.spinner() : null;
+  projectInfoSpinner?.start('Retrieving project info (version, languages, frameworks)\u2026');
+  if (!projectInfoSpinner) getLogger().info('retrieving project info\u2026');
 
-  // Detect languages & frameworks for project info display
+  // detectProjectIdentity also walks `git describe --tags` for Go projects;
+  // run it inside the same spinner so both probes share the visible wait.
+  const identity = detectProjectIdentity(srcRoot);
   const profile = await detectProjectProfile(srcRoot);
   ctx.profile = profile;
   const langLine = formatLanguageLine(profile.languages.languages);
   const fwLine = formatFrameworkLine(profile.frameworks);
+
+  let projectInfo: { name: string; version: string; languages?: string; frameworks?: string } | undefined = {
+    name: identity.name,
+    version: identity.version ?? '\u2014',
+  };
   if (langLine) projectInfo.languages = langLine;
   if (fwLine) projectInfo.frameworks = fwLine;
 
@@ -1410,6 +1416,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   if (!identity.version && !langLine && !fwLine && identity.name === basename(srcRoot)) {
     projectInfo = undefined;
   }
+
+  projectInfoSpinner?.stop(projectInfo ? 'Project info ready' : 'Project info: nothing detected');
 
   // --- Phase: config ---
   let hardware: ReturnType<typeof detectHardware> | undefined;
