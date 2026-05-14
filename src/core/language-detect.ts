@@ -41,6 +41,9 @@ export type FrameworkCategory =
   | 'fullstack'
   | 'orm'
   | 'cli'
+  | 'tui'
+  | 'rpc'
+  | 'plugin'
   | 'testing'
   | 'auth';
 
@@ -201,6 +204,13 @@ const GO_FRAMEWORKS: FrameworkDef[] = [
   { id: 'fiber', name: 'Fiber', language: 'go', category: 'backend', deps: ['github.com/gofiber/fiber'], impliesTypes: ['Backend API'], impliesCapabilities: ['rest-api'] },
   { id: 'gorm', name: 'GORM', language: 'go', category: 'orm', deps: ['gorm.io/gorm'], impliesTypes: ['ORM'], impliesCapabilities: ['orm'] },
   { id: 'cobra', name: 'Cobra', language: 'go', category: 'cli', deps: ['github.com/spf13/cobra'], impliesTypes: ['CLI'], impliesCapabilities: ['cli'] },
+  // TUI framework — shapes the entire interactive UI architecture (Elm-style update loop).
+  // Matches both the legacy `github.com/charmbracelet/bubbletea` and the v2 module path `charm.land/bubbletea`.
+  { id: 'bubbletea', name: 'Bubble Tea', language: 'go', category: 'tui', deps: ['github.com/charmbracelet/bubbletea', 'charm.land/bubbletea'], impliesTypes: [], impliesCapabilities: [] },
+  // gRPC server/client framework — defines transport, contract codegen, and request lifecycle.
+  { id: 'grpc', name: 'gRPC', language: 'go', category: 'rpc', deps: ['google.golang.org/grpc'], impliesTypes: ['Backend API'], impliesCapabilities: [] },
+  // hashicorp/go-plugin — RPC plugin host framework; structures the host ↔ plugin contract.
+  { id: 'hashicorp-go-plugin', name: 'hashicorp/go-plugin', language: 'go', category: 'plugin', deps: ['github.com/hashicorp/go-plugin'], impliesTypes: [], impliesCapabilities: [] },
 ];
 
 const CSHARP_FRAMEWORKS: FrameworkDef[] = [
