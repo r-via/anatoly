@@ -188,8 +188,28 @@ export async function ensureModel(model: 'code' | 'nlp'): Promise<void> {
   );
 
   if (!ready) {
+    // Capture diagnostics before tearing the container down — the bare
+    // "failed to become healthy" message used to send users hunting blind.
+    let containerLogs = '';
+    let inspectStatus = '';
+    try {
+      containerLogs = execFileSync('docker', ['logs', '--tail', '30', cfg.container], {
+        encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch { /* container may already be gone */ }
+    try {
+      inspectStatus = execFileSync('docker', ['inspect', '--format', '{{.State.Status}} exitCode={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}', cfg.container], {
+        encoding: 'utf-8', timeout: 5_000, stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch { /* ditto */ }
+    logFn?.(`GGUF ${cfg.label} container failed to become healthy. inspect: ${inspectStatus || '(unavailable)'}`);
+    if (containerLogs.trim()) logFn?.(`GGUF ${cfg.label} container last logs:\n${containerLogs}`);
     removeContainer(cfg.container);
-    throw new Error(`GGUF ${cfg.label} container failed to become healthy`);
+    throw new Error(
+      `GGUF ${cfg.label} container failed to become healthy` +
+      (inspectStatus ? ` (state: ${inspectStatus})` : '') +
+      (containerLogs.trim() ? `\n--- container logs ---\n${containerLogs.trim()}\n----------------------` : ''),
+    );
   }
 
   activeModel = model;
