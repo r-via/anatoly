@@ -12,7 +12,7 @@
  * Hash granularity: per source file (one change → regenerate all dependent pages).
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 
@@ -226,8 +226,25 @@ export function loadDocCache(cachePath: string): DocCache {
 
 /**
  * Saves the doc cache to disk. Creates parent directories if needed.
+ *
+ * Atomic write (temp file + rename): a crash mid-write can otherwise leave a
+ * truncated manifest, which {@link loadDocCache} would discard as corrupt,
+ * dropping every completion flag and forcing a full regeneration. rename(2)
+ * within the same directory is atomic, so a reader ever sees the whole old
+ * or whole new file.
  */
 export function saveDocCache(cachePath: string, cache: DocCache): void {
   mkdirSync(dirname(cachePath), { recursive: true });
-  writeFileSync(cachePath, JSON.stringify(cache, null, 2) + '\n');
+  const tmp = `${cachePath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(cache, null, 2) + '\n');
+    renameSync(tmp, cachePath);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* temp cleanup is best-effort */
+    }
+    throw err;
+  }
 }

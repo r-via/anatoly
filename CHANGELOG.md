@@ -38,3 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GGUF models moved from `~/.anatoly/models/` to `~/.anatoly/shared/models/gguf/`
 - HuggingFace cache redirected from `~/.cache/huggingface/` to `~/.anatoly/shared/models/hf-cache/`
 - Environment variable reads (`HF_HOME`, `TRANSFORMERS_CACHE`) centralized in `anatoly-paths.ts`
+
+### Fixed
+
+- **Doc bootstrap could deadlock.** The internal-doc generation executor went through `router.agenticQuery()`, which acquires a second concurrency slot on the same per-provider semaphore while the per-page caller already held one. Once the page count reached the provider concurrency the whole bootstrap dead-locked. The executor now resolves the transport directly and owns its retry.
+- **No wall-clock timeout on agentic doc/review calls.** `runtime.timeout_per_file` was defined but never enforced, so one stuck SDK call hung the whole phase. It is now a hard budget around per-page doc generation, the coherence pass, and per-file review (a stuck call fails that unit instead of the run).
+- **Crashed bootstrap left permanently-stub docs.** Per-page cache entries were written at planning time (before the LLM ran), so a crash recorded un-generated pages as done and they were never regenerated. Each page is now flagged only after it is written, and a cached page whose file is still a scaffold stub is regenerated (self-healing).
+- **One-time internal-docs regeneration on upgrade.** The doc-flag manifest is unified into a single v3 ledger (`.anatoly/cache/doc-build/manifest.json`, replacing the separate `state/internal-docs/.scaffold-status.json`). Pre-v3 manifests are intentionally discarded on load, so the first run after upgrading regenerates the internal docs once and re-flags every page in the new ledger.

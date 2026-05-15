@@ -17,7 +17,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { type ProjectProfile, type ProjectType } from './language-detect.js';
 import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
@@ -281,17 +281,29 @@ export function runDocGeneration(
 
 /**
  * True when the page on disk has not actually been generated yet: the file
- * is missing, or still carries the scaffolder's `<!-- SCAFFOLDING: -->`
- * sentinel. Generated pages are the LLM's raw markdown output, which never
- * contains that sentinel (the writer prompt emits only the final document),
- * so its presence is a reliable "still a stub" signal.
+ * is missing, or still carries the scaffolder's full SCAFFOLDING block.
+ *
+ * The scaffolder writes both an opening `<!-- SCAFFOLDING:` marker and a
+ * closing `Delete this comment when done. -->` line; a generated page is the
+ * writer prompt's raw markdown and contains neither. Requiring *both* markers
+ * avoids a false positive on a legitimately-generated page that merely quotes
+ * `<!-- SCAFFOLDING:` in prose or a code block (Anatoly's own docs describe
+ * the scaffolder, so this is a real edge here).
+ *
+ * Fail-safe: anything we cannot positively confirm as generated (path escape,
+ * unreadable file) is treated as a stub so it regenerates rather than being
+ * silently trusted.
  */
+const SCAFFOLD_OPEN = '<!-- SCAFFOLDING:';
+const SCAFFOLD_CLOSE = 'Delete this comment when done. -->';
 export function isScaffoldStub(outputDir: string, pagePath: string): boolean {
+  const root = resolve(outputDir);
   const full = resolve(outputDir, pagePath);
-  if (!full.startsWith(resolve(outputDir))) return false;
+  if (full !== root && !full.startsWith(root + sep)) return true;
   if (!existsSync(full)) return true;
   try {
-    return readFileSync(full, 'utf-8').includes('<!-- SCAFFOLDING:');
+    const content = readFileSync(full, 'utf-8');
+    return content.includes(SCAFFOLD_OPEN) && content.includes(SCAFFOLD_CLOSE);
   } catch {
     return true;
   }

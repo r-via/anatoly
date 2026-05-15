@@ -1862,6 +1862,13 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     // Coherence review — only on first run (bootstrap). Use `anatoly docs coherence` for on-demand.
     // Skip when the coherence agent already flagged this exact doc set: a
     // retry must not redo a coherence pass whose inputs are byte-identical.
+    //
+    // Narrow by design: it only triggers when pages were (re)written
+    // (pagesWritten > 0 — else coherence is skipped anyway) yet the resulting
+    // doc set is byte-for-byte what coherence last reviewed. In practice that
+    // is the resume case where generation produced no net change (cache hits
+    // re-confirmed) but a previous run never reached writeScaffoldStatus. Any
+    // genuinely regenerated page changes the signature and re-runs coherence.
     if (
       result.pagesWritten > 0 &&
       !ctx.interrupted &&
