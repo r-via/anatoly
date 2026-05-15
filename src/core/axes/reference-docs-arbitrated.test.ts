@@ -28,7 +28,7 @@ describe('Story 55.7 — renderReferenceDocsContext with arbitrated fragments', 
       },
     ];
 
-    const result = renderReferenceDocsContext(baseDocs, null, fragments);
+    const result = renderReferenceDocsContext(baseDocs, fragments);
     // Must contain the distinct section header
     expect(result).toContain('ARBITRATED INTENTS (human-validated');
     // Must contain the fragment text
@@ -57,7 +57,7 @@ describe('Story 55.7 — renderReferenceDocsContext with arbitrated fragments', 
       },
     ];
 
-    const result = renderReferenceDocsContext(baseDocs, null, fragments);
+    const result = renderReferenceDocsContext(baseDocs, fragments);
     expect(result).toContain('All endpoints return JSON');
     expect(result).toContain('Never expose tokens in logs');
     expect(result).toContain('docs/api.md');
@@ -65,12 +65,12 @@ describe('Story 55.7 — renderReferenceDocsContext with arbitrated fragments', 
   });
 
   it('does not render arbitrated section when fragments array is empty', () => {
-    const result = renderReferenceDocsContext(baseDocs, null, []);
+    const result = renderReferenceDocsContext(baseDocs, []);
     expect(result).not.toContain('ARBITRATED');
   });
 
   it('does not render arbitrated section when fragments is undefined', () => {
-    const result = renderReferenceDocsContext(baseDocs, null, undefined);
+    const result = renderReferenceDocsContext(baseDocs, undefined);
     expect(result).not.toContain('ARBITRATED');
   });
 
@@ -83,7 +83,7 @@ describe('Story 55.7 — renderReferenceDocsContext with arbitrated fragments', 
       },
     ];
 
-    const result = renderReferenceDocsContext(baseDocs, null, fragments);
+    const result = renderReferenceDocsContext(baseDocs, fragments);
     expect(result).toContain('All endpoints return JSON');
     // Should not contain 'Note:' label when no note
     expect(result).not.toContain('Note:');
@@ -112,7 +112,7 @@ describe('Story 55.7 — AC2: unevaluated docs unaffected', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.7 — AC3: reference + arbitrated + internal coexist', () => {
-  it('all three sections appear with distinct headings', () => {
+  it('reference docs + arbitrated fragments appear with distinct headings', () => {
     const docs: ReferenceDoc[] = [
       { source: 'readme', path: 'README.md', content: '# Project' },
     ];
@@ -123,23 +123,15 @@ describe('Story 55.7 — AC3: reference + arbitrated + internal coexist', () => 
         arbitratedAt: '2025-01-15T10:00:00.000Z',
       },
     ];
-    const digest = {
-      tokens: 100,
-      content: '---\nstatus: evaluated\nsource: reference-digest\n---\n## Modules\n...',
-      fingerprint: 'abc123',
-    };
 
-    const result = renderReferenceDocsContext(docs, digest, fragments);
+    const result = renderReferenceDocsContext(docs, fragments);
 
-    // All three sections present
     expect(result).toContain('REFERENCE DOCUMENTATION (AUTHORITATIVE');
     expect(result).toContain('ARBITRATED INTENTS (human-validated');
-    expect(result).toContain('consolidated reference documentation (deterministic, no LLM)');
 
     // Content from each section present
     expect(result).toContain('# Project');
     expect(result).toContain('Must use dependency injection');
-    expect(result).toContain('## Modules');
   });
 });
 

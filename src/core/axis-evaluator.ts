@@ -93,10 +93,8 @@ export interface AxisContext {
   docsTree?: string | null;
   /** Relevant documentation pages resolved for the current file */
   relevantDocs?: RelevantDoc[];
-  /** Human-authored reference docs (README, specs, doc-comments) resolved for the run */
+  /** Human-authored reference docs, retrieved per-file via RAG in lite mode (README, specs, docs/). */
   referenceDocs?: ReferenceDoc[];
-  /** Lite-mode internal digest (deterministic, no LLM). Null when mode is not lite. */
-  internalDigest?: { tokens: number; content: string; fingerprint: string } | null;
   /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
   arbitratedFragments?: import('./axes/reference-docs-context.js').ArbitratedFragment[];
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */

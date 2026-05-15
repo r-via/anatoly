@@ -232,7 +232,7 @@ Controls README badge injection after a completed audit.
 
 ### `documentation`
 
-Anatoly distinguishes two documentation registers: **reference** (human-authored: READMEs, specs, doc-comments) and **internal** (derived from code by Anatoly itself). Both blocks are required since epic-54; the wizard (`anatoly init`) writes them explicitly.
+Anatoly distinguishes two documentation registers: **reference** (human-authored: READMEs, specs, doc-comments) and **internal** (curated from code by Anatoly itself, full mode only). The wizard (`anatoly init`) writes both blocks explicitly.
 
 ```yaml
 documentation:
@@ -244,11 +244,7 @@ documentation:
       include: ['src/**/*.ts']
   internal:
     mode: 'lite'                # 'lite' | 'full' | 'off'
-    lite:
-      max_tokens: 12000
-      refresh_on: ['code_change']
-      on_overflow: 'warn'       # 'warn' | 'fail'
-    # full:
+    # full:                     # only present when mode: full
     #   sync_to_repo: false
 ```
 
@@ -258,7 +254,7 @@ Human-authored docs treated as ground truth by the review axes.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `paths` | `string[]` | (required, ≥ 1) | Globs pointing to Markdown reference docs (READMEs, specs, guides). Paths must be relative to the project root. |
+| `paths` | `string[]` | (required, ≥ 1) | Globs pointing to Markdown reference docs (READMEs, specs, guides). Paths must be relative to the project root. Indexed verbatim into the RAG store (root-level files like `README.md` included). |
 | `inline_comments.enabled` | `boolean` | (required) | Opt-in extraction of structured doc-comments (JSDoc, Godoc, etc.) attached to exported symbols. |
 | `inline_comments.kinds` | `string[]` | (required when enabled) | Doc-comment dialects to extract: `jsdoc`, `tsdoc`, `docstring`, `godoc`, `javadoc`, `xmldoc`, `module_header`. |
 | `inline_comments.include` | `string[]` | (required when enabled) | Source-file globs to scan for doc-comments. |
@@ -266,33 +262,47 @@ Human-authored docs treated as ground truth by the review axes.
 
 #### `documentation.internal.mode`
 
-Selects how Anatoly produces its own project documentation. **No default**: the wizard pre-checks `lite` but the field must be present in the YAML.
+Selects how reference documentation reaches the business-logic axes (`correction`, `best-practices`, `overengineering`). **No default**: the wizard pre-checks `lite` but the field must be present in the YAML.
 
-| Mode | When to use | Behaviour |
-|------|-------------|-----------|
-| `lite` | Repos whose reference docs fit verbatim in a token budget. Deterministic, no LLM, free. | A YAML digest is produced at `.anatoly/cache/internal-digest.yaml`, consolidating the reference content for injection into the `correction`, `best-practices`, `overengineering` axes. |
-| `full` | Larger repos where reference docs cannot reasonably fit. LLM-curated. | Per-module pages are scaffolded and generated into `.anatoly/state/internal-docs/`, with 3-way coherence (reference vs internal vs code) and arbitration. |
-| `off` | You manage doc context yourself or do not want any internal doc artefact. | No scaffold, no generation, no digest. |
+| Mode | Sub-config | What it does |
+|------|-----------|--------------|
+| `lite` | none | Per-file RAG retrieval. For each file under review, Anatoly queries the doc-section vector index for the most relevant chunks of your reference docs, expands each to its H2 neighbourhood, and injects them as authoritative ground truth. No LLM, no upfront artefact, no token budget to tune. |
+| `full` | `full.sync_to_repo` | LLM-curated internal docs under `.anatoly/state/internal-docs/`, plus a 3-way coherence + arbitration pass (see below). |
+| `off` | none | No reference docs injected at all. Code-only audit. |
 
-#### `documentation.internal.lite`
+##### lite vs full: the key difference is arbitration
 
-Required when `mode: lite`.
+This is the distinction that matters when choosing a mode.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `max_tokens` | `int (≥ 100)` | `12000` | Hard ceiling for the consolidated digest. Lite assumes reference docs fit within this budget verbatim. |
-| `refresh_on` | `('code_change' \| 'schema_change' \| 'manual')[]` | (required, ≥ 1) | Events that should re-trigger digest rebuilds. Today only `code_change` is wired (the SHA-256 fingerprint also invalidates automatically when reference doc content changes). |
-| `on_overflow` | `'warn' \| 'fail'` | `'warn'` | What to do when consolidated content exceeds `max_tokens`. `warn`: drop low-priority sections + individual reference docs from lowest source priority (md, then spec, then readme), emit a logger warning, and prepend an `> INCOMPLETE` marker in the digest. `fail`: throw a `DigestOverflowError` and abort the run. Use `fail` in CI to catch misconfigured docs. |
+**`lite` assumes your reference docs are correct and current.** The retrieved doc chunks are injected as ground truth with no reconciliation step. If the code contradicts the docs, that contradiction is flagged as a `doc_divergence` finding against the **code** (the doc wins by assumption). Choose `lite` when your docs are actively maintained and you trust them to describe intended behaviour. It is deterministic (cosine similarity, no LLM), cheap, and scales to any doc corpus size because retrieval is per-file rather than whole-corpus.
 
-The digest cache lives at `.anatoly/cache/internal-digest.yaml`. The YAML block-scalar (`content: |`) keeps the Markdown un-escaped so you can open and inspect it directly. Cache invalidation hashes both reference-doc paths and contents, so editing the README rebuilds the digest on the next run.
+**`full` does not assume the docs are correct.** It generates internal per-module documentation from the code, then runs a 3-way coherence pass that arbitrates between three sources:
+
+1. **Reference docs** (what humans wrote)
+2. **Internal docs** (what Anatoly derived from the code)
+3. **Code surface** (the actual symbols and signatures)
+
+When reference and code diverge, full mode does not silently pick a winner: it produces `doc_divergence` findings describing the conflict, and the internal docs are rewritten only to fill gaps the reference docs leave open (never to overrule what the reference docs explicitly state). Curated fragments a human validates via `anatoly docs arbitrate` are promoted to authoritative "arbitrated intents" and injected alongside the reference docs. Choose `full` when your docs may be stale or incomplete and you want Anatoly to surface code/doc drift rather than trust the docs blindly.
+
+| | `lite` | `full` |
+|---|---|---|
+| Doc context delivery | per-file RAG retrieval | LLM-curated pages + arbitrated fragments |
+| Reference docs treated as | authoritative ground truth (trusted) | one of three arbitrated sources |
+| Code/doc drift | flagged as `doc_divergence` (doc wins) | arbitrated; gaps filled, conflicts surfaced |
+| LLM cost at doc stage | none | scaffold + generation + coherence |
+| Determinism | full (cosine similarity) | LLM-driven |
+| Scales with doc size | yes (per-file) | yes (per-module curation) |
+| Artefact on disk | none | `.anatoly/state/internal-docs/*.md` |
 
 #### `documentation.internal.full`
 
-Required when `mode: full`.
+Required when `mode: full`. Omitted entirely for `lite` and `off`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `sync_to_repo` | `boolean` | (required) | Reserved for backwards compatibility. The implicit `.anatoly/state/internal-docs/ → docs/` sync was removed in epic-54. If you want to commit the curated docs, copy them manually (`cp -r .anatoly/state/internal-docs docs`). |
+
+> Observability: every RAG retrieval (lite mode per-file lookups, duplication-axis symbol searches, documentation-axis lookups) emits a structured `rag.query` event into `.anatoly/runs/<runId>/anatoly.ndjson` with the caller, file, query parameters, latency, and top hit. Grep `rag_query` to follow the full retrieval chain of any run.
 
 ---
 

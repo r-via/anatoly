@@ -41,7 +41,6 @@ function makeMinimalAxisContext(config: Config): AxisContext {
     docsTree: null,
     relevantDocs: [],
     referenceDocs: [],
-    internalDigest: null,
   };
 }
 
@@ -102,9 +101,11 @@ describe('Story 54.7 — mode=off graceful degradation', () => {
     expect(runTsContent).toContain("internalDocMode === 'off'");
   });
 
-  it('AC 54.7c: internalDigest on AxisContext is null when mode=off', () => {
+  it('AC 54.7c: referenceDocs on AxisContext is empty when mode=off', () => {
     const config = makeOffConfig();
     const ctx = makeMinimalAxisContext(config);
-    expect(ctx.internalDigest).toBeNull();
+    // Off mode injects no doc context at all — neither digest (removed) nor
+    // per-file RAG retrieval. referenceDocs stays empty.
+    expect(ctx.referenceDocs).toEqual([]);
   });
 });

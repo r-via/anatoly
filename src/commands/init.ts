@@ -121,7 +121,6 @@ export function buildDocumentationConfig(selections: DocWizardSelections): {
   };
   internal: {
     mode: 'full' | 'lite' | 'off';
-    lite?: { max_tokens: number; refresh_on: string[]; on_overflow: 'warn' | 'fail' };
     full?: { sync_to_repo: boolean };
   };
 } {
@@ -144,13 +143,12 @@ export function buildDocumentationConfig(selections: DocWizardSelections): {
 
   const internal: {
     mode: 'full' | 'lite' | 'off';
-    lite?: { max_tokens: number; refresh_on: string[]; on_overflow: 'warn' | 'fail' };
     full?: { sync_to_repo: boolean };
   } = { mode: selections.internalMode };
 
-  if (selections.internalMode === 'lite') {
-    internal.lite = { max_tokens: 12000, refresh_on: ['code_change'], on_overflow: 'warn' };
-  } else if (selections.internalMode === 'full') {
+  // lite mode needs no sub-config: reference docs are retrieved per-file via
+  // RAG at review time. Only full mode carries a sub-block.
+  if (selections.internalMode === 'full') {
     internal.full = { sync_to_repo: false };
   }
 
@@ -452,9 +450,9 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
   const internalMode = await p.select({
     message: 'Internal documentation generation mode',
     options: [
-      { value: 'lite' as const, label: 'Lite', hint: 'deterministic digest, no LLM, fast' },
-      { value: 'full' as const, label: 'Full', hint: 'LLM-generated docs, coherence review' },
-      { value: 'off' as const, label: 'Off', hint: 'no internal docs, reference-only audit' },
+      { value: 'lite' as const, label: 'Lite', hint: 'per-file RAG retrieval of your docs, no LLM, authoritative' },
+      { value: 'full' as const, label: 'Full', hint: 'LLM-curated internal docs, 3-way coherence + arbitration' },
+      { value: 'off' as const, label: 'Off', hint: 'no doc context, code-only audit' },
     ],
   });
   if (isCancelled(internalMode)) { p.cancel('Setup cancelled.'); process.exit(0); }

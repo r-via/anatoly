@@ -570,8 +570,9 @@ describe('RagConfigSchema — embedding section (Story 50.1)', () => {
 
 
 describe('DocumentationConfigSchema — Story 54.1', () => {
-  // AC3 case 1: valid config in mode `lite`
-  it('should accept a valid config in mode lite', () => {
+  // AC3 case 1: valid config in mode `lite` — no sub-config needed; reference
+  // docs are retrieved per-file via RAG at review time.
+  it('should accept a valid config in mode lite (no lite sub-block)', () => {
     const result = ConfigSchema.safeParse({
       documentation: {
         reference: {
@@ -580,14 +581,12 @@ describe('DocumentationConfigSchema — Story 54.1', () => {
         },
         internal: {
           mode: 'lite',
-          lite: { max_tokens: 4000, refresh_on: ['code_change'] },
         },
       },
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.documentation.internal.mode).toBe('lite');
-      expect(result.data.documentation.internal.lite!.max_tokens).toBe(4000);
       expect(result.data.documentation.reference.paths).toEqual(['docs/**/*.md', 'README.md']);
     }
   });
@@ -628,7 +627,6 @@ describe('DocumentationConfigSchema — Story 54.1', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.documentation.internal.mode).toBe('off');
-      expect(result.data.documentation.internal.lite).toBeUndefined();
       expect(result.data.documentation.internal.full).toBeUndefined();
     }
   });
@@ -683,14 +681,14 @@ describe('DocumentationConfigSchema — Story 54.1', () => {
   });
 
   // Extra: mode lite requires lite sub-object
-  it('should reject mode lite without lite sub-object', () => {
+  it('should accept mode lite without any sub-object (per-file RAG retrieval)', () => {
     const result = ConfigSchema.safeParse({
       documentation: {
         reference: { paths: ['README.md'], inline_comments: { enabled: false } },
         internal: { mode: 'lite' },
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   // Extra: mode full requires full sub-object

@@ -80,8 +80,6 @@ export interface EvaluateFileOptions {
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — passed to each axis evaluator for prompt calibration */
   userInstructions?: import('../utils/user-instructions.js').UserInstructions;
-  /** Lite-mode internal digest (deterministic, no LLM). Story 54.6. */
-  internalDigest?: { tokens: number; content: string; fingerprint: string } | null;
   /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
   arbitratedFragments?: import('./axes/reference-docs-context.js').ArbitratedFragment[];
 }
@@ -303,7 +301,6 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     conversationFileSlug: fileSlug,
     router: opts.router,
     userInstructions: opts.userInstructions,
-    internalDigest: opts.internalDigest,
     arbitratedFragments: opts.arbitratedFragments,
   };
 

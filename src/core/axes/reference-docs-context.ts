@@ -29,18 +29,15 @@ export interface ArbitratedFragment {
  */
 export function renderReferenceDocsContext(
   referenceDocs: ReferenceDoc[] | null | undefined,
-  internalDigest?: { tokens: number; content: string; fingerprint: string } | null,
   arbitratedFragments?: ArbitratedFragment[],
 ): string {
   const hasReferenceDocs = referenceDocs && referenceDocs.length > 0;
-  const hasInternalDigest = !!internalDigest?.content?.includes('status: evaluated');
   const hasArbitratedFragments = !!arbitratedFragments && arbitratedFragments.length > 0;
 
   // Early-return only when no authoritative source is available. Without
   // this guard, an empty referenceDocs would suppress the arbitrated
-  // fragments (Story 55.7) and the lite-mode evaluated digest (Story
-  // 55.5) — both of which are independent authoritative sources.
-  if (!hasReferenceDocs && !hasInternalDigest && !hasArbitratedFragments) {
+  // fragments (Story 55.7), which is an independent authoritative source.
+  if (!hasReferenceDocs && !hasArbitratedFragments) {
     return '';
   }
 
@@ -52,7 +49,9 @@ export function renderReferenceDocsContext(
   );
   parts.push('');
 
-  // 1. Human-authored reference docs (README, specs, doc-comments)
+  // 1. Human-authored reference docs. In lite mode these are the per-file
+  //    RAG-retrieved doc chunks (README, specs, docs/); in full mode they
+  //    are augmented by the arbitrated fragments below.
   if (hasReferenceDocs) {
     for (const doc of referenceDocs!) {
       const label = doc.symbol
@@ -65,18 +64,7 @@ export function renderReferenceDocsContext(
     }
   }
 
-  // 2. Lite-mode consolidated reference documentation. The digest is the
-  //    deterministic consolidation of `documentation.reference.paths` (README,
-  //    specs, doc-comments), with the same authority as raw reference docs.
-  //    The frontmatter `status: evaluated` is the gate marking it as such.
-  if (hasInternalDigest) {
-    parts.push('> Below: consolidated reference documentation (deterministic, no LLM). Treat as authoritative ground truth alongside the docs listed above.');
-    parts.push('');
-    parts.push(internalDigest!.content);
-    parts.push('');
-  }
-
-  // 3. Story 55.7: arbitrated doc-wins fragments (human-validated intent
+  // 2. Story 55.7: arbitrated doc-wins fragments (human-validated intent
   //    baked in via the arbitration loop — independent authoritative source
   //    even when no reference docs are configured)
   if (hasArbitratedFragments) {

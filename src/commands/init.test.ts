@@ -251,11 +251,10 @@ describe('buildDocumentationConfig', () => {
     expect(config.reference.paths).toEqual(['docs/**/*.md', 'README.md']);
     expect(config.reference.inline_comments.enabled).toBe(false);
     expect(config.internal.mode).toBe('off');
-    expect(config.internal.lite).toBeUndefined();
     expect(config.internal.full).toBeUndefined();
   });
 
-  it('builds lite mode config with default max_tokens', () => {
+  it('builds lite mode config with no sub-block (per-file RAG retrieval)', () => {
     const selections: DocWizardSelections = {
       referencePaths: ['README.md'],
       inlineCommentsEnabled: false,
@@ -263,10 +262,7 @@ describe('buildDocumentationConfig', () => {
     };
     const config = buildDocumentationConfig(selections);
     expect(config.internal.mode).toBe('lite');
-    expect(config.internal.lite).toBeDefined();
-    expect(config.internal.lite!.max_tokens).toBe(12000);
-    expect(config.internal.lite!.refresh_on).toEqual(['code_change']);
-    expect(config.internal.lite!.on_overflow).toBe('warn');
+    expect(config.internal.full).toBeUndefined();
   });
 
   it('builds full mode config', () => {

@@ -8,9 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Lite-mode digest now consolidates reference doc CONTENT (not just paths):** The lite digest (`.anatoly/cache/internal-digest.yaml`) used to list reference doc paths as a table of contents. It now embeds the verbatim Markdown body of `documentation.reference.paths` (README, specs, `docs/*.md`), so the `correction`, `best-practices`, and `overengineering` axes finally receive authoritative doc context in lite mode.
-- **`documentation.internal.lite.on_overflow`:** New required field (`warn` | `fail`, default `warn`). Controls the behaviour when consolidated reference content exceeds `max_tokens`. `warn` ships a best-effort digest with an `> INCOMPLETE` marker and a logger warning listing what was dropped. `fail` throws `DigestOverflowError` so CI catches misconfigured docs.
-- **Single readable YAML cache:** Digest cache is now `.anatoly/cache/internal-digest.yaml` with a literal block-scalar for `content`, so the Markdown is directly viewable in an editor. Previous JSON-with-escaped-string layout removed.
+- **Lite-mode documentation is now per-file RAG retrieval.** In `documentation.internal.mode: lite`, reference docs reach the `correction`, `best-practices`, and `overengineering` axes through targeted RAG lookups at review time: for each file, Anatoly retrieves the most relevant doc-section chunks, expands each to its H2 neighbourhood (matched section + previous + next), and injects them as authoritative ground truth. No upfront artefact, no token budget, no truncation; the retrieval is deterministic (cosine similarity, no LLM) and scales to any doc corpus size. Reference docs are treated as correct and current in lite mode (code/doc drift is flagged as `doc_divergence` against the code). Use `mode: full` when docs may be stale and you want 3-way arbitration instead.
+- **`documentation.internal.lite` has no sub-config.** `mode: lite` is sufficient. The removed digest-era fields (`max_tokens`, `refresh_on`, `on_overflow`) no longer exist.
+- **RAG query observability.** Every vector-store search (`search`, `searchById`, `searchByIdHybrid`, `searchByNlpVector`, `searchDocSections`) emits a structured `rag.query` event into `.anatoly/runs/<runId>/anatoly.ndjson`: caller, axis, file, query parameters, latency, result count, top hit. The retrieval chain of any run is now fully traceable by grepping `rag_query`.
+- **Reference-doc indexing follows `reference.paths` exactly.** The doc indexer enumerates the configured globs directly, so root-level files like `README.md` (outside any single `docsDir`) are now indexed and retrievable.
 - **In-flight run visibility (Epic 53):** `anatoly attach [runId]` command for live read-only viewing of running audits
   - Auto-selects the only active run, or specify a run ID explicitly
   - ndjson tail with `--from-start` replay and real-time TUI rendering (phases, progress bar, findings)
@@ -31,10 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **`documentation.internal.lite.max_tokens` default raised from 4000 to 12000.** Lite is positioned as the mode for repos whose reference docs fit verbatim; 4000 was too tight for most projects with a meaningful README. Existing YAMLs that pin `max_tokens: 4000` are unaffected.
-- **Lite digest scope narrowed to reference content + inline doc-comments only.** Both `## Modules` and `## Public surface` were dropped. Modules duplicated `ctx.projectTree` (injected into `best-practices` for rule 11). Public surface was largely redundant with what a meaningful README states at the semantic level, cost significant tokens across reviews, and its narrow anti-hallucination value is better served by RAG retrieval (already used by `duplication`).
-- **`buildInternalDocsDigest` no longer accepts `tasks`.** Signature is `(projectRoot, referenceDocs, config)`. Inline doc-comments carry the only code-derived signal needed; raw task hashes no longer participate in the fingerprint.
-- **Lite digest fingerprint now hashes reference doc CONTENT (not just paths).** Editing a README correctly invalidates the cache on the next run.
+- **The lite-mode digest is removed entirely.** `buildInternalDocsDigest`, the `.anatoly/cache/internal-digest.yaml` cache, and the `ctx.internalDigest` plumbing through every axis are deleted. Lite mode never persists a doc artefact; reference content is delivered per-file (see Added). `renderReferenceDocsContext` no longer takes a digest argument.
 - Pricing cache moved from `.anatoly/pricing.json` to `.anatoly/shared/pricing/normalized.json`
 - Grammar WASM files moved from `.anatoly/grammars/` to `.anatoly/shared/grammars/`
 - GGUF models moved from `~/.anatoly/models/` to `~/.anatoly/shared/models/gguf/`

@@ -209,30 +209,6 @@ export const ReferenceDocsConfigSchema = z.object({
 
 export type ReferenceDocsConfig = z.infer<typeof ReferenceDocsConfigSchema>;
 
-/** Internal docs lite-mode config. */
-export const InternalDocsLiteConfigSchema = z.object({
-  /**
-   * Hard ceiling for the consolidated digest. Lite mode targets repos whose
-   * reference docs fit within this budget verbatim. The default (12000) is
-   * tuned for "small/medium repo" — projects whose docs exceed it should
-   * either raise the cap, prune `reference.paths`, or switch to mode=full
-   * (LLM-curated per-module pages).
-   */
-  max_tokens: z.int().min(100).default(12000),
-  refresh_on: z.array(z.enum(['code_change', 'schema_change', 'manual'])).min(1),
-  /**
-   * Behaviour when the consolidated content exceeds `max_tokens`:
-   * - `warn` (default): emit a loud warning, ship a best-effort digest with
-   *   an explicit `> INCOMPLETE` marker so axes know the picture is partial.
-   * - `fail`: refuse to build the digest. The run aborts with a message
-   *   telling the user to raise the cap, prune reference paths, or migrate
-   *   to mode=full. Use in CI for strict configurations.
-   */
-  on_overflow: z.enum(['warn', 'fail']).default('warn'),
-});
-
-export type InternalDocsLiteConfig = z.infer<typeof InternalDocsLiteConfigSchema>;
-
 /** Internal docs full-mode config. */
 export const InternalDocsFullConfigSchema = z.object({
   sync_to_repo: z.boolean(),
@@ -240,18 +216,21 @@ export const InternalDocsFullConfigSchema = z.object({
 
 export type InternalDocsFullConfig = z.infer<typeof InternalDocsFullConfigSchema>;
 
-/** Internal documentation config — mode determines pipeline behavior. */
+/**
+ * Internal documentation config — `mode` selects the pipeline:
+ * - `lite`: no artefact. Reference docs (`reference.paths`) are retrieved
+ *   per-file via RAG at review time and injected as authoritative ground
+ *   truth. Assumes the docs are maintained and current. No sub-config.
+ * - `full`: LLM-curated per-module pages under `.anatoly/state/internal-docs/`
+ *   with 3-way coherence + arbitration between reference / internal / code.
+ * - `off`: no reference docs injected at all.
+ */
 export const InternalDocsConfigSchema = z.object({
   /** Documentation generation mode. No default — must be explicitly chosen. */
   mode: z.enum(['full', 'lite', 'off']),
-  /** Required when mode=lite. */
-  lite: InternalDocsLiteConfigSchema.optional(),
   /** Required when mode=full. */
   full: InternalDocsFullConfigSchema.optional(),
 }).refine(
-  (data) => data.mode !== 'lite' || data.lite !== undefined,
-  { message: 'internal.lite is required when mode is "lite"', path: ['lite'] },
-).refine(
   (data) => data.mode !== 'full' || data.full !== undefined,
   { message: 'internal.full is required when mode is "full"', path: ['full'] },
 );

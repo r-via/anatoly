@@ -66,7 +66,7 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.internalDigest, ctx.arbitratedFragments);
+  const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.arbitratedFragments);
   if (referenceDocsSection) {
     parts.push(referenceDocsSection);
   }

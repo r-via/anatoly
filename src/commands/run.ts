@@ -252,8 +252,6 @@ export interface RunContext {
   connectivityCheck: boolean;
   /** Git branch + commit captured once during initRunDir, reused in done/failed status writes. */
   gitInfo?: { branch?: string; commit?: string };
-  /** Lite-mode internal digest — set when documentation.internal.mode === 'lite'. */
-  internalDigest?: import('../core/internal-docs-digest.js').DigestResult | null;
   /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
   arbitratedFragments?: import('../core/axes/reference-docs-context.js').ArbitratedFragment[];
 }
@@ -2632,7 +2630,6 @@ async function runReviewPhase(
               conversationDir: join(ctx.runDir, 'conversations'),
               router: ctx.router,
               userInstructions: ctx.userInstructions,
-              internalDigest: ctx.internalDigest,
               arbitratedFragments: ctx.arbitratedFragments,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
