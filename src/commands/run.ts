@@ -62,6 +62,7 @@ import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, type AxisId } from '../core/axis-evaluator.js';
+import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { TransportRouter, findModelForProvider, extractProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
@@ -921,6 +922,43 @@ export function registerRunCommand(program: Command): void {
         ctx.quickWin = true;
         ctx.axesFilter = ['utility', 'duplication', 'correction'] as AxisId[];
         getLogger().info('quick-win preset: utility + duplication + correction');
+      }
+
+      // Config-seeded axis checkbox. Interactive override of which axes run
+      // *this* invocation, pre-checked from the config-enabled set. Skipped
+      // when: non-interactive, --defaults-settings, an explicit --axes filter,
+      // the --quick-win preset, or this is the first run (wizardResult set
+      // means .anatoly.yml was just generated — first run uses config
+      // defaults verbatim, no extra prompt). Config remains the default
+      // state; this is a transient per-run override, never persisted.
+      if (
+        process.stdin.isTTY === true
+        && !useDefaults
+        && ctx.axesFilter === undefined
+        && !quickWinActive
+        && !wizardResult
+      ) {
+        const enabledAxes = ALL_AXIS_IDS.filter(
+          (id) => config.axes?.[id]?.enabled !== false,
+        );
+        const picked = await p.multiselect({
+          message: 'Axes to run this audit (config defaults pre-checked)',
+          options: ALL_AXIS_IDS.map((id) => ({ value: id, label: id })),
+          initialValues: enabledAxes,
+          required: false,
+        });
+        if (p.isCancel(picked)) {
+          // Non-fatal: keep config defaults rather than aborting the run.
+          getLogger().info('axis selection cancelled — using config defaults');
+        } else if (picked.length === 0) {
+          getLogger().info('no axes selected — using config defaults');
+        } else if (
+          picked.length !== enabledAxes.length
+          || picked.some((id) => !enabledAxes.includes(id))
+        ) {
+          ctx.axesFilter = picked as AxisId[];
+          getLogger().info(`axis selection: ${picked.join(', ')}`);
+        }
       }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
