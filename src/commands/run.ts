@@ -75,9 +75,8 @@ import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
+import { runFirstRunWizard, runRagSetup, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation-config.js';
-import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { detectProjectIdentity } from '../core/project-version.js';
@@ -425,97 +424,16 @@ export function registerRunCommand(program: Command): void {
         });
         getLogger().info({ wizardResult }, 'first-run wizard completed');
 
-        // Prefetch lite ONNX embedding models. Skipped for:
-        // - external tier (no ONNX involvement at all)
-        // - advanced tier when the GGUF backend is already provisioned (the
-        //   ready-flag reports advanced-gguf) — no fallback needed, and
-        //   running the lite prefetch here would print "Embeddings (lite)
-        //   ready" which misleads the user about which backend is active.
-        const advancedAlreadyReady =
-          wizardResult.tier === 'advanced'
-          && readEmbeddingsReadyFlag(projectRoot)?.backend === 'advanced-gguf';
-        if (wizardResult.tier !== 'external' && !advancedAlreadyReady) {
-          await runLitePrefetch({
-            isTTY: process.stdin.isTTY === true,
-            defaultsSettings: useDefaults,
-            asFallback: wizardResult.tier === 'advanced',
-          });
-        }
-
-        // Advanced tier: download GGUF models with SHA-256 verification.
-        // On failure, show actionable recovery prompt (Story 49.1).
-        if (wizardResult.tier === 'advanced') {
-          const isTTY = process.stdin.isTTY === true;
-          let advancedReady = false;
-
-          // If `local-embeddings upgrade` was run earlier, the backend is
-          // already provisioned and validated — skip the download + setup
-          // subprocess entirely.
-          const existingFlag = readEmbeddingsReadyFlag(projectRoot);
-          if (existingFlag?.backend === 'advanced-gguf') {
-            getLogger().info('embeddings-ready.json already set to advanced-gguf — skipping GGUF download + setup');
-            advancedReady = true;
-          }
-
-          // GGUF download with retry loop
-          let ggufDone = advancedReady;
-          while (!ggufDone) {
-            const ggufResult = await runGgufPrefetch({ isTTY, defaultsSettings: useDefaults });
-            if (ggufResult.ok) {
-              ggufDone = true;
-
-              // GGUF models downloaded — run `local-embeddings upgrade` to pull
-              // the Docker image and start containers. User sees logs in real time.
-              let setupDone = false;
-              while (!setupDone) {
-                const setupResult = runLocalEmbeddingsUpgradeSubprocess(projectRoot);
-                if (setupResult.ok) {
-                  setupDone = true;
-                  const flag = readEmbeddingsReadyFlag(projectRoot);
-                  if (flag) {
-                    getLogger().info({ backend: flag.backend }, 'local-embeddings upgrade completed — advanced mode ready');
-                  }
-                  advancedReady = true;
-                } else {
-                  const setupError = new Error(`local-embeddings upgrade failed (exit ${setupResult.exitCode})`);
-                  const kind = classifyDownloadError(setupError);
-                  const choice: RecoveryChoice = await promptDownloadRecovery({
-                    kind,
-                    error: setupError,
-                    isTTY,
-                    defaultsSettings: useDefaults,
-                  });
-                  if (choice === 'retry') continue;
-                  if (choice === 'quit') {
-                    process.exit(0);
-                  }
-                  // continue-lite
-                  setupDone = true;
-                }
-              }
-            } else {
-              const dlError = ggufResult.lastError ?? new Error('GGUF download failed');
-              const kind = classifyDownloadError(dlError);
-              const choice: RecoveryChoice = await promptDownloadRecovery({
-                kind,
-                error: dlError,
-                isTTY,
-                defaultsSettings: useDefaults,
-                neededGB: 15,
-              });
-              if (choice === 'retry') continue;
-              if (choice === 'quit') {
-                process.exit(0);
-              }
-              // continue-lite
-              ggufDone = true;
-            }
-          }
-
-          if (!advancedReady) {
-            wizardResult = { ...wizardResult, tier: 'lite' };
-            getLogger().warn('advanced setup incomplete — tier forced to lite for this run');
-          }
+        // Provision the embedding backend (lite prefetch + advanced GGUF /
+        // local-embeddings upgrade with recovery). Single source of truth
+        // shared with `anatoly init --advanced`. Returns the effective tier
+        // (advanced downgrades to lite when setup is incomplete).
+        const effectiveTier = await runRagSetup(projectRoot, wizardResult.tier, {
+          isTTY: process.stdin.isTTY === true,
+          defaultsSettings: useDefaults,
+        });
+        if (effectiveTier !== wizardResult.tier) {
+          wizardResult = { ...wizardResult, tier: effectiveTier };
         }
 
         // Write .anatoly.yml so subsequent runs skip the wizard. Uses the

@@ -15,7 +15,7 @@ import { DEFAULT_MODELS } from '../core/default-models.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig, runFirstRunWizard } from '../cli/setup-prompts.js';
+import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig, runFirstRunWizard, runRagSetup } from '../cli/setup-prompts.js';
 import { detectHardware } from '../rag/hardware-detect.js';
 import { loadPreferences } from '../cli/preferences.js';
 import { wizardProvidersToV3 } from '../cli/wizard-v3-mapping.js';
@@ -514,19 +514,22 @@ export function registerInitCommand(program: Command): void {
         if (opts.advanced) p.intro('anatoly init --advanced');
 
         // Phase 1 — RAG / embedding tier. Hardware-aware selection with the
-        // comparison table. (Prefetch/GGUF orchestration is wired in a
-        // follow-up; this resolves the tier and writes the matching
-        // providers/routing.embeddings block instead of hardcoding lite.)
+        // comparison table, then provision the backend (lite prefetch /
+        // advanced GGUF + local-embeddings upgrade with recovery). The
+        // effective tier (advanced may downgrade to lite on setup failure)
+        // is what gets written into the config.
         const prefs = loadPreferences(projectRoot);
-        const { tier } = await runFirstRunWizard({
+        const isTTY = process.stdin.isTTY === true;
+        const { tier: chosenTier } = await runFirstRunWizard({
           hardware: detectHardware(),
-          isTTY: process.stdin.isTTY === true,
+          isTTY,
           defaultsSettings: false,
           quickWin: false,
           savedPreference: prefs?.embeddings?.prefer as 'lite' | 'advanced' | undefined,
           plain: Boolean(process.env.NO_COLOR) || !process.stdout.isTTY,
           projectRoot,
         });
+        const tier = await runRagSetup(projectRoot, chosenTier, { isTTY, defaultsSettings: false });
 
         // Phase 2 — providers + models.
         const selections = await runInitWizard();

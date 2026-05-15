@@ -19,6 +19,7 @@ import { DEFAULT_MODELS } from '../core/default-models.js';
 import { detectProjectProfile } from '../core/language-detect.js';
 import { autoDetectScanGlobs } from '../core/scan-autodetect.js';
 import { defaultDocumentationConfig } from '../core/documentation-config.js';
+import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from './download-recovery.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -449,6 +450,95 @@ export async function writeFirstRunConfig(
   writeFileSync(resolve(projectRoot, '.anatoly.yml'), yamlBody, 'utf-8');
 
   if (tier === 'external') writeExternalReadyFlag(projectRoot);
+}
+
+/**
+ * Provision the embedding backend for a resolved tier: prefetch the lite
+ * ONNX models (as the universal fallback), and for `advanced` download the
+ * GGUF models + run `local-embeddings upgrade` with retry/recovery prompts.
+ *
+ * Single source of truth for RAG provisioning, shared by `anatoly init
+ * --advanced` (RAG phase) and the `anatoly run` first-run path. Returns the
+ * **effective** tier: `advanced` downgrades to `lite` when GGUF setup is
+ * incomplete (recovery: continue-lite), so callers persist the tier the
+ * machine can actually serve.
+ *
+ * @param tier resolved tier (from {@link runFirstRunWizard}).
+ * @returns the effective tier (may downgrade advanced -> lite).
+ */
+export async function runRagSetup(
+  projectRoot: string,
+  tier: 'lite' | 'advanced' | 'external',
+  opts: { isTTY: boolean; defaultsSettings: boolean },
+): Promise<'lite' | 'advanced' | 'external'> {
+  const { isTTY, defaultsSettings } = opts;
+
+  // External: nothing to provision locally (third-party embeddings).
+  if (tier === 'external') return 'external';
+
+  // Lite prefetch (skipped when advanced is already provisioned — running it
+  // would print a misleading "lite ready" line).
+  const advancedAlreadyReady =
+    tier === 'advanced'
+    && readEmbeddingsReadyFlag(projectRoot)?.backend === 'advanced-gguf';
+  if (!advancedAlreadyReady) {
+    await runLitePrefetch({ isTTY, defaultsSettings, asFallback: tier === 'advanced' });
+  }
+
+  if (tier !== 'advanced') return 'lite';
+
+  // Advanced: GGUF download + `local-embeddings upgrade`, with recovery.
+  let advancedReady = advancedAlreadyReady;
+  if (advancedAlreadyReady) {
+    getLogger().info('embeddings-ready.json already set to advanced-gguf — skipping GGUF download + setup');
+  }
+
+  let ggufDone = advancedReady;
+  while (!ggufDone) {
+    const ggufResult = await runGgufPrefetch({ isTTY, defaultsSettings });
+    if (ggufResult.ok) {
+      ggufDone = true;
+      let setupDone = false;
+      while (!setupDone) {
+        const setupResult = runLocalEmbeddingsUpgradeSubprocess(projectRoot);
+        if (setupResult.ok) {
+          setupDone = true;
+          const flag = readEmbeddingsReadyFlag(projectRoot);
+          if (flag) getLogger().info({ backend: flag.backend }, 'local-embeddings upgrade completed — advanced mode ready');
+          advancedReady = true;
+        } else {
+          const setupError = new Error(`local-embeddings upgrade failed (exit ${setupResult.exitCode})`);
+          const choice: RecoveryChoice = await promptDownloadRecovery({
+            kind: classifyDownloadError(setupError),
+            error: setupError,
+            isTTY,
+            defaultsSettings,
+          });
+          if (choice === 'retry') continue;
+          if (choice === 'quit') process.exit(0);
+          setupDone = true; // continue-lite
+        }
+      }
+    } else {
+      const dlError = ggufResult.lastError ?? new Error('GGUF download failed');
+      const choice: RecoveryChoice = await promptDownloadRecovery({
+        kind: classifyDownloadError(dlError),
+        error: dlError,
+        isTTY,
+        defaultsSettings,
+        neededGB: 15,
+      });
+      if (choice === 'retry') continue;
+      if (choice === 'quit') process.exit(0);
+      ggufDone = true; // continue-lite
+    }
+  }
+
+  if (!advancedReady) {
+    getLogger().warn('advanced setup incomplete — falling back to lite');
+    return 'lite';
+  }
+  return 'advanced';
 }
 
 /**
