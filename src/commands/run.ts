@@ -23,7 +23,7 @@ import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
-import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { setRagQueryTrail } from '../rag/vector-store.js';
@@ -173,6 +173,12 @@ export interface RunContext {
   triageEnabled: boolean;
   /** Set to true on SIGINT to request graceful shutdown */
   interrupted: boolean;
+  /**
+   * Run-fatal error (e.g. provider-auth 401) latched by {@link requestFatalStop}.
+   * Once set, the run stops as fast as possible and exits `failed`: `runPhase`
+   * rethrows it at the next phase boundary so it reaches the top-level catch.
+   */
+  fatalError?: unknown;
   /** Path to the run lock file (prevents concurrent runs) */
   lockPath?: string;
   /** Active AbortControllers for in-flight SDK calls (aborted on SIGINT) */
@@ -1714,6 +1720,28 @@ interface RagContext {
   ragEnabled: boolean;
 }
 
+/**
+ * Latch a run-fatal error and stop the run as fast as possible.
+ *
+ * Used when an agent surfaces a non-recoverable failure (today: provider-auth
+ * 401) from inside an error-isolation boundary (per-file/per-page worker)
+ * that would otherwise swallow it and let the run limp to `done`. First call
+ * wins. Reuses the SIGINT plumbing: `interrupted` stops worker-pool dispatch
+ * and phase progression; aborting `activeAborts` cancels in-flight SDK calls.
+ * `runPhase` then rethrows `ctx.fatalError` at the next phase boundary, so it
+ * reaches the top-level catch (failed status, exit code 2, actionable hint).
+ */
+function requestFatalStop(ctx: RunContext, err: unknown): void {
+  if (ctx.fatalError) return;
+  ctx.fatalError = err;
+  ctx.interrupted = true;
+  for (const ac of ctx.activeAborts) ac.abort();
+  getLogger().error(
+    { err, runId: ctx.runId },
+    'run aborted — non-recoverable error; stopping all phases',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Doc generation (LLM) — Story 29.17
 // ---------------------------------------------------------------------------
@@ -1814,9 +1842,21 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       },
       onPageError: (pagePath, err) => {
         ctx.pipelineState?.untrackFile(pagePath);
+        // A provider-auth failure is run-fatal: stop now instead of letting
+        // every remaining page fail and the run limp to `done`.
+        if (isFatalAuthError(err) || isAuthFailureMessage(err.message)) {
+          requestFatalStop(ctx, isFatalAuthError(err) ? err : authError('anthropic'));
+          return;
+        }
         log.warn({ pagePath, err: err.message }, 'doc generation failed for page');
       },
     });
+
+    // Safety net: if any page failed with an auth error but the typed error
+    // was flattened to a string in result.errors, still stop the run.
+    if (!ctx.fatalError && result.errors.some(e => isAuthFailureMessage(e.error))) {
+      requestFatalStop(ctx, authError('anthropic'));
+    }
 
     // Aggregate doc generation LLM costs. Per-call tokens aren't surfaced
     // by `executeDocPrompts` — they remain visible in `costs/ledger.ndjson`.
@@ -1922,6 +1962,10 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
         // identical set skips this pass entirely (see coherenceUpToDate).
         writeCoherenceStatus(ctx.projectRoot, computeDocSetSignature(outputDir));
       } catch (coherenceErr) {
+        if (isFatalAuthError(coherenceErr)) {
+          requestFatalStop(ctx, coherenceErr);
+          return;
+        }
         log.warn({ err: coherenceErr }, 'doc coherence review failed — continuing');
         ctx.renderer?.logPlain(`[${taskId}] coherence review failed — continuing`);
       }
@@ -1982,6 +2026,10 @@ async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
       ctx.pipelineState?.completeTask(taskId, 'all cached');
     }
   } catch (err) {
+    if (isFatalAuthError(err)) {
+      requestFatalStop(ctx, err);
+      return;
+    }
     log.warn({ err }, `${taskId} failed — continuing`);
     rl?.warn({ err }, `${taskId} failed`);
   }
@@ -2739,6 +2787,12 @@ async function runReviewPhase(
           ctx.renderer?.logPlain(`[review] [${completedCount}/${evaluateTotal}] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
         }
       } catch (error) {
+        // Provider-auth failure: stop the whole run now. file-evaluator
+        // propagates it instead of degrading the file, so it lands here.
+        if (isFatalAuthError(error)) {
+          requestFatalStop(ctx, error);
+          return;
+        }
         if (ctx.interrupted) return;
 
         const message = error instanceof AnatolyError ? error.message : String(error);

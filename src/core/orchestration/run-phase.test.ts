@@ -380,4 +380,43 @@ describe('runPhase', () => {
       expect(result).toBe('ok');
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Orchestrator fail-fast seam (ctx.fatalError)
+  // -----------------------------------------------------------------------
+
+  describe('fatal-stop seam', () => {
+    it('rethrows ctx.fatalError when fn returns normally but a fatal was latched', async () => {
+      const fatal = new Error('auth failed');
+      const ctx = createMockCtx();
+      await expect(
+        runPhase(ctx, 'review', async () => {
+          // Simulate a worker latching a run-fatal error while the phase
+          // itself returns normally (errors isolated per file/page).
+          ctx.fatalError = fatal;
+          return 'phase-returned-ok';
+        }),
+      ).rejects.toBe(fatal);
+    });
+
+    it('prefers the latched fatal over an incidental error in the catch path', async () => {
+      const fatal = new Error('auth failed');
+      const ctx = createMockCtx();
+      await expect(
+        runPhase(ctx, 'review', async () => {
+          ctx.fatalError = fatal;
+          // An abort triggered by the fatal-stop surfaces here; the more
+          // actionable latched error must win.
+          throw new Error('aborted');
+        }),
+      ).rejects.toBe(fatal);
+    });
+
+    it('does not interfere when no fatal is latched', async () => {
+      const ctx = createMockCtx();
+      const result = await runPhase(ctx, 'review', async () => 'clean');
+      expect(result).toBe('clean');
+      expect(ctx.fatalError).toBeUndefined();
+    });
+  });
 });

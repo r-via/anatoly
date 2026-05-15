@@ -42,6 +42,13 @@ export interface RunPhaseContext {
   phaseDurations: Record<string, number>;
   runLog?: Logger;
   pipelineState?: { setPhase(phase: string): void };
+  /**
+   * Run-fatal error latched by the orchestrator (e.g. provider-auth 401).
+   * When set, `runPhase` rethrows it after the current phase unwinds, so a
+   * single fatal error stops the whole pipeline regardless of which phase or
+   * worker detected it.
+   */
+  fatalError?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,20 +134,35 @@ export async function runPhase<T>(
     // --- Exit effects (f–h) on success ---
     fireExitEffects(ctx, log, name, phaseStartedAt);
 
+    // Orchestrator fail-fast: a phase may have latched a run-fatal error
+    // (e.g. provider-auth 401) while still returning normally because the
+    // failure was isolated per file/page. Surface it here so the whole run
+    // stops instead of proceeding to the next phase.
+    if (ctx.fatalError) {
+      const fatal = ctx.fatalError;
+      if (fatal instanceof Error) Object.assign(fatal, { phase: name });
+      log.error({ err: fatal, phase: name, runId: ctx.runId }, `phase "${name}" aborted (fatal)`);
+      throw fatal;
+    }
+
     return result;
   } catch (err) {
     // --- Exit effects (f–h) on error ---
     fireExitEffects(ctx, log, name, phaseStartedAt);
 
+    // Prefer the latched run-fatal error (more actionable, e.g. the auth
+    // hint) over an incidental abort/timeout it may have triggered.
+    const toThrow = ctx.fatalError ?? err;
+
     // Error logging
-    log.error({ err, phase: name, runId: ctx.runId }, `phase "${name}" failed`);
+    log.error({ err: toThrow, phase: name, runId: ctx.runId }, `phase "${name}" failed`);
 
     // Attach phase to error object
-    if (err instanceof Error) {
-      Object.assign(err, { phase: name });
+    if (toThrow instanceof Error) {
+      Object.assign(toThrow, { phase: name });
     }
 
-    throw err;
+    throw toThrow;
   }
 }
 

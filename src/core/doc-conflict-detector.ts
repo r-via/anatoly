@@ -7,6 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../utils/logger.js';
+import { isFatalAuthError } from '../utils/errors.js';
 import { resolveDocMode } from './run-config.js';
 import {
   loadDocConflicts,
@@ -513,6 +514,9 @@ export async function detectNewConflictsViaLlm(
       });
       responseText = response.text;
     } catch (err) {
+      // A provider-auth failure is run-fatal: do not swallow it as a skipped
+      // batch — propagate so the orchestrator stops the whole run.
+      if (isFatalAuthError(err)) throw err;
       log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx },
         'doc-conflict-detection: LLM call failed — skipping batch');
       continue;

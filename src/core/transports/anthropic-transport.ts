@@ -15,7 +15,7 @@ import { appendFileSync } from 'node:fs';
 import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { recordLlmCall } from '../../utils/llm-calls-sink.js';
-import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendResult, appendError, type ConvDump } from './conversation-dump.js';
@@ -237,6 +237,11 @@ export class AnthropicTransport implements LlmTransport {
             const errorResult = message as SDKResultError;
             const details =
               errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
+            // A 401 / bad-credential is fatal and non-recoverable: do not
+            // dress it as a generic (retryable) SDK error.
+            if (isAuthFailureMessage(details) || isAuthFailureMessage(transcriptLines.join('\n'))) {
+              throw authError('anthropic', transcriptLines.join('\n'));
+            }
             throw new AnatolyError(
               `Claude Code SDK error [${errorResult.subtype}]: ${details}`,
               ERROR_CODES.SDK_ERROR,
@@ -297,10 +302,17 @@ export class AnthropicTransport implements LlmTransport {
           : {}),
       });
 
-      if (err instanceof AnatolyError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
       const partial =
         transcriptLines.length > 0 ? transcriptLines.join('\n') : undefined;
+      // Auth failure detection: the SDK exits code 1 on a 401 with the auth
+      // error only in the streamed transcript ("Failed to authenticate. API
+      // Error: 401"), not in the thrown message. Surface it as the canonical
+      // non-recoverable auth error so the orchestrator stops the whole run.
+      if (isAuthFailureMessage(rawMessage) || isAuthFailureMessage(partial)) {
+        throw authError('anthropic', partial);
+      }
+      if (err instanceof AnatolyError) throw err;
       throw new AnatolyError(
         `Claude Code SDK query failed: ${rawMessage}`,
         ERROR_CODES.SDK_ERROR,
