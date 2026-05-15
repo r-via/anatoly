@@ -156,6 +156,21 @@ export function buildDocumentationConfig(selections: DocWizardSelections): {
 }
 
 /**
+ * The documentation config used when no interactive choices are made
+ * (first run / quick init): `mode: lite` (per-file RAG retrieval, docs
+ * trusted as-is), `README.md` as the sole reference path, inline comments
+ * off. Single source of truth shared with the first-run yaml writer so the
+ * generated documentation section never drifts between entry paths.
+ */
+export function defaultDocumentationConfig(): ReturnType<typeof buildDocumentationConfig> {
+  return buildDocumentationConfig({
+    referencePaths: ['README.md'],
+    inlineCommentsEnabled: false,
+    internalMode: 'lite',
+  });
+}
+
+/**
  * Merge a new documentation config into an existing YAML string.
  * Preserves all non-documentation sections. Used by --reconfigure-docs.
  * Deterministic: same inputs always produce identical output (NFR7).

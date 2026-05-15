@@ -950,6 +950,10 @@ describe('writeFirstRunConfig', () => {
     expect(doc.enabled).toBe(true);
     expect(doc.reference).toMatchObject({ paths: ['README.md'] });
     expect(doc.internal).toMatchObject({ mode: 'lite' });
+    // Regression: lite mode must NOT carry the removed digest-era sub-block.
+    // The first-run writer now shares the single source of truth with init.
+    expect((doc.internal as Record<string, unknown>).lite).toBeUndefined();
+    expect((doc.internal as Record<string, unknown>).full).toBeUndefined();
   });
 
   it('declares routing.generation slots prefixed with anthropic/', async () => {

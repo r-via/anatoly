@@ -18,6 +18,7 @@ import { tryOpenFile } from '../utils/open.js';
 import { DEFAULT_MODELS } from '../core/default-models.js';
 import { detectProjectProfile } from '../core/language-detect.js';
 import { autoDetectScanGlobs } from '../core/scan-autodetect.js';
+import { defaultDocumentationConfig } from '../commands/init.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -541,13 +542,11 @@ function buildAnnotatedV3Yaml(
       evaluation: {
         axes: {
           ...Object.fromEntries(AXIS_IDS.filter((id) => id !== 'documentation').map((id) => [id, true])),
+          // Single source of truth shared with `anatoly init` so the
+          // documentation section never drifts between entry paths.
           documentation: {
             enabled: true,
-            reference: {
-              paths: ['README.md'],
-              inline_comments: { enabled: false },
-            },
-            internal: { mode: 'lite', lite: { max_tokens: 4000, refresh_on: ['code_change'] } },
+            ...defaultDocumentationConfig(),
           },
         },
       },
