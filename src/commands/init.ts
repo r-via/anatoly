@@ -449,7 +449,10 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
   // 3. Internal documentation mode
   p.note(
     [
-      'How your reference docs reach the review (correction, best-practices,',
+      'These reference docs will be used as the source of truth:',
+      ...referencePaths.map((path) => `  • ${path}`),
+      '',
+      'How they reach the review (correction, best-practices,',
       'overengineering). This is the doc-trust + time trade-off:',
       '',
       'Lite  — per-file RAG retrieval. For each file, the most relevant doc',
