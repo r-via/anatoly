@@ -11,6 +11,7 @@ import * as p from '@clack/prompts';
 import { parseDocument, isMap, YAMLMap } from 'yaml';
 import { detectHardware, readEmbeddingsReadyFlag, GGUF_MIN_VRAM_GB } from '../rag/hardware-detect.js';
 import { runLitePrefetch } from '../cli/setup-prompts.js';
+import { prefetchGgufModels, GGUF_MODELS } from '../rag/gguf-prefetch.js';
 
 /**
  * Locate the setup-embeddings.sh script relative to the package root.
@@ -225,6 +226,7 @@ async function runUpgrade(): Promise<void> {
  *
  * Sub-commands:
  *   - `upgrade`   — install the advanced GPU/GGUF backend (Docker llama.cpp + model weights)
+ *   - `download`  — fetch/verify the GGUF model weights only (no config, no Docker, non-interactive)
  *   - `downgrade` — re-point routing.embeddings back to lite (config-only, no teardown)
  *   - `init`      — re-run the embedding tier picker on an existing project
  *   - `cleanup`   — remove the advanced backend (containers, image, GGUF weights)
@@ -391,5 +393,66 @@ export function registerLocalEmbeddingsCommand(program: Command): void {
     .action(() => {
       const result = runScript(['--check']);
       if (!result.ok) process.exit(result.exitCode || 1);
+    });
+
+  group
+    .command('download')
+    .description('Download/verify the advanced GGUF model weights only — no .anatoly.yml change, no Docker, no prompt (CI/automation friendly)')
+    .action(async () => {
+      // Pure weight fetch: verify SHA-256, download only if missing or
+      // corrupt, update the manifest. Unlike `upgrade` this never touches
+      // `.anatoly.yml` (so no TTY overwrite prompt) and never pulls Docker
+      // images — it just makes ~/.anatoly/shared/models/gguf complete.
+      // Idempotent: re-running skips already-verified files.
+      let hadError = false;
+      let lastPct = -1;
+      await prefetchGgufModels({
+        root: process.cwd(),
+        onProgress: (ev) => {
+          switch (ev.kind) {
+            case 'verify':
+              lastPct = -1;
+              console.log(
+                ev.status === 'ok'
+                  ? `  ✔ ${ev.filename} — present & verified`
+                  : ev.status === 'missing'
+                    ? `  ↓ ${ev.filename} — missing, downloading…`
+                    : `  ↻ ${ev.filename} — checksum mismatch, re-downloading…`,
+              );
+              break;
+            case 'progress': {
+              const pct = Math.floor(ev.percent);
+              // Throttle: one line every 5%.
+              if (pct !== lastPct && pct % 5 === 0) {
+                lastPct = pct;
+                console.log(
+                  `    ${ev.filename}: ${pct}% (${ev.downloadedMB.toFixed(0)}/${ev.totalMB.toFixed(0)} MB)`,
+                );
+              }
+              break;
+            }
+            case 'done':
+              console.log(`  ✔ ${ev.filename} ready`);
+              break;
+            case 'error':
+              hadError = true;
+              console.error(`  ✗ ${ev.filename}: ${ev.error.message}`);
+              break;
+          }
+        },
+      });
+      if (hadError) {
+        p.note(
+          'One or more GGUF models failed. Re-run `anatoly local-embeddings '
+          + 'download` — it is idempotent (verified files are skipped).',
+          'Download incomplete',
+        );
+        process.exit(1);
+      }
+      p.note(
+        `${GGUF_MODELS.length} GGUF model(s) verified in `
+        + `~/.anatoly/shared/models/gguf. No config changed.`,
+        'Download complete',
+      );
     });
 }
