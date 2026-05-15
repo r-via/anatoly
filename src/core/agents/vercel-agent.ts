@@ -90,6 +90,7 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
   // Acquire router slot for concurrency + circuit breaker
   const slot = await router?.acquireSlot(modelId);
   let success = false;
+  let failErr: unknown;
   try {
     const result = await generateText({
       model,
@@ -120,7 +121,10 @@ export async function runVercelAgent(params: VercelAgentParams): Promise<VercelA
       outputTokens,
       cacheReadTokens,
     };
+  } catch (err) {
+    failErr = err;
+    throw err;
   } finally {
-    slot?.release({ success });
+    slot?.release({ success, error: failErr });
   }
 }

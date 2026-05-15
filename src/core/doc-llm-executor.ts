@@ -120,6 +120,7 @@ async function executeOnePage(
 ): Promise<{ costUsd: number }> {
   const slot = await router?.acquireSlot(prompt.model);
   let success = false;
+  let failErr: unknown;
   const start = Date.now();
   try {
     onPageStart?.(prompt.pagePath);
@@ -182,9 +183,10 @@ async function executeOnePage(
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     onPageError?.(prompt.pagePath, error);
+    failErr = error;
     throw error;
   } finally {
-    slot?.release({ success });
+    slot?.release({ success, error: failErr });
   }
 }
 
@@ -763,6 +765,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   // Run the Sonnet agent — single pass (acquire router slot so UI shows 1/N active)
   const slot = await router?.acquireSlot('claude-sonnet-4-6');
   let success = false;
+  let failErr: unknown;
   const ac = abortController ?? new AbortController();
   let resultText = '';
   let costUsd = 0;
@@ -866,8 +869,11 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     cacheReadTokens = result.usageCacheRead;
     cacheCreationTokens = result.usageCacheCreation;
     success = true;
+  } catch (err) {
+    failErr = err;
+    throw err;
   } finally {
-    slot?.release({ success });
+    slot?.release({ success, error: failErr });
   }
 
   // Emit a structured llm_call event so the coherence pass shows up in

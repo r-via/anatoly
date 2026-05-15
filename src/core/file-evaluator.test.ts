@@ -9,7 +9,7 @@ import type { EvaluateFileOptions } from './file-evaluator.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
 import type { AxisEvaluator, AxisResult } from './axis-evaluator.js';
-import { authError } from '../utils/errors.js';
+import { authError, circuitOpenError } from '../utils/errors.js';
 import { readFileSync } from 'node:fs';
 import * as deliberationModule from './deliberation.js';
 import * as axisEvaluatorModule from './axis-evaluator.js';
@@ -147,6 +147,20 @@ describe('evaluateFile', () => {
     const opts = makeOptions({ evaluators: [workingEvaluator, authFailingEvaluator] });
 
     await expect(evaluateFile(opts)).rejects.toMatchObject({ code: 'PROVIDER_AUTH_FAILED' });
+  });
+
+  it('propagates an open circuit breaker instead of degrading the file', async () => {
+    const breakerOpenEvaluator: AxisEvaluator = {
+      id: 'tests',
+      defaultModel: 'haiku',
+      evaluate: vi.fn(async () => { throw circuitOpenError('anthropic'); }),
+    };
+    // A circuit-broken review is worthless; it must abort the run, not be
+    // silently masked by a cached/working axis.
+    const workingEvaluator = makeMockEvaluator('utility');
+    const opts = makeOptions({ evaluators: [workingEvaluator, breakerOpenEvaluator] });
+
+    await expect(evaluateFile(opts)).rejects.toMatchObject({ code: 'CIRCUIT_OPEN' });
   });
 
   it('should aggregate costs from all evaluators', async () => {

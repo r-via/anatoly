@@ -366,7 +366,7 @@ export async function runSingleTurnQuery<T>(
   const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, router, userInstructions, composer, primitive } = params;
 
   // Acquire concurrency slot + transport from router (handles breaker + semaphore)
-  let release: ((opts?: { success: boolean }) => void) | undefined;
+  let release: ((opts?: { success: boolean; error?: unknown }) => void) | undefined;
   let effectiveTransport: LlmTransport;
   if (router) {
     const acquired = await router.acquire(model, 'single_turn');
@@ -381,12 +381,16 @@ export async function runSingleTurnQuery<T>(
   // record with these fields, enabling D.4 byComposer / byPrimitive aggregations.
   const exec = async (): Promise<SingleTurnQueryResult<T>> => {
     let success = false;
+    let failErr: unknown;
     try {
       const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
       success = true;
       return result;
+    } catch (err) {
+      failErr = err;
+      throw err;
     } finally {
-      release?.({ success });
+      release?.({ success, error: failErr });
     }
   };
 

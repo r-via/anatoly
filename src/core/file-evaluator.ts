@@ -7,7 +7,7 @@ import { resolve, join, basename, dirname, extname } from 'node:path';
 import picomatch from 'picomatch';
 import { toOutputName } from '../utils/cache.js';
 import { runWithContext, contextLogger } from '../utils/log-context.js';
-import { AnatolyError, isFatalAuthError } from '../utils/errors.js';
+import { AnatolyError, isFatalAuthError, isCircuitOpenError } from '../utils/errors.js';
 import { isRateLimitStandbyError } from '../utils/rate-limiter.js';
 import type { Task } from '../schemas/task.js';
 import type { Config } from '../schemas/config.js';
@@ -367,15 +367,16 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   // If ALL axes failed and at least one is a tier-level rate limit, propagate it
   // so the outer retryWithBackoff can enter standby mode instead of marking the
   // file as degraded.
-  // A provider-auth failure is run-fatal, not a per-file problem: never
-  // degrade the file with a bad-credential error. Propagate it (even if some
-  // axes happened to hit cache) so the orchestrator stops the whole run.
-  const authErr = settledResults
+  // A provider-auth failure OR an open circuit breaker is run-fatal, not a
+  // per-file problem: never degrade the file with it. Propagate (even if some
+  // axes hit cache) so the orchestrator stops the whole run instead of
+  // silently producing a hollow review served from stale cache.
+  const fatalErr = settledResults
     .filter((s): s is PromiseRejectedResult => s.status === 'rejected')
     .map((s) => s.reason)
-    .find(isFatalAuthError);
-  if (authErr) {
-    throw authErr;
+    .find((r) => isFatalAuthError(r) || isCircuitOpenError(r));
+  if (fatalErr) {
+    throw fatalErr;
   }
 
   if (successResults.length === 0 && failedAxes.length > 0) {
