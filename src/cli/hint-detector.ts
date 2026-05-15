@@ -88,9 +88,9 @@ export function detectHints(ctx: HintContext): Hint[] {
       title: 'Telegram notifications not configured',
       body:
         "You won't get a ping when an audit finishes — useful for long runs.\n" +
-        '`anatoly notifications create-bot` walks you through creating a Telegram bot via @BotFather,\n' +
+        '`anatoly init --notifications` walks you through creating a Telegram bot via @BotFather,\n' +
         'saves the token to .env, and writes the username into .anatoly.yml.',
-      command: { label: 'Run anatoly notifications create-bot', argv: ['notifications', 'create-bot'] },
+      command: { label: 'Run anatoly init --notifications', argv: ['init', '--notifications'] },
     });
   }
 

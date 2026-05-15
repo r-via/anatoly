@@ -590,6 +590,9 @@ export interface V3YamlOverrides {
     routing: Record<string, string>;
   };
   documentation?: ReturnType<typeof defaultDocumentationConfig>;
+  /** When set, emit an active `notifications.telegram` block instead of the
+   *  commented default (advanced-init Telegram phase). */
+  notificationsTelegramUsername?: string;
 }
 
 export function buildAnnotatedV3Yaml(
@@ -679,15 +682,25 @@ export function buildAnnotatedV3Yaml(
     }),
     '',
     sectionHeader('notifications (optional)'),
-    commentedYaml({
-      notifications: {
-        telegram: {
-          enabled: true,
-          username: 'YourTelegramUsername',
-          bot_token_env: 'ANATOLY_TELEGRAM_BOT_TOKEN',
-        },
-      },
-    }),
+    overrides?.notificationsTelegramUsername
+      ? activeYaml({
+          notifications: {
+            telegram: {
+              enabled: true,
+              username: overrides.notificationsTelegramUsername,
+              bot_token_env: 'ANATOLY_TELEGRAM_BOT_TOKEN',
+            },
+          },
+        })
+      : commentedYaml({
+          notifications: {
+            telegram: {
+              enabled: true,
+              username: 'YourTelegramUsername',
+              bot_token_env: 'ANATOLY_TELEGRAM_BOT_TOKEN',
+            },
+          },
+        }),
     '',
     sectionHeader('badge (optional — defaults shown)'),
     commentedYaml({

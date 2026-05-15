@@ -124,8 +124,9 @@ export function createProgram(): Command {
   registerDocsCommand(program);
   registerProvidersCommand(program);
 
-  // Parent "notifications" command with subcommands: create-bot, test
-  const notificationsCmd = program.command('notifications').description('Telegram notification setup and testing');
+  // Parent "notifications" command (test only; bot setup moved to
+  // `anatoly init --notifications`).
+  const notificationsCmd = program.command('notifications').description('Test Telegram notifications (setup: anatoly init --notifications)');
   registerNotificationsCommand(notificationsCmd);
 
   // Parent "runs" command with subcommands: list, attach, remove, repair

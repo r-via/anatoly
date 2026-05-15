@@ -48,7 +48,7 @@ describe('detectHints', () => {
     const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: false });
     expect(hints.map((h) => h.id)).toContain('no-telegram-bot');
     const bot = hints.find((h) => h.id === 'no-telegram-bot');
-    expect(bot?.command?.argv).toEqual(['notifications', 'create-bot']);
+    expect(bot?.command?.argv).toEqual(['init', '--notifications']);
   });
 
   it('omits no-telegram-bot hint when Telegram notifications are enabled', () => {

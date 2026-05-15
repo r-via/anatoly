@@ -35,28 +35,40 @@ async function waitForBotMessage(botToken: string, username: string, maxAttempts
   return null;
 }
 
-/** Registers the `notifications` CLI parent command with subcommands. */
-export function registerNotificationsCommand(parent: Command): void {
-  // --- create-bot ---
-  parent
-    .command('create-bot')
-    .description('Interactive setup: create a Telegram bot and configure notifications')
-    .action(async () => {
-      const projectRoot = resolve('.');
-
-      // Guard: check if already configured — before any user interaction
-      const existingConfig = loadConfig(projectRoot);
-      const existingTelegram = existingConfig.notifications?.telegram;
-      if (existingTelegram?.enabled && (existingTelegram.chat_id || existingTelegram.username)) {
-        const target = existingTelegram.username ? `@${existingTelegram.username}` : `chat_id ${existingTelegram.chat_id}`;
-        p.log.warn(`Telegram notifications are already configured for ${target}.`);
-        const overwrite = await p.confirm({
-          message: 'Overwrite existing configuration?',
-          initialValue: false,
-        });
-        if (isCancelled(overwrite) || !overwrite) {
-          p.cancel('Existing configuration preserved.');
-          process.exit(0);
+/**
+ * Interactive Telegram bot setup. Verifies a bot token, configures the bot
+ * identity, writes the token to `.env`, waits for the user's `/start`, and
+ * sends a welcome message.
+ *
+ * @param projectRoot project root for `.env` / `.anatoly.yml`.
+ * @param opts.writeConfig when true (standalone `anatoly init --notifications`
+ *        path, existing config), patch `.anatoly.yml`'s `notifications`
+ *        block in place. When false (advanced-init phase, config not written
+ *        yet), skip the yaml write and return `{ username }` for the wizard
+ *        to fold into the generated config.
+ * @returns `{ username }` on success, `null` if the user cancels or setup
+ *          can't complete (composes inside a wizard without killing the
+ *          process).
+ */
+export async function runTelegramSetup(
+  projectRoot: string,
+  opts: { writeConfig: boolean },
+): Promise<{ username: string } | null> {
+      // Guard: when patching an existing config, warn if already set.
+      if (opts.writeConfig) {
+        const existingConfig = loadConfig(projectRoot);
+        const existingTelegram = existingConfig.notifications?.telegram;
+        if (existingTelegram?.enabled && (existingTelegram.chat_id || existingTelegram.username)) {
+          const target = existingTelegram.username ? `@${existingTelegram.username}` : `chat_id ${existingTelegram.chat_id}`;
+          p.log.warn(`Telegram notifications are already configured for ${target}.`);
+          const overwrite = await p.confirm({
+            message: 'Overwrite existing configuration?',
+            initialValue: false,
+          });
+          if (isCancelled(overwrite) || !overwrite) {
+            p.cancel('Existing configuration preserved.');
+            return null;
+          }
         }
       }
 
@@ -79,7 +91,7 @@ export function registerNotificationsCommand(parent: Command): void {
           if (!value?.includes(':')) return 'Invalid format. Expected something like 123456:ABC-DEF...';
         },
       });
-      if (isCancelled(token)) { p.cancel('Setup cancelled.'); process.exit(0); }
+      if (isCancelled(token)) { p.cancel('Setup cancelled.'); return null; }
 
       // Verify token
       const verifySpinner = p.spinner();
@@ -89,7 +101,7 @@ export function registerNotificationsCommand(parent: Command): void {
       if (!meResponse.ok) {
         verifySpinner.stop('Invalid token');
         p.cancel('Token verification failed. Check with @BotFather.');
-        process.exit(1);
+        return null;
       }
       const meData = await meResponse.json() as { result: { username: string } };
       const botUsername = meData.result.username;
@@ -157,7 +169,7 @@ export function registerNotificationsCommand(parent: Command): void {
           if (!value) return 'Username is required';
         },
       });
-      if (isCancelled(username)) { p.cancel('Setup cancelled.'); process.exit(0); }
+      if (isCancelled(username)) { p.cancel('Setup cancelled.'); return null; }
 
       // Step 4: User sends /start
       p.note(
@@ -179,27 +191,32 @@ export function registerNotificationsCommand(parent: Command): void {
       if (!chatId) {
         waitSpinner.stop('Not found');
         p.cancel(`Could not detect a message from @${username}. Try sending /start again.`);
-        process.exit(1);
+        return null;
       }
       waitSpinner.stop(`Found @${username} (chat_id: ${chatId})`);
 
-      // Step 5: Update .anatoly.yml
-      const configPath = resolve(projectRoot, '.anatoly.yml');
-      if (existsSync(configPath)) {
-        let configContent = readFileSync(configPath, 'utf-8');
-        if (configContent.includes('notifications:')) {
-          configContent = configContent.replace(
-            /notifications:[\s\S]*?(?=\n\S|\n*$)/,
-            `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`,
-          );
+      // Step 5: Patch .anatoly.yml — only when operating on an existing
+      // config (standalone `init --notifications`). In the advanced-init
+      // flow the config isn't written yet; the wizard folds `{ username }`
+      // into the generated yaml instead.
+      if (opts.writeConfig) {
+        const configPath = resolve(projectRoot, '.anatoly.yml');
+        if (existsSync(configPath)) {
+          let configContent = readFileSync(configPath, 'utf-8');
+          if (configContent.includes('notifications:')) {
+            configContent = configContent.replace(
+              /notifications:[\s\S]*?(?=\n\S|\n*$)/,
+              `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`,
+            );
+          } else {
+            configContent += `\nnotifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`;
+          }
+          writeFileSync(configPath, configContent);
         } else {
-          configContent += `\nnotifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`;
+          writeFileSync(configPath, `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`);
         }
-        writeFileSync(configPath, configContent);
-      } else {
-        writeFileSync(configPath, `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`);
+        p.log.success('.anatoly.yml updated');
       }
-      p.log.success('.anatoly.yml updated');
 
       // Step 6: Send logo + welcome message
       const welcomeSpinner = p.spinner();
@@ -245,9 +262,13 @@ export function registerNotificationsCommand(parent: Command): void {
         '👥 Team onboarding',
       );
 
-      p.outro('🧹 Setup complete — Anatoly is watching.');
-    });
+      if (opts.writeConfig) p.outro('🧹 Setup complete — Anatoly is watching.');
+      return { username };
+}
 
+/** Registers the `notifications` CLI parent command (test subcommand only;
+ *  bot setup is `anatoly init --notifications`). */
+export function registerNotificationsCommand(parent: Command): void {
   // --- test ---
   parent
     .command('test')

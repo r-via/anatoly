@@ -19,6 +19,7 @@ import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig, runFirstRun
 import { detectHardware } from '../rag/hardware-detect.js';
 import { loadPreferences } from '../cli/preferences.js';
 import { wizardProvidersToV3 } from '../cli/wizard-v3-mapping.js';
+import { runTelegramSetup } from './notifications.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
 
@@ -440,38 +441,67 @@ export function registerInitCommand(program: Command): void {
     .description('Interactive wizard to generate a multi-provider .anatoly.yml config')
     .option('--force', 'overwrite existing .anatoly.yml')
     .option('--defaults', 'generate commented-out defaults (non-interactive)')
-    .option('--reconfigure-docs', 'alias of --documentation (reconfigure the documentation phase)')
     .option('--quick', 'skip the Quick/Advanced question and run the quick zero-prompt setup')
     .option('--advanced', 'skip the Quick/Advanced question and run the full wizard (RAG tier, providers, docs, notifications)')
-    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean; quick?: boolean }) => {
+    .option('--phases <list>', 'reconfigure only these phases on an existing config (comma-separated: rag,providers,documentation,notifications)')
+    .option('--rag', 'reconfigure only the RAG/embedding-tier phase (= --phases rag)')
+    .option('--providers', 'reconfigure only the providers/models phase (= --phases providers)')
+    .option('--documentation', 'reconfigure only the documentation phase (= --phases documentation)')
+    .option('--reconfigure-docs', 'alias of --documentation')
+    .option('--notifications', 'reconfigure only the Telegram notifications phase (= --phases notifications)')
+    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean; quick?: boolean; phases?: string; rag?: boolean; providers?: boolean; documentation?: boolean; notifications?: boolean }) => {
       const projectRoot = process.cwd();
       const configPath = resolve(projectRoot, CONFIG_FILENAME);
 
-      // --reconfigure-docs: only replay doc prompts on existing config
-      if (opts.reconfigureDocs) {
+      // --phases / per-phase flags: reconfigure a subset against an existing
+      // config and merge the result back in.
+      const VALID_PHASES = ['rag', 'providers', 'documentation', 'notifications'] as const;
+      type Phase = (typeof VALID_PHASES)[number];
+      const requestedPhases = new Set<Phase>();
+      if (opts.phases) {
+        for (const raw of opts.phases.split(',').map((s) => s.trim()).filter(Boolean)) {
+          if (!(VALID_PHASES as readonly string[]).includes(raw)) {
+            p.log.error(`Unknown phase "${raw}". Valid: ${VALID_PHASES.join(', ')}`);
+            process.exit(1);
+          }
+          requestedPhases.add(raw as Phase);
+        }
+      }
+      if (opts.rag) requestedPhases.add('rag');
+      if (opts.providers) requestedPhases.add('providers');
+      if (opts.documentation || opts.reconfigureDocs) requestedPhases.add('documentation');
+      if (opts.notifications) requestedPhases.add('notifications');
+
+      if (requestedPhases.size > 0) {
         if (!existsSync(configPath)) {
           p.log.error('no .anatoly.yml found; run `anatoly init` first to create one');
           process.exit(1);
         }
+        p.intro(`anatoly init --phases ${[...requestedPhases].join(',')}`);
 
-        p.intro('anatoly init --reconfigure-docs');
-
-        const docSelections = await runDocWizard(projectRoot);
-        const docConfig = buildDocumentationConfig(docSelections);
-
-        const existingContent = readFileSync(configPath, 'utf-8');
-        const newContent = mergeDocumentationIntoYaml(existingContent, docConfig);
-
-        p.note(newContent, 'Preview');
-
-        const confirmed = await p.confirm({ message: 'Write updated config?' });
-        if (isCancelled(confirmed) || !confirmed) {
-          p.cancel('Aborted.');
-          return;
+        if (requestedPhases.has('documentation')) {
+          const docSelections = await runDocWizard(projectRoot);
+          const docConfig = buildDocumentationConfig(docSelections);
+          const newContent = mergeDocumentationIntoYaml(readFileSync(configPath, 'utf-8'), docConfig);
+          p.note(newContent, 'Preview (documentation)');
+          const confirmed = await p.confirm({ message: 'Write documentation changes?' });
+          if (isCancelled(confirmed) || !confirmed) { p.cancel('Aborted.'); return; }
+          writeFileSync(configPath, newContent);
+          p.log.success(`${CONFIG_FILENAME} documentation section updated.`);
         }
 
-        writeFileSync(configPath, newContent);
-        p.log.success(`${CONFIG_FILENAME} documentation section updated.`);
+        if (requestedPhases.has('notifications')) {
+          // runTelegramSetup patches .anatoly.yml in place (writeConfig=true).
+          await runTelegramSetup(projectRoot, { writeConfig: true });
+        }
+
+        if (requestedPhases.has('rag') || requestedPhases.has('providers')) {
+          p.log.warn(
+            'Isolated `rag` / `providers` reconfiguration is not yet a surgical merge. '
+            + 'Re-run `anatoly init --advanced` to reconfigure them (it rewrites the full config).',
+          );
+        }
+
         p.outro('Done');
         return;
       }
@@ -542,10 +572,24 @@ export function registerInitCommand(program: Command): void {
         );
         for (const w of warnings) p.log.warn(w);
 
+        // Phase 4 — notifications (optional Telegram). Folded into the
+        // generated yaml; the .anatoly.yml isn't written yet so the setup
+        // runs with writeConfig=false and returns the username.
+        let notificationsTelegramUsername: string | undefined;
+        const wantTelegram = await p.confirm({
+          message: 'Configure Telegram notifications now?',
+          initialValue: false,
+        });
+        if (!isCancelled(wantTelegram) && wantTelegram) {
+          const tg = await runTelegramSetup(projectRoot, { writeConfig: false });
+          if (tg) notificationsTelegramUsername = tg.username;
+        }
+
         const scanGlobs = await detectScanGlobs(projectRoot);
         const content = buildAnnotatedV3Yaml(tier, Boolean(process.env.ANTHROPIC_API_KEY), scanGlobs, {
           generation: { providers, routing: routingGeneration },
           documentation: docConfig,
+          ...(notificationsTelegramUsername ? { notificationsTelegramUsername } : {}),
         });
 
         p.note(content, 'Preview');
