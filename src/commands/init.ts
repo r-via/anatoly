@@ -15,6 +15,8 @@ import { DEFAULT_MODELS } from '../core/default-models.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import { loadConfig } from '../utils/config-loader.js';
+import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig } from '../cli/setup-prompts.js';
+import { wizardProvidersToV3 } from '../cli/wizard-v3-mapping.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
 
@@ -38,13 +40,10 @@ export interface WizardSelections {
   };
 }
 
-export interface DocWizardSelections {
-  referencePaths: string[];
-  inlineCommentsEnabled: boolean;
-  inlineCommentKinds?: DocCommentKind[];
-  inlineCommentInclude?: string[];
-  internalMode: 'full' | 'lite' | 'off';
-}
+// DocWizardSelections moved to core/documentation-config.ts; re-exported
+// for back-compat with existing importers (init.test.ts).
+export type { DocWizardSelections } from '../core/documentation-config.js';
+import type { DocWizardSelections } from '../core/documentation-config.js';
 
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
@@ -106,69 +105,12 @@ export function detectDocPaths(projectRoot: string): string[] {
   return found;
 }
 
-/**
- * Build a documentation config object from wizard selections.
- * Returns an object matching the DocumentationConfigSchema shape.
- */
-export function buildDocumentationConfig(selections: DocWizardSelections): {
-  reference: {
-    paths: string[];
-    inline_comments: {
-      enabled: boolean;
-      kinds?: DocCommentKind[];
-      include?: string[];
-    };
-  };
-  internal: {
-    mode: 'full' | 'lite' | 'off';
-    full?: { sync_to_repo: boolean };
-  };
-} {
-  const reference: {
-    paths: string[];
-    inline_comments: {
-      enabled: boolean;
-      kinds?: DocCommentKind[];
-      include?: string[];
-    };
-  } = {
-    paths: selections.referencePaths,
-    inline_comments: { enabled: selections.inlineCommentsEnabled },
-  };
-
-  if (selections.inlineCommentsEnabled && selections.inlineCommentKinds) {
-    reference.inline_comments.kinds = selections.inlineCommentKinds;
-    reference.inline_comments.include = selections.inlineCommentInclude ?? [];
-  }
-
-  const internal: {
-    mode: 'full' | 'lite' | 'off';
-    full?: { sync_to_repo: boolean };
-  } = { mode: selections.internalMode };
-
-  // lite mode needs no sub-config: reference docs are retrieved per-file via
-  // RAG at review time. Only full mode carries a sub-block.
-  if (selections.internalMode === 'full') {
-    internal.full = { sync_to_repo: false };
-  }
-
-  return { reference, internal };
-}
-
-/**
- * The documentation config used when no interactive choices are made
- * (first run / quick init): `mode: lite` (per-file RAG retrieval, docs
- * trusted as-is), `README.md` as the sole reference path, inline comments
- * off. Single source of truth shared with the first-run yaml writer so the
- * generated documentation section never drifts between entry paths.
- */
-export function defaultDocumentationConfig(): ReturnType<typeof buildDocumentationConfig> {
-  return buildDocumentationConfig({
-    referencePaths: ['README.md'],
-    inlineCommentsEnabled: false,
-    internalMode: 'lite',
-  });
-}
+// `buildDocumentationConfig` / `defaultDocumentationConfig` moved to
+// `core/documentation-config.ts` (neutral module) to break the
+// init <-> setup-prompts import cycle. Re-exported here for back-compat
+// with existing importers (init.test.ts); also imported for local use.
+export { buildDocumentationConfig, defaultDocumentationConfig } from '../core/documentation-config.js';
+import { buildDocumentationConfig } from '../core/documentation-config.js';
 
 /**
  * Merge a new documentation config into an existing YAML string.
@@ -527,7 +469,8 @@ export function registerInitCommand(program: Command): void {
     .option('--force', 'overwrite existing .anatoly.yml')
     .option('--defaults', 'generate commented-out defaults (non-interactive)')
     .option('--reconfigure-docs', 'reconfigure only the documentation section')
-    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean }) => {
+    .option('--advanced', 'full interactive wizard (providers, models, doc mode); default is quick zero-prompt')
+    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean }) => {
       const projectRoot = process.cwd();
       const configPath = resolve(projectRoot, CONFIG_FILENAME);
 
@@ -574,40 +517,61 @@ export function registerInitCommand(program: Command): void {
         return;
       }
 
-      // Interactive wizard
-      p.intro('anatoly init');
+      // --advanced: full interactive wizard, written through the single v3
+      // yaml writer (providers/routing derived from selections via the
+      // canonical v2->v3 mapping; doc section from the doc wizard).
+      if (opts.advanced) {
+        p.intro('anatoly init --advanced');
 
-      const selections = await runInitWizard();
-      const configObj = buildInitConfig(selections);
+        const selections = await runInitWizard();
+        const docSelections = await runDocWizard(projectRoot);
+        const docConfig = buildDocumentationConfig(docSelections);
+        const { providers, routingGeneration, warnings } = wizardProvidersToV3(
+          selections.providers,
+          selections.models,
+        );
+        for (const w of warnings) p.log.warn(w);
 
-      // Documentation wizard — runs after providers/models
-      const docSelections = await runDocWizard(projectRoot);
-      const docConfig = buildDocumentationConfig(docSelections);
+        const scanGlobs = await detectScanGlobs(projectRoot);
+        const content = buildAnnotatedV3Yaml('lite', Boolean(process.env.ANTHROPIC_API_KEY), scanGlobs, {
+          generation: { providers, routing: routingGeneration },
+          documentation: docConfig,
+        });
 
-      const configWithDocs = { ...configObj, documentation: docConfig };
-      const docComment = `# Generated by anatoly init on ${new Date().toISOString().slice(0, 10)}. Re-run with: anatoly init --reconfigure-docs`;
-      const yamlStr = yaml.dump(configWithDocs, { lineWidth: 120, noRefs: true });
+        p.note(content, 'Preview');
+        const confirmed = await p.confirm({ message: 'Write this config?' });
+        if (isCancelled(confirmed) || !confirmed) {
+          p.cancel('Aborted.');
+          return;
+        }
 
-      // Insert doc comment before documentation: key
-      const yamlLines = yamlStr.split('\n');
-      const docIdx = yamlLines.findIndex((l) => l.startsWith('documentation:'));
-      if (docIdx >= 0) yamlLines.splice(docIdx, 0, docComment);
+        writeFileSync(configPath, content);
+        p.log.success(`${CONFIG_FILENAME} written.`);
+        p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
+        p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
+        p.log.info(`Documentation: mode=${docSelections.internalMode}, ${docSelections.referencePaths.length} reference paths`);
+      } else {
+        // Quick (default): zero prompts. Infer reference paths, default
+        // everything else, doc mode lite. Single v3 writer via
+        // writeFirstRunConfig. Transparent recap, no confirmation.
+        p.intro('anatoly init');
 
-      const content = `# Anatoly multi-provider configuration (v2)\n# Generated by anatoly init\n\n${yamlLines.join('\n')}`;
+        const detectedPaths = detectDocPaths(projectRoot);
+        const referencePaths = detectedPaths.length > 0 ? detectedPaths : ['README.md'];
+        const docConfig = buildDocumentationConfig({
+          referencePaths,
+          inlineCommentsEnabled: false,
+          internalMode: 'lite',
+        });
 
-      p.note(content, 'Preview');
+        await writeFirstRunConfig(projectRoot, { overrides: { documentation: docConfig } });
 
-      const confirmed = await p.confirm({ message: 'Write this config?' });
-      if (isCancelled(confirmed) || !confirmed) {
-        p.cancel('Aborted.');
-        return;
+        p.log.success(`${CONFIG_FILENAME} written (quick setup).`);
+        p.log.info(`Reference docs: ${referencePaths.join(', ')}`);
+        p.log.info('Docs trusted as-is (lite, per-file RAG retrieval). If your docs may be stale,');
+        p.log.info('run `anatoly init --advanced` and pick full (3-way arbitration).');
+        p.log.info('Run `anatoly init --advanced` to customize providers, models, and doc mode.');
       }
-
-      writeFileSync(configPath, content);
-      p.log.success(`${CONFIG_FILENAME} written.`);
-      p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
-      p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
-      p.log.info(`Documentation: mode=${docSelections.internalMode}, ${docSelections.referencePaths.length} reference paths`);
 
       // Pre-warm the pricing registry
       try {
