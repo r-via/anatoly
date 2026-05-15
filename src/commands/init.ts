@@ -449,7 +449,8 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
   // 3. Internal documentation mode
   p.note(
     [
-      'These reference docs will be used as the source of truth:',
+      'These reference docs will be used as the source of truth in lite',
+      'mode and arbitrated in full mode:',
       ...referencePaths.map((path) => `  • ${path}`),
       '',
       'How they reach the review (correction, best-practices,',
