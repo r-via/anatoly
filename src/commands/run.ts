@@ -75,7 +75,7 @@ import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runInitSubprocess, writeFirstRunConfig, runEndOfSetupPrompt } from '../cli/setup-prompts.js';
+import { runInitSubprocess, writeFirstRunConfig, runRagSetup, runEndOfSetupPrompt } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation-config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { detectProjectIdentity } from '../core/project-version.js';
@@ -424,6 +424,9 @@ export function registerRunCommand(program: Command): void {
             const { config: quickDoc } = quickInitDocConfig(projectRoot);
             await writeFirstRunConfig(projectRoot, { overrides: { documentation: quickDoc } });
             getLogger().info('first-run: no config — wrote quick default (non-interactive)');
+            // Quick default is lite-tier: provision the lite ONNX models
+            // now so the audit doesn't stall on a cold embedding download.
+            await runRagSetup(projectRoot, 'lite', { isTTY: false, defaultsSettings: true });
           } catch (err) {
             getLogger().warn({ err }, 'failed to write .anatoly.yml — continuing with defaults');
           }

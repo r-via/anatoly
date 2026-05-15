@@ -611,6 +611,14 @@ export function registerInitCommand(program: Command): void {
         const { config: docConfig, referencePaths } = quickInitDocConfig(projectRoot);
         await writeFirstRunConfig(projectRoot, { overrides: { documentation: docConfig } });
 
+        // Quick mode is lite-tier: still provision the lite ONNX embedding
+        // models now (with progress) so the first audit doesn't stall on a
+        // cold download. runRagSetup('lite') = runLitePrefetch.
+        await runRagSetup(projectRoot, 'lite', {
+          isTTY: process.stdin.isTTY === true,
+          defaultsSettings: !(process.stdin.isTTY === true),
+        });
+
         p.log.success(`${CONFIG_FILENAME} written (quick setup).`);
         p.log.info(`Reference docs: ${referencePaths.join(', ')}`);
         p.log.info('Docs trusted as-is (lite, per-file RAG retrieval). If your docs may be stale,');
