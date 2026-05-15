@@ -447,12 +447,34 @@ async function runDocWizard(projectRoot: string): Promise<DocWizardSelections> {
   }
 
   // 3. Internal documentation mode
+  p.note(
+    [
+      'How your reference docs reach the review (correction, best-practices,',
+      'overengineering). This is the doc-trust + time trade-off:',
+      '',
+      'Lite  — per-file RAG retrieval. For each file, the most relevant doc',
+      '        sections are fetched and injected as ground truth. Your docs',
+      '        are TRUSTED: if the code contradicts them it is flagged as a',
+      '        bug against the code. No LLM at the doc stage, no extra run',
+      '        time. Pick this when your docs are maintained and current.',
+      '',
+      'Full  — Anatoly LLM-generates internal docs from the code, then runs',
+      '        a 3-way arbitration (your docs vs generated docs vs code).',
+      '        Docs are NOT blindly trusted: drift is surfaced, not assumed.',
+      '        Adds an LLM doc phase: noticeably slower and costs tokens on',
+      '        the first run / after code changes. Pick this when docs may',
+      '        be stale and you want code/doc divergence detected.',
+      '',
+      'Off   — no doc context at all. Fastest, code-only audit.',
+    ].join('\n'),
+    'Documentation mode',
+  );
   const internalMode = await p.select({
     message: 'Internal documentation generation mode',
     options: [
-      { value: 'lite' as const, label: 'Lite', hint: 'per-file RAG retrieval of your docs, no LLM, authoritative' },
-      { value: 'full' as const, label: 'Full', hint: 'LLM-curated internal docs, 3-way coherence + arbitration' },
-      { value: 'off' as const, label: 'Off', hint: 'no doc context, code-only audit' },
+      { value: 'lite' as const, label: 'Lite', hint: 'per-file RAG retrieval, no LLM, docs trusted, no extra time' },
+      { value: 'full' as const, label: 'Full', hint: 'LLM-curated + 3-way arbitration, slower + token cost' },
+      { value: 'off' as const, label: 'Off', hint: 'no doc context, fastest, code-only' },
     ],
   });
   if (isCancelled(internalMode)) { p.cancel('Setup cancelled.'); process.exit(0); }
