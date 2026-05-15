@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { AnatolyError, ERROR_CODES } from './errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isFatalAuthError, authError } from './errors.js';
 
 describe('AnatolyError', () => {
   it('should create an error with code and recoverable flag', () => {
@@ -120,5 +120,48 @@ describe('AnatolyError', () => {
       const obj = err.toLogObject();
       expect(obj).not.toHaveProperty('stack');
     });
+  });
+});
+
+describe('isAuthFailureMessage', () => {
+  it.each([
+    'Failed to authenticate. API Error: 401',
+    '{"error":{"type":"authentication_error","message":"Invalid authentication credentials"}}',
+    'API Error: 401 unauthorized',
+    'invalid x-api-key',
+    'OAuth token has expired',
+  ])('detects auth failure text: %s', (msg) => {
+    expect(isAuthFailureMessage(msg)).toBe(true);
+  });
+
+  it.each([
+    '',
+    null,
+    undefined,
+    'Claude Code process exited with code 1',
+    'rate limit exceeded (429)',
+    'section "ADR-007 ..." (401 chars)', // 401 as a count, not an HTTP status
+    'ECONNRESET',
+  ])('does not false-positive on: %s', (msg) => {
+    expect(isAuthFailureMessage(msg as string | null | undefined)).toBe(false);
+  });
+});
+
+describe('isFatalAuthError / authError', () => {
+  it('authError() is a non-recoverable PROVIDER_AUTH_FAILED with an actionable hint', () => {
+    const err = authError('anthropic', 'partial transcript');
+    expect(err).toBeInstanceOf(AnatolyError);
+    expect(err.code).toBe(ERROR_CODES.PROVIDER_AUTH_FAILED);
+    expect(err.recoverable).toBe(false);
+    expect(err.hint).toMatch(/authentication/i);
+    expect(err.detail).toBe('partial transcript');
+    expect(err.message).toContain('anthropic');
+  });
+
+  it('isFatalAuthError only matches the canonical auth error', () => {
+    expect(isFatalAuthError(authError('anthropic'))).toBe(true);
+    expect(isFatalAuthError(new AnatolyError('x', ERROR_CODES.SDK_ERROR, true))).toBe(false);
+    expect(isFatalAuthError(new Error('401 unauthorized'))).toBe(false);
+    expect(isFatalAuthError(undefined)).toBe(false);
   });
 });

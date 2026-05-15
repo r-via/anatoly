@@ -148,3 +148,60 @@ export class AnatolyError extends Error {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Provider authentication failure
+// ---------------------------------------------------------------------------
+
+/**
+ * Heuristic: does this text look like a provider authentication failure
+ * (HTTP 401 / invalid or expired credentials)?
+ *
+ * The Claude Agent SDK does not surface a typed auth error: on a 401 the
+ * subprocess prints the API error and exits with code 1, so the only signal
+ * is the message/transcript text. Matched substrings cover the SDK wording
+ * ("Failed to authenticate. API Error: 401"), the Anthropic API error type
+ * (`authentication_error` / "invalid x-api-key" / "invalid authentication
+ * credentials"), and a bare 401-unauthorized.
+ */
+export function isAuthFailureMessage(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  return (
+    t.includes('authentication_error') ||
+    t.includes('invalid authentication credentials') ||
+    t.includes('failed to authenticate') ||
+    t.includes('invalid x-api-key') ||
+    t.includes('invalid bearer token') ||
+    t.includes('oauth token has expired') ||
+    /\bapi error:\s*401\b/.test(t) ||
+    /\b401\b[^]*?\bunauthor/.test(t)
+  );
+}
+
+/**
+ * True when `err` is the canonical, non-recoverable provider-auth failure
+ * (an {@link AnatolyError} carrying {@link ERROR_CODES.PROVIDER_AUTH_FAILED}).
+ *
+ * The orchestrator uses this to fail the whole run fast: a bad credential is
+ * not a transient provider-health issue, so it must not be retried, must not
+ * count toward the circuit breaker, and must not be degraded per-file.
+ */
+export function isFatalAuthError(err: unknown): err is AnatolyError {
+  return err instanceof AnatolyError && err.code === ERROR_CODES.PROVIDER_AUTH_FAILED;
+}
+
+/**
+ * Build the canonical non-recoverable provider-auth error. `detail` carries
+ * the partial transcript for the on-disk dump; the user-facing hint comes
+ * from {@link DEFAULT_HINTS}.
+ */
+export function authError(provider: string, detail?: string): AnatolyError {
+  return new AnatolyError(
+    `${provider} authentication failed (HTTP 401): the provider rejected the credentials. The run cannot continue.`,
+    ERROR_CODES.PROVIDER_AUTH_FAILED,
+    false,
+    undefined,
+    detail,
+  );
+}
