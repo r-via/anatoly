@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream, readdirSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream } from 'node:fs';
 
 import { resolve, join, relative, basename } from 'node:path';
 import chalk from 'chalk';
@@ -32,12 +32,13 @@ import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, listRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, purgeRuns, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { enterLlmCallSink, getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../utils/llm-calls-sink.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
+import { withTimeout } from '../utils/with-timeout.js';
 import type { Task } from '../schemas/task.js';
 import type { ReviewFile } from '../schemas/review.js';
 import { triageFile, generateSkipReview, evaluatorAxesForSkip, type TriageResult } from '../core/triage.js';
@@ -54,7 +55,7 @@ import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { injectBadge } from '../core/badge.js';
-import { runDocScaffold, runDocGeneration, type DocPipelineResult } from '../core/doc-pipeline.js';
+import { runDocScaffold, runDocGeneration, commitDocPage, type DocPipelineResult } from '../core/doc-pipeline.js';
 import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
@@ -80,7 +81,7 @@ import { quickInitDocConfig } from '../core/documentation-config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { detectProjectIdentity } from '../core/project-version.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
-import { needsBootstrap, writeScaffoldStatus } from '../core/doc-bootstrap.js';
+import { needsBootstrap, writeScaffoldStatus, writeCoherenceStatus, computeDocSetSignature, coherenceUpToDate } from '../core/doc-bootstrap.js';
 import { runRefinementPhase } from '../core/refinement/phase.js';
 import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
@@ -611,16 +612,12 @@ export function registerRunCommand(program: Command): void {
       }
 
       // Warn about empty (phantom) runs
-      const runsDir = anatolyPath(projectRoot, 'runs');
-      const existingRuns = listRuns(projectRoot);
-      const emptyRunCount = existingRuns.filter((id) => {
-        try { return readdirSync(join(runsDir, id, 'reviews')).length === 0; } catch { return true; }
-      }).length;
+      const emptyRunCount = countEmptyRuns(projectRoot);
       if (emptyRunCount > 0) {
         printNotice({
           kind: 'warn',
           title: `${emptyRunCount} empty audit(s) in .anatoly/runs/`,
-          hint: `run ${chalk.bold('anatoly audit remove --empty')} to clean up`,
+          hint: `run ${chalk.bold(RUNS_REMOVE_EMPTY_CMD)} to clean up`,
         });
       }
 
@@ -927,8 +924,12 @@ export function registerRunCommand(program: Command): void {
         // emit records via recordLlmCall(), persisted to costs/ledger.ndjson.
         enterLlmCallSink(join(ctx.runDir, 'costs', 'ledger.ndjson'));
 
-        // Detect first run — Story 29.21
-        ctx.isFirstRun = needsBootstrap(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
+        // Detect first run — Story 29.21. The doc ledger lives next to the
+        // docs under ctx.projectRoot (runDocScaffold/runDocGeneration write
+        // there), so all flag I/O uses ctx.projectRoot. In non-worktree runs
+        // this equals the old effectiveSourceRoot; in worktree it now
+        // correctly points where the docs actually are.
+        ctx.isFirstRun = needsBootstrap(ctx.projectRoot);
 
         // Initialize pipeline display
         const pipelineState = new PipelineState();
@@ -987,7 +988,7 @@ export function registerRunCommand(program: Command): void {
           // pass), so a crash mid-pipeline leaves no tag and the next run
           // correctly re-bootstraps.
           if (!ctx.interrupted) {
-            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
+            writeScaffoldStatus(ctx.projectRoot, {
               mode: 'bootstrap',
               runId: ctx.runId,
             });
@@ -1036,9 +1037,9 @@ export function registerRunCommand(program: Command): void {
             await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
           }
 
-          // Refresh the scaffold-status tag to record this successful update.
+          // Refresh the pipeline-complete marker to record this update.
           if (!ctx.interrupted) {
-            writeScaffoldStatus(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), {
+            writeScaffoldStatus(ctx.projectRoot, {
               mode: 'update',
               runId: ctx.runId,
             });
@@ -1560,7 +1561,10 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const internalDocsTree = buildDocsTree(srcRoot, join('.anatoly', 'state', 'internal-docs'));
 
   // --- Phase: docs (internal + project merged into one user-facing row) ---
-  const bootstrapNeeded = needsBootstrap(srcRoot);
+  // Flag I/O uses ctx.projectRoot (where the doc ledger + docs live), not
+  // srcRoot — they differ only under worktrees, where the ledger correctly
+  // tracks the real doc location.
+  const bootstrapNeeded = needsBootstrap(ctx.projectRoot);
   if (!isDocAxisActive(ctx) && bootstrapNeeded) {
     pipelineRows.push({ phase: 'docs', detail: 'skipped (documentation axis off)' });
   } else if (bootstrapNeeded) {
@@ -1728,23 +1732,62 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
   ctx.pipelineState?.startTask(taskId, startDetail);
 
   const phaseStart = Date.now();
+  const timeoutMs = ctx.config.runtime.timeout_per_file * 1000;
   let completed = 0;
   const executor: DocExecutor = async ({ system, user, model }) => {
-    // Doc generation uses agentic query with Read tool for file access
-    const response = await ctx.router!.agenticQuery({
-      systemPrompt: system,
-      userMessage: user,
-      model,
-      projectRoot: ctx.projectRoot,
-      abortController: ac,
-      allowedTools: ['Read'],
-      maxTurns: ctx.config.agents.max_turns,
-      config: ctx.config,
-      conversationDir: join(ctx.runDir, 'conversations'),
-      conversationPrefix: `doc-gen-${Date.now()}`,
-      attempt: 1,
-    });
-    return { text: response.text, costUsd: response.costUsd };
+    // Concurrency is owned by executeDocPrompts/executeOnePage, which already
+    // holds a router slot for this page. Routing through router.agenticQuery()
+    // would acquire a *second* slot on the same per-provider semaphore and
+    // deadlock the whole bootstrap once pages >= provider concurrency (Story
+    // 46.5 regression). Resolve the transport directly — same contract as
+    // pipeline-runner's createExecutor — and own the retry here.
+    const transport = ctx.router!.resolve(model, 'agents');
+    if (!transport.agenticQuery) {
+      throw new Error(`Transport '${transport.provider}' does not support agentic queries`);
+    }
+    // Per-page abort + wall-clock budget: the SDK loop has no internal timeout,
+    // so without this a single stuck page hangs the whole Promise.allSettled.
+    // Registered in activeAborts so SIGINT cancels it too. The shared phase
+    // `ac` stays reserved for the coherence pass below.
+    const pageAc = new AbortController();
+    ctx.activeAborts.add(pageAc);
+    try {
+      const response = await withTimeout(
+        () => retryWithBackoff(
+          () => transport.agenticQuery!({
+            systemPrompt: system,
+            userMessage: user,
+            model,
+            projectRoot: ctx.projectRoot,
+            abortController: pageAc,
+            allowedTools: ['Read'],
+            maxTurns: ctx.config.agents.max_turns,
+            config: ctx.config,
+            conversationDir: join(ctx.runDir, 'conversations'),
+            conversationPrefix: `doc-gen-${Date.now()}`,
+            attempt: 1,
+          }),
+          {
+            maxRetries: 5,
+            baseDelayMs: 5_000,
+            maxDelayMs: 60_000,
+            jitterFactor: 0.2,
+            filePath: 'doc-gen',
+            isInterrupted: () => ctx.interrupted || pageAc.signal.aborted,
+            onRetry: (attempt, delayMs) =>
+              getLogger().warn({ attempt, delayMs }, 'doc generation retrying'),
+          },
+        ),
+        {
+          timeoutMs,
+          label: 'doc page generation',
+          onTimeout: () => pageAc.abort(),
+        },
+      );
+      return { text: response.text, costUsd: response.costUsd };
+    } finally {
+      ctx.activeAborts.delete(pageAc);
+    }
   };
 
   try {
@@ -1760,6 +1803,11 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
       },
       onPageComplete: (pagePath) => {
         completed++;
+        // Per-page completion flag: the page is now written to disk, so
+        // record its source hashes immediately — before coherence. A crash
+        // or interrupt after this point leaves this page cached (skipped
+        // next run) while still-stub pages stay uncached (regenerated).
+        commitDocPage(genResult.cachePath, pagePath, genResult.pageHashes[pagePath] ?? {});
         ctx.pipelineState?.untrackFile(pagePath);
         ctx.pipelineState?.updateTask(taskId, `${completed}/${total} pages updated`);
         ctx.renderer?.logPlain(`[${taskId}] ${completed}/${total} ${pagePath}`);
@@ -1812,7 +1860,17 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
     }
 
     // Coherence review — only on first run (bootstrap). Use `anatoly docs coherence` for on-demand.
-    if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
+    // Skip when the coherence agent already flagged this exact doc set: a
+    // retry must not redo a coherence pass whose inputs are byte-identical.
+    if (
+      result.pagesWritten > 0 &&
+      !ctx.interrupted &&
+      taskId === 'bootstrap-doc' &&
+      coherenceUpToDate(ctx.projectRoot, outputDir)
+    ) {
+      log.info('doc coherence review skipped — doc set unchanged since last pass');
+      ctx.renderer?.logPlain(`[${taskId}] coherence review skipped — docs unchanged since last pass`);
+    } else if (result.pagesWritten > 0 && !ctx.interrupted && taskId === 'bootstrap-doc') {
       ctx.pipelineState?.updateTask(taskId, 'coherence review (Sonnet)…');
       ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
       const coherenceStart = Date.now();
@@ -1830,6 +1888,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             abortController: ac,
             logDir: coherenceLogDir,
             router: ctx.router,
+            timeoutMs,
             codeSurface: buildCodeSurfaceSummary(ctx.allTasks),
             callbacks: {
               onToolUse: (_tool, filePath) => {
@@ -1851,6 +1910,10 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
           costUsd: coherenceResult.costUsd,
         }, 'doc coherence review complete');
         ctx.renderer?.logPlain(`[${taskId}] coherence review done — ${coherenceResult.linterIssuesBefore} issues before, ${coherenceResult.linterIssuesAfter} after ($${coherenceResult.costUsd.toFixed(4)})`);
+        // The coherence agent flags its own completion, keyed to the exact
+        // doc set it just reviewed (post-fixes). A later retry with an
+        // identical set skips this pass entirely (see coherenceUpToDate).
+        writeCoherenceStatus(ctx.projectRoot, computeDocSetSignature(outputDir));
       } catch (coherenceErr) {
         log.warn({ err: coherenceErr }, 'doc coherence review failed — continuing');
         ctx.renderer?.logPlain(`[${taskId}] coherence review failed — continuing`);
@@ -2526,9 +2589,10 @@ async function runReviewPhase(
 
       let currentAbort = new AbortController();
       ctx.activeAborts.add(currentAbort);
+      let timedOut = false;
 
       try {
-        const result = await retryWithBackoff(
+        const runEval = () => retryWithBackoff(
           async () => {
             if (ctx.interrupted) throw new Error('interrupted');
             if (currentAbort.signal.aborted) {
@@ -2577,7 +2641,7 @@ async function runReviewPhase(
             maxDelayMs: 120_000,
             jitterFactor: 0.2,
             filePath,
-            isInterrupted: () => ctx.interrupted,
+            isInterrupted: () => ctx.interrupted || timedOut,
             onRetry: (attempt, delayMs) => {
               rl?.info({ event: 'retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
               const delaySec = (delayMs / 1000).toFixed(0);
@@ -2592,6 +2656,18 @@ async function runReviewPhase(
             },
           },
         );
+        // Wall-clock budget per file: the agentic axes have no SDK-level
+        // timeout, so a single stuck file would otherwise hang the review
+        // worker pool indefinitely. `currentAbort` is read live (it may be
+        // re-created across retries), so the abort always hits the active call.
+        const result = await withTimeout(runEval, {
+          timeoutMs: ctx.config.runtime.timeout_per_file * 1000,
+          label: `review ${filePath}`,
+          onTimeout: () => {
+            timedOut = true;
+            currentAbort.abort();
+          },
+        });
 
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
         if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
