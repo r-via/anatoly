@@ -23,7 +23,7 @@ import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
-import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError, isCircuitOpenError } from '../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError, isCircuitOpenError, circuitOpenError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { setRagQueryTrail } from '../rag/vector-store.js';
@@ -2476,6 +2476,20 @@ async function runReviewPhase(
   const log = getLogger();
   const rl = ctx.runLog;
 
+  // Fail-fast: a provider circuit breaker tripped during an earlier phase
+  // (e.g. doc-conflict-update) is still open when review starts moments
+  // later — its half-open delay has not elapsed. Proceeding would fast-fail
+  // every axis on every file and silently produce a report whose
+  // un-evaluated axes render as "clean". Stop the run with an actionable
+  // error instead of publishing a misleading green report.
+  const openProviders = ctx.router
+    ? [...ctx.router.breakers.entries()].filter(([, b]) => b.isOpen()).map(([id]) => id)
+    : [];
+  if (openProviders.length > 0) {
+    requestFatalStop(ctx, circuitOpenError(openProviders.join(', ')));
+    return;
+  }
+
   const pm = new ProgressManager(ctx.projectRoot);
 
   const progress = pm.getProgress();
@@ -2725,19 +2739,38 @@ async function runReviewPhase(
         });
 
         writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
-        if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
           ? fileEvaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
           : fileEvaluators.map(e => e.id);
-        pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
-        ctx.filesReviewed++;
-        ctx.reviewCounts.evaluated++;
-        ctx.freshFiles.add(filePath);
-        completedCount++;
-        ctx.totalFindings += countReviewFindings(result.review, 60);
-        if (result.failedAxes.length > 0) {
+        // Every axis evaluator crashed: `result.review` is all-default
+        // placeholder verdicts (OK/UNIQUE/LEAN…), not a real evaluation.
+        // Caching it or marking the file DONE would make the next run serve
+        // this phantom "clean" review and permanently hide that the file was
+        // never evaluated. Record it as a file-level error so it is
+        // re-reviewed next run and counted honestly in run metrics; the
+        // review output is still written so the file surfaces in THIS run's
+        // Degraded Reviews section.
+        const allAxesCrashed = fileEvaluators.length > 0 && succeededAxes.length === 0;
+        if (allAxesCrashed) {
+          const msg = `all ${fileEvaluators.length} axis evaluators crashed`;
+          pm.updateFileStatus(filePath, 'ERROR', msg);
+          ctx.errorCount++;
+          ctx.errorsByCode[ERROR_CODES.AXES_ALL_FAILED] = (ctx.errorsByCode[ERROR_CODES.AXES_ALL_FAILED] ?? 0) + 1;
+          ctx.errorDetails.push({ file: filePath, code: ERROR_CODES.AXES_ALL_FAILED, message: msg });
           ctx.degradedReviews++;
+          completedCount++;
+        } else {
+          if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
+          pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
+          ctx.filesReviewed++;
+          ctx.reviewCounts.evaluated++;
+          ctx.freshFiles.add(filePath);
+          completedCount++;
+          ctx.totalFindings += countReviewFindings(result.review, 60);
+          if (result.failedAxes.length > 0) {
+            ctx.degradedReviews++;
+          }
         }
         // Story 53.5 FR6: drive attach progress bar + finding ticker. A single
         // emission below (line ~2670 with the full review fields) carries the

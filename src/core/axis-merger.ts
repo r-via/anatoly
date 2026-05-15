@@ -193,9 +193,20 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     // If not in results AND not crashed → omitted (review-writer shows "default" message)
   }
 
-  /** Resolve axis value: '-' if skipped, result value if present, default otherwise */
+  /**
+   * Resolve axis value:
+   * - '-' if the axis was skipped by the --axes filter
+   * - '-' if the axis crashed for this file (no result AND a recorded
+   *   failure): a crashed axis was never evaluated, so it must not borrow
+   *   the "good" default (OK/UNIQUE/LEAN…). That borrowing is exactly what
+   *   made fully-crashed axes render as "100% clean". The crash itself is
+   *   still surfaced through the detail sentinel and the degraded-reviews list.
+   * - the evaluator's value when present
+   * - the axis default only when the axis DID run but did not flag this symbol
+   */
   const resolveAxis = <T extends string>(id: AxisId, result: AxisSymbolResult | undefined, allowed: readonly T[], fallback: T): T | '-' => {
     if (isSkipped(id)) return '-';
+    if (result === undefined && failedAxes.has(id)) return '-';
     return validateEnum(result?.value ?? AXIS_DEFAULTS[id], allowed, fallback);
   };
 

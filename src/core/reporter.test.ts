@@ -19,6 +19,8 @@ import {
   renderIndex,
   renderAxisIndex,
   renderAxisShard,
+  renderPublicIndex,
+  axisHealthPercent,
   makeActId,
   hasAxisFinding,
   type TriageStats,
@@ -837,5 +839,60 @@ describe('generateReport', () => {
 
     const { reportPath } = generateReport(tmpDir);
     expect(reportPath.endsWith('report.md')).toBe(true);
+  });
+});
+
+describe('crashed-axis degradation (no false 100% clean)', () => {
+  // A symbol whose `correction` axis crashed: verdict is '-' (not evaluated)
+  // and the detail carries the per-axis crash sentinel in correction's
+  // positional slot (utility | duplication | correction | …).
+  const crashedCorrectionSymbol = () =>
+    makeSymbol({
+      correction: '-',
+      utility: 'USED',
+      duplication: 'UNIQUE',
+      confidence: 90,
+      detail: '[USED] used everywhere | [UNIQUE] no clone | [OK] *(axis crashed — see transcript)*',
+    });
+
+  it('axisHealthPercent reports evaluated=0 for a fully-crashed axis', () => {
+    const data = aggregateReviews([
+      makeReview({ file: 'a.ts', symbols: [crashedCorrectionSymbol()] }),
+    ]);
+    const correction = axisHealthPercent(data, 'correction');
+    expect(correction.evaluated).toBe(0);
+    // utility genuinely evaluated on the same symbol
+    expect(axisHealthPercent(data, 'utility').evaluated).toBe(1);
+  });
+
+  it('public report renders a crashed axis as "not evaluated", never 100%/CLEAN', () => {
+    const data = aggregateReviews([
+      makeReview({ file: 'a.ts', symbols: [crashedCorrectionSymbol()] }),
+    ]);
+    const md = renderPublicIndex(data, buildAxisReports(data));
+
+    // Axes table: the Correction row must say it was not evaluated…
+    expect(md).toContain('not evaluated (axis crashed)');
+    // …and must NOT present correction as a clean 100%/All-clear axis.
+    const correctionRow = md.split('\n').find((l) => l.startsWith('| Correction |'));
+    expect(correctionRow).toBeDefined();
+    expect(correctionRow!).not.toContain('100% OK');
+    expect(correctionRow!).not.toContain('All clear');
+
+    // Top Findings: the Correction section must flag DEGRADED, not CLEAN.
+    const correctionSection = md.slice(md.indexOf('### 🐛 Correction'));
+    const correctionBlock = correctionSection.slice(0, correctionSection.indexOf('###', 3));
+    expect(correctionBlock).toContain('DEGRADED');
+    expect(correctionBlock).not.toContain('✨ **CLEAN**');
+  });
+
+  it('a CLEAN run with a crashed axis is shown as DEGRADED, not CLEAN', () => {
+    const data = aggregateReviews([
+      makeReview({ file: 'a.ts', symbols: [crashedCorrectionSymbol()] }),
+    ]);
+    expect(data.globalVerdict).toBe('CLEAN'); // no findings → would read CLEAN
+    const md = renderPublicIndex(data, buildAxisReports(data));
+    expect(md).toContain('Verdict: **DEGRADED**');
+    expect(md).not.toContain('Verdict: **CLEAN**');
   });
 });

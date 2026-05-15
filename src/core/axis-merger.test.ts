@@ -98,6 +98,25 @@ describe('mergeAxisResults', () => {
     expect(doWork.tests).toBe('NONE');
   });
 
+  it('should set a CRASHED axis to "-" (not the clean default) so it cannot read as 100%', () => {
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [
+        makeSymbol('doWork', { value: 'USED', confidence: 95 }),
+      ]),
+    ];
+
+    // correction crashed for this file; overengineering simply did not run
+    // (no result, not failed) and must still get its clean default.
+    const review = mergeAxisResults(mockTask, results, undefined, ['correction']);
+    const doWork = review.symbols[0];
+
+    expect(doWork.utility).toBe('USED');
+    expect(doWork.correction).toBe('-'); // crashed → not evaluated, NOT 'OK'
+    expect(doWork.overengineering).toBe('LEAN'); // not crashed → default kept
+    expect(doWork.duplication).toBe('UNIQUE');
+    expect(doWork.detail).toContain('axis crashed');
+  });
+
   it('should apply coherence rule: DEAD utility → tests=NONE', () => {
     const results: AxisResult[] = [
       makeAxisResult('utility', [makeSymbol('doWork', { value: 'DEAD' })]),

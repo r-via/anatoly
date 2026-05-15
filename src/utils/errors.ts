@@ -19,6 +19,7 @@ export const ERROR_CODES = {
   PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
   PRICING_INCOMPLETE: 'PRICING_INCOMPLETE',
   CIRCUIT_OPEN: 'CIRCUIT_OPEN',
+  AXES_ALL_FAILED: 'AXES_ALL_FAILED',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -41,6 +42,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   PROVIDER_AUTH_FAILED: 'check provider API keys and authentication — see anatoly providers for status',
   PRICING_INCOMPLETE: 'one or more configured models have no pricing entry — run `anatoly providers` for details, or remove the offending models from .anatoly.yml',
   CIRCUIT_OPEN: 'the provider had repeated genuine failures and the circuit opened — check provider health/quota (anatoly providers) and re-run',
+  AXES_ALL_FAILED: 'every axis evaluator crashed for this file — it was not cached and will be re-reviewed next run; check provider health (anatoly providers)',
 };
 
 /**

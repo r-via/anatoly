@@ -9,7 +9,6 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../schemas/review.js';
 import type { AxisId } from './axis-evaluator.js';
-import { toOutputName } from '../utils/cache.js';
 import { loadCodeWinsAsStaleReferences } from './doc-stale-reference.js';
 
 
@@ -117,6 +116,36 @@ const CRASH_SENTINEL = 'axis crashed';
  */
 function isDegradedReview(review: ReviewFile): boolean {
   return review.symbols.some((s) => s.detail.includes(CRASH_SENTINEL));
+}
+
+/**
+ * Positional order of the symbol-level axes inside a merged symbol's
+ * `detail` string (see {@link mergeSymbol} in axis-merger): segments are
+ * joined `[VALUE] detail | [VALUE] detail | …` in this exact order.
+ * `best-practices` is file-level, not a symbol detail segment.
+ */
+const CRASHED_AXIS_ORDER: readonly Exclude<ReportAxisId, 'best-practices'>[] = [
+  'utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation',
+];
+
+/**
+ * The set of symbol-level axes that crashed for at least one symbol anywhere
+ * in the run. Parsed from the per-axis crash sentinel embedded in each
+ * symbol's `detail`. Used to render crashed axes as "not evaluated" instead
+ * of silently borrowing the clean default and showing 100%.
+ */
+function crashedAxisIds(data: ReportData): Set<ReportAxisId> {
+  const crashed = new Set<ReportAxisId>();
+  for (const r of data.reviews) {
+    for (const s of r.symbols) {
+      if (!s.detail.includes(CRASH_SENTINEL)) continue;
+      const segments = s.detail.split(/\s*\|\s*/);
+      for (let i = 0; i < segments.length && i < CRASHED_AXIS_ORDER.length; i++) {
+        if (segments[i].includes(CRASH_SENTINEL)) crashed.add(CRASHED_AXIS_ORDER[i]);
+      }
+    }
+  }
+  return crashed;
 }
 
 /**
@@ -1603,46 +1632,52 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
 
 /**
  * Compute a "health" percentage for an axis based on the "good" verdict ratio.
+ *
+ * `evaluated` is the number of reliable symbols (file-level reviews for
+ * best-practices) that actually carry a verdict for this axis. When it is
+ * `0` the percentage is meaningless: callers must treat the axis as "no
+ * data" / "not evaluated" rather than rendering 100% — a crashed axis has
+ * `evaluated === 0` and must never look clean. See {@link crashedAxisIds}.
  */
-export function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string } {
+export function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: number; label: string; evaluated: number } {
   const reliable = data.reviews.flatMap((r) => r.symbols.filter((s) => s.confidence >= 30));
 
   switch (axis) {
     case 'correction': {
       const total = reliable.filter((s) => s.correction !== '-').length;
       const ok = reliable.filter((s) => s.correction === 'OK').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'OK' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'OK', evaluated: total };
     }
     case 'utility': {
       const total = reliable.filter((s) => s.utility !== '-').length;
       const ok = reliable.filter((s) => s.utility === 'USED').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'used' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'used', evaluated: total };
     }
     case 'duplication': {
       const total = reliable.filter((s) => s.duplication !== '-').length;
       const ok = reliable.filter((s) => s.duplication === 'UNIQUE').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'unique' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'unique', evaluated: total };
     }
     case 'overengineering': {
       const total = reliable.filter((s) => s.overengineering !== '-').length;
       const ok = reliable.filter((s) => s.overengineering === 'LEAN').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'lean' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'lean', evaluated: total };
     }
     case 'tests': {
       const total = reliable.filter((s) => s.tests !== '-').length;
       const ok = reliable.filter((s) => s.tests === 'GOOD').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'covered' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'covered', evaluated: total };
     }
     case 'documentation': {
       const total = reliable.filter((s) => s.documentation !== '-').length;
       const ok = reliable.filter((s) => s.documentation === 'DOCUMENTED').length;
-      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'documented' };
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'documented', evaluated: total };
     }
     case 'best-practices': {
       const bpReviews = data.reviews.filter((r) => r.best_practices);
-      if (bpReviews.length === 0) return { pct: 100, label: '/ 10' };
+      if (bpReviews.length === 0) return { pct: 100, label: '/ 10', evaluated: 0 };
       const avg = bpReviews.reduce((sum, r) => sum + r.best_practices!.score, 0) / bpReviews.length;
-      return { pct: Math.round(avg * 10), label: `avg ${avg.toFixed(1)} / 10` };
+      return { pct: Math.round(avg * 10), label: `avg ${avg.toFixed(1)} / 10`, evaluated: bpReviews.length };
     }
   }
 }
@@ -1910,9 +1945,31 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
 
   lines.push(`> **${data.totalFiles} files** reviewed in **${durationMin} min** — **${costUsd}** in AI analysis so you don't have to.`);
 
-  const verdictParts = [`Verdict: **${data.globalVerdict}**`];
+  // An axis whose evaluators crashed produced no real verdicts. It must not
+  // be presented as clean: a crashed axis is "not evaluated", not "100% OK".
+  const crashedAxes = crashedAxisIds(data);
+  const isAxisDegraded = (axis: ReportAxisId, evaluated: number): boolean => {
+    if (evaluated > 0) return false;
+    // best-practices is file-level (no per-symbol crash sentinel to parse):
+    // treat it as degraded only when the run actually had degraded reviews.
+    if (axis === 'best-practices') return data.degradedFiles.length > 0;
+    return crashedAxes.has(axis);
+  };
+  const degradedAxisNames = REPORT_AXIS_IDS
+    .filter((a) => isAxisDegraded(a, axisHealthPercent(data, a).evaluated))
+    .map((a) => axisDisplayName(a));
+
+  // A run with un-evaluated axes cannot honestly be called CLEAN — the
+  // "clean" verdict would only reflect the axes that happened to run.
+  const displayVerdict = data.globalVerdict === 'CLEAN' && degradedAxisNames.length > 0
+    ? 'DEGRADED'
+    : data.globalVerdict;
+  const verdictParts = [`Verdict: **${displayVerdict}**`];
   if (errorSymbols.length > 0) verdictParts.push(`${errorSymbols.length} critical bug${errorSymbols.length > 1 ? 's' : ''} found`);
   verdictParts.push(`${totalFindings} finding${totalFindings !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`);
+  if (degradedAxisNames.length > 0) {
+    verdictParts.push(`⚠️ ${degradedAxisNames.length} axis evaluator${degradedAxisNames.length > 1 ? 's' : ''} crashed (${degradedAxisNames.join(', ')}) — re-run recommended`);
+  }
   lines.push(`> ${verdictParts.join(' · ')}`);
   if (docMode) {
     lines.push(`> ${renderDocModeLine(docMode)}`);
@@ -1942,7 +1999,16 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   lines.push('|------|--------|----------|---------|');
   for (const axis of REPORT_AXIS_IDS) {
     const name = axisDisplayName(axis);
-    const { pct, label } = axisHealthPercent(data, axis);
+    const { pct, label, evaluated } = axisHealthPercent(data, axis);
+
+    // Crashed axis: never render a health bar / "All clear". It was not
+    // evaluated, so show it explicitly as degraded with a re-run hint.
+    if (isAxisDegraded(axis, evaluated)) {
+      const detail = axisReportSet.has(axis) ? `[View →](${axisLink(axis)})` : '—';
+      lines.push(`| ${name} | ⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ ⚠️ not evaluated (axis crashed) | degraded | ${detail} |`);
+      continue;
+    }
+
     const c = data.counts[countsKeyMap[axis]];
     const bar = healthBar(pct, c.high, data.totalFiles);
     const parts: string[] = [];
@@ -1977,7 +2043,13 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     if (!report || report.files.length === 0) {
       lines.push(`### ${emoji} ${name}`);
       lines.push('');
-      lines.push(`✨ **CLEAN** — No issues found!`);
+      if (isAxisDegraded(axis, axisHealthPercent(data, axis).evaluated)) {
+        // No findings here because the axis crashed, not because the code is
+        // clean. Saying "CLEAN" would be a false negative.
+        lines.push(`⚠️ **DEGRADED** — axis evaluator crashed; this axis was not evaluated this run. Re-run recommended.`);
+      } else {
+        lines.push(`✨ **CLEAN** — No issues found!`);
+      }
       lines.push('');
       continue;
     }

@@ -49,6 +49,17 @@ export class CircuitBreaker {
   }
 
   /**
+   * Non-mutating check: `true` when the breaker is currently tripped open.
+   *
+   * Unlike {@link shouldFallback}, this never transitions open → half-open,
+   * so it is safe for a read-only preflight (e.g. the orchestrator deciding
+   * whether to fail-fast a phase before dispatching any work).
+   */
+  isOpen(): boolean {
+    return this._state === 'open';
+  }
+
+  /**
    * Returns `true` if calls should fail fast (breaker is open).
    * Also handles the open → half-open transition when the delay has elapsed.
    */

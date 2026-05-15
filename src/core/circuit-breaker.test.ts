@@ -180,4 +180,48 @@ describe('CircuitBreaker', () => {
     expect(cb.shouldFallback()).toBe(false); // half-open
   });
 
+  // -----------------------------------------------------------------------
+  // isOpen() — non-mutating preflight check
+  // -----------------------------------------------------------------------
+
+  it('isOpen returns false when closed', () => {
+    const cb = new CircuitBreaker();
+    expect(cb.isOpen()).toBe(false);
+  });
+
+  it('isOpen returns true once tripped open', () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure();
+    cb.recordFailure();
+    cb.recordFailure();
+    expect(cb.isOpen()).toBe(true);
+  });
+
+  it('isOpen does NOT transition open → half-open (non-mutating)', () => {
+    let now = 1000;
+    const cb = new CircuitBreaker({ halfOpenDelayMs: 10_000, now: () => now });
+    cb.recordFailure();
+    cb.recordFailure();
+    cb.recordFailure();
+    now += 20_000; // well past the half-open delay
+
+    // Repeated isOpen() calls must not flip the breaker to half-open the
+    // way shouldFallback() would; the preflight stays read-only.
+    expect(cb.isOpen()).toBe(true);
+    expect(cb.isOpen()).toBe(true);
+    expect(cb.state).toBe('open');
+  });
+
+  it('isOpen returns false in half-open state', () => {
+    let now = 1000;
+    const cb = new CircuitBreaker({ halfOpenDelayMs: 10_000, now: () => now });
+    cb.recordFailure();
+    cb.recordFailure();
+    cb.recordFailure();
+    now += 10_001;
+    cb.shouldFallback(); // triggers open → half-open
+    expect(cb.state).toBe('half-open');
+    expect(cb.isOpen()).toBe(false);
+  });
+
 });
