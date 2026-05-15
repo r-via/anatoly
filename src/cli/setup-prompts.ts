@@ -46,7 +46,6 @@ export interface WizardOptions {
 
 export interface WizardResult {
   tier: 'lite' | 'advanced' | 'external';
-  mode: 'quick-win' | 'full-run';
 }
 
 // ---------------------------------------------------------------------------
@@ -93,14 +92,16 @@ function buildComparisonTable(plain: boolean): string {
 export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResult> {
   // Non-interactive: CI / pipe / --defaults-settings
   if (opts.defaultsSettings || !opts.isTTY) {
-    return { tier: 'lite', mode: 'full-run' };
+    return { tier: 'lite' };
   }
 
   // -----------------------------------------------------------------------
   // Short-circuit when `.anatoly/embeddings-ready.json` already exists.
   // Means the user ran `anatoly local-embeddings upgrade` (or the external
   // tier flow) before any first run — the embedding backend is settled, so
-  // we skip the tier prompt entirely and only ask for audit mode.
+  // we skip the tier prompt entirely. No audit-mode prompt: first run uses
+  // the config's default axis set; per-run axis selection happens later
+  // (interactive checkbox in `run`, or --axes / --quick-win).
   // -----------------------------------------------------------------------
   if (opts.projectRoot) {
     const flag = readEmbeddingsReadyFlag(opts.projectRoot);
@@ -110,9 +111,7 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
           : flag.backend === 'external' ? 'external'
             : 'lite';
       getLogger().info({ backend: flag.backend, tier }, 'embeddings-ready.json detected — skipping tier prompt');
-      if (tier === 'external') return { tier, mode: 'full-run' };
-      const mode = await resolveModePrompt(opts.quickWin);
-      return { tier, mode };
+      return { tier };
     }
   }
 
@@ -179,50 +178,13 @@ export async function runFirstRunWizard(opts: WizardOptions): Promise<WizardResu
     tier = tierChoice as TierValue;
   }
 
-  // -----------------------------------------------------------------------
-  // External tier: no provider/model sub-prompts and no audit-mode prompt.
-  // The wizard writes a yaml template with a commented `rag.embedding`
-  // reference block (Mistral for code + Qwen3 via OpenRouter for NLP); the
-  // caller (run.ts) writes the config, prints a final guidance message,
-  // and exits \u2014 there's no point asking the user to pick an audit mode
-  // when the audit can't start until they edit the yaml + .env. Mode is
-  // returned only to keep the type stable; it won't be used.
-  // -----------------------------------------------------------------------
-  if (tier === 'external') {
-    return { tier, mode: 'full-run' };
-  }
-
-  // -----------------------------------------------------------------------
-  // Mode prompt (skipped if --quick-win)
-  // -----------------------------------------------------------------------
-  const mode = await resolveModePrompt(opts.quickWin);
-  return { tier, mode };
-}
-
-async function resolveModePrompt(quickWin: boolean): Promise<'quick-win' | 'full-run'> {
-  if (quickWin) return 'quick-win';
-
-  type ModeValue = 'quick-win' | 'full-run';
-  const modeChoice = await p.select({
-    message: 'Audit mode:',
-    options: [
-      {
-        value: 'quick-win' as ModeValue,
-        label: 'Quick Win \u2014 utility + duplication + correction, no doc scaffold (~30s)',
-      },
-      {
-        value: 'full-run' as ModeValue,
-        label: 'Full Run \u2014 all 7 axes + doc scaffold (several minutes)',
-      },
-    ],
-  });
-
-  if (p.isCancel(modeChoice)) {
-    p.cancel('Aborted.');
-    process.exit(0);
-  }
-
-  return modeChoice as ModeValue;
+  // The wizard no longer asks for an audit mode. First run uses the
+  // config's default axis set; per-run axis selection (the config-seeded
+  // checkbox, --axes, or --quick-win) happens later in `run`. This also
+  // removes the old "doc scaffold" wording that was inconsistent with the
+  // doc-mode model (doc behaviour is governed by documentation.internal.mode,
+  // not by the audit breadth).
+  return { tier };
 }
 
 // ---------------------------------------------------------------------------

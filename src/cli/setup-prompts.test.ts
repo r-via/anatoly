@@ -118,47 +118,46 @@ describe('runFirstRunWizard', () => {
     spinnerMessageMock.mockReset();
   });
 
-  // AC: --defaults-settings OR non-TTY → silent { tier: 'lite', mode: 'full-run' }
+  // The wizard no longer asks an audit mode. It resolves the embedding tier
+  // only; per-run axis selection happens later in `run` (config-seeded
+  // checkbox / --axes / --quick-win). Result is `{ tier }`.
+
+  // AC: --defaults-settings OR non-TTY → silent { tier: 'lite' }
   describe('non-interactive mode (defaults-settings or non-TTY)', () => {
-    it('returns lite/full-run when defaultsSettings is true', async () => {
+    it('returns lite when defaultsSettings is true', async () => {
       const result = await runFirstRunWizard(baseOpts({ defaultsSettings: true }));
-      expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
+      expect(result).toEqual({ tier: 'lite' });
       expect(selectMock).not.toHaveBeenCalled();
     });
 
-    it('returns lite/full-run when isTTY is false', async () => {
+    it('returns lite when isTTY is false', async () => {
       const result = await runFirstRunWizard(baseOpts({ isTTY: false }));
-      expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
+      expect(result).toEqual({ tier: 'lite' });
       expect(selectMock).not.toHaveBeenCalled();
     });
 
-    it('returns lite/full-run even when --quick-win is set alongside --defaults-settings', async () => {
+    it('returns lite even when --quick-win is set alongside --defaults-settings', async () => {
       const result = await runFirstRunWizard(baseOpts({ defaultsSettings: true, quickWin: true }));
-      // --defaults-settings overrides everything: CI wants full-run
-      expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
+      expect(result).toEqual({ tier: 'lite' });
       expect(selectMock).not.toHaveBeenCalled();
     });
   });
 
-  // AC: Enter on both prompts → { tier: 'lite', mode: 'quick-win' }
-  describe('interactive mode — default selections (Enter, Enter)', () => {
-    it('returns lite/quick-win when user hits Enter on both prompts', async () => {
-      // First select (tier) → return the first value (lite)
+  // AC: a single tier prompt; result is { tier } only.
+  describe('interactive mode — tier only, no audit-mode prompt', () => {
+    it('returns the selected tier and fires exactly one (tier) prompt', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      // Second select (mode) → return the first value (quick-win)
-      selectMock.mockResolvedValueOnce('quick-win');
 
       const result = await runFirstRunWizard(baseOpts());
-      expect(result).toEqual({ tier: 'lite', mode: 'quick-win' });
-      expect(selectMock).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ tier: 'lite' });
+      expect(selectMock).toHaveBeenCalledTimes(1);
     });
   });
 
-  // AC: Hardware without GPU → Default + External options shown, note explaining why advanced unavailable
+  // AC: Hardware without GPU → Default + External options shown
   describe('incapable hardware (no CUDA GPU)', () => {
     it('shows Default and External options for tier prompt (no Advanced)', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
 
@@ -170,7 +169,6 @@ describe('runFirstRunWizard', () => {
 
     it('does not render the comparison table when advanced is not available', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: incapableHardware }));
 
@@ -185,7 +183,6 @@ describe('runFirstRunWizard', () => {
   describe('low VRAM hardware (CUDA but < 12 GB)', () => {
     it('shows Default and External options for tier prompt (no Advanced)', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: lowVramHardware }));
 
@@ -200,7 +197,6 @@ describe('runFirstRunWizard', () => {
   describe('capable hardware (CUDA GPU + ≥ 12 GB VRAM)', () => {
     it('shows Default, Advanced, and External options for tier prompt', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
 
@@ -213,11 +209,9 @@ describe('runFirstRunWizard', () => {
 
     it('does not show the unavailability note', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
 
-      // Note should not contain "Advanced not available"
       const unavailNote = noteMock.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('Advanced not available'),
       );
@@ -226,51 +220,16 @@ describe('runFirstRunWizard', () => {
 
     it('returns advanced when user selects advanced tier', async () => {
       selectMock.mockResolvedValueOnce('advanced');
-      selectMock.mockResolvedValueOnce('full-run');
 
       const result = await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
-      expect(result).toEqual({ tier: 'advanced', mode: 'full-run' });
-    });
-  });
-
-  // AC: Mode prompt shows two options with descriptions
-  describe('mode prompt', () => {
-    it('presents Quick Win and Full Run options', async () => {
-      selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('quick-win');
-
-      await runFirstRunWizard(baseOpts());
-
-      const modeCall = selectMock.mock.calls[1]![0];
-      expect(modeCall.options).toHaveLength(2);
-      expect(modeCall.options[0]!.value).toBe('quick-win');
-      expect(modeCall.options[1]!.value).toBe('full-run');
-    });
-  });
-
-  // AC: --quick-win flag → mode prompt skipped, mode forced to 'quick-win'
-  describe('--quick-win flag', () => {
-    it('skips mode prompt and forces quick-win mode', async () => {
-      selectMock.mockResolvedValueOnce('lite');
-
-      const result = await runFirstRunWizard(baseOpts({ quickWin: true }));
-      expect(result).toEqual({ tier: 'lite', mode: 'quick-win' });
-      // Only tier prompt shown, mode prompt skipped
-      expect(selectMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('still shows tier prompt on capable hardware', async () => {
-      selectMock.mockResolvedValueOnce('advanced');
-
-      const result = await runFirstRunWizard(baseOpts({ hardware: capableHardware, quickWin: true }));
-      expect(result).toEqual({ tier: 'advanced', mode: 'quick-win' });
+      expect(result).toEqual({ tier: 'advanced' });
       expect(selectMock).toHaveBeenCalledTimes(1);
     });
   });
 
-  // AC: When `.anatoly/embeddings-ready.json` already exists (e.g. user ran
-  // `anatoly local-embeddings upgrade` standalone), the wizard skips the tier
-  // prompt and adopts the recorded backend.
+  // AC: When `.anatoly/embeddings-ready.json` already exists, the wizard
+  // skips the tier prompt and adopts the recorded backend. No audit-mode
+  // prompt either.
   describe('ready-flag short-circuit', () => {
     let dir: string;
 
@@ -291,54 +250,48 @@ describe('runFirstRunWizard', () => {
       );
     }
 
-    it('skips tier prompt and returns advanced when flag is advanced-gguf', async () => {
+    it('skips all prompts and returns advanced when flag is advanced-gguf', async () => {
       writeReadyFlag('advanced-gguf');
-      selectMock.mockResolvedValueOnce('full-run');
 
       const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
 
-      expect(result).toEqual({ tier: 'advanced', mode: 'full-run' });
-      // Only the mode prompt should fire — tier prompt is skipped.
-      expect(selectMock).toHaveBeenCalledTimes(1);
-      expect(selectMock.mock.calls[0]![0].message).toMatch(/audit mode/i);
+      expect(result).toEqual({ tier: 'advanced' });
+      expect(selectMock).not.toHaveBeenCalled();
     });
 
-    it('skips both prompts and returns external when flag is external', async () => {
+    it('skips all prompts and returns external when flag is external', async () => {
       writeReadyFlag('external');
 
       const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
 
-      expect(result).toEqual({ tier: 'external', mode: 'full-run' });
+      expect(result).toEqual({ tier: 'external' });
       expect(selectMock).not.toHaveBeenCalled();
     });
 
-    it('skips tier prompt and returns lite when flag is lite', async () => {
+    it('skips all prompts and returns lite when flag is lite', async () => {
       writeReadyFlag('lite');
-      selectMock.mockResolvedValueOnce('full-run');
 
       const result = await runFirstRunWizard(baseOpts({ projectRoot: dir }));
 
-      expect(result).toEqual({ tier: 'lite', mode: 'full-run' });
-      expect(selectMock).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ tier: 'lite' });
+      expect(selectMock).not.toHaveBeenCalled();
     });
 
-    it('falls through to normal flow when flag is missing', async () => {
-      // No writeReadyFlag — empty project root.
+    it('falls through to the tier prompt when flag is missing', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('full-run');
 
       await runFirstRunWizard(baseOpts({ projectRoot: dir }));
 
-      // Both tier and mode prompts fire.
-      expect(selectMock).toHaveBeenCalledTimes(2);
+      // Only the tier prompt fires.
+      expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
-    it('honours --quick-win when short-circuiting on advanced flag', async () => {
+    it('returns advanced when short-circuiting on advanced flag (quick-win is a run-time flag, irrelevant here)', async () => {
       writeReadyFlag('advanced-gguf');
 
       const result = await runFirstRunWizard(baseOpts({ projectRoot: dir, quickWin: true }));
 
-      expect(result).toEqual({ tier: 'advanced', mode: 'quick-win' });
+      expect(result).toEqual({ tier: 'advanced' });
       expect(selectMock).not.toHaveBeenCalled();
     });
   });
@@ -356,17 +309,6 @@ describe('runFirstRunWizard', () => {
       exitSpy.mockRestore();
     });
 
-    it('exits when user cancels mode prompt', async () => {
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-      selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce(Symbol('cancel') as unknown as string);
-
-      await runFirstRunWizard(baseOpts());
-
-      expect(cancelMock).toHaveBeenCalled();
-      expect(exitSpy).toHaveBeenCalledWith(0);
-      exitSpy.mockRestore();
-    });
   });
 
   // AC: Tier prompt has comparison table (informational — check note is printed)
@@ -439,25 +381,22 @@ describe('runFirstRunWizard', () => {
   // ---------------------------------------------------------------------------
 
   describe('savedPreference', () => {
-    // AC2: preference=advanced + capable hardware + no CLI override → skip prompt, return advanced
+    // AC2: preference=advanced + capable hardware + no CLI override → skip
+    // the tier prompt entirely (no audit-mode prompt exists anymore).
     it('skips tier prompt when savedPreference is advanced and hardware is capable', async () => {
-      selectMock.mockResolvedValueOnce('quick-win'); // mode prompt only
-
       const result = await runFirstRunWizard(baseOpts({
         hardware: capableHardware,
         savedPreference: 'advanced',
       }));
 
       expect(result.tier).toBe('advanced');
-      // Tier select should NOT be called — only mode select
-      expect(selectMock).toHaveBeenCalledTimes(1);
-      expect(selectMock.mock.calls[0]![0].message).toContain('mode');
+      // No prompt at all: tier resolved from preference, no mode prompt.
+      expect(selectMock).not.toHaveBeenCalled();
     });
 
-    // AC3: preference=advanced + incapable hardware → show note, fall through to prompt
+    // AC3: preference=advanced + incapable hardware → show note, fall through to tier prompt
     it('shows fallback note and re-displays tier prompt when hardware is incapable', async () => {
       selectMock.mockResolvedValueOnce('lite'); // tier prompt (re-shown)
-      selectMock.mockResolvedValueOnce('full-run'); // mode prompt
 
       const result = await runFirstRunWizard(baseOpts({
         hardware: incapableHardware,
@@ -465,19 +404,17 @@ describe('runFirstRunWizard', () => {
       }));
 
       expect(result.tier).toBe('lite');
-      // Should have shown a note about preference not supported
       const fallbackNote = noteMock.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('saved preference'),
       );
       expect(fallbackNote).toBeDefined();
-      // Tier select should be called (re-shown)
-      expect(selectMock).toHaveBeenCalledTimes(2);
+      // Only the tier prompt fires.
+      expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
-    // AC4: CLI override set → ignore preferences
+    // AC4: CLI override set → ignore preferences, show the tier prompt
     it('ignores savedPreference when cliTierOverride is true', async () => {
       selectMock.mockResolvedValueOnce('lite'); // tier prompt
-      selectMock.mockResolvedValueOnce('full-run'); // mode prompt
 
       const result = await runFirstRunWizard(baseOpts({
         hardware: capableHardware,
@@ -486,14 +423,12 @@ describe('runFirstRunWizard', () => {
       }));
 
       expect(result.tier).toBe('lite');
-      // Tier prompt SHOULD be shown (preference ignored)
-      expect(selectMock).toHaveBeenCalledTimes(2);
+      expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
     // AC3: preference=advanced + low VRAM hardware → show note, fall through
     it('shows fallback note when hardware has low VRAM', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('full-run');
 
       await runFirstRunWizard(baseOpts({
         hardware: lowVramHardware,
@@ -506,15 +441,13 @@ describe('runFirstRunWizard', () => {
       expect(fallbackNote).toBeDefined();
     });
 
-    // No preference → normal flow (select tier)
+    // No preference → normal flow (single tier prompt)
     it('shows tier prompt normally when no savedPreference', async () => {
       selectMock.mockResolvedValueOnce('lite');
-      selectMock.mockResolvedValueOnce('full-run');
 
       await runFirstRunWizard(baseOpts({ hardware: capableHardware }));
 
-      // 2 select calls: tier + mode
-      expect(selectMock).toHaveBeenCalledTimes(2);
+      expect(selectMock).toHaveBeenCalledTimes(1);
     });
   });
 

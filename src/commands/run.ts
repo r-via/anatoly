@@ -231,9 +231,7 @@ export interface RunContext {
   renderer?: ScreenRenderer;
   /** Whether this is a first run requiring bootstrap doc phase */
   isFirstRun: boolean;
-  /** Skip doc bootstrap phase (quick-win mode) */
-  skipDocBootstrap: boolean;
-  /** Quick-win mode active — reduced axes, no doc bootstrap */
+  /** Quick-win preset active — reduced axis set (utility + duplication + correction) */
   quickWin: boolean;
   /** Unified project profile — set during setup, used by doc pipeline */
   profile?: ProjectProfile;
@@ -255,6 +253,19 @@ export interface RunContext {
   gitInfo?: { branch?: string; commit?: string };
   /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
   arbitratedFragments?: import('../core/axes/reference-docs-context.js').ArbitratedFragment[];
+}
+
+/**
+ * Whether the `documentation` axis is active for this run: enabled in config
+ * and not excluded by the per-run axis filter (`--axes` or the --quick-win
+ * preset). Doc bootstrap (full mode) is gated on this instead of a standalone
+ * skip flag — with the quick-win preset `documentation` isn't selected, so
+ * bootstrap is naturally not triggered.
+ */
+function isDocAxisActive(ctx: RunContext): boolean {
+  if (ctx.config.axes?.documentation?.enabled === false) return false;
+  if (ctx.axesFilter && !ctx.axesFilter.includes('documentation')) return false;
+  return true;
 }
 
 /**
@@ -890,7 +901,6 @@ export function registerRunCommand(program: Command): void {
           link: config.badge.link,
         },
         isFirstRun: false,
-        skipDocBootstrap: false,
         quickWin: false,
         docsIdentical: false,
         router: _router,
@@ -899,14 +909,18 @@ export function registerRunCommand(program: Command): void {
         connectivityCheck: cmdOpts.connectivityCheck !== false,
       };
 
-      // Quick-win mode: restrict to 3 axes and skip doc bootstrap.
-      // Activated by wizard choice (first-run) or --quick-win CLI flag.
-      const quickWinActive = wizardResult?.mode === 'quick-win' || cmdOpts.quickWin === true;
+      // Quick-win: a preset that restricts to 3 axes. Activated only by the
+      // --quick-win CLI flag now (the first-run wizard no longer asks an
+      // audit mode — first run uses the config's default axis set). Doc
+      // bootstrap is no longer skipped here as a side effect: it is derived
+      // from (documentation axis enabled AND internal.mode === 'full'); with
+      // the 3-axis preset, documentation isn't selected so bootstrap is
+      // naturally not triggered.
+      const quickWinActive = cmdOpts.quickWin === true;
       if (quickWinActive) {
         ctx.quickWin = true;
         ctx.axesFilter = ['utility', 'duplication', 'correction'] as AxisId[];
-        ctx.skipDocBootstrap = true;
-        getLogger().info('quick-win mode: 3 axes, no doc bootstrap');
+        getLogger().info('quick-win preset: utility + duplication + correction');
       }
 
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
@@ -1011,7 +1025,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.router) {
           pipelineState.setRouter(ctx.router);
         }
-        if (ctx.isFirstRun && !ctx.skipDocBootstrap) {
+        if (ctx.isFirstRun && isDocAxisActive(ctx)) {
           pipelineState.addTask('bootstrap-doc', 'Bootstrapping internal docs');
         }
         if (ctx.enableRag) {
@@ -1053,7 +1067,7 @@ export function registerRunCommand(program: Command): void {
           log.info('internal docs mode=lite — doc context delivered via per-file RAG retrieval (no digest)');
           ctx.renderer?.logPlain('[internal-docs] mode=lite — doc context delivered via per-file RAG retrieval');
           ctx.pipelineState?.completeTask('bootstrap-doc', 'lite (per-file retrieval)');
-        } else if (ctx.isFirstRun && !ctx.skipDocBootstrap && !ctx.interrupted) {
+        } else if (ctx.isFirstRun && isDocAxisActive(ctx) && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
             await runDocBootstrap(ctx, setup.tasks);
           });
@@ -1637,8 +1651,8 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   // --- Phase: docs (internal + project merged into one user-facing row) ---
   const bootstrapNeeded = needsBootstrap(srcRoot);
-  if (ctx.skipDocBootstrap && bootstrapNeeded) {
-    pipelineRows.push({ phase: 'docs', detail: 'skipped (quick-win mode)' });
+  if (!isDocAxisActive(ctx) && bootstrapNeeded) {
+    pipelineRows.push({ phase: 'docs', detail: 'skipped (documentation axis off)' });
   } else if (bootstrapNeeded) {
     pipelineRows.push({ phase: 'docs', detail: 'first run (bootstrap)' });
   } else if (docScanInternal) {
@@ -1674,7 +1688,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   // bootstrap, or the actual changed count for update. Skipped (pageCount = 0)
   // when nothing to do — forecastRun won't emit a doc step in that case.
   const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
-  const docPageCount = ctx.skipDocBootstrap && bootstrapNeeded
+  const docPageCount = !isDocAxisActive(ctx) && bootstrapNeeded
     ? 0
     : docMode === 'bootstrap'
       ? Math.max(8, Math.ceil(allTasks.length / 12))
