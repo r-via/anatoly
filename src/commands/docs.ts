@@ -12,7 +12,7 @@ import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
-import { runDocScaffold, runDocGeneration } from '../core/doc-pipeline.js';
+import { runDocScaffold, runDocGeneration, commitDocPage } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, autoFixStructuralIssues } from '../core/doc-llm-executor.js';
 import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
@@ -306,6 +306,10 @@ export function registerDocsCommand(program: Command): void {
               logDir: scaffoldLogDir,
               onPageComplete: (pagePath) => {
                 completed++;
+                // Per-page completion flag — committed only now that the page
+                // is on disk, so an interrupted scaffold does not poison the
+                // manifest with un-written pages.
+                commitDocPage(genResult.cachePath, pagePath, genResult.pageHashes[pagePath] ?? {});
                 ctx.state.untrackFile(pagePath);
                 ctx.state.updateTask('scaffold', `${completed}/${total} pages`);
                 ctx.renderer.logPlain(`[scaffold] ${completed}/${total} ${pagePath}`);

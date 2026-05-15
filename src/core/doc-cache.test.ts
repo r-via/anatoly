@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -27,7 +27,7 @@ describe('checkDocCache', () => {
   describe('no changes (AC1)', () => {
     it('returns all pages as fresh when hashes match', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/scanner.md': { 'src/core/scanner.ts': 'hash1' },
           '05-Modules/indexer.md': { 'src/rag/indexer.ts': 'hash2' },
@@ -60,7 +60,7 @@ describe('checkDocCache', () => {
   describe('source file changed (AC2)', () => {
     it('marks only affected pages as stale', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/scanner.md': { 'src/core/scanner.ts': 'hash1' },
           '05-Modules/indexer.md': { 'src/rag/indexer.ts': 'hash2' },
@@ -88,7 +88,7 @@ describe('checkDocCache', () => {
   describe('new file added (AC3)', () => {
     it('marks new pages as added', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/scanner.md': { 'src/core/scanner.ts': 'hash1' },
         },
@@ -115,7 +115,7 @@ describe('checkDocCache', () => {
   describe('file deleted (AC4)', () => {
     it('marks orphaned pages as removed', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/scanner.md': { 'src/core/scanner.ts': 'hash1' },
           '05-Modules/old-helper.md': { 'src/utils/old-helper.ts': 'hash2' },
@@ -140,7 +140,7 @@ describe('checkDocCache', () => {
   // --- Edge cases ---
   describe('edge cases', () => {
     it('treats empty cache as all pages added', () => {
-      const cache: DocCache = { version: 1, pages: {} };
+      const cache: DocCache = { version: 3, pages: {} };
 
       const currentPages = [
         { pagePath: '05-Modules/scanner.md', sourceFiles: ['src/core/scanner.ts'] },
@@ -156,7 +156,7 @@ describe('checkDocCache', () => {
 
     it('page with multiple source files is stale if any file changes', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/core.md': {
             'src/core/scanner.ts': 'hash1',
@@ -181,7 +181,7 @@ describe('checkDocCache', () => {
 
     it('page is stale when source file list changes (new source added)', () => {
       const cache: DocCache = {
-        version: 1,
+        version: 3,
         pages: {
           '05-Modules/core.md': { 'src/core/scanner.ts': 'hash1' },
         },
@@ -205,7 +205,7 @@ describe('checkDocCache', () => {
 
 describe('updateDocCacheEntry', () => {
   it('adds a new page entry to the cache', () => {
-    const cache: DocCache = { version: 1, pages: {} };
+    const cache: DocCache = { version: 3, pages: {} };
 
     const updated = updateDocCacheEntry(cache, '05-Modules/scanner.md', {
       'src/core/scanner.ts': 'hash1',
@@ -218,7 +218,7 @@ describe('updateDocCacheEntry', () => {
 
   it('overwrites an existing entry', () => {
     const cache: DocCache = {
-      version: 1,
+      version: 3,
       pages: {
         '05-Modules/scanner.md': { 'src/core/scanner.ts': 'old_hash' },
       },
@@ -235,7 +235,7 @@ describe('updateDocCacheEntry', () => {
 describe('removeDocCacheEntry', () => {
   it('removes a page entry from the cache', () => {
     const cache: DocCache = {
-      version: 1,
+      version: 3,
       pages: {
         '05-Modules/scanner.md': { 'src/core/scanner.ts': 'hash1' },
         '05-Modules/old.md': { 'src/utils/old.ts': 'hash2' },
@@ -255,7 +255,38 @@ describe('loadDocCache / saveDocCache', () => {
 
     const cache = loadDocCache(nonexistent);
 
-    expect(cache).toEqual({ version: 1, pages: {} });
+    expect(cache).toEqual({ version: 3, pages: {} });
+  });
+
+  it('discards legacy v1/v2 manifests (untrustworthy / pre-unification)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doc-cache-'));
+    for (const version of [1, 2]) {
+      const cachePath = join(dir, `cache-v${version}.json`);
+      writeFileSync(
+        cachePath,
+        JSON.stringify({ version, pages: { '04-API-Reference/04-CLI-Reference.md': { 'src/cli.ts': 'h' } } }),
+      );
+      // Pre-v3 is distrusted → empty, forcing a clean regen into one ledger.
+      expect(loadDocCache(cachePath)).toEqual({ version: 3, pages: {} });
+    }
+    rmSync(dir, { recursive: true });
+  });
+
+  it('round-trips the unified ledger (pages + scaffold + coherence)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doc-cache-'));
+    const cachePath = join(dir, '.cache.json');
+
+    const cache: DocCache = {
+      version: 3,
+      pages: { '05-Modules/foo.md': { 'src/foo.ts': 'hash1' } },
+      scaffold: { scaffoldedAt: '2026-05-15T00:00:00.000Z', lastMode: 'bootstrap', lastRunId: 'r1' },
+      coherence: { key: 'sig-abc', at: '2026-05-15T00:01:00.000Z' },
+    };
+
+    saveDocCache(cachePath, cache);
+    expect(loadDocCache(cachePath)).toEqual(cache);
+
+    rmSync(dir, { recursive: true });
   });
 
   it('round-trips save and load', () => {
@@ -263,7 +294,7 @@ describe('loadDocCache / saveDocCache', () => {
     const cachePath = join(dir, '.cache.json');
 
     const cache: DocCache = {
-      version: 1,
+      version: 3,
       pages: { '05-Modules/foo.md': { 'src/foo.ts': 'hash1' } },
     };
 

@@ -20,6 +20,7 @@ import type { PagePrompt } from './doc-generator.js';
 import { resolveSystemPrompt } from './prompt-resolver.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
+import { withTimeout } from '../utils/with-timeout.js';
 import { contextLogger } from '../utils/log-context.js';
 import { recordLlmCall } from '../utils/llm-calls-sink.js';
 import { buildCoherenceUserMessage, assertCoherenceWritePath } from './doc-coherence-3way.js';
@@ -652,6 +653,12 @@ export interface DocCoherenceReviewParams {
   referenceDocs?: import('./reference-docs-resolver.js').ReferenceDoc[];
   /** Code surface summary for 3-way coherence (Story 54.8). */
   codeSurface?: string;
+  /**
+   * Wall-clock budget in ms for the (single-pass) review. On expiry the
+   * agent is aborted and the call rejects. Omit to leave it unbounded
+   * (the on-demand `anatoly docs` path keeps its previous behaviour).
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -677,6 +684,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     callbacks,
     referenceDocs,
     codeSurface,
+    timeoutMs,
   } = params;
 
   const start = Date.now();
@@ -764,7 +772,7 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
   let cacheCreationTokens = 0;
   const callStart = Date.now();
   try {
-    const result = await retryWithBackoff(
+    const runReview = () => retryWithBackoff(
       async () => {
         const q = query({
           prompt: userMessage,
@@ -835,11 +843,22 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
         maxDelayMs: 60_000,
         jitterFactor: 0.2,
         filePath: 'coherence-review',
+        isInterrupted: () => ac.signal.aborted,
         onRetry: (attempt, delayMs) => {
           contextLogger().warn({ attempt, delayMs }, 'coherence review retrying');
         },
       },
     );
+    // Wall-clock budget: the single-pass agent runs up to maxTurns=200 with no
+    // SDK-level timeout, so without this a stuck review hangs the run. Abort
+    // the agent on expiry. Unbounded when no budget is supplied.
+    const result = timeoutMs
+      ? await withTimeout(runReview, {
+          timeoutMs,
+          label: 'doc coherence review',
+          onTimeout: () => ac.abort(),
+        })
+      : await runReview();
     resultText = result.text;
     costUsd = result.cost;
     inputTokens = result.usageIn;

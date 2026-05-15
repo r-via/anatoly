@@ -6,9 +6,23 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runDocScaffold, runDocGeneration } from './doc-pipeline.js';
+import { runDocScaffold, runDocGeneration, commitDocPage, isScaffoldStub, type DocGenerationResult } from './doc-pipeline.js';
 import type { Task } from '../schemas/task.js';
 import type { ProjectProfile } from './language-detect.js';
+
+/**
+ * Simulate a successful generation pass: replace each to-generate page's
+ * scaffold stub with real markdown, then flag it via commitDocPage — exactly
+ * what runDocLlmPhase's onPageComplete does after a page is written.
+ */
+function simulateGeneration(outputDir: string, gen: DocGenerationResult): void {
+  for (const prompt of gen.prompts) {
+    const full = join(outputDir, prompt.pagePath);
+    mkdirSync(join(full, '..'), { recursive: true });
+    writeFileSync(full, `# ${prompt.pagePath}\n\nGenerated content, no sentinel.\n`);
+    commitDocPage(gen.cachePath, prompt.pagePath, gen.pageHashes[prompt.pagePath] ?? {});
+  }
+}
 
 const EMPTY_PROFILE: ProjectProfile = {
   languages: { languages: [], totalFiles: 0 },
@@ -212,15 +226,51 @@ describe('runDocGeneration', () => {
 
     const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
-    // First run — generates cache
+    // First run — plans work; nothing is flagged fresh until pages exist.
     const result1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
     expect(result1.pagesGenerated).toBeGreaterThan(0);
 
-    // Second run — everything should be fresh (cache hit)
+    // A second run BEFORE generation still re-plans everything: a planned
+    // page must not be treated as done just because it was planned.
+    const beforeGen = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    expect(beforeGen.cacheResult.fresh).toEqual([]);
+    expect(beforeGen.pagesGenerated).toBeGreaterThan(0);
+
+    // Now simulate the pages actually being generated + flagged.
+    simulateGeneration(scaffold.outputDir, result1);
+
+    // Second run after generation — everything is fresh (cache hit).
     const result2 = runDocGeneration(tempDir, scaffold, tasks, pkg);
     expect(result2.cacheResult.fresh.length).toBeGreaterThan(0);
     expect(result2.pagesGenerated).toBe(0);
     expect(result2.prompts).toEqual([]);
+  });
+
+  it('regenerates a cached page that is still a scaffold stub (self-healing)', () => {
+    const pkg = { name: 'test' };
+    const tasks: Task[] = [
+      makeTask('src/core/scanner.ts', [
+        { name: 'scanProject', exported: true, line_start: 1, line_end: 250 },
+      ]),
+    ];
+
+    const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
+    const gen1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    simulateGeneration(scaffold.outputDir, gen1);
+
+    // Poison the manifest the way a crashed run did: a page is recorded as
+    // cached, but its file on disk is reverted to a scaffold stub.
+    const victim = gen1.prompts[0].pagePath;
+    writeFileSync(
+      join(scaffold.outputDir, victim),
+      '# Title\n\n<!-- SCAFFOLDING: do the thing\n     Delete this comment when done. -->\n',
+    );
+    expect(isScaffoldStub(scaffold.outputDir, victim)).toBe(true);
+
+    const gen2 = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    // The stub page is re-planned even though the manifest still has its hash.
+    expect(gen2.prompts.some(p => p.pagePath === victim)).toBe(true);
+    expect(gen2.cacheResult.fresh).not.toContain(victim);
   });
 
   it('should detect stale pages when source changes', () => {
@@ -233,8 +283,13 @@ describe('runDocGeneration', () => {
 
     const scaffold = runDocScaffold(tempDir, pkg, tasks, 'docs', EMPTY_PROFILE);
 
-    // First run
-    runDocGeneration(tempDir, scaffold, tasks, pkg);
+    // First run — generate + flag the pages so they have real cache entries.
+    const gen1 = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    simulateGeneration(scaffold.outputDir, gen1);
+
+    // Sanity: with no source change the scanner page is now fresh.
+    const noChange = runDocGeneration(tempDir, scaffold, tasks, pkg);
+    expect(noChange.cacheResult.fresh.length).toBeGreaterThan(0);
 
     // Modify source
     writeFileSync(
@@ -242,9 +297,10 @@ describe('runDocGeneration', () => {
       'export function scanProject() { return { modified: true }; }\n'.repeat(20),
     );
 
-    // Second run — should detect stale page
+    // Second run — the page whose source changed is now stale (cached,
+    // complete on disk, but hashes differ), not merely added.
     const result2 = runDocGeneration(tempDir, scaffold, tasks, pkg);
-    expect(result2.cacheResult.stale.length + result2.cacheResult.added.length).toBeGreaterThan(0);
+    expect(result2.cacheResult.stale.length).toBeGreaterThan(0);
   });
 
   // --- Story 29.17: prompts include pagePath ---
@@ -276,7 +332,7 @@ describe('runDocGeneration', () => {
 
     const cachePath = join(tempDir, '.anatoly', 'cache', 'doc-build', 'manifest.json');
     const cache = JSON.parse(readFileSync(cachePath, 'utf-8'));
-    expect(cache.version).toBe(1);
+    expect(cache.version).toBe(3);
     expect(typeof cache.pages).toBe('object');
   });
 });

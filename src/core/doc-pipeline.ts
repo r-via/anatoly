@@ -24,7 +24,7 @@ import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from '
 import { resolveModuleGranularity, extractModuleName, type ModuleDir } from './module-granularity.js';
 import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mapping.js';
 import { assertSafeOutputPath } from './docs-guard.js';
-import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
+import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, docManifestPath, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
 import { buildPageContext, type SourceFile } from './source-context.js';
 import { getDocTokenBudget } from './docs-resolver.js';
 import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
@@ -48,6 +48,15 @@ export interface DocGenerationResult {
   pagesRemoved: number;
   totalPages: number;
   prompts: PagePrompt[];
+  /** Absolute path to the doc-build manifest (per-page completion ledger). */
+  cachePath: string;
+  /**
+   * pagePath → expected source-file hashes, for the pages this run will
+   * generate. The caller commits each entry via {@link commitDocPage} only
+   * AFTER the page is successfully written, so a crash mid-generation never
+   * marks an un-written page as done.
+   */
+  pageHashes: Record<string, Record<string, string>>;
 }
 
 export interface DocPipelineResult {
@@ -151,7 +160,7 @@ export function runDocGeneration(
   changedFiles?: Set<string>,
 ): DocGenerationResult {
   const outputDir = scaffoldResult.outputDir;
-  const cachePath = anatolyPath(projectRoot, 'cache/doc-build', 'manifest.json');
+  const cachePath = docManifestPath(projectRoot);
 
   // Load cache
   const cache = loadDocCache(cachePath);
@@ -162,8 +171,15 @@ export function runDocGeneration(
   // Compute current source file hashes
   const currentHashes = computeSourceHashes(projectRoot, pageMappings);
 
-  // Check cache
-  const cacheResult = checkDocCache(cache, pageMappings, currentHashes);
+  // Check cache. A cache record alone is not proof a page exists: a crashed
+  // generation run leaves the manifest pointing at pages that are still
+  // scaffold stubs on disk. Veto those cache hits so they regenerate.
+  const cacheResult = checkDocCache(
+    cache,
+    pageMappings,
+    currentHashes,
+    pagePath => !isScaffoldStub(outputDir, pagePath),
+  );
 
   // Internal docs are derived strictly from code at this stage. The
   // human-authored reference docs (README, specs, etc.) are NOT consumed
@@ -220,27 +236,34 @@ export function runDocGeneration(
     }
   }
 
-  // Update cache: remove deleted entries
+  // Update cache: remove deleted entries only. The per-page entries for
+  // pages we are about to generate are deliberately NOT written here —
+  // writing them up front (before the LLM has produced anything) is exactly
+  // what poisoned the manifest: a crash between this point and a successful
+  // page write left the page recorded as done while it was still a stub.
+  // Each entry is now committed by the caller via commitDocPage() only AFTER
+  // that page's content is written. See DocGenerationResult.pageHashes.
   let updatedCache: DocCache = cache;
   for (const removed of cacheResult.removed) {
     updatedCache = removeDocCacheEntry(updatedCache, removed);
   }
 
-  // Update cache: add/refresh entries for pages that will be generated
+  // Save cache (removals applied; existing fresh entries preserved).
+  saveDocCache(cachePath, updatedCache);
+
+  // Expected source hashes for the pages this run will generate — the caller
+  // commits these per page once each page is successfully written.
+  const pageHashes: Record<string, Record<string, string>> = {};
   for (const pagePath of pagesToGenerate) {
     const mapping = pageMappings.find(m => m.pagePath === pagePath);
     if (!mapping) continue;
-
     const hashes: Record<string, string> = {};
     for (const sf of mapping.sourceFiles) {
       const hash = currentHashes.get(sf);
       if (hash) hashes[sf] = hash;
     }
-    updatedCache = updateDocCacheEntry(updatedCache, pagePath, hashes);
+    pageHashes[pagePath] = hashes;
   }
-
-  // Save cache
-  saveDocCache(cachePath, updatedCache);
 
   const totalPages = cacheResult.fresh.length + allStaleOrAdded.length;
 
@@ -251,7 +274,52 @@ export function runDocGeneration(
     pagesRemoved: cacheResult.removed.length,
     totalPages,
     prompts,
+    cachePath,
+    pageHashes,
   };
+}
+
+/**
+ * True when the page on disk has not actually been generated yet: the file
+ * is missing, or still carries the scaffolder's `<!-- SCAFFOLDING: -->`
+ * sentinel. Generated pages are the LLM's raw markdown output, which never
+ * contains that sentinel (the writer prompt emits only the final document),
+ * so its presence is a reliable "still a stub" signal.
+ */
+export function isScaffoldStub(outputDir: string, pagePath: string): boolean {
+  const full = resolve(outputDir, pagePath);
+  if (!full.startsWith(resolve(outputDir))) return false;
+  if (!existsSync(full)) return true;
+  try {
+    return readFileSync(full, 'utf-8').includes('<!-- SCAFFOLDING:');
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Durably record that one page has been successfully generated — the
+ * per-page completion flag the user asked for. Synchronous read-modify-write
+ * of the small manifest: because there is no `await` between the read and the
+ * write, concurrent page completions in the same process cannot interleave,
+ * so no lock is needed. Best-effort: a failed flag write must not fail the
+ * run (the page is still on disk; worst case it regenerates next run).
+ *
+ * @param cachePath  Absolute path to the doc-build manifest.
+ * @param pagePath   Page being flagged (relative to the docs output dir).
+ * @param sourceHashes Source-file hashes captured at generation time.
+ */
+export function commitDocPage(
+  cachePath: string,
+  pagePath: string,
+  sourceHashes: Record<string, string>,
+): void {
+  try {
+    const cache = loadDocCache(cachePath);
+    saveDocCache(cachePath, updateDocCacheEntry(cache, pagePath, sourceHashes));
+  } catch {
+    /* per-page flag write is best-effort */
+  }
 }
 
 // --- Internal helpers ---

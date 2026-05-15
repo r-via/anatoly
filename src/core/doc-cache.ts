@@ -14,13 +14,59 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 
 // --- Public interfaces ---
 
+/** Pipeline-complete marker (formerly `state/internal-docs/.scaffold-status.json`). */
+export interface ScaffoldInfo {
+  /** ISO-8601 timestamp of the last successful scaffold/update + coherence. */
+  scaffoldedAt: string;
+  /** Whether the last successful pipeline was a fresh scaffold or an update. */
+  lastMode: 'bootstrap' | 'update';
+  /** Run id that produced this status. */
+  lastRunId?: string;
+}
+
+/** Global coherence-agent flag. */
+export interface CoherenceInfo {
+  /** Signature of the doc set the coherence pass last reviewed. */
+  key: string;
+  /** ISO-8601 timestamp of that successful coherence pass. */
+  at: string;
+}
+
+/**
+ * The single doc-flag ledger: `.anatoly/cache/doc-build/manifest.json`.
+ *
+ * One file holds every doc-pipeline flag — per-page generation
+ * ({@link pages}), the pipeline-complete marker ({@link scaffold}), and the
+ * global coherence flag ({@link coherence}) — so a retry never redoes work
+ * already done. It lives under `cache/`: clearing `.anatoly/cache/` is an
+ * explicit "redo from scratch" and correctly drops all completion state.
+ */
 export interface DocCache {
-  version: 1;
-  /** pagePath → { sourceFilePath → SHA-256 hash } */
+  /**
+   * Schema version. v1/v2 are discarded on load:
+   * - v1 entries were written by `runDocGeneration` at *planning* time
+   *   (before the page existed) → poisoned, indistinguishable from real ones.
+   * - v2 split per-page flags here from scaffold-status elsewhere.
+   * From v3 every flag is in this one file and only ever written *after* the
+   * work it records succeeded, so the whole ledger is trustworthy. A bump
+   * forces exactly one clean regeneration.
+   */
+  version: 3;
+  /** pagePath → { sourceFilePath → SHA-256 hash }. Written post-generation. */
   pages: Record<string, Record<string, string>>;
+  /** Set once the whole pipeline (gen + lint + coherence) completed. */
+  scaffold?: ScaffoldInfo;
+  /** Set by the coherence agent once its pass completed. */
+  coherence?: CoherenceInfo;
+}
+
+/** The one place every doc flag lives. */
+export function docManifestPath(projectRoot: string): string {
+  return anatolyPath(projectRoot, 'cache/doc-build', 'manifest.json');
 }
 
 export interface PageMapping {
@@ -45,25 +91,38 @@ export interface CacheResult {
  * Compares current page mappings against the cache to determine
  * which pages need regeneration, which are fresh, which are new,
  * and which should be removed.
+ *
+ * `isPageComplete` lets the caller veto a cache hit: a page whose source
+ * hashes match but whose on-disk file was never actually generated (still a
+ * scaffold stub, or missing) must NOT be treated as fresh. Without this a
+ * crashed/partial generation run permanently poisons the manifest — the
+ * cache records the page as done while the file stays a stub, so it is never
+ * regenerated. When the predicate is omitted, behaviour is unchanged
+ * (a cache record alone marks a page fresh).
  */
 export function checkDocCache(
   cache: DocCache,
   currentPages: PageMapping[],
   currentHashes: Map<string, string>,
+  isPageComplete?: (pagePath: string) => boolean,
 ): CacheResult {
   const stale: string[] = [];
   const fresh: string[] = [];
   const added: string[] = [];
 
   const currentPagePaths = new Set<string>();
+  // A cached page only counts as a hit if it is also complete on disk.
+  const cachedAndComplete = (pagePath: string): boolean =>
+    Boolean(cache.pages[pagePath]) && (isPageComplete?.(pagePath) ?? true);
 
   for (const page of currentPages) {
     currentPagePaths.add(page.pagePath);
 
-    // Pages with no source files (base pages) are always fresh once cached.
-    // They are only regenerated on bootstrap or explicit `docs update`.
+    // Pages with no source files (base pages) are fresh once cached AND
+    // actually generated. A cached-but-still-stub base page falls through
+    // to `added` so it gets (re)generated.
     if (page.sourceFiles.length === 0) {
-      if (cache.pages[page.pagePath]) {
+      if (cachedAndComplete(page.pagePath)) {
         fresh.push(page.pagePath);
       } else {
         added.push(page.pagePath);
@@ -92,7 +151,9 @@ export function checkDocCache(
       f => cachedHashes[f] === currentHashes.get(f),
     );
 
-    if (hashesMatch) {
+    // Hashes match but the page was never written → regenerate (stale),
+    // not fresh. This is the self-healing path for a poisoned manifest.
+    if (hashesMatch && (isPageComplete?.(page.pagePath) ?? true)) {
       fresh.push(page.pagePath);
     } else {
       stale.push(page.pagePath);
@@ -140,7 +201,7 @@ export function removeDocCacheEntry(
 
 // --- Cache I/O ---
 
-const EMPTY_CACHE: DocCache = { version: 1, pages: {} };
+const EMPTY_CACHE: DocCache = { version: 3, pages: {} };
 
 /**
  * Loads the doc cache from disk. Returns an empty cache if the file
@@ -150,7 +211,11 @@ export function loadDocCache(cachePath: string): DocCache {
   try {
     const raw = readFileSync(cachePath, 'utf-8');
     const parsed = JSON.parse(raw) as DocCache;
-    if (parsed.version === 1 && typeof parsed.pages === 'object') {
+    // Only the current schema is trusted. A v1/v2 (or unrecognised) manifest
+    // is discarded — pre-v3 flags were either written before generation
+    // (poisoned) or split across files — so the next run regenerates every
+    // page and re-flags it post-success in this one ledger.
+    if (parsed.version === 3 && typeof parsed.pages === 'object') {
       return parsed;
     }
     return { ...EMPTY_CACHE };
