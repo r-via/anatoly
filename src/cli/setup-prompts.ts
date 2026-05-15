@@ -392,6 +392,37 @@ export function runLocalEmbeddingsUpgradeSubprocess(projectRoot: string): LocalE
   return { ok: exitCode === 0, exitCode };
 }
 
+/**
+ * Run `anatoly init` as a child process with stdio inherited so the user
+ * answers the Q0 (Quick/Advanced) prompt and any advanced phases (RAG tier
+ * + provisioning, providers, documentation) interactively. Used by the
+ * `anatoly run` first-run path so `run` performs no setup itself: all
+ * config generation lives in `init`.
+ *
+ * @returns `{ ok: true, exitCode: 0 }` when init wrote a config; `{ ok:
+ *   false, exitCode }` on cancel/failure.
+ * @throws {AnatolyError} if the CLI binary path can't be resolved.
+ */
+export function runInitSubprocess(projectRoot: string): { ok: boolean; exitCode: number } {
+  const argv0 = process.argv[0];
+  const argv1 = process.argv[1];
+  if (!argv0 || !argv1) {
+    throw new AnatolyError(
+      'Cannot resolve anatoly CLI binary path',
+      ERROR_CODES.FILE_NOT_FOUND,
+      false,
+      'Ensure anatoly is invoked via its CLI entry point (e.g. npx anatoly run)',
+    );
+  }
+  const result = spawnSync(argv0, [argv1, 'init'], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+    env: { ...process.env, ANATOLY_PROJECT_ROOT: projectRoot },
+  });
+  const exitCode = result.status ?? -1;
+  return { ok: exitCode === 0, exitCode };
+}
+
 // ---------------------------------------------------------------------------
 // Write first-run .anatoly.yml
 // ---------------------------------------------------------------------------

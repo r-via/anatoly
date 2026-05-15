@@ -75,9 +75,8 @@ import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
-import { runFirstRunWizard, runRagSetup, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
+import { runInitSubprocess, writeFirstRunConfig, runEndOfSetupPrompt } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation-config.js';
-import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
 import { detectProjectIdentity } from '../core/project-version.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../core/doc-llm-executor.js';
@@ -401,88 +400,40 @@ export function registerRunCommand(program: Command): void {
         getLogger().info('running with default settings (no prompts)');
       }
 
-      // First-run wizard: when no .anatoly.yml exists, prompt the user for
-      // embedding tier (lite/advanced) and audit mode (quick-win/full-run).
-      // The result is stored for downstream stories (config write in 48.5,
-      // runtime filter in 48.8). No config file is written here.
-      let wizardResult: WizardResult | undefined;
-      if (!existsSync(resolve(projectRoot, '.anatoly.yml'))) {
-        const hardware = detectHardware();
-        const cliTierOverride = Boolean(parentOpts.ragLite || parentOpts.ragAdvanced);
-        const prefs = loadPreferences(projectRoot);
-        const savedPreference = prefs?.embeddings?.prefer as 'lite' | 'advanced' | undefined;
-
-        wizardResult = await runFirstRunWizard({
-          hardware,
-          isTTY: process.stdin.isTTY === true,
-          defaultsSettings: useDefaults,
-          quickWin: cmdOpts.quickWin === true,
-          savedPreference,
-          cliTierOverride,
-          plain: Boolean(parentOpts.plain) || 'NO_COLOR' in process.env || !process.stdout.isTTY,
-          projectRoot,
-        });
-        getLogger().info({ wizardResult }, 'first-run wizard completed');
-
-        // Provision the embedding backend (lite prefetch + advanced GGUF /
-        // local-embeddings upgrade with recovery). Single source of truth
-        // shared with `anatoly init --advanced`. Returns the effective tier
-        // (advanced downgrades to lite when setup is incomplete).
-        const effectiveTier = await runRagSetup(projectRoot, wizardResult.tier, {
-          isTTY: process.stdin.isTTY === true,
-          defaultsSettings: useDefaults,
-        });
-        if (effectiveTier !== wizardResult.tier) {
-          wizardResult = { ...wizardResult, tier: effectiveTier };
+      // First run: when no .anatoly.yml exists, `run` performs NO setup
+      // itself. It delegates to `anatoly init` (Q0 Quick/Advanced + the
+      // advanced phases incl. RAG tier selection + provisioning), then
+      // reloads the config and continues the audit in the same command.
+      // Non-interactive (CI / --defaults-settings / non-TTY) can't prompt,
+      // so a quick default config is written directly so the audit proceeds.
+      const wasFirstRun = !existsSync(resolve(projectRoot, '.anatoly.yml'));
+      if (wasFirstRun) {
+        const interactive = process.stdin.isTTY === true && !useDefaults;
+        if (interactive) {
+          const initResult = runInitSubprocess(projectRoot);
+          if (!initResult.ok || !existsSync(resolve(projectRoot, '.anatoly.yml'))) {
+            printNotice({
+              kind: 'info',
+              title: 'Setup not completed',
+              hint: 'No .anatoly.yml written. Run `anatoly init` to configure, then `anatoly run`.',
+            });
+            return;
+          }
+        } else {
+          try {
+            const { config: quickDoc } = quickInitDocConfig(projectRoot);
+            await writeFirstRunConfig(projectRoot, { overrides: { documentation: quickDoc } });
+            getLogger().info('first-run: no config — wrote quick default (non-interactive)');
+          } catch (err) {
+            getLogger().warn({ err }, 'failed to write .anatoly.yml — continuing with defaults');
+          }
         }
-
-        // Write .anatoly.yml so subsequent runs skip the wizard. Uses the
-        // same quick-init config decisions as `anatoly init` (auto-detected
-        // reference paths, doc mode lite) so first-run and explicit init
-        // produce an identical config.
+        // Reload config from the file init (or the quick fallback) wrote so
+        // the rest of the run uses the chosen settings, not bare defaults.
         try {
-          const { config: quickDoc } = quickInitDocConfig(projectRoot);
-          await writeFirstRunConfig(projectRoot, {
-            tier: wizardResult.tier,
-            overrides: { documentation: quickDoc },
-          });
-          getLogger().info({ tier: wizardResult.tier }, 'first-run config written to .anatoly.yml');
-          // Reload config from the file we just wrote so the rest of the run
-          // uses the new settings instead of the bare defaults.
           config = loadConfig(projectRoot);
         } catch (err) {
-          getLogger().warn({ err }, 'failed to write .anatoly.yml — continuing with defaults');
-        }
-
-        // Save tier preference for this project so subsequent runs in the
-        // same project skip the prompt. Best-effort: only saved when (a) the
-        // tier is advanced AND downloads+setup succeeded, and (b) the user
-        // didn't force a tier via --rag-lite / --rag-advanced.
-        if (wizardResult.tier === 'advanced' && !cliTierOverride) {
-          savePreferences(projectRoot, { embeddings: { prefer: 'advanced' } });
-        }
-
-        // External tier just landed: yaml + ready-flag are on disk but
-        // `rag.embedding` is still commented and the API keys aren't
-        // exported. Running the validation+pipeline now would fail
-        // every time — exit cleanly with a guidance message instead.
-        // The user edits the two files and re-runs (wizard skipped,
-        // run proceeds normally or halts via findExternalConfigIssues
-        // if anything is still missing).
-        if (wizardResult.tier === 'external') {
-          const yamlPath = resolve(projectRoot, '.anatoly.yml');
-          const envPath = resolve(projectRoot, '.env');
-          printNotice({
-            kind: 'info',
-            title: 'External embedding setup written',
-            hint:
-              `Next steps:\n`
-              + `  1. Open ${yamlPath} and uncomment the \`rag.embedding\` block\n`
-              + `     (Mistral mistral-embed + OpenRouter Qwen3 by default — swap to your provider).\n`
-              + `  2. Add the matching API keys to ${envPath} (auto-loaded by Anatoly).\n`
-              + `  3. Re-run \`anatoly run\`.`,
-          });
-          return;
+          getLogger().warn({ err }, 'failed to reload .anatoly.yml — continuing with defaults');
         }
       }
 
@@ -854,7 +805,7 @@ export function registerRunCommand(program: Command): void {
         && !useDefaults
         && ctx.axesFilter === undefined
         && !quickWinActive
-        && !wizardResult
+        && !wasFirstRun
       ) {
         const enabledAxes = ALL_AXIS_IDS.filter(
           (id) => config.axes?.[id]?.enabled !== false,
