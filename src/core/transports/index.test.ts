@@ -311,14 +311,14 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
     expect(stats.get('google')).toEqual({ active: 0, total: 10 });
   });
 
-  it('should default concurrency to 10 when not specified', () => {
+  it('should default concurrency to the uniform 8 when not specified', () => {
     const router = new TransportRouter({
       nativeTransports: {},
       vercelSdkTransport: stubVercel,
       providerModes: { ollama: { mode: 'api' } },
     });
     const stats = router.getSemaphoreStats();
-    expect(stats.get('ollama')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('ollama')).toEqual({ active: 0, total: 8 });
   });
 
   it('should create a circuit breaker for each provider', () => {

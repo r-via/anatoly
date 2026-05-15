@@ -23,7 +23,7 @@ import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
-import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError } from '../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError, isCircuitOpenError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
 import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections, countChangedDocs } from '../rag/index.js';
 import { setRagQueryTrail } from '../rag/vector-store.js';
@@ -843,7 +843,7 @@ export function registerRunCommand(program: Command): void {
       // don't trip the MaxListenersExceededWarning — epic 56 surfaced this by
       // running 7 axis primitives concurrently, each propagating the same parent
       // AbortSignal through the transport stack.
-      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 24, config.providers.google?.concurrency ?? 0);
+      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 8, config.providers.google?.concurrency ?? 0);
       process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
       const { EventEmitter } = await import('node:events');
       if (EventEmitter.defaultMaxListeners < maxConcurrency + 10) {
@@ -1429,7 +1429,7 @@ async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
 
   const ragLabel = ctx.enableRag ? (ctx.resolvedRagMode ?? 'lite') : 'off';
   configRows.push(
-    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic?.concurrency ?? 24} Claude slots`}` },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic?.concurrency ?? 8} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic?.concurrency ?? 8} Claude slots`}` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );
@@ -2787,9 +2787,12 @@ async function runReviewPhase(
           ctx.renderer?.logPlain(`[review] [${completedCount}/${evaluateTotal}] ${filePath} \u2192 ${verdict}${note} (${dur}s)`);
         }
       } catch (error) {
-        // Provider-auth failure: stop the whole run now. file-evaluator
-        // propagates it instead of degrading the file, so it lands here.
-        if (isFatalAuthError(error)) {
+        // Run-fatal during review: provider-auth failure OR an open circuit
+        // breaker. file-evaluator propagates these instead of degrading the
+        // file, so they land here. A circuit-broken review is worthless
+        // (every non-cached file fails) — stop now and fail the run loudly
+        // instead of silently finishing `done` on stale cache.
+        if (isFatalAuthError(error) || isCircuitOpenError(error)) {
           requestFatalStop(ctx, error);
           return;
         }

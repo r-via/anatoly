@@ -16,11 +16,21 @@
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
 import type { ProviderSelection } from '../commands/init.js';
 
+/**
+ * Uniform default parallel-request budget written explicitly into every
+ * network provider the wizard emits. Kept in the generated `.anatoly.yml`
+ * (not left to a hidden Zod default) so users see and can tune it. Matches
+ * `GenericProviderConfigSchema`'s default in
+ * [config.ts](../schemas/config.ts).
+ */
+export const DEFAULT_PROVIDER_CONCURRENCY = 8;
+
 export interface V3ProviderEntry {
   transport: 'claude_agent_sdk' | 'google_genai' | 'openai_compatible';
   auth: 'oauth' | 'api_key';
   env_key?: string;
   base_url?: string;
+  concurrency: number;
   models: string[];
 }
 
@@ -79,7 +89,12 @@ function makeEntry(name: string, auth: Auth, warnings: string[]): V3ProviderEntr
       `Provider "${name}" requested subscription (oauth) but its transport (openai_compatible) only supports API keys; using api_key.`,
     );
   }
-  const entry: V3ProviderEntry = { transport, auth: effectiveAuth, models: [] };
+  const entry: V3ProviderEntry = {
+    transport,
+    auth: effectiveAuth,
+    concurrency: DEFAULT_PROVIDER_CONCURRENCY,
+    models: [],
+  };
   if (effectiveAuth === 'api_key') {
     entry.env_key = envKeyFor(name);
   }

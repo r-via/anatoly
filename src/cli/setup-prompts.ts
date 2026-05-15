@@ -20,6 +20,7 @@ import { detectProjectProfile } from '../core/language-detect.js';
 import { autoDetectScanGlobs } from '../core/scan-autodetect.js';
 import { defaultDocumentationConfig } from '../core/documentation-config.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from './download-recovery.js';
+import { DEFAULT_PROVIDER_CONCURRENCY } from './wizard-v3-mapping.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -847,8 +848,8 @@ function routingForTier(
 function anthropicProviderConfig(hasApiKey: boolean): Record<string, unknown> {
   const models = [DEFAULT_MODELS_V3.quality, DEFAULT_MODELS_V3.fast, DEFAULT_MODELS_V3.deliberation];
   return hasApiKey
-    ? { transport: 'claude_agent_sdk', auth: 'api_key', env_key: 'ANTHROPIC_API_KEY', concurrency: 24, models }
-    : { transport: 'claude_agent_sdk', auth: 'oauth', concurrency: 24, models };
+    ? { transport: 'claude_agent_sdk', auth: 'api_key', env_key: 'ANTHROPIC_API_KEY', concurrency: DEFAULT_PROVIDER_CONCURRENCY, models }
+    : { transport: 'claude_agent_sdk', auth: 'oauth', concurrency: DEFAULT_PROVIDER_CONCURRENCY, models };
 }
 
 const LOCAL_LITE_PROVIDER: Record<string, unknown> = {
@@ -859,6 +860,7 @@ const LOCAL_LITE_PROVIDER: Record<string, unknown> = {
 const LOCAL_ADVANCED_PROVIDER: Record<string, unknown> = {
   transport: 'openai_compatible',
   auth: 'none',
+  concurrency: DEFAULT_PROVIDER_CONCURRENCY,
   models: ['nomic-embed-code-gguf', 'qwen3-embedding-8b-gguf'],
 };
 
@@ -866,6 +868,7 @@ const MISTRAL_PROVIDER: Record<string, unknown> = {
   transport: 'openai_compatible',
   auth: 'api_key',
   env_key: 'MISTRAL_API_KEY',
+  concurrency: DEFAULT_PROVIDER_CONCURRENCY,
   models: ['mistral-embed'],
 };
 
@@ -873,14 +876,19 @@ const OPENROUTER_PROVIDER: Record<string, unknown> = {
   transport: 'openai_compatible',
   auth: 'api_key',
   env_key: 'OPENROUTER_API_KEY',
+  concurrency: DEFAULT_PROVIDER_CONCURRENCY,
   models: ['qwen/qwen3-embedding-8b'],
 };
+
+// onnxruntime_node (local-lite) is in-process — like auth/env_key/base_url,
+// `concurrency` is meaningless there, so it is intentionally omitted (the v2
+// adapter drops onnx providers entirely).
 
 const GOOGLE_PROVIDER: Record<string, unknown> = {
   transport: 'google_genai',
   auth: 'api_key',
   env_key: 'GEMINI_API_KEY',
-  concurrency: 10,
+  concurrency: DEFAULT_PROVIDER_CONCURRENCY,
   models: ['gemini-2.5-pro', 'gemini-2.5-flash-lite'],
 };
 

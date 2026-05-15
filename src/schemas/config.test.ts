@@ -52,9 +52,9 @@ describe('ConfigSchema — v1.0 new sections', () => {
 });
 
 describe('ProvidersConfigSchema', () => {
-  it('should default anthropic.concurrency to 24', () => {
+  it('should default anthropic.concurrency to the uniform 8', () => {
     const config = parseTestConfig({});
-    expect(config.providers.anthropic!.concurrency).toBe(24);
+    expect(config.providers.anthropic!.concurrency).toBe(8);
   });
 
   it('should default google to undefined (Gemini disabled)', () => {
@@ -68,7 +68,7 @@ describe('ProvidersConfigSchema', () => {
     });
     expect(config.providers.google).toBeDefined();
     expect(config.providers.google!.mode).toBe('subscription');
-    expect(config.providers.google!.concurrency).toBe(10);
+    expect(config.providers.google!.concurrency).toBe(8);
   });
 
   it('should accept providers.google.mode = api', () => {

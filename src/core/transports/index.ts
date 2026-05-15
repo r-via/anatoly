@@ -58,6 +58,7 @@ import { Semaphore } from '../sdk-semaphore.js';
 import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
 import { retryWithBackoff } from '../../utils/rate-limiter.js';
 import { extractJson } from '../../utils/extract-json.js';
+import { circuitOpenError, isProviderHealthFailure } from '../../utils/errors.js';
 
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
@@ -122,7 +123,7 @@ export interface ProviderModeConfig {
   mode: 'subscription' | 'api';
   single_turn?: 'subscription' | 'api';
   agents?: 'subscription' | 'api';
-  /** Max concurrent calls for this provider. Defaults to 10. */
+  /** Max concurrent calls for this provider. Defaults to the uniform 8. */
   concurrency?: number;
 }
 
@@ -165,8 +166,13 @@ export interface TransportRouterConfig {
  * - subscription → native transport (AnthropicTransport, GeminiTransport)
  * - api → VercelSdkTransport
  */
-/** Default concurrency for providers without an explicit concurrency setting. */
-const DEFAULT_PROVIDER_CONCURRENCY = 10;
+/**
+ * Last-resort concurrency for a provider that reached the router without an
+ * explicit setting. Real configs always carry one (the wizard writes it and
+ * the v2 schema defaults it), so this is purely defensive — kept equal to the
+ * uniform provider default (8) in the config schemas for consistency.
+ */
+const DEFAULT_PROVIDER_CONCURRENCY = 8;
 
 export class TransportRouter {
   private readonly nativeTransports: Record<string, LlmTransport>;
@@ -232,12 +238,12 @@ export class TransportRouter {
    * @returns An object with a `release` function. Call `release({ success })` in
    *   a finally block to free the slot and record breaker outcome.
    */
-  async acquireSlot(model: string): Promise<{ release: (opts?: { success: boolean }) => void }> {
+  async acquireSlot(model: string): Promise<{ release: (opts?: { success: boolean; error?: unknown }) => void }> {
     const providerId = extractProvider(model);
     const breaker = this.breakers.get(providerId);
 
     if (breaker?.shouldFallback()) {
-      throw new Error(`Provider '${providerId}' circuit breaker is open`);
+      throw circuitOpenError(providerId);
     }
 
     const sem = this.semaphores.get(providerId);
@@ -245,13 +251,21 @@ export class TransportRouter {
 
     let released = false;
     return {
-      release: (opts?: { success: boolean }) => {
+      release: (opts?: { success: boolean; error?: unknown }) => {
         if (released) return;
         released = true;
         if (sem) sem.release();
         if (breaker) {
           if (opts?.success === false) {
-            breaker.recordFailure();
+            // Only genuine provider-health failures trip the breaker. A
+            // deliberate abort/timeout (e.g. doc-conflict's detection
+            // timeout) or an auth failure must NOT, otherwise a benign or
+            // already-handled failure silently opens a provider-global
+            // breaker that then guts the review phase. When no error is
+            // supplied, default to counting it (preserve protection).
+            if (opts.error === undefined || isProviderHealthFailure(opts.error)) {
+              breaker.recordFailure();
+            }
           } else {
             breaker.recordSuccess();
           }
@@ -268,7 +282,7 @@ export class TransportRouter {
    * @param task - Task type for mode resolution (default: 'single_turn')
    * @returns An object with the resolved `transport` and a `release` function.
    */
-  async acquire(model: string, task: TaskType = 'single_turn'): Promise<{ transport: LlmTransport; release: (opts?: { success: boolean }) => void }> {
+  async acquire(model: string, task: TaskType = 'single_turn'): Promise<{ transport: LlmTransport; release: (opts?: { success: boolean; error?: unknown }) => void }> {
     const { release } = await this.acquireSlot(model);
     const transport = this.resolve(model, task);
     return { transport, release };
@@ -293,6 +307,7 @@ export class TransportRouter {
       async () => {
         const { release } = await this.acquireSlot(params.model);
         let success = false;
+        let failErr: unknown;
         try {
           const transport = this.resolve(params.model, 'agents');
 
@@ -343,8 +358,11 @@ export class TransportRouter {
           }
 
           throw new Error(`Agentic validation failed after 2 attempts: ${v2.error}`);
+        } catch (err) {
+          failErr = err;
+          throw err;
         } finally {
-          release({ success });
+          release({ success, error: failErr });
         }
       },
       {

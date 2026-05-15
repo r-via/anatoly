@@ -534,7 +534,7 @@ export function registerProvidersCommand(program: Command): void {
 
       // Raise limit early — each SDK query() adds an exit listener to process,
       // and each gemini-cli-core Config adds listeners to the shared coreEvents emitter
-      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 24, config.providers.google?.concurrency ?? 0, checks.length);
+      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 8, config.providers.google?.concurrency ?? 0, checks.length);
       const prevMaxListeners = process.getMaxListeners();
       const prevCoreMaxListeners = coreEvents.getMaxListeners();
       process.setMaxListeners(Math.max(prevMaxListeners, maxConcurrency + 10));
@@ -576,8 +576,8 @@ export function registerProvidersCommand(program: Command): void {
         testedTransports.add(r.transport);
 
         const slots = r.transport === 'google_genai'
-          ? (config.providers.google?.concurrency ?? 10)
-          : (config.providers.anthropic?.concurrency ?? 24);
+          ? (config.providers.google?.concurrency ?? 8)
+          : (config.providers.anthropic?.concurrency ?? 8);
 
         if (!opts.json) {
           console.log(chalk.dim(`  Stress-testing ${r.provider} (${r.model}) × ${slots} concurrent...`));

@@ -38,7 +38,7 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
     expect(stats.get('google')).toEqual({ active: 0, total: 10 });
   });
 
-  it('should default semaphore concurrency to 10 when not specified', () => {
+  it('should default semaphore concurrency to the uniform 8 when not specified', () => {
     const config: TransportRouterConfig = {
       nativeTransports: {},
       vercelSdkTransport: stubTransport('vercel-sdk'),
@@ -46,7 +46,7 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
     };
     const router = new TransportRouter(config);
     const stats = router.getSemaphoreStats();
-    expect(stats.get('ollama')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('ollama')).toEqual({ active: 0, total: 8 });
   });
 
   it('should create a circuit breaker per provider', () => {
@@ -167,7 +167,7 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
       vercelSdkTransport: stubTransport('vercel-sdk'),
       providerModes: {
         anthropic: { mode: 'subscription', concurrency: 24 },
-        google: { mode: 'api' }, // no concurrency → default 10
+        google: { mode: 'api' }, // no concurrency → uniform default 8
       },
     };
     const router = new TransportRouter(config);
@@ -175,6 +175,6 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
     expect(router.getBreakerState('google')).toBe('closed');
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')!.total).toBe(24);
-    expect(stats.get('google')!.total).toBe(10);
+    expect(stats.get('google')!.total).toBe(8);
   });
 });

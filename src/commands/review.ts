@@ -134,7 +134,7 @@ export function registerReviewCommand(program: Command): void {
           providerModes: _provModes,
         });
         // Raise max listeners to account for concurrent SDK subprocess exit handlers
-        process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
+        process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 8) + 10));
         const axesTotal = evaluators.length;
 
         // Pipeline display

@@ -90,7 +90,7 @@ export function registerWatchCommand(program: Command): void {
         providerModes: _watchProvModes,
       });
       // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 24) + 10));
+      process.setMaxListeners(Math.max(process.getMaxListeners(), (config.providers.anthropic?.concurrency ?? 8) + 10));
       if (axesFilter) {
         warnDisabledAxes(axesFilter, evaluators.map((e) => e.id));
       }

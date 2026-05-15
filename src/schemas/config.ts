@@ -75,14 +75,17 @@ export const GenericProviderConfigSchema = z.object({
   env_key: z.string().optional(),
 });
 
+// Anthropic/Google only override the transport `mode` default; `concurrency`
+// is intentionally NOT overridden so every provider shares the single uniform
+// default (8) from GenericProviderConfigSchema. The first-run wizard writes
+// `concurrency: 8` explicitly into the generated config — this default is only
+// a safety net for hand-written configs that omit it.
 export const AnthropicProviderConfigSchema = GenericProviderConfigSchema.extend({
   mode: ProviderModeSchema.default('subscription'),
-  concurrency: z.int().min(1).max(32).default(24),
 });
 
 export const GoogleProviderConfigSchema = GenericProviderConfigSchema.extend({
   mode: ProviderModeSchema.default('subscription'),
-  concurrency: z.int().min(1).max(32).default(10),
 });
 
 export const ProvidersConfigSchema = z.object({
@@ -283,7 +286,7 @@ export const ConfigSchema = z.object({
     report_path: 'coverage/coverage-final.json',
   }),
   // v2.0 sections
-  providers: ProvidersConfigSchema.default({ anthropic: { mode: 'subscription', concurrency: 24 } }),
+  providers: ProvidersConfigSchema.default({ anthropic: { mode: 'subscription', concurrency: 8 } }),
   models: ModelsConfigSchema.default({
     quality: DEFAULT_MODELS.quality,
     fast: DEFAULT_MODELS.fast,
