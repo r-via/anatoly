@@ -135,6 +135,33 @@ export function listRuns(projectRoot: string): string[] {
 }
 
 /**
+ * Canonical CLI invocation that removes empty (phantom) runs.
+ *
+ * Single source of truth for the `anatoly runs remove --empty` command path,
+ * so user-facing hints can never drift from the actually-registered command
+ * (the subcommand group is `runs`, not `audit`).
+ */
+export const RUNS_REMOVE_EMPTY_CMD = 'anatoly runs remove --empty';
+
+/**
+ * Count runs that have no reviews ("empty" / phantom runs).
+ *
+ * A run is considered empty when its `reviews/` directory has zero entries
+ * (or is missing). This mirrors the `--empty` filter of `anatoly runs remove`
+ * so the warning count and the cleanup command always agree.
+ */
+export function countEmptyRuns(projectRoot: string): number {
+  const runsDir = anatolyPath(projectRoot, 'runs');
+  return listRuns(projectRoot).filter((id) => {
+    try {
+      return readdirSync(join(runsDir, id, 'reviews')).length === 0;
+    } catch {
+      return true;
+    }
+  }).length;
+}
+
+/**
  * Purge old runs, keeping only the most recent `keep` runs.
  * Returns the number of runs deleted.
  */

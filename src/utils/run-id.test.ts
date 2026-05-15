@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -14,6 +14,7 @@ import {
   resolveRunDir,
   listRuns,
   purgeRuns,
+  countEmptyRuns,
 } from './run-id.js';
 
 describe('run-id', () => {
@@ -189,6 +190,37 @@ describe('run-id', () => {
       const deleted = purgeRuns(tmpDir, 0);
       expect(deleted).toBe(4);
       expect(listRuns(tmpDir)).toEqual([]);
+    });
+  });
+
+  describe('countEmptyRuns', () => {
+    it('returns 0 when there are no runs', () => {
+      expect(countEmptyRuns(tmpDir)).toBe(0);
+    });
+
+    it('counts a freshly created run (empty reviews/) as empty', () => {
+      createRunDir(tmpDir, generateRunId('scan'));
+      expect(countEmptyRuns(tmpDir)).toBe(1);
+    });
+
+    it('does not count a run that has at least one review', () => {
+      const runDir = createRunDir(tmpDir, generateRunId('review'));
+      writeFileSync(join(runDir, 'reviews', 'finding-001.md'), '# finding');
+      expect(countEmptyRuns(tmpDir)).toBe(0);
+    });
+
+    it('counts only the empty runs in a mixed set', () => {
+      createRunDir(tmpDir, 'empty-a');
+      createRunDir(tmpDir, 'empty-b');
+      const nonEmpty = createRunDir(tmpDir, 'has-review');
+      writeFileSync(join(nonEmpty, 'reviews', 'r.md'), 'x');
+      expect(countEmptyRuns(tmpDir)).toBe(2);
+    });
+
+    it('treats a run with a missing reviews/ dir as empty', () => {
+      const runDir = createRunDir(tmpDir, 'no-reviews-dir');
+      rmSync(join(runDir, 'reviews'), { recursive: true, force: true });
+      expect(countEmptyRuns(tmpDir)).toBe(1);
     });
   });
 });

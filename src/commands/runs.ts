@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
-import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir } from '../utils/run-id.js';
+import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 import { listRunStatuses, isProcessAlive, writeRunStatus } from '../core/run-status.js';
@@ -175,7 +175,7 @@ export function registerRunsCommand(program: Command): Command {
       } else {
         console.error('Specify run IDs to remove or use --empty / --all / --keep N.');
         console.error('  Usage: anatoly runs remove <runId...>');
-        console.error('  Usage: anatoly runs remove --empty');
+        console.error(`  Usage: ${RUNS_REMOVE_EMPTY_CMD}`);
         console.error('  Usage: anatoly runs remove --all');
         console.error('  Usage: anatoly runs remove --keep 5');
         process.exitCode = 1;
