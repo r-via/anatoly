@@ -15,7 +15,9 @@ import { DEFAULT_MODELS } from '../core/default-models.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig } from '../cli/setup-prompts.js';
+import { buildAnnotatedV3Yaml, detectScanGlobs, writeFirstRunConfig, runFirstRunWizard } from '../cli/setup-prompts.js';
+import { detectHardware } from '../rag/hardware-detect.js';
+import { loadPreferences } from '../cli/preferences.js';
 import { wizardProvidersToV3 } from '../cli/wizard-v3-mapping.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
@@ -438,9 +440,10 @@ export function registerInitCommand(program: Command): void {
     .description('Interactive wizard to generate a multi-provider .anatoly.yml config')
     .option('--force', 'overwrite existing .anatoly.yml')
     .option('--defaults', 'generate commented-out defaults (non-interactive)')
-    .option('--reconfigure-docs', 'reconfigure only the documentation section')
-    .option('--advanced', 'full interactive wizard (providers, models, doc mode); default is quick zero-prompt')
-    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean }) => {
+    .option('--reconfigure-docs', 'alias of --documentation (reconfigure the documentation phase)')
+    .option('--quick', 'skip the Quick/Advanced question and run the quick zero-prompt setup')
+    .option('--advanced', 'skip the Quick/Advanced question and run the full wizard (RAG tier, providers, docs, notifications)')
+    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean; quick?: boolean }) => {
       const projectRoot = process.cwd();
       const configPath = resolve(projectRoot, CONFIG_FILENAME);
 
@@ -487,13 +490,47 @@ export function registerInitCommand(program: Command): void {
         return;
       }
 
-      // --advanced: full interactive wizard, written through the single v3
-      // yaml writer (providers/routing derived from selections via the
-      // canonical v2->v3 mapping; doc section from the doc wizard).
+      // Resolve the setup depth. Explicit flags skip the question; bare
+      // `anatoly init` asks Q0 (no default — explicit choice).
+      let depth: 'quick' | 'advanced';
       if (opts.advanced) {
-        p.intro('anatoly init --advanced');
+        depth = 'advanced';
+      } else if (opts.quick) {
+        depth = 'quick';
+      } else {
+        p.intro('anatoly init');
+        const choice = await p.select({
+          message: 'Setup',
+          options: [
+            { value: 'quick' as const, label: 'Quick', hint: 'zero prompts: auto-detect docs, lite RAG + doc mode, sane defaults' },
+            { value: 'advanced' as const, label: 'Advanced', hint: 'RAG tier, providers, models, documentation, notifications' },
+          ],
+        });
+        if (isCancelled(choice)) { p.cancel('Setup cancelled.'); return; }
+        depth = choice;
+      }
 
+      if (depth === 'advanced') {
+        if (opts.advanced) p.intro('anatoly init --advanced');
+
+        // Phase 1 — RAG / embedding tier. Hardware-aware selection with the
+        // comparison table. (Prefetch/GGUF orchestration is wired in a
+        // follow-up; this resolves the tier and writes the matching
+        // providers/routing.embeddings block instead of hardcoding lite.)
+        const prefs = loadPreferences(projectRoot);
+        const { tier } = await runFirstRunWizard({
+          hardware: detectHardware(),
+          isTTY: process.stdin.isTTY === true,
+          defaultsSettings: false,
+          quickWin: false,
+          savedPreference: prefs?.embeddings?.prefer as 'lite' | 'advanced' | undefined,
+          plain: Boolean(process.env.NO_COLOR) || !process.stdout.isTTY,
+          projectRoot,
+        });
+
+        // Phase 2 — providers + models.
         const selections = await runInitWizard();
+        // Phase 3 — documentation.
         const docSelections = await runDocWizard(projectRoot);
         const docConfig = buildDocumentationConfig(docSelections);
         const { providers, routingGeneration, warnings } = wizardProvidersToV3(
@@ -503,7 +540,7 @@ export function registerInitCommand(program: Command): void {
         for (const w of warnings) p.log.warn(w);
 
         const scanGlobs = await detectScanGlobs(projectRoot);
-        const content = buildAnnotatedV3Yaml('lite', Boolean(process.env.ANTHROPIC_API_KEY), scanGlobs, {
+        const content = buildAnnotatedV3Yaml(tier, Boolean(process.env.ANTHROPIC_API_KEY), scanGlobs, {
           generation: { providers, routing: routingGeneration },
           documentation: docConfig,
         });
@@ -517,15 +554,13 @@ export function registerInitCommand(program: Command): void {
 
         writeFileSync(configPath, content);
         p.log.success(`${CONFIG_FILENAME} written.`);
+        p.log.info(`Embedding tier: ${tier}`);
         p.log.info(`Providers: ${[...selections.providers.keys()].join(', ')}`);
         p.log.info(`Models: quality=${selections.models.quality}, fast=${selections.models.fast}`);
         p.log.info(`Documentation: mode=${docSelections.internalMode}, ${docSelections.referencePaths.length} reference paths`);
       } else {
-        // Quick (default): zero prompts. Infer reference paths, default
-        // everything else, doc mode lite. Single v3 writer via
-        // writeFirstRunConfig. Transparent recap, no confirmation.
-        p.intro('anatoly init');
-
+        // Quick: zero prompts. Infer reference paths, default everything
+        // else, doc mode lite. Single v3 writer. Transparent recap.
         const { config: docConfig, referencePaths } = quickInitDocConfig(projectRoot);
         await writeFirstRunConfig(projectRoot, { overrides: { documentation: docConfig } });
 
@@ -533,7 +568,7 @@ export function registerInitCommand(program: Command): void {
         p.log.info(`Reference docs: ${referencePaths.join(', ')}`);
         p.log.info('Docs trusted as-is (lite, per-file RAG retrieval). If your docs may be stale,');
         p.log.info('run `anatoly init --advanced` and pick full (3-way arbitration).');
-        p.log.info('Run `anatoly init --advanced` to customize providers, models, and doc mode.');
+        p.log.info('Run `anatoly init --advanced` to customize RAG tier, providers, models, doc mode.');
       }
 
       // Pre-warm the pricing registry
