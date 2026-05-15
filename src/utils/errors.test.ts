@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isFatalAuthError, authError } from './errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
 
 describe('AnatolyError', () => {
   it('should create an error with code and recoverable flag', () => {
@@ -44,6 +44,7 @@ describe('AnatolyError', () => {
       NLP_SUMMARIZATION_FAILED: 'NLP_SUMMARIZATION_FAILED',
       PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
       PRICING_INCOMPLETE: 'PRICING_INCOMPLETE',
+      CIRCUIT_OPEN: 'CIRCUIT_OPEN',
     });
   });
 
@@ -163,5 +164,44 @@ describe('isFatalAuthError / authError', () => {
     expect(isFatalAuthError(new AnatolyError('x', ERROR_CODES.SDK_ERROR, true))).toBe(false);
     expect(isFatalAuthError(new Error('401 unauthorized'))).toBe(false);
     expect(isFatalAuthError(undefined)).toBe(false);
+  });
+});
+
+describe('circuitOpenError / isCircuitOpenError', () => {
+  it('circuitOpenError is a non-recoverable CIRCUIT_OPEN error with a hint', () => {
+    const err = circuitOpenError('anthropic');
+    expect(err).toBeInstanceOf(AnatolyError);
+    expect(err.code).toBe(ERROR_CODES.CIRCUIT_OPEN);
+    expect(err.recoverable).toBe(false);
+    expect(err.message).toContain("Provider 'anthropic' circuit breaker is open");
+    expect(err.hint).toMatch(/circuit/i);
+  });
+
+  it('isCircuitOpenError matches the typed error and the legacy string form', () => {
+    expect(isCircuitOpenError(circuitOpenError('anthropic'))).toBe(true);
+    expect(isCircuitOpenError(new Error("Provider 'anthropic' circuit breaker is open"))).toBe(true);
+    expect(isCircuitOpenError(new AnatolyError('x', ERROR_CODES.SDK_ERROR, true))).toBe(false);
+    expect(isCircuitOpenError(undefined)).toBe(false);
+  });
+});
+
+describe('isProviderHealthFailure', () => {
+  it('does NOT count deliberate aborts / timeouts / auth / circuit-open', () => {
+    expect(isProviderHealthFailure(new Error('Claude Code process aborted by user'))).toBe(false);
+    expect(isProviderHealthFailure(new Error('The operation was aborted'))).toBe(false);
+    expect(isProviderHealthFailure(new Error('AbortError: aborted'))).toBe(false);
+    expect(isProviderHealthFailure(new AnatolyError('doc page generation exceeded the 600s budget (runtime.timeout_per_file)', ERROR_CODES.SDK_TIMEOUT, true))).toBe(false);
+    expect(isProviderHealthFailure(new AnatolyError('review src/x.ts exceeded the 600s budget', ERROR_CODES.SDK_ERROR, true))).toBe(false);
+    expect(isProviderHealthFailure(authError('anthropic'))).toBe(false);
+    expect(isProviderHealthFailure(circuitOpenError('anthropic'))).toBe(false);
+    expect(isProviderHealthFailure(new Error('interrupted'))).toBe(false);
+  });
+
+  it('DOES count genuine provider-health failures (default protects the breaker)', () => {
+    expect(isProviderHealthFailure(new Error('429 Too Many Requests'))).toBe(true);
+    expect(isProviderHealthFailure(new Error('500 Internal Server Error'))).toBe(true);
+    expect(isProviderHealthFailure(new Error('ECONNRESET'))).toBe(true);
+    expect(isProviderHealthFailure(new AnatolyError('Claude Code SDK error [error]: boom', ERROR_CODES.SDK_ERROR, true))).toBe(true);
+    expect(isProviderHealthFailure(undefined)).toBe(true);
   });
 });

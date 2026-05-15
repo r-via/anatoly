@@ -18,6 +18,7 @@ export const ERROR_CODES = {
   NLP_SUMMARIZATION_FAILED: 'NLP_SUMMARIZATION_FAILED',
   PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
   PRICING_INCOMPLETE: 'PRICING_INCOMPLETE',
+  CIRCUIT_OPEN: 'CIRCUIT_OPEN',
 } as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
@@ -39,6 +40,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   NLP_SUMMARIZATION_FAILED: 'NLP summarization LLM call failed — check provider config and API keys',
   PROVIDER_AUTH_FAILED: 'check provider API keys and authentication — see anatoly providers for status',
   PRICING_INCOMPLETE: 'one or more configured models have no pricing entry — run `anatoly providers` for details, or remove the offending models from .anatoly.yml',
+  CIRCUIT_OPEN: 'the provider had repeated genuine failures and the circuit opened — check provider health/quota (anatoly providers) and re-run',
 };
 
 /**
@@ -204,4 +206,69 @@ export function authError(provider: string, detail?: string): AnatolyError {
     undefined,
     detail,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Circuit breaker
+// ---------------------------------------------------------------------------
+
+/** The canonical "provider circuit breaker is open" error. */
+export function circuitOpenError(providerId: string): AnatolyError {
+  return new AnatolyError(
+    `Provider '${providerId}' circuit breaker is open`,
+    ERROR_CODES.CIRCUIT_OPEN,
+    false,
+  );
+}
+
+/**
+ * True when `err` is a circuit-breaker-open rejection. Matches the typed
+ * error and, defensively, the legacy string form so the guard never misses.
+ */
+export function isCircuitOpenError(err: unknown): boolean {
+  if (err instanceof AnatolyError && err.code === ERROR_CODES.CIRCUIT_OPEN) return true;
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return /circuit breaker is open/i.test(msg);
+}
+
+/**
+ * Whether `err` represents a genuine *provider-health* failure that should
+ * count toward the circuit breaker (rate limit, 5xx, network, unknown SDK
+ * error). It must return **false** for failures that are not health signals
+ * and would wrongly trip the breaker:
+ *
+ * - deliberate aborts / wall-clock timeouts (our {@link withTimeout}, the
+ *   doc-conflict detection timeout, SIGINT): "aborted by user", AbortError,
+ *   `SDK_TIMEOUT`;
+ * - auth failures ({@link ERROR_CODES.PROVIDER_AUTH_FAILED}) — already fatal
+ *   and handled by the orchestrator, not a transient health issue;
+ * - the circuit-open rejection itself (never re-penalise an open breaker).
+ *
+ * Unknown / unclassified errors default to `true` so the breaker keeps
+ * protecting against real provider degradation.
+ */
+export function isProviderHealthFailure(err: unknown): boolean {
+  if (err instanceof AnatolyError) {
+    if (
+      err.code === ERROR_CODES.PROVIDER_AUTH_FAILED ||
+      err.code === ERROR_CODES.SDK_TIMEOUT ||
+      err.code === ERROR_CODES.CIRCUIT_OPEN
+    ) {
+      return false;
+    }
+  }
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  const t = msg.toLowerCase();
+  if (
+    t.includes('aborted by user') ||
+    t.includes('aborterror') ||
+    t.includes('the operation was aborted') ||
+    t.includes('operation was aborted') ||
+    (t.includes('exceeded the') && t.includes('budget')) || // our TimeoutError
+    t === 'interrupted' ||
+    t.includes('circuit breaker is open')
+  ) {
+    return false;
+  }
+  return true;
 }
