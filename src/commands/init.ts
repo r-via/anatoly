@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
@@ -69,41 +69,11 @@ export const LANGUAGE_DOC_KINDS: Record<string, DocCommentKind[]> = {
   Bash: ['module_header'],
 };
 
-/** Well-known doc file/directory candidates for auto-detection. */
-const DOC_CANDIDATES: { path: string; glob: string; isDir: boolean }[] = [
-  { path: 'docs', glob: 'docs/**/*.md', isDir: true },
-  { path: 'README.md', glob: 'README.md', isDir: false },
-  { path: 'ARCHITECTURE.md', glob: 'ARCHITECTURE.md', isDir: false },
-  { path: 'CONTRIBUTING.md', glob: 'CONTRIBUTING.md', isDir: false },
-  { path: 'specs', glob: 'specs/**/*.md', isDir: true },
-];
-
-/**
- * Auto-detect documentation paths present in the project root.
- * Returns an array of glob patterns for detected doc sources.
- */
-export function detectDocPaths(projectRoot: string): string[] {
-  const found: string[] = [];
-  for (const candidate of DOC_CANDIDATES) {
-    const fullPath = join(projectRoot, candidate.path);
-    try {
-      if (candidate.isDir) {
-        if (existsSync(fullPath) && statSync(fullPath).isDirectory()) {
-          // Verify the directory has content
-          const entries = readdirSync(fullPath);
-          if (entries.length > 0) found.push(candidate.glob);
-        }
-      } else {
-        if (existsSync(fullPath) && statSync(fullPath).isFile()) {
-          found.push(candidate.glob);
-        }
-      }
-    } catch {
-      // Skip inaccessible paths
-    }
-  }
-  return found;
-}
+// `detectDocPaths` moved to core/documentation-config.ts (neutral, fs-only)
+// so the run.ts first-run path can share it without importing this command
+// module. Re-exported for back-compat with existing importers.
+export { detectDocPaths, quickInitDocConfig } from '../core/documentation-config.js';
+import { detectDocPaths, quickInitDocConfig } from '../core/documentation-config.js';
 
 // `buildDocumentationConfig` / `defaultDocumentationConfig` moved to
 // `core/documentation-config.ts` (neutral module) to break the
@@ -556,14 +526,7 @@ export function registerInitCommand(program: Command): void {
         // writeFirstRunConfig. Transparent recap, no confirmation.
         p.intro('anatoly init');
 
-        const detectedPaths = detectDocPaths(projectRoot);
-        const referencePaths = detectedPaths.length > 0 ? detectedPaths : ['README.md'];
-        const docConfig = buildDocumentationConfig({
-          referencePaths,
-          inlineCommentsEnabled: false,
-          internalMode: 'lite',
-        });
-
+        const { config: docConfig, referencePaths } = quickInitDocConfig(projectRoot);
         await writeFirstRunConfig(projectRoot, { overrides: { documentation: docConfig } });
 
         p.log.success(`${CONFIG_FILENAME} written (quick setup).`);

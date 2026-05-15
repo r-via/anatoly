@@ -9,6 +9,8 @@
  * of truth without an import cycle.
  */
 
+import { existsSync, statSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { DocCommentKind } from '../schemas/config.js';
 
 export interface DocWizardSelections {
@@ -73,4 +75,58 @@ export function defaultDocumentationConfig(): DocumentationConfig {
     inlineCommentsEnabled: false,
     internalMode: 'lite',
   });
+}
+
+/** Well-known doc file/directory candidates for auto-detection. */
+const DOC_CANDIDATES: { path: string; glob: string; isDir: boolean }[] = [
+  { path: 'docs', glob: 'docs/**/*.md', isDir: true },
+  { path: 'README.md', glob: 'README.md', isDir: false },
+  { path: 'ARCHITECTURE.md', glob: 'ARCHITECTURE.md', isDir: false },
+  { path: 'CONTRIBUTING.md', glob: 'CONTRIBUTING.md', isDir: false },
+  { path: 'specs', glob: 'specs/**/*.md', isDir: true },
+];
+
+/**
+ * Auto-detect documentation paths present in the project root.
+ * Returns an array of glob patterns for detected doc sources.
+ */
+export function detectDocPaths(projectRoot: string): string[] {
+  const found: string[] = [];
+  for (const candidate of DOC_CANDIDATES) {
+    const fullPath = join(projectRoot, candidate.path);
+    try {
+      if (candidate.isDir) {
+        if (existsSync(fullPath) && statSync(fullPath).isDirectory()) {
+          if (readdirSync(fullPath).length > 0) found.push(candidate.glob);
+        }
+      } else if (existsSync(fullPath) && statSync(fullPath).isFile()) {
+        found.push(candidate.glob);
+      }
+    } catch {
+      // Skip inaccessible paths
+    }
+  }
+  return found;
+}
+
+/**
+ * The documentation config quick init / first run produces: auto-detected
+ * reference paths (fallback `README.md`), inline comments off, doc mode
+ * `lite`. Shared by `anatoly init` (quick) and the `anatoly run` first-run
+ * path so both entry points emit an identical documentation section.
+ */
+export function quickInitDocConfig(projectRoot: string): {
+  config: DocumentationConfig;
+  referencePaths: string[];
+} {
+  const detected = detectDocPaths(projectRoot);
+  const referencePaths = detected.length > 0 ? detected : ['README.md'];
+  return {
+    config: buildDocumentationConfig({
+      referencePaths,
+      inlineCommentsEnabled: false,
+      internalMode: 'lite',
+    }),
+    referencePaths,
+  };
 }

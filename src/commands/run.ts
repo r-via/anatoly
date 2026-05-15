@@ -75,6 +75,7 @@ import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-conf
 import { renderSetupTable, shortModelName } from '../cli/setup-table.js';
 import { runHints } from '../cli/hint-detector.js';
 import { runFirstRunWizard, runLitePrefetch, runGgufPrefetch, runLocalEmbeddingsUpgradeSubprocess, writeFirstRunConfig, runEndOfSetupPrompt, type WizardResult } from '../cli/setup-prompts.js';
+import { quickInitDocConfig } from '../core/documentation-config.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from '../cli/download-recovery.js';
 import { loadPreferences, savePreferences } from '../cli/preferences.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/language-detect.js';
@@ -505,9 +506,16 @@ export function registerRunCommand(program: Command): void {
           }
         }
 
-        // Write .anatoly.yml so subsequent runs skip the wizard
+        // Write .anatoly.yml so subsequent runs skip the wizard. Uses the
+        // same quick-init config decisions as `anatoly init` (auto-detected
+        // reference paths, doc mode lite) so first-run and explicit init
+        // produce an identical config.
         try {
-          await writeFirstRunConfig(projectRoot, { tier: wizardResult.tier });
+          const { config: quickDoc } = quickInitDocConfig(projectRoot);
+          await writeFirstRunConfig(projectRoot, {
+            tier: wizardResult.tier,
+            overrides: { documentation: quickDoc },
+          });
           getLogger().info({ tier: wizardResult.tier }, 'first-run config written to .anatoly.yml');
           // Reload config from the file we just wrote so the rest of the run
           // uses the new settings instead of the bare defaults.
