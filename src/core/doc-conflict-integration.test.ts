@@ -57,16 +57,20 @@ describe('Story 55.9 — AC3: doc-pipeline costs separated', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.9 — AC4: run-metrics includes doc-conflict-detection', () => {
-  it('run.ts captures doc-conflict timing via runPhase (bootstrap + update)', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  // PR 8a (doc 11): the spine moved verbatim from run.ts to pipeline.ts.
+  // These assert spine wiring, so they read the pipeline module now. The
+  // former incidental `toContain('phaseDurations')` (which matched the
+  // RunContext interface, not behavior) is dropped: per-phase timing is
+  // directly guarded by the spine golden's phaseDurationKeys projection.
+  it('pipeline captures doc-conflict timing via runPhase (bootstrap + update)', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'orchestration', 'pipeline.ts'), 'utf-8');
     // Story 56.8 split doc-conflict-detection into two distinct phases
     expect(src).toContain("'doc-conflict-bootstrap'");
     expect(src).toContain("'doc-conflict-update'");
-    expect(src).toContain('phaseDurations');
   });
 
-  it('run.ts wraps runDocConflictDetection calls in runPhase for timing', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  it('pipeline wraps runDocConflictDetection calls in runPhase for timing', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'orchestration', 'pipeline.ts'), 'utf-8');
     // Both calls (after bootstrap and after update) should be timed via runPhase
     const calls = [...src.matchAll(/runDocConflictDetection\(/g)];
     expect(calls.length).toBe(2);

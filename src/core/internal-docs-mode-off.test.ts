@@ -90,15 +90,17 @@ describe('Story 54.7 — mode=off graceful degradation', () => {
     expect(runTsContent).not.toContain('synced .anatoly/docs/');
   });
 
-  it('AC 54.7a: run.ts contains mode=off guard log message', () => {
-    const runTsContent = readFileSync(resolve(__dirname, '../commands/run.ts'), 'utf-8');
-    expect(runTsContent).toContain('internal docs mode=off — skipping scaffold, generation, and coherence');
+  // PR 8a (doc 11): the mode=off guard lives in the spine, extracted
+  // verbatim from run.ts into pipeline.ts. Behavior unchanged.
+  it('AC 54.7a: pipeline contains mode=off guard log message', () => {
+    const spine = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
+    expect(spine).toContain('internal docs mode=off — skipping scaffold, generation, and coherence');
   });
 
   it('AC 54.7a: mode=off guard prevents runDocScaffold/runDocGeneration/runDocCoherenceReview', () => {
-    const runTsContent = readFileSync(resolve(__dirname, '../commands/run.ts'), 'utf-8');
+    const spine = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
     // The off mode guard should appear before the bootstrap and update doc calls
-    expect(runTsContent).toContain("internalDocMode === 'off'");
+    expect(spine).toContain("internalDocMode === 'off'");
   });
 
   it('AC 54.7c: referenceDocs on AxisContext is empty when mode=off', () => {

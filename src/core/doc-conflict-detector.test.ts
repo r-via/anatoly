@@ -228,13 +228,19 @@ describe('Story 55.4 — applyResolvedVerdicts', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.4 — pipeline integration', () => {
-  it('run.ts imports runDocConflictDetection', () => {
-    const content = readFileSync(join(__dirname, '../commands/run.ts'), 'utf-8');
+  // PR 8a (doc 11) extracted the orchestration spine out of run.ts into
+  // pipeline.ts byte-verbatim. These assert spine wiring/ordering, so they
+  // read the pipeline module now. Behavior is unchanged and additionally
+  // guarded by the spine golden.
+  const spinePath = join(__dirname, 'orchestration/pipeline.ts');
+
+  it('pipeline imports runDocConflictDetection', () => {
+    const content = readFileSync(spinePath, 'utf-8');
     expect(content).toContain('runDocConflictDetection');
   });
 
   it('detector is called after runDocBootstrap (bootstrap-doc phase)', () => {
-    const content = readFileSync(join(__dirname, '../commands/run.ts'), 'utf-8');
+    const content = readFileSync(spinePath, 'utf-8');
     const bootstrapIdx = content.indexOf('await runDocBootstrap(');
     const detectorAfterBootstrap = content.indexOf('runDocConflictDetection', bootstrapIdx);
     // PR 4 (doc 11) moved runRagPhase out of run.ts; the internal
@@ -246,7 +252,7 @@ describe('Story 55.4 — pipeline integration', () => {
   });
 
   it('detector is called after runDocUpdate (internal-docs phase)', () => {
-    const content = readFileSync(join(__dirname, '../commands/run.ts'), 'utf-8');
+    const content = readFileSync(spinePath, 'utf-8');
     const docUpdateIdx = content.indexOf('await runDocUpdate(');
     const detectorAfterUpdate = content.indexOf('runDocConflictDetection', docUpdateIdx);
     const reviewPhaseIdx = content.indexOf('await runReviewPhase(', docUpdateIdx);
@@ -255,7 +261,7 @@ describe('Story 55.4 — pipeline integration', () => {
   });
 
   it('detector is never called in mode off (structural: only inside full-mode branches)', () => {
-    const content = readFileSync(join(__dirname, '../commands/run.ts'), 'utf-8');
+    const content = readFileSync(spinePath, 'utf-8');
     // The detector calls should both be inside blocks that are NOT the off/lite branches
     const detectorCalls = [...content.matchAll(/runDocConflictDetection\(/g)];
     // Should have exactly 2 calls (after bootstrap and after update)

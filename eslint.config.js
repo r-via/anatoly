@@ -19,10 +19,12 @@ export default tseslint.config(
     },
   },
   {
-    // Phase modules render the run summary to stdout today. This is
-    // transitional: doc 11 PR 8 routes presentation through a port. Until
-    // then, console output here is intentional CLI output, not a smell.
-    files: ['src/core/orchestration/phases/**/*.ts'],
+    // The spine (pipeline.ts) and phase modules emit CLI output directly:
+    // interrupt summaries, progress, the run summary. This is intentional
+    // user-facing output moved verbatim out of the run command, not a smell.
+    // Routing it through a presentation port is possible future cleanup,
+    // explicitly out of scope for the move-only extraction (doc 11).
+    files: ['src/core/orchestration/phases/**/*.ts', 'src/core/orchestration/pipeline.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-console': 'off',

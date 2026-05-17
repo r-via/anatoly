@@ -6,7 +6,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const runTsContent = readFileSync(resolve(__dirname, '../commands/run.ts'), 'utf-8');
+// PR 8a (doc 11) extracted the orchestration spine out of run.ts into
+// pipeline.ts byte-verbatim. Every assertion here checks spine structure
+// (phase ordering, gates, task registration), so it reads the pipeline
+// module now. Behavior is unchanged and additionally guarded by the
+// spine golden.
+const runTsContent = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Story 55.2 — Move runDocUpdate to pre-review position
