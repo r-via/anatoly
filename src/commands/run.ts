@@ -17,7 +17,6 @@ import { acquireLock, releaseLock } from '../utils/lock.js';
 import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
-import { loadReviews } from '../core/reporter.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES, isFatalAuthError, isCircuitOpenError, circuitOpenError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
@@ -51,15 +50,13 @@ import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
-import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
+import { saveDeliberationMemory } from '../core/correction-memory.js';
 import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import { DeliberationResponseSchema } from '../core/deliberation.js';
-import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
@@ -67,7 +64,6 @@ import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setu
 import { quickInitDocConfig } from '../core/documentation-config.js';
 import { type ProjectProfile } from '../core/language-detect.js';
 import { needsBootstrap, writeScaffoldStatus } from '../core/doc-bootstrap.js';
-import { runRefinementPhase } from '../core/refinement/phase.js';
 import { getEffectiveSourceRoot } from '../core/worktree-path-resolution.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
@@ -84,6 +80,7 @@ import { runRagPhase } from '../core/orchestration/phases/rag.js';
 import { runDocBootstrap, runDocUpdate, reindexDocsAfterUpdate } from '../core/orchestration/phases/doc.js';
 import { recordLlmCost } from '../core/orchestration/cost.js';
 import { requestFatalStop } from '../core/orchestration/run-control.js';
+import { runRefinementStage } from '../core/orchestration/phases/refinement.js';
 import type { RagContext } from '../core/orchestration/handoff.js';
 import { loadDocConflicts } from '../core/doc-conflict-store.js';
 import type { ArbitratedFragment } from '../core/axes/reference-docs-context.js';
@@ -988,119 +985,7 @@ export function registerRunCommand(program: Command): void {
 
         // --- Phase: refinement (tier 1 → tier 2 → tier 3) — Story 41.5 ---
         if (ctx.deliberation && ctx.filesReviewed > 0 && !ctx.interrupted) {
-          await runPhase(ctx, 'refinement', async () => {
-            ctx.pipelineState?.startTask('refinement', 'auto-resolve');
-
-            const refinementStart = Date.now();
-            const refinementResult = await runRefinementPhase({
-              projectRoot: ctx.projectRoot,
-              runDir: ctx.runDir,
-              config: ctx.config,
-              usageGraph: setup.usageGraph,
-              fileContents: new Map(), // Tier 1 reads files on demand
-              preResolvedRag: new Map(), // RAG results are per-file, not cached globally
-              abortController: (() => { const ac = new AbortController(); ctx.activeAborts.add(ac); return ac; })(),
-              deliberation: ctx.deliberation,
-              freshFiles: ctx.freshFiles,
-              plain: ctx.plain,
-              loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
-              writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
-              queryFn: async (params) => {
-                const response = await ctx.router!.agenticQuery({
-                  systemPrompt: params.systemPrompt,
-                  userMessage: params.userMessage,
-                  model: params.model,
-                  projectRoot: params.projectRoot,
-                  abortController: params.abortController,
-                  allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
-                  maxTurns: ctx.config.agents.max_turns,
-                  config: ctx.config,
-                  conversationDir: join(ctx.runDir, 'conversations'),
-                  conversationPrefix: `tier3-shard-${Date.now()}`,
-                  attempt: 1,
-                  responseSchema: DeliberationResponseSchema,
-                });
-
-                const jsonStr = extractJson(response.text);
-                if (!jsonStr) {
-                  throw new Error('Tier 3: no valid JSON found in agentic response');
-                }
-                const parsed = DeliberationResponseSchema.parse(JSON.parse(jsonStr));
-
-                return {
-                  data: parsed,
-                  costUsd: response.costUsd,
-                  durationMs: response.durationMs,
-                  inputTokens: response.inputTokens,
-                  outputTokens: response.outputTokens,
-                  cacheReadTokens: response.cacheReadTokens,
-                  cacheCreationTokens: response.cacheCreationTokens,
-                  transcript: response.transcript,
-                };
-              },
-              recordFn: (pr, entry) => recordReclassification(pr, entry),
-              onProgress: (event, detail) => {
-                const state = ctx.pipelineState;
-                if (!state) return;
-                switch (event) {
-                  case 'tier1-done':
-                    state.updateTask('refinement', `auto-resolve done (${detail})`);
-                    break;
-                  case 'tier2-done':
-                    state.updateTask('refinement', `coherence done (${detail})`);
-                    break;
-                  case 'tier3-shard':
-                    state.updateTask('refinement', detail ?? '');
-                    break;
-                  case 'tier3-done':
-                    state.completeTask('refinement', detail ?? 'done');
-                    break;
-                }
-                // Plain mode sequential logging (use logPlain to bypass console.log suppression)
-                if (ctx.plain && event === 'tier3-shard') {
-                  ctx.renderer?.logPlain(`[deliberation]   ${detail}`);
-                }
-                if (ctx.plain && event.endsWith('-done')) {
-                  ctx.renderer?.logPlain(`[deliberation] \u2714 ${detail}`);
-                }
-              },
-            });
-
-            const refinementDuration = Date.now() - refinementStart;
-
-            // Update findings counter to reflect post-refinement net
-            const totalResolved = refinementResult.tier1Stats.resolved
-              + refinementResult.tier2Stats.resolved
-              + refinementResult.tier3Stats.reclassified;
-            ctx.totalFindings = Math.max(0, ctx.totalFindings - totalResolved);
-
-            // Tier 3 invokes Claude SDK; tiers 1+2 are deterministic so the
-            // cost is fully attributable to anthropic. `investigated` is the
-            // SDK call count; `totalCostUsd` is the rolled-up cost.
-            recordLlmCost(ctx, {
-              provider: 'anthropic',
-              phase: 'refinement',
-              costUsd: refinementResult.totalCostUsd,
-              durationMs: refinementDuration,
-              calls: refinementResult.tier3Stats.investigated,
-              inputTokens: refinementResult.totalInputTokens,
-              outputTokens: refinementResult.totalOutputTokens,
-              cacheReadTokens: refinementResult.totalCacheReadTokens,
-              cacheCreationTokens: refinementResult.totalCacheCreationTokens,
-            });
-
-            getLogger().info({
-              phase: 'refinement',
-              tier1Resolved: refinementResult.tier1Stats.resolved,
-              tier2Resolved: refinementResult.tier2Stats.resolved,
-              tier2Escalated: refinementResult.tier2Stats.escalated,
-              tier3Investigated: refinementResult.tier3Stats.investigated,
-              tier3Reclassified: refinementResult.tier3Stats.reclassified,
-              totalResolved,
-              costUsd: refinementResult.totalCostUsd,
-              durationMs: refinementDuration,
-            }, 'refinement phase complete');
-          });
+          await runPhase(ctx, 'refinement', () => runRefinementStage(ctx, setup));
         } else if (!ctx.interrupted && ctx.filesReviewed > 0) {
           ctx.pipelineState?.completeTask('refinement', 'skipped — deliberation disabled');
         }
