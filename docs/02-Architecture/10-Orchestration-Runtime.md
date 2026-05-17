@@ -15,12 +15,39 @@
 > **Remediation status (updated in lockstep).** The divergence is being closed
 > by [11-Orchestration-Remediation-Plan.md](./11-Orchestration-Remediation-Plan.md)
 > under **Strategy B**: extract the live spine out of `run.ts`, and **delete**
-> (not wire) the unused Epic 56 scaffolding. **PR 1 has landed.** Effect on this
-> document: the registry / executor / exchange / gateway are no longer
-> "backlog", they are **removed**, and the clauses that depended on them are
-> recast as explicit non-goals (see the markers in §1, §6, §7, §8). The
+> (not wire) the unused Epic 56 scaffolding.
+>
+> **PR 1 has landed.** The registry / executor / exchange / gateway are no
+> longer "backlog", they are **removed**, and the clauses that depended on them
+> are recast as explicit non-goals (see the markers in §1, §6, §7, §8). The
 > regression suite is no longer hollow: a real spine golden now exists
 > ([spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts)).
+>
+> **PRs 2 to 7 have landed.** All seven phase implementations were extracted
+> byte-verbatim out of `run.ts` (3360 to ~1065 lines) into dedicated modules.
+> The inline `run.ts:NNN` / `run.ts#L...` anchors in §2 to §6 below are
+> **pre-extraction and superseded**: the phase *sequencing and gates* still
+> live in the `run.ts` spine, but every phase *body* now lives here:
+>
+> | Phase(s) | Module |
+> |---|---|
+> | scan / estimate / triage (setup stage) | [phases/setup.ts](../../src/core/orchestration/phases/setup.ts) |
+> | bootstrap-doc / internal-docs (+ doc-gen helper, post-update reindex) | [phases/doc.ts](../../src/core/orchestration/phases/doc.ts) |
+> | rag-index | [phases/rag.ts](../../src/core/orchestration/phases/rag.ts) |
+> | review (+ cache helpers) | [phases/review.ts](../../src/core/orchestration/phases/review.ts) |
+> | refinement | [phases/refinement.ts](../../src/core/orchestration/phases/refinement.ts) |
+> | report | [phases/report.ts](../../src/core/orchestration/phases/report.ts) |
+>
+> Cross-cutting helpers also relocated: `recordLlmCost`
+> ([cost.ts](../../src/core/orchestration/cost.ts)), `requestFatalStop`
+> ([run-control.ts](../../src/core/orchestration/run-control.ts)); the
+> inter-phase types `SetupResult` / `RagContext` now live in
+> [handoff.ts](../../src/core/orchestration/handoff.ts). The
+> `doc-conflict-bootstrap` / `doc-conflict-update` `runPhase` wrappers remain in
+> the spine. **PR 8 (pending)** moves the spine itself into `pipeline.ts` and
+> replaces the `ctx`-mutation handoff with the typed `handoff.ts` object; §2 to
+> §4 below will be rewritten then. Until then, read the `run.ts:NNN` anchors as
+> "this logic, now in the module above", not literal line numbers.
 
 ## 1. The orchestration model
 
