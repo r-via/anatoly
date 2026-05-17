@@ -9,9 +9,11 @@ dist/
 .anatoly*/
 .anatoly.yml
 .anatoly*.yml
-# Orchestration golden fixture config is a committed test asset, not user
-# config (see src/core/orchestration/spine-golden.test.ts).
+# Orchestration golden fixture configs are committed test assets, not user
+# config (see src/core/orchestration/spine-golden.test.ts and
+# handoff-golden.test.ts).
 !src/__fixtures__/orchestration-golden/.anatoly.yml
+!src/__fixtures__/orchestration-handoff/.anatoly.yml
 coverage/
 *.tsbuildinfo
 .temp

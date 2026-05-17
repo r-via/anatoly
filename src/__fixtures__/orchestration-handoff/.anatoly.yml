@@ -1,0 +1,42 @@
+# Orchestration handoff golden fixture config. See ./README.md.
+# Tuned so a full `anatoly run` produces NON-ZERO, deterministic handoff
+# values with ZERO model calls:
+#   - one source file with unused exports -> UtilityEvaluator auto-resolves
+#     each as DEAD from the usage graph, no LLM call
+#   - only the `utility` axis enabled -> no other axis fires
+#   - rag/docs/agents off -> no nlp-summary / doc-gen / refinement calls
+# The test runs with --no-triage so the file is reviewed regardless of
+# triage heuristics (the triage phase is intentionally absent here as a
+# result; that is part of this fixture's fixed projection).
+version: 2
+project_name: orchestration-handoff
+providers:
+  anthropic:
+    mode: subscription
+    concurrency: 2
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5
+agents:
+  enabled: false
+  max_turns: 5
+scan:
+  include: [src/**/*.ts]
+  exclude: [node_modules/**, dist/**]
+  respect_gitignore: true
+axes:
+  utility:
+    enabled: true
+    model: anthropic/claude-haiku-4-5
+rag:
+  enabled: false
+  code_model: auto
+  nlp_model: auto
+  code_weight: 0.6
+documentation:
+  reference:
+    paths: [README.md]
+  internal:
+    mode: off
+badge:
+  enabled: false
