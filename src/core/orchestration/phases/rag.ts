@@ -33,10 +33,10 @@ import type { Task } from '../../../schemas/task.js';
 import { resolveCodeSummaryModel } from '../../axis-evaluator.js';
 import { shortModelName } from '../../../cli/setup-table.js';
 import { recordLlmCost } from '../cost.js';
-import type { RagContext } from '../handoff.js';
+import type { RagContext, Handoff } from '../handoff.js';
 import type { RunContext } from '../../../commands/run.js';
 
-export async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {
+export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task[]): Promise<RagContext> {
   if (!ctx.enableRag) return { ragEnabled: false };
 
   const log = getLogger();
@@ -115,7 +115,7 @@ export async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagCo
     const effectiveFlag = readyFlag
       ? { ...readyFlag, backend: effectiveBackend }
       : { device: 'cpu', backend: effectiveBackend } as import('../../../rag/hardware-detect.js').EmbeddingsReadyFlag;
-    ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
+    handoff.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
 
     // Pre-flight: probe the resolved backend before the indexer starts so a
     // misconfigured external provider (bad key, wrong base URL, unknown model)
@@ -136,7 +136,7 @@ export async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagCo
         // matters for `external` — the other backends are instant no-ops).
         setActivityDetail(msg.trim().slice(0, 80));
       };
-      const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);
+      const outcome = await runConnectivityCheck(handoff.resolvedModels, probeLog);
       if (!outcome.ok) {
         const { axis, provider, model, cause } = outcome.failure;
         const providerLabel = provider ?? '<no provider>';
@@ -160,8 +160,8 @@ export async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagCo
 
   // Update task labels with resolved model names
   const state = ctx.pipelineState!;
-  const codeModel = shortModelName(ctx.resolvedModels.codeModel);
-  const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
+  const codeModel = shortModelName(handoff.resolvedModels.codeModel);
+  const nlpModel = shortModelName(handoff.resolvedModels.nlpModel);
   const indexModel = resolveCodeSummaryModel(ctx.config);
   const llmModel = shortModelName(indexModel);
   state.relabelTask('rag-code', `Embedding code (${codeModel})`);
@@ -193,7 +193,7 @@ export async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagCo
       concurrency: ctx.concurrency,
       verbose: ctx.verbose,
       indexModel,
-      resolvedModels: ctx.resolvedModels,
+      resolvedModels: handoff.resolvedModels,
       ragMode: ctx.resolvedRagMode,
       docsDir: getDocsDir(ctx.config),
       // Pass the actual `documentation.reference.paths` globs so the indexer

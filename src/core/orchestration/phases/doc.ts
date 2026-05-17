@@ -21,6 +21,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import type { Handoff } from '../handoff.js';
 import { resolve, join } from 'node:path';
 import { getDocsDir } from '../../../schemas/config.js';
 import { isFatalAuthError, isAuthFailureMessage, authError } from '../../../utils/errors.js';
@@ -46,12 +47,12 @@ import type { RunContext } from '../../../commands/run.js';
 // Doc generation (LLM) — Story 29.17
 // ---------------------------------------------------------------------------
 
-async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void> {
-  const genResult = ctx.docPipelineResult?.generation;
+async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-gen'): Promise<void> {
+  const genResult = handoff.docPipelineResult?.generation;
   if (!genResult || genResult.prompts.length === 0) return;
 
   const log = getLogger();
-  const outputDir = ctx.docPipelineResult!.scaffold.outputDir;
+  const outputDir = handoff.docPipelineResult!.scaffold.outputDir;
   const total = genResult.prompts.length;
   const ac = new AbortController();
   ctx.activeAborts.add(ac);
@@ -236,7 +237,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
             logDir: coherenceLogDir,
             router: ctx.router,
             timeoutMs,
-            codeSurface: buildCodeSurfaceSummary(ctx.allTasks),
+            codeSurface: buildCodeSurfaceSummary(handoff.allTasks),
             callbacks: {
               onToolUse: (_tool, filePath) => {
                 const name = filePath.split('/').pop() ?? filePath;
@@ -288,7 +289,7 @@ async function runDocLlmPhase(ctx: RunContext, taskId = 'doc-gen'): Promise<void
  * @param ctx Run context providing projectRoot, config, and SDK semaphore.
  * @param tasks Scanned task list for doc-generator context.
  */
-export async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<void> {
+export async function runDocBootstrap(ctx: RunContext, handoff: Handoff, tasks: Task[]): Promise<void> {
   const taskId = 'bootstrap-doc';
   const log = getLogger();
   const rl = ctx.runLog;
@@ -306,7 +307,7 @@ export async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<v
     if (!ctx.profile) throw new Error('project profile not detected — cannot run doc pipeline');
     const scaffoldResult = runDocScaffold(ctx.projectRoot, pkg, tasks, docsPath, ctx.profile);
     const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg);
-    ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
+    handoff.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
     log.info({
       phase: taskId,
@@ -321,7 +322,7 @@ export async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<v
     }, `${taskId} scaffold complete`);
 
     if (genResult.prompts.length > 0 && !ctx.interrupted) {
-      await runDocLlmPhase(ctx, taskId);
+      await runDocLlmPhase(ctx, handoff, taskId);
     } else {
       ctx.pipelineState?.completeTask(taskId, 'all cached');
     }
@@ -343,7 +344,7 @@ export async function runDocBootstrap(ctx: RunContext, tasks: Task[]): Promise<v
  * @param ctx Run context providing projectRoot, config, and SDK semaphore.
  * @param tasks Scanned task list for doc-generator context.
  */
-export async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void> {
+export async function runDocUpdate(ctx: RunContext, handoff: Handoff, tasks: Task[]): Promise<void> {
   const taskId = 'internal-docs';
   const log = getLogger();
   const rl = ctx.runLog;
@@ -363,13 +364,13 @@ export async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void
     // Scope doc updates to modules whose source files were actually reviewed.
     // Files with tier 'evaluate' in the triageMap are the ones that changed.
     const changedFiles = new Set<string>();
-    for (const [file, triage] of ctx.triageMap) {
+    for (const [file, triage] of handoff.triageMap) {
       if (triage.tier === 'evaluate') changedFiles.add(file);
     }
 
     // Generate only stale/new pages whose modules were touched (cache-aware)
     const genResult = runDocGeneration(ctx.projectRoot, scaffoldResult, tasks, pkg, changedFiles);
-    ctx.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
+    handoff.docPipelineResult = { scaffold: scaffoldResult, generation: genResult };
 
     const deferredNote = genResult.pagesDeferred > 0 ? `, ${genResult.pagesDeferred} deferred` : '';
     ctx.renderer?.logPlain(`[${taskId}] ${newPages > 0 ? `${newPages} new pages, ` : ''}${genResult.prompts.length} to update, ${genResult.cacheResult.fresh.length} cached${deferredNote}`);
@@ -383,7 +384,7 @@ export async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void
     }, `${taskId} ready`);
 
     if (genResult.prompts.length > 0 && !ctx.interrupted) {
-      await runDocLlmPhase(ctx, taskId);
+      await runDocLlmPhase(ctx, handoff, taskId);
     } else {
       ctx.pipelineState?.completeTask(taskId, 'all cached');
     }
@@ -403,7 +404,7 @@ export async function runDocUpdate(ctx: RunContext, tasks: Task[]): Promise<void
  * 3. Call `indexDocSections` which finds chunk-cache hits → skips Haiku → only embeds + upserts.
  * 4. Stop containers.
  */
-export async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore): Promise<void> {
+export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, vectorStore: VectorStore): Promise<void> {
   const log = getLogger();
   const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
   const internalDocsDir = join('.anatoly', 'state', 'internal-docs');

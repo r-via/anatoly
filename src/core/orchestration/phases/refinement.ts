@@ -9,7 +9,7 @@
  * `runPhase(ctx, 'refinement', async () => { ... })` in the spine. The
  * closure body is reproduced byte-verbatim below as the function body; the
  * only captured spine variables were `ctx` and `setup`, now parameters.
- * The gate (`ctx.deliberation && ctx.filesReviewed > 0 && !ctx.interrupted`)
+ * The gate (`ctx.deliberation && handoff.filesReviewed > 0 && !ctx.interrupted`)
  * and the `runPhase('refinement', ...)` wrapper stay in the spine
  * (orchestration), which now calls `runRefinementStage(ctx, setup)`.
  *
@@ -31,9 +31,9 @@ import { extractJson } from '../../../utils/extract-json.js';
 import { runRefinementPhase } from '../../refinement/phase.js';
 import { recordLlmCost } from '../cost.js';
 import type { RunContext } from '../../../commands/run.js';
-import type { SetupResult } from '../handoff.js';
+import type { SetupResult, Handoff } from '../handoff.js';
 
-export async function runRefinementStage(ctx: RunContext, setup: SetupResult): Promise<void> {
+export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setup: SetupResult): Promise<void> {
             ctx.pipelineState?.startTask('refinement', 'auto-resolve');
 
             const refinementStart = Date.now();
@@ -117,7 +117,7 @@ export async function runRefinementStage(ctx: RunContext, setup: SetupResult): P
             const totalResolved = refinementResult.tier1Stats.resolved
               + refinementResult.tier2Stats.resolved
               + refinementResult.tier3Stats.reclassified;
-            ctx.totalFindings = Math.max(0, ctx.totalFindings - totalResolved);
+            handoff.totalFindings = Math.max(0, handoff.totalFindings - totalResolved);
 
             // Tier 3 invokes Claude SDK; tiers 1+2 are deterministic so the
             // cost is fully attributable to anthropic. `investigated` is the

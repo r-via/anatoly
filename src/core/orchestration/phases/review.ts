@@ -51,11 +51,12 @@ import { computePromptHash } from '../../../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../../prompt-resolver.js';
 import { recordLlmCost } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
-import type { RagContext } from '../handoff.js';
+import type { RagContext, Handoff } from '../handoff.js';
 import type { RunContext } from '../../../commands/run.js';
 
 export async function runReviewPhase(
   ctx: RunContext,
+  handoff: Handoff,
   triageMap: Map<string, TriageResult>,
   usageGraph: UsageGraph | undefined,
   ragContext: RagContext,
@@ -122,10 +123,10 @@ export async function runReviewPhase(
     return;
   }
 
-  ctx.totalFiles = pending.length + cachedFiles.length;
+  handoff.totalFiles = pending.length + cachedFiles.length;
   // Story 53.5 FR6: announce total file count so `anatoly attach` can render
   // the progress bar denominator (pending + cached).
-  rl?.info({ event: 'estimate_total', phase: 'review', total: ctx.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
+  rl?.info({ event: 'estimate_total', phase: 'review', total: handoff.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
 
   const allTasks = loadTasks(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
   const taskMap = new Map<string, Task>();
@@ -173,7 +174,7 @@ export async function runReviewPhase(
   let completedCount = 0;
 
   const updateReviewTask = () => {
-    const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+    const findingsNote = handoff.totalFindings > 0 ? ` | ${handoff.totalFindings} findings` : '';
     state.updateTask('review', `${completedCount}/${evaluateTotal}${findingsNote}`);
   };
 
@@ -191,9 +192,9 @@ export async function runReviewPhase(
         if (cachedReview) {
           // Copy into current run dir so the report is complete
           writeReviewOutput(ctx.projectRoot, cachedReview, ctx.runDir);
-          ctx.filesReviewed++;
+          handoff.filesReviewed++;
           ctx.reviewCounts.cached++;
-          ctx.totalFindings += countReviewFindings(cachedReview, 60);
+          handoff.totalFindings += countReviewFindings(cachedReview, 60);
           if (ctx.plain) {
             const findings = countReviewFindings(cachedReview);
             const note = findings > 0 ? ` | ${findings} findings` : '';
@@ -232,7 +233,7 @@ export async function runReviewPhase(
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         if (!ctx.noCache) cacheReview(ctx.projectRoot, skipReview, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
-        ctx.filesReviewed++;
+        handoff.filesReviewed++;
         ctx.reviewCounts.skipped++;
         rl?.info({ event: 'file_skip', phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
         // Story 53.5 FR6: drive attach progress bar
@@ -287,7 +288,7 @@ export async function runReviewPhase(
               conversationDir: join(ctx.runDir, 'conversations'),
               router: ctx.router,
               userInstructions: ctx.userInstructions,
-              arbitratedFragments: ctx.arbitratedFragments,
+              arbitratedFragments: handoff.arbitratedFragments,
               onAxisComplete: () => {
                 state.markAxisDone(filePath);
               },
@@ -355,11 +356,11 @@ export async function runReviewPhase(
         } else {
           if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
           pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
-          ctx.filesReviewed++;
+          handoff.filesReviewed++;
           ctx.reviewCounts.evaluated++;
           ctx.freshFiles.add(filePath);
           completedCount++;
-          ctx.totalFindings += countReviewFindings(result.review, 60);
+          handoff.totalFindings += countReviewFindings(result.review, 60);
           if (result.failedAxes.length > 0) {
             ctx.degradedReviews++;
           }
@@ -442,12 +443,12 @@ export async function runReviewPhase(
     },
   });
 
-  const findingsNote = ctx.totalFindings > 0 ? ` | ${ctx.totalFindings} findings` : '';
+  const findingsNote = handoff.totalFindings > 0 ? ` | ${handoff.totalFindings} findings` : '';
   state.completeTask('review', `${completedCount}/${evaluateTotal}${findingsNote}`);
   await pm.flush();
 
-  log.info({ filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency }, 'review details');
-  rl?.info({ filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency }, 'review details');
+  log.info({ filesReviewed: handoff.filesReviewed, findings: handoff.totalFindings, concurrency: ctx.concurrency }, 'review details');
+  rl?.info({ filesReviewed: handoff.filesReviewed, findings: handoff.totalFindings, concurrency: ctx.concurrency }, 'review details');
 }
 
 

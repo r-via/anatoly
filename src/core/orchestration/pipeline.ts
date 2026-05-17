@@ -24,6 +24,8 @@
  */
 
 import { join } from 'node:path';
+import { createHandoff } from './handoff.js';
+import type { ResolvedModels } from '../../rag/hardware-detect.js';
 import { acquireLock, releaseLock } from '../../utils/lock.js';
 import { sendDesktopNotification } from '../notifications/desktop.js';
 import { getLogger } from '../../utils/logger.js';
@@ -50,6 +52,8 @@ import type { RunContext } from '../../commands/run.js';
 
 /** Non-ctx bindings the spine captured from the run command's .action() scope. */
 export interface PipelineDeps {
+  /** Pre-pipeline pricing pre-flight value (run.ts), seeds handoff.resolvedModels. */
+  resolvedModels?: ResolvedModels;
   runId: string;
   projectRoot: string;
   cmdOpts: { notify?: boolean };
@@ -80,8 +84,9 @@ function loadArbitratedFragments(projectRoot: string): ArbitratedFragment[] {
 
 export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<void> {
   const { runId, projectRoot, cmdOpts, initRunDir } = deps;
+  const handoff = createHandoff({ resolvedModels: deps.resolvedModels });
         await runWithContext({ runId }, async () => {
-        const setup = await runSetupPhase(ctx);
+        const setup = await runSetupPhase(ctx, handoff);
         if (ctx.dryRun) return;
         if (ctx.interrupted) {
           console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatRunDuration(Date.now() - ctx.startTime)}`);
@@ -100,14 +105,14 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         // there), so all flag I/O uses ctx.projectRoot. In non-worktree runs
         // this equals the old effectiveSourceRoot; in worktree it now
         // correctly points where the docs actually are.
-        ctx.isFirstRun = needsBootstrap(ctx.projectRoot);
+        handoff.isFirstRun = needsBootstrap(ctx.projectRoot);
 
         // Initialize pipeline display
         const pipelineState = new PipelineState();
         if (ctx.router) {
           pipelineState.setRouter(ctx.router);
         }
-        if (ctx.isFirstRun && isDocAxisActive(ctx)) {
+        if (handoff.isFirstRun && isDocAxisActive(ctx)) {
           pipelineState.addTask('bootstrap-doc', 'Bootstrapping internal docs');
         }
         if (ctx.enableRag) {
@@ -149,9 +154,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           log.info('internal docs mode=lite — doc context delivered via per-file RAG retrieval (no digest)');
           ctx.renderer?.logPlain('[internal-docs] mode=lite — doc context delivered via per-file RAG retrieval');
           ctx.pipelineState?.completeTask('bootstrap-doc', 'lite (per-file retrieval)');
-        } else if (ctx.isFirstRun && isDocAxisActive(ctx) && !ctx.interrupted) {
+        } else if (handoff.isFirstRun && isDocAxisActive(ctx) && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
-            await runDocBootstrap(ctx, setup.tasks);
+            await runDocBootstrap(ctx, handoff, setup.tasks);
           });
           // Mark the docs as validly scaffolded — the canonical signal
           // future `needsBootstrap()` checks will look for. Written after
@@ -181,7 +186,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           }
         }
 
-        const ragContext = await runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, setup.tasks));
+        const ragContext = await runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, handoff, setup.tasks));
         if (ctx.interrupted) return;
 
         // --- Phase: update internal docs (pre-review) — Story 55.2 ---
@@ -198,14 +203,14 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           ctx.pipelineState?.completeTask('internal-docs', 'lite (per-file retrieval)');
         } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
           await runPhase(ctx, 'internal-docs', async () => {
-            await runDocUpdate(ctx, setup.tasks);
+            await runDocUpdate(ctx, handoff, setup.tasks);
           });
 
           // Re-index doc sections that changed after the doc-update pipeline.
           // Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate
           // chunk cache → restart embedding containers → re-embed + upsert → stop.
           if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
-            await reindexDocsAfterUpdate(ctx, ragContext.vectorStore);
+            await reindexDocsAfterUpdate(ctx, handoff, ragContext.vectorStore);
           }
 
           // Refresh the pipeline-complete marker to record this update.
@@ -235,47 +240,47 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         }
         // Story 55.7: load doc-wins arbitrated fragments for axis prompts
         if (!ctx.interrupted) {
-          ctx.arbitratedFragments = loadArbitratedFragments(ctx.projectRoot);
+          handoff.arbitratedFragments = loadArbitratedFragments(ctx.projectRoot);
         }
 
         if (ctx.interrupted) return;
 
         // --- Phase: review (pass 1) ---
         await runPhase(ctx, 'review', async () => {
-          await runReviewPhase(ctx, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
+          await runReviewPhase(ctx, handoff, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
         });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
+          console.log(`interrupted — ${handoff.filesReviewed}/${handoff.totalFiles} files reviewed | ${handoff.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
         }
 
         // --- Phase: refinement (tier 1 → tier 2 → tier 3) — Story 41.5 ---
-        if (ctx.deliberation && ctx.filesReviewed > 0 && !ctx.interrupted) {
-          await runPhase(ctx, 'refinement', () => runRefinementStage(ctx, setup));
-        } else if (!ctx.interrupted && ctx.filesReviewed > 0) {
+        if (ctx.deliberation && handoff.filesReviewed > 0 && !ctx.interrupted) {
+          await runPhase(ctx, 'refinement', () => runRefinementStage(ctx, handoff, setup));
+        } else if (!ctx.interrupted && handoff.filesReviewed > 0) {
           ctx.pipelineState?.completeTask('refinement', 'skipped — deliberation disabled');
         }
 
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
+          console.log(`interrupted — ${handoff.filesReviewed}/${handoff.totalFiles} files reviewed | ${handoff.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
         }
 
-        await runPhase(ctx, 'report', async () => { runReportPhase(ctx); });
+        await runPhase(ctx, 'report', async () => { runReportPhase(ctx, handoff); });
 
         // Desktop notification for background runs (Story 47.5)
         if (process.env.ANATOLY_BACKGROUND_MODE && cmdOpts.notify !== false) {
           sendDesktopNotification(
             'Anatoly',
-            `Review complete — ${ctx.totalFindings} finding${ctx.totalFindings !== 1 ? 's' : ''} in ${ctx.totalFiles} file${ctx.totalFiles !== 1 ? 's' : ''}`,
+            `Review complete — ${handoff.totalFindings} finding${handoff.totalFindings !== 1 ? 's' : ''} in ${handoff.totalFiles} file${handoff.totalFiles !== 1 ? 's' : ''}`,
           );
         }
 

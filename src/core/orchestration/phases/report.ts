@@ -18,6 +18,7 @@
  */
 
 import { writeFileSync } from 'node:fs';
+import type { Handoff } from '../handoff.js';
 import { join, relative, resolve, basename } from 'node:path';
 import chalk from 'chalk';
 
@@ -41,7 +42,7 @@ import { writeRunStatus, getGitInfo, type RunStatus } from '../../run-status.js'
 import { createWorktreeManager } from '../../worktree-manager.js';
 import type { RunContext } from '../../../commands/run.js';
 
-export function runReportPhase(ctx: RunContext): void {
+export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
   const log = getLogger();
   const rl = ctx.runLog;
   const pm = new ProgressManager(ctx.projectRoot);
@@ -57,8 +58,8 @@ export function runReportPhase(ctx: RunContext): void {
     const total = skipped + cached + evaluated;
     // Time saved = weighted seconds of files that were skipped (would have been evaluated)
     let skippedSeconds = 0;
-    for (const task of ctx.allTasks) {
-      if (ctx.triageMap.get(task.file)?.tier === 'skip') {
+    for (const task of handoff.allTasks) {
+      if (handoff.triageMap.get(task.file)?.tier === 'skip') {
         skippedSeconds += estimateFileSeconds(task.symbols.length);
       }
     }
@@ -83,47 +84,47 @@ export function runReportPhase(ctx: RunContext): void {
 
   // --- Doc report aggregation ---
   let docReferenceSection: string | undefined;
-  if (ctx.docPipelineResult) {
+  if (handoff.docPipelineResult) {
     try {
       const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
-      const idealPageCount = ctx.docPipelineResult.generation?.totalPages ?? 0;
-      const cacheResult = ctx.docPipelineResult.generation?.cacheResult;
-      const newPageSources = ctx.docPipelineResult.generation?.cacheResult.added.map(p => ({
+      const idealPageCount = handoff.docPipelineResult.generation?.totalPages ?? 0;
+      const cacheResult = handoff.docPipelineResult.generation?.cacheResult;
+      const newPageSources = handoff.docPipelineResult.generation?.cacheResult.added.map(p => ({
         page: p,
         source: `scaffolded`,
       }));
-      ctx.docReportResult = aggregateDocReport({
+      handoff.docReportResult = aggregateDocReport({
         projectRoot: ctx.projectRoot,
-        projectTypes: ctx.docPipelineResult.scaffold.projectTypes,
+        projectTypes: handoff.docPipelineResult.scaffold.projectTypes,
         reviews,
-        tasks: ctx.allTasks,
+        tasks: handoff.allTasks,
         idealPageCount,
         cacheResult,
         newPageSources,
         docsPath: getDocsDir(ctx.config),
       });
-      docReferenceSection = ctx.docReportResult.renderedSection;
-      log.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict, recommendations: ctx.docReportResult.recommendations.length }, 'doc report aggregated');
-      rl?.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict }, 'doc report aggregated');
+      docReferenceSection = handoff.docReportResult.renderedSection;
+      log.info({ docScore: handoff.docReportResult.score.overall, docVerdict: handoff.docReportResult.score.verdict, recommendations: handoff.docReportResult.recommendations.length }, 'doc report aggregated');
+      rl?.info({ docScore: handoff.docReportResult.score.overall, docVerdict: handoff.docReportResult.score.verdict }, 'doc report aggregated');
     } catch (err) {
       log.warn({ err }, 'doc report aggregation failed');
       rl?.warn({ err }, 'doc report aggregation failed');
     }
-  } else if (ctx.profile && ctx.allTasks.length > 0) {
+  } else if (ctx.profile && handoff.allTasks.length > 0) {
     // Fallback: no doc pipeline ran (e.g. cached run), but we can still
     // aggregate coverage metrics from reviews + profile.
     try {
       const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
-      ctx.docReportResult = aggregateDocReport({
+      handoff.docReportResult = aggregateDocReport({
         projectRoot: ctx.projectRoot,
         projectTypes: ctx.profile.types,
         reviews,
-        tasks: ctx.allTasks,
+        tasks: handoff.allTasks,
         idealPageCount: 0,
         docsPath: getDocsDir(ctx.config),
       });
-      docReferenceSection = ctx.docReportResult.renderedSection;
-      log.info({ docScore: ctx.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');
+      docReferenceSection = handoff.docReportResult.renderedSection;
+      log.info({ docScore: handoff.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');
     } catch (err) {
       log.warn({ err }, 'doc report aggregation fallback failed');
     }
@@ -243,7 +244,7 @@ export function runReportPhase(ctx: RunContext): void {
   if (state) {
     state.completeTask('report', 'done');
     state.setSummary({
-      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
+      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${handoff.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
       paths: [
         { key: 'run', value: ctx.runId },
         { key: 'report', value: chalk.cyan(rel(reportPath)) },
@@ -261,7 +262,7 @@ export function runReportPhase(ctx: RunContext): void {
   // Plain mode: print summary to stdout
   if (ctx.plain || !state) {
     console.log('');
-    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
+    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${handoff.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
     console.log('');
     console.log(`  run          ${ctx.runId}`);
     console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
@@ -295,7 +296,7 @@ export function runReportPhase(ctx: RunContext): void {
   const totalDurationMs = Date.now() - ctx.startTime;
   log.info({
     runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
-    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
+    filesReviewed: handoff.filesReviewed, findings: handoff.totalFindings,
     cached: ctx.reviewCounts.cached, skipped: ctx.reviewCounts.skipped,
     errors: ctx.errorCount,
   }, 'run completed');
@@ -309,7 +310,7 @@ export function runReportPhase(ctx: RunContext): void {
   // Write run summary to per-run log file
   ctx.runLog?.info({
     runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
-    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
+    filesReviewed: handoff.filesReviewed, findings: handoff.totalFindings,
     errors: ctx.errorCount, errorsByCode: ctx.errorsByCode,
     phaseDurations: ctx.phaseDurations,
   }, 'run completed');
@@ -351,10 +352,10 @@ export function runReportPhase(ctx: RunContext): void {
   const metrics = {
     runId: ctx.runId,
     durationMs: totalDurationMs,
-    filesReviewed: ctx.filesReviewed,
+    filesReviewed: handoff.filesReviewed,
     evaluated: ctx.reviewCounts.evaluated,
     cached: ctx.reviewCounts.cached,
-    findings: ctx.totalFindings,
+    findings: handoff.totalFindings,
     errors: ctx.errorCount,
     errorsByCode: ctx.errorsByCode,
     degradedReviews: ctx.degradedReviews,

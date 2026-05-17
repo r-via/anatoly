@@ -23,13 +23,9 @@ import { stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
-import type { Task } from '../schemas/task.js';
-import { type TriageResult } from '../core/triage.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
-import { type DocPipelineResult } from '../core/doc-pipeline.js';
-import { type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
@@ -102,26 +98,14 @@ export interface RunContext {
   lockPath?: string;
   /** Active AbortControllers for in-flight SDK calls (aborted on SIGINT) */
   activeAborts: Set<AbortController>;
-  /** Running count of files successfully reviewed */
-  filesReviewed: number;
-  /** Running total of findings across all reviewed files */
-  totalFindings: number;
-  /** Total number of files discovered during scanning */
-  totalFiles: number;
   /** Count of skipped (triage), cached (previous run), and evaluated files */
   reviewCounts: { skipped: number; cached: number; evaluated: number };
   /** Files freshly reviewed (not cached) this run — used to invalidate deliberation cache */
   freshFiles: Set<string>;
   /** Epoch timestamp when the run started */
   startTime: number;
-  /** All loaded tasks — set during setup phase, used in report phase for time estimation */
-  allTasks: Task[];
-  /** Triage map — set during setup phase, used in report phase for estimatedTimeSaved */
-  triageMap: Map<string, TriageResult>;
   /** Whether multi-axis deliberation is enabled */
   deliberation: boolean;
-  /** Resolved model IDs for each axis (set after calibration) */
-  resolvedModels?: ResolvedModels;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
   /** Total LLM cost accumulated across all review phases */
@@ -154,16 +138,10 @@ export interface RunContext {
   pipelineState?: PipelineState;
   /** Screen renderer — created after setup */
   renderer?: ScreenRenderer;
-  /** Whether this is a first run requiring bootstrap doc phase */
-  isFirstRun: boolean;
   /** Quick-win preset active — reduced axis set (utility + duplication + correction) */
   quickWin: boolean;
   /** Unified project profile — set during setup, used by doc pipeline */
   profile?: ProjectProfile;
-  /** Doc pipeline result — set after doc scaffold + generation phases */
-  docPipelineResult?: DocPipelineResult;
-  /** Doc report result — set during report phase */
-  docReportResult?: DocReportResult;
   /** True when docs/ and .anatoly/docs/ were identical at RAG indexing time */
   docsIdentical: boolean;
   /** Mode-aware transport router for LLM call routing */
@@ -176,8 +154,6 @@ export interface RunContext {
   connectivityCheck: boolean;
   /** Git branch + commit captured once during initRunDir, reused in done/failed status writes. */
   gitInfo?: { branch?: string; commit?: string };
-  /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
-  arbitratedFragments?: import('../core/axes/reference-docs-context.js').ArbitratedFragment[];
 }
 
 /**
@@ -571,7 +547,6 @@ export function registerRunCommand(program: Command): void {
         projectRoot,
         sourceRoot: cmdOpts.sourceRoot ? resolve(cmdOpts.sourceRoot) : undefined,
         config,
-        ...(resolvedEmbedForPricing ? { resolvedModels: resolvedEmbedForPricing } : {}),
         runId,
         // Created lazily after the user confirms the pipeline summary so that
         // bailing at the prompt does not leave a phantom audit behind.
@@ -591,14 +566,9 @@ export function registerRunCommand(program: Command): void {
           : config.agents.enabled,
         interrupted: false,
         activeAborts: new Set(),
-        filesReviewed: 0,
-        totalFindings: 0,
-        totalFiles: 0,
         reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },
         freshFiles: new Set<string>(),
         startTime: Date.now(),
-        allTasks: [],
-        triageMap: new Map(),
         phaseDurations: {},
         totalCostUsd: 0,
         errorCount: 0,
@@ -616,7 +586,6 @@ export function registerRunCommand(program: Command): void {
           verdict: cmdOpts.badgeVerdict ?? config.badge.verdict,
           link: config.badge.link,
         },
-        isFirstRun: false,
         quickWin: false,
         docsIdentical: false,
         router: _router,
@@ -755,7 +724,7 @@ export function registerRunCommand(program: Command): void {
       process.on('SIGINT', onSigint);
 
       try {
-        await runPipeline(ctx, { runId, projectRoot, cmdOpts, initRunDir });
+        await runPipeline(ctx, { runId, projectRoot, cmdOpts, initRunDir, resolvedModels: resolvedEmbedForPricing });
       } catch (error) {
         if (ctx.lockPath) releaseLock(ctx.lockPath);
         if (error instanceof AnatolyError && error.preformatted) {

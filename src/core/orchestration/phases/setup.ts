@@ -54,11 +54,11 @@ import { getEffectiveSourceRoot } from '../../worktree-path-resolution.js';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { runPhase } from '../run-phase.js';
 import { countPendingDocConflicts } from '../../doc-conflict-store.js';
-import type { SetupResult } from '../handoff.js';
+import type { SetupResult, Handoff } from '../handoff.js';
 import { isDocAxisActive } from '../../axes/index.js';
 import type { RunContext } from '../../../commands/run.js';
 
-export async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
+export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<SetupResult> {
   const log = getLogger();
   const rl = ctx.runLog;
   // Banner is printed at the very start of the run command so all
@@ -338,8 +338,8 @@ export async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
   const embedWithModels = embedForecast
     ? {
         ...embedForecast,
-        ...(ctx.resolvedModels
-          ? { codeModel: ctx.resolvedModels.codeModel, nlpModel: ctx.resolvedModels.nlpModel }
+        ...(handoff.resolvedModels
+          ? { codeModel: handoff.resolvedModels.codeModel, nlpModel: handoff.resolvedModels.nlpModel }
           : {}),
       }
     : undefined;
@@ -448,8 +448,8 @@ export async function runSetupPhase(ctx: RunContext): Promise<SetupResult> {
     printSetupToAuditTransition({ plain: ctx.plain });
   }
 
-  ctx.allTasks = allTasks;
-  ctx.triageMap = triageMap;
+  handoff.allTasks = allTasks;
+  handoff.triageMap = triageMap;
 
   return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir };
 }
