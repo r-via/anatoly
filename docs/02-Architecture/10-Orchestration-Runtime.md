@@ -11,6 +11,16 @@
 > [01-Pipeline-Overview.md](./01-Pipeline-Overview.md) and
 > [03-Data-Flow.md](./03-Data-Flow.md), which predate the 11-phase model and
 > the four-plane dataplane and are now partially inaccurate.
+>
+> **Remediation status (updated in lockstep).** The divergence is being closed
+> by [11-Orchestration-Remediation-Plan.md](./11-Orchestration-Remediation-Plan.md)
+> under **Strategy B**: extract the live spine out of `run.ts`, and **delete**
+> (not wire) the unused Epic 56 scaffolding. **PR 1 has landed.** Effect on this
+> document: the registry / executor / exchange / gateway are no longer
+> "backlog", they are **removed**, and the clauses that depended on them are
+> recast as explicit non-goals (see the markers in §1, §6, §7, §8). The
+> regression suite is no longer hollow: a real spine golden now exists
+> ([spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts)).
 
 ## 1. The orchestration model
 
@@ -46,13 +56,18 @@ The four invariants that make this a contract, not a convention:
    and `RunContext` mutation. A later agent reads upstream results from that
    store, never from a sibling agent.
 
-REALITY (summary; detail in §7). Invariant 1 holds. Invariants 2, 3 and 4 do
-not: the gateway, the registry dispatch and the central exchange exist as
-declared modules that nothing invokes; the agent seam is in fact the four
-transports each doing their own recording; the data stream is threaded through
-`setup` return values, `ragContext`, and `ctx` mutation. The Epic 56
-scaffolding ([src/core/orchestration/](../../src/core/orchestration/)) is
-present and green-tested but load-bearing for nothing except the phase wrapper.
+REALITY (summary; detail in §7). Invariant 1 holds and is now enforced at
+runtime (the spine golden, not a source grep). Invariants 2 and 4 are
+**recast as non-goals** by Strategy B (doc 11): the gateway, the registry
+dispatch and the central exchange were declared modules that nothing invoked,
+so PR 1 deleted them rather than wiring them. The accepted seam is the four
+transports each doing their own recording, plus the ALS-scoped D.4 sink
+(§6). The data stream is threaded through `setup` return values, `ragContext`,
+and `ctx` mutation; doc 11 replaces that with a typed handoff store (doc 11
+§4), not the deleted exchange. Invariant 3 (four-plane dissociation) stands as
+written. The Epic 56 scaffolding under `src/core/orchestration/` is gone; what
+remains there is load-bearing: `run-phase.ts` (the boundary) and the spine
+golden.
 
 ## 2. Canonical phases
 
@@ -195,10 +210,11 @@ runSetupPhase ──returns──> setup{tasks,triageMap,usageGraph,depMeta,
 The handoff mechanism is three different things at once: (a) the `setup`
 return object, (b) the `ragContext` return object, (c) `RunContext` field
 mutation (`ctx.arbitratedFragments`, `ctx.totalFindings`, `ctx.filesReviewed`).
-There is no single typed store and no schema on the boundary. Epic 56's
-central exchange ([exchange.ts](../../src/core/orchestration/exchange.ts)) is
-the intended (c) replacement but is never instantiated at runtime. This is the
-gap behind invariant 4.
+There is no single typed store and no schema on the boundary. The Epic 56
+central exchange that was meant to replace (c) has been **deleted** (doc 11
+PR 1): it was never instantiated at runtime. The Strategy B replacement is a
+typed handoff store extracted alongside the spine (doc 11 §4), scoped to the
+real inter-phase subset, not a generic exchange.
 
 ## 4. The four-plane dataplane
 
@@ -353,8 +369,10 @@ CONTRACT. One gateway. Every primitive call goes through it; it mints `callId`,
 opens `runWithContext({ composer, primitive, callId })`, invokes the transport,
 and is the single place D.2/D.3/D.4 are emitted with a shared `callId`.
 
-REALITY. There is no gateway module. `executor.ts` takes a `gateway`
-parameter that nothing constructs. The de-facto seam is split five ways:
+REALITY. There is no gateway module, and under Strategy B there will not be
+one: the `executor.ts` that took an unconstructed `gateway` parameter has been
+**deleted** (doc 11 PR 1). The de-facto seam below is now the **accepted**
+seam, not a backlog gap. It is split five ways:
 
 - single-turn axes + `rag.nlp-summary`: `runSingleTurnQuery`
   ([axis-evaluator.ts:362](../../src/core/axis-evaluator.ts#L362)) =>
@@ -385,49 +403,68 @@ remediation must close. Verified against source.
 | `doc-conflict` split into two named phases | FR14 | ✅ enforced | [run.ts:1006](../../src/commands/run.ts#L1006), [1057](../../src/commands/run.ts#L1057) |
 | D.4 sink schema v2 + ledger path + summary/variance writers | FR7/FR8/FR10 | ✅ landed | [llm-calls-sink.ts:74](../../src/utils/llm-calls-sink.ts#L74), [run.ts:931](../../src/commands/run.ts#L931) |
 | D.4 composer/primitive attribution on every call | FR5/Story 56.11 | 🟡 axis path only | [axis-evaluator.ts:398](../../src/core/axis-evaluator.ts#L398); non-axis calls unattributed |
-| Single agent gateway, `callId` minted once per call | FR2 (spec)/Pillar B | ❌ not built | no gateway module; `callId` never set (grep) |
-| Composer registry dispatched at runtime | Pillar B.2, FR4/FR5 | ❌ declared, not wired | `COMPOSERS`/`PRIMITIVES` never looked up outside registry+tests |
-| DAG executor invoked | FR5 | ❌ dead | `executeComposer` has zero callers ([executor.ts:25](../../src/core/orchestration/executor.ts#L25)) |
-| Central exchange (D.1 plane + snapshot) | Pillar C, FR6 | ❌ never instantiated | [exchange.ts](../../src/core/orchestration/exchange.ts) reachable only via executor |
-| D.2 centralized naming `{phase}__{composer}__{primitive}__{callId}` | FR16/Story 56.6 | ❌ legacy path live | `buildDumpSlug()` 0 callers; `conversationPrefix` in 17 files |
-| `axes.correction` split into pass1/verify primitives orchestrated by a composer | FR13 | 🟡 split exists, composer not orchestrating | logic still inline in [correction.ts](../../src/core/axes/correction.ts) |
-| Four-artefact separation enforced (lint + runtime) | NFR6 | 🟡 declared schemas only | enforcement is registry inspection, not runtime |
-| Regression suite makes drift unmergeable | Story 56.10, NFR5 | ❌ hollow | coverage/artefact-separation/cost-integrity tests assert declarations and pure functions, never the runtime path; they pass because they do not exercise it |
+| Single agent gateway, `callId` minted once per call | FR2 (spec)/Pillar B | ❌ REMOVED | Strategy B non-goal; gateway never existed, `callId` stays unminted by design (doc 11 PR 1) |
+| Composer registry dispatched at runtime | Pillar B.2, FR4/FR5 | ❌ REMOVED | `registry/` deleted (doc 11 PR 1); had zero runtime lookups |
+| DAG executor invoked | FR5 | ❌ REMOVED | `executor.ts` deleted (doc 11 PR 1); had zero callers |
+| Central exchange (D.1 plane + snapshot) | Pillar C, FR6 | ❌ REMOVED | `exchange.ts` deleted (doc 11 PR 1); replaced by a typed handoff store (doc 11 §4) |
+| D.2 centralized naming `{phase}__{composer}__{primitive}__{callId}` | FR16/Story 56.6 | 🟡 DEFERRED | needs a gateway Strategy B does not build; tracked by the dump-naming spec, not carried as dead code |
+| `axes.correction` split into pass1/verify | FR13 | 🟡 split exists | pass1/verify live in [correction.ts](../../src/core/axes/correction.ts); the dead "orchestrating composer" framing is removed with the registry |
+| Four-artefact separation | NFR6 | 🟡 runtime, not lint | D.1..D.4 dissociation holds in the transports + D.4 sink; the registry-inspection lint is gone with the registry |
+| Regression suite makes drift unmergeable | Story 56.10, NFR5 | ✅ enforced | [spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts) drives a full `anatoly run` and asserts the phase sequence + gates + handoff; proven to fail on a deliberate spine drift (doc 11 PR 1) |
 
-Reading of the scorecard: Pillar A (phase runtime) is real and trustworthy.
+Reading of the scorecard (post doc 11 PR 1): Pillar A (phase runtime) is real,
+trustworthy, and now guarded by a runtime golden rather than a source grep.
 Pillar D.4 (cost) is structurally there but under-attributed. Pillars B
-(registry + executor + gateway), C (exchange / D.1) and the D.2 naming are
-declared but unwired. The most dangerous line is the last one: the safety net
-that was meant to make this gap unmergeable instead masks it, because it tests
-the declarative shell, not the runtime.
+(registry + executor + gateway) and C (exchange / D.1) are **removed**: under
+Strategy B they are non-goals, not unwired backlog. D.2 centralized naming is
+**deferred** behind a gateway that Strategy B does not build (a tracked spec,
+not dead code). The previously most dangerous line (the hollow safety net) is
+closed: the spine golden exercises the real runtime. One guard finding from the
+deletion: `cost-integrity.test.ts` and `plan-fidelity.test.ts` were verified to
+test the **live** cost sink (`writeCostSummary` / `writeCostVariance`), not the
+dead scaffolding, so they were kept; this document's earlier blanket "hollow"
+label for `cost-integrity` was inaccurate and is corrected here.
 
 ## 8. Invariants the remediation must enforce
 
-These are the testable assertions the corrected runtime must satisfy. They are
-written so a test can fail today and pass only when the contract holds.
+Split into what Strategy B enforces now and what it explicitly defers. Written
+so a test can fail on regression and pass only when the property holds.
 
-1. Every primitive call observed in a recorded run carries a `callId` that
-   appears in exactly one D.4 ledger record and at least one D.3
-   `resource_call_*` event with identical `phase`/`composer`/`primitive`, and
-   one D.2 file named `{phase}__{composer}__{primitive}__{callId}__{attempt}`.
-   Zero orphans either direction.
-2. A static scan finds zero `conversationPrefix` in production and at least one
-   production call site for the single dump-name producer.
-3. Every D.4 record for a dump-enabled primitive has non-empty
-   `composer`/`primitive` (no axis-only attribution).
-4. A synthetic primitive invocation driven through the gateway, with the scope
-   injected by the test, produces the four artefacts and the test asserts the
-   D.2 name and the absence of cross-plane field leakage; a missing-scope
-   invocation skips the dump with a warn and never throws.
-5. The coverage test fails if a phase exists that does not route through
-   `runPhase`, AND fails if a primitive is invoked at runtime without resolving
-   through the registry (not a source grep: an observed-run assertion).
+### Enforced now (doc 11 PR 1)
+
+1. **Spine fidelity.** A full `anatoly run` driven through the real spine
+   produces exactly the canonical phase sequence for the run's gate inputs,
+   with each executed phase routed through `runPhase` (observed in
+   `run-metrics.json`, not a source grep). Deleting or reordering any
+   `runPhase(...)` call, or taking a phase off the wrapper, fails
+   [spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts).
+   Hermetic: the run executes under `ANATOLY_TRANSPORT=replay` so any model
+   call throws `cassette miss` and fails the test.
+2. **Determinism guard.** A recorded run replays byte-stable on a fixed
+   fixture: the deterministic transport double
+   ([recording-transport.ts](../../src/core/transports/recording-transport.ts))
+   keys requests by normalized content so a cassette captured in one temp root
+   replays in another.
+
+### Deferred (depend on a gateway Strategy B does not build)
+
+These were invariants for the gateway/registry/exchange that PR 1 removed. They
+are not abandoned silently: they are parked behind the dump-naming spec and
+will be rewritten if and when a real gateway is ever justified. They are NOT
+carried as dead code or as a hollow passing test.
+
+- `callId` minted once per call, joining exactly one D.4 record, one D.3
+  `resource_call_*`, and one D.2 file named
+  `{phase}__{composer}__{primitive}__{callId}__{attempt}`.
+- Zero `conversationPrefix` in production; one producer for the dump name.
+- Every D.4 record for a dump-enabled primitive has non-empty
+  `composer`/`primitive` (no axis-only attribution).
 
 ## See also
 
 - [spec-conversation-dump-naming-correction.md](../../_bmad-output/planning-artifacts/spec-conversation-dump-naming-correction.md)
-  the D.2 corrective spec (a symptom of §7 lines 5, 8, 11; cannot be
-  implemented in isolation, it needs the gateway from §6 first).
+  the D.2 corrective spec. **Deferred** under Strategy B: it needs a gateway
+  that doc 11 does not build. Parked as a tracked spec, not dead code.
 - [epic-56-unified-orchestration-runtime.md](../../_bmad-output/planning-artifacts/epic-56-unified-orchestration-runtime.md)
   the original four-pillar intent.
 - [08-Transport-Architecture.md](./08-Transport-Architecture.md) the transport

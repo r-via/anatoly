@@ -59,6 +59,7 @@ import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
 import { retryWithBackoff } from '../../utils/rate-limiter.js';
 import { extractJson } from '../../utils/extract-json.js';
 import { circuitOpenError, isProviderHealthFailure } from '../../utils/errors.js';
+import { maybeWrapTransport } from './recording-transport.js';
 
 /**
  * Common interface for LLM providers (Anthropic, Gemini, etc.).
@@ -185,8 +186,15 @@ export class TransportRouter {
   readonly breakers: Map<string, CircuitBreaker>;
 
   constructor(config: TransportRouterConfig) {
-    this.nativeTransports = config.nativeTransports;
-    this.vercelSdkTransport = config.vercelSdkTransport;
+    // Record/replay seam (doc 11, PR 1): inert unless ANATOLY_TRANSPORT is set,
+    // so production routing is unchanged. Wrapping here covers every router
+    // build site (run, review, watch, pipeline-runner) with zero command-code
+    // edits. Imported lazily to keep the index<->recording cycle value-free.
+    const wrap = maybeWrapTransport;
+    this.nativeTransports = Object.fromEntries(
+      Object.entries(config.nativeTransports).map(([id, t]) => [id, wrap(t)]),
+    );
+    this.vercelSdkTransport = wrap(config.vercelSdkTransport);
     this.providerModes = config.providerModes;
 
     // Create per-provider semaphores and breakers

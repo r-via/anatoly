@@ -1,0 +1,30 @@
+# Orchestration golden fixture config. See ./README.md.
+# Tuned so a full `anatoly run` makes ZERO model calls and is deterministic:
+#   - no source files in the fixture  -> review evaluates nothing
+#   - rag disabled                    -> no nlp-summary call, no embedding probe
+#   - internal docs mode off          -> no doc-generator / doc-conflict calls
+#   - agents disabled                 -> no refinement tier-3 agentic call
+version: 2
+project_name: orchestration-golden
+providers:
+  anthropic:
+    mode: subscription
+    concurrency: 2
+models:
+  quality: anthropic/claude-sonnet-4-6
+  fast: anthropic/claude-haiku-4-5
+agents:
+  enabled: false
+  max_turns: 5
+rag:
+  enabled: false
+  code_model: auto
+  nlp_model: auto
+  code_weight: 0.6
+documentation:
+  reference:
+    paths: [README.md]
+  internal:
+    mode: off
+badge:
+  enabled: false
