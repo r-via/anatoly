@@ -13,11 +13,16 @@
  * unchanged runPhase('bootstrap-doc'|'internal-docs') gates and the
  * reindexDocsAfterUpdate call.
  *
- * All four are Promise<void> and mutate ctx (docPipelineResult,
- * arbitratedFragments are set/consumed by the spine); the data flow is
- * unchanged, so handoff.ts is untouched until PR 8. recordLlmCost and
- * requestFatalStop come from their relocated homes; RunContext is type-only
- * (erased). Import list seeded from run.ts (path-rewritten) then pruned.
+ * All four return Promise<void>. recordLlmCost and requestFatalStop come
+ * from their relocated homes; RunContext is type-only (erased). Import
+ * list seeded from run.ts (path-rewritten) then pruned.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { readFileSync } from 'node:fs';

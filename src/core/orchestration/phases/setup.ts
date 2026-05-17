@@ -15,7 +15,14 @@
  * the axis-enablement module. `RunContext` is imported type-only (erased):
  * no runtime cycle, no runtime dependency on the commands layer. The import
  * list starts as run.ts's (path-rewritten) and is pruned to setup's actual
- * needs; PR 8 replaces the ctx-mutation handoff with the typed object.
+ * needs.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { readFileSync } from 'node:fs';

@@ -19,8 +19,10 @@
  * spine, so it moves here as a module-private function (relocated
  * verbatim). `RunContext` is type-only (erased): no runtime dependency on
  * the commands layer. Import list seeded from run.ts (path-rewritten)
- * then pruned. PR 8c replaces the §4 ctx-mutation handoff with the typed
- * handoff object; this PR is move-only.
+ * then pruned. PR 8a (this extraction) is move-only; PR 8c then
+ * replaced the §4 ctx-mutation handoff with the typed `Handoff`
+ * object, created here via createHandoff() and passed explicitly to
+ * every phase.
  */
 
 import { join } from 'node:path';

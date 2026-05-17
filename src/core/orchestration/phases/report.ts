@@ -13,8 +13,14 @@
  *   - `countPendingDocConflicts` now imported from doc-conflict-store.
  *   - import paths rewritten for the new module depth.
  * `RunContext` is imported type-only, so there is no runtime dependency on
- * (and no import cycle with) the commands layer. PR 8 replaces this with the
- * typed handoff object per the plan.
+ * (and no import cycle with) the commands layer.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { writeFileSync } from 'node:fs';

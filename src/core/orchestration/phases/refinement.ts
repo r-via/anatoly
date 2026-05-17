@@ -10,8 +10,8 @@
  * closure body is reproduced byte-verbatim below as the function body; the
  * only captured spine variables were `ctx` and `setup`, now parameters.
  * The gate (`ctx.deliberation && handoff.filesReviewed > 0 && !ctx.interrupted`)
- * and the `runPhase('refinement', ...)` wrapper stay in the spine
- * (orchestration), which now calls `runRefinementStage(ctx, setup)`.
+ * and the `runPhase('refinement', ...)` wrapper stay in the orchestration
+ * spine (see the post-PR-8 note below for its current location and call).
  *
  * Named `runRefinementStage`, not `runRefinementPhase`: the latter is the
  * imported core refinement engine (core/refinement/phase.js) this stage
@@ -19,6 +19,13 @@
  * (zero in-body edits). `RunContext` is type-only (erased); `SetupResult`
  * comes from the typed handoff contract. Import list seeded from run.ts
  * (path-rewritten) then pruned.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { join } from 'node:path';

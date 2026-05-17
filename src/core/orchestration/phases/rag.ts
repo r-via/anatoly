@@ -8,14 +8,20 @@
  * Move-only: the body is the verbatim `runRagPhase` from run.ts. Forced
  * edits only: the `export` keyword, and inline dynamic-import paths
  * (`import('../rag/...')` -> `import('../../../rag/...')`) rebased for the
- * new module depth. The spine still calls it via the unchanged
- * `runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, setup.tasks))`.
+ * new module depth.
  *
  * Returns `RagContext` from the typed handoff contract (handoff.ts). The one
  * run.ts-local helper it used, `recordLlmCost`, was relocated to
  * orchestration/cost.ts. `RunContext` is type-only (erased): no runtime
  * cycle, no commands-layer dependency. Import list seeded from run.ts's
  * (path-rewritten) then pruned to actual needs.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { mkdirSync, createWriteStream } from 'node:fs';

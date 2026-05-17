@@ -14,12 +14,17 @@
  * dynamic-import path `import('../schemas/review.js')` rebased to
  * `import('../../../schemas/review.js')` for the new module depth.
  *
- * Promise<void> + ctx-mutation, so handoff.ts is untouched (the
- * setup.* / ragContext inputs are still threaded by the spine as-is until
- * PR 8). No run.ts-local helpers were needed: recordLlmCost and
+ * No run.ts-local helpers were needed: recordLlmCost and
  * requestFatalStop already live in their relocated homes (PR 4/5).
  * `RunContext` is type-only (erased). Imports seeded from run.ts
  * (path-rewritten) then pruned.
+ *
+ * Post-PR-8 state (doc 11): the orchestration spine lives in
+ * pipeline.ts (PR 8a), not run.ts; this phase receives the typed
+ * `Handoff` object explicitly as a parameter (PR 8c) and the §4
+ * inter-phase data is no longer `ctx` mutation. Any line above
+ * describing a run.ts call site, `ctx`-mutation, or "handoff
+ * untouched until PR 8" is extraction-era history, superseded here.
  */
 
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
