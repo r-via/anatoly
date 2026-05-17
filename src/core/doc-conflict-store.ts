@@ -51,6 +51,22 @@ export function loadDocConflicts(projectRoot: string): DocConflictsLock | null {
   return result.data;
 }
 
+/**
+ * Count doc conflicts still awaiting arbitration. Relocated verbatim from
+ * `commands/run.ts` (PR 2, doc 11) so the report phase can move out without a
+ * layer-violating import back into `run.ts`. Best-effort: any load failure
+ * counts as zero pending.
+ */
+export function countPendingDocConflicts(projectRoot: string): number {
+  try {
+    const lock = loadDocConflicts(projectRoot);
+    if (!lock) return 0;
+    return lock.entries.filter((e) => e.verdict === 'pending').length;
+  } catch {
+    return 0;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Save — Story 55.3 AC2 (atomic write via temp + rename, NFR1)
 // ---------------------------------------------------------------------------

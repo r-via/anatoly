@@ -1,0 +1,426 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2025-present Rémi Viau
+// See LICENSE and COMMERCIAL.md for licensing details.
+
+/**
+ * Report phase (extracted from run.ts in PR 2, doc 11 Strategy B).
+ *
+ * Move-only: the body below is the verbatim `runReportPhase` from run.ts. The
+ * only edits are the unavoidable consequences of relocation:
+ *   - `formatDuration(...)` -> `formatRunDuration(...)` (the run.ts-local
+ *     helper was relocated to utils/format.ts under a non-clashing name; the
+ *     body is byte-identical so behavior is unchanged).
+ *   - `countPendingDocConflicts` now imported from doc-conflict-store.
+ *   - import paths rewritten for the new module depth.
+ * `RunContext` is imported type-only, so there is no runtime dependency on
+ * (and no import cycle with) the commands layer. PR 8 replaces this with the
+ * typed handoff object per the plan.
+ */
+
+import { writeFileSync } from 'node:fs';
+import { join, relative, resolve, basename } from 'node:path';
+import chalk from 'chalk';
+
+import { getLogger } from '../../../utils/logger.js';
+import { ProgressManager } from '../../progress-manager.js';
+import { estimateFileSeconds } from '../../estimator.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporter.js';
+import { getDocsDir } from '../../../schemas/config.js';
+import { aggregateDocReport } from '../../doc-report-aggregator.js';
+import { purgeRuns } from '../../../utils/run-id.js';
+import { injectBadge } from '../../badge.js';
+import { sendNotifications, type NotificationPayload } from '../../notifications/index.js';
+import { formatCompactTokens, formatRunDuration } from '../../../utils/format.js';
+import { getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../../../utils/llm-calls-sink.js';
+import { getEnabledEvaluators } from '../../axes/index.js';
+import { resolveAxisModel } from '../../axis-evaluator.js';
+import { countPendingDocConflicts } from '../../doc-conflict-store.js';
+import { openFile } from '../../../utils/open.js';
+import { recalibrateFromRuns, saveCalibration } from '../../calibration.js';
+import { writeRunStatus, getGitInfo, type RunStatus } from '../../run-status.js';
+import { createWorktreeManager } from '../../worktree-manager.js';
+import type { RunContext } from '../../../commands/run.js';
+
+export function runReportPhase(ctx: RunContext): void {
+  const log = getLogger();
+  const rl = ctx.runLog;
+  const pm = new ProgressManager(ctx.projectRoot);
+  const errorFiles: string[] = [];
+  const progress = pm.getProgress();
+  for (const [, fp] of Object.entries(progress.files)) {
+    if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') errorFiles.push(fp.file);
+  }
+
+  let triageStats: TriageStats | undefined;
+  if (ctx.triageEnabled) {
+    const { skipped, cached, evaluated } = ctx.reviewCounts;
+    const total = skipped + cached + evaluated;
+    // Time saved = weighted seconds of files that were skipped (would have been evaluated)
+    let skippedSeconds = 0;
+    for (const task of ctx.allTasks) {
+      if (ctx.triageMap.get(task.file)?.tier === 'skip') {
+        skippedSeconds += estimateFileSeconds(task.symbols.length);
+      }
+    }
+    triageStats = {
+      total,
+      skip: skipped,
+      evaluate: evaluated,
+      estimatedTimeSaved: skippedSeconds / 60,
+    };
+  }
+
+  const runStats: import('../../reporter.js').RunStats = {
+    runId: ctx.runId,
+    durationMs: Date.now() - ctx.startTime,
+    costUsd: ctx.totalCostUsd,
+    axisStats: ctx.axisStats,
+    phaseDurations: ctx.phaseDurations,
+    degradedReviews: ctx.degradedReviews,
+  };
+  // Cached reviews are now copied into the run dir during the review phase handler,
+  // so copyCachedReviews is no longer needed here.
+
+  // --- Doc report aggregation ---
+  let docReferenceSection: string | undefined;
+  if (ctx.docPipelineResult) {
+    try {
+      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
+      const idealPageCount = ctx.docPipelineResult.generation?.totalPages ?? 0;
+      const cacheResult = ctx.docPipelineResult.generation?.cacheResult;
+      const newPageSources = ctx.docPipelineResult.generation?.cacheResult.added.map(p => ({
+        page: p,
+        source: `scaffolded`,
+      }));
+      ctx.docReportResult = aggregateDocReport({
+        projectRoot: ctx.projectRoot,
+        projectTypes: ctx.docPipelineResult.scaffold.projectTypes,
+        reviews,
+        tasks: ctx.allTasks,
+        idealPageCount,
+        cacheResult,
+        newPageSources,
+        docsPath: getDocsDir(ctx.config),
+      });
+      docReferenceSection = ctx.docReportResult.renderedSection;
+      log.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict, recommendations: ctx.docReportResult.recommendations.length }, 'doc report aggregated');
+      rl?.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict }, 'doc report aggregated');
+    } catch (err) {
+      log.warn({ err }, 'doc report aggregation failed');
+      rl?.warn({ err }, 'doc report aggregation failed');
+    }
+  } else if (ctx.profile && ctx.allTasks.length > 0) {
+    // Fallback: no doc pipeline ran (e.g. cached run), but we can still
+    // aggregate coverage metrics from reviews + profile.
+    try {
+      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
+      ctx.docReportResult = aggregateDocReport({
+        projectRoot: ctx.projectRoot,
+        projectTypes: ctx.profile.types,
+        reviews,
+        tasks: ctx.allTasks,
+        idealPageCount: 0,
+        docsPath: getDocsDir(ctx.config),
+      });
+      docReferenceSection = ctx.docReportResult.renderedSection;
+      log.info({ docScore: ctx.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');
+    } catch (err) {
+      log.warn({ err }, 'doc report aggregation fallback failed');
+    }
+  }
+
+  // Persist doc reference section so `anatoly report` can reload it
+  if (docReferenceSection && ctx.runDir) {
+    writeFileSync(join(ctx.runDir, 'doc-reference-section.md'), docReferenceSection);
+  }
+
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
+
+  if (ctx.config.output?.max_runs) {
+    purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
+  }
+
+  // Badge injection (before summary display)
+  let badgeNote = '';
+  if (ctx.badge.enabled) {
+    const badgeResult = injectBadge({
+      projectRoot: ctx.projectRoot,
+      verdict: data.globalVerdict,
+      includeVerdict: ctx.badge.verdict,
+      link: ctx.badge.link,
+    });
+    if (badgeResult.injected && !badgeResult.updated) {
+      badgeNote = ' (badge added in README.md)';
+    }
+  }
+
+  // Notifications (fire-and-forget, after report generation)
+  {
+    const notifPayload: NotificationPayload = {
+      projectName: ctx.config.project.name ?? basename(ctx.projectRoot),
+      verdict: data.globalVerdict,
+      totalFiles: data.totalFiles,
+      evaluated: ctx.reviewCounts.evaluated,
+      cached: ctx.reviewCounts.cached,
+      cleanFiles: data.cleanFiles.length,
+      findingFiles: data.findingFiles.length,
+      errorFiles: data.errorFiles.length,
+      durationMs: Date.now() - ctx.startTime,
+      costUsd: ctx.totalCostUsd,
+      totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0),
+      axisScorecard: Object.fromEntries(
+        REPORT_AXIS_IDS
+          .filter((axis) => {
+            const configAxisKey: Record<ReportAxisId, keyof typeof ctx.config.axes> = {
+              correction: 'correction', utility: 'utility', duplication: 'duplication',
+              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+              'best-practices': 'best_practices',
+            };
+            return ctx.config.axes[configAxisKey[axis]]?.enabled !== false;
+          })
+          .map((axis) => {
+            const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
+              correction: 'correction', utility: 'dead', duplication: 'duplicate',
+              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
+              'best-practices': 'best_practices',
+            };
+            const c = data.counts[countsKey[axis]];
+            const { pct, label } = axisHealthPercent(data, axis);
+            return [countsKey[axis], { ...c, healthPct: pct, label }];
+          }),
+      ),
+      reportUrl: ctx.config.notifications?.telegram?.report_url ?? undefined,
+    };
+    // Fire-and-forget: errors are caught internally by sendNotifications
+    void sendNotifications(ctx.config, notifPayload);
+  }
+
+  const { skipped, cached, evaluated } = ctx.reviewCounts;
+  const cachedNote = cached > 0 ? `${cached} cached \u00b7 ` : '';
+  const tierSummary = ctx.triageEnabled
+    ? ` (${cachedNote}${skipped} skipped \u00b7 ${evaluated} evaluated)`
+    : cached > 0 ? ` (${cachedNote}${evaluated} evaluated)` : '';
+  const duration = formatRunDuration(Date.now() - ctx.startTime);
+  const rel = (p: string) => relative(process.cwd(), p) || '.';
+  const claudeCost = ctx.providerStats.anthropic.costUsd;
+  const geminiCost = ctx.providerStats.gemini.costUsd;
+  const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
+  const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
+  const hasGemini = ctx.providerStats.gemini.calls > 0;
+
+  // Token counts come from the per-call sink (totals updated on every
+  // recordLlmCall). We render compact (e.g. 58K) and skip them entirely
+  // only if the sink is somehow absent \u2014 should never happen for `run`.
+  const sinkTotals = getActiveSinkTotals();
+  const tokensFragment = sinkTotals
+    ? `${formatCompactTokens(sinkTotals.inputTokens)} tokens in / ${formatCompactTokens(sinkTotals.outputTokens)} tokens out`
+    : '';
+
+  // The "$0.00 with Claude Code" hint is shown only when the user is on the
+  // Claude Code subscription (mode: subscription) AND there were Anthropic
+  // calls. Without subscription, the hint loses its meaning (no savings to
+  // show), so we drop it.
+  const isAnthropicSubscription =
+    ctx.config.providers.anthropic?.mode === 'subscription' &&
+    ctx.providerStats.anthropic.calls > 0;
+  const claudeCodeHint = isAnthropicSubscription
+    ? ` \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`
+    : '';
+
+  const dollars = hasGemini
+    ? `${costColor(`$${claudeCost.toFixed(2)}`)} (Claude) \u00b7 ${chalk.green.bold(`$${geminiCost.toFixed(2)}`)} (Gemini)`
+    : `${costColor(costStr)} in API calls`;
+
+  const costLine = tokensFragment
+    ? `${chalk.bold('Cost:')} ${tokensFragment} \u00b7 ${dollars}${claudeCodeHint}`
+    : `${chalk.bold('Cost:')} ${dollars}${claudeCodeHint}`;
+  const quotaLine = hasGemini
+    ? `${chalk.bold('Quota:')} ${ctx.providerStats.anthropic.calls} Claude \u00b7 ${ctx.providerStats.gemini.calls} Gemini (\u2212${Math.round((ctx.providerStats.gemini.calls / (ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls)) * 100)}%)`
+    : undefined;
+
+  // Transition pipeline display to summary
+  const state = ctx.pipelineState;
+  if (state) {
+    state.completeTask('report', 'done');
+    state.setSummary({
+      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
+      paths: [
+        { key: 'run', value: ctx.runId },
+        { key: 'report', value: chalk.cyan(rel(reportPath)) },
+        { key: 'reviews', value: chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/') },
+        { key: 'transcripts', value: chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/') },
+        { key: 'log', value: chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson'))) },
+      ],
+      cost: quotaLine ? `${costLine}\n${quotaLine}` : costLine,
+    });
+  }
+
+  // Stop renderer — final frame will show summary
+  ctx.renderer?.stop();
+
+  // Plain mode: print summary to stdout
+  if (ctx.plain || !state) {
+    console.log('');
+    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
+    console.log('');
+    console.log(`  run          ${ctx.runId}`);
+    console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
+    console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
+    console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
+    console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
+    console.log('');
+    console.log(`  ${costLine}`);
+    if (quotaLine) console.log(`  ${quotaLine}`);
+  }
+
+  // Quick-win suggestion (Story 48.8) — only on successful runs
+  if (ctx.quickWin && !ctx.interrupted) {
+    console.log('');
+    console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
+    console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
+  }
+
+  // Story 55.9: end-of-run reminder about pending doc conflicts (FR17)
+  if (!ctx.interrupted) {
+    const endPendingConflicts = countPendingDocConflicts(ctx.projectRoot);
+    if (endPendingConflicts > 0) {
+      console.log('');
+      console.log(chalk.yellow(`  ${endPendingConflicts} doc conflicts pending — run \`anatoly docs arbitrate\``));
+    }
+  }
+
+  if (ctx.shouldOpen) openFile(reportPath);
+
+  // Run summary
+  const totalDurationMs = Date.now() - ctx.startTime;
+  log.info({
+    runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
+    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
+    cached: ctx.reviewCounts.cached, skipped: ctx.reviewCounts.skipped,
+    errors: ctx.errorCount,
+  }, 'run completed');
+
+  // Log error summary by code (if any errors occurred)
+  if (ctx.errorCount > 0) {
+    log.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
+    rl?.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
+  }
+
+  // Write run summary to per-run log file
+  ctx.runLog?.info({
+    runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
+    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
+    errors: ctx.errorCount, errorsByCode: ctx.errorsByCode,
+    phaseDurations: ctx.phaseDurations,
+  }, 'run completed');
+
+  // Derive conversationStats from axisStats (review-phase axis evaluations).
+  // RAG + doc-gen LLM costs are aggregated into ctx.totalCostUsd directly.
+  const conversationStats = {
+    total: 0,
+    byPhase: {} as Record<string, number>,
+    byModel: {} as Record<string, number>,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCostUsd: 0,
+  };
+  for (const [, s] of Object.entries(ctx.axisStats)) {
+    conversationStats.total += s.calls;
+    conversationStats.totalInputTokens += s.totalInputTokens;
+    conversationStats.totalOutputTokens += s.totalOutputTokens;
+    conversationStats.totalCostUsd += s.totalCostUsd;
+  }
+  if (conversationStats.total > 0) {
+    conversationStats.byPhase.review = conversationStats.total;
+    const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
+    for (const e of evaluators) {
+      const s = ctx.axisStats[e.id];
+      if (s) {
+        conversationStats.byModel[resolveAxisModel(e, ctx.config)] = (conversationStats.byModel[resolveAxisModel(e, ctx.config)] ?? 0) + s.calls;
+      }
+    }
+  }
+
+  // Compute provider stats (Story 39.2)
+  const totalCalls = ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls;
+  const claude_quota_saved_pct = totalCalls > 0
+    ? Math.round((ctx.providerStats.gemini.calls / totalCalls) * 100)
+    : 0;
+
+  // Write run-metrics.json
+  const metrics = {
+    runId: ctx.runId,
+    durationMs: totalDurationMs,
+    filesReviewed: ctx.filesReviewed,
+    evaluated: ctx.reviewCounts.evaluated,
+    cached: ctx.reviewCounts.cached,
+    findings: ctx.totalFindings,
+    errors: ctx.errorCount,
+    errorsByCode: ctx.errorsByCode,
+    degradedReviews: ctx.degradedReviews,
+    costUsd: ctx.totalCostUsd,
+    providers: {
+      anthropic: { calls: ctx.providerStats.anthropic.calls, costUsd: Math.round(ctx.providerStats.anthropic.costUsd * 100) / 100 },
+      gemini: { calls: ctx.providerStats.gemini.calls, costUsd: Math.round(ctx.providerStats.gemini.costUsd * 100) / 100 },
+    },
+    claude_quota_saved_pct,
+    phaseDurations: ctx.phaseDurations,
+    axisStats: ctx.axisStats,
+    phaseStats: ctx.phaseStats,
+    timeline: ctx.timeline.sort((a, b) => a.t - b.t),
+    conversations: conversationStats,
+  };
+  try {
+    writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
+  } catch {
+    log.warn({ runId: ctx.runId }, 'failed to write run-metrics.json');
+  }
+
+  // D.4 Cost Plane — emit summary.json + variance.json from the ledger (Story 56.5 FR10)
+  try {
+    writeCostSummary(ctx.runDir);
+    writeCostVariance(ctx.runDir);
+  } catch (err) {
+    log.warn({ runId: ctx.runId, err }, 'failed to write cost summary/variance');
+  }
+
+  // Recalibrate axis timing from all historical runs (including this one)
+  try {
+    const updatedCalibration = recalibrateFromRuns(ctx.projectRoot);
+    saveCalibration(ctx.projectRoot, updatedCalibration);
+    log.debug({ calibration: updatedCalibration.axes }, 'calibration updated');
+  } catch (err) {
+    log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
+  }
+
+  // Persist run-status.json — transition to 'done' (Story 53.1)
+  if (ctx.runDir) {
+    const gi = ctx.gitInfo ?? getGitInfo(ctx.projectRoot);
+    const runStatus: RunStatus = {
+      runId: ctx.runId,
+      pid: process.pid,
+      status: 'done',
+      startedAt: new Date(ctx.startTime).toISOString(),
+      completedAt: new Date().toISOString(),
+      branch: gi.branch,
+      commit: gi.commit,
+      background: !!process.env.ANATOLY_BACKGROUND_MODE,
+    };
+    writeRunStatus(ctx.runDir, runStatus);
+  }
+
+  // Cleanup worktree for background runs (fire-and-forget — errors logged only)
+  if (process.env.ANATOLY_BACKGROUND_MODE && ctx.sourceRoot) {
+    try {
+      const wm = createWorktreeManager(ctx.projectRoot);
+      void wm.remove(ctx.runId).catch((wtErr) => {
+        log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
+      });
+    } catch (wtErr) {
+      log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
+    }
+  }
+
+  process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
+
+}

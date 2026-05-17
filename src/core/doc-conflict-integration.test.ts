@@ -110,8 +110,14 @@ describe('Story 55.9 — AC5+AC6: pending conflicts hint at start', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.9 — AC7: end-of-run reminder', () => {
-  it('run.ts checks for pending conflicts at end of run', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  // PR 2 (doc 11) moved the report phase (incl. setSummary, the plain-mode
+  // summary, and the pending-conflicts reminder) out of run.ts into the
+  // report phase module. The reminder behavior is unchanged; only its file
+  // location moved, so these source assertions now target report.ts.
+  const reportSrc = join(process.cwd(), 'src', 'core', 'orchestration', 'phases', 'report.ts');
+
+  it('report phase checks for pending conflicts at end of run', () => {
+    const src = readFileSync(reportSrc, 'utf-8');
     // After the summary, should load conflicts and print reminder
     const summaryIdx = src.indexOf('setSummary');
     expect(summaryIdx).toBeGreaterThan(-1);
@@ -122,7 +128,7 @@ describe('Story 55.9 — AC7: end-of-run reminder', () => {
   });
 
   it('end-of-run reminder appears in both TUI and plain mode', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+    const src = readFileSync(reportSrc, 'utf-8');
     // Should have the reminder after the plain-mode summary block too
     const afterPlainSummary = src.slice(src.indexOf("ctx.plain || !state"));
     expect(afterPlainSummary).toContain('doc conflicts pending');

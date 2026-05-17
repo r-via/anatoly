@@ -15,13 +15,12 @@ import { enumerateActiveModels } from '../utils/active-models.js';
 import { getDocsDir, type Config } from '../schemas/config.js';
 import { acquireLock, releaseLock } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
-import { estimateTasksTokens, formatTokenCount, loadTasks, estimateFileSeconds, forecastRun } from '../core/estimator.js';
+import { estimateTasksTokens, formatTokenCount, loadTasks, forecastRun } from '../core/estimator.js';
 import { estimateEmbedTokens } from '../rag/embed-estimator.js';
-import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime, recalibrateFromRuns, saveCalibration } from '../core/calibration.js';
+import { loadCalibration, estimateCalibratedMinutes, formatCalibratedTime } from '../core/calibration.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
-import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../core/reporter.js';
-import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';
+import { loadReviews } from '../core/reporter.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError, isCircuitOpenError, circuitOpenError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
@@ -32,10 +31,9 @@ import { isSystemLocalProvider } from '../rag/system-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
 import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, purgeRuns, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
-import { openFile } from '../utils/open.js';
+import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
-import { enterLlmCallSink, getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../utils/llm-calls-sink.js';
+import { enterLlmCallSink } from '../utils/llm-calls-sink.js';
 import { runWithContext } from '../utils/log-context.js';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { withTimeout } from '../utils/with-timeout.js';
@@ -50,13 +48,12 @@ import type { VectorStore } from '../rag/vector-store.js';
 import { runWorkerPool } from '../core/worker-pool.js';
 import { buildProjectTree } from '../core/project-tree.js';
 import { buildDocsTree } from '../core/docs-resolver.js';
-import { countReviewFindings, formatCompactTokens } from '../utils/format.js';
+import { countReviewFindings, formatRunDuration } from '../utils/format.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
-import { injectBadge } from '../core/badge.js';
 import { runDocScaffold, runDocGeneration, commitDocPage, type DocPipelineResult } from '../core/doc-pipeline.js';
-import { aggregateDocReport, type DocReportResult } from '../core/doc-report-aggregator.js';
+import { type DocReportResult } from '../core/doc-report-aggregator.js';
 import { parseAxesOption, warnDisabledAxes } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
@@ -94,7 +91,8 @@ import { resolveSystemPrompt } from '../core/prompt-resolver.js';
 import { buildCodeSurfaceSummary } from '../core/doc-coherence-3way.js';
 import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
 import { runPhase } from '../core/orchestration/run-phase.js';
-import { loadDocConflicts } from '../core/doc-conflict-store.js';
+import { runReportPhase } from '../core/orchestration/phases/report.js';
+import { loadDocConflicts, countPendingDocConflicts } from '../core/doc-conflict-store.js';
 import type { ArbitratedFragment } from '../core/axes/reference-docs-context.js';
 
 // ---------------------------------------------------------------------------
@@ -116,20 +114,6 @@ function loadArbitratedFragments(projectRoot: string): ArbitratedFragment[] {
       }));
   } catch {
     return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Story 55.9: Count pending doc conflicts for start/end hints
-// ---------------------------------------------------------------------------
-
-function countPendingDocConflicts(projectRoot: string): number {
-  try {
-    const lock = loadDocConflicts(projectRoot);
-    if (!lock) return 0;
-    return lock.entries.filter((e) => e.verdict === 'pending').length;
-  } catch {
-    return 0;
   }
 }
 
@@ -919,7 +903,7 @@ export function registerRunCommand(program: Command): void {
         const setup = await runSetupPhase(ctx);
         if (ctx.dryRun) return;
         if (ctx.interrupted) {
-          console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatDuration(Date.now() - ctx.startTime)}`);
+          console.log(`interrupted — 0/${setup.files} files reviewed | 0 findings | ${formatRunDuration(Date.now() - ctx.startTime)}`);
           return;
         }
 
@@ -1082,7 +1066,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatDuration(Date.now() - ctx.startTime)}`);
+          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
@@ -1210,7 +1194,7 @@ export function registerRunCommand(program: Command): void {
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;
           const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatDuration(Date.now() - ctx.startTime)}`);
+          console.log(`interrupted — ${ctx.filesReviewed}/${ctx.totalFiles} files reviewed | ${ctx.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
           if (ctx.lockPath) releaseLock(ctx.lockPath);
           ctx.lockPath = undefined;
           return;
@@ -1297,14 +1281,6 @@ export function registerRunCommand(program: Command): void {
         }
       }
     });
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}m ${seconds}s`;
 }
 
 interface SetupResult {
@@ -2858,389 +2834,6 @@ async function runReviewPhase(
   rl?.info({ filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings, concurrency: ctx.concurrency }, 'review details');
 }
 
-function runReportPhase(ctx: RunContext): void {
-  const log = getLogger();
-  const rl = ctx.runLog;
-  const pm = new ProgressManager(ctx.projectRoot);
-  const errorFiles: string[] = [];
-  const progress = pm.getProgress();
-  for (const [, fp] of Object.entries(progress.files)) {
-    if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') errorFiles.push(fp.file);
-  }
-
-  let triageStats: TriageStats | undefined;
-  if (ctx.triageEnabled) {
-    const { skipped, cached, evaluated } = ctx.reviewCounts;
-    const total = skipped + cached + evaluated;
-    // Time saved = weighted seconds of files that were skipped (would have been evaluated)
-    let skippedSeconds = 0;
-    for (const task of ctx.allTasks) {
-      if (ctx.triageMap.get(task.file)?.tier === 'skip') {
-        skippedSeconds += estimateFileSeconds(task.symbols.length);
-      }
-    }
-    triageStats = {
-      total,
-      skip: skipped,
-      evaluate: evaluated,
-      estimatedTimeSaved: skippedSeconds / 60,
-    };
-  }
-
-  const runStats: import('../core/reporter.js').RunStats = {
-    runId: ctx.runId,
-    durationMs: Date.now() - ctx.startTime,
-    costUsd: ctx.totalCostUsd,
-    axisStats: ctx.axisStats,
-    phaseDurations: ctx.phaseDurations,
-    degradedReviews: ctx.degradedReviews,
-  };
-  // Cached reviews are now copied into the run dir during the review phase handler,
-  // so copyCachedReviews is no longer needed here.
-
-  // --- Doc report aggregation ---
-  let docReferenceSection: string | undefined;
-  if (ctx.docPipelineResult) {
-    try {
-      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
-      const idealPageCount = ctx.docPipelineResult.generation?.totalPages ?? 0;
-      const cacheResult = ctx.docPipelineResult.generation?.cacheResult;
-      const newPageSources = ctx.docPipelineResult.generation?.cacheResult.added.map(p => ({
-        page: p,
-        source: `scaffolded`,
-      }));
-      ctx.docReportResult = aggregateDocReport({
-        projectRoot: ctx.projectRoot,
-        projectTypes: ctx.docPipelineResult.scaffold.projectTypes,
-        reviews,
-        tasks: ctx.allTasks,
-        idealPageCount,
-        cacheResult,
-        newPageSources,
-        docsPath: getDocsDir(ctx.config),
-      });
-      docReferenceSection = ctx.docReportResult.renderedSection;
-      log.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict, recommendations: ctx.docReportResult.recommendations.length }, 'doc report aggregated');
-      rl?.info({ docScore: ctx.docReportResult.score.overall, docVerdict: ctx.docReportResult.score.verdict }, 'doc report aggregated');
-    } catch (err) {
-      log.warn({ err }, 'doc report aggregation failed');
-      rl?.warn({ err }, 'doc report aggregation failed');
-    }
-  } else if (ctx.profile && ctx.allTasks.length > 0) {
-    // Fallback: no doc pipeline ran (e.g. cached run), but we can still
-    // aggregate coverage metrics from reviews + profile.
-    try {
-      const reviews = loadReviews(ctx.projectRoot, ctx.runDir);
-      ctx.docReportResult = aggregateDocReport({
-        projectRoot: ctx.projectRoot,
-        projectTypes: ctx.profile.types,
-        reviews,
-        tasks: ctx.allTasks,
-        idealPageCount: 0,
-        docsPath: getDocsDir(ctx.config),
-      });
-      docReferenceSection = ctx.docReportResult.renderedSection;
-      log.info({ docScore: ctx.docReportResult.score.overall }, 'doc report aggregated (from cached reviews)');
-    } catch (err) {
-      log.warn({ err }, 'doc report aggregation fallback failed');
-    }
-  }
-
-  // Persist doc reference section so `anatoly report` can reload it
-  if (docReferenceSection && ctx.runDir) {
-    writeFileSync(join(ctx.runDir, 'doc-reference-section.md'), docReferenceSection);
-  }
-
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
-
-  if (ctx.config.output?.max_runs) {
-    purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);
-  }
-
-  // Badge injection (before summary display)
-  let badgeNote = '';
-  if (ctx.badge.enabled) {
-    const badgeResult = injectBadge({
-      projectRoot: ctx.projectRoot,
-      verdict: data.globalVerdict,
-      includeVerdict: ctx.badge.verdict,
-      link: ctx.badge.link,
-    });
-    if (badgeResult.injected && !badgeResult.updated) {
-      badgeNote = ' (badge added in README.md)';
-    }
-  }
-
-  // Notifications (fire-and-forget, after report generation)
-  {
-    const notifPayload: NotificationPayload = {
-      projectName: ctx.config.project.name ?? basename(ctx.projectRoot),
-      verdict: data.globalVerdict,
-      totalFiles: data.totalFiles,
-      evaluated: ctx.reviewCounts.evaluated,
-      cached: ctx.reviewCounts.cached,
-      cleanFiles: data.cleanFiles.length,
-      findingFiles: data.findingFiles.length,
-      errorFiles: data.errorFiles.length,
-      durationMs: Date.now() - ctx.startTime,
-      costUsd: ctx.totalCostUsd,
-      totalTokens: Object.values(ctx.axisStats).reduce((s, a) => s + a.totalInputTokens + a.totalOutputTokens + a.totalCacheReadTokens + a.totalCacheCreationTokens, 0),
-      axisScorecard: Object.fromEntries(
-        REPORT_AXIS_IDS
-          .filter((axis) => {
-            const configAxisKey: Record<ReportAxisId, keyof typeof ctx.config.axes> = {
-              correction: 'correction', utility: 'utility', duplication: 'duplication',
-              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-              'best-practices': 'best_practices',
-            };
-            return ctx.config.axes[configAxisKey[axis]]?.enabled !== false;
-          })
-          .map((axis) => {
-            const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
-              correction: 'correction', utility: 'dead', duplication: 'duplicate',
-              overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-              'best-practices': 'best_practices',
-            };
-            const c = data.counts[countsKey[axis]];
-            const { pct, label } = axisHealthPercent(data, axis);
-            return [countsKey[axis], { ...c, healthPct: pct, label }];
-          }),
-      ),
-      reportUrl: ctx.config.notifications?.telegram?.report_url ?? undefined,
-    };
-    // Fire-and-forget: errors are caught internally by sendNotifications
-    void sendNotifications(ctx.config, notifPayload);
-  }
-
-  const { skipped, cached, evaluated } = ctx.reviewCounts;
-  const cachedNote = cached > 0 ? `${cached} cached \u00b7 ` : '';
-  const tierSummary = ctx.triageEnabled
-    ? ` (${cachedNote}${skipped} skipped \u00b7 ${evaluated} evaluated)`
-    : cached > 0 ? ` (${cachedNote}${evaluated} evaluated)` : '';
-  const duration = formatDuration(Date.now() - ctx.startTime);
-  const rel = (p: string) => relative(process.cwd(), p) || '.';
-  const claudeCost = ctx.providerStats.anthropic.costUsd;
-  const geminiCost = ctx.providerStats.gemini.costUsd;
-  const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
-  const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
-  const hasGemini = ctx.providerStats.gemini.calls > 0;
-
-  // Token counts come from the per-call sink (totals updated on every
-  // recordLlmCall). We render compact (e.g. 58K) and skip them entirely
-  // only if the sink is somehow absent \u2014 should never happen for `run`.
-  const sinkTotals = getActiveSinkTotals();
-  const tokensFragment = sinkTotals
-    ? `${formatCompactTokens(sinkTotals.inputTokens)} tokens in / ${formatCompactTokens(sinkTotals.outputTokens)} tokens out`
-    : '';
-
-  // The "$0.00 with Claude Code" hint is shown only when the user is on the
-  // Claude Code subscription (mode: subscription) AND there were Anthropic
-  // calls. Without subscription, the hint loses its meaning (no savings to
-  // show), so we drop it.
-  const isAnthropicSubscription =
-    ctx.config.providers.anthropic?.mode === 'subscription' &&
-    ctx.providerStats.anthropic.calls > 0;
-  const claudeCodeHint = isAnthropicSubscription
-    ? ` \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`
-    : '';
-
-  const dollars = hasGemini
-    ? `${costColor(`$${claudeCost.toFixed(2)}`)} (Claude) \u00b7 ${chalk.green.bold(`$${geminiCost.toFixed(2)}`)} (Gemini)`
-    : `${costColor(costStr)} in API calls`;
-
-  const costLine = tokensFragment
-    ? `${chalk.bold('Cost:')} ${tokensFragment} \u00b7 ${dollars}${claudeCodeHint}`
-    : `${chalk.bold('Cost:')} ${dollars}${claudeCodeHint}`;
-  const quotaLine = hasGemini
-    ? `${chalk.bold('Quota:')} ${ctx.providerStats.anthropic.calls} Claude \u00b7 ${ctx.providerStats.gemini.calls} Gemini (\u2212${Math.round((ctx.providerStats.gemini.calls / (ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls)) * 100)}%)`
-    : undefined;
-
-  // Transition pipeline display to summary
-  const state = ctx.pipelineState;
-  if (state) {
-    state.completeTask('report', 'done');
-    state.setSummary({
-      headline: chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}${badgeNote}`,
-      paths: [
-        { key: 'run', value: ctx.runId },
-        { key: 'report', value: chalk.cyan(rel(reportPath)) },
-        { key: 'reviews', value: chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/') },
-        { key: 'transcripts', value: chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/') },
-        { key: 'log', value: chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson'))) },
-      ],
-      cost: quotaLine ? `${costLine}\n${quotaLine}` : costLine,
-    });
-  }
-
-  // Stop renderer — final frame will show summary
-  ctx.renderer?.stop();
-
-  // Plain mode: print summary to stdout
-  if (ctx.plain || !state) {
-    console.log('');
-    console.log(chalk.bold('Done') + ` \u2014 ${data.totalFiles} files | ${ctx.totalFindings} findings | ${data.cleanFiles.length} clean${tierSummary} | ${duration}`);
-    console.log('');
-    console.log(`  run          ${ctx.runId}`);
-    console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
-    console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
-    console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
-    console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
-    console.log('');
-    console.log(`  ${costLine}`);
-    if (quotaLine) console.log(`  ${quotaLine}`);
-  }
-
-  // Quick-win suggestion (Story 48.8) — only on successful runs
-  if (ctx.quickWin && !ctx.interrupted) {
-    console.log('');
-    console.log(chalk.dim('  \uD83D\uDCA1 Ran in quick-win mode (3 axes, no docs).'));
-    console.log(chalk.dim('  Run `anatoly run` again for the full audit (7 axes + doc analysis).'));
-  }
-
-  // Story 55.9: end-of-run reminder about pending doc conflicts (FR17)
-  if (!ctx.interrupted) {
-    const endPendingConflicts = countPendingDocConflicts(ctx.projectRoot);
-    if (endPendingConflicts > 0) {
-      console.log('');
-      console.log(chalk.yellow(`  ${endPendingConflicts} doc conflicts pending — run \`anatoly docs arbitrate\``));
-    }
-  }
-
-  if (ctx.shouldOpen) openFile(reportPath);
-
-  // Run summary
-  const totalDurationMs = Date.now() - ctx.startTime;
-  log.info({
-    runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
-    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
-    cached: ctx.reviewCounts.cached, skipped: ctx.reviewCounts.skipped,
-    errors: ctx.errorCount,
-  }, 'run completed');
-
-  // Log error summary by code (if any errors occurred)
-  if (ctx.errorCount > 0) {
-    log.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
-    rl?.warn({ errorsByCode: ctx.errorsByCode, files: ctx.errorDetails, total: ctx.errorCount }, 'run error summary');
-  }
-
-  // Write run summary to per-run log file
-  ctx.runLog?.info({
-    runId: ctx.runId, totalDurationMs, totalCostUsd: ctx.totalCostUsd,
-    filesReviewed: ctx.filesReviewed, findings: ctx.totalFindings,
-    errors: ctx.errorCount, errorsByCode: ctx.errorsByCode,
-    phaseDurations: ctx.phaseDurations,
-  }, 'run completed');
-
-  // Derive conversationStats from axisStats (review-phase axis evaluations).
-  // RAG + doc-gen LLM costs are aggregated into ctx.totalCostUsd directly.
-  const conversationStats = {
-    total: 0,
-    byPhase: {} as Record<string, number>,
-    byModel: {} as Record<string, number>,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCostUsd: 0,
-  };
-  for (const [, s] of Object.entries(ctx.axisStats)) {
-    conversationStats.total += s.calls;
-    conversationStats.totalInputTokens += s.totalInputTokens;
-    conversationStats.totalOutputTokens += s.totalOutputTokens;
-    conversationStats.totalCostUsd += s.totalCostUsd;
-  }
-  if (conversationStats.total > 0) {
-    conversationStats.byPhase.review = conversationStats.total;
-    const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
-    for (const e of evaluators) {
-      const s = ctx.axisStats[e.id];
-      if (s) {
-        conversationStats.byModel[resolveAxisModel(e, ctx.config)] = (conversationStats.byModel[resolveAxisModel(e, ctx.config)] ?? 0) + s.calls;
-      }
-    }
-  }
-
-  // Compute provider stats (Story 39.2)
-  const totalCalls = ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls;
-  const claude_quota_saved_pct = totalCalls > 0
-    ? Math.round((ctx.providerStats.gemini.calls / totalCalls) * 100)
-    : 0;
-
-  // Write run-metrics.json
-  const metrics = {
-    runId: ctx.runId,
-    durationMs: totalDurationMs,
-    filesReviewed: ctx.filesReviewed,
-    evaluated: ctx.reviewCounts.evaluated,
-    cached: ctx.reviewCounts.cached,
-    findings: ctx.totalFindings,
-    errors: ctx.errorCount,
-    errorsByCode: ctx.errorsByCode,
-    degradedReviews: ctx.degradedReviews,
-    costUsd: ctx.totalCostUsd,
-    providers: {
-      anthropic: { calls: ctx.providerStats.anthropic.calls, costUsd: Math.round(ctx.providerStats.anthropic.costUsd * 100) / 100 },
-      gemini: { calls: ctx.providerStats.gemini.calls, costUsd: Math.round(ctx.providerStats.gemini.costUsd * 100) / 100 },
-    },
-    claude_quota_saved_pct,
-    phaseDurations: ctx.phaseDurations,
-    axisStats: ctx.axisStats,
-    phaseStats: ctx.phaseStats,
-    timeline: ctx.timeline.sort((a, b) => a.t - b.t),
-    conversations: conversationStats,
-  };
-  try {
-    writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
-  } catch {
-    log.warn({ runId: ctx.runId }, 'failed to write run-metrics.json');
-  }
-
-  // D.4 Cost Plane — emit summary.json + variance.json from the ledger (Story 56.5 FR10)
-  try {
-    writeCostSummary(ctx.runDir);
-    writeCostVariance(ctx.runDir);
-  } catch (err) {
-    log.warn({ runId: ctx.runId, err }, 'failed to write cost summary/variance');
-  }
-
-  // Recalibrate axis timing from all historical runs (including this one)
-  try {
-    const updatedCalibration = recalibrateFromRuns(ctx.projectRoot);
-    saveCalibration(ctx.projectRoot, updatedCalibration);
-    log.debug({ calibration: updatedCalibration.axes }, 'calibration updated');
-  } catch (err) {
-    log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
-  }
-
-  // Persist run-status.json — transition to 'done' (Story 53.1)
-  if (ctx.runDir) {
-    const gi = ctx.gitInfo ?? getGitInfo(ctx.projectRoot);
-    const runStatus: RunStatus = {
-      runId: ctx.runId,
-      pid: process.pid,
-      status: 'done',
-      startedAt: new Date(ctx.startTime).toISOString(),
-      completedAt: new Date().toISOString(),
-      branch: gi.branch,
-      commit: gi.commit,
-      background: !!process.env.ANATOLY_BACKGROUND_MODE,
-    };
-    writeRunStatus(ctx.runDir, runStatus);
-  }
-
-  // Cleanup worktree for background runs (fire-and-forget — errors logged only)
-  if (process.env.ANATOLY_BACKGROUND_MODE && ctx.sourceRoot) {
-    try {
-      const wm = createWorktreeManager(ctx.projectRoot);
-      void wm.remove(ctx.runId).catch((wtErr) => {
-        log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
-      });
-    } catch (wtErr) {
-      log.warn({ runId: ctx.runId, err: wtErr }, 'failed to cleanup worktree after background run');
-    }
-  }
-
-  process.exitCode = data.globalVerdict === 'CLEAN' ? 0 : 1;
-
-}
 
 /**
  * Filter a review to only contain data for the specified enabled axes.

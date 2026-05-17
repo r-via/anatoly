@@ -123,3 +123,22 @@ export function countReviewFindings(review: ReviewFile, minConfidence: number = 
   }
   return findings;
 }
+
+/**
+ * Run-summary elapsed formatter. Relocated verbatim from `commands/run.ts`
+ * (PR 2, doc 11) so the report phase can move out without a layer-violating
+ * import back into `run.ts`.
+ *
+ * NOTE: this is intentionally NOT {@link formatDuration}. This variant rolls
+ * everything into minutes (no hours bucket): 90 minutes renders as `90m 0s`,
+ * not `1h 30m 0s`. That divergence is pre-existing behavior; unifying the two
+ * is a separate, behavior-changing decision and is out of scope for a
+ * move-only extraction.
+ */
+export function formatRunDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}

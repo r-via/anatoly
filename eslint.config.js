@@ -1,5 +1,4 @@
 import tseslint from 'typescript-eslint';
-import d1PurityRule from './eslint-rules/d1-purity.js';
 import d3EventPurityRule from './eslint-rules/d3-event-purity.js';
 
 export default tseslint.config(
@@ -20,13 +19,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/core/orchestration/registry/primitives/**/*.ts'],
+    // Phase modules render the run summary to stdout today. This is
+    // transitional: doc 11 PR 8 routes presentation through a port. Until
+    // then, console output here is intentional CLI output, not a smell.
+    files: ['src/core/orchestration/phases/**/*.ts'],
     ignores: ['**/*.test.ts'],
-    plugins: {
-      anatoly: { rules: { 'd1-purity': d1PurityRule } },
-    },
     rules: {
-      'anatoly/d1-purity': 'error',
+      'no-console': 'off',
     },
   },
   {
