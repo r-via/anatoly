@@ -3,26 +3,30 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 /**
- * Orchestration spine golden (doc 11, PR 1).
+ * Orchestration goldens (doc 11). Two regression nets that drive a full
+ * `anatoly run` through the real pipeline spine and assert an
+ * order-normalized projection of run-metrics.json.
  *
- * This is the real regression net the Orchestration Remediation Plan requires:
- * it drives a full `anatoly run` through the actual spine in run.ts and asserts
- * the observed phase sequence, the executed-phase set, and the handoff values.
- * It replaces the hollow coverage/artefact-separation/cost-integrity tests,
- * which asserted source greps and pure functions, never the runtime path.
+ * 1. Spine golden (PR 1): a source-free fixture, so the review phase makes
+ *    zero model calls and every §4 handoff value is zero. Guards the phase
+ *    sequence + gates. Deleting or reordering any `runPhase(...)` call
+ *    changes `phaseStartOrder` / `phaseDurationKeys` and fails it (proven by
+ *    a deliberate reorder, see the PR 1 / 8a commit messages).
  *
- * Hermetic by construction: the fixture is source-free so the review phase
- * makes zero model calls, and the run executes under `ANATOLY_TRANSPORT=replay`
- * with an empty cassette. Any model call would throw `cassette miss` and abort
- * the run, so a green golden also proves the fixture stays at zero LLM calls.
+ * 2. Handoff golden (PR 8b): a one-file fixture whose unused exports the
+ *    usage graph resolves DEAD with no LLM, so the run is still hermetic but
+ *    produces non-zero, deterministic handoff values (filesReviewed=1,
+ *    evaluated=1, findings=6). Guards the setup -> review -> report handoff
+ *    that PR 8c inverted from `ctx` mutation to the typed `Handoff` object
+ *    (proven to catch a §4 regression, see the PR 8b commit message).
  *
- * Drift detection (plan §10.2): deleting or reordering any `runPhase(...)` call
- * in the spine changes `phaseStartOrder` or `phaseDurationKeys`, failing this
- * test. Verified once by a deliberate local reorder (see the commit message).
+ * Both are hermetic: `ANATOLY_TRANSPORT=replay` with an empty cassette, so
+ * any model call throws `cassette miss` and fails the test. Both share one
+ * `beforeAll` build so the two never race on `dist/` (they did when they
+ * were separate files, each rebuilding in parallel: ENOENT on dist/index.js).
  *
- * Subprocess, not in-process: `anatoly run` has no in-process entry point and
- * PR 1 does not touch run.ts, so the golden spawns the built CLI. It builds
- * `dist/` first so it always exercises current source (dist/ is gitignored).
+ * Subprocess, not in-process: `anatoly run` has no in-process entry point;
+ * the goldens spawn the built CLI and build `dist/` first (gitignored).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -35,29 +39,13 @@ import { fileURLToPath } from 'node:url';
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(THIS_DIR, '../../..');
 const DIST_ENTRY = join(REPO_ROOT, 'dist', 'index.js');
-const FIXTURE_DIR = join(REPO_ROOT, 'src', '__fixtures__', 'orchestration-golden');
-
-/**
- * The canonical projection for the source-free fixture. Order-normalized and
- * value-free: run id and per-phase durations are excluded because they are
- * inherently nondeterministic; everything here is fixed by the spine + gates.
- *
- * `report` has a `phase_start` in the timeline but no `phaseDurations` key:
- * run-metrics.json is written from inside the report phase, before that
- * phase's exit effect assigns its duration. That asymmetry is itself a
- * load-bearing invariant, so it is asserted, not normalized away.
- */
-const BASELINE = {
-  phaseStartOrder: ['scan', 'estimate', 'triage', 'rag-index', 'review', 'report'],
-  phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan', 'triage'],
-  filesReviewed: 0,
-  findings: 0,
-} as const;
+const FIXTURES = join(REPO_ROOT, 'src', '__fixtures__');
 
 interface RunMetrics {
   timeline: Array<{ event: string; phase?: string }>;
   phaseDurations: Record<string, number>;
   filesReviewed: number;
+  evaluated: number;
   findings: number;
 }
 
@@ -68,73 +56,87 @@ function projectionFrom(metrics: RunMetrics) {
       .map(e => e.phase as string),
     phaseDurationKeys: Object.keys(metrics.phaseDurations).sort(),
     filesReviewed: metrics.filesReviewed,
+    evaluated: metrics.evaluated,
     findings: metrics.findings,
   };
 }
 
-let workdir: string;
+/** Run the built CLI against a temp copy of a fixture and project run-metrics. */
+function runGolden(fixture: string, extraArgs: string[]): { proc: ReturnType<typeof spawnSync>; out: string; metrics: RunMetrics | null; workdir: string } {
+  const workdir = mkdtempSync(join(tmpdir(), `anatoly-golden-${fixture}-`));
+  cpSync(join(FIXTURES, fixture), workdir, { recursive: true });
+  const proc = spawnSync(
+    process.execPath,
+    [DIST_ENTRY, 'run', '--plain', '--defaults-settings', '--no-connectivity-check', '--no-deliberation', '--no-badge', '--no-cache', ...extraArgs],
+    {
+      cwd: workdir,
+      env: { ...process.env, ANATOLY_TRANSPORT: 'replay', ANATOLY_TRANSPORT_CASSETTE: join(workdir, 'cassette.json') },
+      encoding: 'utf8',
+      timeout: 180_000,
+    },
+  );
+  const out = `${proc.stdout ?? ''}\n${proc.stderr ?? ''}`;
+  const runsDir = join(workdir, '.anatoly', 'runs');
+  let metrics: RunMetrics | null = null;
+  if (existsSync(runsDir)) {
+    const runIds = readdirSync(runsDir).filter(n => /^\d{4}-\d{2}-\d{2}_/.test(n));
+    if (runIds.length === 1) {
+      const m = join(runsDir, runIds[0], 'run-metrics.json');
+      if (existsSync(m)) metrics = JSON.parse(readFileSync(m, 'utf8')) as RunMetrics;
+    }
+  }
+  return { proc, out, metrics, workdir };
+}
 
-describe('orchestration spine golden', () => {
+const workdirs: string[] = [];
+
+describe('orchestration goldens', () => {
   beforeAll(() => {
-    // Always build so the golden exercises current source, never a stale
-    // artifact (dist/ is gitignored, so it may be absent or outdated).
+    // One build shared by both goldens: separate files each rebuilding in
+    // parallel raced on dist/ (ENOENT unlink dist/index.js).
     execFileSync('npm', ['run', 'build'], { cwd: REPO_ROOT, stdio: 'pipe' });
     expect(existsSync(DIST_ENTRY)).toBe(true);
   }, 180_000);
 
   afterAll(() => {
-    if (workdir) rmSync(workdir, { recursive: true, force: true });
+    for (const w of workdirs) rmSync(w, { recursive: true, force: true });
   });
 
   it(
-    'drives the full pipeline through the spine with the expected phase sequence and handoff',
+    'spine golden: source-free fixture, expected phase sequence, zero handoff, zero LLM',
     () => {
-      workdir = mkdtempSync(join(tmpdir(), 'anatoly-spine-golden-'));
-      cpSync(FIXTURE_DIR, workdir, { recursive: true });
-      const cassettePath = join(workdir, 'cassette.json'); // intentionally absent
-
-      const proc = spawnSync(
-        process.execPath,
-        [
-          DIST_ENTRY,
-          'run',
-          '--plain',
-          '--defaults-settings',
-          '--no-connectivity-check',
-          '--no-deliberation',
-          '--no-badge',
-          '--no-cache',
-        ],
-        {
-          cwd: workdir,
-          env: {
-            ...process.env,
-            ANATOLY_TRANSPORT: 'replay',
-            ANATOLY_TRANSPORT_CASSETTE: cassettePath,
-          },
-          encoding: 'utf8',
-          timeout: 180_000,
-        },
-      );
-
-      const out = `${proc.stdout ?? ''}\n${proc.stderr ?? ''}`;
-
-      // The fixture must stay at zero model calls: a cassette miss means a
-      // phase reached a transport, which both breaks hermeticity and means
-      // the projection below is meaningless.
+      const { proc, out, metrics, workdir } = runGolden('orchestration-golden', []);
+      workdirs.push(workdir);
       expect(out, `unexpected model call:\n${out.slice(-2000)}`).not.toContain('cassette miss');
       expect(proc.status, `run did not exit cleanly:\n${out.slice(-3000)}`).toBe(0);
+      expect(metrics, `run-metrics.json missing:\n${out.slice(-3000)}`).not.toBeNull();
+      expect(projectionFrom(metrics!)).toEqual({
+        phaseStartOrder: ['scan', 'estimate', 'triage', 'rag-index', 'review', 'report'],
+        phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan', 'triage'],
+        filesReviewed: 0,
+        evaluated: 0,
+        findings: 0,
+      });
+    },
+    240_000,
+  );
 
-      const runsDir = join(workdir, '.anatoly', 'runs');
-      // Ignore the `latest` pointer; real run dirs are timestamp-named.
-      const runIds = readdirSync(runsDir).filter(n => /^\d{4}-\d{2}-\d{2}_/.test(n));
-      expect(runIds, `expected exactly one run dir, got ${JSON.stringify(runIds)}`).toHaveLength(1);
-
-      const metricsPath = join(runsDir, runIds[0], 'run-metrics.json');
-      expect(existsSync(metricsPath), `run-metrics.json missing:\n${out.slice(-3000)}`).toBe(true);
-
-      const metrics = JSON.parse(readFileSync(metricsPath, 'utf8')) as RunMetrics;
-      expect(projectionFrom(metrics)).toEqual(BASELINE);
+  it(
+    'handoff golden: non-zero setup -> review -> report handoff threaded through the typed Handoff',
+    () => {
+      const { proc, out, metrics, workdir } = runGolden('orchestration-handoff', ['--no-triage']);
+      workdirs.push(workdir);
+      expect(out, `unexpected model call:\n${out.slice(-2000)}`).not.toContain('cassette miss');
+      // Findings present -> exit 1 is the contract here (not a failure).
+      expect(proc.status, `unexpected exit code:\n${out.slice(-3000)}`).toBe(1);
+      expect(metrics, `run-metrics.json missing:\n${out.slice(-3000)}`).not.toBeNull();
+      expect(projectionFrom(metrics!)).toEqual({
+        phaseStartOrder: ['scan', 'estimate', 'rag-index', 'review', 'report'],
+        phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan'],
+        filesReviewed: 1,
+        evaluated: 1,
+        findings: 6,
+      });
     },
     240_000,
   );

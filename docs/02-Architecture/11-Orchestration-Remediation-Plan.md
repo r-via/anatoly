@@ -262,7 +262,7 @@ refactor. Explicitly **out of scope**:
 > holds with one honest scope note: PRs 2 to 8a are move-only with a
 > byte-identical projection; PR 8c is the one deliberate, non-move-only
 > behavior-preserving change (the handoff inversion), gated instead by a
-> second golden (`handoff-golden.test.ts`, proven to catch a §4 handoff
+> second golden (the handoff golden in `spine-golden.test.ts`, proven to catch a §4 handoff
 > regression) plus the full suite, both projections unchanged across it. 4:
 > `run.ts` has zero `async function run*Phase`, the spine lives in
 > `pipeline.ts`, and the §4 handoff is the typed `Handoff` object, removed

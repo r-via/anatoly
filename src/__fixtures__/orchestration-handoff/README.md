@@ -2,7 +2,7 @@
 
 Companion to the source-free
 [orchestration-golden](../orchestration-golden/README.md) fixture, used by
-[`src/core/orchestration/handoff-golden.test.ts`](../../core/orchestration/handoff-golden.test.ts).
+[`src/core/orchestration/spine-golden.test.ts`](../../core/orchestration/spine-golden.test.ts) (the handoff golden).
 
 Where the spine golden asserts the phase *sequence* with zero handoff values
 (source-free, `filesReviewed=0`, `findings=0`), this fixture drives a run that

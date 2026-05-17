@@ -51,7 +51,7 @@
 > `RunContext`)), created once in the pipeline and passed explicitly to every
 > phase (PR 8c). Two regression goldens guard it: the source-free spine golden
 > (phase sequence) and the non-zero handoff golden
-> ([handoff-golden.test.ts](../../src/core/orchestration/handoff-golden.test.ts),
+> ([spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts), the handoff golden,
 > proven to catch a §4 handoff regression). Read the `run.ts:NNN` anchors below
 > as "this logic, now in the module above", not literal line numbers; the prose
 > of §2 to §6 is pre-extraction narrative kept for the per-phase contract, with
