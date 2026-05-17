@@ -4,6 +4,7 @@
 
 import type { Config } from '../../schemas/config.js';
 import type { AxisEvaluator, AxisId } from '../axis-evaluator.js';
+import type { RunContext } from '../../commands/run.js';
 
 import { UtilityEvaluator } from './utility.js';
 import { DuplicationEvaluator } from './duplication.js';
@@ -25,6 +26,19 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
   new BestPracticesEvaluator(),
   new DocumentationEvaluator(),
 ];
+
+/**
+ * Whether the documentation axis is active for this run. Relocated verbatim
+ * from `commands/run.ts` (PR 3, doc 11): it is a doc-axis gate predicate
+ * shared by the orchestration spine and the setup phase, so it lives with the
+ * other axis-enablement logic rather than forcing the extracted setup phase
+ * to import back into the commands layer. `RunContext` is type-only (erased).
+ */
+export function isDocAxisActive(ctx: RunContext): boolean {
+  if (ctx.config.axes?.documentation?.enabled === false) return false;
+  if (ctx.axesFilter && !ctx.axesFilter.includes('documentation')) return false;
+  return true;
+}
 
 /**
  * Returns the list of enabled evaluators based on the config.

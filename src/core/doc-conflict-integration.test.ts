@@ -83,23 +83,28 @@ describe('Story 55.9 — AC4: run-metrics includes doc-conflict-detection', () =
 // ---------------------------------------------------------------------------
 
 describe('Story 55.9 — AC5+AC6: pending conflicts hint at start', () => {
-  it('run.ts loads pending conflict count and shows hint', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  // PR 3 (doc 11) moved the setup stage (incl. the start-of-run pending
+  // conflicts hint) out of run.ts into the setup phase module. The hint
+  // behavior is unchanged; only its file location moved.
+  const setupSrc = join(process.cwd(), 'src', 'core', 'orchestration', 'phases', 'setup.ts');
+
+  it('setup phase loads pending conflict count and shows hint', () => {
+    const src = readFileSync(setupSrc, 'utf-8');
     // Should load doc conflicts to count pending entries
     expect(src).toContain('pendingConflicts');
     // Should mention the docs arbitrate command in the hint
     expect(src).toContain('anatoly docs arbitrate');
   });
 
-  it('run.ts shows p.note() for pending conflicts in non-plain mode', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  it('setup phase shows p.note() for pending conflicts in non-plain mode', () => {
+    const src = readFileSync(setupSrc, 'utf-8');
     expect(src).toContain('p.note(');
     expect(src).toContain('pending');
     expect(src).toContain('doc conflict');
   });
 
-  it('run.ts emits stderr line in plain mode for pending conflicts', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  it('setup phase emits stderr line in plain mode for pending conflicts', () => {
+    const src = readFileSync(setupSrc, 'utf-8');
     expect(src).toContain('process.stderr.write');
     expect(src).toContain('doc conflict');
   });
@@ -145,8 +150,9 @@ describe('Story 55.9 — structural wiring', () => {
     expect(src).toContain('docConflictDetection');
   });
 
-  it('run.ts passes docConflictDetection to forecastRun', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'commands', 'run.ts'), 'utf-8');
+  it('setup phase passes docConflictDetection to forecastRun', () => {
+    // PR 3 (doc 11): the forecast wiring moved with the setup phase.
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'orchestration', 'phases', 'setup.ts'), 'utf-8');
     expect(src).toContain('docConflictDetection');
   });
 });
