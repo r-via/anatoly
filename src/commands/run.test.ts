@@ -4,7 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import picomatch from 'picomatch';
-import { recordLlmCost, type RunContext } from './run.js';
+import { recordLlmCost } from '../core/orchestration/cost.js';
+import type { RunContext } from './run.js';
 import { CANONICAL_PHASES, runPhase, type RunPhaseContext } from '../core/orchestration/run-phase.js';
 
 function makeBookkeepingCtx(): Pick<RunContext, 'totalCostUsd' | 'providerStats' | 'phaseStats' | 'axisStats'> {

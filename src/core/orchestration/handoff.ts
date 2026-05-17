@@ -24,6 +24,7 @@ import type { Task } from '../../schemas/task.js';
 import type { TriageResult } from '../triage.js';
 import type { UsageGraph } from '../usage-graph.js';
 import type { DependencyMeta } from '../dependency-meta.js';
+import type { VectorStore } from '../../rag/vector-store.js';
 
 export interface SetupResult {
   files: number;
@@ -35,4 +36,14 @@ export interface SetupResult {
   docsTree?: string | null;
   internalDocsTree?: string | null;
   internalDocsDir?: string;
+}
+
+/**
+ * Rag phase output (moved verbatim from commands/run.ts in PR 4, doc 11).
+ * The `rag-index` phase returns this; `review` and the post-doc-update
+ * re-index consume `vectorStore`.
+ */
+export interface RagContext {
+  vectorStore?: VectorStore;
+  ragEnabled: boolean;
 }

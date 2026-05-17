@@ -237,7 +237,10 @@ describe('Story 55.4 — pipeline integration', () => {
     const content = readFileSync(join(__dirname, '../commands/run.ts'), 'utf-8');
     const bootstrapIdx = content.indexOf('await runDocBootstrap(');
     const detectorAfterBootstrap = content.indexOf('runDocConflictDetection', bootstrapIdx);
-    const ragPhaseIdx = content.indexOf("phase: 'rag-index'", bootstrapIdx);
+    // PR 4 (doc 11) moved runRagPhase out of run.ts; the internal
+    // `phase: 'rag-index'` label moved with it. The spine sequence is
+    // unchanged, so anchor on the spine's rag-index phase call instead.
+    const ragPhaseIdx = content.indexOf("runPhase(ctx, 'rag-index'", bootstrapIdx);
     expect(detectorAfterBootstrap).toBeGreaterThan(bootstrapIdx);
     expect(detectorAfterBootstrap).toBeLessThan(ragPhaseIdx);
   });

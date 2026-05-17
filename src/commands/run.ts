@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync, createWriteStream } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
 import { resolve, join } from 'node:path';
 import chalk from 'chalk';
@@ -21,11 +21,11 @@ import { loadReviews } from '../core/reporter.js';
 import { sendDesktopNotification } from '../core/notifications/desktop.js';
 import { AnatolyError, ERROR_CODES, isFatalAuthError, isAuthFailureMessage, authError, isCircuitOpenError, circuitOpenError } from '../utils/errors.js';
 import { toOutputName } from '../utils/cache.js';
-import { indexProject, type RagIndexResult, type RagMode, smartChunkAndCache, indexDocSections } from '../rag/index.js';
+import { type RagMode, smartChunkAndCache, indexDocSections } from '../rag/index.js';
 import { setRagQueryTrail } from '../rag/vector-store.js';
 import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
-import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, determineBackend, type ResolvedModels, type EmbeddingBackend } from '../rag/hardware-detect.js';
-import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } from '../rag/docker-gguf.js';
+import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
+import { startGgufContainers, stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -53,7 +53,7 @@ import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory, recordReclassification } from '../core/correction-memory.js';
-import { resolveAxisModel, resolveCodeSummaryModel, type AxisId } from '../core/axis-evaluator.js';
+import { resolveAxisModel, type AxisId } from '../core/axis-evaluator.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
@@ -64,7 +64,6 @@ import { extractJson } from '../utils/extract-json.js';
 import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig, resolveDocMode } from '../core/run-config.js';
-import { shortModelName } from '../cli/setup-table.js';
 import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation-config.js';
 import { type ProjectProfile } from '../core/language-detect.js';
@@ -84,6 +83,9 @@ import { runDocConflictDetection } from '../core/doc-conflict-detector.js';
 import { runPhase } from '../core/orchestration/run-phase.js';
 import { runReportPhase } from '../core/orchestration/phases/report.js';
 import { runSetupPhase } from '../core/orchestration/phases/setup.js';
+import { runRagPhase } from '../core/orchestration/phases/rag.js';
+import { recordLlmCost } from '../core/orchestration/cost.js';
+import type { RagContext } from '../core/orchestration/handoff.js';
 import { loadDocConflicts } from '../core/doc-conflict-store.js';
 import type { ArbitratedFragment } from '../core/axes/reference-docs-context.js';
 
@@ -235,72 +237,6 @@ export interface RunContext {
   gitInfo?: { branch?: string; commit?: string };
   /** Doc-wins arbitrated fragments promoted to authoritative status. Story 55.7. */
   arbitratedFragments?: import('../core/axes/reference-docs-context.js').ArbitratedFragment[];
-}
-
-/**
- * Centralised LLM-cost bookkeeping. Every site that adds to `ctx.totalCostUsd`
- * MUST go through this helper so the three buckets (`totalCostUsd`,
- * `providerStats[provider]`, `phaseStats[phase]`) stay reconciled. When `axis`
- * is provided the call is also rolled up into `axisStats` for back-compat with
- * the per-axis breakdown.
- *
- * @internal exported for tests only.
- */
-export function recordLlmCost(
-  ctx: RunContext,
-  entry: {
-    provider: 'anthropic' | 'gemini';
-    phase: string;
-    axis?: string;
-    costUsd: number;
-    durationMs?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheCreationTokens?: number;
-    calls?: number;
-  },
-): void {
-  const calls = entry.calls ?? 1;
-  const durationMs = entry.durationMs ?? 0;
-  const inputTokens = entry.inputTokens ?? 0;
-  const outputTokens = entry.outputTokens ?? 0;
-  const cacheReadTokens = entry.cacheReadTokens ?? 0;
-  const cacheCreationTokens = entry.cacheCreationTokens ?? 0;
-
-  ctx.totalCostUsd += entry.costUsd;
-
-  const ps = ctx.providerStats[entry.provider];
-  ps.calls += calls;
-  ps.costUsd += entry.costUsd;
-
-  const phs = ctx.phaseStats[entry.phase] ??= {
-    calls: 0, totalDurationMs: 0, totalCostUsd: 0,
-    totalInputTokens: 0, totalOutputTokens: 0,
-    totalCacheReadTokens: 0, totalCacheCreationTokens: 0,
-  };
-  phs.calls += calls;
-  phs.totalDurationMs += durationMs;
-  phs.totalCostUsd += entry.costUsd;
-  phs.totalInputTokens += inputTokens;
-  phs.totalOutputTokens += outputTokens;
-  phs.totalCacheReadTokens += cacheReadTokens;
-  phs.totalCacheCreationTokens += cacheCreationTokens;
-
-  if (entry.axis) {
-    const axs = ctx.axisStats[entry.axis] ??= {
-      calls: 0, totalDurationMs: 0, totalCostUsd: 0,
-      totalInputTokens: 0, totalOutputTokens: 0,
-      totalCacheReadTokens: 0, totalCacheCreationTokens: 0,
-    };
-    axs.calls += calls;
-    axs.totalDurationMs += durationMs;
-    axs.totalCostUsd += entry.costUsd;
-    axs.totalInputTokens += inputTokens;
-    axs.totalOutputTokens += outputTokens;
-    axs.totalCacheReadTokens += cacheReadTokens;
-    axs.totalCacheCreationTokens += cacheCreationTokens;
-  }
 }
 
 /**
@@ -1262,11 +1198,6 @@ export function registerRunCommand(program: Command): void {
     });
 }
 
-interface RagContext {
-  vectorStore?: VectorStore;
-  ragEnabled: boolean;
-}
-
 /**
  * Latch a run-fatal error and stop the run as fast as possible.
  *
@@ -1722,291 +1653,6 @@ async function reindexDocsAfterUpdate(ctx: RunContext, vectorStore: VectorStore)
       ctx.renderer?.logPlain('[rag] GGUF containers stopped after doc re-indexing');
     }
   }
-}
-
-async function runRagPhase(ctx: RunContext, tasks: Task[]): Promise<RagContext> {
-  if (!ctx.enableRag) return { ragEnabled: false };
-
-  const log = getLogger();
-  const rl = ctx.runLog;
-  const ragStart = Date.now();
-
-  // Detect hardware and determine backend BEFORE starting any embedding server
-  const hardware = detectHardware();
-  const readyFlag = readEmbeddingsReadyFlag(ctx.projectRoot);
-  const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
-  let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware, ctx.config);
-
-  // Unified "In progress" activity for the GGUF setup phase: container
-  // startup → connectivity check → (any pre_hook-driven swap). One synthetic
-  // activeFile entry whose path evolves with the current step, and whose
-  // retryMsg carries the live elapsed-second counter from VRAM loads or the
-  // latest probe log line. Without this, the spinner would freeze for tens of
-  // seconds during VRAM swaps and look like the app is hung.
-  const tuiActive = !ctx.plain && process.stdout.isTTY && !!ctx.pipelineState;
-  let activityLabel: string | null = null;
-  const setActivity = (label: string) => {
-    if (!tuiActive) return;
-    if (activityLabel) ctx.pipelineState!.activeFiles.delete(activityLabel);
-    activityLabel = label;
-    ctx.pipelineState!.trackFile(label);
-  };
-  const setActivityDetail = (detail: string) => {
-    if (!tuiActive || !activityLabel) return;
-    ctx.pipelineState!.setRetryMessage(activityLabel, detail);
-  };
-  const clearActivity = () => {
-    if (activityLabel && ctx.pipelineState) {
-      ctx.pipelineState.activeFiles.delete(activityLabel);
-    }
-    activityLabel = null;
-  };
-
-  try {
-    // Handler fires every second while a GGUF container is loading its
-    // model into VRAM (initial start AND swaps triggered by the SDK
-    // pre_hook). Installed for the whole setup phase and cleared in
-    // `finally` below.
-    setGgufWaitProgressHandler((model, elapsed) => {
-      setActivityDetail(`loading ${model} model · ${elapsed}s`);
-    });
-
-    // Start the appropriate embedding backend based on detected tier
-    if (effectiveBackend === 'advanced-gguf' && ctx.resolvedRagMode === 'advanced') {
-      const ggufMsg = 'starting GGUF Docker containers';
-      if (tuiActive) {
-        setActivity(`${ggufMsg}…`);
-      } else {
-        log.info(ggufMsg);
-      }
-      const started = await startGgufContainers(ctx.projectRoot, logFn);
-      if (!started) {
-        if (ctx.rebuildRag) {
-          log.warn('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
-          effectiveBackend = 'lite';
-        } else {
-          throw new Error(
-            'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
-            + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
-            + 'Please either:\n'
-            + '  1. Start Docker and retry, or\n'
-            + '  2. Run with --rebuild-rag to re-index everything in lite mode',
-          );
-        }
-      }
-      // Startup is done; clear the "starting GGUF…" activity so the spinner
-      // doesn't linger with a misleading label through the rest of setup.
-      clearActivity();
-    }
-
-    // Resolve models with the effective backend (handles GGUF/ONNX routing)
-    const effectiveFlag = readyFlag
-      ? { ...readyFlag, backend: effectiveBackend }
-      : { device: 'cpu', backend: effectiveBackend } as import('../rag/hardware-detect.js').EmbeddingsReadyFlag;
-    ctx.resolvedModels = await resolveEmbeddingModels(ctx.config.rag, hardware, logFn, effectiveFlag, getV3Source(ctx.config));
-
-    // Pre-flight: probe the resolved backend before the indexer starts so a
-    // misconfigured external provider (bad key, wrong base URL, unknown model)
-    // fails in seconds with an actionable message instead of mid-pipeline.
-    // Lite and advanced-gguf are no-op (advanced-gguf is already validated by
-    // startGgufContainers — daemon, model files, container health). Suppressed
-    // via --no-connectivity-check for deterministic CI runs.
-    if (ctx.connectivityCheck) {
-      const { runConnectivityCheck } = await import('../rag/connectivity-check.js');
-      if (tuiActive && effectiveBackend === 'external') {
-        setActivity('checking embedding backend…');
-      }
-      const probeLog = (msg: string) => {
-        log.info(msg);
-        rl?.info(msg);
-        ctx.renderer?.logPlain(`[rag] ${msg}`);
-        // Surface the latest probe log line in the In progress zone (only
-        // matters for `external` — the other backends are instant no-ops).
-        setActivityDetail(msg.trim().slice(0, 80));
-      };
-      const outcome = await runConnectivityCheck(ctx.resolvedModels, probeLog);
-      if (!outcome.ok) {
-        const { axis, provider, model, cause } = outcome.failure;
-        const providerLabel = provider ?? '<no provider>';
-        throw new AnatolyError(
-          `RAG ${outcome.backend} connectivity check failed on ${axis} axis `
-          + `(${providerLabel}/${model}): ${cause.message}`,
-          ERROR_CODES.PROVIDER_AUTH_FAILED,
-          false,
-          outcome.backend === 'external'
-            ? `verify the API key env var, base_url, and model name in .anatoly.yml; `
-              + `pass --no-connectivity-check to bypass this gate`
-            : `check that Docker is running and that GGUF setup completed; `
-              + `re-run \`anatoly local-embeddings upgrade\` if needed`,
-        );
-      }
-    }
-  } finally {
-    setGgufWaitProgressHandler(undefined);
-    clearActivity();
-  }
-
-  // Update task labels with resolved model names
-  const state = ctx.pipelineState!;
-  const codeModel = shortModelName(ctx.resolvedModels.codeModel);
-  const nlpModel = shortModelName(ctx.resolvedModels.nlpModel);
-  const indexModel = resolveCodeSummaryModel(ctx.config);
-  const llmModel = shortModelName(indexModel);
-  state.relabelTask('rag-code', `Embedding code (${codeModel})`);
-  state.relabelTask('rag-nlp', `LLM summaries (${llmModel}) & embedding (${nlpModel})`);
-  state.relabelTask('rag-doc-project', `Chunking & embedding project docs (${nlpModel})`);
-  state.relabelTask('rag-doc-internal', `Chunking & embedding internal docs (${nlpModel})`);
-
-  let ragResult: RagIndexResult | undefined;
-  const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
-  mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
-  const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });
-  let ragPhase = 'code';
-  const ragPhaseToTaskId: Record<string, string> = {
-    code: 'rag-code',
-    nlp: 'rag-nlp',
-    upsert: 'rag-upsert',
-    'doc-project': 'rag-doc-project',
-    'doc-internal': 'rag-doc-internal',
-  };
-
-  state.startTask('rag-code', '0/?');
-
-  try {
-    ragResult = await indexProject({
-      projectRoot: ctx.projectRoot,
-      tasks,
-      rebuild: ctx.rebuildRag,
-      rebuildOnDrift: getV3Source(ctx.config)?.runtime.rag.rebuild_on_drift ?? true,
-      concurrency: ctx.concurrency,
-      verbose: ctx.verbose,
-      indexModel,
-      resolvedModels: ctx.resolvedModels,
-      ragMode: ctx.resolvedRagMode,
-      docsDir: getDocsDir(ctx.config),
-      // Pass the actual `documentation.reference.paths` globs so the indexer
-      // can pick up root-level files (README.md, ARCHITECTURE.md, etc.) that
-      // fall outside the single derived `docsDir`. Empty falls back to
-      // `docsDir` globbing.
-      referencePaths: ctx.config.documentation?.reference?.paths ?? [],
-      onLog: (msg) => {
-        ctx.runLog?.debug({ phase: 'rag-index' }, msg);
-        ragLogStream.write(`${new Date().toISOString()} ${msg}\n`);
-        ctx.renderer?.logPlain(`[rag] ${msg}`);
-      },
-      onProgress: (current, total) => {
-        const taskId = ragPhaseToTaskId[ragPhase];
-        if (taskId) state.updateTask(taskId, `${current}/${total}`);
-        // Surface progress in the ndjson event stream so `anatoly runs attach`
-        // can render a meaningful counter during rag-index — otherwise the
-        // attach status line is stuck at `0/<totalFiles>` for the whole phase
-        // (file_review_end events only fire later, during the review phase).
-        ctx.runLog?.info({
-          event: 'rag_progress',
-          phase: 'rag-index',
-          subphase: ragPhase,
-          current,
-          total,
-        }, 'rag progress');
-      },
-      onPhase: (phase) => {
-        const prevTaskId = ragPhaseToTaskId[ragPhase];
-        const nextTaskId = ragPhaseToTaskId[phase];
-        ragPhase = phase;
-        // Complete previous phase task with interim detail —
-        // doc tasks get their final detail from ragResult after indexing completes
-        if (prevTaskId && prevTaskId !== nextTaskId) {
-          const interimDetail = prevTaskId.startsWith('rag-doc-') ? '…' : 'done';
-          state.completeTask(prevTaskId, interimDetail);
-          // Remove upsert synthetic file when leaving upsert phase
-          if (prevTaskId === 'rag-upsert') {
-            state.activeFiles.delete('Saving index\u2026');
-          }
-        }
-        // Start next phase task
-        if (nextTaskId) {
-          state.startTask(nextTaskId);
-          // During upsert, show synthetic file entry
-          if (phase === 'upsert') {
-            state.trackFile('Saving index\u2026');
-          }
-        }
-      },
-      onFileStart: (file) => { state.trackFile(file); },
-      onFileDone: (file) => { state.untrackFile(file); },
-      isInterrupted: () => ctx.interrupted,
-      conversationDir: join(ctx.runDir, 'conversations'),
-      router: ctx.router,
-      fileFilter: ctx.fileFilter ?? undefined,
-    });
-  } finally {
-    ragLogStream.end();
-    // Free GPU/VRAM immediately — review uses pre-computed vectors from LanceDB.
-    await stopGgufContainers(logFn);
-    await stopTeiContainers();
-  }
-
-  // Complete final RAG phase task
-  const finalTaskId = ragPhaseToTaskId[ragPhase];
-  if (finalTaskId) {
-    state.completeTask(finalTaskId, finalTaskId === 'rag-upsert' ? 'done' : (state.tasks.find((t) => t.id === finalTaskId)?.detail ?? 'done'));
-  }
-  // Remove upsert synthetic file
-  state.activeFiles.delete('Saving index\u2026');
-
-  // Set final completion details on all rag tasks
-  if (ragResult) {
-    state.completeTask('rag-code', `${ragResult.totalCards} functions (${ragResult.totalFiles} files)`);
-    const nlpTask = state.tasks.find(t => t.id === 'rag-nlp');
-    state.completeTask('rag-nlp', nlpTask?.status === 'pending' ? 'cached' : `${ragResult.totalCards} cards`);
-    state.completeTask('rag-upsert', 'done');
-    state.completeTask('rag-doc-project', ragResult.docsIdentical
-      ? 'deduplicated (= internal)'
-      : ragResult.projectDocSections > 0
-        ? `${ragResult.projectDocSections} sections` : ragResult.projectDocsCached ? 'cached' : 'no project docs');
-    state.completeTask('rag-doc-internal', ragResult.internalDocSections > 0
-      ? `${ragResult.internalDocSections} sections` : ragResult.internalDocsCached ? 'cached' : 'no internal docs');
-  }
-
-  const ragDuration = Date.now() - ragStart;
-
-  if (ctx.interrupted) {
-    console.log('interrupted — rag indexing incomplete');
-    if (ctx.lockPath) { releaseLock(ctx.lockPath); ctx.lockPath = undefined; }
-    return { ragEnabled: false };
-  }
-
-  // Aggregate RAG LLM costs (NLP summaries + doc chunking). Provider is
-  // anthropic — RAG NLP summarization runs through the same router.
-  if (ragResult?.costUsd) {
-    recordLlmCost(ctx, {
-      provider: 'anthropic',
-      phase: 'rag-index',
-      costUsd: ragResult.costUsd,
-      durationMs: ragDuration,
-    });
-  }
-
-  // Store dedup status for project docs sync after internal docs update
-  if (ragResult?.docsIdentical) {
-    ctx.docsIdentical = true;
-  }
-
-  log.info({
-    phase: 'rag-index', runId: ctx.runId, durationMs: ragDuration,
-    cardsGenerated: ragResult?.cardsIndexed ?? 0, cached: (ragResult?.totalCards ?? 0) - (ragResult?.cardsIndexed ?? 0),
-    costUsd: ragResult?.costUsd ?? 0,
-  }, 'rag-index details');
-  rl?.info({
-    phase: 'rag-index', durationMs: ragDuration,
-    cardsGenerated: ragResult?.cardsIndexed ?? 0,
-    costUsd: ragResult?.costUsd ?? 0,
-  }, 'rag-index details');
-
-  if (ragResult) {
-    return { ragEnabled: true, vectorStore: ragResult.vectorStore };
-  }
-  return { ragEnabled: false };
 }
 
 async function runReviewPhase(
