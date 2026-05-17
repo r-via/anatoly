@@ -255,6 +255,20 @@ refactor. Explicitly **out of scope**:
 
 ## 10. Plan acceptance invariants
 
+> **Status: all five satisfied (PRs 1 to 8 landed).** 1: registry / executor
+> / exchange deleted, zero references, suite green. 2: the spine golden
+> (`spine-golden.test.ts`) is in place and was proven to fail on a deliberate
+> `runPhase` drop, on both the original and the fully-refactored spine. 3:
+> holds with one honest scope note: PRs 2 to 8a are move-only with a
+> byte-identical projection; PR 8c is the one deliberate, non-move-only
+> behavior-preserving change (the handoff inversion), gated instead by a
+> second golden (`handoff-golden.test.ts`, proven to catch a §4 handoff
+> regression) plus the full suite, both projections unchanged across it. 4:
+> `run.ts` has zero `async function run*Phase`, the spine lives in
+> `pipeline.ts`, and the §4 handoff is the typed `Handoff` object, removed
+> from `RunContext`. 5: doc 10 §1 / §3 / §7 / §8 and the status banner were
+> updated in lockstep (PR 1, the PRs 2 to 7 catch-up, and PR 8d).
+
 Testable assertions that say whether the remediation actually landed. They
 mirror the doc 10 §8 style: written so they fail today and pass only when the
 plan holds.

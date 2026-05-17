@@ -23,11 +23,14 @@
 > regression suite is no longer hollow: a real spine golden now exists
 > ([spine-golden.test.ts](../../src/core/orchestration/spine-golden.test.ts)).
 >
-> **PRs 2 to 7 have landed.** All seven phase implementations were extracted
-> byte-verbatim out of `run.ts` (3360 to ~1065 lines) into dedicated modules.
-> The inline `run.ts:NNN` / `run.ts#L...` anchors in §2 to §6 below are
-> **pre-extraction and superseded**: the phase *sequencing and gates* still
-> live in the `run.ts` spine, but every phase *body* now lives here:
+> **PRs 2 to 8 have landed: the remediation is complete.** `run.ts` went
+> from 3360 lines to ~800 and is now a thin command handler (CLI parse,
+> RunContext build, lock / SIGINT, error handling). Every `run.ts:NNN` /
+> `run.ts#L...` anchor in §2 to §6 below is **pre-extraction and superseded**:
+> the orchestration spine (the canonical phase sequence, gates and `runPhase`
+> wrappers, incl. `doc-conflict-bootstrap` / `doc-conflict-update`) now lives
+> in [pipeline.ts](../../src/core/orchestration/pipeline.ts), and every phase
+> body lives in its own module:
 >
 > | Phase(s) | Module |
 > |---|---|
@@ -37,17 +40,22 @@
 > | review (+ cache helpers) | [phases/review.ts](../../src/core/orchestration/phases/review.ts) |
 > | refinement | [phases/refinement.ts](../../src/core/orchestration/phases/refinement.ts) |
 > | report | [phases/report.ts](../../src/core/orchestration/phases/report.ts) |
+> | spine: sequence + gates + runPhase wrappers | [pipeline.ts](../../src/core/orchestration/pipeline.ts) |
 >
-> Cross-cutting helpers also relocated: `recordLlmCost`
+> Cross-cutting helpers relocated: `recordLlmCost`
 > ([cost.ts](../../src/core/orchestration/cost.ts)), `requestFatalStop`
-> ([run-control.ts](../../src/core/orchestration/run-control.ts)); the
-> inter-phase types `SetupResult` / `RagContext` now live in
-> [handoff.ts](../../src/core/orchestration/handoff.ts). The
-> `doc-conflict-bootstrap` / `doc-conflict-update` `runPhase` wrappers remain in
-> the spine. **PR 8 (pending)** moves the spine itself into `pipeline.ts` and
-> replaces the `ctx`-mutation handoff with the typed `handoff.ts` object; §2 to
-> §4 below will be rewritten then. Until then, read the `run.ts:NNN` anchors as
-> "this logic, now in the module above", not literal line numbers.
+> ([run-control.ts](../../src/core/orchestration/run-control.ts)).
+> **The inter-phase handoff is now a typed object, not `ctx` mutation**
+> ([handoff.ts](../../src/core/orchestration/handoff.ts): `SetupResult`,
+> `RagContext`, and `Handoff` (the 10-field §4 subset, removed from
+> `RunContext`)), created once in the pipeline and passed explicitly to every
+> phase (PR 8c). Two regression goldens guard it: the source-free spine golden
+> (phase sequence) and the non-zero handoff golden
+> ([handoff-golden.test.ts](../../src/core/orchestration/handoff-golden.test.ts),
+> proven to catch a §4 handoff regression). Read the `run.ts:NNN` anchors below
+> as "this logic, now in the module above", not literal line numbers; the prose
+> of §2 to §6 is pre-extraction narrative kept for the per-phase contract, with
+> locations superseded by this map.
 
 ## 1. The orchestration model
 
@@ -84,15 +92,17 @@ The four invariants that make this a contract, not a convention:
    store, never from a sibling agent.
 
 REALITY (summary; detail in §7). Invariant 1 holds and is now enforced at
-runtime (the spine golden, not a source grep). Invariants 2 and 4 are
-**recast as non-goals** by Strategy B (doc 11): the gateway, the registry
-dispatch and the central exchange were declared modules that nothing invoked,
-so PR 1 deleted them rather than wiring them. The accepted seam is the four
-transports each doing their own recording, plus the ALS-scoped D.4 sink
-(§6). The data stream is threaded through `setup` return values, `ragContext`,
-and `ctx` mutation; doc 11 replaces that with a typed handoff store (doc 11
-§4), not the deleted exchange. Invariant 3 (four-plane dissociation) stands as
-written. The Epic 56 scaffolding under `src/core/orchestration/` is gone; what
+runtime by two goldens (the spine golden and the handoff golden, not a source
+grep). **Invariant 4 now holds**: as of doc 11 PR 8c the inter-phase data
+stream is a single typed handoff object
+([handoff.ts](../../src/core/orchestration/handoff.ts): `SetupResult`,
+`RagContext`, `Handoff`) created once in the pipeline and passed explicitly to
+every phase, not ad-hoc `ctx` mutation. **Invariant 2 is recast as a non-goal**
+by Strategy B: the gateway, the registry dispatch and the central exchange were
+declared modules that nothing invoked, so PR 1 deleted them rather than wiring
+them. The accepted seam is the four transports each doing their own recording,
+plus the ALS-scoped D.4 sink (§6). Invariant 3 (four-plane dissociation) stands
+as written. The Epic 56 scaffolding under `src/core/orchestration/` is gone; what
 remains there is load-bearing: `run-phase.ts` (the boundary) and the spine
 golden.
 
@@ -234,14 +244,20 @@ runSetupPhase ──returns──> setup{tasks,triageMap,usageGraph,depMeta,
       └─ report ─reads─> all ReviewFile ─writes─> reports + run-metrics.json
 ```
 
-The handoff mechanism is three different things at once: (a) the `setup`
+The handoff mechanism **was** three different things at once: (a) the `setup`
 return object, (b) the `ragContext` return object, (c) `RunContext` field
-mutation (`ctx.arbitratedFragments`, `ctx.totalFindings`, `ctx.filesReviewed`).
-There is no single typed store and no schema on the boundary. The Epic 56
-central exchange that was meant to replace (c) has been **deleted** (doc 11
-PR 1): it was never instantiated at runtime. The Strategy B replacement is a
-typed handoff store extracted alongside the spine (doc 11 §4), scoped to the
-real inter-phase subset, not a generic exchange.
+mutation (`ctx.arbitratedFragments`, `ctx.totalFindings`, `ctx.filesReviewed`,
+...). As of doc 11 PR 8c all three are unified into one typed store,
+[handoff.ts](../../src/core/orchestration/handoff.ts): `SetupResult` and
+`RagContext` (the former return objects) and `Handoff` (the former `ctx`
+mutation subset: 10 fields, removed from `RunContext`). The pipeline creates
+the handoff once and passes it explicitly to every phase; there is no longer
+ad-hoc `ctx` mutation across the phase boundary. The Epic 56 central exchange
+that was meant to replace (c) was **deleted** instead (doc 11 PR 1): it was
+never instantiated at runtime. The Strategy B replacement is this typed
+handoff store, scoped to the real inter-phase subset, not a generic exchange.
+`RunContext` now carries only runtime / UI / lifecycle and cost-accounting
+state, never inter-phase handoff.
 
 ## 4. The four-plane dataplane
 
