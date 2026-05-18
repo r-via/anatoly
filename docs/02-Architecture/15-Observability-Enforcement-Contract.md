@@ -54,10 +54,10 @@ Verified at HEAD `6962c51` (code tip; `efdada9` is doc-only), branch
 
 | Axis | Enforced today | Escape (grounded) |
 |---|---|---|
-| **Cost — ledger** (`costs/ledger.ndjson`, per-call) | transport-enforced: all 4 transports + `doc-llm-executor.ts:887` (doc-coherence manual) call `recordLlmCall` | **doc-conflict-detection ledger status UNVERIFIED** (§7 item A): `doc-conflict-llm.ts` is prompt/parse only; the call lives in `doc-conflict-detector.ts` (SDK `query()` per the v29 log) — confirm it hits `recordLlmCall` |
-| **Cost — rollup** (`run-metrics.json`: costUsd/providers/axisStats/phaseStats) | exactly 5 conventional feeders: `recordRagCost`, `recordAgentCosts`(review), `recordDocGenerationCost`(bootstrap+update via shared `runDocLlmPhase`), `recordDocCoherenceCost`, `recordRefinementCost` | **CONFIRMED: `doc-conflict-detection` feeds no `recordXCost`** → its cost is absent from the rollup (the v29 log shows it making LLM calls). No enforcement that an LLM-calling unit feeds the rollup |
+| **Cost — ledger** (`costs/ledger.ndjson`, per-call) | transport-enforced: all 4 transports + `doc-llm-executor.ts:887` (doc-coherence manual) call `recordLlmCall` | **§7-A RESOLVED — ledger COVERED.** `doc-conflict-detector.ts` holds none of the LLM/cost primitives; the spine passes it `ctx.router`, so its call goes via the injected router -> a transport -> `recordLlmCall`. Not the worst case (it does *not* escape the ledger) |
+| **Cost — rollup** (`run-metrics.json`: costUsd/providers/axisStats/phaseStats) | exactly 5 conventional feeders: `recordRagCost`, `recordAgentCosts`(review), `recordDocGenerationCost`(bootstrap+update via shared `runDocLlmPhase`), `recordDocCoherenceCost`, `recordRefinementCost` | **CONFIRMED, the one real cost leak: `doc-conflict-detection` feeds no `recordXCost`** -> its cost is absent from the rollup (v29 log shows it making LLM calls). No enforcement that an LLM-calling unit feeds the rollup |
 | **Events** | phase boundary: `runPhase` fires `phase_start`/`phase_end` for **all 11** `CANONICAL_PHASES` (solid). Vocabulary typed (`ORCHESTRATION_EVENTS`, PR 1) | phase-**body** events emitted ad hoc per call site (PR 1 typed only the *names* via `satisfies`); the harness does not capture them; no runtime assertion that a unit emitted its declared set |
-| **Logging** | structured: `getLogger()` (global pino), `ctx.runLog` (per-run -> `anatoly.ndjson`), `ctx.timeline` (-> run-metrics) | ~44 `console.*` in `src/core` (vs legit CLI-UX `console` in `src/commands`). Not all are observability, but **no rule distinguishes** "human terminal UX" (allowed) from "an observability signal that exists only on stdout" (escape). §7 item B: classify |
+| **Logging** | structured: `getLogger()` (global pino), `ctx.runLog` (per-run -> `anatoly.ndjson`), `ctx.timeline` (-> run-metrics) | **§7-B RESOLVED — essentially NOT an escape.** Every `src/core` `console.*` is legitimate human terminal UX (run summary, dry-run, interrupted notices); observability (cost/events/timing/errors) already goes structured. Lone borderline: `calibration.ts:132` (a skipped-warning, console-only). De-scopes the former PR 5 to a one-line fix |
 | **Conversations** (`runs/<id>/conversations/*.md`) | dumped via `conversationDir`/`conversationPrefix` threaded into `runSingleTurnQuery` + transports | `conversationPrefix` is **hand-built per call site** (`${slug}__${axisId}`), agent-by-agent, not harness-assigned: naming/coverage is by-convention; a unit can omit it or diverge the scheme |
 | **Enforcement** | doc 14 §9 invariants are prose + one **static** test (events.test.ts asserts the contract map covers `CANONICAL_PHASES`) | **no runtime/CI invariant** fails when a unit runs without cost/events, logs off-channel, or skips a conversation dump. "Nothing escapes" is unenforced |
 
@@ -116,7 +116,8 @@ doc-coherence / refinement / doc-conflict / RAG-summary), the harness
 
 ## 6. PR sequence (ascending risk, per-PR gate)
 
-- **PR 0** This contract + the §7 audit items resolved. No code.
+- **PR 0 (done, `bcd54bf` + this update)** This contract; §7 audit items A/B/C
+  resolved read-only; the true surface confirmed. No code.
 - **PR 1** Plug the **confirmed** leak: route `doc-conflict-detection`'s cost
   into the rollup (and verify the ledger). Smallest, highest-value,
   isolated. Gate: `cost.test.ts` extended, bench F1.
@@ -128,17 +129,33 @@ doc-coherence / refinement / doc-conflict / RAG-summary), the harness
 - **PR 4** Runtime unit-event registry + the binding CI invariant test
   (ledger<->rollup, event completeness, console allowlist). Gate: the new
   test green on a hermetic run; bench F1.
-- **PR 5 (conditional)** Structured-log migration for the `src/core`
-  observability `console.*` the §7 classification flags. Gate: goldens.
+- **PR 5 (de-scoped by §7-B)** Not a migration: `src/core` `console.*` is
+  legitimate human-UX. Only `calibration.ts:132` (a console-only
+  skipped-warning) also gets a structured line. One-line fix, fold into
+  PR 4 or skip.
 
-## 7. Open audit items (resolve in PR 0, before the dependent PR)
+## 7. Audit items — CLOSED (resolved read-only at `bcd54bf`)
 
-- **A.** Confirm whether `doc-conflict-detector.ts` `runDocConflictDetection`
-  calls `recordLlmCall` (ledger) or escapes both cost systems (worst case).
-- **B.** Classify the ~44 `src/core` `console.*`: genuine human-UX (allowed,
-  allowlisted) vs observability-only-on-stdout (escape, PR 5 scope).
-- **C.** Enumerate any remaining non-transport, non-`runSingleTurnQuery` LLM
-  paths (full `query(`/SDK sweep) to confirm the unit inventory is complete.
+- **A. RESOLVED — ledger covered.** `doc-conflict-detector.ts` holds none of
+  `recordLlmCall`/`runSingleTurnQuery`/`runUnit`/`.query(`/Transport/cost
+  primitives; the spine passes it `ctx.router`, so the call runs via the
+  injected router -> transport -> `recordLlmCall`. doc-conflict escapes only
+  the **rollup**, not the ledger (not the worst case).
+- **B. RESOLVED — logging is not an escape.** All `src/core` `console.*` is
+  human terminal UX (report.ts run summary, setup.ts dry-run, the
+  interrupted notices, review.ts no-pending). Observability already goes
+  structured. Lone borderline `calibration.ts:132`. PR 5 de-scoped to a
+  one-liner.
+- **C. RESOLVED — inventory complete.** `.query({` outside transports is
+  only the single-turn path (already `runUnit`). `triage` / `estimator` /
+  `scanning` make no LLM call (deterministic). **`doc-conflict-detection` is
+  the only LLM-calling unit not on `runUnit`.** No hidden path.
+
+Net of the completed audit: the true surface is **smaller** than the initial
+draft feared. Real work = (1) the one rollup leak (doc-conflict), (2)
+conversation-name uniformity, (3) harness-capture so the rollup is not
+phase-reported, (4) the binding invariant. Logging is fine; the event gap is
+"no runtime completeness assertion", not "events escape".
 
 ## 8. Why this is not the declined PR 4c / PR 6
 
