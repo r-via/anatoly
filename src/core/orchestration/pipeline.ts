@@ -249,7 +249,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
 
         // --- Phase: review (pass 1) ---
         await runPhase(ctx, 'review', async () => {
-          await runReviewPhase(ctx, handoff, setup.triageMap, setup.usageGraph, ragContext, setup.depMeta, setup.projectTree, setup.docsTree, setup.internalDocsTree, setup.internalDocsDir);
+          await runReviewPhase(ctx, handoff, ragContext);
         });
         if (ctx.interrupted) {
           const inFlight = ctx.activeAborts.size;

@@ -72,6 +72,18 @@ export interface Handoff {
   allTasks: Task[];
   /** setup -> doc/report: triage classification per file. */
   triageMap: Map<string, TriageResult>;
+  /** setup -> review: import/usage graph (doc 14 PR 4b, was a positional arg). */
+  usageGraph?: UsageGraph;
+  /** setup -> review: per-file dependency metadata (doc 14 PR 4b). */
+  depMeta?: DependencyMeta;
+  /** setup -> review: ASCII project tree (doc 14 PR 4b). */
+  projectTree?: string;
+  /** setup -> review: ASCII docs/ tree, null when none (doc 14 PR 4b). */
+  docsTree?: string | null;
+  /** setup -> review: ASCII internal-docs tree, null when none (doc 14 PR 4b). */
+  internalDocsTree?: string | null;
+  /** setup -> review: internal-docs dir path (doc 14 PR 4b). */
+  internalDocsDir?: string;
   /** pricing pre-flight (seed) / rag / setup: resolved embedding models. */
   resolvedModels?: ResolvedModels;
   /** pipeline gate: first run (no .anatoly/docs yet). */

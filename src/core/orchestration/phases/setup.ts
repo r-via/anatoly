@@ -458,6 +458,15 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
 
   handoff.allTasks = allTasks;
   handoff.triageMap = triageMap;
+  // doc 14 PR 4b: thread the setup -> review inter-phase data through the
+  // typed Handoff (same refs returned in SetupResult below) so review takes
+  // no positional fan-out.
+  handoff.usageGraph = usageGraph;
+  handoff.depMeta = depMeta;
+  handoff.projectTree = projectTree;
+  handoff.docsTree = docsTree;
+  handoff.internalDocsTree = internalDocsTree;
+  handoff.internalDocsDir = internalDocsDir;
 
   return { files: estimateFiles, tasks: allTasks, triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir };
 }

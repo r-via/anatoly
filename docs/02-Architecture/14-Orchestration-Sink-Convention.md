@@ -283,12 +283,24 @@ that baseline and the new convention test passes. Each PR reverts with one
     inline `recordLlmCost`. Byte-identical, fully independent of
     runUnit/sink/handoff (the proven PR-2b recipe). Gate: `cost.test.ts`
     proves each helper == its inline call; bench F1; goldens.
-  - **PR 4b** Kill the positional `SetupResult` fan-out into
-    `runReviewPhase` and stop review re-loading tasks from disk
-    ([review.ts:136](../../src/core/orchestration/phases/review.ts#L136));
-    thread these through the typed `Handoff` (doc 14 §1/§5). Behaviour-
-    relevant; gated by the spine + handoff goldens. Fork to surface at
-    grounding (what review actually consumes vs what `Handoff` carries).
+  - **PR 4b** (done, grounded at `6a8eca4`) Grounding found the two parts
+    are not equivalent: `handoff.triageMap` is the identical ref to
+    `setup.triageMap`, and the other 5 fan-out args are the same setup refs
+    (so threading them via `Handoff` is **byte-identical**); but
+    `handoff.allTasks` is the **scan-filtered** set
+    (setup.ts:235 `rawTasks.filter(scannedFileSet)`) whereas review.ts:137
+    `loadTasks(...)` is **unfiltered raw** — replacing one with the other is
+    a behaviour change, not preservation. Owner decision: **fan-out only,
+    keep `loadTasks`**. `Handoff` gained 6 optional fields
+    (`usageGraph`, `depMeta`, `projectTree`, `docsTree`, `internalDocsTree`,
+    `internalDocsDir`), populated in setup with the exact returned refs;
+    `runReviewPhase` collapsed to `(ctx, handoff, ragContext)` and
+    destructures them from `handoff` (body identifiers unchanged);
+    pipeline.ts passes 3 args. `review.ts:137` `loadTasks` left untouched;
+    the tasks-source swap is split out (not done: it needs bench F1, the
+    goldens cannot see the filtered/unfiltered difference). Byte-identical
+    by construction; gated by the spine + handoff goldens (the handoff
+    golden asserts the setup -> review -> report handoff).
   - **PR 4c** Unify the **phase grain** onto `runUnit` and introduce the
     one `RunSink` object (doc 14 §5: accounting becomes a sink projection;
     the 4a-relocated cost fns + the agent cost re-point at the sink). The

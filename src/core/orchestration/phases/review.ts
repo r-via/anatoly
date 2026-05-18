@@ -41,9 +41,7 @@ import { retryWithBackoff } from '../../../utils/rate-limiter.js';
 import { withTimeout } from '../../../utils/with-timeout.js';
 import type { Task } from '../../../schemas/task.js';
 import type { ReviewFile } from '../../../schemas/review.js';
-import { generateSkipReview, evaluatorAxesForSkip, type TriageResult } from '../../evaluation/index.js';
-import { type UsageGraph } from '../../scanning/index.js';
-import { type DependencyMeta } from '../../scanning/index.js';
+import { generateSkipReview, evaluatorAxesForSkip } from '../../evaluation/index.js';
 import { getEnabledEvaluators } from '../../evaluation/index.js';
 import { evaluateFile } from '../../evaluation/index.js';
 import { runWorkerPool } from '../../platform/index.js';
@@ -63,15 +61,15 @@ import type { RunContext } from '../../../commands/run.js';
 export async function runReviewPhase(
   ctx: RunContext,
   handoff: Handoff,
-  triageMap: Map<string, TriageResult>,
-  usageGraph: UsageGraph | undefined,
   ragContext: RagContext,
-  depMeta?: DependencyMeta,
-  projectTree?: string,
-  docsTree?: string | null,
-  internalDocsTree?: string | null,
-  internalDocsDir?: string,
 ): Promise<void> {
+  // doc 14 PR 4b: the setup -> review inter-phase data is threaded through
+  // the typed Handoff, not a positional fan-out. These are the exact refs
+  // setup produced (setup.ts populates handoff with them); destructured here
+  // so the body below is byte-unchanged. review still reads tasks from disk
+  // via loadTasks: handoff.allTasks is the scan-filtered set, a different
+  // semantic deliberately left as-is (doc 14 §8 PR 4b).
+  const { triageMap, usageGraph, depMeta, projectTree, docsTree, internalDocsTree, internalDocsDir } = handoff;
   const log = getLogger();
   const rl = ctx.runLog;
 
