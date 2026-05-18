@@ -32,7 +32,7 @@ import { resolve, join } from 'node:path';
 import picomatch from 'picomatch';
 import { loadTasks } from '../../estimator.js';
 import { ProgressManager } from '../../progress-manager.js';
-import { writeReviewOutput, writeTranscript } from '../../review-writer.js';
+import { writeReviewOutput, writeTranscript } from '../../reporting/index.js';
 import { AnatolyError, ERROR_CODES, isFatalAuthError, isCircuitOpenError, circuitOpenError } from '../../../utils/errors.js';
 import { toOutputName } from '../../../utils/cache.js';
 import { getLogger } from '../../../utils/logger.js';

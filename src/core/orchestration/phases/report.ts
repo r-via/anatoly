@@ -31,11 +31,11 @@ import chalk from 'chalk';
 import { getLogger } from '../../../utils/logger.js';
 import { ProgressManager } from '../../progress-manager.js';
 import { estimateFileSeconds } from '../../estimator.js';
-import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporter.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporting/index.js';
 import { getDocsDir } from '../../../schemas/config.js';
 import { aggregateDocReport } from '../../doc-report-aggregator.js';
 import { purgeRuns } from '../../../utils/run-id.js';
-import { injectBadge } from '../../badge.js';
+import { injectBadge } from '../../reporting/index.js';
 import { sendNotifications, type NotificationPayload } from '../../notifications/index.js';
 import { formatCompactTokens, formatRunDuration } from '../../../utils/format.js';
 import { getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../../../utils/llm-calls-sink.js';
@@ -77,7 +77,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     };
   }
 
-  const runStats: import('../../reporter.js').RunStats = {
+  const runStats: import('../../reporting/index.js').RunStats = {
     runId: ctx.runId,
     durationMs: Date.now() - ctx.startTime,
     costUsd: ctx.totalCostUsd,

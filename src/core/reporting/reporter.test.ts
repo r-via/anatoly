@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ReviewFile } from '../schemas/review.js';
+import type { ReviewFile } from '../../schemas/review.js';
 import {
   loadReviews,
   computeGlobalVerdict,

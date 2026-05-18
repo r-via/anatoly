@@ -4,8 +4,8 @@
 
 import { readFileSync, writeFileSync, constants, accessSync } from 'node:fs';
 import { join } from 'node:path';
-import { getLogger } from '../utils/logger.js';
-import type { Verdict } from '../schemas/review.js';
+import { getLogger } from '../../utils/logger.js';
+import type { Verdict } from '../../schemas/review.js';
 
 const MARKER_START = '<!-- checked-by-anatoly -->';
 const MARKER_END = '<!-- /checked-by-anatoly -->';

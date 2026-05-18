@@ -5,11 +5,11 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
-import { ReviewFileSchema } from '../schemas/review.js';
-import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../schemas/review.js';
-import type { AxisId } from './axis-evaluator.js';
-import { loadCodeWinsAsStaleReferences } from './doc-stale-reference.js';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
+import { ReviewFileSchema } from '../../schemas/review.js';
+import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../../schemas/review.js';
+import type { AxisId } from '../axis-evaluator.js';
+import { loadCodeWinsAsStaleReferences } from '../doc-stale-reference.js';
 
 
 export interface TriageStats {

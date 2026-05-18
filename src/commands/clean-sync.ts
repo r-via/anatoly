@@ -9,7 +9,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
-import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
+import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporting/index.js';
 import { DISCOVERED_ACT_ID } from './clean.js';
 
 interface PrdStory {

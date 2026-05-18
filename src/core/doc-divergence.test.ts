@@ -232,12 +232,12 @@ describe('Story 54.9 — AC2: System prompts contain doc_divergence instruction'
 // AC3: Divergence aggregation in reporter
 describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
   it('renderDivergenceSection exists and renders divergences', async () => {
-    const { renderDivergenceSection } = await import('./reporter.js');
+    const { renderDivergenceSection } = await import('./reporting/index.js');
     expect(renderDivergenceSection).toBeDefined();
   });
 
   it('renderDivergenceSection renders correct markdown structure', async () => {
-    const { renderDivergenceSection } = await import('./reporter.js');
+    const { renderDivergenceSection } = await import('./reporting/index.js');
     const divergences = [
       {
         kind: 'doc_divergence' as const,
@@ -271,12 +271,12 @@ describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
   });
 
   it('renderDivergenceSection returns empty string when no divergences', async () => {
-    const { renderDivergenceSection } = await import('./reporter.js');
+    const { renderDivergenceSection } = await import('./reporting/index.js');
     expect(renderDivergenceSection([])).toBe('');
   });
 
   it('aggregateDivergences collects doc_divergences from all review files', async () => {
-    const { aggregateDivergences } = await import('./reporter.js');
+    const { aggregateDivergences } = await import('./reporting/index.js');
     const reviews = [
       {
         version: 2 as const,
@@ -325,7 +325,7 @@ describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
 // AC4: Documentation mode in report header
 describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   it('renderIndex includes Documentation mode line when docMode provided', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporter.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'off' });
@@ -333,7 +333,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderIndex shows lite mode with token count', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporter.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'lite', digestTokens: 3200 });
@@ -341,7 +341,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderIndex shows full mode with last coherence date', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporter.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'full', lastCoherence: '2026-05-10' });
@@ -349,7 +349,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderPublicIndex also includes Documentation mode line', async () => {
-    const { renderPublicIndex, aggregateReviews, buildAxisReports } = await import('./reporter.js');
+    const { renderPublicIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderPublicIndex(data, axisReports, undefined, undefined, undefined, undefined, undefined, { mode: 'off' });
@@ -369,7 +369,7 @@ describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
 // AC3 supplemental: divergences don't affect F1 scoring
 describe('Story 54.9 — FR17: divergences are non-penalizing', () => {
   it('computeFileVerdict ignores doc_divergences (verdict stays CLEAN)', async () => {
-    const { computeFileVerdict } = await import('./reporter.js');
+    const { computeFileVerdict } = await import('./reporting/index.js');
     const review = {
       version: 2 as const,
       file: 'src/foo.ts',

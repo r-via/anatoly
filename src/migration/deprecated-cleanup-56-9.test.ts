@@ -61,7 +61,7 @@ describe('FR23: EmbeddingsReadyFlag.python removed', () => {
 // ---------------------------------------------------------------------------
 describe('FR24: renderShard removed from reporter.ts', () => {
   it('reporter.ts does not export renderShard', () => {
-    const src = read('src/core/reporter.ts');
+    const src = read('src/core/reporting/reporter.ts');
     expect(src).not.toContain('export function renderShard');
   });
 });

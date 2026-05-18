@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeReviewOutput, renderReviewMarkdown, parseDetailSegments } from './review-writer.js';
-import type { ReviewFile } from '../schemas/review.js';
+import type { ReviewFile } from '../../schemas/review.js';
 
 const sampleReview: ReviewFile = {
   version: 1,

@@ -4,9 +4,9 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ReviewFile, Action } from '../schemas/review.js';
-import { atomicWriteJson, toOutputName } from '../utils/cache.js';
-import { getLogger } from '../utils/logger.js';
+import type { ReviewFile, Action } from '../../schemas/review.js';
+import { atomicWriteJson, toOutputName } from '../../utils/cache.js';
+import { getLogger } from '../../utils/logger.js';
 
 /**
  * Write both .rev.json and .rev.md for a completed review into the

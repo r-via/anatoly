@@ -61,10 +61,19 @@ the net is already complete and consists of three independent gates:
    behavior (it cannot, if the diff is move-only) would fail a colocated or
    integration test. The 6 untested modules (doc 12 §7) are out of scope and
    are moved, not modified, so their lack of a test does not weaken the gate.
-3. **The grep gate.** After each PR,
-   `grep -rn "from '[^']*core/<moved-module>\.js'" src --include=*.ts`
-   returns matches only at the module's new home's importers (all rewritten),
-   never the old flat path. Zero stale paths is a hard gate.
+3. **The grep gate.** After each PR, two scans must come back clean. (a)
+   Import paths: `grep -rn "from '[^']*core/<m>\.js'" src --include=*.ts`
+   (plus the `import('...')` dynamic and inline forms) matches only the new
+   home, never the old flat path. (b) Hardcoded source-path reads in guard
+   tests: scan the **bare quoted filename token** `'<m>.ts'`, not just import
+   strings, because the path is often assembled from segments
+   (`readFileSync(join(process.cwd(), 'src', 'core', '<m>.ts'))`) which a
+   `from '...'` or `[^)]*<m>` regex silently misses (PR 2 hit exactly this in
+   `doc-stale-reference.test.ts:205`). Exclude the path-agnostic sandbox
+   fixtures (`usage-graph.test.ts`, `doc-pipeline.test.ts`,
+   `axes/utility.test.ts`) which use such strings as fabricated data under
+   `tmpdir()`, not as references to the real file. Zero stale paths is a hard
+   gate; the full suite is what actually catches a missed segment-form read.
 
 The prerequisite here is not building a net, it is **doc 12 being ratified**:
 the barrel convention and the §4 split shape every PR, so the contract lands
@@ -78,12 +87,32 @@ first (this pair of docs), then PR 1.
    depth changes by the nesting delta).
 3. Rewrite every importer's path: intra-context importers to the new relative
    path, every out-of-context importer to the context barrel
-   `<context>/index.js` (or `evaluation/contract.js` for the §4 seam).
+   `<context>/index.js` (or `evaluation/contract.js` for the §4 seam). This
+   includes static imports, dynamic `await import('...')`, inline
+   `import('...').T` type imports, **and hardcoded source-path string readers
+   in guard tests** (PR 2 surfaced `migration/deprecated-cleanup-56-9.test.ts`
+   doing `read('src/core/<m>.ts')`: repoint it to the new path). It does
+   **not** include path-agnostic sandbox fixtures: `usage-graph.test.ts` and
+   `doc-pipeline.test.ts` fabricate files or `Task`s at arbitrary path
+   strings under `tmpdir()` to exercise path handling generically; those are
+   test data, not references to the moved module, and editing them would
+   breach move-only.
 4. Create or extend `<context>/index.ts` to re-export the context's public
    surface (the symbols its current external importers use, no more: no
-   speculative exports).
-5. Gate (§6). The diff is git-mv + import-path rewrites + barrel only.
-   Reviewer attests no logic delta; the three §3 gates enforce it mechanically.
+   speculative exports). A colocated test moves with its module and imports it
+   relatively, so it is **not** an external importer; a test in another
+   directory that imports the module **is**, and its symbols are part of the
+   surface.
+5. **Stage deliberately (PR 1 trap).** `git mv` stages the rename against the
+   *pre-edit* content; the step 2 / 3 edits to the moved files are left
+   unstaged. `git add` every moved-and-edited file explicitly, then verify
+   `git diff --cached -- <moved>` shows the import delta. A moved file that
+   appears as a pure `R100` rename means its edits were missed and the commit
+   would land stale, broken content. PR 1 hit this and was repaired with
+   `git commit --amend` **before any push**; never amend a pushed commit.
+6. Gate (§6). The diff is git-mv + import-path rewrites (static, dynamic,
+   inline, and guard-path) + barrel only. Reviewer attests no logic delta;
+   the three §3 gates enforce it mechanically.
 
 No logic change, no rename, no signature change, no behavior change is
 permitted inside a move PR. That is the entire contract.
@@ -181,16 +210,19 @@ scope creep.
 | `documentation` -> evaluation out-edge has no contract to point at until 7b | §5 sequencing: 6d targets the pre-split `evaluation/index.ts` re-export, repointed to `contract.js` as the last step of 7b (one-line, gated) |
 | The §4 split silently drops or retypes an exported symbol | PR 7b public-API typecheck snapshot: re-exported symbols identical in name and type to pre-split; byte-identical bodies, reviewer-attested |
 | A revert is needed mid-sequence | Every PR is one `git mv` set plus rewrites, independently `git revert`-able, each ending green. No data or schema migration in any PR |
+| A guard test reads a moved module's source by hardcoded path; recon and the import-grep miss the `join(...,'core','<m>.ts')` segment form | §3 gate 3 scans the bare quoted `'<m>.ts'` token, not just import strings. PR 2 surfaced two such tests (`migration/deprecated-cleanup-56-9.test.ts` string form, `doc-stale-reference.test.ts:205` segment form); the full-suite gate caught the missed one, the detector was then broadened. Future exposure inventoried: `axis-evaluator.ts` (PR 7), `correction-memory.ts` (PR 3), `doc-llm-executor.ts` / `doc-gap-detection.ts` (PR 6) |
+| `git mv` then edit leaves the content edits unstaged; the commit lands a stale `R100` rename | §4 step 5: `git add` every moved-and-edited file explicitly, verify `git diff --cached -- <moved>` shows the import delta. PR 1 hit this, repaired via `git commit --amend` pre-push |
 
 ## 10. Plan acceptance invariants
 
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariant 1 satisfied (PR 1 landed).** `worktree/` is carved out
-> (3 modules + tests, barrel-fronted); the §3 grep gate, `tsc --noEmit`, and
-> the full vitest suite (185 files, 3016 tests, `spine-golden` included) are
-> green. Invariants 2 to 5 remain pending PRs 2 to 7b.
+> **Status: invariants 1 to 2 satisfied (PRs 1 to 2 landed).** `worktree/`
+> and `reporting/` are carved out (6 modules + tests, barrel-fronted); the
+> §3 grep gate (broadened in PR 2 for segment-form guard-path reads),
+> `tsc --noEmit`, and the full vitest suite (185 files, `spine-golden`
+> included) are green. Invariants 3 to 5 remain pending PRs 3 to 7b.
 
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;

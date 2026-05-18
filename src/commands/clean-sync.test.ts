@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { checkAction, allActionsChecked, checkShardInIndex } from './clean-sync.js';
-import { makeActId } from '../core/reporter.js';
+import { makeActId } from '../core/reporting/index.js';
 
 describe('checkAction', () => {
   it('should check a matching unchecked action', () => {

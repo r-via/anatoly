@@ -19,7 +19,7 @@ import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type Ru
 import { resolveRunDir } from '../utils/run-id.js';
 import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
 import { formatDuration, verdictColor } from '../utils/format.js';
-import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporter.js';
+import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporting/index.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveDocMode } from '../core/run-config.js';

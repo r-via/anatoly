@@ -11,7 +11,7 @@ import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
-import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporter.js';
+import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporting/index.js';
 
 /**
  * A parsed unchecked action from a shard report.

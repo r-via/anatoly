@@ -169,7 +169,7 @@ describe('Story 55.8 — AC2: loadCodeWinsAsStaleReferences', () => {
 
 describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSection', () => {
   it('aggregateStaleReferences collects from review files', async () => {
-    const { aggregateStaleReferences } = await import('./reporter.js');
+    const { aggregateStaleReferences } = await import('./reporting/index.js');
     const reviews = [
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'a.md', arbitrated_at: '2025-01-01' }] },
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'b.md', arbitrated_at: '2025-01-02' }] },
@@ -180,7 +180,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
   });
 
   it('renderStaleReferenceSection returns markdown', async () => {
-    const { renderStaleReferenceSection } = await import('./reporter.js');
+    const { renderStaleReferenceSection } = await import('./reporting/index.js');
     const refs = [
       { kind: 'doc_stale_reference' as const, reference_path: 'docs/arch.md', arbitrated_at: '2025-01-16', arbitration_note: 'outdated' },
     ];
@@ -191,7 +191,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
   });
 
   it('renderStaleReferenceSection returns empty string for empty array', async () => {
-    const { renderStaleReferenceSection } = await import('./reporter.js');
+    const { renderStaleReferenceSection } = await import('./reporting/index.js');
     expect(renderStaleReferenceSection([])).toBe('');
   });
 });
@@ -202,7 +202,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
 
 describe('Story 55.8 — structural', () => {
   it('reporter.ts uses loadCodeWinsAsStaleReferences and renderStaleReferenceSection', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'core', 'reporter.ts'), 'utf-8');
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'reporting', 'reporter.ts'), 'utf-8');
     expect(src).toContain('loadCodeWinsAsStaleReferences');
     expect(src).toContain('renderStaleReferenceSection');
   });

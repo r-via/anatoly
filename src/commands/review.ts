@@ -12,7 +12,7 @@ import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import { scanProject } from '../core/scanner.js';
 import { loadTasks } from '../core/estimator.js';
 import { ProgressManager } from '../core/progress-manager.js';
-import { writeReviewOutput, writeTranscript } from '../core/review-writer.js';
+import { writeReviewOutput, writeTranscript } from '../core/reporting/index.js';
 import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';

@@ -47,7 +47,7 @@ function restoreOriginalBranch(): void {
 process.on('SIGINT', () => { killActiveChild(); restoreOriginalBranch(); process.exit(130); });
 process.on('SIGTERM', () => { killActiveChild(); restoreOriginalBranch(); process.exit(143); });
 import { DISCOVERED_ACT_ID } from './clean.js';
-import { REPORT_AXIS_IDS } from '../core/reporter.js';
+import { REPORT_AXIS_IDS } from '../core/reporting/index.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 

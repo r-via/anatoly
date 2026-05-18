@@ -7,7 +7,7 @@ import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, relative, dirname, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
-import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporter.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporting/index.js';
 import { ProgressManager } from '../core/progress-manager.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';

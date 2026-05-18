@@ -12,7 +12,7 @@ import { contextLogger } from '../utils/log-context.js';
 // Language-aware doc comment terminology
 // ---------------------------------------------------------------------------
 
-import { docCommentTerm } from './reporter.js';
+import { docCommentTerm } from './reporting/index.js';
 
 
 // ---------------------------------------------------------------------------

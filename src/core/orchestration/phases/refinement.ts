@@ -29,8 +29,8 @@
  */
 
 import { join } from 'node:path';
-import { writeReviewOutput } from '../../review-writer.js';
-import { loadReviews } from '../../reporter.js';
+import { writeReviewOutput } from '../../reporting/index.js';
+import { loadReviews } from '../../reporting/index.js';
 import { getLogger } from '../../../utils/logger.js';
 import { recordReclassification } from '../../correction-memory.js';
 import { DeliberationResponseSchema } from '../../deliberation.js';

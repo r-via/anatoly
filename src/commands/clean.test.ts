@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseUncheckedActions } from './clean.js';
-import { makeActId } from '../core/reporter.js';
+import { makeActId } from '../core/reporting/index.js';
 
 describe('parseUncheckedActions', () => {
   it('should parse a typical shard action line', () => {
