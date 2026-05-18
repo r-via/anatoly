@@ -56,7 +56,7 @@ import { runHints } from '../../../cli/hint-detector.js';
 import { runEndOfSetupPrompt } from '../../../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../../scanning/index.js';
 import { detectProjectIdentity } from '../../scanning/index.js';
-import { needsBootstrap } from '../../doc-bootstrap.js';
+import { needsBootstrap } from '../../documentation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { runPhase } from '../run-phase.js';

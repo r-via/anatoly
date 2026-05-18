@@ -18,18 +18,18 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
-import { type ProjectProfile, type ProjectType } from './scanning/index.js';
+import { anatolyPath } from '../../../utils/anatoly-paths.js';
+import { type ProjectProfile, type ProjectType } from '../../scanning/index.js';
 import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
-import { resolveModuleGranularity, extractModuleName, type ModuleDir } from './scanning/index.js';
-import { resolveDocMappings, type SourceDir, type DocMapping } from './doc-mapping.js';
-import { assertSafeOutputPath } from './docs-guard.js';
-import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, docManifestPath, type DocCache, type PageMapping, type CacheResult } from './doc-cache.js';
-import { buildPageContext, type SourceFile } from './scanning/index.js';
-import { getDocTokenBudget } from './docs-resolver.js';
+import { resolveModuleGranularity, extractModuleName, type ModuleDir } from '../../scanning/index.js';
+import { resolveDocMappings, type SourceDir, type DocMapping } from '../../doc-mapping.js';
+import { assertSafeOutputPath } from '../../docs-guard.js';
+import { loadDocCache, saveDocCache, checkDocCache, updateDocCacheEntry, removeDocCacheEntry, docManifestPath, type DocCache, type PageMapping, type CacheResult } from '../../doc-cache.js';
+import { buildPageContext, type SourceFile } from '../../scanning/index.js';
+import { getDocTokenBudget } from '../../docs-resolver.js';
 import { buildPagePrompt, type PageInfo, type PagePrompt, type DocNeighbor } from './doc-generator.js';
 import { collectTypeContext } from './doc-type-context.js';
-import type { Task } from '../schemas/task.js';
+import type { Task } from '../../../schemas/task.js';
 
 // --- Public interfaces ---
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildPagePrompt, DEFAULT_MODEL } from './doc-generator.js';
-import type { PageContext } from './scanning/index.js';
+import type { PageContext } from '../../scanning/index.js';
 
 /**
  * Story 29.8: LLM Page Content Generation

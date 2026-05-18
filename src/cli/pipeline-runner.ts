@@ -30,7 +30,7 @@ import { printBanner } from '../utils/banner.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir, type Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/scanning/index.js';
-import type { DocExecutor } from '../core/doc-llm-executor.js';
+import type { DocExecutor } from '../core/documentation/index.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';

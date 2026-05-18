@@ -21,9 +21,9 @@ import { resolveAxisModel, resolveCodeSummaryModel, type AxisId } from '../core/
 import picomatch from 'picomatch';
 import { triageFile } from '../core/triage.js';
 import { buildUsageGraph } from '../core/scanning/index.js';
-import { needsBootstrap } from '../core/doc-bootstrap.js';
+import { needsBootstrap } from '../core/documentation/index.js';
 import { resolveDocMode } from '../core/run/index.js';
-import { computeScaffoldPageList } from '../core/doc-pipeline.js';
+import { computeScaffoldPageList } from '../core/documentation/index.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../core/scanning/index.js';
 import { detectHardware, readEmbeddingsReadyFlag, resolveEmbeddingModels, type ResolvedModels } from '../rag/hardware-detect.js';
 import { countChangedDocs } from '../rag/doc-indexer.js';

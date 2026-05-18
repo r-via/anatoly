@@ -13,7 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { resolve, basename } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { ProjectType } from './scanning/index.js';
+import type { ProjectType } from '../../scanning/index.js';
 
 // ---------------------------------------------------------------------------
 // Public interface

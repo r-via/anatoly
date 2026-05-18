@@ -38,7 +38,7 @@ import { formatRunDuration } from '../../utils/format.js';
 import { PipelineState } from '../../cli/pipeline-state.js';
 import { ScreenRenderer } from '../../cli/screen-renderer.js';
 import { resolveDocMode } from '../run/index.js';
-import { needsBootstrap, writeScaffoldStatus } from '../doc-bootstrap.js';
+import { needsBootstrap, writeScaffoldStatus } from '../documentation/index.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runDocConflictDetection } from '../doc-conflict-detector.js';
 import { runPhase } from './run-phase.js';

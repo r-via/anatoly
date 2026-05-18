@@ -22,14 +22,14 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import {
   loadDocCache,
   saveDocCache,
   docManifestPath,
   type ScaffoldInfo,
   type CoherenceInfo,
-} from './doc-cache.js';
+} from '../../doc-cache.js';
 
 /** Internal-docs output directory for `projectRoot`. */
 function docsDir(projectRoot: string): string {

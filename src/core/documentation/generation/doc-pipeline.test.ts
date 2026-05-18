@@ -7,8 +7,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runDocScaffold, runDocGeneration, commitDocPage, isScaffoldStub, type DocGenerationResult } from './doc-pipeline.js';
-import type { Task } from '../schemas/task.js';
-import type { ProjectProfile } from './scanning/index.js';
+import type { Task } from '../../../schemas/task.js';
+import type { ProjectProfile } from '../../scanning/index.js';
 
 /**
  * Simulate a successful generation pass: replace each to-generate page's

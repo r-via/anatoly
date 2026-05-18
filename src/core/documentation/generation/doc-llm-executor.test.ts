@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { executeDocPrompts } from './doc-llm-executor.js';
 import type { PagePrompt } from './doc-generator.js';
-import { TransportRouter, type LlmTransport, type LlmResponse } from './transports/index.js';
+import { TransportRouter, type LlmTransport, type LlmResponse } from '../../transports/index.js';
 
 /** Build a mock TransportRouter with a given concurrency for the anthropic provider. */
 function mockRouter(concurrency: number): TransportRouter {

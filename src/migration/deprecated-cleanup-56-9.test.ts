@@ -71,7 +71,7 @@ describe('FR24: renderShard removed from reporter.ts', () => {
 // ---------------------------------------------------------------------------
 describe('FR25: DocPrompt alias removed from doc-llm-executor.ts', () => {
   it('doc-llm-executor.ts does not export DocPrompt', () => {
-    const src = read('src/core/doc-llm-executor.ts');
+    const src = read('src/core/documentation/generation/doc-llm-executor.ts');
     expect(src).not.toContain('export type DocPrompt');
   });
 });

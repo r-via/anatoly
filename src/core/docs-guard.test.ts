@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { assertSafeOutputPath } from './docs-guard.js';
-import { scaffoldDocs } from './doc-scaffolder.js';
+import { scaffoldDocs } from './documentation/index.js';
 
 /**
  * Story 29.6: Guard Test — Anatoly Never Writes to docs/

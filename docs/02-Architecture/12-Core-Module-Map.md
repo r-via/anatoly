@@ -7,16 +7,19 @@
 > Where they diverge, that divergence is the remediation backlog closed by
 > [13-Core-Module-Remediation-Plan.md](./13-Core-Module-Remediation-Plan.md).
 >
-> **Remediation status (updated in lockstep).** PRs 1 to 5 have landed:
-> `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/` (30 modules +
-> their colocated tests) are carved out, barrel-fronted, with the grep gate,
-> `tsc --noEmit`, and the full vitest suite (185 files, the doc 11
-> `spine-golden` included) green. Six trap classes surfaced across PRs 1 to
-> 5 (guard-path reads, vitest mock paths, mid-file inline `import()`,
-> supplementary-tests-are-external, the barrel-cycle exception, and a
-> `replace_all` over-reach into sandbox-fixture strings); all fixed in
-> lockstep and the recipe / grep gate hardened (doc 13 §3 / §4 / §9). The
-> other two contexts remain flat at root (doc 13 §5, PRs 6 to 7).
+> **Remediation status (updated in lockstep).** PRs 1 to 5 plus 6a have
+> landed: `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`, and
+> `documentation/generation/` (36 modules + their colocated tests) are
+> carved out, barrel-fronted, with the grep gate, `tsc --noEmit`, and the
+> full vitest suite (185 files, the doc 11 `spine-golden` included) green.
+> `documentation/` is the one nested context (sub-folders behind a single
+> barrel, doc 13 PRs 6a to 6d); 6a is generation/. Six trap classes
+> surfaced across PRs 1 to 5 (guard-path reads, vitest mock paths, mid-file
+> inline `import()`, supplementary-tests-are-external, the barrel-cycle
+> exception, a `replace_all` over-reach into sandbox-fixture strings); all
+> fixed in lockstep and the recipe / grep gate hardened (doc 13 §3 / §4 /
+> §9). `evaluation/` and the rest of `documentation/` remain flat at root
+> (doc 13 §5, PRs 6b to 7).
 >
 > It is the structural sibling of [10-Orchestration-Runtime.md](./10-Orchestration-Runtime.md):
 > doc 10 is the contract for the orchestration spine, this doc is the contract
@@ -279,10 +282,10 @@ Mirrors doc 10 §7. ✅ holds today, ❌ diverges, the gap is doc 13's backlog.
 | Invariant | Status |
 |---|---|
 | Orchestration spine has a phase-aligned home | ✅ (doc 10 / 11) |
-| The 60 modules it composes have phase-aligned homes | ◑ 30/60: `worktree/` + `reporting/` + `platform/` + `run/` + `scanning/` landed (doc 13 PRs 1 to 5); 30 flat at root (doc 13 PRs 6 to 7) |
+| The 60 modules it composes have phase-aligned homes | ◑ 36/60: `worktree/` + `reporting/` + `platform/` + `run/` + `scanning/` + `documentation/generation/` landed (doc 13 PRs 1 to 6a); 24 flat at root (doc 13 PRs 6b to 7) |
 | Every cross-context edge points at a barrel or §4 contract | ❌ today they import implementation paths |
 | `axis-evaluator` is split contract / impl | ❌ doc 13 PR 7b |
-| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications`, `worktree`, `reporting`, `platform`, `run`, `scanning`) |
+| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications`, `worktree`, `reporting`, `platform`, `run`, `scanning`, `documentation` [generation/ wired, 6b to 6d pending]) |
 | No peer-context import of an implementation path | ❌ §5 edges currently do |
 | 60 modules each have a colocated test | ❌ 6 lack one: `calibration`, `default-models`, `correction-memory`, `doc-type-context`, `doc-gap-detection`, `documentation-config` (noted, not in scope for doc 13) |
 
