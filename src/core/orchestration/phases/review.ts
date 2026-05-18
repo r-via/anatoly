@@ -207,8 +207,19 @@ export async function runReviewPhase(
           rl?.info({ event: ('file_cached' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: cachedReview.verdict }, 'file loaded from cache');
           // Story 53.5 FR6: drive attach progress bar
           rl?.info({ event: ('file_review_end' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: cachedReview.verdict, source: 'cache' }, 'file review end');
+          return;
         }
-        return;
+        // doc 15: the file was DONE/CACHED in progress.json but no review is
+        // retrievable for the current axes/prompt-hash (stale cross-run
+        // progress, axis-coverage mismatch, or a wiped cache). The pre-doc-15
+        // code `return`ed here SILENTLY: the file was audited by nobody and
+        // produced zero signal — the exact root cause of `src/wild.ts`
+        // vanishing from every slot-engine bench (INV-WILD a structural
+        // miss). Make the escape impossible: emit a first-class typed event
+        // and fall through to a full evaluation so the file IS reviewed.
+        rl?.warn({ event: ('file_cache_miss' satisfies OrchestrationEventName), phase: 'review', file: filePath }, 'expected-cached review missing — re-evaluating (no silent drop)');
+        if (ctx.plain) ctx.renderer?.logPlain(`[review] [CACHE-MISS] ${filePath} → re-evaluating (no cached review for current axes)`);
+        // intentional fall-through (no return): the normal evaluate path runs.
       }
 
       const triage = triageMap.get(filePath);
