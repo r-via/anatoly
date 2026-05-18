@@ -22,16 +22,21 @@
 > the orchestrator; it must work correctly.* Every step here is
 > behavior-preserving by construction and bench-gated, or it does not ship.
 >
-> **Closure (executed scope).** The agent / harness / cost track shipped as
-> PR 0, 1, 2-net, 2a, 2b, 3a, 3b, 3c, 4a, 4b — all behavior-preserving,
-> typecheck + suites + spine/handoff goldens green. **PR 4c is a declined,
-> reasoned non-goal** (§8): the literal `runPhase`/`runUnit` merge is
-> aesthetic (runPhase is already the non-divergent phase chokepoint) and the
-> accounting-as-projection rewrite is YAGNI (its motivation was met by
-> PR 2b/4a). §5 and §9 are reconciled to the realized shape so this contract
-> has no internal contradiction. **PR 5** (orchestration policy table, §6)
-> and **PR 6** (directional access) are a separate concern, neither done nor
-> declined here: owner decides them independently.
+> **Closure (the whole contract is now resolved).** Shipped,
+> behavior-preserving, typecheck + suites + spine/handoff goldens green:
+> **PR 0, 1, 2-net, 2a, 2b, 3a, 3b, 3c, 4a, 4b** (agent / harness / cost
+> track) and **PR 5** (orchestration policy table, §6-faithful: `gates.ts`
+> predicate table read by a still-procedural spine). **Declined, reasoned
+> non-goals** (§8, not debt): **PR 4c** (literal `runPhase`/`runUnit` merge
+> is aesthetic; accounting-as-projection is YAGNI, its motivation met by
+> PR 2b/4a) and **PR 6** (frozen-view/scoped-writer machinery is predicated
+> on the declined RunSink; the regression class is single-writer-by-
+> convention, has zero evidence, and is already foreclosed by PR 1 + the
+> goldens — §8's own skip clause). §5 and §9 are reconciled to the realized
+> shape so this contract has no internal contradiction. **Open:** the
+> branch must be re-benched at the PR-5 tip (`6962c51`) before merging the
+> series to private `main` (the v29 bench, global_f1 0.715, validated
+> `3b27b7b`, pre-PR-5). No further doc-14 work remains.
 
 ## 1. The decision
 
@@ -349,8 +354,9 @@ that baseline and the new convention test passes. Each PR reverts with one
        eager-rollup consumers (reporter, calibration, report/run-metrics)
        for **zero user-visible change** (identical numbers), weakly netted.
        YAGNI and dogma-adjacent; declined. §5 is reconciled accordingly.
-    **The agent / harness / cost track is complete at PR 4b.** (PR 5 and
-    PR 6 below are a separate concern, not part of this closure.)
+    **The agent / harness / cost track is complete at PR 4b.** (PR 5 below
+    shipped §6-faithful; PR 6 below is declined; see the §8 entries and the
+    status-block closure.)
 - **PR 5 (done, §6-faithful; the §8 "loop over `CANONICAL_PHASES`" wording
   is superseded — see below).** Grounding showed the gates are entangled
   with phase bodies, `doc-conflict-*` sub-phases, `writeScaffoldStatus`,
@@ -375,10 +381,24 @@ that baseline and the new convention test passes. Each PR reverts with one
   typecheck + suites + spine/handoff goldens green; **a re-bench at the
   PR-5 tip is required before merge** (PR 5 touches spine control flow; the
   v29 bench validated `3b27b7b`, pre-PR-5).
-- **PR 6 (optional)** Directional access: unit N gets a frozen view of the
-  prior sink plus a writer scoped to its own section; the shared-mutable
-  `handoff.x++` pattern dies. Skip if PR 1's completeness test already
-  forecloses the regression class.
+- **PR 6 — DECLINED (reasoned non-goal; grounded at `6962c51`).** Its core
+  mechanism, *"a frozen view of the prior **sink**"*, is predicated on the
+  single `RunSink` that PR 4c deliberately declined: there is no sink to
+  view; `handoff` is a typed struct, **single-writer-by-phase by
+  convention** (setup writes the setup fields, review the review counts,
+  refinement nets `totalFindings` down afterward by intent, doc/report their
+  result fields). The cross-phase corruption regression class it guards has
+  **zero evidence** and is already foreclosed by PR 1's typed events +
+  PR 2-net's cost lock + the spine/handoff goldens, which is exactly the
+  skip condition §8 stated for PR 6. The `handoff.x++` it targets is
+  intra-review-phase across the **async** worker pool on single-threaded
+  Node (no parallel threads, no data race) and is behaviourally
+  golden-locked (handoff golden + the v29 bench: 10 concurrent files,
+  correct counts). Per-phase frozen-view + scoped-writer proxies would add
+  runtime cost, churn (rewire every `handoff` access) and a speculative
+  generic capability surface: precisely the §1 "boring, simple, no
+  speculative surface, scale when needed" stance, the same reasoning that
+  declined PR 4c. Not debt: an explicit reasoned boundary.
 
 ## 9. Acceptance invariants (testable, not aspirational)
 
