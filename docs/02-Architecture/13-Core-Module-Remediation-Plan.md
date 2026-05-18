@@ -85,11 +85,22 @@ first (this pair of docs), then PR 1.
    `<m>.test.ts` (the colocated test moves with its module, always). **Only
    the canonical `<m>.test.ts` moves.** Supplementary and integration test
    files (`<m>-foo.test.ts`, `*-foreground.test.ts`, `*.integration.test.ts`)
-   are **external importers**, not colocated tests: they stay where they are
-   and repoint to the barrel (step 3). This keeps the move deterministic (no
-   per-file judgement about which tests "belong"). PR 4 set this rule
-   (`run-status-foreground.test.ts`, the prompt-invalidation / shared-cache
-   integration tests stayed put and went through the barrel).
+   are **external importers** *during the per-context move PRs*: they stay
+   at the root and repoint to the barrel (step 3). This is a determinism
+   guard, not the end state: it removes per-file "which context does this
+   cross-cutting test belong to?" judgement from the mechanical moves. A
+   final pass (**PR 8**) relocates each into the context it predominantly
+   exercises, so the root ends with zero loose files. PR 4 set the guard
+   (`run-status-foreground`, prompt-invalidation / shared-cache integration
+   tests stayed put); PR 8 placed all 10 (doc-conflict-* -> `conflict/`,
+   doc-divergence -> `reporting/`, internal-docs-mode-off ->
+   `evaluation/axes/`, internal-docs-prereview -> `orchestration/`,
+   language-detect-go -> `scanning/`, the run tests -> `run/`). When a
+   relocated test reads source by path, mind the anchor: a
+   `process.cwd()`-anchored read is repo-root and unaffected by the move;
+   a `resolve(__dirname, ...)` / `import.meta.dirname` read shifts with
+   the file and needs the depth corrected (the doc 13 §4 step-2 trap,
+   which PR 8 hit and the full-suite backstop caught).
 2. Rewrite relative depth **inside** the moved files by the nesting delta.
    Not only `import ... from '../foo.js'`: a moved test that resolves a
    **filesystem path relative to its own location**
@@ -258,12 +269,14 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: all five invariants satisfied (PRs 1 to 7b landed). The
-> remediation is complete.** Every one of the 60 modules is in a bounded
-> context: `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`,
-> the 4-sub-folder `documentation/`, and `evaluation/` (`axes/`+
-> `refinement/` nested, one barrel). The flat `src/core` root holds zero
-> `.ts` modules. Each PR passed the §3 grep gate, `tsc --noEmit`, and the
+> **Status: all five invariants satisfied (PRs 1 to 7b landed) and the
+> root fully cleared (PR 8). The remediation is complete.** Every one of
+> the 60 modules is in a bounded context: `worktree/`, `reporting/`,
+> `platform/`, `run/`, `scanning/`, the 4-sub-folder `documentation/`, and
+> `evaluation/` (`axes/`+`refinement/` nested, one barrel). After PR 8
+> relocated the 10 supplementary/integration tests into the contexts they
+> exercise, **the flat `src/core` root holds zero loose files** (no
+> modules and no tests: it is purely directories). Each PR passed the §3 grep gate, `tsc --noEmit`, and the
 > full vitest suite (185 files, `spine-golden` included); PR 7b
 > additionally passed the §6 split gate (public-API snapshot name-and-type
 > identical to the pre-split exports, byte-identical symbol bodies). The

@@ -13,12 +13,12 @@ import { resolve } from 'node:path';
 // AC1: DocDivergence schema exists with FR15 form, severity limited to info|warn
 describe('Story 54.9 — AC1: DocDivergence schema', () => {
   it('DocDivergenceSchema exists in review.ts', async () => {
-    const { DocDivergenceSchema } = await import('../schemas/review.js');
+    const { DocDivergenceSchema } = await import('../../schemas/review.js');
     expect(DocDivergenceSchema).toBeDefined();
   });
 
   it('DocDivergenceSchema accepts a valid doc_divergence finding', async () => {
-    const { DocDivergenceSchema } = await import('../schemas/review.js');
+    const { DocDivergenceSchema } = await import('../../schemas/review.js');
     const valid = {
       kind: 'doc_divergence',
       severity: 'warn',
@@ -37,7 +37,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
   });
 
   it('severity is limited to info | warn (no error)', async () => {
-    const { DocDivergenceSchema } = await import('../schemas/review.js');
+    const { DocDivergenceSchema } = await import('../../schemas/review.js');
     const invalid = {
       kind: 'doc_divergence',
       severity: 'error',
@@ -51,7 +51,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
   });
 
   it('axis_origin limited to correction | best_practices | overengineering | tests', async () => {
-    const { DocDivergenceSchema } = await import('../schemas/review.js');
+    const { DocDivergenceSchema } = await import('../../schemas/review.js');
     const base = {
       kind: 'doc_divergence',
       severity: 'info',
@@ -69,7 +69,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
   });
 
   it('line and symbol are optional', async () => {
-    const { DocDivergenceSchema } = await import('../schemas/review.js');
+    const { DocDivergenceSchema } = await import('../../schemas/review.js');
     const minimal = {
       kind: 'doc_divergence',
       severity: 'info',
@@ -85,7 +85,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
   });
 
   it('ReviewFileSchema accepts doc_divergences array', async () => {
-    const { ReviewFileSchema } = await import('../schemas/review.js');
+    const { ReviewFileSchema } = await import('../../schemas/review.js');
     const review = {
       version: 2,
       file: 'src/foo.ts',
@@ -108,7 +108,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
   });
 
   it('ReviewFileSchema defaults doc_divergences to empty array when absent', async () => {
-    const { ReviewFileSchema } = await import('../schemas/review.js');
+    const { ReviewFileSchema } = await import('../../schemas/review.js');
     const review = {
       version: 2,
       file: 'src/foo.ts',
@@ -124,7 +124,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
 // AC2: 4 axis response schemas accept doc_divergences
 describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () => {
   it('CorrectionResponseSchema accepts doc_divergences array', async () => {
-    const { CorrectionResponseSchema } = await import('./evaluation/axes/correction.js');
+    const { CorrectionResponseSchema } = await import('../evaluation/axes/correction.js');
     const response = {
       symbols: [],
       actions: [],
@@ -143,7 +143,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('OverengineeringResponseSchema accepts doc_divergences array', async () => {
-    const { OverengineeringResponseSchema } = await import('./evaluation/axes/overengineering.js');
+    const { OverengineeringResponseSchema } = await import('../evaluation/axes/overengineering.js');
     const response = {
       symbols: [],
       doc_divergences: [{
@@ -161,7 +161,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('TestsResponseSchema accepts doc_divergences array', async () => {
-    const { TestsResponseSchema } = await import('./evaluation/axes/tests.js');
+    const { TestsResponseSchema } = await import('../evaluation/axes/tests.js');
     const response = {
       symbols: [],
       doc_divergences: [{
@@ -179,7 +179,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('BestPracticesResponseSchema accepts doc_divergences array', async () => {
-    const { BestPracticesResponseSchema } = await import('./evaluation/axes/best-practices.js');
+    const { BestPracticesResponseSchema } = await import('../evaluation/axes/best-practices.js');
     const response = {
       score: 8,
       rules: [],
@@ -199,10 +199,10 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('all 4 axis schemas treat doc_divergences as optional when absent', async () => {
-    const { CorrectionResponseSchema } = await import('./evaluation/axes/correction.js');
-    const { OverengineeringResponseSchema } = await import('./evaluation/axes/overengineering.js');
-    const { TestsResponseSchema } = await import('./evaluation/axes/tests.js');
-    const { BestPracticesResponseSchema } = await import('./evaluation/axes/best-practices.js');
+    const { CorrectionResponseSchema } = await import('../evaluation/axes/correction.js');
+    const { OverengineeringResponseSchema } = await import('../evaluation/axes/overengineering.js');
+    const { TestsResponseSchema } = await import('../evaluation/axes/tests.js');
+    const { BestPracticesResponseSchema } = await import('../evaluation/axes/best-practices.js');
 
     expect(CorrectionResponseSchema.parse({ symbols: [], actions: [] }).doc_divergences).toBeUndefined();
     expect(OverengineeringResponseSchema.parse({ symbols: [] }).doc_divergences).toBeUndefined();
@@ -222,7 +222,7 @@ describe('Story 54.9 — AC2: System prompts contain doc_divergence instruction'
 
   for (const { axis, file } of axisPrompts) {
     it(`${axis} system prompt contains doc_divergence instruction`, () => {
-      const content = readFileSync(resolve(__dirname, '../../', file), 'utf-8');
+      const content = readFileSync(resolve(__dirname, '../../../', file), 'utf-8');
       expect(content).toContain('doc_divergence');
       expect(content).toContain('reference');
     });
@@ -232,12 +232,12 @@ describe('Story 54.9 — AC2: System prompts contain doc_divergence instruction'
 // AC3: Divergence aggregation in reporter
 describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
   it('renderDivergenceSection exists and renders divergences', async () => {
-    const { renderDivergenceSection } = await import('./reporting/index.js');
+    const { renderDivergenceSection } = await import('./index.js');
     expect(renderDivergenceSection).toBeDefined();
   });
 
   it('renderDivergenceSection renders correct markdown structure', async () => {
-    const { renderDivergenceSection } = await import('./reporting/index.js');
+    const { renderDivergenceSection } = await import('./index.js');
     const divergences = [
       {
         kind: 'doc_divergence' as const,
@@ -271,12 +271,12 @@ describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
   });
 
   it('renderDivergenceSection returns empty string when no divergences', async () => {
-    const { renderDivergenceSection } = await import('./reporting/index.js');
+    const { renderDivergenceSection } = await import('./index.js');
     expect(renderDivergenceSection([])).toBe('');
   });
 
   it('aggregateDivergences collects doc_divergences from all review files', async () => {
-    const { aggregateDivergences } = await import('./reporting/index.js');
+    const { aggregateDivergences } = await import('./index.js');
     const reviews = [
       {
         version: 2 as const,
@@ -325,7 +325,7 @@ describe('Story 54.9 — AC3: Divergence aggregation in report', () => {
 // AC4: Documentation mode in report header
 describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   it('renderIndex includes Documentation mode line when docMode provided', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'off' });
@@ -333,7 +333,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderIndex shows lite mode with token count', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'lite', digestTokens: 3200 });
@@ -341,7 +341,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderIndex shows full mode with last coherence date', async () => {
-    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
+    const { renderIndex, aggregateReviews, buildAxisReports } = await import('./index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderIndex(data, axisReports, undefined, undefined, undefined, undefined, { mode: 'full', lastCoherence: '2026-05-10' });
@@ -349,7 +349,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
   });
 
   it('renderPublicIndex also includes Documentation mode line', async () => {
-    const { renderPublicIndex, aggregateReviews, buildAxisReports } = await import('./reporting/index.js');
+    const { renderPublicIndex, aggregateReviews, buildAxisReports } = await import('./index.js');
     const data = aggregateReviews([]);
     const axisReports = buildAxisReports(data);
     const result = renderPublicIndex(data, axisReports, undefined, undefined, undefined, undefined, undefined, { mode: 'off' });
@@ -360,7 +360,7 @@ describe('Story 54.9 — AC4: Documentation mode in report header', () => {
 // AC4: doc-mode is surfaced in `anatoly runs attach` snapshot view (post-refactor).
 describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
   it('attach.ts renders doc mode in terminated-run snapshot', () => {
-    const content = readFileSync(resolve(__dirname, '../commands/attach.ts'), 'utf-8');
+    const content = readFileSync(resolve(__dirname, '../../commands/attach.ts'), 'utf-8');
     expect(content).toContain('renderDocModeLine');
     expect(content).toContain('resolveDocMode');
   });
@@ -369,7 +369,7 @@ describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
 // AC3 supplemental: divergences don't affect F1 scoring
 describe('Story 54.9 — FR17: divergences are non-penalizing', () => {
   it('computeFileVerdict ignores doc_divergences (verdict stays CLEAN)', async () => {
-    const { computeFileVerdict } = await import('./reporting/index.js');
+    const { computeFileVerdict } = await import('./index.js');
     const review = {
       version: 2 as const,
       file: 'src/foo.ts',

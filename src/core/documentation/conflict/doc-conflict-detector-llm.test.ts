@@ -18,12 +18,12 @@ import {
   enrichDetectedConflict,
   detectNewConflictsViaLlm,
   runDocConflictDetection,
-} from './documentation/index.js';
-import { loadDocConflicts } from './documentation/index.js';
-import type { DetectedConflictItem } from './documentation/index.js';
-import type { Config } from '../schemas/config.js';
-import type { Task } from '../schemas/task.js';
-import type { TransportRouter } from './transports/index.js';
+} from '../index.js';
+import { loadDocConflicts } from '../index.js';
+import type { DetectedConflictItem } from '../index.js';
+import type { Config } from '../../../schemas/config.js';
+import type { Task } from '../../../schemas/task.js';
+import type { TransportRouter } from '../../transports/index.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures

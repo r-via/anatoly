@@ -7,9 +7,11 @@
 > Where they diverge, that divergence is the remediation backlog closed by
 > [13-Core-Module-Remediation-Plan.md](./13-Core-Module-Remediation-Plan.md).
 >
-> **Remediation status (updated in lockstep).** PRs 1 to 7b have landed.
-> **The remediation is complete.**
-> **The flat `src/core` root holds zero `.ts` modules**: all 60 are in a
+> **Remediation status (updated in lockstep).** PRs 1 to 7b plus the PR 8
+> cleanup have landed. **The remediation is complete.**
+> **The flat `src/core` root holds zero loose files** (PR 8 relocated the
+> 10 supplementary/integration tests into the contexts they exercise; the
+> root is now purely directories): all 60 modules are in a
 > bounded context (`worktree/`, `reporting/`, `platform/`, `run/`,
 > `scanning/`, the 4-sub-folder `documentation/`, and `evaluation/` with
 > `axes/`+`refinement/` nested behind one barrel). Each landed with the

@@ -26,12 +26,12 @@ import {
   detectNewConflictsViaLlm,
   batchFragmentsByTokenBudget,
   getGitTimestamp,
-} from './documentation/index.js';
-import { buildDetectionUserMessage, parseDetectionResponse } from './documentation/index.js';
-import { EVALUATOR_TEMPERATURE } from './transports/index.js';
-import type { Config } from '../schemas/config.js';
-import type { Task } from '../schemas/task.js';
-import type { TransportRouter } from './transports/index.js';
+} from '../index.js';
+import { buildDetectionUserMessage, parseDetectionResponse } from '../index.js';
+import { EVALUATOR_TEMPERATURE } from '../../transports/index.js';
+import type { Config } from '../../../schemas/config.js';
+import type { Task } from '../../../schemas/task.js';
+import type { TransportRouter } from '../../transports/index.js';
 
 let tmp: string;
 

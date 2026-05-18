@@ -3,13 +3,13 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { parseTestConfig } from '../schemas/test-fixtures.js';
+import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { renderInternalDocsContext } from './evaluation/axes/internal-docs-context.js';
-import { buildDocumentationUserMessage } from './evaluation/axes/documentation.js';
-import type { AxisContext } from './evaluation/index.js';
-import type { Config } from '../schemas/config.js';
+import { renderInternalDocsContext } from './internal-docs-context.js';
+import { buildDocumentationUserMessage } from './documentation.js';
+import type { AxisContext } from '../index.js';
+import type { Config } from '../../../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,13 +78,13 @@ describe('Story 54.7 — mode=off graceful degradation', () => {
 
   it('AC 54.7b: syncProjectDocsFromInternal has been removed from run.ts', () => {
     // Structural assertion: the function should no longer exist in run.ts
-    const runTsContent = readFileSync(resolve(__dirname, '../commands/run.ts'), 'utf-8');
+    const runTsContent = readFileSync(resolve(__dirname, '../../../commands/run.ts'), 'utf-8');
     expect(runTsContent).not.toContain('function syncProjectDocsFromInternal');
     expect(runTsContent).not.toContain('syncProjectDocsFromInternal(');
   });
 
   it('AC 54.7b: no sync code references remain in run.ts', () => {
-    const runTsContent = readFileSync(resolve(__dirname, '../commands/run.ts'), 'utf-8');
+    const runTsContent = readFileSync(resolve(__dirname, '../../../commands/run.ts'), 'utf-8');
     // The sync call and task ID should be gone
     expect(runTsContent).not.toContain('sync-project-docs');
     expect(runTsContent).not.toContain('synced .anatoly/docs/');
@@ -93,12 +93,12 @@ describe('Story 54.7 — mode=off graceful degradation', () => {
   // PR 8a (doc 11): the mode=off guard lives in the spine, extracted
   // verbatim from run.ts into pipeline.ts. Behavior unchanged.
   it('AC 54.7a: pipeline contains mode=off guard log message', () => {
-    const spine = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
+    const spine = readFileSync(resolve(__dirname, '../../orchestration/pipeline.ts'), 'utf-8');
     expect(spine).toContain('internal docs mode=off — skipping scaffold, generation, and coherence');
   });
 
   it('AC 54.7a: mode=off guard prevents runDocScaffold/runDocGeneration/runDocCoherenceReview', () => {
-    const spine = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
+    const spine = readFileSync(resolve(__dirname, '../../orchestration/pipeline.ts'), 'utf-8');
     // The off mode guard should appear before the bootstrap and update doc calls
     expect(spine).toContain("internalDocMode === 'off'");
   });

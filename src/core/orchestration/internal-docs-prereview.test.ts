@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 // (phase ordering, gates, task registration), so it reads the pipeline
 // module now. Behavior is unchanged and additionally guarded by the
 // spine golden.
-const runTsContent = readFileSync(resolve(__dirname, 'orchestration/pipeline.ts'), 'utf-8');
+const runTsContent = readFileSync(resolve(__dirname, 'pipeline.ts'), 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Story 55.2 — Move runDocUpdate to pre-review position

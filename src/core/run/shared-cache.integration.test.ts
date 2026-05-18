@@ -10,14 +10,14 @@ import {
   writeProjectReview,
   loadProjectReview,
   projectReviewPath,
-} from './run/index.js';
+} from './index.js';
 import {
   writeSharedNlpSummary,
   loadSharedNlpSummary,
   computeBodyHash,
-} from '../rag/indexer.js';
-import { computeContentHash } from '../utils/cache.js';
-import type { ReviewFile } from '../schemas/review.js';
+} from '../../rag/indexer.js';
+import { computeContentHash } from '../../utils/cache.js';
+import type { ReviewFile } from '../../schemas/review.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

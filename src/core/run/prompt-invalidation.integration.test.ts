@@ -20,9 +20,9 @@ import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
   loadProjectReview,
-} from './run/index.js';
-import { computePromptHash } from '../utils/cache-meta.js';
-import type { ReviewFile } from '../schemas/review.js';
+} from './index.js';
+import { computePromptHash } from '../../utils/cache-meta.js';
+import type { ReviewFile } from '../../schemas/review.js';
 
 function makeReview(file: string): ReviewFile {
   return {

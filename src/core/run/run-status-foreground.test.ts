@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeRunStatus, readRunStatus, isProcessAlive, type RunStatus } from './run/index.js';
+import { writeRunStatus, readRunStatus, isProcessAlive, type RunStatus } from './index.js';
 
 describe('run-status.json foreground lifecycle (Story 53.1)', () => {
   let tempDir: string;
