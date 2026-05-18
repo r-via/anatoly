@@ -64,3 +64,9 @@ export {
 export { buildCodeSurfaceSummary } from './conflict/doc-coherence-3way.js';
 
 export { loadCodeWinsAsStaleReferences } from './conflict/doc-stale-reference.js';
+
+// --- reporting/ (doc 13 PR 6c) ---
+export { aggregateDocReport } from './reporting/doc-report-aggregator.js';
+export type { DocReportResult } from './reporting/doc-report-aggregator.js';
+
+export { detectDocGapsV2, formatGapReportV2 } from './reporting/doc-gap-detection.js';

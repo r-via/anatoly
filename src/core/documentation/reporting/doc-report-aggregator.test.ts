@@ -7,8 +7,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { aggregateDocReport, type DocReportInput } from './doc-report-aggregator.js';
-import type { ReviewFile } from '../schemas/review.js';
-import type { Task } from '../schemas/task.js';
+import type { ReviewFile } from '../../../schemas/review.js';
+import type { Task } from '../../../schemas/task.js';
 
 function makeReview(file: string, symbols: ReviewFile['symbols'], docsCoverage?: ReviewFile['docs_coverage']): ReviewFile {
   return {

@@ -14,16 +14,16 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
-import type { ProjectType } from './scanning/index.js';
-import { extractModuleName } from './scanning/index.js';
+import { anatolyPath } from '../../../utils/anatoly-paths.js';
+import type { ProjectType } from '../../scanning/index.js';
+import { extractModuleName } from '../../scanning/index.js';
 import { scoreDocumentation, type DocScore, type DocScoringInput } from './doc-scoring.js';
 import { resolveUserDocPlan, type DocPageEntry, type UserDocPlan } from './user-doc-plan.js';
 import { buildDocRecommendations, type DocGap, type DocRecommendation } from './doc-recommendations.js';
 import { renderDocReferenceSection, type DocReportStats } from './doc-report-section.js';
-import type { ReviewFile } from '../schemas/review.js';
-import type { CacheResult } from './doc-cache.js';
-import type { Task } from '../schemas/task.js';
+import type { ReviewFile } from '../../../schemas/review.js';
+import type { CacheResult } from '../../doc-cache.js';
+import type { Task } from '../../../schemas/task.js';
 
 // --- Public interfaces ---
 

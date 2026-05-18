@@ -33,7 +33,7 @@ import { ProgressManager } from '../../run/index.js';
 import { estimateFileSeconds } from '../../run/index.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporting/index.js';
 import { getDocsDir } from '../../../schemas/config.js';
-import { aggregateDocReport } from '../../doc-report-aggregator.js';
+import { aggregateDocReport } from '../../documentation/index.js';
 import { purgeRuns } from '../../../utils/run-id.js';
 import { injectBadge } from '../../reporting/index.js';
 import { sendNotifications, type NotificationPayload } from '../../notifications/index.js';

@@ -15,7 +15,7 @@ import { verdictColor } from '../utils/format.js';
 import { isLockActive } from '../utils/lock.js';
 import { detectProjectProfile } from '../core/scanning/index.js';
 import { loadTasks } from '../core/run/index.js';
-import { aggregateDocReport } from '../core/doc-report-aggregator.js';
+import { aggregateDocReport } from '../core/documentation/index.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
 import { sendNotifications, type NotificationPayload } from '../core/notifications/index.js';

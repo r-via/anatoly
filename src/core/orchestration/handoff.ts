@@ -27,7 +27,7 @@ import type { DependencyMeta } from '../scanning/index.js';
 import type { VectorStore } from '../../rag/vector-store.js';
 import type { ResolvedModels } from '../../rag/hardware-detect.js';
 import type { DocPipelineResult } from '../documentation/index.js';
-import type { DocReportResult } from '../doc-report-aggregator.js';
+import type { DocReportResult } from '../documentation/index.js';
 import type { ArbitratedFragment } from '../axes/reference-docs-context.js';
 
 export interface SetupResult {

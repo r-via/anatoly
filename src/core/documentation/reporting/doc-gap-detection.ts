@@ -11,9 +11,9 @@
  * No LLM calls. No Docker. Pure vector math + string matching.
  */
 
-import type { VectorStore } from '../rag/vector-store.js';
-import type { FunctionCard, DocSectionEntry } from '../rag/types.js';
-import { extractModuleName } from './scanning/index.js';
+import type { VectorStore } from '../../../rag/vector-store.js';
+import type { FunctionCard, DocSectionEntry } from '../../../rag/types.js';
+import { extractModuleName } from '../../scanning/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types

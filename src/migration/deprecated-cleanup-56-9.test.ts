@@ -91,22 +91,22 @@ describe('FR26: resolveNlpModel alias removed from axis-evaluator.ts', () => {
 // ---------------------------------------------------------------------------
 describe('FR27: doc-gap-detection v1 functions removed', () => {
   it('detectDocGaps v1 function is absent', () => {
-    const src = read('src/core/doc-gap-detection.ts');
+    const src = read('src/core/documentation/reporting/doc-gap-detection.ts');
     expect(src).not.toContain('export async function detectDocGaps(');
   });
 
   it('formatGapSummary v1 function is absent', () => {
-    const src = read('src/core/doc-gap-detection.ts');
+    const src = read('src/core/documentation/reporting/doc-gap-detection.ts');
     expect(src).not.toContain('export function formatGapSummary(');
   });
 
   it('GapClassification legacy type is absent', () => {
-    const src = read('src/core/doc-gap-detection.ts');
+    const src = read('src/core/documentation/reporting/doc-gap-detection.ts');
     expect(src).not.toContain('export type GapClassification');
   });
 
   it('GapDetectionResult legacy interface is absent', () => {
-    const src = read('src/core/doc-gap-detection.ts');
+    const src = read('src/core/documentation/reporting/doc-gap-detection.ts');
     expect(src).not.toContain('export interface GapDetectionResult');
   });
 });
