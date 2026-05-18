@@ -12,6 +12,8 @@ import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
 import { buildShards, runTier3, type Tier3Context } from './tier3.js';
 import { computeContentHash } from '../../../utils/cache.js';
+import { runUnit } from '../../harness/index.js';
+import type { ExecutionUnit } from '../../harness/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,8 +73,12 @@ export interface RefinementResult {
  * Tier 3: Agentic Opus investigation (LLM calls for escalated findings)
  *
  * Writes refined ReviewFiles back to disk so the report phase reads refined data.
+ *
+ * doc 14 PR 3b: the body is unchanged (byte-verbatim); it is now the `run`
+ * of the refinement {@link ExecutionUnit}, reached only through
+ * {@link runRefinementPhase} below, which routes it through {@link runUnit}.
  */
-export async function runRefinementPhase(ctx: RefinementContext): Promise<RefinementResult> {
+async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<RefinementResult> {
   const emptyResult: RefinementResult = {
     skipped: true,
     tier1Stats: { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, leanToOver: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } },
@@ -263,4 +269,21 @@ export async function runRefinementPhase(ctx: RefinementContext): Promise<Refine
     totalCacheReadTokens: tier3CacheReadTokens,
     totalCacheCreationTokens: tier3CacheCreationTokens,
   };
+}
+
+/**
+ * doc 14 PR 3b: the refinement pass modelled as an {@link ExecutionUnit} and
+ * run through the {@link runUnit} harness (doc 14 §3: "agent = refinement
+ * pass"). Public name, signature and behaviour are unchanged: `runUnit` is
+ * pure pass-through, so this is byte-equivalent to the pre-PR-3b
+ * `runRefinementPhase`. The orchestration call site and the evaluation
+ * barrel re-export are untouched. `RefinementContext` already carries the
+ * `abortController`, so the harness context is exact, no synthetic handle.
+ */
+export function runRefinementPhase(ctx: RefinementContext): Promise<RefinementResult> {
+  const unit: ExecutionUnit<RefinementContext, RefinementResult> = {
+    name: 'refinement',
+    run: (input) => runRefinementPhaseImpl(input),
+  };
+  return runUnit(unit, ctx, { abortController: ctx.abortController });
 }

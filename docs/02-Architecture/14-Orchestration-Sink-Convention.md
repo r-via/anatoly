@@ -253,7 +253,19 @@ that baseline and the new convention test passes. Each PR reverts with one
   ndjson "golden ledger" is untouched by construction (these sites never
   wrote it).
 - **PR 3** doc and refinement agents under the same `ExecutionUnit` SPI. They
-  stop being three bespoke shapes. Gate: bench F1.
+  stop being three bespoke wirings. Split at grounding (a hard cross-context
+  cycle, see §4): **PR 3a** relocated the harness to its own zero-dependency
+  `core/harness/` context (the cycle-free home; supersedes the PR-2a
+  placement). **PR 3b** wraps `runRefinementPhase` (in
+  `core/evaluation/refinement`) as an `ExecutionUnit` through `runUnit`,
+  PR-2a pattern (public name/signature kept, body verbatim renamed
+  `runRefinementPhaseImpl`, byte-equivalent; `RefinementContext` already
+  carries `abortController` so `HarnessCtx` is exact). **PR 3c** wraps
+  `executeDocPrompts` / `reviewDocCoherence` (in `core/documentation`, now
+  cycle-free via `core/harness/`) likewise. None of these use
+  `runSingleTurnQuery` (different LLM paths), so they did not flow through
+  `runUnit` before; PR 3 makes them conform to the one SPI. Gate per
+  sub-PR: bench F1, typecheck + suites + goldens green.
 - **PR 4** Unify the **phase grain** onto `runUnit`. Positional `SetupResult`
   fan-out into `runReviewPhase` dies; review stops re-loading tasks from disk
   ([review.ts:136](../../src/core/orchestration/phases/review.ts#L136)); one
