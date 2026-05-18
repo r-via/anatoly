@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeRunStatus, type RunStatus } from '../core/run-status.js';
+import { writeRunStatus, type RunStatus } from '../core/run/index.js';
 import { resolveAttachTarget, buildAttachHeader } from './attach.js';
 
 /* ------------------------------------------------------------------ */

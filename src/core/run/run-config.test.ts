@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { resolveDocMode } from './run-config.js';
-import { parseTestConfig } from '../schemas/test-fixtures.js';
-import { ConfigSchema } from '../schemas/config.js';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
+import { ConfigSchema } from '../../schemas/config.js';
 
 describe('resolveDocMode', () => {
   it('returns "off" when documentation.internal.mode is "off"', () => {

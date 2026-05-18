@@ -15,14 +15,14 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import chalk from 'chalk';
-import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run-status.js';
+import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
-import { tailNdjson, type TailHandle } from '../core/ndjson-tail.js';
+import { tailNdjson, type TailHandle } from '../core/run/index.js';
 import { formatDuration, verdictColor } from '../utils/format.js';
 import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporting/index.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { ProgressManager } from '../core/progress-manager.js';
-import { resolveDocMode } from '../core/run-config.js';
+import { ProgressManager } from '../core/run/index.js';
+import { resolveDocMode } from '../core/run/index.js';
 
 /* ------------------------------------------------------------------ */
 /*  Pure helpers — exported for testing                                */

@@ -4,7 +4,13 @@
 
 import type { RelevantDoc } from '../axis-evaluator.js';
 import type { Config } from '../../schemas/config.js';
-import { resolveDocMode } from '../run-config.js';
+// Cross-context edge (evaluation -> run). Points at the run-config leaf, not
+// the run/ barrel: the barrel re-exports estimator, whose transitional
+// `estimator -> ../axes/index.js` edge would close an eval-time import cycle
+// through axes/index.ts's eager evaluator construction. Normalizes to the
+// barrel/contract at PR 7 when estimator -> axes becomes estimator ->
+// evaluation/contract. See doc 12 §5 / doc 13 §9.
+import { resolveDocMode } from '../run/run-config.js';
 
 /**
  * Render the internal-docs section for business-logic axis prompts.

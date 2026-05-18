@@ -82,7 +82,14 @@ first (this pair of docs), then PR 1.
 ## 4. The move recipe (every PR follows it verbatim)
 
 1. `git mv src/core/<m>.ts src/core/<context>/<m>.ts` and the same for
-   `<m>.test.ts` (the colocated test moves with its module, always).
+   `<m>.test.ts` (the colocated test moves with its module, always). **Only
+   the canonical `<m>.test.ts` moves.** Supplementary and integration test
+   files (`<m>-foo.test.ts`, `*-foreground.test.ts`, `*.integration.test.ts`)
+   are **external importers**, not colocated tests: they stay where they are
+   and repoint to the barrel (step 3). This keeps the move deterministic (no
+   per-file judgement about which tests "belong"). PR 4 set this rule
+   (`run-status-foreground.test.ts`, the prompt-invalidation / shared-cache
+   integration tests stayed put and went through the barrel).
 2. Rewrite relative depth **inside** the moved files by the nesting delta.
    Not only `import ... from '../foo.js'`: a moved test that resolves a
    **filesystem path relative to its own location**
@@ -93,7 +100,10 @@ first (this pair of docs), then PR 1.
    coherence until corrected to `../../prompts`; a sibling `existsSync`
    "old dir is gone" assertion was repointed `./axes/prompts` ->
    `../axes/prompts` to keep its original absolute target (move-only: same
-   assertion, same real path).
+   assertion, same real path). Scan the **entire** moved file, not just the
+   header import block: an inline `import('../x.js').T` type annotation
+   mid-file (PR 4: `estimator.test.ts:225`) shifts by the same delta and only
+   `tsc` catches it (gate 1).
 3. Rewrite every importer's path: intra-context importers to the new relative
    path, every out-of-context importer to the context barrel
    `<context>/index.js` (or `evaluation/contract.js` for the §4 seam). This
@@ -229,19 +239,21 @@ scope creep.
 | A guard test reads a moved module's source by hardcoded path; recon and the import-grep miss the `join(...,'core','<m>.ts')` segment form | §3 gate 3 scans the bare quoted `'<m>.ts'` token, not just import strings. PR 2 surfaced two such tests (`migration/deprecated-cleanup-56-9.test.ts` string form, `doc-stale-reference.test.ts:205` segment form); the full-suite gate caught the missed one, the detector was then broadened. Future exposure inventoried: `axis-evaluator.ts` (PR 7), `correction-memory.ts` (PR 3), `doc-llm-executor.ts` / `doc-gap-detection.ts` (PR 6) |
 | `git mv` then edit leaves the content edits unstaged; the commit lands a stale `R100` rename | §4 step 5: `git add` every moved-and-edited file explicitly, verify `git diff --cached -- <moved>` shows the import delta. PR 1 hit this, repaired via `git commit --amend` pre-push |
 | A vitest module-mock path (`vi.mock('...')`) still targets the old flat path; recon, the import-grep and tsc all miss it (mock paths are strings, not type-checked) | §3 gate 3 / §4 step 3 scan `vi.mock`/`vi.doMock`/`importActual`/`requireActual`. PR 3 surfaced `rag/orchestrator.test.ts:94`; repointed to the leaf `platform/worker-pool.js` so the barrel re-export transparently yields the spy. The full-suite gate is the backstop (a dead mock path makes the spy assertions fail) |
+| Repointing a peer-context importer at a barrel closes an import cycle: the barrel re-exports a module carrying a *transitional* cross-context back-edge, and the importer runs during another context's eager module-init | tsc and the grep gate pass (no type or path error); only the full suite catches it (a re-entrant eager-init throws "X is not a constructor"). PR 4: `axes/internal-docs-context -> run/index.js` re-entered `axes/index.ts` via `estimator -> ../axes/index.js`. Fix: that edge points at the **leaf** (`run/run-config.js`), not the barrel, until the transitional back-edge is removed (PR 7). Recorded as the doc 12 §5 barrel-cycle exception |
 
 ## 10. Plan acceptance invariants
 
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariants 1 to 3 satisfied (PRs 1 to 3 landed).** `worktree/`,
-> `reporting/`, `platform/` are carved out (13 modules + tests,
-> barrel-fronted); the §3 grep gate (broadened across PRs 2 to 3 to three
-> trap classes: segment-form guard-path reads, string-form guard-path
-> reads, vitest module-mock paths), `tsc --noEmit`, and the full vitest
-> suite (185 files, `spine-golden` included) are green. Invariants 4 to 5
-> remain pending PRs 4 to 7b.
+> **Status: invariants 1 to 3 hold through PR 4 (PRs 1 to 4 landed).**
+> `worktree/`, `reporting/`, `platform/`, `run/` are carved out (20 modules
+> + tests, barrel-fronted); the §3 grep gate and §4 recipe (hardened across
+> PRs 2 to 4: segment- and string-form guard-path reads, vitest module-mock
+> paths, mid-file inline `import()` type annotations, supplementary tests as
+> external importers), `tsc --noEmit`, and the full vitest suite (185 files,
+> `spine-golden` included) are green. Invariants 4 to 5 remain pending PRs
+> 5 to 7b.
 
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;

@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ProgressManager } from './progress-manager.js';
-import { atomicWriteJson } from '../utils/cache.js';
+import { atomicWriteJson } from '../../utils/cache.js';
 
 function makeProgress(tempDir: string, files: Record<string, { status: string; hash?: string }>): void {
   const cacheDir = join(tempDir, '.anatoly', 'cache');

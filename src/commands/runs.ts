@@ -11,7 +11,7 @@ import Table from 'cli-table3';
 import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
 import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
-import { listRunStatuses, isProcessAlive, writeRunStatus } from '../core/run-status.js';
+import { listRunStatuses, isProcessAlive, writeRunStatus } from '../core/run/index.js';
 
 interface RunInfo {
   id: string;

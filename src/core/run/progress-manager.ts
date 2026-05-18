@@ -2,9 +2,9 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { Progress, FileProgress, FileStatus } from '../schemas/progress.js';
-import { readProgress, atomicWriteJson } from '../utils/cache.js';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import type { Progress, FileProgress, FileStatus } from '../../schemas/progress.js';
+import { readProgress, atomicWriteJson } from '../../utils/cache.js';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
 
 /**
  * Manages review progress: reads state, filters pending files,

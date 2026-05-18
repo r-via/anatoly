@@ -7,14 +7,16 @@
 > Where they diverge, that divergence is the remediation backlog closed by
 > [13-Core-Module-Remediation-Plan.md](./13-Core-Module-Remediation-Plan.md).
 >
-> **Remediation status (updated in lockstep).** PRs 1 to 3 have landed:
-> `worktree/`, `reporting/`, `platform/` (13 modules + their colocated
-> tests) are carved out, barrel-fronted, with the grep gate, `tsc --noEmit`,
-> and the full vitest suite (185 files, the doc 11 `spine-golden` included)
-> green. PR 2 surfaced guard tests reading source by hardcoded path, PR 3 a
-> vitest module-mock path; all repointed in lockstep and the §3 grep gate
-> broadened to three trap classes (doc 13 §3 / §4 / §9). The other four
-> contexts remain flat at root (doc 13 §5, PRs 4 to 7).
+> **Remediation status (updated in lockstep).** PRs 1 to 4 have landed:
+> `worktree/`, `reporting/`, `platform/`, `run/` (20 modules + their
+> colocated tests) are carved out, barrel-fronted, with the grep gate,
+> `tsc --noEmit`, and the full vitest suite (185 files, the doc 11
+> `spine-golden` included) green. PR 2 surfaced guard tests reading source
+> by hardcoded path, PR 3 a vitest module-mock path, PR 4 a mid-file inline
+> `import()` type annotation and the rule that supplementary / integration
+> tests are external importers (only `<m>.test.ts` moves); all repointed in
+> lockstep and the recipe / grep gate hardened (doc 13 §3 / §4 / §9). The
+> other three contexts remain flat at root (doc 13 §5, PRs 5 to 7).
 >
 > It is the structural sibling of [10-Orchestration-Runtime.md](./10-Orchestration-Runtime.md):
 > doc 10 is the contract for the orchestration spine, this doc is the contract
@@ -197,6 +199,7 @@ contract or a barrel, never an implementation path:
 | `reporting/reporter` | documentation | imports `documentation/index.ts` |
 | `run/run-config` | evaluation | imports `evaluation/contract.ts` (§4) |
 | `evaluation/file-evaluator` | documentation | imports `documentation/index.ts` |
+| `evaluation/axes/internal-docs-context` | run | imports the `run/run-config.js` **leaf**, not the `run/` barrel (barrel-cycle exception, see below) |
 
 `evaluation/file-evaluator -> documentation` and
 `documentation -> evaluation/contract` is not an import cycle (the second edge
@@ -204,6 +207,24 @@ lands on the contract, not the evaluator), and §4 is precisely what keeps it
 that way. The composition layer (`orchestration/`) already imports 13 of these
 root modules directly; post-remediation it imports the owning context barrels
 instead (doc 13 §7).
+
+**Barrel-cycle exception.** A context barrel re-exports every module in the
+context, so importing the barrel eagerly loads them all. When a barrel
+re-exports a module that still carries a *transitional* cross-context
+back-edge (a `<m> -> ../<other-context>` import that exists only until the
+other context lands and the edge becomes `<m> -> contract`), a peer-context
+module that imports that barrel **during eager module-initialization** can
+close a real import cycle. PR 4 hit this: `run/index.ts` re-exports
+`estimator`, which transitionally imports `../axes/index.js` for
+`ALL_AXIS_IDS`; `axes/index.ts` eagerly constructs every evaluator at load,
+and `axes/axes/...` evaluators import `internal-docs-context`, so
+`internal-docs-context -> run/index.js` re-entered `axes/index.ts`
+mid-construction (`CorrectionEvaluator is not a constructor`). The rule: such
+an edge points at the **leaf module** inside the target context, not the
+barrel, until the transitional back-edge is removed (here: PR 7, when
+`estimator -> ../axes/index.js` becomes `estimator -> evaluation/contract`).
+This is the same principle as rule 2 (cross-context edges target a contract,
+not an implementation), applied to break an eager-init cycle.
 
 ## 6. Target tree (CONTRACT)
 
@@ -258,10 +279,10 @@ Mirrors doc 10 §7. ✅ holds today, ❌ diverges, the gap is doc 13's backlog.
 | Invariant | Status |
 |---|---|
 | Orchestration spine has a phase-aligned home | ✅ (doc 10 / 11) |
-| The 60 modules it composes have phase-aligned homes | ◑ 13/60: `worktree/` + `reporting/` + `platform/` landed (doc 13 PRs 1 to 3); 47 flat at root (doc 13 PRs 4 to 7) |
+| The 60 modules it composes have phase-aligned homes | ◑ 20/60: `worktree/` + `reporting/` + `platform/` + `run/` landed (doc 13 PRs 1 to 4); 40 flat at root (doc 13 PRs 5 to 7) |
 | Every cross-context edge points at a barrel or §4 contract | ❌ today they import implementation paths |
 | `axis-evaluator` is split contract / impl | ❌ doc 13 PR 7b |
-| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications`, `worktree`, `reporting`, `platform`) |
+| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications`, `worktree`, `reporting`, `platform`, `run`) |
 | No peer-context import of an implementation path | ❌ §5 edges currently do |
 | 60 modules each have a colocated test | ❌ 6 lack one: `calibration`, `default-models`, `correction-memory`, `doc-type-context`, `doc-gap-detection`, `documentation-config` (noted, not in scope for doc 13) |
 

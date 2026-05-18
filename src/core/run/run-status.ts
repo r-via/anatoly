@@ -11,7 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { execFileSync } from 'node:child_process';
 
 export type RunStatusState = 'running' | 'done' | 'failed' | 'crashed';

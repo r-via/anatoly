@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ProgressManager } from '../core/progress-manager.js';
+import { ProgressManager } from '../core/run/index.js';
 
 describe('status progress path (Story 53.2)', () => {
   let base: string;

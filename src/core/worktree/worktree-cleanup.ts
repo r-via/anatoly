@@ -13,7 +13,7 @@ import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { execFileSync } from 'node:child_process';
-import { readRunStatus, isProcessAlive } from '../run-status.js';
+import { readRunStatus, isProcessAlive } from '../run/index.js';
 
 export interface CleanupResult {
   cleaned: number;

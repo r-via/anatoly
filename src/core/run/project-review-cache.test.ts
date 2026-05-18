@@ -12,8 +12,8 @@ import {
   projectReviewPath,
   loadReviewIndex,
 } from './project-review-cache.js';
-import { computeContentHash } from '../utils/cache.js';
-import type { ReviewFile } from '../schemas/review.js';
+import { computeContentHash } from '../../utils/cache.js';
+import type { ReviewFile } from '../../schemas/review.js';
 
 function makeTempProject(): string {
   const root = mkdtempSync(join(tmpdir(), 'anatoly-project-review-'));

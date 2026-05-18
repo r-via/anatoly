@@ -37,7 +37,7 @@ import { isDocAxisActive } from '../axes/index.js';
 import { formatRunDuration } from '../../utils/format.js';
 import { PipelineState } from '../../cli/pipeline-state.js';
 import { ScreenRenderer } from '../../cli/screen-renderer.js';
-import { resolveDocMode } from '../run-config.js';
+import { resolveDocMode } from '../run/index.js';
 import { needsBootstrap, writeScaffoldStatus } from '../doc-bootstrap.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runDocConflictDetection } from '../doc-conflict-detector.js';

@@ -29,8 +29,8 @@ import { join, relative, resolve, basename } from 'node:path';
 import chalk from 'chalk';
 
 import { getLogger } from '../../../utils/logger.js';
-import { ProgressManager } from '../../progress-manager.js';
-import { estimateFileSeconds } from '../../estimator.js';
+import { ProgressManager } from '../../run/index.js';
+import { estimateFileSeconds } from '../../run/index.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporting/index.js';
 import { getDocsDir } from '../../../schemas/config.js';
 import { aggregateDocReport } from '../../doc-report-aggregator.js';
@@ -44,7 +44,7 @@ import { resolveAxisModel } from '../../axis-evaluator.js';
 import { countPendingDocConflicts } from '../../doc-conflict-store.js';
 import { openFile } from '../../../utils/open.js';
 import { recalibrateFromRuns, saveCalibration } from '../../calibration.js';
-import { writeRunStatus, getGitInfo, type RunStatus } from '../../run-status.js';
+import { writeRunStatus, getGitInfo, type RunStatus } from '../../run/index.js';
 import { createWorktreeManager } from '../../worktree/index.js';
 import type { RunContext } from '../../../commands/run.js';
 

@@ -22,7 +22,7 @@ import { computePromptHash } from '../utils/cache-meta.js';
 import {
   writeProjectReview,
   loadProjectReview,
-} from '../core/project-review-cache.js';
+} from '../core/run/index.js';
 import type { ReviewFile } from '../schemas/review.js';
 
 function makeReview(file: string, verdict: string): ReviewFile {

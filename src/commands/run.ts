@@ -39,12 +39,12 @@ import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
-import { buildRunConfig, writeRunConfig } from '../core/run-config.js';
+import { buildRunConfig, writeRunConfig } from '../core/run/index.js';
 import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation-config.js';
 import { type ProjectProfile } from '../core/language-detect.js';
-import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
-import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
+import { launchBackgroundRun, buildForwardedArgs } from '../core/run/index.js';
+import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run/index.js';
 import { createWorktreeManager } from '../core/worktree/index.js';
 import { runPipeline } from '../core/orchestration/pipeline.js';
 

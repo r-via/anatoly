@@ -12,7 +12,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { countTokens } from './estimator.js';
+import { countTokens } from './run/index.js';
 import { getDocTokenBudget } from './docs-resolver.js';
 import type { TransportRouter } from './transports/index.js';
 import { assertSafeOutputPath } from './docs-guard.js';

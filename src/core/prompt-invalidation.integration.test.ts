@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
   loadProjectReview,
-} from './project-review-cache.js';
+} from './run/index.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import type { ReviewFile } from '../schemas/review.js';
 

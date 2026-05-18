@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../utils/logger.js';
 import { isFatalAuthError } from '../utils/errors.js';
-import { resolveDocMode } from './run-config.js';
+import { resolveDocMode } from './run/index.js';
 import {
   loadDocConflicts,
   saveDocConflicts,
@@ -26,7 +26,7 @@ import {
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
 import { EVALUATOR_TEMPERATURE, type TransportRouter } from './transports/index.js';
-import { countTokens } from './estimator.js';
+import { countTokens } from './run/index.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../schemas/doc-conflict.js';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';

@@ -20,11 +20,11 @@ import {
   CONCURRENCY_EFFICIENCY,
   AXIS_COUNT,
 } from './estimator.js';
-import { ALL_AXIS_IDS } from './axes/index.js';
-import type { Task } from '../schemas/task.js';
-import type { CalibrationData } from './calibration.js';
-import { PRICING_PATHS, _resetPricingCache } from '../utils/pricing-cache.js';
-import { NLP_TOKENS_PER_FUNCTION } from '../rag/embed-estimator.js';
+import { ALL_AXIS_IDS } from '../axes/index.js';
+import type { Task } from '../../schemas/task.js';
+import type { CalibrationData } from '../calibration.js';
+import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
+import { NLP_TOKENS_PER_FUNCTION } from '../../rag/embed-estimator.js';
 
 describe('countTokens', () => {
   it('should count tokens in a string', () => {
@@ -222,7 +222,7 @@ describe('estimateSequentialSeconds', () => {
       { file: 'b.ts', symbols: new Array(10) },
     ] as { file: string; symbols: unknown[] }[];
     // a: 4 + 5×0.8 = 8, b: 4 + 10×0.8 = 12 → total 20
-    const result = estimateSequentialSeconds(tasks as import('../schemas/task.js').Task[]);
+    const result = estimateSequentialSeconds(tasks as import('../../schemas/task.js').Task[]);
     expect(result).toBeCloseTo(20);
   });
 });

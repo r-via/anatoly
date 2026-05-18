@@ -6,8 +6,8 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:f
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { writeRunStatus, readRunStatus, type RunStatus } from '../core/run-status.js';
-import { tailNdjson } from '../core/ndjson-tail.js';
+import { writeRunStatus, readRunStatus, type RunStatus } from '../core/run/index.js';
+import { tailNdjson } from '../core/run/index.js';
 import {
   buildFinalizationMessage,
   monitorRunStatus,

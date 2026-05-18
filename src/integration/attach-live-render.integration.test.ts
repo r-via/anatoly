@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { tailNdjson } from '../core/ndjson-tail.js';
+import { tailNdjson } from '../core/run/index.js';
 import { createAttachEventHandler } from '../commands/attach.js';
 
 /* ------------------------------------------------------------------ */

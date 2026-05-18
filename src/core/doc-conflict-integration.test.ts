@@ -12,19 +12,19 @@ import { join } from 'node:path';
 
 describe('Story 55.9 — AC1: doc-conflict-detector forecast step', () => {
   it('estimator.ts exports DOC_CONFLICT_DETECTOR_TOKENS constant', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'core', 'estimator.ts'), 'utf-8');
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'run', 'estimator.ts'), 'utf-8');
     expect(src).toContain('DOC_CONFLICT_DETECTOR_TOKENS');
   });
 
   it('forecastRun adds conflict-detection step when docMode is full', async () => {
     // Structural: forecastRun handles docConflictDetection input
-    const src = readFileSync(join(process.cwd(), 'src', 'core', 'estimator.ts'), 'utf-8');
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'run', 'estimator.ts'), 'utf-8');
     expect(src).toContain('conflict-detection');
     expect(src).toContain('docConflictDetection');
   });
 
   it('ForecastInputs includes docConflictDetection field', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'core', 'estimator.ts'), 'utf-8');
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'run', 'estimator.ts'), 'utf-8');
     expect(src).toContain('docConflictDetection');
   });
 });
@@ -35,7 +35,7 @@ describe('Story 55.9 — AC1: doc-conflict-detector forecast step', () => {
 
 describe('Story 55.9 — AC2: coherence-review in forecast', () => {
   it('DOC_COHERENCE_PER_PAGE is used in forecastRun (bootstrap mode)', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'core', 'estimator.ts'), 'utf-8');
+    const src = readFileSync(join(process.cwd(), 'src', 'core', 'run', 'estimator.ts'), 'utf-8');
     expect(src).toContain('DOC_COHERENCE_PER_PAGE');
     expect(src).toContain("name: 'coherence'");
   });
