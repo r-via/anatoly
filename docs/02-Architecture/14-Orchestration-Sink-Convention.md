@@ -189,16 +189,43 @@ that baseline and the new convention test passes. Each PR reverts with one
   the phase grain inside `runPhase`. Free-string `event:` sites replaced
   verbatim. Behavior-preserving. Lowest risk first. Gate: bench F1 unchanged,
   completeness test green.
-- **PR 2** `ExecutionUnit` + `runUnit` at the **agent grain** by generalizing
-  `runSingleTurnQuery`. The 7 axes flow through it unchanged; the harness
-  folds their cost into the sink; the 5 hand-rolled `recordLlmCost` sites
-  become harness calls. Gate: bench F1, golden ledger byte-identical.
+  Correction (grounded at `b9b7a55`, supersedes the original single "PR 2"):
+  the original PR 2 was mis-specified on two points found at grounding. (i)
+  Its stated gate "golden ledger byte-identical" does not cover the change:
+  the 5 `recordLlmCost` sites feed the in-memory rollup
+  ([cost.ts](../../src/core/orchestration/cost.ts)), not the on-disk ndjson
+  ledger (written independently by the transport layer's `recordLlmCall`,
+  the only thing cost-integrity.test.ts covers). No automated net existed for
+  the rollup. (ii) Only 1 of the 5 sites
+  ([review.ts:378](../../src/core/orchestration/phases/review.ts#L378)) is
+  agent-grain (per-axis loop over `result.axisTiming`); the other 4
+  (rag.ts:300, doc.ts:169, doc.ts:254, refinement.ts:132) are phase-grain
+  reconciliations of an already-aggregated sub-engine cost, so they cannot
+  "become harness calls by generalizing `runSingleTurnQuery`": they belong to
+  the phase grain (PR 4), not the agent grain. PR 2 is therefore split:
+- **PR 2-net** Build the missing net first (doc-11 pattern: a net that does
+  not exist is a blocking prerequisite). `cost.test.ts`: pure synthetic
+  entries fed into `recordLlmCost`, locking the exact bucket arithmetic
+  (`totalCostUsd` / `providerStats` / `phaseStats` / `axisStats`), including
+  the review.ts per-axis loop shape PR 2b will move. Zero LLM, milliseconds.
+  No behavior change. Gate: the new test green; bench F1 unchanged.
+- **PR 2a** `ExecutionUnit` + `runUnit` at the **agent grain** wrapping
+  `runSingleTurnQuery`; the single-turn axes flow through it (wired, not
+  unwired scaffold: §1 forbids the Epic 56 ghost). Behavior-preserving by
+  pass-through. Gate: bench F1, axis + file-evaluator tests + goldens green.
+- **PR 2b** Fold only the one agent-grain cost site (review.ts:378) into the
+  harness. Gate: bench F1, `cost.test.ts` byte-identical rollup (PR 2-net is
+  the proof; the ndjson "golden ledger" is untouched by construction since
+  these sites never wrote it).
 - **PR 3** doc and refinement agents under the same `ExecutionUnit` SPI. They
   stop being three bespoke shapes. Gate: bench F1.
 - **PR 4** Unify the **phase grain** onto `runUnit`. Positional `SetupResult`
   fan-out into `runReviewPhase` dies; review stops re-loading tasks from disk
   ([review.ts:136](../../src/core/orchestration/phases/review.ts#L136)); one
-  sink object threaded by the harness. Gate: bench F1, orchestration golden.
+  sink object threaded by the harness. The 4 phase-grain `recordLlmCost`
+  sites (rag.ts:300, doc.ts:169, doc.ts:254, refinement.ts:132) fold into the
+  phase-grain harness here, gated by `cost.test.ts`. Gate: bench F1,
+  orchestration golden.
 - **PR 5** Extract the orchestration policy: every inline gate at
   pipeline.ts:144-292 becomes a `PhaseGate` row in one table; the spine
   becomes a procedural loop over `CANONICAL_PHASES` reading the table; the
@@ -223,7 +250,10 @@ that baseline and the new convention test passes. Each PR reverts with one
    pipeline.ts contains no inline phase-gating if/else; the spine is a
    procedural loop over the table, not a graph interpreter.
 5. The §5 lifecycle fields are the only mutable `ctx` fields units touch.
-6. Bench F1 within run-to-run noise of `0.6729` at every PR boundary.
+6. The in-memory cost rollup (`totalCostUsd` / `providerStats` /
+   `phaseStats` / `axisStats`) is locked by `cost.test.ts`; any cost-fold PR
+   keeps it byte-identical against that synthetic net.
+7. Bench F1 within run-to-run noise of `0.6729` at every PR boundary.
 
 ## 10. Why this is not doc 11 or doc 13 again
 
