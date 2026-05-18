@@ -5,8 +5,8 @@
 import { z } from 'zod';
 import type { ReviewFile } from '../schemas/review.js';
 import { contextLogger } from '../utils/log-context.js';
-import { recordReclassification, type AxisReclassification } from './correction-memory.js';
-import { resolveSystemPrompt } from './prompt-resolver.js';
+import { recordReclassification, type AxisReclassification } from './platform/index.js';
+import { resolveSystemPrompt } from './platform/index.js';
 import { ALL_AXIS_IDS } from './axes/index.js';
 
 // ---------------------------------------------------------------------------

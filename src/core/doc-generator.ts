@@ -13,7 +13,7 @@
  */
 
 import type { PageContext, SymbolContext } from './source-context.js';
-import { resolveSystemPrompt } from './prompt-resolver.js';
+import { resolveSystemPrompt } from './platform/index.js';
 import type { TypeContextSection } from './doc-type-context.js';
 
 export const DEFAULT_MODEL = 'sonnet';

@@ -12,7 +12,7 @@ import { embedNlpBatch } from './embeddings.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { runSingleTurnQuery } from '../core/axis-evaluator.js';
 import type { TransportRouter } from '../core/transports/index.js';
-import { resolveSystemPrompt } from '../core/prompt-resolver.js';
+import { resolveSystemPrompt } from '../core/platform/index.js';
 import type { VectorStore } from './vector-store.js';
 
 // ---------------------------------------------------------------------------

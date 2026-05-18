@@ -7,8 +7,8 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
 import { extractRelevantReadmeSections } from '../dependency-meta.js';
-import { resolveSystemPrompt } from '../prompt-resolver.js';
-import { formatReclassificationsForAxis, recordReclassification } from '../correction-memory.js';
+import { resolveSystemPrompt } from '../platform/index.js';
+import { formatReclassificationsForAxis, recordReclassification } from '../platform/index.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 import { DocDivergenceSchema } from '../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';

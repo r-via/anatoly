@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { writeReviewOutput } from '../../reporting/index.js';
 import { loadReviews } from '../../reporting/index.js';
 import { getLogger } from '../../../utils/logger.js';
-import { recordReclassification } from '../../correction-memory.js';
+import { recordReclassification } from '../../platform/index.js';
 import { DeliberationResponseSchema } from '../../deliberation.js';
 import { extractJson } from '../../../utils/extract-json.js';
 import { runRefinementPhase } from '../../refinement/phase.js';

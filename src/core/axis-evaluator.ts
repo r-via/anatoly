@@ -13,7 +13,7 @@ import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import type { UserInstructions } from '../utils/user-instructions.js';
 import type { ReferenceDoc } from './reference-docs-resolver.js';
-import { resolveSystemPrompt } from './prompt-resolver.js';
+import { resolveSystemPrompt } from './platform/index.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';
 import { runWithContext } from '../utils/log-context.js';

@@ -54,8 +54,8 @@ export interface LlmResponse {
   sessionId?: string;
 }
 
-import { Semaphore } from '../sdk-semaphore.js';
-import { CircuitBreaker, type CircuitState } from '../circuit-breaker.js';
+import { Semaphore } from '../platform/index.js';
+import { CircuitBreaker, type CircuitState } from '../platform/index.js';
 import { retryWithBackoff } from '../../utils/rate-limiter.js';
 import { extractJson } from '../../utils/extract-json.js';
 import { circuitOpenError, isProviderHealthFailure } from '../../utils/errors.js';

@@ -18,7 +18,7 @@ import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGapsV2, formatGapReportV2 } from '../core/doc-gap-detection.js';
 import { VectorStore } from '../rag/vector-store.js';
-import { resolveSystemPrompt } from '../core/prompt-resolver.js';
+import { resolveSystemPrompt } from '../core/platform/index.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
 import { runArbitrateWizard } from './docs-arbitrate.js';
 

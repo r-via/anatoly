@@ -8,8 +8,8 @@ import { resolve } from 'node:path';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import { contextLogger } from '../../utils/log-context.js';
-import { resolveSystemPrompt } from '../prompt-resolver.js';
-import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { resolveSystemPrompt } from '../platform/index.js';
+import { formatReclassificationsForAxis } from '../platform/index.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------

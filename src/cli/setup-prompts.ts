@@ -15,7 +15,7 @@ import { prefetchGgufModels, type GgufPrefetchProgress } from '../rag/gguf-prefe
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { getLogger } from '../utils/logger.js';
 import { tryOpenFile } from '../utils/open.js';
-import { DEFAULT_MODELS } from '../core/default-models.js';
+import { DEFAULT_MODELS } from '../core/platform/index.js';
 import { detectProjectProfile } from '../core/language-detect.js';
 import { autoDetectScanGlobs } from '../core/scan-autodetect.js';
 import { defaultDocumentationConfig } from '../core/documentation-config.js';

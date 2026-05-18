@@ -13,7 +13,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
 
 // --- Types ---
 

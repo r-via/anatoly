@@ -5,8 +5,8 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import { resolveSystemPrompt } from '../prompt-resolver.js';
-import { formatReclassificationsForAxis } from '../correction-memory.js';
+import { resolveSystemPrompt } from '../platform/index.js';
+import { formatReclassificationsForAxis } from '../platform/index.js';
 import { DocDivergenceSchema } from '../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';

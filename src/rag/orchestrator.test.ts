@@ -91,14 +91,14 @@ vi.mock('./hardware-detect.js', () => ({
   },
 }));
 
-vi.mock('../core/worker-pool.js', () => ({
+vi.mock('../core/platform/worker-pool.js', () => ({
   runWorkerPool: workerPoolSpy,
 }));
 
 import { indexProject, ragModeArtifacts } from './orchestrator.js';
 import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import type { Task } from '../schemas/task.js';
-import type { WorkerPoolOptions } from '../core/worker-pool.js';
+import type { WorkerPoolOptions } from '../core/platform/index.js';
 import type { FunctionCard } from './types.js';
 
 function poolArgs(): WorkerPoolOptions<Task> {

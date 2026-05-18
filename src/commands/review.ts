@@ -17,7 +17,7 @@ import { AnatolyError } from '../utils/errors.js';
 import { getEnabledEvaluators } from '../core/axes/index.js';
 import { evaluateFile } from '../core/file-evaluator.js';
 import { loadDependencyMeta } from '../core/dependency-meta.js';
-import { runWorkerPool } from '../core/worker-pool.js';
+import { runWorkerPool } from '../core/platform/index.js';
 import { countReviewFindings } from '../utils/format.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';

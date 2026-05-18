@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from '../core/prompt-resolver.js';
+import { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from '../core/platform/index.js';
 import { composeAxisSystemPrompt } from '../core/axis-evaluator.js';
 import { generateSchemaExample, formatSchemaExample } from '../utils/schema-example.js';
 import { UtilityResponseSchema } from '../core/axes/utility.js';

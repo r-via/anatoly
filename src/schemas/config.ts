@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
-import { DEFAULT_MODELS } from '../core/default-models.js';
+import { DEFAULT_MODELS } from '../core/platform/index.js';
 
 export const ProjectConfigSchema = z.object({
   name: z.string().optional(),

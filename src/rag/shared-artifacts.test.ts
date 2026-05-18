@@ -105,7 +105,7 @@ describe('Grammar manager paths (AC8)', () => {
 
   it('no reference to ~/.cache/anatoly/wasm/ in grammar-manager source', async () => {
     const source = readFileSync(
-      join(process.cwd(), 'src', 'core', 'grammar-manager.ts'),
+      join(process.cwd(), 'src', 'core', 'platform', 'grammar-manager.ts'),
       'utf-8',
     );
     expect(source).not.toContain('.cache/anatoly/wasm');

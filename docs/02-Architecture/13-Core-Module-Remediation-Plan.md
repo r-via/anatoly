@@ -83,15 +83,31 @@ first (this pair of docs), then PR 1.
 
 1. `git mv src/core/<m>.ts src/core/<context>/<m>.ts` and the same for
    `<m>.test.ts` (the colocated test moves with its module, always).
-2. Rewrite relative import depth **inside** the moved files (`../foo.js`
-   depth changes by the nesting delta).
+2. Rewrite relative depth **inside** the moved files by the nesting delta.
+   Not only `import ... from '../foo.js'`: a moved test that resolves a
+   **filesystem path relative to its own location**
+   (`resolve(import.meta.dirname, '../prompts')`, `__dirname`,
+   `import.meta.url`) shifts by the same delta and breaks silently (tsc does
+   not type-check path strings). PR 3: `prompt-resolver.test.ts` globbed
+   `../prompts`, found zero `.system.md` files, and failed registry
+   coherence until corrected to `../../prompts`; a sibling `existsSync`
+   "old dir is gone" assertion was repointed `./axes/prompts` ->
+   `../axes/prompts` to keep its original absolute target (move-only: same
+   assertion, same real path).
 3. Rewrite every importer's path: intra-context importers to the new relative
    path, every out-of-context importer to the context barrel
    `<context>/index.js` (or `evaluation/contract.js` for the §4 seam). This
    includes static imports, dynamic `await import('...')`, inline
    `import('...').T` type imports, **and hardcoded source-path string readers
    in guard tests** (PR 2 surfaced `migration/deprecated-cleanup-56-9.test.ts`
-   doing `read('src/core/<m>.ts')`: repoint it to the new path). It does
+   doing `read('src/core/<m>.ts')`: repoint it to the new path). PR 3
+   surfaced a third form: **vitest module-mock paths** (`vi.mock('...')`,
+   `vi.doMock`, `vi.importActual`, `requireActual`). Repoint these to the
+   **leaf** module inside the context (`<context>/<m>.js`), never the
+   barrel: the consumer imports the barrel, the barrel re-exports the leaf,
+   so mocking the leaf transparently yields the mock, whereas mocking the
+   barrel replaces every context export and silently changes the test (a
+   move-only breach). It does
    **not** include path-agnostic sandbox fixtures: `usage-graph.test.ts` and
    `doc-pipeline.test.ts` fabricate files or `Task`s at arbitrary path
    strings under `tmpdir()` to exercise path handling generically; those are
@@ -212,17 +228,20 @@ scope creep.
 | A revert is needed mid-sequence | Every PR is one `git mv` set plus rewrites, independently `git revert`-able, each ending green. No data or schema migration in any PR |
 | A guard test reads a moved module's source by hardcoded path; recon and the import-grep miss the `join(...,'core','<m>.ts')` segment form | §3 gate 3 scans the bare quoted `'<m>.ts'` token, not just import strings. PR 2 surfaced two such tests (`migration/deprecated-cleanup-56-9.test.ts` string form, `doc-stale-reference.test.ts:205` segment form); the full-suite gate caught the missed one, the detector was then broadened. Future exposure inventoried: `axis-evaluator.ts` (PR 7), `correction-memory.ts` (PR 3), `doc-llm-executor.ts` / `doc-gap-detection.ts` (PR 6) |
 | `git mv` then edit leaves the content edits unstaged; the commit lands a stale `R100` rename | §4 step 5: `git add` every moved-and-edited file explicitly, verify `git diff --cached -- <moved>` shows the import delta. PR 1 hit this, repaired via `git commit --amend` pre-push |
+| A vitest module-mock path (`vi.mock('...')`) still targets the old flat path; recon, the import-grep and tsc all miss it (mock paths are strings, not type-checked) | §3 gate 3 / §4 step 3 scan `vi.mock`/`vi.doMock`/`importActual`/`requireActual`. PR 3 surfaced `rag/orchestrator.test.ts:94`; repointed to the leaf `platform/worker-pool.js` so the barrel re-export transparently yields the spy. The full-suite gate is the backstop (a dead mock path makes the spy assertions fail) |
 
 ## 10. Plan acceptance invariants
 
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariants 1 to 2 satisfied (PRs 1 to 2 landed).** `worktree/`
-> and `reporting/` are carved out (6 modules + tests, barrel-fronted); the
-> §3 grep gate (broadened in PR 2 for segment-form guard-path reads),
-> `tsc --noEmit`, and the full vitest suite (185 files, `spine-golden`
-> included) are green. Invariants 3 to 5 remain pending PRs 3 to 7b.
+> **Status: invariants 1 to 3 satisfied (PRs 1 to 3 landed).** `worktree/`,
+> `reporting/`, `platform/` are carved out (13 modules + tests,
+> barrel-fronted); the §3 grep gate (broadened across PRs 2 to 3 to three
+> trap classes: segment-form guard-path reads, string-form guard-path
+> reads, vitest module-mock paths), `tsc --noEmit`, and the full vitest
+> suite (185 files, `spine-golden` included) are green. Invariants 4 to 5
+> remain pending PRs 4 to 7b.
 
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;

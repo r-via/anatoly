@@ -30,7 +30,7 @@ import { parseAxesOption } from '../utils/axes-filter.js';
 import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
-import { saveDeliberationMemory } from '../core/correction-memory.js';
+import { saveDeliberationMemory } from '../core/platform/index.js';
 import { type AxisId } from '../core/axis-evaluator.js';
 import { ALL_AXIS_IDS } from '../core/axes/index.js';
 import { TransportRouter, findModelForProvider } from '../core/transports/index.js';

@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSingleTurnQuery } from '../../core/axis-evaluator.js';
-import { resolveSystemPrompt, _resetPromptRegistry } from '../../core/prompt-resolver.js';
+import { resolveSystemPrompt, _resetPromptRegistry } from '../../core/platform/index.js';
 import { UtilityResponseSchema } from '../../core/axes/utility.js';
 import { CorrectionResponseSchema } from '../../core/axes/correction.js';
 import { DuplicationResponseSchema } from '../../core/axes/duplication.js';

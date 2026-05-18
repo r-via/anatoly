@@ -13,9 +13,9 @@ import {
   applyDeliberation,
   type DeliberationResponse,
 } from '../deliberation.js';
-import { resolveSystemPrompt } from '../prompt-resolver.js';
+import { resolveSystemPrompt } from '../platform/index.js';
 import { ALL_AXIS_IDS } from '../axes/index.js';
-import type { AxisReclassification, ReclassificationEntry } from '../correction-memory.js';
+import type { AxisReclassification, ReclassificationEntry } from '../platform/index.js';
 
 // ---------------------------------------------------------------------------
 // Types

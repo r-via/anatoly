@@ -239,7 +239,7 @@ describe('Story 33.4 — registry coherence', () => {
     const expectedFiles = new Set(keys.map(keyToExpectedFile));
 
     // Glob actual .system.md files on disk
-    const promptsDir = resolve(import.meta.dirname, '../prompts');
+    const promptsDir = resolve(import.meta.dirname, '../../prompts');
     const mdFiles = globSync('**/*.system.md', { cwd: promptsDir });
 
     // Precondition: we actually found files (guards against broken path)
@@ -256,7 +256,7 @@ describe('Story 33.4 — registry coherence', () => {
   it('AC: no orphan registry keys — every key maps to an existing .system.md file', () => {
     _resetPromptRegistry();
     const keys = _getRegistryKeys();
-    const promptsDir = resolve(import.meta.dirname, '../prompts');
+    const promptsDir = resolve(import.meta.dirname, '../../prompts');
 
     for (const key of keys) {
       const expectedFile = keyToExpectedFile(key);
@@ -326,7 +326,7 @@ describe('Story 33.4 — registry coherence', () => {
   });
 
   it('AC: old src/core/axes/prompts/ directory no longer exists', () => {
-    const oldDir = resolve(import.meta.dirname, './axes/prompts');
+    const oldDir = resolve(import.meta.dirname, '../axes/prompts');
     expect(existsSync(oldDir)).toBe(false);
   });
 });

@@ -24,22 +24,22 @@ describe('FR21: verboseLog removed from format.ts', () => {
 // ---------------------------------------------------------------------------
 describe('FR22: correction-memory legacy exports removed', () => {
   it('FalsePositiveEntry type alias is absent', () => {
-    const src = read('src/core/correction-memory.ts');
+    const src = read('src/core/platform/correction-memory.ts');
     expect(src).not.toContain('FalsePositiveEntry');
   });
 
   it('CorrectionMemory type alias is absent', () => {
-    const src = read('src/core/correction-memory.ts');
+    const src = read('src/core/platform/correction-memory.ts');
     expect(src).not.toContain('CorrectionMemory');
   });
 
   it('loadCorrectionMemory alias is absent', () => {
-    const src = read('src/core/correction-memory.ts');
+    const src = read('src/core/platform/correction-memory.ts');
     expect(src).not.toContain('loadCorrectionMemory');
   });
 
   it('saveCorrectionMemory alias is absent', () => {
-    const src = read('src/core/correction-memory.ts');
+    const src = read('src/core/platform/correction-memory.ts');
     expect(src).not.toContain('saveCorrectionMemory');
   });
 });

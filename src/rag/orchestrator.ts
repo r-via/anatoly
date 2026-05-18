@@ -13,7 +13,7 @@ import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
-import { runWorkerPool } from '../core/worker-pool.js';
+import { runWorkerPool } from '../core/platform/index.js';
 import { contextLogger } from '../utils/log-context.js';
 import { indexDocSections, areDocTreesIdentical, resolveReferenceDocFiles } from './doc-indexer.js';
 import type { TransportRouter } from '../core/transports/index.js';

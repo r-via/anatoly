@@ -17,7 +17,7 @@ import { getDocTokenBudget } from './docs-resolver.js';
 import type { TransportRouter } from './transports/index.js';
 import { assertSafeOutputPath } from './docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
-import { resolveSystemPrompt } from './prompt-resolver.js';
+import { resolveSystemPrompt } from './platform/index.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../utils/rate-limiter.js';
 import { withTimeout } from '../utils/with-timeout.js';
