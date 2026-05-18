@@ -235,6 +235,19 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
     // Filter to only tasks for files in the current scan (excludes stale tasks from previously scanned files)
     const scannedFileSet = scanResult.files ? new Set(scanResult.files.map((f) => f.file)) : undefined;
     allTasks = scannedFileSet ? rawTasks.filter((t) => scannedFileSet.has(t.file)) : rawTasks;
+    // doc 15: a persisted task whose file is no longer in the current scan
+    // set is removed from scope HERE. Pre-doc-15 this was SILENT — a file
+    // reviewed in run N could vanish in run N+1 with zero trace, making the
+    // cache/scope delta opaque between two runs. Log-only (filtering
+    // behaviour unchanged): emit a first-class typed event + structured warn
+    // listing exactly which tasks were dropped and why.
+    if (scannedFileSet) {
+      const dropped = rawTasks.filter((t) => !scannedFileSet.has(t.file)).map((t) => t.file);
+      if (dropped.length > 0) {
+        log.warn({ phase: 'estimate', runId: ctx.runId, droppedCount: dropped.length, dropped }, 'stale tasks dropped: file not in current scan set — NOT reviewed this run');
+        rl?.warn({ event: ('stale_task_dropped' satisfies OrchestrationEventName), phase: 'estimate', droppedCount: dropped.length, dropped }, 'stale tasks dropped: not in current scan set');
+      }
+    }
     estimateTasks = ctx.fileFilter
       ? allTasks.filter((t) => picomatch(ctx.fileFilter!)(t.file))
       : allTasks;

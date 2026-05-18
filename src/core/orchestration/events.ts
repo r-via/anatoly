@@ -54,6 +54,7 @@ export const ORCHESTRATION_EVENTS = Object.freeze([
   'phase_end',
   // body
   'estimate_total',
+  'stale_task_dropped',
   'file_triage',
   'rag_progress',
   'file_review_start',
@@ -94,7 +95,7 @@ export function isOrchestrationEvent(name: string): name is OrchestrationEventNa
  */
 export const PHASE_EVENT_CONTRACT = Object.freeze({
   scan: [],
-  estimate: [],
+  estimate: ['stale_task_dropped'],
   triage: ['file_triage'],
   'bootstrap-doc': [],
   'doc-conflict-bootstrap': [],
