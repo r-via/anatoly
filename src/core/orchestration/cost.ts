@@ -109,3 +109,59 @@ export function recordAgentCosts(ctx: RunContext, axisTiming: readonly AxisTimin
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// doc 14 PR 4a: the four phase-grain cost folds, relocated verbatim out of
+// the phase bodies (rag / doc-generation / doc-coherence / refinement) into
+// this harness-owned cost module. Each is the exact `recordLlmCost(...)`
+// entry the phase built inline, with `provider` and `phase` hardcoded
+// verbatim (the literals the phase passed). Byte-identical: `cost.test.ts`
+// proves each helper's rollup equals the inline call. These stay phase-grain
+// (the cost is already aggregated by the sub-engine, see doc 14 §8 PR 2);
+// full harness ownership via the sink lands at PR 4c.
+// ---------------------------------------------------------------------------
+
+/** rag-index phase cost (was rag.ts inline). */
+export function recordRagCost(ctx: RunContext, m: { costUsd: number; durationMs: number }): void {
+  recordLlmCost(ctx, { provider: 'anthropic', phase: 'rag-index', costUsd: m.costUsd, durationMs: m.durationMs });
+}
+
+/** doc-generation phase cost (was doc.ts inline; `phase` is the doc taskId). */
+export function recordDocGenerationCost(
+  ctx: RunContext,
+  taskId: string,
+  m: { costUsd: number; durationMs: number; calls: number },
+): void {
+  recordLlmCost(ctx, { provider: 'anthropic', phase: taskId, costUsd: m.costUsd, durationMs: m.durationMs, calls: m.calls });
+}
+
+/** doc-coherence-review phase cost (was doc.ts inline). */
+export function recordDocCoherenceCost(ctx: RunContext, m: { costUsd: number; durationMs: number }): void {
+  recordLlmCost(ctx, { provider: 'anthropic', phase: 'coherence-review', costUsd: m.costUsd, durationMs: m.durationMs });
+}
+
+/** refinement phase cost (was refinement.ts inline; tier3 is SDK-attributed to anthropic). */
+export function recordRefinementCost(
+  ctx: RunContext,
+  m: {
+    costUsd: number;
+    durationMs: number;
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  },
+): void {
+  recordLlmCost(ctx, {
+    provider: 'anthropic',
+    phase: 'refinement',
+    costUsd: m.costUsd,
+    durationMs: m.durationMs,
+    calls: m.calls,
+    inputTokens: m.inputTokens,
+    outputTokens: m.outputTokens,
+    cacheReadTokens: m.cacheReadTokens,
+    cacheCreationTokens: m.cacheCreationTokens,
+  });
+}

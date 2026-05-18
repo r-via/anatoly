@@ -272,13 +272,28 @@ that baseline and the new convention test passes. Each PR reverts with one
   `runSingleTurnQuery` (different LLM paths), so they did not flow through
   `runUnit` before; PR 3 makes them conform to the one SPI. Gate per
   sub-PR: bench F1, typecheck + suites + goldens green.
-- **PR 4** Unify the **phase grain** onto `runUnit`. Positional `SetupResult`
-  fan-out into `runReviewPhase` dies; review stops re-loading tasks from disk
-  ([review.ts:136](../../src/core/orchestration/phases/review.ts#L136)); one
-  sink object threaded by the harness. The 4 phase-grain `recordLlmCost`
-  sites (rag.ts:300, doc.ts:169, doc.ts:254, refinement.ts:132) fold into the
-  phase-grain harness here, gated by `cost.test.ts`. Gate: bench F1,
-  orchestration golden.
+- **PR 4** As written this bundled five semi-independent changes; split by
+  ascending risk (the §8 discipline), the same way PR 2/3 were:
+  - **PR 4a** Relocate the 4 phase-grain `recordLlmCost` sites
+    (rag.ts:301, doc.ts:169, doc.ts:254, refinement.ts:132) **verbatim**
+    into named harness-owned functions in `orchestration/cost.ts`
+    (`recordRagCost`, `recordDocGenerationCost`, `recordDocCoherenceCost`,
+    `recordRefinementCost`): the exact entry the phase built inline, with
+    `provider`/`phase` hardcoded verbatim. Phase bodies no longer contain
+    inline `recordLlmCost`. Byte-identical, fully independent of
+    runUnit/sink/handoff (the proven PR-2b recipe). Gate: `cost.test.ts`
+    proves each helper == its inline call; bench F1; goldens.
+  - **PR 4b** Kill the positional `SetupResult` fan-out into
+    `runReviewPhase` and stop review re-loading tasks from disk
+    ([review.ts:136](../../src/core/orchestration/phases/review.ts#L136));
+    thread these through the typed `Handoff` (doc 14 §1/§5). Behaviour-
+    relevant; gated by the spine + handoff goldens. Fork to surface at
+    grounding (what review actually consumes vs what `Handoff` carries).
+  - **PR 4c** Unify the **phase grain** onto `runUnit` and introduce the
+    one `RunSink` object (doc 14 §5: accounting becomes a sink projection;
+    the 4a-relocated cost fns + the agent cost re-point at the sink). The
+    deepest, least-netted slice. Fork to surface at grounding. Gate: bench
+    F1, orchestration golden.
 - **PR 5** Extract the orchestration policy: every inline gate at
   pipeline.ts:144-292 becomes a `PhaseGate` row in one table; the spine
   becomes a procedural loop over `CANONICAL_PHASES` reading the table; the

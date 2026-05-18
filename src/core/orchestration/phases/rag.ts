@@ -38,7 +38,7 @@ import { getLogger } from '../../../utils/logger.js';
 import type { Task } from '../../../schemas/task.js';
 import { resolveCodeSummaryModel } from '../../evaluation/index.js';
 import { shortModelName } from '../../../cli/setup-table.js';
-import { recordLlmCost } from '../cost.js';
+import { recordRagCost } from '../cost.js';
 import type { RagContext, Handoff } from '../handoff.js';
 import type { OrchestrationEventName } from '../events.js';
 import type { RunContext } from '../../../commands/run.js';
@@ -298,12 +298,7 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
   // Aggregate RAG LLM costs (NLP summaries + doc chunking). Provider is
   // anthropic — RAG NLP summarization runs through the same router.
   if (ragResult?.costUsd) {
-    recordLlmCost(ctx, {
-      provider: 'anthropic',
-      phase: 'rag-index',
-      costUsd: ragResult.costUsd,
-      durationMs: ragDuration,
-    });
+    recordRagCost(ctx, { costUsd: ragResult.costUsd, durationMs: ragDuration });
   }
 
   // Store dedup status for project docs sync after internal docs update

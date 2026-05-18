@@ -18,7 +18,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { recordLlmCost, recordAgentCosts } from './cost.js';
+import {
+  recordLlmCost,
+  recordAgentCosts,
+  recordRagCost,
+  recordDocGenerationCost,
+  recordDocCoherenceCost,
+  recordRefinementCost,
+} from './cost.js';
 import type { AxisTiming } from '../evaluation/index.js';
 
 type CostCtx = Parameters<typeof recordLlmCost>[0];
@@ -225,5 +232,58 @@ describe('recordAgentCosts — byte-identical to the inline review.ts loop (doc 
     expect(ctx.providerStats).toEqual({ anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } });
     expect(Object.keys(ctx.phaseStats)).toHaveLength(0);
     expect(Object.keys(ctx.axisStats)).toHaveLength(0);
+  });
+});
+
+describe('phase-grain cost helpers — byte-identical to the inline calls (doc 14 PR 4a)', () => {
+  it('recordRagCost == the rag.ts inline recordLlmCost', () => {
+    const ref = makeCtx();
+    recordLlmCost(ref, { provider: 'anthropic', phase: 'rag-index', costUsd: 0.012, durationMs: 4200 });
+    const via = makeCtx();
+    recordRagCost(via, { costUsd: 0.012, durationMs: 4200 });
+    expect(via.totalCostUsd).toBe(ref.totalCostUsd);
+    expect(via.providerStats).toEqual(ref.providerStats);
+    expect(via.phaseStats).toEqual(ref.phaseStats);
+    expect(via.axisStats).toEqual(ref.axisStats);
+  });
+
+  it('recordDocGenerationCost == the doc.ts inline recordLlmCost (phase = taskId)', () => {
+    const ref = makeCtx();
+    recordLlmCost(ref, { provider: 'anthropic', phase: 'bootstrap-doc', costUsd: 0.34, durationMs: 90_000, calls: 7 });
+    const via = makeCtx();
+    recordDocGenerationCost(via, 'bootstrap-doc', { costUsd: 0.34, durationMs: 90_000, calls: 7 });
+    expect(via.totalCostUsd).toBe(ref.totalCostUsd);
+    expect(via.providerStats).toEqual(ref.providerStats);
+    expect(via.phaseStats).toEqual(ref.phaseStats);
+    expect(via.axisStats).toEqual(ref.axisStats);
+  });
+
+  it('recordDocCoherenceCost == the doc.ts inline recordLlmCost', () => {
+    const ref = makeCtx();
+    recordLlmCost(ref, { provider: 'anthropic', phase: 'coherence-review', costUsd: 0.08, durationMs: 30_000 });
+    const via = makeCtx();
+    recordDocCoherenceCost(via, { costUsd: 0.08, durationMs: 30_000 });
+    expect(via.totalCostUsd).toBe(ref.totalCostUsd);
+    expect(via.providerStats).toEqual(ref.providerStats);
+    expect(via.phaseStats).toEqual(ref.phaseStats);
+    expect(via.axisStats).toEqual(ref.axisStats);
+  });
+
+  it('recordRefinementCost == the refinement.ts inline recordLlmCost (full token set)', () => {
+    const ref = makeCtx();
+    recordLlmCost(ref, {
+      provider: 'anthropic', phase: 'refinement',
+      costUsd: 0.21, durationMs: 60_000, calls: 5,
+      inputTokens: 4000, outputTokens: 1500, cacheReadTokens: 200, cacheCreationTokens: 50,
+    });
+    const via = makeCtx();
+    recordRefinementCost(via, {
+      costUsd: 0.21, durationMs: 60_000, calls: 5,
+      inputTokens: 4000, outputTokens: 1500, cacheReadTokens: 200, cacheCreationTokens: 50,
+    });
+    expect(via.totalCostUsd).toBe(ref.totalCostUsd);
+    expect(via.providerStats).toEqual(ref.providerStats);
+    expect(via.phaseStats).toEqual(ref.phaseStats);
+    expect(via.axisStats).toEqual(ref.axisStats);
   });
 });

@@ -44,7 +44,7 @@ import { writeCoherenceStatus, computeDocSetSignature, coherenceUpToDate } from 
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { runPath } from '../../../utils/anatoly-paths.js';
 import { buildCodeSurfaceSummary } from '../../documentation/index.js';
-import { recordLlmCost } from '../cost.js';
+import { recordDocGenerationCost, recordDocCoherenceCost } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RunContext } from '../../../commands/run.js';
 
@@ -166,9 +166,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
 
     // Aggregate doc generation LLM costs. Per-call tokens aren't surfaced
     // by `executeDocPrompts` — they remain visible in `costs/ledger.ndjson`.
-    recordLlmCost(ctx, {
-      provider: 'anthropic',
-      phase: taskId,
+    recordDocGenerationCost(ctx, taskId, {
       costUsd: result.totalCostUsd,
       durationMs: Date.now() - phaseStart,
       calls: result.pagesWritten + result.pagesFailed,
@@ -251,9 +249,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
             },
           }),
         );
-        recordLlmCost(ctx, {
-          provider: 'anthropic',
-          phase: 'coherence-review',
+        recordDocCoherenceCost(ctx, {
           costUsd: coherenceResult.costUsd,
           durationMs: Date.now() - coherenceStart,
         });

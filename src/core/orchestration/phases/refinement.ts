@@ -36,7 +36,7 @@ import { recordReclassification } from '../../platform/index.js';
 import { DeliberationResponseSchema } from '../../evaluation/index.js';
 import { extractJson } from '../../../utils/extract-json.js';
 import { runRefinementPhase } from '../../evaluation/index.js';
-import { recordLlmCost } from '../cost.js';
+import { recordRefinementCost } from '../cost.js';
 import type { RunContext } from '../../../commands/run.js';
 import type { SetupResult, Handoff } from '../handoff.js';
 
@@ -129,9 +129,7 @@ export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setu
             // Tier 3 invokes Claude SDK; tiers 1+2 are deterministic so the
             // cost is fully attributable to anthropic. `investigated` is the
             // SDK call count; `totalCostUsd` is the rolled-up cost.
-            recordLlmCost(ctx, {
-              provider: 'anthropic',
-              phase: 'refinement',
+            recordRefinementCost(ctx, {
               costUsd: refinementResult.totalCostUsd,
               durationMs: refinementDuration,
               calls: refinementResult.tier3Stats.investigated,
