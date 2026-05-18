@@ -118,9 +118,18 @@ doc-coherence / refinement / doc-conflict / RAG-summary), the harness
 
 - **PR 0 (done, `bcd54bf` + this update)** This contract; §7 audit items A/B/C
   resolved read-only; the true surface confirmed. No code.
-- **PR 1** Plug the **confirmed** leak: route `doc-conflict-detection`'s cost
-  into the rollup (and verify the ledger). Smallest, highest-value,
-  isolated. Gate: `cost.test.ts` extended, bench F1.
+- **PR 1 (done)** Plugged the confirmed leak. `detectNewConflictsViaLlm`
+  surfaces each batch's `agenticQuery` cost via an optional `onLlmResponse`
+  opt (DI, non-breaking); `runDocConflictDetection` accumulates it onto an
+  optional `DetectionSummary.cost` (present only when the LLM ran);
+  pipeline's two sites call the new harness-owned `recordDocConflictCost`
+  (`orchestration/cost.ts`, phase = the verbatim runPhase name). Ledger was
+  already covered (§7-A). **Behaviour-relevant by intent**: the run-metrics
+  rollup now correctly includes doc-conflict cost (previously missing) — not
+  byte-identical; the goldens are hermetic (doc-conflict skipped, no LLM, no
+  change there) so this **requires its own bench** before merge. Gate:
+  typecheck + 798 suites + goldens + extended `cost.test.ts` green; bench at
+  the PR-1 tip.
 - **PR 2** Make `runUnit` capture cost (fold the doc-14-deferred step) so the
   rollup is harness-produced, not phase-reported; the 5 `recordXCost` sites
   become harness-internal. Gate: `cost.test.ts` byte-identical, goldens.

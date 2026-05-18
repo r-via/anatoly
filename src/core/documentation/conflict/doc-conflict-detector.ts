@@ -25,7 +25,7 @@ import {
   parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
-import { EVALUATOR_TEMPERATURE, type TransportRouter } from '../../transports/index.js';
+import { EVALUATOR_TEMPERATURE, type TransportRouter, type LlmResponse } from '../../transports/index.js';
 import { countTokens } from '../../run/index.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../../../schemas/doc-conflict.js';
 import type { Config } from '../../../schemas/config.js';
@@ -49,6 +49,19 @@ export interface DetectionSummary {
   applied: number;
   stale: number;
   pending: number;
+  /** doc 15 PR 1: aggregated LLM cost of the new-conflict detection
+   *  batches. Present only when the LLM actually ran (absent for
+   *  off/lite/no-router/no-batch, exactly as before). The caller folds
+   *  this into the run-metrics rollup. */
+  cost?: {
+    costUsd: number;
+    durationMs: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    calls: number;
+  };
 }
 
 export interface DocConflictDetectionOpts {
@@ -67,6 +80,11 @@ export interface DocConflictDetectionOpts {
    *  for debugging and audit. When omitted, the agentic call still
    *  runs but no transcript is persisted. */
   runDir?: string;
+  /** doc 15 PR 1: invoked with each per-batch LLM response so the caller
+   *  can fold the detection cost into the run rollup. Optional and
+   *  side-effect-only: omitting it is identical to the pre-PR-1 behaviour
+   *  (the cost was on the response and discarded). */
+  onLlmResponse?: (r: LlmResponse) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +531,10 @@ export async function detectNewConflictsViaLlm(
           : {}),
       });
       responseText = response.text;
+      // doc 15 PR 1: surface the per-batch cost (previously on the
+      // response and discarded). Ledger already has it via the transport;
+      // this lets runDocConflictDetection fold it into the run rollup.
+      opts.onLlmResponse?.(response);
     } catch (err) {
       // A provider-auth failure is run-fatal: do not swallow it as a skipped
       // batch — propagate so the orchestrator stops the whole run.
@@ -609,8 +631,28 @@ export async function runDocConflictDetection(
   entries = applyResult.entries;
 
   // Step 3: Detect new conflicts via LLM (Story 55.10, FR4d-e)
+  // doc 15 PR 1: fold the per-batch detection cost (previously discarded)
+  // so the caller can record it into the run-metrics rollup.
   const existingIds = new Set(entries.map(e => e.id));
-  const newConflicts = await detectNewConflictsViaLlm(opts, existingIds);
+  const dcCost = {
+    costUsd: 0, durationMs: 0, inputTokens: 0, outputTokens: 0,
+    cacheReadTokens: 0, cacheCreationTokens: 0, calls: 0,
+  };
+  const newConflicts = await detectNewConflictsViaLlm(
+    {
+      ...opts,
+      onLlmResponse: (r) => {
+        dcCost.costUsd += r.costUsd;
+        dcCost.durationMs += r.durationMs;
+        dcCost.inputTokens += r.inputTokens;
+        dcCost.outputTokens += r.outputTokens;
+        dcCost.cacheReadTokens += r.cacheReadTokens;
+        dcCost.cacheCreationTokens += r.cacheCreationTokens;
+        dcCost.calls += 1;
+      },
+    },
+    existingIds,
+  );
   entries = [...entries, ...newConflicts];
 
   // Step 4: Write updated lock
@@ -628,6 +670,10 @@ export async function runDocConflictDetection(
     applied: applyResult.appliedCount,
     stale: staleResult.staleCount,
     pending: pendingCount,
+    // doc 15 PR 1: attach cost only when the LLM actually ran (>=1 batch),
+    // so off/lite/no-router/no-batch yield no cost entry — identical to
+    // pre-PR-1 (where cost was simply never recorded).
+    ...(dcCost.calls > 0 ? { cost: dcCost } : {}),
   };
 
   log.info({

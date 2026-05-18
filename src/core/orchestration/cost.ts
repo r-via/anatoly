@@ -165,3 +165,39 @@ export function recordRefinementCost(
     cacheCreationTokens: m.cacheCreationTokens,
   });
 }
+
+/**
+ * doc 15 PR 1: the doc-conflict-detection cost fold. This closes the one
+ * confirmed observability leak (its LLM cost was on the agenticQuery
+ * response and discarded, absent from the run-metrics rollup; the
+ * `costs/ledger.ndjson` ledger already had it via the transport). `phase`
+ * is the verbatim runPhase name of the calling sub-phase
+ * (`doc-conflict-bootstrap` or `doc-conflict-update`). `provider:'anthropic'`
+ * hardcoded like the sibling helpers (the ledger carries the true per-call
+ * provider; this is the run-level rollup).
+ */
+export function recordDocConflictCost(
+  ctx: RunContext,
+  phase: 'doc-conflict-bootstrap' | 'doc-conflict-update',
+  m: {
+    costUsd: number;
+    durationMs: number;
+    calls: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  },
+): void {
+  recordLlmCost(ctx, {
+    provider: 'anthropic',
+    phase,
+    costUsd: m.costUsd,
+    durationMs: m.durationMs,
+    calls: m.calls,
+    inputTokens: m.inputTokens,
+    outputTokens: m.outputTokens,
+    cacheReadTokens: m.cacheReadTokens,
+    cacheCreationTokens: m.cacheCreationTokens,
+  });
+}

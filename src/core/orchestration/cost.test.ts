@@ -25,6 +25,7 @@ import {
   recordDocGenerationCost,
   recordDocCoherenceCost,
   recordRefinementCost,
+  recordDocConflictCost,
 } from './cost.js';
 import type { AxisTiming } from '../evaluation/index.js';
 
@@ -285,5 +286,22 @@ describe('phase-grain cost helpers — byte-identical to the inline calls (doc 1
     expect(via.providerStats).toEqual(ref.providerStats);
     expect(via.phaseStats).toEqual(ref.phaseStats);
     expect(via.axisStats).toEqual(ref.axisStats);
+  });
+
+  it('recordDocConflictCost == an equivalent recordLlmCost, for both phase names (doc 15 PR 1)', () => {
+    const m = {
+      costUsd: 0.09, durationMs: 12_000, calls: 2,
+      inputTokens: 800, outputTokens: 300, cacheReadTokens: 10, cacheCreationTokens: 5,
+    };
+    for (const phase of ['doc-conflict-bootstrap', 'doc-conflict-update'] as const) {
+      const ref = makeCtx();
+      recordLlmCost(ref, { provider: 'anthropic', phase, ...m });
+      const via = makeCtx();
+      recordDocConflictCost(via, phase, m);
+      expect(via.totalCostUsd).toBe(ref.totalCostUsd);
+      expect(via.providerStats).toEqual(ref.providerStats);
+      expect(via.phaseStats).toEqual(ref.phaseStats);
+      expect(via.axisStats).toEqual(ref.axisStats);
+    }
   });
 });

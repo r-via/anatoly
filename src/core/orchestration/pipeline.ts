@@ -42,6 +42,7 @@ import { ScreenRenderer } from '../../cli/screen-renderer.js';
 import { needsBootstrap, writeScaffoldStatus } from '../documentation/index.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runDocConflictDetection } from '../documentation/index.js';
+import { recordDocConflictCost } from './cost.js';
 import { runPhase } from './run-phase.js';
 import { runReportPhase } from './phases/report.js';
 import { runSetupPhase } from './phases/setup.js';
@@ -185,7 +186,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-bootstrap', async () => {
-              await runDocConflictDetection({
+              const dc = await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
                 config: ctx.config,
                 tasks: setup.tasks,
@@ -193,6 +194,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
                 runDir: ctx.runDir,
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
+              // doc 15 PR 1: fold the doc-conflict cost into the rollup
+              // (the leak this contract closes; ledger already had it).
+              if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-bootstrap', dc.cost);
             });
           }
         } else if (!bd.run && bd.reason === 'off' && !ctx.interrupted) {
@@ -243,7 +247,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-update', async () => {
-              await runDocConflictDetection({
+              const dc = await runDocConflictDetection({
                 projectRoot: ctx.projectRoot,
                 config: ctx.config,
                 tasks: setup.tasks,
@@ -251,6 +255,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
                 runDir: ctx.runDir,
                 ...(ctx.router ? { router: ctx.router } : {}),
               });
+              // doc 15 PR 1: fold the doc-conflict cost into the rollup
+              // (the leak this contract closes; ledger already had it).
+              if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-update', dc.cost);
             });
           }
         } else if (!id.run && id.reason === 'off' && !ctx.interrupted) {
