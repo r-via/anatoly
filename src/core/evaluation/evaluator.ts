@@ -26,7 +26,7 @@ import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import type { LlmTransport, LlmResponse } from '../transports/index.js';
 import { extractProvider } from '../transports/index.js';
 import { AnthropicTransport } from '../transports/anthropic-transport.js';
-import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult } from './contract.js';
+import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult, ExecutionUnit, HarnessCtx } from './contract.js';
 
 // ---------------------------------------------------------------------------
 // System prompt composition
@@ -214,12 +214,30 @@ export function resolveAgentModel(phase: 'scaffolding' | 'review', config: Confi
 // ---------------------------------------------------------------------------
 
 /**
+ * doc 14 §4 — the unit harness at the agent grain. The single chokepoint
+ * every agent flows through (PR 2a: the single-turn axes, transitively, via
+ * {@link runSingleTurnQuery}). Pure pass-through in PR 2a, behaviour-
+ * preserving by construction; PR 2b folds cost recording here so the
+ * per-axis `recordLlmCost` loop in review.ts moves off the phase. It lives
+ * in core/evaluation (not orchestration) so the axes reach it without an
+ * orchestration -> evaluation -> orchestration import cycle; the phase grain
+ * joins this same harness at PR 4.
+ */
+export async function runUnit<I, O>(unit: ExecutionUnit<I, O>, input: I, h: HarnessCtx): Promise<O> {
+  return unit.run(input, h);
+}
+
+/**
  * Execute a single-turn LLM query (no tools), validate the response with a
  * Zod schema, and retry once with Zod error feedback if validation fails.
  *
  * Shared by all axis evaluators to eliminate duplicated SDK boilerplate.
+ *
+ * doc 14 PR 2a: the body is unchanged (byte-verbatim); it is now the `run`
+ * of the single-turn {@link ExecutionUnit}, reached only through
+ * {@link runSingleTurnQuery} below, which routes it through {@link runUnit}.
  */
-export async function runSingleTurnQuery<T>(
+async function runSingleTurnQueryImpl<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
@@ -258,6 +276,27 @@ export async function runSingleTurnQuery<T>(
     return runWithContext({ ...(composer ? { composer } : {}), ...(primitive ? { primitive } : {}) }, exec);
   }
   return exec();
+}
+
+/**
+ * doc 14 PR 2a: the single-turn LLM interaction modelled as an
+ * {@link ExecutionUnit} and run through the {@link runUnit} agent-grain
+ * harness. Public name, signature and behaviour are unchanged: `runUnit` is
+ * pure pass-through in PR 2a, so this is byte-equivalent to the pre-PR-2a
+ * `runSingleTurnQuery` (the seam PR 2b folds cost into). Every axis that
+ * called `runSingleTurnQuery` is untouched and now flows through `runUnit`.
+ * `name` is the per-call composer/primitive identity (cost/event attribution
+ * for PR 2b); falls back to a stable generic label.
+ */
+export function runSingleTurnQuery<T>(
+  params: SingleTurnQueryParams,
+  schema: z.ZodType<T>,
+): Promise<SingleTurnQueryResult<T>> {
+  const unit: ExecutionUnit<{ params: SingleTurnQueryParams; schema: z.ZodType<T> }, SingleTurnQueryResult<T>> = {
+    name: params.composer ?? params.primitive ?? 'agent.single-turn',
+    run: (input) => runSingleTurnQueryImpl(input.params, input.schema),
+  };
+  return runUnit(unit, { params, schema }, { abortController: params.abortController });
 }
 
 async function _runSingleTurnQueryInner<T>(

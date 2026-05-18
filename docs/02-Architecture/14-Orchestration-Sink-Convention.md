@@ -118,6 +118,17 @@ grains:
 | capture transcript / conversation | `AxisResult.transcript`, `conversationDir`, lifted off call sites |
 | latch run-fatal, honor interrupt/abort | `run-control.requestFatalStop`, `runPhase` fatal rethrow |
 
+Placement (grounded at PR 2a): `runUnit` and the `ExecutionUnit` / `HarnessCtx`
+SPI physically live in `core/evaluation` (`contract.ts` + `evaluator.ts`,
+beside `runSingleTurnQuery`), not in `orchestration/`. The agents (axes)
+import the harness, and `orchestration` already depends on `evaluation`;
+putting the harness in `orchestration` would create an
+`evaluation -> orchestration -> evaluation` import cycle. "One harness" is a
+logical contract realized across the two layers: the agent grain lands here
+at PR 2a, and the phase grain (`runPhase`) is unified onto the same `runUnit`
+at PR 4. This is a forced layering call, not an alternative to the §1
+decision.
+
 ## 5. The frontier contract
 
 The primary trap, identical in spirit to doc 11 §2's god-object warning, is

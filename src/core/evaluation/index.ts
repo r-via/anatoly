@@ -22,6 +22,7 @@ export {
   resolveAgentModel,
   composeAxisSystemPrompt,
   runSingleTurnQuery,
+  runUnit,
   getCodeFenceTag,
   getLanguageLines,
   buildProviderStats,
@@ -37,6 +38,8 @@ export type {
   RelevantDoc,
   SingleTurnQueryParams,
   SingleTurnQueryResult,
+  ExecutionUnit,
+  HarnessCtx,
 } from './contract.js';
 
 export { mergeAxisResults } from './axis-merger.js';
