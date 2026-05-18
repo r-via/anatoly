@@ -18,7 +18,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { recordLlmCost } from './cost.js';
+import { recordLlmCost, recordAgentCosts } from './cost.js';
+import type { AxisTiming } from '../evaluation/index.js';
 
 type CostCtx = Parameters<typeof recordLlmCost>[0];
 
@@ -180,5 +181,49 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
     expect(ctx.providerStats.gemini).toEqual({ calls: 1, costUsd: 0.001 });
     expect(Object.keys(ctx.axisStats).sort()).toEqual(['correction', 'duplication', 'utility']);
     expect(ctx.axisStats['utility'].totalCostUsd).toBeCloseTo(0.003, 10);
+  });
+});
+
+describe('recordAgentCosts — byte-identical to the inline review.ts loop (doc 14 PR 2b)', () => {
+  const axisTiming: AxisTiming[] = [
+    { axisId: 'correction', provider: 'anthropic', costUsd: 0.004, durationMs: 100, inputTokens: 200, outputTokens: 80, cacheReadTokens: 1, cacheCreationTokens: 2 },
+    { axisId: 'utility', provider: 'anthropic', costUsd: 0.003, durationMs: 90, inputTokens: 150, outputTokens: 60, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    { axisId: 'duplication', provider: 'gemini', costUsd: 0.001, durationMs: 70, inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
+  ];
+
+  it('produces a rollup identical to the pre-PR-2b manual per-axis loop', () => {
+    // Reference: the exact loop that lived inline in review.ts:378.
+    const ref = makeCtx();
+    for (const at of axisTiming) {
+      recordLlmCost(ref, {
+        provider: at.provider,
+        phase: 'review',
+        axis: at.axisId,
+        costUsd: at.costUsd,
+        durationMs: at.durationMs,
+        inputTokens: at.inputTokens,
+        outputTokens: at.outputTokens,
+        cacheReadTokens: at.cacheReadTokens,
+        cacheCreationTokens: at.cacheCreationTokens,
+      });
+    }
+
+    const viaHarness = makeCtx();
+    recordAgentCosts(viaHarness, axisTiming);
+
+    // Byte-identical: every bucket equal.
+    expect(viaHarness.totalCostUsd).toBe(ref.totalCostUsd);
+    expect(viaHarness.providerStats).toEqual(ref.providerStats);
+    expect(viaHarness.phaseStats).toEqual(ref.phaseStats);
+    expect(viaHarness.axisStats).toEqual(ref.axisStats);
+  });
+
+  it('an empty axisTiming records nothing', () => {
+    const ctx = makeCtx();
+    recordAgentCosts(ctx, []);
+    expect(ctx.totalCostUsd).toBe(0);
+    expect(ctx.providerStats).toEqual({ anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } });
+    expect(Object.keys(ctx.phaseStats)).toHaveLength(0);
+    expect(Object.keys(ctx.axisStats)).toHaveLength(0);
   });
 });

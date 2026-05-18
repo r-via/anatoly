@@ -16,6 +16,7 @@
  */
 
 import type { RunContext } from '../../commands/run.js';
+import type { AxisTiming } from '../evaluation/index.js';
 
 export function recordLlmCost(
   ctx: RunContext,
@@ -71,5 +72,40 @@ export function recordLlmCost(
     axs.totalOutputTokens += outputTokens;
     axs.totalCacheReadTokens += cacheReadTokens;
     axs.totalCacheCreationTokens += cacheCreationTokens;
+  }
+}
+
+/**
+ * doc 14 PR 2b: the per-axis (agent-grain) cost fold for the review phase.
+ *
+ * This is the `for (const at of result.axisTiming) recordLlmCost(...)` loop
+ * relocated **verbatim** out of the review phase body into this harness-owned
+ * cost module. Behaviour is byte-identical (same per-axis grain, same entry
+ * shape, same hardcoded `phase: 'review'`): `cost.test.ts` proves the rollup
+ * is identical to the inline loop.
+ *
+ * Grain note: `axisTiming` is one entry per axis (file-evaluator aggregates
+ * each axis's internal single-turn queries into one `AxisResult`, so e.g.
+ * `correction`'s two passes are already summed). Recording here is therefore
+ * per-axis, NOT per single-turn query: that is exactly why the fold could not
+ * go into `runUnit` (the single-turn-query grain, PR 2a). The true
+ * agent-grain capture (harness wrapping `AxisEvaluator.evaluate`, with
+ * provider attribution moved off file-evaluator) is deferred to PR 3/4;
+ * `phase: 'review'` stays hardcoded here because review is the sole
+ * agent-grain caller (the 4 phase-grain sites are PR 4).
+ */
+export function recordAgentCosts(ctx: RunContext, axisTiming: readonly AxisTiming[]): void {
+  for (const at of axisTiming) {
+    recordLlmCost(ctx, {
+      provider: at.provider,
+      phase: 'review',
+      axis: at.axisId,
+      costUsd: at.costUsd,
+      durationMs: at.durationMs,
+      inputTokens: at.inputTokens,
+      outputTokens: at.outputTokens,
+      cacheReadTokens: at.cacheReadTokens,
+      cacheCreationTokens: at.cacheCreationTokens,
+    });
   }
 }

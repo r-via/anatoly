@@ -54,7 +54,7 @@ import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from '../../run/index.js';
 import { computePromptHash } from '../../../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
-import { recordLlmCost } from '../cost.js';
+import { recordAgentCosts } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RagContext, Handoff } from '../handoff.js';
 import type { OrchestrationEventName } from '../events.js';
@@ -375,19 +375,11 @@ export async function runReviewPhase(
         // emission below (line ~2670 with the full review fields) carries the
         // same event name — we previously emitted twice per file, which made
         // the attach progress counter double-count (e.g. 26/13 = 200%).
-        for (const at of result.axisTiming) {
-          recordLlmCost(ctx, {
-            provider: at.provider,
-            phase: 'review',
-            axis: at.axisId,
-            costUsd: at.costUsd,
-            durationMs: at.durationMs,
-            inputTokens: at.inputTokens,
-            outputTokens: at.outputTokens,
-            cacheReadTokens: at.cacheReadTokens,
-            cacheCreationTokens: at.cacheCreationTokens,
-          });
-        }
+        // doc 14 PR 2b: the per-axis cost fold is now harness-owned
+        // (orchestration/cost.ts recordAgentCosts). Verbatim relocation,
+        // byte-identical rollup (cost.test.ts is the proof); the review
+        // phase body no longer contains a recordLlmCost loop.
+        recordAgentCosts(ctx, result.axisTiming);
         const symbolCount = task.symbols?.length ?? 0;
         const reviewFields = {
           file: filePath,

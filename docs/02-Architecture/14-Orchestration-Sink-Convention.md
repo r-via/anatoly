@@ -224,10 +224,27 @@ that baseline and the new convention test passes. Each PR reverts with one
   `runSingleTurnQuery`; the single-turn axes flow through it (wired, not
   unwired scaffold: §1 forbids the Epic 56 ghost). Behavior-preserving by
   pass-through. Gate: bench F1, axis + file-evaluator tests + goldens green.
-- **PR 2b** Fold only the one agent-grain cost site (review.ts:378) into the
-  harness. Gate: bench F1, `cost.test.ts` byte-identical rollup (PR 2-net is
-  the proof; the ndjson "golden ledger" is untouched by construction since
-  these sites never wrote it).
+- **PR 2b** Correction (grounded at `c5e03cf`): the review.ts:378 loop is
+  **per-axis** (`result.axisTiming` is one entry per axis; file-evaluator
+  already sums each axis's internal single-turn queries, e.g. `correction`'s
+  two passes). `runUnit` (PR 2a) is the **single-turn-query** grain. Folding
+  cost into `runUnit` would record multi-query axes more than once and
+  diverge the rollup (not byte-identical; `cost.test.ts` would catch it).
+  Also the per-axis `provider` is computed in file-evaluator, outside the
+  agent. So PR 2b is not a `runUnit` fold. It relocates the review.ts:378
+  loop **verbatim** into a harness-owned function
+  (`orchestration/cost.ts` `recordAgentCosts`), called by the review phase
+  with `result.axisTiming`. Grain unchanged (per-axis), byte-identical by
+  construction; the review phase body no longer contains a `recordLlmCost`
+  loop. The true agent-grain capture (harness wrapping
+  `AxisEvaluator.evaluate`, provider attribution moved off file-evaluator) is
+  deferred to PR 3/4 (when the §3-correct agent grain and the sink land).
+  `recordAgentCosts` lives in `orchestration/cost.ts`, not beside `runUnit`
+  in `evaluation/`, because it needs `RunContext`; `evaluation` cannot import
+  it without the cycle (same constraint as §4). Gate: `cost.test.ts` proves
+  `recordAgentCosts` is byte-identical to the inline loop; bench F1; the
+  ndjson "golden ledger" is untouched by construction (these sites never
+  wrote it).
 - **PR 3** doc and refinement agents under the same `ExecutionUnit` SPI. They
   stop being three bespoke shapes. Gate: bench F1.
 - **PR 4** Unify the **phase grain** onto `runUnit`. Positional `SetupResult`
@@ -252,7 +269,10 @@ that baseline and the new convention test passes. Each PR reverts with one
 
 1. Exactly one harness. `grep` finds no `recordLlmCost`, no event emission, no
    transcript write, no log-scope open in any phase or agent body outside
-   `runUnit` / `HarnessCtx`.
+   `runUnit` / `HarnessCtx`. (Satisfied progressively: PR 2b removes the
+   review phase body's `recordLlmCost` loop into the harness-owned
+   `recordAgentCosts`; full `runUnit`/`HarnessCtx` ownership lands when the
+   §3-correct agent grain and the sink do, PR 3/4.)
 2. Every phase and every agent implements `ExecutionUnit` and is registered;
    doc and refinement satisfy the same interface as axes.
 3. Every unit declares its event set; a unit exiting without emitting it fails
