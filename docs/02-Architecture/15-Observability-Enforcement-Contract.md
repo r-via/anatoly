@@ -130,14 +130,51 @@ doc-coherence / refinement / doc-conflict / RAG-summary), the harness
   change there) so this **requires its own bench** before merge. Gate:
   typecheck + 798 suites + goldens + extended `cost.test.ts` green; bench at
   the PR-1 tip.
-- **PR 2** Make `runUnit` capture cost (fold the doc-14-deferred step) so the
-  rollup is harness-produced, not phase-reported; the 5 `recordXCost` sites
-  become harness-internal. Gate: `cost.test.ts` byte-identical, goldens.
+- **PR 2 — full runUnit-capture restructure (owner decision, grounded at
+  `9be2d16`).** "Make `runUnit` capture cost" is not one step: grounding
+  shows runUnit is generic pass-through, result cost fields are non-uniform
+  (`costUsd` vs `totalCostUsd`), runUnit wraps the single-turn *query* not
+  the *axis* (per-axis rollup is aggregated in file-evaluator, the doc-14
+  PR-2b grain wall), and rag-index / doc-conflict are not runUnit units.
+  The owner chose the full restructure over the lean ledger<->rollup
+  invariant: the structural "a unit cannot forget" guarantee, with the
+  observability/audit + v30-pain justification (distinct from the YAGNI
+  that declined doc-14 PR 4c; a **minimal cost-only** result contract is
+  adopted, not the full form-first PhaseEnvelope doc-14 rejected).
+  Decomposed by ascending risk, each behavior-preserving + bench-gated:
+  - **PR 2a** Foundation, behavior-preserving: a minimal `UnitCost` shape;
+    an optional cost-extractor on `ExecutionUnit` (the unit declares how to
+    read its own cost, no uniform envelope forced); `HarnessCtx` gains an
+    optional injected `recordCost?` sink (dependency inversion: orchestration
+    injects it, `core/harness` stays zero-dep, no cycle). `runUnit` folds
+    cost **only when** a unit provides the extractor AND the sink is present
+    — no unit opts in yet, so runUnit stays pure pass-through, zero behavior
+    change, the 6 `recordXCost` untouched. Pure DI scaffolding. Gate:
+    typecheck + suites + goldens green (no behavior delta).
+  - **PR 2b** The grain core (hard): wrap `AxisEvaluator.evaluate` as the
+    §3-correct **agent-grain** unit (not the single-turn query), so per-axis
+    cost (already aggregated in `AxisResult`) is captured at the unit
+    boundary via the injected sink; the `recordAgentCosts(result.axisTiming)`
+    loop in review.ts dies. Resolves the doc-14 PR-2b blocker by capturing
+    at the axis, not the query. Behavior-relevant -> `cost.test.ts`
+    byte-identical rollup + bench.
+  - **PR 2c** Bring the non-unit LLM paths in: refinement / doc-gen /
+    doc-coherence (already runUnit units) capture via the sink; rag-index
+    and doc-conflict become `ExecutionUnit`s (or route their aggregate cost
+    through the sink). Their `recordXCost` (incl. the PR-1
+    `recordDocConflictCost`) become harness-internal. Gate: `cost.test.ts`,
+    bench.
+  - **PR 2d** All 6 `recordXCost` phase-body calls are gone (harness owns
+    capture); fold in the binding ledger<->rollup CI invariant (former §6
+    PR 4) as the completeness proof on top of the now-structural capture.
+    Gate: the invariant test green on a hermetic run; bench.
 - **PR 3** Harness-assigned conversation dumps (kill per-call-site
   `conversationPrefix`). Gate: goldens, conversation-naming test.
-- **PR 4** Runtime unit-event registry + the binding CI invariant test
-  (ledger<->rollup, event completeness, console allowlist). Gate: the new
-  test green on a hermetic run; bench F1.
+- **PR 4** Runtime unit-**event** registry + the event-completeness CI
+  assertion + the `console` allowlist guard. (The ledger<->rollup cost
+  invariant moved into **PR 2d**, where structural capture makes it the
+  natural proof; PR 4 is now the events/log half only.) Gate: the new test
+  green on a hermetic run; bench F1.
 - **PR 5 (de-scoped by §7-B)** Not a migration: `src/core` `console.*` is
   legitimate human-UX. Only `calibration.ts:132` (a console-only
   skipped-warning) also gets a structured line. One-line fix, fold into
