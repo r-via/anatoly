@@ -124,7 +124,7 @@ describe('Story 54.9 — AC1: DocDivergence schema', () => {
 // AC2: 4 axis response schemas accept doc_divergences
 describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () => {
   it('CorrectionResponseSchema accepts doc_divergences array', async () => {
-    const { CorrectionResponseSchema } = await import('./axes/correction.js');
+    const { CorrectionResponseSchema } = await import('./evaluation/axes/correction.js');
     const response = {
       symbols: [],
       actions: [],
@@ -143,7 +143,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('OverengineeringResponseSchema accepts doc_divergences array', async () => {
-    const { OverengineeringResponseSchema } = await import('./axes/overengineering.js');
+    const { OverengineeringResponseSchema } = await import('./evaluation/axes/overengineering.js');
     const response = {
       symbols: [],
       doc_divergences: [{
@@ -161,7 +161,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('TestsResponseSchema accepts doc_divergences array', async () => {
-    const { TestsResponseSchema } = await import('./axes/tests.js');
+    const { TestsResponseSchema } = await import('./evaluation/axes/tests.js');
     const response = {
       symbols: [],
       doc_divergences: [{
@@ -179,7 +179,7 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('BestPracticesResponseSchema accepts doc_divergences array', async () => {
-    const { BestPracticesResponseSchema } = await import('./axes/best-practices.js');
+    const { BestPracticesResponseSchema } = await import('./evaluation/axes/best-practices.js');
     const response = {
       score: 8,
       rules: [],
@@ -199,10 +199,10 @@ describe('Story 54.9 — AC2: Axis response schemas accept doc_divergences', () 
   });
 
   it('all 4 axis schemas treat doc_divergences as optional when absent', async () => {
-    const { CorrectionResponseSchema } = await import('./axes/correction.js');
-    const { OverengineeringResponseSchema } = await import('./axes/overengineering.js');
-    const { TestsResponseSchema } = await import('./axes/tests.js');
-    const { BestPracticesResponseSchema } = await import('./axes/best-practices.js');
+    const { CorrectionResponseSchema } = await import('./evaluation/axes/correction.js');
+    const { OverengineeringResponseSchema } = await import('./evaluation/axes/overengineering.js');
+    const { TestsResponseSchema } = await import('./evaluation/axes/tests.js');
+    const { BestPracticesResponseSchema } = await import('./evaluation/axes/best-practices.js');
 
     expect(CorrectionResponseSchema.parse({ symbols: [], actions: [] }).doc_divergences).toBeUndefined();
     expect(OverengineeringResponseSchema.parse({ symbols: [] }).doc_divergences).toBeUndefined();

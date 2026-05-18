@@ -36,7 +36,7 @@ import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } f
 import { stopTeiContainers } from '../../../rag/docker-tei.js';
 import { getLogger } from '../../../utils/logger.js';
 import type { Task } from '../../../schemas/task.js';
-import { resolveCodeSummaryModel } from '../../axis-evaluator.js';
+import { resolveCodeSummaryModel } from '../../evaluation/index.js';
 import { shortModelName } from '../../../cli/setup-table.js';
 import { recordLlmCost } from '../cost.js';
 import type { RagContext, Handoff } from '../handoff.js';

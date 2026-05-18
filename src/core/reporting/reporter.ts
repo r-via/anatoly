@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../../schemas/review.js';
-import type { AxisId } from '../axis-evaluator.js';
+import type { AxisId } from '../evaluation/axis-evaluator.js';
 import { loadCodeWinsAsStaleReferences } from '../documentation/index.js';
 
 

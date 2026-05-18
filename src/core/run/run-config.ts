@@ -5,7 +5,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from '../../schemas/config.js';
-import type { AxisId } from '../axis-evaluator.js';
+import type { AxisId } from '../evaluation/axis-evaluator.js';
 import { pkgVersion, pkgCommit } from '../../utils/version.js';
 
 export type DocMode = 'off' | 'lite' | 'full';

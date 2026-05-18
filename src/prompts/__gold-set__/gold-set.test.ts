@@ -15,15 +15,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runSingleTurnQuery } from '../../core/axis-evaluator.js';
+import { runSingleTurnQuery } from '../../core/evaluation/index.js';
 import { resolveSystemPrompt, _resetPromptRegistry } from '../../core/platform/index.js';
-import { UtilityResponseSchema } from '../../core/axes/utility.js';
-import { CorrectionResponseSchema } from '../../core/axes/correction.js';
-import { DuplicationResponseSchema } from '../../core/axes/duplication.js';
-import { OverengineeringResponseSchema } from '../../core/axes/overengineering.js';
-import { TestsResponseSchema } from '../../core/axes/tests.js';
-import { BestPracticesResponseSchema } from '../../core/axes/best-practices.js';
-import { DocumentationResponseSchema } from '../../core/axes/documentation.js';
+import { UtilityResponseSchema } from '../../core/evaluation/axes/utility.js';
+import { CorrectionResponseSchema } from '../../core/evaluation/axes/correction.js';
+import { DuplicationResponseSchema } from '../../core/evaluation/axes/duplication.js';
+import { OverengineeringResponseSchema } from '../../core/evaluation/axes/overengineering.js';
+import { TestsResponseSchema } from '../../core/evaluation/axes/tests.js';
+import { BestPracticesResponseSchema } from '../../core/evaluation/axes/best-practices.js';
+import { DocumentationResponseSchema } from '../../core/evaluation/axes/documentation.js';
 
 // ---------------------------------------------------------------------------
 // Config

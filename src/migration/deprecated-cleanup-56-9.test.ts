@@ -81,7 +81,7 @@ describe('FR25: DocPrompt alias removed from doc-llm-executor.ts', () => {
 // ---------------------------------------------------------------------------
 describe('FR26: resolveNlpModel alias removed from axis-evaluator.ts', () => {
   it('axis-evaluator.ts does not export resolveNlpModel', () => {
-    const src = read('src/core/axis-evaluator.ts');
+    const src = read('src/core/evaluation/axis-evaluator.ts');
     expect(src).not.toContain('export function resolveNlpModel');
   });
 });

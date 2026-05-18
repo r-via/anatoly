@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { FunctionCard } from './types.js';
 import { BehavioralProfileSchema } from './types.js';
-import { runSingleTurnQuery } from '../core/axis-evaluator.js';
+import { runSingleTurnQuery } from '../core/evaluation/index.js';
 import type { TransportRouter } from '../core/transports/index.js';
 import { contextLogger, runWithContext } from '../utils/log-context.js';
 import { resolveSystemPrompt } from '../core/platform/index.js';

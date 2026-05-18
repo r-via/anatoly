@@ -4,15 +4,15 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from '../core/platform/index.js';
-import { composeAxisSystemPrompt } from '../core/axis-evaluator.js';
+import { composeAxisSystemPrompt } from '../core/evaluation/index.js';
 import { generateSchemaExample, formatSchemaExample } from '../utils/schema-example.js';
-import { UtilityResponseSchema } from '../core/axes/utility.js';
-import { CorrectionResponseSchema, VerificationResponseSchema } from '../core/axes/correction.js';
-import { DuplicationResponseSchema } from '../core/axes/duplication.js';
-import { OverengineeringResponseSchema } from '../core/axes/overengineering.js';
-import { TestsResponseSchema } from '../core/axes/tests.js';
-import { BestPracticesResponseSchema } from '../core/axes/best-practices.js';
-import { DocumentationResponseSchema } from '../core/axes/documentation.js';
+import { UtilityResponseSchema } from '../core/evaluation/axes/utility.js';
+import { CorrectionResponseSchema, VerificationResponseSchema } from '../core/evaluation/axes/correction.js';
+import { DuplicationResponseSchema } from '../core/evaluation/axes/duplication.js';
+import { OverengineeringResponseSchema } from '../core/evaluation/axes/overengineering.js';
+import { TestsResponseSchema } from '../core/evaluation/axes/tests.js';
+import { BestPracticesResponseSchema } from '../core/evaluation/axes/best-practices.js';
+import { DocumentationResponseSchema } from '../core/evaluation/axes/documentation.js';
 
 beforeAll(() => {
   _resetPromptRegistry();

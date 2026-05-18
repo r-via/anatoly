@@ -2,8 +2,8 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { AxisId } from '../core/axis-evaluator.js';
-import { ALL_AXIS_IDS } from '../core/axes/index.js';
+import type { AxisId } from '../core/evaluation/index.js';
+import { ALL_AXIS_IDS } from '../core/evaluation/index.js';
 import { getLogger } from './logger.js';
 
 /**

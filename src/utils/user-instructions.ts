@@ -4,8 +4,8 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { AxisId } from '../core/axis-evaluator.js';
-import { ALL_AXIS_IDS } from '../core/axes/index.js';
+import type { AxisId } from '../core/evaluation/index.js';
+import { ALL_AXIS_IDS } from '../core/evaluation/index.js';
 import { getLogger } from './logger.js';
 
 export const ANATOLY_MD_FILENAME = 'ANATOLY.md';

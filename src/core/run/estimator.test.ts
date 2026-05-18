@@ -20,9 +20,9 @@ import {
   CONCURRENCY_EFFICIENCY,
   AXIS_COUNT,
 } from './estimator.js';
-import { ALL_AXIS_IDS } from '../axes/index.js';
+import { ALL_AXIS_IDS } from '../evaluation/axes/index.js';
 import type { Task } from '../../schemas/task.js';
-import type { CalibrationData } from '../calibration.js';
+import type { CalibrationData } from '../evaluation/calibration.js';
 import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js';
 import { NLP_TOKENS_PER_FUNCTION } from '../../rag/embed-estimator.js';
 

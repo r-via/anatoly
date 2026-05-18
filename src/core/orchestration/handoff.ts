@@ -21,14 +21,14 @@
  */
 
 import type { Task } from '../../schemas/task.js';
-import type { TriageResult } from '../triage.js';
+import type { TriageResult } from '../evaluation/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
 import type { VectorStore } from '../../rag/vector-store.js';
 import type { ResolvedModels } from '../../rag/hardware-detect.js';
 import type { DocPipelineResult } from '../documentation/index.js';
 import type { DocReportResult } from '../documentation/index.js';
-import type { ArbitratedFragment } from '../axes/reference-docs-context.js';
+import type { ArbitratedFragment } from '../evaluation/index.js';
 
 export interface SetupResult {
   files: number;

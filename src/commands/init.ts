@@ -10,7 +10,7 @@ import yaml from 'js-yaml';
 import { ConfigSchema } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
-import { ALL_AXIS_IDS } from '../core/axes/index.js';
+import { ALL_AXIS_IDS } from '../core/evaluation/index.js';
 import { DEFAULT_MODELS } from '../core/platform/index.js';
 import { ensurePricing } from '../utils/pricing-cache.js';
 import { enumerateActiveModels } from '../utils/active-models.js';

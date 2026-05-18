@@ -33,7 +33,7 @@ import { sendDesktopNotification } from '../notifications/desktop.js';
 import { getLogger } from '../../utils/logger.js';
 import { enterLlmCallSink } from '../../utils/llm-calls-sink.js';
 import { runWithContext } from '../../utils/log-context.js';
-import { isDocAxisActive } from '../axes/index.js';
+import { isDocAxisActive } from '../evaluation/index.js';
 import { formatRunDuration } from '../../utils/format.js';
 import { PipelineState } from '../../cli/pipeline-state.js';
 import { ScreenRenderer } from '../../cli/screen-renderer.js';
@@ -49,7 +49,7 @@ import { runDocBootstrap, runDocUpdate, reindexDocsAfterUpdate } from './phases/
 import { runRefinementStage } from './phases/refinement.js';
 import { runReviewPhase } from './phases/review.js';
 import { loadDocConflicts } from '../documentation/index.js';
-import type { ArbitratedFragment } from '../axes/reference-docs-context.js';
+import type { ArbitratedFragment } from '../evaluation/index.js';
 import type { RunContext } from '../../commands/run.js';
 
 /** Non-ctx bindings the spine captured from the run command's .action() scope. */

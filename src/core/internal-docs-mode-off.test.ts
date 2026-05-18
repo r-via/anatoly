@@ -6,9 +6,9 @@ import { describe, it, expect } from 'vitest';
 import { parseTestConfig } from '../schemas/test-fixtures.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { renderInternalDocsContext } from './axes/internal-docs-context.js';
-import { buildDocumentationUserMessage } from './axes/documentation.js';
-import type { AxisContext } from './axis-evaluator.js';
+import { renderInternalDocsContext } from './evaluation/axes/internal-docs-context.js';
+import { buildDocumentationUserMessage } from './evaluation/axes/documentation.js';
+import type { AxisContext } from './evaluation/index.js';
 import type { Config } from '../schemas/config.js';
 
 // ---------------------------------------------------------------------------

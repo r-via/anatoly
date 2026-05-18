@@ -16,8 +16,8 @@ import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '..
 import { writeReviewOutput } from '../core/reporting/index.js';
 import { generateReport } from '../core/reporting/index.js';
 import { AnatolyError } from '../utils/errors.js';
-import { getEnabledEvaluators } from '../core/axes/index.js';
-import { evaluateFile } from '../core/file-evaluator.js';
+import { getEnabledEvaluators } from '../core/evaluation/index.js';
+import { evaluateFile } from '../core/evaluation/index.js';
 import { isGitIgnored } from '../utils/git.js';
 import { acquireLock, releaseLock, isLockActive } from '../utils/lock.js';
 import type { Task } from '../schemas/task.js';
