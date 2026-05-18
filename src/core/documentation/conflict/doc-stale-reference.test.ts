@@ -7,7 +7,7 @@ import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { stringify as yamlStringify } from 'yaml';
-import type { DocConflict, DocConflictsLock } from '../schemas/doc-conflict.js';
+import type { DocConflict, DocConflictsLock } from '../../../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,12 +73,12 @@ function writeLock(lock: DocConflictsLock): void {
 
 describe('Story 55.8 — AC1: DocStaleReferenceSchema', () => {
   it('schema exists in review.ts', async () => {
-    const { DocStaleReferenceSchema } = await import('../schemas/review.js');
+    const { DocStaleReferenceSchema } = await import('../../../schemas/review.js');
     expect(DocStaleReferenceSchema).toBeDefined();
   });
 
   it('accepts a valid doc_stale_reference finding', async () => {
-    const { DocStaleReferenceSchema } = await import('../schemas/review.js');
+    const { DocStaleReferenceSchema } = await import('../../../schemas/review.js');
     const valid = {
       kind: 'doc_stale_reference',
       reference_path: 'docs/architecture.md',
@@ -95,7 +95,7 @@ describe('Story 55.8 — AC1: DocStaleReferenceSchema', () => {
   });
 
   it('accepts without optional fields', async () => {
-    const { DocStaleReferenceSchema } = await import('../schemas/review.js');
+    const { DocStaleReferenceSchema } = await import('../../../schemas/review.js');
     const minimal = {
       kind: 'doc_stale_reference',
       reference_path: 'docs/api.md',
@@ -169,7 +169,7 @@ describe('Story 55.8 — AC2: loadCodeWinsAsStaleReferences', () => {
 
 describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSection', () => {
   it('aggregateStaleReferences collects from review files', async () => {
-    const { aggregateStaleReferences } = await import('./reporting/index.js');
+    const { aggregateStaleReferences } = await import('../../reporting/index.js');
     const reviews = [
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'a.md', arbitrated_at: '2025-01-01' }] },
       { doc_stale_references: [{ kind: 'doc_stale_reference' as const, reference_path: 'b.md', arbitrated_at: '2025-01-02' }] },
@@ -180,7 +180,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
   });
 
   it('renderStaleReferenceSection returns markdown', async () => {
-    const { renderStaleReferenceSection } = await import('./reporting/index.js');
+    const { renderStaleReferenceSection } = await import('../../reporting/index.js');
     const refs = [
       { kind: 'doc_stale_reference' as const, reference_path: 'docs/arch.md', arbitrated_at: '2025-01-16', arbitration_note: 'outdated' },
     ];
@@ -191,7 +191,7 @@ describe('Story 55.8 — AC3: aggregateStaleReferences + renderStaleReferenceSec
   });
 
   it('renderStaleReferenceSection returns empty string for empty array', async () => {
-    const { renderStaleReferenceSection } = await import('./reporting/index.js');
+    const { renderStaleReferenceSection } = await import('../../reporting/index.js');
     expect(renderStaleReferenceSection([])).toBe('');
   });
 });

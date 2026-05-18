@@ -246,6 +246,7 @@ scope creep.
 | `documentation` -> evaluation out-edge has no contract to point at until 7b | §5 sequencing: 6d targets the pre-split `evaluation/index.ts` re-export, repointed to `contract.js` as the last step of 7b (one-line, gated) |
 | The §4 split silently drops or retypes an exported symbol | PR 7b public-API typecheck snapshot: re-exported symbols identical in name and type to pre-split; byte-identical bodies, reviewer-attested |
 | A revert is needed mid-sequence | Every PR is one `git mv` set plus rewrites, independently `git revert`-able, each ending green. No data or schema migration in any PR |
+| `src/integration/cache-meta-overhead.test.ts` (a `performance.now()` microbenchmark, threshold 50%) fails spuriously when the suite runs under machine load | Pre-existing, orthogonal to this refactor: every PR's staged set provably excludes `cache-meta`/`utils/cache`, it passes isolated every time (~26 ms), and a no-load full-suite re-run clears it (observed PRs 3 to 6b). Gate resolution is a no-load re-run, never a code change. Not a remediation regression |
 | A `replace_all` depth-fix on a moved test also rewrites identical import text inside sandbox-fixture string literals (`createFile(..., "import ... from '../schemas/..'")`), corrupting fixtures that simulate a file at the original location | §4 step 2: line-targeted replacements only when depth-fixing a moved test; fixture strings are the §3 path-agnostic exclusion. PR 5: `usage-graph.test.ts:219` (tsc + grep clean; only the full suite caught `buildUsageGraph` returning `[]`) |
 | A guard test reads a moved module's source by hardcoded path; recon and the import-grep miss the `join(...,'core','<m>.ts')` segment form | §3 gate 3 scans the bare quoted `'<m>.ts'` token, not just import strings. PR 2 surfaced two such tests (`migration/deprecated-cleanup-56-9.test.ts` string form, `doc-stale-reference.test.ts:205` segment form); the full-suite gate caught the missed one, the detector was then broadened. Future exposure inventoried: `axis-evaluator.ts` (PR 7), `correction-memory.ts` (PR 3), `doc-llm-executor.ts` / `doc-gap-detection.ts` (PR 6) |
 | `git mv` then edit leaves the content edits unstaged; the commit lands a stale `R100` rename | §4 step 5: `git add` every moved-and-edited file explicitly, verify `git diff --cached -- <moved>` shows the import delta. PR 1 hit this, repaired via `git commit --amend` pre-push |
@@ -257,11 +258,11 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariants 1 to 3 hold through PR 6a (PRs 1 to 5, 6a landed).**
-> `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`,
-> `documentation/generation/` are carved out (36 modules + tests,
-> barrel-fronted; documentation is the nested context, one barrel over
-> sub-folders, 6b to 6d pending); the §3 grep gate and §4 recipe
+> **Status: invariants 1 to 3 hold through PR 6b (PRs 1 to 5, 6a, 6b
+> landed).** `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`,
+> `documentation/{generation,conflict}/` are carved out (41 modules +
+> tests, barrel-fronted; documentation is the nested context, one barrel
+> over sub-folders, 6c to 6d pending); the §3 grep gate and §4 recipe
 > (hardened across PRs 2 to 5: segment- and string-form guard-path reads,
 > vitest module-mock paths, mid-file inline `import()` type annotations,
 > supplementary tests as external importers, the barrel-cycle exception,

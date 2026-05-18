@@ -60,7 +60,7 @@ import { needsBootstrap } from '../../documentation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { runPhase } from '../run-phase.js';
-import { countPendingDocConflicts } from '../../doc-conflict-store.js';
+import { countPendingDocConflicts } from '../../documentation/index.js';
 import type { SetupResult, Handoff } from '../handoff.js';
 import { isDocAxisActive } from '../../axes/index.js';
 import type { RunContext } from '../../../commands/run.js';

@@ -43,7 +43,7 @@ import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocC
 import { writeCoherenceStatus, computeDocSetSignature, coherenceUpToDate } from '../../documentation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { runPath } from '../../../utils/anatoly-paths.js';
-import { buildCodeSurfaceSummary } from '../../doc-coherence-3way.js';
+import { buildCodeSurfaceSummary } from '../../documentation/index.js';
 import { recordLlmCost } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RunContext } from '../../../commands/run.js';

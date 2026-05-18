@@ -23,7 +23,7 @@ import { retryWithBackoff } from '../../../utils/rate-limiter.js';
 import { withTimeout } from '../../../utils/with-timeout.js';
 import { contextLogger } from '../../../utils/log-context.js';
 import { recordLlmCall } from '../../../utils/llm-calls-sink.js';
-import { buildCoherenceUserMessage, assertCoherenceWritePath } from '../../doc-coherence-3way.js';
+import { buildCoherenceUserMessage, assertCoherenceWritePath } from '../conflict/doc-coherence-3way.js';
 
 // --- Public interfaces ---
 

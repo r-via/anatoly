@@ -26,8 +26,8 @@ import {
   detectNewConflictsViaLlm,
   batchFragmentsByTokenBudget,
   getGitTimestamp,
-} from './doc-conflict-detector.js';
-import { buildDetectionUserMessage, parseDetectionResponse } from './doc-conflict-llm.js';
+} from './documentation/index.js';
+import { buildDetectionUserMessage, parseDetectionResponse } from './documentation/index.js';
 import { EVALUATOR_TEMPERATURE } from './transports/index.js';
 import type { Config } from '../schemas/config.js';
 import type { Task } from '../schemas/task.js';

@@ -41,3 +41,26 @@ export {
 } from './generation/doc-bootstrap.js';
 
 export { scaffoldDocs } from './generation/doc-scaffolder.js';
+
+// --- conflict/ (doc 13 PR 6b) ---
+export {
+  runDocConflictDetection,
+  enrichDetectedConflict,
+  detectNewConflictsViaLlm,
+  derivePresumption,
+  batchFragmentsByTokenBudget,
+  getGitTimestamp,
+} from './conflict/doc-conflict-detector.js';
+
+export { buildDetectionUserMessage, parseDetectionResponse } from './conflict/doc-conflict-llm.js';
+export type { DetectedConflictItem } from './conflict/doc-conflict-llm.js';
+
+export {
+  loadDocConflicts,
+  saveDocConflicts,
+  countPendingDocConflicts,
+} from './conflict/doc-conflict-store.js';
+
+export { buildCodeSurfaceSummary } from './conflict/doc-coherence-3way.js';
+
+export { loadCodeWinsAsStaleReferences } from './conflict/doc-stale-reference.js';

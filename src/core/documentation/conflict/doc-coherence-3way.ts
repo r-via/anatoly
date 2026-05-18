@@ -11,8 +11,8 @@
  */
 
 import { resolve, sep } from 'node:path';
-import type { Task } from '../schemas/task.js';
-import type { ReferenceDoc } from './reference-docs-resolver.js';
+import type { Task } from '../../../schemas/task.js';
+import type { ReferenceDoc } from '../../reference-docs-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Code surface builder

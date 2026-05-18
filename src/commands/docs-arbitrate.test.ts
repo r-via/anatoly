@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify as yamlStringify } from 'yaml';
 import type { DocConflict, DocConflictsLock } from '../schemas/doc-conflict.js';
-import { loadDocConflicts } from '../core/doc-conflict-store.js';
+import { loadDocConflicts } from '../core/documentation/index.js';
 
 // ---------------------------------------------------------------------------
 // Mock @clack/prompts

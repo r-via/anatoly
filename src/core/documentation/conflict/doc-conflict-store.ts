@@ -6,9 +6,9 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync, existsS
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
-import { DocConflictsLockSchema, type DocConflictsLock, type DocConflict } from '../schemas/doc-conflict.js';
-import { anatolyPath } from '../utils/anatoly-paths.js';
-import { getLogger } from '../utils/logger.js';
+import { DocConflictsLockSchema, type DocConflictsLock, type DocConflict } from '../../../schemas/doc-conflict.js';
+import { anatolyPath } from '../../../utils/anatoly-paths.js';
+import { getLogger } from '../../../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Path helper

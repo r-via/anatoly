@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { loadDocConflicts } from './doc-conflict-store.js';
-import type { DocStaleReference } from '../schemas/review.js';
+import type { DocStaleReference } from '../../../schemas/review.js';
 
 /**
  * Load code-wins applied entries from doc-conflicts.yaml and convert them

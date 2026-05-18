@@ -13,7 +13,7 @@ import {
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
-import type { DocConflictsLock, DocConflict } from '../schemas/doc-conflict.js';
+import type { DocConflictsLock, DocConflict } from '../../../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

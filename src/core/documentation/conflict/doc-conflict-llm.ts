@@ -17,8 +17,8 @@
 import { z } from 'zod';
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
-import { extractJson } from '../utils/extract-json.js';
-import type { ReferenceDoc } from './reference-docs-resolver.js';
+import { extractJson } from '../../../utils/extract-json.js';
+import type { ReferenceDoc } from '../../reference-docs-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Response schema

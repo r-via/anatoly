@@ -6,16 +6,16 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { getLogger } from '../utils/logger.js';
-import { isFatalAuthError } from '../utils/errors.js';
-import { resolveDocMode } from './run/index.js';
+import { getLogger } from '../../../utils/logger.js';
+import { isFatalAuthError } from '../../../utils/errors.js';
+import { resolveDocMode } from '../../run/index.js';
 import {
   loadDocConflicts,
   saveDocConflicts,
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
-import { resolveReferenceDocs } from './reference-docs-resolver.js';
+import { resolveReferenceDocs } from '../../reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
 import {
   buildDetectionUserMessage,
@@ -25,11 +25,11 @@ import {
   parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
-import { EVALUATOR_TEMPERATURE, type TransportRouter } from './transports/index.js';
-import { countTokens } from './run/index.js';
-import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../schemas/doc-conflict.js';
-import type { Config } from '../schemas/config.js';
-import type { Task } from '../schemas/task.js';
+import { EVALUATOR_TEMPERATURE, type TransportRouter } from '../../transports/index.js';
+import { countTokens } from '../../run/index.js';
+import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../../../schemas/doc-conflict.js';
+import type { Config } from '../../../schemas/config.js';
+import type { Task } from '../../../schemas/task.js';
 
 /** Token budget for a single detection batch. Below the Sonnet 200k window
  * with margin for system prompt + output. When the assembled prompt exceeds

@@ -6,8 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildCodeSurfaceSummary, buildCoherenceUserMessage, assertCoherenceWritePath } from './doc-coherence-3way.js';
-import type { Task } from '../schemas/task.js';
-import type { ReferenceDoc } from './reference-docs-resolver.js';
+import type { Task } from '../../../schemas/task.js';
+import type { ReferenceDoc } from '../../reference-docs-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -138,7 +138,7 @@ describe('buildCoherenceUserMessage', () => {
 
 describe('Story 54.8 — system prompt FR13 rules', () => {
   it('AC 54.8a: coherence-review prompt contains FR13 rules', () => {
-    const promptPath = resolve(__dirname, '../prompts/doc-generation/doc-internal-coherence-review.system.md');
+    const promptPath = resolve(__dirname, '../../../prompts/doc-generation/doc-internal-coherence-review.system.md');
     const promptContent = readFileSync(promptPath, 'utf-8');
 
     // Rule 1: fill only gaps
@@ -152,7 +152,7 @@ describe('Story 54.8 — system prompt FR13 rules', () => {
   });
 
   it('AC 54.8a: prompt describes 3 input blocks', () => {
-    const promptPath = resolve(__dirname, '../prompts/doc-generation/doc-internal-coherence-review.system.md');
+    const promptPath = resolve(__dirname, '../../../prompts/doc-generation/doc-internal-coherence-review.system.md');
     const promptContent = readFileSync(promptPath, 'utf-8');
 
     expect(promptContent).toContain('REFERENCE_DOCS');
@@ -161,7 +161,7 @@ describe('Story 54.8 — system prompt FR13 rules', () => {
   });
 
   it('AC 54.8a: prompt restricts writes to .anatoly/docs/', () => {
-    const promptPath = resolve(__dirname, '../prompts/doc-generation/doc-internal-coherence-review.system.md');
+    const promptPath = resolve(__dirname, '../../../prompts/doc-generation/doc-internal-coherence-review.system.md');
     const promptContent = readFileSync(promptPath, 'utf-8');
 
     expect(promptContent).toMatch(/ONLY.*write.*\.anatoly\/docs|only.*write.*internal docs|can ONLY write files within/i);

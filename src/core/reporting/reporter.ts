@@ -9,7 +9,7 @@ import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../../schemas/review.js';
 import type { AxisId } from '../axis-evaluator.js';
-import { loadCodeWinsAsStaleReferences } from '../doc-stale-reference.js';
+import { loadCodeWinsAsStaleReferences } from '../documentation/index.js';
 
 
 export interface TriageStats {

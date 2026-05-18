@@ -13,7 +13,7 @@ import {
   markStaleEntries,
 } from './doc-conflict-detector.js';
 import { hashCodeAnchor } from './doc-conflict-store.js';
-import type { DocConflict } from '../schemas/doc-conflict.js';
+import type { DocConflict } from '../../../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -232,7 +232,7 @@ describe('Story 55.4 — pipeline integration', () => {
   // pipeline.ts byte-verbatim. These assert spine wiring/ordering, so they
   // read the pipeline module now. Behavior is unchanged and additionally
   // guarded by the spine golden.
-  const spinePath = join(__dirname, 'orchestration/pipeline.ts');
+  const spinePath = join(__dirname, '../../orchestration/pipeline.ts');
 
   it('pipeline imports runDocConflictDetection', () => {
     const content = readFileSync(spinePath, 'utf-8');

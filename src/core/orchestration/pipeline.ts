@@ -40,7 +40,7 @@ import { ScreenRenderer } from '../../cli/screen-renderer.js';
 import { resolveDocMode } from '../run/index.js';
 import { needsBootstrap, writeScaffoldStatus } from '../documentation/index.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
-import { runDocConflictDetection } from '../doc-conflict-detector.js';
+import { runDocConflictDetection } from '../documentation/index.js';
 import { runPhase } from './run-phase.js';
 import { runReportPhase } from './phases/report.js';
 import { runSetupPhase } from './phases/setup.js';
@@ -48,7 +48,7 @@ import { runRagPhase } from './phases/rag.js';
 import { runDocBootstrap, runDocUpdate, reindexDocsAfterUpdate } from './phases/doc.js';
 import { runRefinementStage } from './phases/refinement.js';
 import { runReviewPhase } from './phases/review.js';
-import { loadDocConflicts } from '../doc-conflict-store.js';
+import { loadDocConflicts } from '../documentation/index.js';
 import type { ArbitratedFragment } from '../axes/reference-docs-context.js';
 import type { RunContext } from '../../commands/run.js';
 

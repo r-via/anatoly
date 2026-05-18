@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import * as p from '@clack/prompts';
-import { loadDocConflicts, saveDocConflicts } from '../core/doc-conflict-store.js';
+import { loadDocConflicts, saveDocConflicts } from '../core/documentation/index.js';
 import type { DocConflict, DocConflictsLock, DocConflictVerdict } from '../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------

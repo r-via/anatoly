@@ -41,7 +41,7 @@ import { formatCompactTokens, formatRunDuration } from '../../../utils/format.js
 import { getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../../../utils/llm-calls-sink.js';
 import { getEnabledEvaluators } from '../../axes/index.js';
 import { resolveAxisModel } from '../../axis-evaluator.js';
-import { countPendingDocConflicts } from '../../doc-conflict-store.js';
+import { countPendingDocConflicts } from '../../documentation/index.js';
 import { openFile } from '../../../utils/open.js';
 import { recalibrateFromRuns, saveCalibration } from '../../calibration.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../../run/index.js';
