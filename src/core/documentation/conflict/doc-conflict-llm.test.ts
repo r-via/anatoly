@@ -10,6 +10,7 @@ import {
   collectInternalDocFragments,
   buildDetectionUserMessage,
   parseDetectionResponse,
+  segmentForDetection,
   DETECTION_SYSTEM_PROMPT,
 } from './doc-conflict-llm.js';
 
@@ -209,5 +210,44 @@ describe('Story 55.10 — DETECTION_SYSTEM_PROMPT', () => {
   it('explicitly excludes stylistic differences and paraphrasings', () => {
     expect(DETECTION_SYSTEM_PROMPT.toLowerCase()).toContain('stylistic');
     expect(DETECTION_SYSTEM_PROMPT.toLowerCase()).toContain('paraphrasing');
+  });
+
+  // doc 16 PR 2
+  it('makes inversions the highest-priority divergence and explains segmentation', () => {
+    expect(DETECTION_SYSTEM_PROMPT.toLowerCase()).toContain('inversion');
+    expect(DETECTION_SYSTEM_PROMPT).toContain('reversed sign, direction, ratio, comparator, beneficiary, or unit');
+    expect(DETECTION_SYSTEM_PROMPT.toLowerCase()).toContain('segmented by section');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc 16 PR 2 — segmentForDetection (smartChunkDoc reuse)
+// ---------------------------------------------------------------------------
+
+describe('doc 16 PR 2 — segmentForDetection', () => {
+  it('splits a multi-section markdown doc into labelled H2 segments', () => {
+    const md = [
+      '# Slot Engine',
+      '',
+      '## Payout',
+      '',
+      'The engine returns the total coin payout for the spin outcome.',
+      '',
+      '## RTP',
+      '',
+      'The engine targets a theoretical Return-to-Player of 95%. Long-run player return approximates the bet-weighted house edge of 5%.',
+    ].join('\n');
+
+    const out = segmentForDetection('README.md', md);
+    expect(out).toContain('#### Payout');
+    expect(out).toContain('#### RTP');
+    expect(out).toContain('house edge of 5%');
+    // The two sections are isolated blocks, not one undifferentiated page.
+    expect(out.indexOf('#### Payout')).toBeLessThan(out.indexOf('#### RTP'));
+  });
+
+  it('returns the raw content verbatim when the chunker yields nothing (no silent drop)', () => {
+    const tiny = 'short';
+    expect(segmentForDetection('x.md', tiny)).toBe(tiny);
   });
 });

@@ -231,6 +231,71 @@ describe('Story 55.10 — detectNewConflictsViaLlm', () => {
     expect(router.calls[0].userMessage).toContain('CODE_SURFACE');
   });
 
+  // doc 16 PR 2: the human view and the machine view reach the LLM
+  // segmented by section, and the system prompt makes inversions the
+  // top-priority divergence — the input-level guard for the D2 bug class.
+  it('sends section-segmented docs and the inversion rule (D2 input guard)', async () => {
+    mkdirSync(join(tmp, 'src'), { recursive: true });
+    writeFileSync(join(tmp, 'src/foo.ts'), 'export function spin() { return 1; }\n');
+
+    mkdirSync(join(tmp, 'docs'), { recursive: true });
+    writeFileSync(
+      join(tmp, 'docs/api.md'),
+      "# Slot Engine\n\n## Payout\n\nReturns the total coin payout for the spin outcome, including line wins, scatter bonuses, and the progressive jackpot contribution.\n\n## RTP\n\nThe engine targets a theoretical Return-to-Player of 95%. Long-run player return approximates the bet-weighted house edge of 5% against the player.\n",
+    );
+
+    const fragmentsDir = join(tmp, '.anatoly/state/internal-docs');
+    mkdirSync(join(fragmentsDir, '05-modules'), { recursive: true });
+    writeFileSync(
+      join(fragmentsDir, '05-modules/engine.md'),
+      "# Engine\n\n## Payout\n\nComputes the coin payout for the spin outcome from line wins, scatter bonuses, and the progressive jackpot contribution.\n\n## RTP\n\nThe payout is multiplied by 1.05, returning the bet-weighted edge in the player's favour over the long run.\n",
+    );
+
+    const router = makeMockRouter(JSON.stringify({ conflicts: [] }));
+    await detectNewConflictsViaLlm(
+      { projectRoot: tmp, config: makeConfig(), tasks: makeTasks(), fragmentsDir, router },
+      new Set(),
+    );
+
+    const sent = router.calls[0].userMessage;
+    // Both views arrived segmented by section (smartChunkDoc reuse).
+    expect(sent).toContain('#### RTP');
+    expect(sent).toContain('#### Payout');
+    // The inverted quantities are both present, isolated under their section.
+    expect(sent).toContain('house edge of 5% against the player');
+    expect(sent).toContain("multiplied by 1.05, returning the bet-weighted edge in the player's favour");
+    // The system prompt elevates inversions.
+    expect(router.calls[0].systemPrompt.toLowerCase()).toContain('inversion');
+    expect(router.calls[0].systemPrompt).toContain('reversed sign, direction, ratio, comparator, beneficiary, or unit');
+  });
+
+  it('round-trips an inversion conflict through enrichment (plumbing intact)', async () => {
+    const { projectRoot, fragmentsDir } = seedProject();
+    const router = makeMockRouter(JSON.stringify({
+      conflicts: [
+        {
+          file: 'src/foo.ts',
+          symbol: 'doThing',
+          line_start: 1,
+          line_end: 3,
+          reference_path: 'docs/api.md',
+          reference_text: '5% house edge against the player',
+          code_summary: 'multiplies payout by 1.05 in the player favour',
+          divergence: 'The house-edge beneficiary is inverted: reference says against the player, code favours the player.',
+        },
+      ],
+    }));
+
+    const conflicts = await detectNewConflictsViaLlm(
+      { projectRoot, config: makeConfig(), tasks: makeTasks(), fragmentsDir, router },
+      new Set(),
+    );
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].anchor.file).toBe('src/foo.ts');
+    expect(conflicts[0].verdict).toBe('pending');
+  });
+
   it('deduplicates against existing ids', async () => {
     const { projectRoot, fragmentsDir } = seedProject();
     const router = makeMockRouter(JSON.stringify({

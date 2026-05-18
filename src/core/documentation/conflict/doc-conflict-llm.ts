@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
 import { extractJson } from '../../../utils/extract-json.js';
+import { smartChunkDoc } from '../../../rag/doc-indexer.js';
 import type { ReferenceDoc } from '../resolution/reference-docs-resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,33 @@ export function collectInternalDocFragments(
 }
 
 // ---------------------------------------------------------------------------
+// Section segmentation (doc 16 PR 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Segment a markdown document by H2/H3 section for aligned comparison.
+ *
+ * Reuses {@link smartChunkDoc} (the RAG chunker): it splits on `##`/`###`
+ * headings, accumulates short same-paragraph fragments, merges into a
+ * neighbour while under the split threshold, and discards sub-50-char
+ * non-prose blocks — exactly the segment/dedup/neighbour behaviour the
+ * detector needs, with no second implementation.
+ *
+ * Whole-page vs whole-page prose comparison drowns a localised divergence
+ * (a reversed ratio, an inverted beneficiary) in unrelated matching text;
+ * comparing at section grain isolates it. When the chunker yields nothing
+ * (tiny doc, all non-prose), the raw content is returned verbatim — never
+ * dropped, so no input is silently lost (the D2 failure mode).
+ */
+export function segmentForDetection(filePath: string, content: string): string {
+  const sections = smartChunkDoc(filePath, content);
+  if (sections.length === 0) return content;
+  return sections
+    .map((s) => `#### ${s.heading}\n\n${s.content}`)
+    .join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
 // Prompt builders
 // ---------------------------------------------------------------------------
 
@@ -112,9 +140,12 @@ export const DETECTION_SYSTEM_PROMPT = `You are an audit agent that detects sema
 2. INTERNAL_DOCS — machine-derived documentation generated from the actual code. Another view.
 3. CODE_SURFACE — a structural summary of the public API (file paths + exported symbols + line ranges) extracted by the scanner — used to cross-check the two views.
 
+REFERENCE_DOCS and INTERNAL_DOCS are presented **segmented by section** (each block headed by \`#### <section title>\`). Compare matching sections against each other: a divergence is usually local to one section, so judge a section against its counterpart rather than skimming whole pages.
+
 **Important framing**: both views describe the same thing. When they disagree, you do NOT know which one is correct — it may be the doc that is stale, or it may be the code that drifted from its documented contract. Your job is to surface the divergence, NOT to assign blame. A human will arbitrate afterwards.
 
 Rules:
+- **Inversions are the highest-priority divergence.** Report when the two views state the same quantity or relationship with a reversed sign, direction, ratio, comparator, beneficiary, or unit — even when the surrounding prose otherwise matches. Examples: "5% house edge against the player" vs "multiplies the payout by 1.05 in the player's favour"; "returns the remaining balance" vs "returns the amount spent"; \`>=\` vs \`<=\`; multiply vs divide; added vs subtracted; A wins vs B wins. The text can read fluently on both sides while the meaning is inverted — that is exactly the case to surface, not skip.
 - Only report substantive disagreements: type changes, sync vs async, parameter count or kind, return value shape, removed or renamed functions, behavioral contracts that differ.
 - Do NOT report stylistic differences, paraphrasings of the same idea, or one source simply omitting a detail the other includes.
 - For each conflict, anchor it to a code file path and (when possible) a symbol name and line range from CODE_SURFACE.

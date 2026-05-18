@@ -20,6 +20,7 @@ import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
 import {
   buildDetectionUserMessage,
   collectInternalDocFragments,
+  segmentForDetection,
   DETECTION_SYSTEM_PROMPT,
   DetectionResponseSchema,
   parseDetectionResponse,
@@ -319,7 +320,11 @@ export function enrichDetectedConflict(
       return null;
     }
     codeContent = readFileSync(codePath, 'utf-8');
-  } catch {
+  } catch (err) {
+    // doc 16 PR 2 (doc-15-aligned): a detected conflict dropped here used to
+    // vanish silently — the same invisible-miss class D2 is about. Log it.
+    log.warn({ file: item.file, err: err instanceof Error ? err.message : String(err) },
+      'doc-conflict-detection: dropping conflict — code file unreadable at anchor');
     return null;
   }
 
@@ -452,9 +457,18 @@ export async function detectNewConflictsViaLlm(
     return [];
   }
 
-  // Resolve inputs
-  const referenceDocs = await resolveReferenceDocs(projectRoot, config);
-  const internalFragments = collectInternalDocFragments(fragmentsDir);
+  // Resolve inputs. doc 16 PR 2: both human and machine views are segmented
+  // by section (smartChunkDoc reuse) before comparison, so a localised
+  // inversion is judged section-against-section instead of being skimmed
+  // over in a whole-page prose diff. Segmenting here (not in the message
+  // builder) keeps the token-budget batcher accurate — it counts the
+  // segmented content it will actually send.
+  const referenceDocs = (await resolveReferenceDocs(projectRoot, config)).map(
+    (d) => ({ ...d, content: segmentForDetection(d.path, d.content) }),
+  );
+  const internalFragments = collectInternalDocFragments(fragmentsDir).map(
+    (f) => ({ relPath: f.relPath, content: segmentForDetection(f.relPath, f.content) }),
+  );
   const codeSurface = buildCodeSurfaceSummary(tasks);
 
   if (referenceDocs.length === 0 && internalFragments.length === 0) {

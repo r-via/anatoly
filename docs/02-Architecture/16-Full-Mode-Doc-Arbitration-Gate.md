@@ -216,13 +216,34 @@ detection; `off`/`lite` are out of scope and unchanged):
   full suite 3048 pass / 0 fail (spine/handoff goldens included), lint clean,
   6 new durability + migrate-on-read tests (invariant 5). No bench needed
   (provably no audit-input change), per the doc-15 PR-1 precedent.
-- **PR 2 — detection sees the bug class (behavior-relevant, detector only).**
-  Widen the conflict detector's code input past signatures to body-level
-  evidence for claimed symbols, within the existing token-budget batching.
-  This changes which conflicts are detected, not yet what is injected. Gate:
-  the D2 fixture (invariant 3) green; existing doc-conflict suites green;
-  bench at the PR-2 tip (more conflicts detected can shift `pending` counts
-  and, once PR 3 lands, the injected view; measured here in isolation first).
+- **PR 2 (code done, bench-pending) — detection sees the bug class
+  (behavior-relevant, detector only).** Approach corrected by grounding +
+  owner: the original "scope body-level CODE_EVIDENCE to a fragment's source
+  file" is unbuildable (scaffolder pages are topic/section pages, no
+  machine-readable source anchor: `PageDef{path,title,description,section,
+  hint}`, doc-scaffolder.ts:26/205), and a segment-comparison primitive
+  already exists. PR 2 therefore **reuses `smartChunkDoc`** (src/rag/
+  doc-indexer.ts:514, H2/H3 split + same-paragraph accumulation + neighbour
+  merge + sub-50-char discard) to segment **both** REFERENCE_DOCS and
+  INTERNAL_DOCS by section before comparison (new `segmentForDetection`,
+  doc-conflict-llm.ts), so a localised inversion is judged
+  section-against-section instead of skimmed in a whole-page prose diff;
+  `DETECTION_SYSTEM_PROMPT` now makes **inversions** (reversed sign /
+  direction / ratio / comparator / beneficiary / unit) the highest-priority
+  divergence. No code bodies (owner: dropped); the internal doc, generated
+  from buggy code, already encodes the buggy value. Segmentation is done
+  upstream in `detectNewConflictsViaLlm` so the token-budget batcher stays
+  accurate; `buildDetectionUserMessage` stays a pure renderer (existing
+  assertions unaffected). The lone silent `return null` in
+  `enrichDetectedConflict` (unreadable anchor file) is now logged
+  (doc-15-aligned, no silent miss). Gate met: typecheck clean, full suite
+  3053 pass / 0 fail, lint clean, 5 new tests incl. the D2 input-guard
+  (assembled prompt is section-segmented and carries the inversion rule) and
+  an inversion round-trip; no live LLM. **Bench is the owner's to run**
+  (behavior-relevant; more conflicts detected can shift `pending` counts and,
+  once PR 3 lands, the injected view): measured in isolation at the PR-2 tip,
+  correction-axis on slot-engine. PR 3 must not ship B's keep-uncontested
+  until this bench is green (§7 hard prerequisite).
 - **PR 3 — the gate (behavior-relevant, the core).** Replace the
   unconditional scaffold threading with the ratified-view producer behind a
   `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free
