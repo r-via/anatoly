@@ -14,7 +14,19 @@ import { getLogger } from '../../../utils/logger.js';
 // Path helper
 // ---------------------------------------------------------------------------
 
+// doc 16 PR 1: the arbitration ledger lives at the `.anatoly/state/` root,
+// NOT inside `state/internal-docs/`. Co-locating it with the regenerated
+// scaffold fragments let `anatoly docs scaffold internal` (an `rmSync` of the
+// internal-docs dir) silently destroy resolved verdicts. The store is the
+// durable record of arbitration and must outlive any scaffold rebuild.
 function conflictsFilePath(projectRoot: string): string {
+  return anatolyPath(projectRoot, 'state', 'doc-conflicts.yaml');
+}
+
+// Pre-doc-16 location, kept as a read-only fallback so a verdict set under
+// the old layout is not lost. Migrated forward on first load (write-through
+// to the new path) so the next read hits the durable location.
+function legacyConflictsFilePath(projectRoot: string): string {
   return anatolyPath(projectRoot, 'state/internal-docs', 'doc-conflicts.yaml');
 }
 
@@ -27,11 +39,12 @@ function conflictsFilePath(projectRoot: string): string {
  * Returns null if the file does not exist.
  * Throws on malformed YAML, Zod validation failure, or unsupported version (NFR7).
  */
-export function loadDocConflicts(projectRoot: string): DocConflictsLock | null {
-  const filePath = conflictsFilePath(projectRoot);
-  if (!existsSync(filePath)) return null;
-
-  const raw = readFileSync(filePath, 'utf-8');
+/**
+ * Parse + validate raw YAML lock content. Throws the same actionable errors
+ * as before for an unsupported version (NFR7) or a schema violation,
+ * regardless of which on-disk location it came from.
+ */
+function parseAndValidate(raw: string): DocConflictsLock {
   const parsed = yamlParse(raw) as Record<string, unknown>;
 
   // NFR7: explicit version check before Zod parse for actionable error
@@ -49,6 +62,30 @@ export function loadDocConflicts(projectRoot: string): DocConflictsLock | null {
   }
 
   return result.data;
+}
+
+export function loadDocConflicts(projectRoot: string): DocConflictsLock | null {
+  const filePath = conflictsFilePath(projectRoot);
+  if (existsSync(filePath)) {
+    return parseAndValidate(readFileSync(filePath, 'utf-8'));
+  }
+
+  // doc 16 PR 1: migrate-on-read from the pre-doc-16 location. A malformed
+  // legacy file still throws the same actionable error (behaviour-preserving);
+  // a valid one is returned AND written through to the durable path so the
+  // next load hits the new location and a scaffold rebuild can no longer
+  // destroy it. The legacy file is left intact: write-through is best-effort,
+  // and on a write failure the next load simply retries the migration.
+  const legacyPath = legacyConflictsFilePath(projectRoot);
+  if (!existsSync(legacyPath)) return null;
+
+  const lock = parseAndValidate(readFileSync(legacyPath, 'utf-8'));
+  try {
+    saveDocConflicts(projectRoot, lock);
+  } catch {
+    /* best-effort migration — a write failure must not break a read */
+  }
+  return lock;
 }
 
 /**

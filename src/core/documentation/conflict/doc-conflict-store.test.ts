@@ -63,12 +63,22 @@ function makeEntry(overrides: Partial<DocConflict> = {}): DocConflict {
   };
 }
 
+// doc 16 PR 1: canonical durable location (`.anatoly/state/` root).
 function docConflictsDir(root: string): string {
-  return join(root, '.anatoly', 'state', 'internal-docs');
+  return join(root, '.anatoly', 'state');
 }
 
 function docConflictsPath(root: string): string {
   return join(docConflictsDir(root), 'doc-conflicts.yaml');
+}
+
+// Pre-doc-16 location, co-located with the regenerated scaffold fragments.
+function legacyDocConflictsDir(root: string): string {
+  return join(root, '.anatoly', 'state', 'internal-docs');
+}
+
+function legacyDocConflictsPath(root: string): string {
+  return join(legacyDocConflictsDir(root), 'doc-conflicts.yaml');
 }
 
 // ---------------------------------------------------------------------------
@@ -262,3 +272,68 @@ describe('Story 55.3 — verifyAnchorHash', () => {
 // ---------------------------------------------------------------------------
 
 import { stringify as yamlStringify } from 'yaml';
+
+// ---------------------------------------------------------------------------
+// doc 16 PR 1 — store durability & migrate-on-read
+// ---------------------------------------------------------------------------
+
+describe('doc 16 PR 1 — store durability & migration', () => {
+  it('writes to the .anatoly/state/ root, not inside state/internal-docs/', () => {
+    saveDocConflicts(tmpDir, makeValidLock([makeEntry()]));
+    expect(existsSync(docConflictsPath(tmpDir))).toBe(true);
+    expect(existsSync(legacyDocConflictsPath(tmpDir))).toBe(false);
+  });
+
+  it('survives a scaffold rebuild that wipes state/internal-docs/', () => {
+    saveDocConflicts(tmpDir, makeValidLock([makeEntry({ verdict: 'doc-wins', status: 'applied' })]));
+
+    // Simulate `anatoly docs scaffold internal`: rmSync of the internal-docs dir.
+    mkdirSync(legacyDocConflictsDir(tmpDir), { recursive: true });
+    rmSync(legacyDocConflictsDir(tmpDir), { recursive: true, force: true });
+
+    const reloaded = loadDocConflicts(tmpDir);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.entries[0].verdict).toBe('doc-wins');
+  });
+
+  it('migrates a valid legacy file forward on first load (write-through)', () => {
+    mkdirSync(legacyDocConflictsDir(tmpDir), { recursive: true });
+    const legacyLock = makeValidLock([makeEntry({ verdict: 'code-wins', status: 'applied' })]);
+    writeFileSync(legacyDocConflictsPath(tmpDir), yamlStringify(legacyLock));
+
+    // New path absent → reads legacy and returns it.
+    const loaded = loadDocConflicts(tmpDir);
+    expect(loaded!.entries[0].verdict).toBe('code-wins');
+
+    // Write-through happened: the durable path now exists.
+    expect(existsSync(docConflictsPath(tmpDir))).toBe(true);
+
+    // A subsequent rescaffold (wipes legacy) no longer loses the verdict.
+    rmSync(legacyDocConflictsDir(tmpDir), { recursive: true, force: true });
+    const reloaded = loadDocConflicts(tmpDir);
+    expect(reloaded!.entries[0].verdict).toBe('code-wins');
+  });
+
+  it('prefers the new path over a stale legacy file when both exist', () => {
+    mkdirSync(legacyDocConflictsDir(tmpDir), { recursive: true });
+    writeFileSync(
+      legacyDocConflictsPath(tmpDir),
+      yamlStringify(makeValidLock([makeEntry({ id: 'legacy', verdict: 'pending' })])),
+    );
+    saveDocConflicts(tmpDir, makeValidLock([makeEntry({ id: 'current', verdict: 'doc-wins', status: 'applied' })]));
+
+    const loaded = loadDocConflicts(tmpDir);
+    expect(loaded!.entries).toHaveLength(1);
+    expect(loaded!.entries[0].id).toBe('current');
+  });
+
+  it('still throws the same actionable error on a malformed legacy file', () => {
+    mkdirSync(legacyDocConflictsDir(tmpDir), { recursive: true });
+    writeFileSync(legacyDocConflictsPath(tmpDir), yamlStringify({ version: 99, entries: [] }));
+    expect(() => loadDocConflicts(tmpDir)).toThrow(/unsupported version 99/);
+  });
+
+  it('returns null when neither the new nor the legacy file exists', () => {
+    expect(loadDocConflicts(tmpDir)).toBeNull();
+  });
+});
