@@ -173,29 +173,8 @@ export interface SingleTurnQueryResult<T> {
   transcript: string;
 }
 
-// ---------------------------------------------------------------------------
-// doc 14 §3 — the execution-unit SPI
-// ---------------------------------------------------------------------------
-
-/**
- * The single central point of interaction the harness threads into every
- * unit. doc 14 PR 2a carries only cooperative cancellation (the one
- * cross-cutting handle every agent already needs); the sink, event emitter
- * and cost recorder land here in PR 2b / PR 4 (doc 14 §4, §5). Kept minimal
- * on purpose: doc 14 §1 rejects a speculative generic surface.
- */
-export interface HarnessCtx {
-  readonly abortController: AbortController;
-}
-
-/**
- * doc 14 §3. A phase and an agent are two specializations of one unit. The
- * contract is deliberately narrow: identity (for event / cost attribution)
- * and a `run` taking typed input plus the harness context. The implementer
- * never touches cost / event / transcript / log plumbing: those belong to
- * the harness (doc 14 §4), which is the only sanctioned entry.
- */
-export interface ExecutionUnit<I, O> {
-  readonly name: string;
-  run(input: I, h: HarnessCtx): Promise<O>;
-}
+// The execution-unit SPI (ExecutionUnit / HarnessCtx) moved to its own
+// zero-dependency context `core/harness/` in doc 14 PR 3a (see
+// harness/contract.ts for the rationale: a single harness every agent flows
+// through cannot live in `evaluation/` without an evaluation<->documentation
+// cycle). Import it from `../harness/index.js`.

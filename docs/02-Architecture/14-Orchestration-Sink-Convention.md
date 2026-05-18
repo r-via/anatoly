@@ -118,16 +118,23 @@ grains:
 | capture transcript / conversation | `AxisResult.transcript`, `conversationDir`, lifted off call sites |
 | latch run-fatal, honor interrupt/abort | `run-control.requestFatalStop`, `runPhase` fatal rethrow |
 
-Placement (grounded at PR 2a): `runUnit` and the `ExecutionUnit` / `HarnessCtx`
-SPI physically live in `core/evaluation` (`contract.ts` + `evaluator.ts`,
-beside `runSingleTurnQuery`), not in `orchestration/`. The agents (axes)
-import the harness, and `orchestration` already depends on `evaluation`;
-putting the harness in `orchestration` would create an
-`evaluation -> orchestration -> evaluation` import cycle. "One harness" is a
-logical contract realized across the two layers: the agent grain lands here
-at PR 2a, and the phase grain (`runPhase`) is unified onto the same `runUnit`
-at PR 4. This is a forced layering call, not an alternative to the §1
-decision.
+Placement (corrected at PR 3a, supersedes the PR-2a note): `runUnit` and the
+`ExecutionUnit` / `HarnessCtx` SPI live in their own dependency-free bounded
+context **`core/harness/`** (`contract.ts` + `runner.ts` + `index.ts`
+barrel). PR 2a had placed them in `core/evaluation` to dodge the
+orchestration<->evaluation cycle; that was locally correct but globally
+insufficient. `documentation` is also an agent host, and `evaluation` has a
+runtime edge into it (`file-evaluator -> documentation`), so a
+documentation agent could not reach an evaluation-hosted harness without an
+`evaluation -> documentation -> evaluation` cycle. A "single harness every
+agent flows through" is only cycle-free if it depends on nothing in `core/`.
+`core/harness/` does (its only named type is the global `AbortController`),
+so `evaluation`, `documentation`, `refinement` and (PR 4) `orchestration`
+all import it via its barrel without any cycle. This is the §1 "one harness"
+realized as a shared kernel, and it de-risks the PR 4 phase-grain
+unification (orchestration -> harness, not orchestration -> evaluation).
+doc 12's context inventory gains `harness/` (shared kernel, fan-in many,
+fan-out zero).
 
 ## 5. The frontier contract
 

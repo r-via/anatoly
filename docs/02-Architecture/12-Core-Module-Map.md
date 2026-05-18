@@ -89,6 +89,12 @@ Every one of the 60 root modules maps to exactly one context. `fan-in` is
 `(core importers) + (outside-core non-test importers)` measured at HEAD; it is
 the rewrite blast radius that orders the PR sequence in doc 13.
 
+> Post-doc-13 addition: `harness/` is a new shared-kernel context (not one of
+> the original 60 modules) introduced by
+> [14-Orchestration-Sink-Convention.md](./14-Orchestration-Sink-Convention.md)
+> PR 3a: the execution-unit SPI + `runUnit`, depending on nothing in `core/`
+> (fan-out zero, fan-in many). See doc 14 §4 for the cycle rationale.
+
 ### 3.1 `documentation/` (24 modules, four sub-contexts)
 
 The largest context by far (40% of the flat root). It has real internal

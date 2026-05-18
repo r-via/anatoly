@@ -26,7 +26,9 @@ import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import type { LlmTransport, LlmResponse } from '../transports/index.js';
 import { extractProvider } from '../transports/index.js';
 import { AnthropicTransport } from '../transports/anthropic-transport.js';
-import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult, ExecutionUnit, HarnessCtx } from './contract.js';
+import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult } from './contract.js';
+import { runUnit } from '../harness/index.js';
+import type { ExecutionUnit } from '../harness/index.js';
 
 // ---------------------------------------------------------------------------
 // System prompt composition
@@ -212,20 +214,6 @@ export function resolveAgentModel(phase: 'scaffolding' | 'review', config: Confi
 // ---------------------------------------------------------------------------
 // Shared single-turn query utility
 // ---------------------------------------------------------------------------
-
-/**
- * doc 14 §4 — the unit harness at the agent grain. The single chokepoint
- * every agent flows through (PR 2a: the single-turn axes, transitively, via
- * {@link runSingleTurnQuery}). Pure pass-through in PR 2a, behaviour-
- * preserving by construction; PR 2b folds cost recording here so the
- * per-axis `recordLlmCost` loop in review.ts moves off the phase. It lives
- * in core/evaluation (not orchestration) so the axes reach it without an
- * orchestration -> evaluation -> orchestration import cycle; the phase grain
- * joins this same harness at PR 4.
- */
-export async function runUnit<I, O>(unit: ExecutionUnit<I, O>, input: I, h: HarnessCtx): Promise<O> {
-  return unit.run(input, h);
-}
 
 /**
  * Execute a single-turn LLM query (no tools), validate the response with a
