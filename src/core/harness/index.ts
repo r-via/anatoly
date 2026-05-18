@@ -8,5 +8,5 @@
  * the execution-unit SPI; depends on nothing in `core/`.
  */
 
-export type { ExecutionUnit, HarnessCtx } from './contract.js';
+export type { ExecutionUnit, HarnessCtx, UnitCostEntry } from './contract.js';
 export { runUnit } from './runner.js';

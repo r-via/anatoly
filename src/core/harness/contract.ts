@@ -33,8 +33,38 @@
  * recorder land here in later PRs (doc 14 §4, §5). Kept minimal on purpose:
  * doc 14 §1 rejects a speculative generic surface.
  */
+/**
+ * doc 15 PR 2a: a unit's LLM/agent cost, in the exact shape
+ * `orchestration/cost.ts recordLlmCost` consumes. Plain and zero-dependency
+ * (no orchestration import) so `core/harness` stays the cycle-free shared
+ * kernel; orchestration structurally satisfies it. Minimal cost-only
+ * contract: NOT the full form-first PhaseEnvelope doc 14 declined (PR 4c).
+ */
+export interface UnitCostEntry {
+  provider: 'anthropic' | 'gemini';
+  /** the run-metrics phase bucket (e.g. 'review', 'rag-index', a doc taskId). */
+  phase: string;
+  /** axis bucket, when the unit is a single axis. */
+  axis?: string;
+  costUsd: number;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  calls?: number;
+}
+
 export interface HarnessCtx {
   readonly abortController?: AbortController;
+  /**
+   * doc 15 PR 2a: the injected cost sink. Orchestration wires this to
+   * `recordLlmCost(ctx, ...)` (dependency inversion: the harness invokes it,
+   * never imports orchestration). Optional: when absent, `runUnit` does not
+   * fold cost (pre-PR-2a behaviour). Wired into every unit by PR 2b/2c so a
+   * unit cannot omit reporting.
+   */
+  readonly recordCost?: (entry: UnitCostEntry) => void;
 }
 
 /**
@@ -47,4 +77,13 @@ export interface HarnessCtx {
 export interface ExecutionUnit<I, O> {
   readonly name: string;
   run(input: I, h: HarnessCtx): Promise<O>;
+  /**
+   * doc 15 PR 2a: the unit declares how to read its own cost from its
+   * result (cost fields are non-uniform across units: `costUsd` vs
+   * `totalCostUsd` vs per-axis timing, so no envelope is forced). Optional:
+   * a unit without it is not cost-captured by the harness (the pre-PR-2a
+   * state). `runUnit` calls this and feeds {@link HarnessCtx.recordCost}.
+   * Return `undefined` when there is nothing to record (no LLM ran).
+   */
+  cost?(output: O): UnitCostEntry | undefined;
 }

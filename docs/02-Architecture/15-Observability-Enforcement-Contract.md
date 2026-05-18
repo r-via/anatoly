@@ -142,7 +142,7 @@ doc-coherence / refinement / doc-conflict / RAG-summary), the harness
   that declined doc-14 PR 4c; a **minimal cost-only** result contract is
   adopted, not the full form-first PhaseEnvelope doc-14 rejected).
   Decomposed by ascending risk, each behavior-preserving + bench-gated:
-  - **PR 2a** Foundation, behavior-preserving: a minimal `UnitCost` shape;
+  - **PR 2a (done)** Foundation, behavior-preserving: a minimal `UnitCost` shape;
     an optional cost-extractor on `ExecutionUnit` (the unit declares how to
     read its own cost, no uniform envelope forced); `HarnessCtx` gains an
     optional injected `recordCost?` sink (dependency inversion: orchestration

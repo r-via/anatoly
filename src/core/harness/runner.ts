@@ -17,5 +17,14 @@
 import type { ExecutionUnit, HarnessCtx } from './contract.js';
 
 export async function runUnit<I, O>(unit: ExecutionUnit<I, O>, input: I, h: HarnessCtx): Promise<O> {
-  return unit.run(input, h);
+  const output = await unit.run(input, h);
+  // doc 15 PR 2a: structural cost capture. Fires only when the unit declares
+  // a cost extractor AND the harness sink is injected. No unit opts in yet
+  // (PR 2b/2c wire them) and no caller injects `recordCost` yet, so this is
+  // pure pass-through today: zero behaviour change, by construction.
+  if (unit.cost && h.recordCost) {
+    const entry = unit.cost(output);
+    if (entry) h.recordCost(entry);
+  }
+  return output;
 }
