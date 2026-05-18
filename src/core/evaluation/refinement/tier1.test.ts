@@ -7,7 +7,7 @@ import { applyTier1 } from './tier1.js';
 import type { Tier1Context } from './tier1.js';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { UsageGraph } from '../../scanning/index.js';
-import type { PreResolvedRag } from '../axis-evaluator.js';
+import type { PreResolvedRag } from '../contract.js';
 import type { FunctionCard } from '../../../rag/types.js';
 
 // ---------------------------------------------------------------------------

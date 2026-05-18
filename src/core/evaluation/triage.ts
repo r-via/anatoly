@@ -5,7 +5,7 @@
 import type { Task, SymbolInfo } from '../../schemas/task.js';
 import type { ReviewFile } from '../../schemas/review.js';
 import { contextLogger } from '../../utils/log-context.js';
-import type { AxisId } from './axis-evaluator.js';
+import type { AxisId } from './contract.js';
 import { resolveExportedSymbolUtility, type UsageGraph } from '../scanning/index.js';
 
 export type TriageTier = 'skip' | 'evaluate';

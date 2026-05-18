@@ -58,7 +58,7 @@ describe('AnthropicTransport', () => {
 
 describe('runSingleTurnQuery transport integration', () => {
   it('AC 37.2.2: uses provided transport for I/O', async () => {
-    const { runSingleTurnQuery } = await import('../evaluation/axis-evaluator.js');
+    const { runSingleTurnQuery } = await import('../evaluation/evaluator.js');
 
     const mockTransport: LlmTransport = {
       provider: 'mock',
@@ -98,7 +98,7 @@ describe('runSingleTurnQuery transport integration', () => {
   });
 
   it('AC 37.2.2: keeps Zod validation + retry logic when using transport', async () => {
-    const { runSingleTurnQuery } = await import('../evaluation/axis-evaluator.js');
+    const { runSingleTurnQuery } = await import('../evaluation/evaluator.js');
 
     const mockTransport: LlmTransport = {
       provider: 'mock',
@@ -151,7 +151,7 @@ describe('runSingleTurnQuery transport integration', () => {
   });
 
   it('AC 37.2.2: passes resumeSessionId on retry', async () => {
-    const { runSingleTurnQuery } = await import('../evaluation/axis-evaluator.js');
+    const { runSingleTurnQuery } = await import('../evaluation/evaluator.js');
 
     const mockTransport: LlmTransport = {
       provider: 'mock',
@@ -203,7 +203,7 @@ describe('runSingleTurnQuery transport integration', () => {
   });
 
   it('AC 37.2.2: throws after 2 failed validation attempts', async () => {
-    const { runSingleTurnQuery } = await import('../evaluation/axis-evaluator.js');
+    const { runSingleTurnQuery } = await import('../evaluation/evaluator.js');
 
     const mockTransport: LlmTransport = {
       provider: 'mock',

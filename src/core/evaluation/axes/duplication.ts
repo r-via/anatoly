@@ -5,8 +5,8 @@
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
-import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
+import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../contract.js';
+import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { contextLogger } from '../../../utils/log-context.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';

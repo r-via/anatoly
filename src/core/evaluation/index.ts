@@ -25,7 +25,7 @@ export {
   getCodeFenceTag,
   getLanguageLines,
   buildProviderStats,
-} from './axis-evaluator.js';
+} from './evaluator.js';
 export type {
   AxisContext,
   AxisEvaluator,
@@ -37,7 +37,7 @@ export type {
   RelevantDoc,
   SingleTurnQueryParams,
   SingleTurnQueryResult,
-} from './axis-evaluator.js';
+} from './contract.js';
 
 export { mergeAxisResults } from './axis-merger.js';
 

@@ -4,9 +4,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseTestConfig } from '../../schemas/test-fixtures.js';
-import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, composeAxisSystemPrompt } from './axis-evaluator.js';
+import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel, resolveAgentModel, buildProviderStats, getCodeFenceTag, getLanguageLines, composeAxisSystemPrompt } from './evaluator.js';
 import type { AxisTiming } from './file-evaluator.js';
-import type { AxisEvaluator, AxisContext, AxisResult } from './axis-evaluator.js';
+import type { AxisEvaluator, AxisContext, AxisResult } from './contract.js';
 import type { Config } from '../../schemas/config.js';
 import type { Task } from '../../schemas/task.js';
 import { buildBestPracticesUserMessage } from './axes/best-practices.js';

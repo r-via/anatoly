@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { buildOverengineeringSystemPrompt, buildOverengineeringUserMessage } from './overengineering.js';
-import type { AxisContext } from '../axis-evaluator.js';
+import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
 

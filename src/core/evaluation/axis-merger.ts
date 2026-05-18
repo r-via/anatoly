@@ -5,7 +5,7 @@
 import type { Task, SymbolInfo } from '../../schemas/task.js';
 import type { ReviewFile, SymbolReview, Action, BestPractices } from '../../schemas/review.js';
 import { enforceDuplicationInvariant } from '../../schemas/review.js';
-import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
+import type { AxisResult, AxisId, AxisSymbolResult } from './contract.js';
 import { contextLogger } from '../../utils/log-context.js';
 
 // ---------------------------------------------------------------------------

@@ -170,9 +170,9 @@ describe('Story 55.7 — structural: axes pass arbitratedFragments', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 55.7 — structural: AxisContext has arbitratedFragments', () => {
-  it('axis-evaluator.ts declares arbitratedFragments on AxisContext', () => {
+  it('contract.ts declares arbitratedFragments on AxisContext', () => {
     const src = readFileSync(
-      join(process.cwd(), 'src', 'core', 'evaluation', 'axis-evaluator.ts'),
+      join(process.cwd(), 'src', 'core', 'evaluation', 'contract.ts'),
       'utf-8',
     );
     expect(src).toContain('arbitratedFragments');

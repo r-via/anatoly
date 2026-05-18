@@ -12,7 +12,7 @@ import { isRateLimitStandbyError } from '../../utils/rate-limiter.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../../schemas/review.js';
-import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './axis-evaluator.js';
+import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './contract.js';
 import { extractProvider, type TransportRouter } from '../transports/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
@@ -23,7 +23,7 @@ import { retrieveRelevantDocsForFile } from '../../rag/per-file-doc-retrieval.js
 import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from '../documentation/index.js';
 import type { ReferenceDoc } from '../documentation/index.js';
 import { mergeAxisResults } from './axis-merger.js';
-import { resolveAxisModel } from './axis-evaluator.js';
+import { resolveAxisModel } from './evaluator.js';
 import { getEffectiveSourceRoot } from '../worktree/index.js';
 
 // ---------------------------------------------------------------------------

@@ -5,10 +5,10 @@
 import { describe, it, expect } from 'vitest';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { buildDuplicationSystemPrompt, buildDuplicationUserMessage } from './duplication.js';
-import type { AxisContext } from '../axis-evaluator.js';
+import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
-import type { PreResolvedRag } from '../axis-evaluator.js';
+import type { PreResolvedRag } from '../contract.js';
 
 const mockTask: Task = {
   version: 1,

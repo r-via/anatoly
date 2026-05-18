@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Config } from '../../../schemas/config.js';
-import type { AxisEvaluator, AxisId } from '../axis-evaluator.js';
+import type { AxisEvaluator, AxisId } from '../contract.js';
 import type { RunContext } from '../../../commands/run.js';
 
 import { UtilityEvaluator } from './utility.js';

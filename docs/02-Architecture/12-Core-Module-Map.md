@@ -7,24 +7,24 @@
 > Where they diverge, that divergence is the remediation backlog closed by
 > [13-Core-Module-Remediation-Plan.md](./13-Core-Module-Remediation-Plan.md).
 >
-> **Remediation status (updated in lockstep).** PRs 1 to 7 have landed.
+> **Remediation status (updated in lockstep).** PRs 1 to 7b have landed.
+> **The remediation is complete.**
 > **The flat `src/core` root holds zero `.ts` modules**: all 60 are in a
 > bounded context (`worktree/`, `reporting/`, `platform/`, `run/`,
 > `scanning/`, the 4-sub-folder `documentation/`, and `evaluation/` with
 > `axes/`+`refinement/` nested behind one barrel). Each landed with the
 > grep gate, `tsc --noEmit`, and the full vitest suite (185 files, the
-> doc 11 `spine-golden` included) green. PR 7 was move-only; the §5
-> evaluation consumers (`docs-resolver`, `reporter`, `run-config`,
-> `estimator`) point at the `evaluation/axis-evaluator` **leaf** (not the
-> eager evaluation barrel: doc 12 §5 barrel-cycle exception) transitionally
-> until **PR 7b**, the one remaining non-move-only change, splits
-> `axis-evaluator.ts` into `contract.ts` + `evaluator.ts` and repoints
-> those edges at `evaluation/contract.js`. Seven trap classes surfaced
-> across the move (git-mv staging, guard-path reads, vitest mock paths,
-> mid-file inline `import()`, supplementary-tests-are-external, the
-> barrel-cycle exception, `replace_all` over-reach into sandbox-fixture
-> strings); all fixed in lockstep and the recipe / grep gate hardened
-> (doc 13 §3 / §4 / §9). Only PR 7b remains.
+> doc 11 `spine-golden` included) green. PR 7b then split
+> `axis-evaluator.ts` into `evaluation/contract.ts` (the published
+> language: 10 types) + `evaluation/evaluator.ts` (impl: 9 functions),
+> byte-identical bodies, and repointed the §4/§5 consumers
+> (`docs-resolver`, `reporter`, `run-config`) at `evaluation/contract.js`:
+> no peer context imports an evaluation implementation path. Seven trap
+> classes surfaced across the sequence (git-mv staging, guard-path reads,
+> vitest mock paths, mid-file inline `import()`,
+> supplementary-tests-are-external, the barrel-cycle exception,
+> `replace_all` over-reach into sandbox-fixture strings); all fixed in
+> lockstep and the recipe / grep gate hardened (doc 13 §3 / §4 / §9).
 >
 > It is the structural sibling of [10-Orchestration-Runtime.md](./10-Orchestration-Runtime.md):
 > doc 10 is the contract for the orchestration spine, this doc is the contract
@@ -181,7 +181,7 @@ reads as one hot module. Partitioned, it is a **published language**: those
 importers do not need the evaluator implementation, they need the contract
 (`AxisId`, the `AxisEvaluator` interface, `AxisContext`).
 
-CONTRACT: `axis-evaluator.ts` splits into
+LANDED (doc 13 PR 7b): `axis-evaluator.ts` was split into
 
 - `evaluation/contract.ts`: types and the `AxisEvaluator` interface only. Any
   context may import this. It is the seam every cross-context edge in §5
@@ -189,9 +189,11 @@ CONTRACT: `axis-evaluator.ts` splits into
 - `evaluation/evaluator.ts`: the implementation. Imported only inside
   `evaluation/` and re-exported from `evaluation/index.ts`.
 
-This is the one change in the whole remediation that is not a pure move (doc
-13 gates it separately, the way doc 11 PR 8c gated the handoff inversion).
-The flat layout did not make this split optional, it made it invisible.
+This was the one change in the whole remediation that was not a pure move
+(doc 13 gated it separately per §6: tsc + full suite + a public-API snapshot
+proven name-and-type identical to the pre-split exports + byte-identical
+symbol bodies, the way doc 11 PR 8c gated the handoff inversion). The flat
+layout did not make this split optional, it made it invisible.
 
 ## 5. Peer-context coupling (CONTRACT)
 
@@ -208,7 +210,7 @@ contract or a barrel, never an implementation path:
 | `run/run-config` | evaluation | imports `evaluation/contract.ts` (§4) |
 | `evaluation/file-evaluator` | documentation | imports `documentation/index.ts` |
 | `evaluation/axes/internal-docs-context` | run | imports the `run/run-config.js` **leaf**, not the `run/` barrel (barrel-cycle exception, see below) |
-| `documentation/resolution/docs-resolver`, `reporting/reporter`, `run/run-config`, `run/estimator` | evaluation | PR 7 to 7b transitional: import the `evaluation/axis-evaluator` **leaf** (or `evaluation/axes/index.js`, `evaluation/calibration.js`), not the `evaluation/` barrel. The barrel eagerly constructs every axis evaluator at load; routing these §4/§5 consumers through it re-enters the barrel mid-init via `file-evaluator -> documentation/index.js -> docs-resolver` (PR 7 surfaced exactly this: `ALL_AXIS_IDS` undefined). PR 7b splits the leaf into `contract.ts` and repoints them there |
+| `documentation/resolution/docs-resolver`, `reporting/reporter`, `run/run-config` | evaluation | **Resolved (PR 7b):** import `evaluation/contract.js` (the §4 published language), never the implementation or the eager `evaluation/` barrel. History: PR 7 routed these at the `evaluation/axis-evaluator` leaf because the barrel eagerly constructs every axis evaluator at load and re-enters mid-init via `file-evaluator -> documentation/index.js -> docs-resolver` (`ALL_AXIS_IDS` undefined); PR 7b split the leaf into `contract.ts` (types) + `evaluator.ts` (impl) so the contract carries no runtime, dissolving the cycle. `run/estimator` separately imports `evaluation/axes/index.js` + `evaluation/calibration.js` (axis-list / calibration, not the axis-evaluator contract) |
 
 `evaluation/file-evaluator -> documentation` and
 `documentation -> evaluation/contract` is not an import cycle (the second edge
@@ -289,10 +291,10 @@ Mirrors doc 10 §7. ✅ holds today, ❌ diverges, the gap is doc 13's backlog.
 |---|---|
 | Orchestration spine has a phase-aligned home | ✅ (doc 10 / 11) |
 | The 60 modules it composes have phase-aligned homes | ✅ 60/60 (doc 13 PRs 1 to 7): the flat `src/core` root holds zero `.ts` modules; every one is in a bounded context. PR 7b is the contract/impl split, not a move |
-| Every cross-context edge points at a barrel or §4 contract | ◑ all via barrels except the §5 evaluation consumers (`docs-resolver`, `reporter`, `run-config`, `estimator`), which point at the `evaluation/axis-evaluator` leaf transitionally (barrel-cycle exception); PR 7b repoints them at `evaluation/contract.js` |
-| `axis-evaluator` is split contract / impl | ❌ doc 13 PR 7b (the one remaining non-move-only change) |
+| Every cross-context edge points at a barrel or §4 contract | ✅ all via barrels; the §5 evaluation consumers (`docs-resolver`, `reporter`, `run-config`) import `evaluation/contract.js` (doc 13 PR 7b) |
+| `axis-evaluator` is split contract / impl | ✅ `evaluation/contract.ts` (types) + `evaluation/evaluator.ts` (impl), byte-identical bodies, public API identical (doc 13 PR 7b) |
 | Each context exposes one `index.ts` barrel | ✅ every bounded context (`transports`, `axes`, `notifications`, `worktree`, `reporting`, `platform`, `run`, `scanning`, `documentation` [4 sub-folders, one barrel], `evaluation` [`axes/`+`refinement/` nested, one barrel]) |
-| No peer-context import of an implementation path | ◑ only the §5 evaluation consumers (leaf, transitional, barrel-cycle exception); PR 7b closes this via `evaluation/contract.js` |
+| No peer-context import of an implementation path | ✅ closed by doc 13 PR 7b: the §5 evaluation consumers import `evaluation/contract.js`, never an implementation module |
 | 60 modules each have a colocated test | ❌ 6 lack one: `calibration`, `default-models`, `correction-memory`, `doc-type-context`, `doc-gap-detection`, `documentation-config` (noted, not in scope for doc 13) |
 
 ## See also

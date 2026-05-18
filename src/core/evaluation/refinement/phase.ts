@@ -5,7 +5,8 @@
 import type { ReviewFile } from '../../../schemas/review.js';
 import type { Config } from '../../../schemas/config.js';
 import type { UsageGraph } from '../../scanning/index.js';
-import { resolveDeliberationModel, type PreResolvedRag } from '../axis-evaluator.js';
+import { resolveDeliberationModel } from '../evaluator.js';
+import type { PreResolvedRag } from '../contract.js';
 import type { ReclassificationEntry } from '../../platform/index.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';

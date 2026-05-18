@@ -258,22 +258,28 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: the move is complete (PRs 1 to 7 landed); only 7b remains.**
-> Every one of the 60 modules is in a bounded context: `worktree/`,
-> `reporting/`, `platform/`, `run/`, `scanning/`, the 4-sub-folder
-> `documentation/`, and `evaluation/` (`axes/`+`refinement/` nested, one
-> barrel). The flat `src/core` root holds zero `.ts` modules. Each PR
-> passed the §3 grep gate, `tsc --noEmit`, and the full vitest suite (185
-> files, `spine-golden` included). The §4 recipe was hardened across PRs
-> 2 to 7 against seven trap classes (git-mv staging; segment- and
-> string-form guard-path reads; vitest module-mock paths; mid-file inline
-> `import()`; supplementary-tests-as-external; the barrel-cycle exception,
-> reinforced at its largest instance by PR 7's eager evaluation barrel;
-> `replace_all` over-reach into sandbox-fixture strings). Invariants 1 to
-> 3 hold through PR 7. Invariants 4 to 5 (the `axis-evaluator`
-> contract/impl split and "no peer-context import of an implementation
-> path") are the remit of **PR 7b**, the one deliberate non-move-only
-> change, gated separately per §6.
+> **Status: all five invariants satisfied (PRs 1 to 7b landed). The
+> remediation is complete.** Every one of the 60 modules is in a bounded
+> context: `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`,
+> the 4-sub-folder `documentation/`, and `evaluation/` (`axes/`+
+> `refinement/` nested, one barrel). The flat `src/core` root holds zero
+> `.ts` modules. Each PR passed the §3 grep gate, `tsc --noEmit`, and the
+> full vitest suite (185 files, `spine-golden` included); PR 7b
+> additionally passed the §6 split gate (public-API snapshot name-and-type
+> identical to the pre-split exports, byte-identical symbol bodies). The
+> §4 recipe was hardened across PRs 2 to 7 against seven trap classes
+> (git-mv staging; segment- and string-form guard-path reads; vitest
+> module-mock paths; mid-file inline `import()`;
+> supplementary-tests-as-external; the barrel-cycle exception, reinforced
+> at its largest instance by PR 7's eager evaluation barrel; `replace_all`
+> over-reach into sandbox-fixture strings) plus the recurring cache-meta
+> environmental flake documented as orthogonal (§9). Invariants 1 to 3
+> held every PR; invariants 4 and 5 (the `axis-evaluator` contract/impl
+> split, and "no peer-context import of an implementation path") were
+> closed by **PR 7b**: `axis-evaluator.ts` no longer exists,
+> `evaluation/contract.ts` + `evaluation/evaluator.ts` do, the
+> re-exported symbols are name-and-type identical to the pre-split
+> exports, and every §5 consumer imports `evaluation/contract.js`.
 
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;

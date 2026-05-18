@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { mergeAxisResults } from './axis-merger.js';
 import type { Task } from '../../schemas/task.js';
-import type { AxisResult, AxisId, AxisSymbolResult } from './axis-evaluator.js';
+import type { AxisResult, AxisId, AxisSymbolResult } from './contract.js';
 import type { BestPractices } from '../../schemas/review.js';
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative, dirname, basename, sep, extname } from 'node:path';
-import type { RelevantDoc } from '../../evaluation/axis-evaluator.js';
+import type { RelevantDoc } from '../../evaluation/contract.js';
 import { getDocsDir, type Config } from '../../../schemas/config.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
 import { embedNlp } from '../../../rag/embeddings.js';

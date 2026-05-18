@@ -3,8 +3,8 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
-import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
-import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
+import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../contract.js';
+import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';

@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { RelevantDoc } from '../axis-evaluator.js';
+import type { RelevantDoc } from '../contract.js';
 import type { Config } from '../../../schemas/config.js';
 // Cross-context edge (evaluation -> run). Points at the run-config leaf, not
 // the run/ barrel: the barrel re-exports estimator, whose transitional

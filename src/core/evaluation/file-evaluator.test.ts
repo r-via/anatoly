@@ -8,11 +8,11 @@ import { evaluateFile } from './file-evaluator.js';
 import type { EvaluateFileOptions } from './file-evaluator.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
-import type { AxisEvaluator, AxisResult } from './axis-evaluator.js';
+import type { AxisEvaluator, AxisResult } from './contract.js';
 import { authError, circuitOpenError } from '../../utils/errors.js';
 import { readFileSync } from 'node:fs';
 import * as deliberationModule from './deliberation.js';
-import * as axisEvaluatorModule from './axis-evaluator.js';
+import * as axisEvaluatorModule from './evaluator.js';
 
 vi.mock('node:fs', () => ({
   readFileSync: vi.fn(() => 'export function doWork() { return 42; }\n'),
