@@ -40,6 +40,7 @@ import { resolveCodeSummaryModel } from '../../evaluation/index.js';
 import { shortModelName } from '../../../cli/setup-table.js';
 import { recordLlmCost } from '../cost.js';
 import type { RagContext, Handoff } from '../handoff.js';
+import type { OrchestrationEventName } from '../events.js';
 import type { RunContext } from '../../../commands/run.js';
 
 export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task[]): Promise<RagContext> {
@@ -220,7 +221,7 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
         // attach status line is stuck at `0/<totalFiles>` for the whole phase
         // (file_review_end events only fire later, during the review phase).
         ctx.runLog?.info({
-          event: 'rag_progress',
+          event: ('rag_progress' satisfies OrchestrationEventName),
           phase: 'rag-index',
           subphase: ragPhase,
           current,

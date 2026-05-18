@@ -62,6 +62,7 @@ import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { runPhase } from '../run-phase.js';
 import { countPendingDocConflicts } from '../../documentation/index.js';
 import type { SetupResult, Handoff } from '../handoff.js';
+import type { OrchestrationEventName } from '../events.js';
 import { isDocAxisActive } from '../../evaluation/index.js';
 import type { RunContext } from '../../../commands/run.js';
 
@@ -280,7 +281,7 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
         const result = triageFile(task, source);
         triageMap.set(task.file, result);
         tiers[result.tier]++;
-        rl?.info({ event: 'file_triage', phase: 'triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
+        rl?.info({ event: ('file_triage' satisfies OrchestrationEventName), phase: 'triage', file: task.file, tier: result.tier, reason: result.reason }, 'file triaged');
       }
 
       pipelineRows.push({ phase: 'triage', detail: `${tiers.evaluate} to evaluate (${tiers.skip} skipped)` });

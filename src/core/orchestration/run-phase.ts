@@ -5,6 +5,7 @@
 import { getLogger } from '../../utils/logger.js';
 import { runWithContext } from '../../utils/log-context.js';
 import type { Logger } from '../../utils/logger.js';
+import { emitPhaseStart, emitPhaseEnd } from './events.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +89,12 @@ const executedPhases = new WeakMap<object, Set<string>>();
  *   (g) `ctx.timeline.push({event:'phase_end', phase, durationMs, t})`
  *   (h) symmetric `getLogger().info` + `ctx.runLog?.info` with phase_end
  *
+ * doc 14 PR 1: the (a–c) and (g–h) triples are now fired through
+ * `emitPhaseStart` / `emitPhaseEnd` in `events.ts` (the single event
+ * vocabulary). Byte-equivalent: same field sets, same messages, same `t`
+ * values (passed in, never recomputed). (d), (e), (f) and the error
+ * `getLogger().error` stay here unchanged.
+ *
  * On error: additionally logs via `getLogger().error`, attaches `phase` to
  * the error object, then rethrows.
  *
@@ -115,14 +122,11 @@ export async function runPhase<T>(
 
   // --- Entry effects (a–e) ---
 
-  // (a) timeline phase_start
-  ctx.timeline.push({ event: 'phase_start', phase: name, t: phaseStartedAt - ctx.startTime });
-
-  // (b) getLogger().info phase_start
-  log.info({ event: 'phase_start', phase: name, runId: ctx.runId }, 'phase started');
-
-  // (c) ctx.runLog?.info phase_start
-  ctx.runLog?.info({ event: 'phase_start', phase: name, runId: ctx.runId }, 'phase started');
+  // (a–c) phase_start triple, centralised in events.ts (byte-equivalent:
+  // timeline push with the same `t`, getLogger().info, ctx.runLog?.info,
+  // message 'phase started'). `tOffset` is the legacy
+  // `phaseStartedAt - ctx.startTime`, passed in so it is never recomputed.
+  emitPhaseStart(ctx, log, name, phaseStartedAt - ctx.startTime);
 
   // (d) ctx.pipelineState?.setPhase
   ctx.pipelineState?.setPhase(name);
@@ -178,13 +182,14 @@ function fireExitEffects(
 ): void {
   const durationMs = Date.now() - phaseStartedAt;
 
-  // (f) phaseDurations assignment (=, NEVER +=)
+  // (f) phaseDurations assignment (=, NEVER +=). Stays here: this is run
+  // accounting, not an event, and is asserted independently.
   ctx.phaseDurations[name] = durationMs;
 
-  // (g) timeline phase_end
-  ctx.timeline.push({ event: 'phase_end', phase: name, durationMs, t: Date.now() - ctx.startTime });
-
-  // (h) symmetric logger + runLog phase_end
-  log.info({ event: 'phase_end', phase: name, durationMs, runId: ctx.runId }, 'phase ended');
-  ctx.runLog?.info({ event: 'phase_end', phase: name, durationMs, runId: ctx.runId }, 'phase ended');
+  // (g–h) phase_end triple, centralised in events.ts (byte-equivalent:
+  // timeline push with `durationMs` + the same `t`, symmetric
+  // getLogger().info + ctx.runLog?.info, message 'phase ended'). The second
+  // `Date.now()` is preserved (legacy computed `t` separately from
+  // `durationMs`); fires on success and error exactly as before.
+  emitPhaseEnd(ctx, log, name, durationMs, Date.now() - ctx.startTime);
 }

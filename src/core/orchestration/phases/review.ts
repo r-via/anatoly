@@ -57,6 +57,7 @@ import { resolveSystemPrompt } from '../../platform/index.js';
 import { recordLlmCost } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RagContext, Handoff } from '../handoff.js';
+import type { OrchestrationEventName } from '../events.js';
 import type { RunContext } from '../../../commands/run.js';
 
 export async function runReviewPhase(
@@ -131,7 +132,7 @@ export async function runReviewPhase(
   handoff.totalFiles = pending.length + cachedFiles.length;
   // Story 53.5 FR6: announce total file count so `anatoly attach` can render
   // the progress bar denominator (pending + cached).
-  rl?.info({ event: 'estimate_total', phase: 'review', total: handoff.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
+  rl?.info({ event: ('estimate_total' satisfies OrchestrationEventName), phase: 'review', total: handoff.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
 
   const allTasks = loadTasks(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
   const taskMap = new Map<string, Task>();
@@ -205,9 +206,9 @@ export async function runReviewPhase(
             const note = findings > 0 ? ` | ${findings} findings` : '';
             ctx.renderer?.logPlain(`[review] [CACHED] ${filePath} → ${cachedReview.verdict}${note}`);
           }
-          rl?.info({ event: 'file_cached', phase: 'review', file: filePath, verdict: cachedReview.verdict }, 'file loaded from cache');
+          rl?.info({ event: ('file_cached' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: cachedReview.verdict }, 'file loaded from cache');
           // Story 53.5 FR6: drive attach progress bar
-          rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: cachedReview.verdict, source: 'cache' }, 'file review end');
+          rl?.info({ event: ('file_review_end' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: cachedReview.verdict, source: 'cache' }, 'file review end');
         }
         return;
       }
@@ -240,9 +241,9 @@ export async function runReviewPhase(
         pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
         handoff.filesReviewed++;
         ctx.reviewCounts.skipped++;
-        rl?.info({ event: 'file_skip', phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
+        rl?.info({ event: ('file_skip' satisfies OrchestrationEventName), phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
         // Story 53.5 FR6: drive attach progress bar
-        rl?.info({ event: 'file_review_end', phase: 'review', file: filePath, verdict: skipReview.verdict, source: 'skip' }, 'file review end');
+        rl?.info({ event: ('file_review_end' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: skipReview.verdict, source: 'skip' }, 'file review end');
         return;
       }
 
@@ -251,8 +252,8 @@ export async function runReviewPhase(
       // with '-' by the merger (axes-not-evaluated semantic).
       pm.updateFileStatus(filePath, 'IN_PROGRESS');
       state.trackFile(filePath, { axesTotal });
-      rl?.info({ event: 'file_review_start', file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: fileEvaluators.map((e) => e.id), partialSkip: isSkipTier }, 'file review started');
-      ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_start', file: filePath });
+      rl?.info({ event: ('file_review_start' satisfies OrchestrationEventName), file: filePath, phase: 'review', worker: workerIndex, tier: triage?.tier ?? 'evaluate', symbolCount: task.symbols?.length ?? 0, axes: fileEvaluators.map((e) => e.id), partialSkip: isSkipTier }, 'file review started');
+      ctx.timeline.push({ t: Date.now() - ctx.startTime, event: ('file_review_start' satisfies OrchestrationEventName), file: filePath });
 
       let currentAbort = new AbortController();
       ctx.activeAborts.add(currentAbort);
@@ -310,7 +311,7 @@ export async function runReviewPhase(
             filePath,
             isInterrupted: () => ctx.interrupted || timedOut,
             onRetry: (attempt, delayMs) => {
-              rl?.info({ event: 'retry', file: filePath, attempt, delayMs }, 'rate limited, retrying');
+              rl?.info({ event: ('retry' satisfies OrchestrationEventName), file: filePath, attempt, delayMs }, 'rate limited, retrying');
               const delaySec = (delayMs / 1000).toFixed(0);
               state.setRetryMessage(filePath, `retry ${delaySec}s (${attempt}/5)`);
             },
@@ -318,7 +319,7 @@ export async function runReviewPhase(
               const MARGIN_MS = 5 * 60 * 1000;
               const resumeDate = new Date(resetsAtMs + MARGIN_MS);
               const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              rl?.info({ event: 'standby', file: filePath, resetsAt: resetsAtMs, resumeAt: resumeStr }, 'sleeping until rate limit expired');
+              rl?.info({ event: ('standby' satisfies OrchestrationEventName), file: filePath, resetsAt: resetsAtMs, resumeAt: resumeStr }, 'sleeping until rate limit expired');
               state.setRetryMessage(filePath, `sleeping until ${resumeStr} (rate limit)`);
             },
           },
@@ -408,8 +409,8 @@ export async function runReviewPhase(
           })),
         };
         log.debug(reviewFields, 'file review completed');
-        ctx.runLog?.info({ event: 'file_review_end', ...reviewFields }, 'file review completed');
-        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
+        ctx.runLog?.info({ event: ('file_review_end' satisfies OrchestrationEventName), ...reviewFields }, 'file review completed');
+        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, verdict: result.review.verdict, durationMs: result.durationMs });
         if (ctx.plain) {
           const findings = countReviewFindings(result.review);
           const verdict = result.review.verdict;
@@ -436,8 +437,8 @@ export async function runReviewPhase(
         ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
         ctx.errorDetails.push({ file: filePath, code: errorCode, message });
         log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
-        ctx.runLog?.error({ event: 'file_review_end', file: filePath, code: errorCode, message, verdict: 'ERROR' }, 'file review failed');
-        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: 'file_review_end', file: filePath, verdict: 'ERROR', error: errorCode });
+        ctx.runLog?.error({ event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, code: errorCode, message, verdict: 'ERROR' }, 'file review failed');
+        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, verdict: 'ERROR', error: errorCode });
         completedCount++;
       } finally {
         ctx.activeAborts.delete(currentAbort);
