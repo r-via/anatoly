@@ -45,7 +45,7 @@ import { countPendingDocConflicts } from '../../doc-conflict-store.js';
 import { openFile } from '../../../utils/open.js';
 import { recalibrateFromRuns, saveCalibration } from '../../calibration.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../../run-status.js';
-import { createWorktreeManager } from '../../worktree-manager.js';
+import { createWorktreeManager } from '../../worktree/index.js';
 import type { RunContext } from '../../../commands/run.js';
 
 export function runReportPhase(ctx: RunContext, handoff: Handoff): void {

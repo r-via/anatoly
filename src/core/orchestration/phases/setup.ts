@@ -57,7 +57,7 @@ import { runEndOfSetupPrompt } from '../../../cli/setup-prompts.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine } from '../../language-detect.js';
 import { detectProjectIdentity } from '../../project-version.js';
 import { needsBootstrap } from '../../doc-bootstrap.js';
-import { getEffectiveSourceRoot } from '../../worktree-path-resolution.js';
+import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { runPhase } from '../run-phase.js';
 import { countPendingDocConflicts } from '../../doc-conflict-store.js';

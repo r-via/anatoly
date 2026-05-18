@@ -41,7 +41,7 @@ import type { VectorStore } from '../../../rag/vector-store.js';
 import { runDocScaffold, runDocGeneration, commitDocPage } from '../../doc-pipeline.js';
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../../doc-llm-executor.js';
 import { writeCoherenceStatus, computeDocSetSignature, coherenceUpToDate } from '../../doc-bootstrap.js';
-import { getEffectiveSourceRoot } from '../../worktree-path-resolution.js';
+import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { runPath } from '../../../utils/anatoly-paths.js';
 import { buildCodeSurfaceSummary } from '../../doc-coherence-3way.js';
 import { recordLlmCost } from '../cost.js';

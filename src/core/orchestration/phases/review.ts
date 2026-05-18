@@ -50,7 +50,7 @@ import { runWorkerPool } from '../../worker-pool.js';
 import { countReviewFindings } from '../../../utils/format.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../axis-evaluator.js';
-import { getEffectiveSourceRoot } from '../../worktree-path-resolution.js';
+import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from '../../project-review-cache.js';
 import { computePromptHash } from '../../../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../../prompt-resolver.js';

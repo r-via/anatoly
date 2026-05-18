@@ -24,7 +24,7 @@ import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from './docs-resolv
 import type { ReferenceDoc } from './reference-docs-resolver.js';
 import { mergeAxisResults } from './axis-merger.js';
 import { resolveAxisModel } from './axis-evaluator.js';
-import { getEffectiveSourceRoot } from './worktree-path-resolution.js';
+import { getEffectiveSourceRoot } from './worktree/index.js';
 
 // ---------------------------------------------------------------------------
 // Types

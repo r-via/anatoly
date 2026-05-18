@@ -45,7 +45,7 @@ import { quickInitDocConfig } from '../core/documentation-config.js';
 import { type ProjectProfile } from '../core/language-detect.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/background-runner.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run-status.js';
-import { createWorktreeManager } from '../core/worktree-manager.js';
+import { createWorktreeManager } from '../core/worktree/index.js';
 import { runPipeline } from '../core/orchestration/pipeline.js';
 
 /**

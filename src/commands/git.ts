@@ -4,7 +4,7 @@
 
 import type { Command } from 'commander';
 import chalk from 'chalk';
-import { cleanupOrphanedWorktrees } from '../core/worktree-cleanup.js';
+import { cleanupOrphanedWorktrees } from '../core/worktree/index.js';
 
 /**
  * Run auto-cleanup silently before any command.

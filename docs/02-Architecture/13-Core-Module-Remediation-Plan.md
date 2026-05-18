@@ -187,6 +187,11 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
+> **Status: invariant 1 satisfied (PR 1 landed).** `worktree/` is carved out
+> (3 modules + tests, barrel-fronted); the §3 grep gate, `tsc --noEmit`, and
+> the full vitest suite (185 files, 3016 tests, `spine-golden` included) are
+> green. Invariants 2 to 5 remain pending PRs 2 to 7b.
+
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;
    full suite green.

@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { cleanupOrphanedWorktrees } from './worktree-cleanup.js';
-import { writeRunStatus, type RunStatus } from './run-status.js';
+import { writeRunStatus, type RunStatus } from '../run-status.js';
 
 function makeStatus(overrides: Partial<RunStatus> = {}): RunStatus {
   return {

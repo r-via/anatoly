@@ -7,6 +7,12 @@
 > Where they diverge, that divergence is the remediation backlog closed by
 > [13-Core-Module-Remediation-Plan.md](./13-Core-Module-Remediation-Plan.md).
 >
+> **Remediation status (updated in lockstep).** PR 1 has landed: `worktree/`
+> (3 modules + their colocated tests) is the first bounded context carved
+> out, barrel-fronted, with the grep gate, `tsc --noEmit`, and the full
+> vitest suite (185 files, 3016 tests, the doc 11 `spine-golden` included)
+> green. The other six contexts remain flat at root (doc 13 §5, PRs 2 to 7).
+>
 > It is the structural sibling of [10-Orchestration-Runtime.md](./10-Orchestration-Runtime.md):
 > doc 10 is the contract for the orchestration spine, this doc is the contract
 > for the modules the spine composes. The orchestration reorg (doc 10 / 11) is
@@ -249,10 +255,10 @@ Mirrors doc 10 §7. ✅ holds today, ❌ diverges, the gap is doc 13's backlog.
 | Invariant | Status |
 |---|---|
 | Orchestration spine has a phase-aligned home | ✅ (doc 10 / 11) |
-| The 60 modules it composes have phase-aligned homes | ❌ flat at root, doc 13 PRs 1 to 7 |
+| The 60 modules it composes have phase-aligned homes | ◑ 3/60: `worktree/` landed (doc 13 PR 1); 57 flat at root (doc 13 PRs 2 to 7) |
 | Every cross-context edge points at a barrel or §4 contract | ❌ today they import implementation paths |
 | `axis-evaluator` is split contract / impl | ❌ doc 13 PR 7b |
-| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications` only) |
+| Each context exposes one `index.ts` barrel | partial (`transports`, `axes`, `notifications`, `worktree`) |
 | No peer-context import of an implementation path | ❌ §5 edges currently do |
 | 60 modules each have a colocated test | ❌ 6 lack one: `calibration`, `default-models`, `correction-memory`, `doc-type-context`, `doc-gap-detection`, `documentation-config` (noted, not in scope for doc 13) |
 
