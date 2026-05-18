@@ -102,6 +102,10 @@ interface ExecutionUnit<I, O> {
 transcript, **never** opens a log scope: those mechanisms are not on the unit
 surface. `AxisEvaluator` is the existing proven shape at the agent grain; the
 work generalizes it so doc and refinement satisfy the same interface.
+`HarnessCtx.abortController` is **optional** (corrected at PR 3c): the axes
+and refinement expose an abort handle at their boundary, the doc generation /
+coherence agents do not, and fabricating one the agent never reads would
+violate the PR-3b no-synthetic-handle principle.
 
 ## 4. The single harness
 
@@ -261,8 +265,10 @@ that baseline and the new convention test passes. Each PR reverts with one
   PR-2a pattern (public name/signature kept, body verbatim renamed
   `runRefinementPhaseImpl`, byte-equivalent; `RefinementContext` already
   carries `abortController` so `HarnessCtx` is exact). **PR 3c** wraps
-  `executeDocPrompts` / `reviewDocCoherence` (in `core/documentation`, now
-  cycle-free via `core/harness/`) likewise. None of these use
+  `executeDocPrompts` / `runDocCoherenceReview` (in `core/documentation`, now
+  cycle-free via `core/harness/`) likewise; `executeDocPrompts` has no abort
+  boundary, which is why PR 3c made `HarnessCtx.abortController` optional
+  (no synthetic handle). None of these use
   `runSingleTurnQuery` (different LLM paths), so they did not flow through
   `runUnit` before; PR 3 makes them conform to the one SPI. Gate per
   sub-PR: bench F1, typecheck + suites + goldens green.

@@ -25,13 +25,16 @@
 
 /**
  * The single central point of interaction the harness threads into every
- * unit. doc 14 PR 2a carries only cooperative cancellation (the one
- * cross-cutting handle every agent already needs); the sink, event emitter
- * and cost recorder land here in later PRs (doc 14 §4, §5). Kept minimal on
- * purpose: doc 14 §1 rejects a speculative generic surface.
+ * unit. It carries cooperative cancellation **when the unit's boundary
+ * exposes one** (the single-turn axes and refinement do; the doc generation
+ * and coherence agents do not, so `abortController` is optional, doc 14 PR
+ * 3c: a synthetic handle the agent never reads would be a lie, see the
+ * PR-3b no-synthetic-handle principle). The sink, event emitter and cost
+ * recorder land here in later PRs (doc 14 §4, §5). Kept minimal on purpose:
+ * doc 14 §1 rejects a speculative generic surface.
  */
 export interface HarnessCtx {
-  readonly abortController: AbortController;
+  readonly abortController?: AbortController;
 }
 
 /**

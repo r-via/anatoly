@@ -24,6 +24,8 @@ import { withTimeout } from '../../../utils/with-timeout.js';
 import { contextLogger } from '../../../utils/log-context.js';
 import { recordLlmCall } from '../../../utils/llm-calls-sink.js';
 import { buildCoherenceUserMessage, assertCoherenceWritePath } from '../conflict/doc-coherence-3way.js';
+import { runUnit } from '../../harness/index.js';
+import type { ExecutionUnit } from '../../harness/index.js';
 
 // --- Public interfaces ---
 
@@ -63,7 +65,7 @@ export interface DocLlmResult {
  *
  * Uses Promise.allSettled so a single page failure doesn't block others.
  */
-export async function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
+async function executeDocPromptsImpl(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
   const { prompts, outputDir, projectRoot, docsPath, router, executor, logDir, onPageStart, onPageComplete, onPageError } = params;
 
   if (prompts.length === 0) {
@@ -675,7 +677,7 @@ export interface DocCoherenceReviewParams {
  * The system prompt instructs the agent to self-verify before finishing,
  * removing the need for external retry loops.
  */
-export async function runDocCoherenceReview(params: DocCoherenceReviewParams): Promise<DocCoherenceReviewResult> {
+async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Promise<DocCoherenceReviewResult> {
   const {
     outputDir,
     projectRoot,
@@ -951,5 +953,41 @@ export async function runDocCoherenceReview(params: DocCoherenceReviewParams): P
     costUsd,
     durationMs: Date.now() - start,
   };
+}
+
+/**
+ * doc 14 PR 3c: the doc generation pass modelled as an {@link ExecutionUnit}
+ * and run through the {@link runUnit} harness (doc 14 §3: "agent = doc
+ * generator"). Public name, signature and behaviour are unchanged: `runUnit`
+ * is pure pass-through, so this is byte-equivalent to the pre-PR-3c
+ * `executeDocPrompts`. The orchestration call site (doc.ts) and the
+ * documentation barrel re-export are untouched. `ExecuteDocPromptsParams`
+ * exposes no abort boundary, so the harness context is empty (no synthetic
+ * handle, per the PR-3b principle; PR 3c made `HarnessCtx.abortController`
+ * optional for exactly this).
+ */
+export function executeDocPrompts(params: ExecuteDocPromptsParams): Promise<DocLlmResult> {
+  const unit: ExecutionUnit<ExecuteDocPromptsParams, DocLlmResult> = {
+    name: 'doc.generation',
+    run: (input) => executeDocPromptsImpl(input),
+  };
+  return runUnit(unit, params, {});
+}
+
+/**
+ * doc 14 PR 3c: the doc coherence-review agent modelled as an
+ * {@link ExecutionUnit} and run through the {@link runUnit} harness (doc 14
+ * §3: "agent = doc generator"). Public name, signature and behaviour are
+ * unchanged (`runUnit` is pure pass-through). The orchestration call site
+ * (doc.ts) and the documentation barrel re-export are untouched.
+ * `DocCoherenceReviewParams.abortController` is optional, so the harness
+ * context carries it only when the caller provided one.
+ */
+export function runDocCoherenceReview(params: DocCoherenceReviewParams): Promise<DocCoherenceReviewResult> {
+  const unit: ExecutionUnit<DocCoherenceReviewParams, DocCoherenceReviewResult> = {
+    name: 'doc.coherence',
+    run: (input) => runDocCoherenceReviewImpl(input),
+  };
+  return runUnit(unit, params, params.abortController ? { abortController: params.abortController } : {});
 }
 
