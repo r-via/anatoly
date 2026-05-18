@@ -338,6 +338,25 @@ export function createAttachEventHandler(initial?: { totalFiles?: number; review
         break;
       }
 
+      // doc 15: surface the non-audited / cache-skip cases so the live view
+      // does not lie by omission. Cache-hit and skip-tier files already show
+      // (they emit file_review_end); stale-task drops emit nothing reviewable
+      // and were previously invisible in attach.
+      case 'file_cache_miss': {
+        const file = (ev.file as string) ?? '?';
+        emit(chalk.yellow(`  ⚠ cache-miss ${chalk.dim(file)} → re-evaluating (no cached review for current axes)`));
+        break;
+      }
+
+      case 'stale_task_dropped': {
+        const dropped = Array.isArray(ev.dropped) ? (ev.dropped as string[]) : [];
+        const n = (ev.droppedCount as number) ?? dropped.length;
+        const shown = dropped.slice(0, 8).join(', ');
+        const more = n > 8 ? ` (+${n - 8} more)` : '';
+        emit(chalk.yellow(`  ⚠ ${n} stale task(s) dropped — NOT reviewed this run: ${chalk.dim(shown)}${more}`));
+        break;
+      }
+
       default:
         break;
     }
