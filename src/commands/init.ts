@@ -45,8 +45,8 @@ export interface WizardSelections {
 
 // DocWizardSelections moved to core/documentation-config.ts; re-exported
 // for back-compat with existing importers (init.test.ts).
-export type { DocWizardSelections } from '../core/documentation-config.js';
-import type { DocWizardSelections } from '../core/documentation-config.js';
+export type { DocWizardSelections } from '../core/documentation/index.js';
+import type { DocWizardSelections } from '../core/documentation/index.js';
 
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
@@ -75,15 +75,15 @@ export const LANGUAGE_DOC_KINDS: Record<string, DocCommentKind[]> = {
 // `detectDocPaths` moved to core/documentation-config.ts (neutral, fs-only)
 // so the run.ts first-run path can share it without importing this command
 // module. Re-exported for back-compat with existing importers.
-export { detectDocPaths, quickInitDocConfig } from '../core/documentation-config.js';
-import { detectDocPaths, quickInitDocConfig } from '../core/documentation-config.js';
+export { detectDocPaths, quickInitDocConfig } from '../core/documentation/index.js';
+import { detectDocPaths, quickInitDocConfig } from '../core/documentation/index.js';
 
 // `buildDocumentationConfig` / `defaultDocumentationConfig` moved to
 // `core/documentation-config.ts` (neutral module) to break the
 // init <-> setup-prompts import cycle. Re-exported here for back-compat
 // with existing importers (init.test.ts); also imported for local use.
-export { buildDocumentationConfig, defaultDocumentationConfig } from '../core/documentation-config.js';
-import { buildDocumentationConfig } from '../core/documentation-config.js';
+export { buildDocumentationConfig, defaultDocumentationConfig } from '../core/documentation/index.js';
+import { buildDocumentationConfig } from '../core/documentation/index.js';
 
 /**
  * Merge a new documentation config into an existing YAML string.

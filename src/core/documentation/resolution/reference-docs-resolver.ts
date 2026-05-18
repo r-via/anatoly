@@ -13,11 +13,11 @@
 import { readFile } from 'node:fs/promises';
 import { join, extname, basename } from 'node:path';
 import { glob } from 'tinyglobby';
-import type { Config } from '../schemas/config.js';
-import type { DocCommentKind } from '../schemas/config.js';
-import { resolveAdapter } from './scanning/index.js';
-import { parseToRootNode } from './scanning/index.js';
-import { getLogger } from '../utils/logger.js';
+import type { Config } from '../../../schemas/config.js';
+import type { DocCommentKind } from '../../../schemas/config.js';
+import { resolveAdapter } from '../../scanning/index.js';
+import { parseToRootNode } from '../../scanning/index.js';
+import { getLogger } from '../../../utils/logger.js';
 
 // --- Public types ---
 

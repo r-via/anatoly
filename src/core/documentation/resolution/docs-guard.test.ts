@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { assertSafeOutputPath } from './docs-guard.js';
-import { scaffoldDocs } from './documentation/index.js';
+import { scaffoldDocs } from '../generation/doc-scaffolder.js';
 
 /**
  * Story 29.6: Guard Test — Anatoly Never Writes to docs/
@@ -134,7 +134,7 @@ describe('scaffolder docs/ invariant (integration)', () => {
 
 describe('static analysis — no write to docs/ in pipeline files', () => {
   it('pipeline source files do not contain writeFile/writeFileSync targeting docs/', async () => {
-    const srcDir = resolve(import.meta.dirname, '..');
+    const srcDir = resolve(import.meta.dirname, '../../..');
     const pipelineFiles = findTsFiles(srcDir);
 
     for (const filePath of pipelineFiles) {

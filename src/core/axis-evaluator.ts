@@ -12,7 +12,7 @@ import type { FileDependencyContext } from './scanning/index.js';
 import type { SimilarityResult } from '../rag/types.js';
 import type { Action } from '../schemas/review.js';
 import type { UserInstructions } from '../utils/user-instructions.js';
-import type { ReferenceDoc } from './reference-docs-resolver.js';
+import type { ReferenceDoc } from './documentation/index.js';
 import { resolveSystemPrompt } from './platform/index.js';
 import { formatSchemaExample } from '../utils/schema-example.js';
 import { extractJson } from '../utils/extract-json.js';

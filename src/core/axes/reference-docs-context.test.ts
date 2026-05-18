@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
-import type { ReferenceDoc } from '../reference-docs-resolver.js';
+import type { ReferenceDoc } from '../documentation/index.js';
 
 describe('renderReferenceDocsContext', () => {
   it('returns empty string when referenceDocs is empty', () => {

@@ -3,11 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { parseTestConfig } from '../schemas/test-fixtures.js';
+import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildDocsTree, resolveRelevantDocs, resolveAllRelevantDocs } from './docs-resolver.js';
-import type { Config } from '../schemas/config.js';
+import type { Config } from '../../../schemas/config.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_docs_resolver__');
 

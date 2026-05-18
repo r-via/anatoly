@@ -18,7 +18,7 @@ import { tryOpenFile } from '../utils/open.js';
 import { DEFAULT_MODELS } from '../core/platform/index.js';
 import { detectProjectProfile } from '../core/scanning/index.js';
 import { autoDetectScanGlobs } from '../core/scanning/index.js';
-import { defaultDocumentationConfig } from '../core/documentation-config.js';
+import { defaultDocumentationConfig } from '../core/documentation/index.js';
 import { classifyDownloadError, promptDownloadRecovery, type RecoveryChoice } from './download-recovery.js';
 import { DEFAULT_PROVIDER_CONCURRENCY } from './wizard-v3-mapping.js';
 

@@ -29,7 +29,7 @@ import {
   docManifestPath,
   type ScaffoldInfo,
   type CoherenceInfo,
-} from '../../doc-cache.js';
+} from '../resolution/doc-cache.js';
 
 /** Internal-docs output directory for `projectRoot`. */
 function docsDir(projectRoot: string): string {

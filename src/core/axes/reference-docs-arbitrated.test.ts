@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
-import type { ReferenceDoc } from '../reference-docs-resolver.js';
+import type { ReferenceDoc } from '../documentation/index.js';
 import type { ArbitratedFragment } from './reference-docs-context.js';
 
 // ---------------------------------------------------------------------------

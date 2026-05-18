@@ -258,11 +258,13 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariants 1 to 3 hold through PR 6c (PRs 1 to 5, 6a, 6b, 6c
-> landed).** `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`,
-> `documentation/{generation,conflict,reporting}/` are carved out (48
-> modules + tests, barrel-fronted; documentation is the nested context,
-> one barrel over sub-folders, 6d pending); the §3 grep gate and §4 recipe
+> **Status: invariants 1 to 3 hold through PR 6d (PRs 1 to 6d landed).**
+> `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/`, and the
+> fully-carved nested `documentation/` (4 sub-folders, one barrel, all
+> transitional edges resolved) are out of the flat root (54 modules +
+> tests, barrel-fronted); only `evaluation/` (6 modules) remains, PR 7
+> move-only then 7b the contract/impl split; the §3 grep gate and §4
+> recipe
 > (hardened across PRs 2 to 5: segment- and string-form guard-path reads,
 > vitest module-mock paths, mid-file inline `import()` type annotations,
 > supplementary tests as external importers, the barrel-cycle exception,

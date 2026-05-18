@@ -16,7 +16,7 @@ import {
   coherenceUpToDate,
   shouldSkipDoublePass,
 } from './doc-bootstrap.js';
-import { docManifestPath } from '../../doc-cache.js';
+import { docManifestPath } from '../resolution/doc-cache.js';
 
 /**
  * Story 29.21 + flag unification: every doc-pipeline flag lives in the one

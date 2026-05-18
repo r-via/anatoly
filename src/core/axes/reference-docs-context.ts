@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { ReferenceDoc } from '../reference-docs-resolver.js';
+import type { ReferenceDoc } from '../documentation/index.js';
 
 // ---------------------------------------------------------------------------
 // Story 55.7: Arbitrated fragment — a doc-wins entry promoted to authority

@@ -13,9 +13,9 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { countTokens } from '../../run/index.js';
-import { getDocTokenBudget } from '../../docs-resolver.js';
+import { getDocTokenBudget } from '../resolution/docs-resolver.js';
 import type { TransportRouter } from '../../transports/index.js';
-import { assertSafeOutputPath } from '../../docs-guard.js';
+import { assertSafeOutputPath } from '../resolution/docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -652,7 +652,7 @@ export interface DocCoherenceReviewParams {
     onToolUse?: (tool: string, filePath: string) => void;
   };
   /** Human-authored reference docs for 3-way coherence (Story 54.8). */
-  referenceDocs?: import('../../reference-docs-resolver.js').ReferenceDoc[];
+  referenceDocs?: import('../resolution/reference-docs-resolver.js').ReferenceDoc[];
   /** Code surface summary for 3-way coherence (Story 54.8). */
   codeSurface?: string;
   /**

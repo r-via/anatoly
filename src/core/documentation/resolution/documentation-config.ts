@@ -11,7 +11,7 @@
 
 import { existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DocCommentKind } from '../schemas/config.js';
+import type { DocCommentKind } from '../../../schemas/config.js';
 
 export interface DocWizardSelections {
   referencePaths: string[];

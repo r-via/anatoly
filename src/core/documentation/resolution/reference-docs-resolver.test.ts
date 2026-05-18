@@ -5,10 +5,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- tree-sitter mock AST nodes use any for shape flexibility */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { parseTestConfig } from '../schemas/test-fixtures.js';
+import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Config } from '../schemas/config.js';
+import { type Config } from '../../../schemas/config.js';
 import { resolveReferenceDocs, classifySource } from './reference-docs-resolver.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_reference_docs_resolver__');
@@ -137,7 +137,7 @@ describe('resolveReferenceDocs — inline comments', () => {
   it('AC 54.4a: extracts doc-comments when inline_comments enabled', async () => {
     // This test uses real tree-sitter parsing with TypeScript adapter
     // It may need the grammar available, so we mock parseToRootNode
-    const mockModule = await import('./scanning/index.js');
+    const mockModule = await import('../../scanning/index.js');
 
     // Create a TypeScript file with a JSDoc comment before an exported function
     writeFile('src/example.ts', [
@@ -197,7 +197,7 @@ describe('resolveReferenceDocs — inline comments', () => {
   });
 
   it('AC 54.4a: comment entries have symbol and lang filled', async () => {
-    const mockModule = await import('./scanning/index.js');
+    const mockModule = await import('../../scanning/index.js');
 
     writeFile('src/app.py', [
       'def public_func():',
@@ -245,8 +245,8 @@ describe('resolveReferenceDocs — inline comments', () => {
   });
 
   it('NFR6: logs warning when grammar not available', async () => {
-    const mockModule = await import('./scanning/index.js');
-    const loggerModule = await import('../utils/logger.js');
+    const mockModule = await import('../../scanning/index.js');
+    const loggerModule = await import('../../../utils/logger.js');
     const mockLogger = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
     vi.spyOn(loggerModule, 'getLogger').mockReturnValue(mockLogger as any);
 
@@ -276,7 +276,7 @@ describe('resolveReferenceDocs — inline comments', () => {
 // --- resolveReferenceDocs: logging ---
 describe('resolveReferenceDocs — logging', () => {
   it('AC 54.4c: logs summary with counts', async () => {
-    const loggerModule = await import('../utils/logger.js');
+    const loggerModule = await import('../../../utils/logger.js');
     const mockLogger = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
     vi.spyOn(loggerModule, 'getLogger').mockReturnValue(mockLogger as any);
 

@@ -31,7 +31,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { embedNlp } from './embeddings.js';
 import type { RagQueryContext, VectorStore } from './vector-store.js';
-import type { ReferenceDoc } from '../core/reference-docs-resolver.js';
+import type { ReferenceDoc } from '../core/documentation/index.js';
 
 interface H2Block {
   heading: string;

@@ -46,7 +46,7 @@ import { buildUsageGraph } from '../../scanning/index.js';
 import { loadDependencyMeta } from '../../scanning/index.js';
 import { getEnabledEvaluators } from '../../axes/index.js';
 import { buildProjectTree } from '../../scanning/index.js';
-import { buildDocsTree } from '../../docs-resolver.js';
+import { buildDocsTree } from '../../documentation/index.js';
 import { resolveAxisModel, resolveCodeSummaryModel, resolveDeliberationModel } from '../../axis-evaluator.js';
 import { extractProvider } from '../../transports/index.js';
 import { printSetupToAuditTransition } from '../../../utils/transitions.js';

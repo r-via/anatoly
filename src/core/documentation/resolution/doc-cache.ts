@@ -14,7 +14,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath } from '../../../utils/anatoly-paths.js';
 
 // --- Public interfaces ---
 

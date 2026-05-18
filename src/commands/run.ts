@@ -41,7 +41,7 @@ import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
 import { buildRunConfig, writeRunConfig } from '../core/run/index.js';
 import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setup-prompts.js';
-import { quickInitDocConfig } from '../core/documentation-config.js';
+import { quickInitDocConfig } from '../core/documentation/index.js';
 import { type ProjectProfile } from '../core/scanning/index.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/run/index.js';
 import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run/index.js';

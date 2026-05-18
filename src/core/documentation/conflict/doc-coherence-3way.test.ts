@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { buildCodeSurfaceSummary, buildCoherenceUserMessage, assertCoherenceWritePath } from './doc-coherence-3way.js';
 import type { Task } from '../../../schemas/task.js';
-import type { ReferenceDoc } from '../../reference-docs-resolver.js';
+import type { ReferenceDoc } from '../resolution/reference-docs-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -15,7 +15,7 @@ import {
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
-import { resolveReferenceDocs } from '../../reference-docs-resolver.js';
+import { resolveReferenceDocs } from '../resolution/reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
 import {
   buildDetectionUserMessage,

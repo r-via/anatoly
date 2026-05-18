@@ -22,7 +22,7 @@ import { resolveUserDocPlan, type DocPageEntry, type UserDocPlan } from './user-
 import { buildDocRecommendations, type DocGap, type DocRecommendation } from './doc-recommendations.js';
 import { renderDocReferenceSection, type DocReportStats } from './doc-report-section.js';
 import type { ReviewFile } from '../../../schemas/review.js';
-import type { CacheResult } from '../../doc-cache.js';
+import type { CacheResult } from '../resolution/doc-cache.js';
 import type { Task } from '../../../schemas/task.js';
 
 // --- Public interfaces ---

@@ -70,3 +70,20 @@ export { aggregateDocReport } from './reporting/doc-report-aggregator.js';
 export type { DocReportResult } from './reporting/doc-report-aggregator.js';
 
 export { detectDocGapsV2, formatGapReportV2 } from './reporting/doc-gap-detection.js';
+
+// --- resolution/ (doc 13 PR 6d) ---
+export {
+  resolveRelevantDocsViaRag,
+  resolveAllRelevantDocs,
+  buildDocsTree,
+} from './resolution/docs-resolver.js';
+
+export type { ReferenceDoc } from './resolution/reference-docs-resolver.js';
+
+export {
+  defaultDocumentationConfig,
+  detectDocPaths,
+  quickInitDocConfig,
+  buildDocumentationConfig,
+} from './resolution/documentation-config.js';
+export type { DocWizardSelections } from './resolution/documentation-config.js';
