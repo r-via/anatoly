@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { triageFile, generateSkipReview, evaluatorAxesForSkip } from './triage.js';
 import type { Task } from '../schemas/task.js';
 import { ReviewFileSchema } from '../schemas/review.js';
-import type { UsageGraph } from './usage-graph.js';
+import type { UsageGraph } from './scanning/index.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

@@ -10,7 +10,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
-import { scanProject } from '../core/scanner.js';
+import { scanProject } from '../core/scanning/index.js';
 import { loadTasks } from '../core/run/index.js';
 import { runDocScaffold, runDocGeneration, commitDocPage } from '../core/doc-pipeline.js';
 import { executeDocPrompts, reviewDocStructure, runDocCoherenceReview, autoFixStructuralIssues } from '../core/doc-llm-executor.js';

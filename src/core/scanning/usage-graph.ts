@@ -4,8 +4,8 @@
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, dirname, relative, extname, join } from 'node:path';
-import type { Task } from '../schemas/task.js';
-import { contextLogger } from '../utils/log-context.js';
+import type { Task } from '../../schemas/task.js';
+import { contextLogger } from '../../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
 
 export interface UsageGraph {

@@ -103,7 +103,17 @@ first (this pair of docs), then PR 1.
    assertion, same real path). Scan the **entire** moved file, not just the
    header import block: an inline `import('../x.js').T` type annotation
    mid-file (PR 4: `estimator.test.ts:225`) shifts by the same delta and only
-   `tsc` catches it (gate 1).
+   `tsc` catches it (gate 1). **Never `replace_all` an import string when
+   depth-fixing a moved test**: the same text frequently appears inside
+   sandbox-fixture string literals (`createFile('src/core/x.ts', "import ...
+   from '../schemas/..'")`, template bodies) that simulate a file at the
+   *original* location and must keep their original relative depth. PR 5:
+   a `replace_all` on `usage-graph.test.ts`'s real `Task` import also
+   rewrote the fixture string at line 219, so the simulated importer
+   resolved wrong and `buildUsageGraph` returned `[]` (tsc and grep clean;
+   only the full suite caught it). Use line-targeted replacements; the
+   fixture strings are the doc 13 §3 path-agnostic exclusion, inviolate even
+   during the moved file's own depth fix.
 3. Rewrite every importer's path: intra-context importers to the new relative
    path, every out-of-context importer to the context barrel
    `<context>/index.js` (or `evaluation/contract.js` for the §4 seam). This
@@ -236,6 +246,7 @@ scope creep.
 | `documentation` -> evaluation out-edge has no contract to point at until 7b | §5 sequencing: 6d targets the pre-split `evaluation/index.ts` re-export, repointed to `contract.js` as the last step of 7b (one-line, gated) |
 | The §4 split silently drops or retypes an exported symbol | PR 7b public-API typecheck snapshot: re-exported symbols identical in name and type to pre-split; byte-identical bodies, reviewer-attested |
 | A revert is needed mid-sequence | Every PR is one `git mv` set plus rewrites, independently `git revert`-able, each ending green. No data or schema migration in any PR |
+| A `replace_all` depth-fix on a moved test also rewrites identical import text inside sandbox-fixture string literals (`createFile(..., "import ... from '../schemas/..'")`), corrupting fixtures that simulate a file at the original location | §4 step 2: line-targeted replacements only when depth-fixing a moved test; fixture strings are the §3 path-agnostic exclusion. PR 5: `usage-graph.test.ts:219` (tsc + grep clean; only the full suite caught `buildUsageGraph` returning `[]`) |
 | A guard test reads a moved module's source by hardcoded path; recon and the import-grep miss the `join(...,'core','<m>.ts')` segment form | §3 gate 3 scans the bare quoted `'<m>.ts'` token, not just import strings. PR 2 surfaced two such tests (`migration/deprecated-cleanup-56-9.test.ts` string form, `doc-stale-reference.test.ts:205` segment form); the full-suite gate caught the missed one, the detector was then broadened. Future exposure inventoried: `axis-evaluator.ts` (PR 7), `correction-memory.ts` (PR 3), `doc-llm-executor.ts` / `doc-gap-detection.ts` (PR 6) |
 | `git mv` then edit leaves the content edits unstaged; the commit lands a stale `R100` rename | §4 step 5: `git add` every moved-and-edited file explicitly, verify `git diff --cached -- <moved>` shows the import delta. PR 1 hit this, repaired via `git commit --amend` pre-push |
 | A vitest module-mock path (`vi.mock('...')`) still targets the old flat path; recon, the import-grep and tsc all miss it (mock paths are strings, not type-checked) | §3 gate 3 / §4 step 3 scan `vi.mock`/`vi.doMock`/`importActual`/`requireActual`. PR 3 surfaced `rag/orchestrator.test.ts:94`; repointed to the leaf `platform/worker-pool.js` so the barrel re-export transparently yields the spy. The full-suite gate is the backstop (a dead mock path makes the spy assertions fail) |
@@ -246,14 +257,15 @@ scope creep.
 Testable assertions, written (doc 11 §10 style) so they fail today and pass
 only when the plan holds.
 
-> **Status: invariants 1 to 3 hold through PR 4 (PRs 1 to 4 landed).**
-> `worktree/`, `reporting/`, `platform/`, `run/` are carved out (20 modules
-> + tests, barrel-fronted); the §3 grep gate and §4 recipe (hardened across
-> PRs 2 to 4: segment- and string-form guard-path reads, vitest module-mock
-> paths, mid-file inline `import()` type annotations, supplementary tests as
-> external importers), `tsc --noEmit`, and the full vitest suite (185 files,
-> `spine-golden` included) are green. Invariants 4 to 5 remain pending PRs
-> 5 to 7b.
+> **Status: invariants 1 to 3 hold through PR 5 (PRs 1 to 5 landed).**
+> `worktree/`, `reporting/`, `platform/`, `run/`, `scanning/` are carved
+> out (30 modules + tests, barrel-fronted); the §3 grep gate and §4 recipe
+> (hardened across PRs 2 to 5: segment- and string-form guard-path reads,
+> vitest module-mock paths, mid-file inline `import()` type annotations,
+> supplementary tests as external importers, the barrel-cycle exception,
+> and `replace_all` over-reach into sandbox-fixture strings), `tsc
+> --noEmit`, and the full vitest suite (185 files, `spine-golden` included)
+> are green. Invariants 4 to 5 remain pending PRs 6 to 7b.
 
 1. After PR 1: `find src/core -maxdepth 1 -name 'worktree-*.ts'` returns
    nothing; `src/core/worktree/` exists with the 3 modules and their tests;

@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
 import type { Action } from '../../schemas/review.js';
-import { extractRelevantReadmeSections } from '../dependency-meta.js';
+import { extractRelevantReadmeSections } from '../scanning/index.js';
 import { resolveSystemPrompt } from '../platform/index.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../platform/index.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';

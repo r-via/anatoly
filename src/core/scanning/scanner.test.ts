@@ -3,12 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { parseTestConfig } from '../schemas/test-fixtures.js';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseFile, scanProject, loadCoverage } from './scanner.js';
-import type { Config } from '../schemas/config.js';
+import type { Config } from '../../schemas/config.js';
 
 describe('parseFile', () => {
   it('should extract exported function declarations', async () => {

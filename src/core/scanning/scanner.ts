@@ -4,20 +4,20 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import { resolve, join, relative, extname } from 'node:path';
-import { anatolyPath } from '../utils/anatoly-paths.js';
+import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { glob } from 'tinyglobby';
 import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
-import type { Config } from '../schemas/config.js';
-import type { Task, SymbolInfo, CoverageData } from '../schemas/task.js';
-import type { Progress, FileProgress } from '../schemas/progress.js';
-import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../utils/cache.js';
-import { getGitTrackedFiles } from '../utils/git.js';
+import type { Config } from '../../schemas/config.js';
+import type { Task, SymbolInfo, CoverageData } from '../../schemas/task.js';
+import type { Progress, FileProgress } from '../../schemas/progress.js';
+import { computeFileHash, toOutputName, atomicWriteJson, readProgress } from '../../utils/cache.js';
+import { getGitTrackedFiles } from '../../utils/git.js';
 import { detectProjectProfile, classifyFile } from './language-detect.js';
 import type { FrameworkInfo } from './language-detect.js';
 import { resolveAdapter, heuristicParse, type ImportRef, type LanguageAdapter } from './language-adapters.js';
-import { contextLogger } from '../utils/log-context.js';
+import { contextLogger } from '../../utils/log-context.js';
 
 const esmRequire = createRequire(import.meta.url);
 

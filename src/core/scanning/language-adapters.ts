@@ -11,8 +11,8 @@
  */
 
 import type { Node as TSNode } from 'web-tree-sitter';
-import type { SymbolInfo, SymbolKind } from '../schemas/task.js';
-import type { DocCommentKind } from '../schemas/config.js';
+import type { SymbolInfo, SymbolKind } from '../../schemas/task.js';
+import type { DocCommentKind } from '../../schemas/config.js';
 
 // --- Public types ---
 

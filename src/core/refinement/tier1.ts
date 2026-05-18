@@ -5,9 +5,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
-import type { UsageGraph } from '../usage-graph.js';
+import type { UsageGraph } from '../scanning/index.js';
 import type { PreResolvedRag } from '../axis-evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../scanning/index.js';
 
 // ---------------------------------------------------------------------------
 // Types

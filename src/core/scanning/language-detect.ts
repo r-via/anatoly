@@ -12,7 +12,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { extname, basename, join } from 'node:path';
 import linguist from 'linguist-js';
-import { getGitTrackedFiles } from '../utils/git.js';
+import { getGitTrackedFiles } from '../../utils/git.js';
 
 // --- Types ---
 

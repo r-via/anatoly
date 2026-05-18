@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { getLatestGitTag } from '../utils/git.js';
+import { getLatestGitTag } from '../../utils/git.js';
 
 export interface ProjectIdentity {
   name: string;

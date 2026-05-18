@@ -8,7 +8,7 @@ import {
   type RefinementContext,
 } from './phase.js';
 import type { ReviewFile, SymbolReview } from '../../schemas/review.js';
-import type { UsageGraph } from '../usage-graph.js';
+import type { UsageGraph } from '../scanning/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

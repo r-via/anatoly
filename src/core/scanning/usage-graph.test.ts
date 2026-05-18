@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildUsageGraph, getSymbolUsage, getTypeOnlySymbolUsage } from './usage-graph.js';
-import type { Task } from '../schemas/task.js';
+import type { Task } from '../../schemas/task.js';
 
 function makeTask(file: string, symbols: Array<{ name: string; exported: boolean; kind?: string }>): Task {
   return {

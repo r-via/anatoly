@@ -12,7 +12,7 @@
  * One LLM call per page — no batching. Default model: Sonnet.
  */
 
-import type { PageContext, SymbolContext } from './source-context.js';
+import type { PageContext, SymbolContext } from './scanning/index.js';
 import { resolveSystemPrompt } from './platform/index.js';
 import type { TypeContextSection } from './doc-type-context.js';
 

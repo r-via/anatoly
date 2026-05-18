@@ -137,7 +137,7 @@ describe('resolveReferenceDocs — inline comments', () => {
   it('AC 54.4a: extracts doc-comments when inline_comments enabled', async () => {
     // This test uses real tree-sitter parsing with TypeScript adapter
     // It may need the grammar available, so we mock parseToRootNode
-    const mockModule = await import('./scanner.js');
+    const mockModule = await import('./scanning/index.js');
 
     // Create a TypeScript file with a JSDoc comment before an exported function
     writeFile('src/example.ts', [
@@ -197,7 +197,7 @@ describe('resolveReferenceDocs — inline comments', () => {
   });
 
   it('AC 54.4a: comment entries have symbol and lang filled', async () => {
-    const mockModule = await import('./scanner.js');
+    const mockModule = await import('./scanning/index.js');
 
     writeFile('src/app.py', [
       'def public_func():',
@@ -245,7 +245,7 @@ describe('resolveReferenceDocs — inline comments', () => {
   });
 
   it('NFR6: logs warning when grammar not available', async () => {
-    const mockModule = await import('./scanner.js');
+    const mockModule = await import('./scanning/index.js');
     const loggerModule = await import('../utils/logger.js');
     const mockLogger = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
     vi.spyOn(loggerModule, 'getLogger').mockReturnValue(mockLogger as any);

@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../axis-evaluator.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../axis-evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility } from '../usage-graph.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility } from '../scanning/index.js';
 import { resolveSystemPrompt } from '../platform/index.js';
 import { formatReclassificationsForAxis } from '../platform/index.js';
 import { BaseSymbolSchema } from '../../schemas/base-symbol.js';

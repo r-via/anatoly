@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { detectProjectProfile } from './language-detect.js';
+import { detectProjectProfile } from './scanning/index.js';
 
 /**
  * End-to-end framework detection for Go projects. Builds a fake go.mod with

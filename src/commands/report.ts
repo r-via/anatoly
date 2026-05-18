@@ -13,7 +13,7 @@ import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { verdictColor } from '../utils/format.js';
 import { isLockActive } from '../utils/lock.js';
-import { detectProjectProfile } from '../core/language-detect.js';
+import { detectProjectProfile } from '../core/scanning/index.js';
 import { loadTasks } from '../core/run/index.js';
 import { aggregateDocReport } from '../core/doc-report-aggregator.js';
 import { loadConfig } from '../utils/config-loader.js';

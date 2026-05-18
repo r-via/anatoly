@@ -20,7 +20,7 @@
  * 3. Internal helpers (lowest priority — removed first)
  */
 
-import type { SymbolInfo, SymbolKind } from '../schemas/task.js';
+import type { SymbolInfo, SymbolKind } from '../../schemas/task.js';
 
 const DEFAULT_MAX_TOKENS = 8000;
 const BODY_SNIPPET_LINES = 20;

@@ -13,7 +13,7 @@
 
 import type { VectorStore } from '../rag/vector-store.js';
 import type { FunctionCard, DocSectionEntry } from '../rag/types.js';
-import { extractModuleName } from './module-granularity.js';
+import { extractModuleName } from './scanning/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Types
