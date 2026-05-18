@@ -351,12 +351,30 @@ that baseline and the new convention test passes. Each PR reverts with one
        YAGNI and dogma-adjacent; declined. §5 is reconciled accordingly.
     **The agent / harness / cost track is complete at PR 4b.** (PR 5 and
     PR 6 below are a separate concern, not part of this closure.)
-- **PR 5** Extract the orchestration policy: every inline gate at
-  pipeline.ts:144-292 becomes a `PhaseGate` row in one table; the spine
-  becomes a procedural loop over `CANONICAL_PHASES` reading the table; the
-  triplicated interrupt-return block collapses to one rule. Pure relocation of
-  predicates, behavior-preserving. Gate: bench F1, orchestration golden
-  byte-identical.
+- **PR 5 (done, §6-faithful; the §8 "loop over `CANONICAL_PHASES`" wording
+  is superseded — see below).** Grounding showed the gates are entangled
+  with phase bodies, `doc-conflict-*` sub-phases, `writeScaffoldStatus`,
+  `reindexDocsAfterUpdate`, `completeTask` UI calls and `handoff` mutation:
+  they are **not** 1:1 with `CANONICAL_PHASES` (the doc-mode branch is 3-way
+  off/lite/full). A literal "procedural loop over `CANONICAL_PHASES`
+  dispatching the table" would be a deep behavior-relevant redesign drifting
+  toward the generic executor §1/§6 reject. Owner decision: **§6-faithful**.
+  Realized: `src/core/orchestration/gates.ts` holds the run/skip
+  **predicates** + the **verbatim** skip-reason strings for the three gated
+  phases (`bootstrapDocGate`, `internalDocsGate`, `refinementGate`,
+  `GateDecision = {run, reason?}`); the spine consults the gate then runs
+  the **inline, verbatim** phase body / sub-phases / effects exactly as
+  before (the table is data the procedural spine reads, doc 14 §6, not a
+  program). The triplicated `if (ctx.interrupted){…summary…return}` tail
+  collapses to `emitInterruptSummary()` (the distinct pre-review
+  `0/${setup.files}` variant is intentionally left). **Behaviorally
+  byte-identical by construction**: same conditions, same reason strings,
+  same order, same `!ctx.interrupted` guards, same bodies. §8's
+  "`CANONICAL_PHASES` loop" is hereby reconciled to §6's predicate-table
+  (the two diverged; §6 is binding, §1's anti-cathedral stance wins). Gate:
+  typecheck + suites + spine/handoff goldens green; **a re-bench at the
+  PR-5 tip is required before merge** (PR 5 touches spine control flow; the
+  v29 bench validated `3b27b7b`, pre-PR-5).
 - **PR 6 (optional)** Directional access: unit N gets a frozen view of the
   prior sink plus a writer scoped to its own section; the shared-mutable
   `handoff.x++` pattern dies. Skip if PR 1's completeness test already

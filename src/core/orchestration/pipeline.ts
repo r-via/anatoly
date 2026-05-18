@@ -27,6 +27,8 @@
 
 import { join } from 'node:path';
 import { createHandoff } from './handoff.js';
+import type { Handoff } from './handoff.js';
+import { bootstrapDocGate, internalDocsGate, refinementGate } from './gates.js';
 import type { ResolvedModels } from '../../rag/hardware-detect.js';
 import { acquireLock, releaseLock } from '../../utils/lock.js';
 import { sendDesktopNotification } from '../notifications/desktop.js';
@@ -37,7 +39,6 @@ import { isDocAxisActive } from '../evaluation/index.js';
 import { formatRunDuration } from '../../utils/format.js';
 import { PipelineState } from '../../cli/pipeline-state.js';
 import { ScreenRenderer } from '../../cli/screen-renderer.js';
-import { resolveDocMode } from '../run/index.js';
 import { needsBootstrap, writeScaffoldStatus } from '../documentation/index.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runDocConflictDetection } from '../documentation/index.js';
@@ -82,6 +83,20 @@ function loadArbitratedFragments(projectRoot: string): ArbitratedFragment[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * doc 14 PR 5: the triplicated `if (ctx.interrupted) { ...summary...; return }`
+ * tail block collapses to this one helper (the spine still does the
+ * `return`). Byte-verbatim body of the former blocks; the pre-review
+ * `0/${setup.files}` variant is intentionally NOT this (different shape).
+ */
+function emitInterruptSummary(ctx: RunContext, handoff: Handoff): void {
+  const inFlight = ctx.activeAborts.size;
+  const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
+  console.log(`interrupted — ${handoff.filesReviewed}/${handoff.totalFiles} files reviewed | ${handoff.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
+  if (ctx.lockPath) releaseLock(ctx.lockPath);
+  ctx.lockPath = undefined;
 }
 
 export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<void> {
@@ -145,18 +160,12 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         // Mode guards: `off` skips everything; `lite` defers doc context to
         // per-file RAG retrieval (no upfront digest, see `retrieveRelevantDocsForFile`);
         // `full` keeps the existing scaffold + generation + coherence + arbitration.
-        const internalDocMode = resolveDocMode(ctx.config);
-        if (internalDocMode === 'off' && !ctx.interrupted) {
-          const log = getLogger();
-          log.info('internal docs mode=off — skipping scaffold, generation, and coherence');
-          ctx.renderer?.logPlain('[internal-docs] mode=off — skipping scaffold, generation, and coherence');
-          ctx.pipelineState?.completeTask('bootstrap-doc', 'off');
-        } else if (internalDocMode === 'lite' && !ctx.interrupted) {
-          const log = getLogger();
-          log.info('internal docs mode=lite — doc context delivered via per-file RAG retrieval (no digest)');
-          ctx.renderer?.logPlain('[internal-docs] mode=lite — doc context delivered via per-file RAG retrieval');
-          ctx.pipelineState?.completeTask('bootstrap-doc', 'lite (per-file retrieval)');
-        } else if (handoff.isFirstRun && isDocAxisActive(ctx) && !ctx.interrupted) {
+        // doc 14 PR 5: the run/skip decision is the centralized
+        // `bootstrapDocGate` (gates.ts); the bodies/effects stay inline and
+        // verbatim. Behaviorally byte-identical: same conditions, same
+        // skip-reason strings, same order, same `!ctx.interrupted` guards.
+        const bd = bootstrapDocGate(ctx, handoff);
+        if (bd.run && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
             await runDocBootstrap(ctx, handoff, setup.tasks);
           });
@@ -186,6 +195,16 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
               });
             });
           }
+        } else if (!bd.run && bd.reason === 'off' && !ctx.interrupted) {
+          const log = getLogger();
+          log.info('internal docs mode=off — skipping scaffold, generation, and coherence');
+          ctx.renderer?.logPlain('[internal-docs] mode=off — skipping scaffold, generation, and coherence');
+          ctx.pipelineState?.completeTask('bootstrap-doc', 'off');
+        } else if (!bd.run && bd.reason === 'lite (per-file retrieval)' && !ctx.interrupted) {
+          const log = getLogger();
+          log.info('internal docs mode=lite — doc context delivered via per-file RAG retrieval (no digest)');
+          ctx.renderer?.logPlain('[internal-docs] mode=lite — doc context delivered via per-file RAG retrieval');
+          ctx.pipelineState?.completeTask('bootstrap-doc', 'lite (per-file retrieval)');
         }
 
         const ragContext = await runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, handoff, setup.tasks));
@@ -195,15 +214,12 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         // Moved from post-review to pre-review so that doc-conflict arbitration
         // results are available during the review phase of the current run.
         // Gate: triage-based (evaluable files exist) instead of filesReviewed > 0.
-        const hasEvaluableFiles = [...setup.triageMap.values()].some(t => t.tier === 'evaluate');
-        if (internalDocMode === 'off' && !ctx.interrupted) {
-          ctx.pipelineState?.completeTask('internal-docs', 'off');
-        } else if (internalDocMode === 'lite' && !ctx.interrupted) {
-          // Lite mode no longer materialises an internal-docs artefact at
-          // run scope. Reference content reaches the axes per file via RAG
-          // retrieval (see file-evaluator → retrieveRelevantDocsForFile).
-          ctx.pipelineState?.completeTask('internal-docs', 'lite (per-file retrieval)');
-        } else if (internalDocMode !== 'lite' && internalDocMode !== 'off' && !ctx.interrupted && hasEvaluableFiles) {
+        // doc 14 PR 5: decision via the centralized `internalDocsGate`
+        // (gates.ts; it computes hasEvaluableFiles from handoff.triageMap,
+        // the identical ref to the pre-PR-4b setup.triageMap). Bodies and
+        // effects stay inline and verbatim; behaviorally byte-identical.
+        const id = internalDocsGate(ctx, handoff);
+        if (id.run && !ctx.interrupted) {
           await runPhase(ctx, 'internal-docs', async () => {
             await runDocUpdate(ctx, handoff, setup.tasks);
           });
@@ -237,7 +253,14 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
               });
             });
           }
-        } else if (!ctx.interrupted) {
+        } else if (!id.run && id.reason === 'off' && !ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'off');
+        } else if (!id.run && id.reason === 'lite (per-file retrieval)' && !ctx.interrupted) {
+          // Lite mode no longer materialises an internal-docs artefact at
+          // run scope. Reference content reaches the axes per file via RAG
+          // retrieval (see file-evaluator → retrieveRelevantDocsForFile).
+          ctx.pipelineState?.completeTask('internal-docs', 'lite (per-file retrieval)');
+        } else if (!id.run && id.reason === 'skipped — no evaluable files' && !ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
         }
         // Story 55.7: load doc-wins arbitrated fragments for axis prompts
@@ -252,27 +275,22 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           await runReviewPhase(ctx, handoff, ragContext);
         });
         if (ctx.interrupted) {
-          const inFlight = ctx.activeAborts.size;
-          const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${handoff.filesReviewed}/${handoff.totalFiles} files reviewed | ${handoff.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
-          if (ctx.lockPath) releaseLock(ctx.lockPath);
-          ctx.lockPath = undefined;
+          emitInterruptSummary(ctx, handoff);
           return;
         }
 
         // --- Phase: refinement (tier 1 → tier 2 → tier 3) — Story 41.5 ---
-        if (ctx.deliberation && handoff.filesReviewed > 0 && !ctx.interrupted) {
+        // doc 14 PR 5: decision via the centralized `refinementGate`
+        // (gates.ts); body inline and verbatim, behaviorally byte-identical.
+        const rf = refinementGate(ctx, handoff);
+        if (rf.run && !ctx.interrupted) {
           await runPhase(ctx, 'refinement', () => runRefinementStage(ctx, handoff, setup));
-        } else if (!ctx.interrupted && handoff.filesReviewed > 0) {
+        } else if (!rf.run && rf.reason === 'skipped — deliberation disabled' && !ctx.interrupted) {
           ctx.pipelineState?.completeTask('refinement', 'skipped — deliberation disabled');
         }
 
         if (ctx.interrupted) {
-          const inFlight = ctx.activeAborts.size;
-          const inFlightNote = inFlight > 0 ? ` (${inFlight} in-flight aborted)` : '';
-          console.log(`interrupted — ${handoff.filesReviewed}/${handoff.totalFiles} files reviewed | ${handoff.totalFindings} findings${inFlightNote} | ${formatRunDuration(Date.now() - ctx.startTime)}`);
-          if (ctx.lockPath) releaseLock(ctx.lockPath);
-          ctx.lockPath = undefined;
+          emitInterruptSummary(ctx, handoff);
           return;
         }
 

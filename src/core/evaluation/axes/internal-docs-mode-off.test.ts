@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { buildDocumentationUserMessage } from './documentation.js';
+import { bootstrapDocGate, internalDocsGate } from '../../orchestration/gates.js';
 import type { AxisContext } from '../index.js';
 import type { Config } from '../../../schemas/config.js';
 
@@ -90,17 +91,25 @@ describe('Story 54.7 — mode=off graceful degradation', () => {
     expect(runTsContent).not.toContain('synced .anatoly/docs/');
   });
 
-  // PR 8a (doc 11): the mode=off guard lives in the spine, extracted
-  // verbatim from run.ts into pipeline.ts. Behavior unchanged.
+  // doc 11 PR 8a extracted the mode=off guard verbatim into pipeline.ts;
+  // doc 14 PR 5 then moved the *predicate* into the centralized
+  // orchestration/gates.ts (the skip body + this log message stay verbatim
+  // in the spine). Behavior unchanged across both.
   it('AC 54.7a: pipeline contains mode=off guard log message', () => {
     const spine = readFileSync(resolve(__dirname, '../../orchestration/pipeline.ts'), 'utf-8');
     expect(spine).toContain('internal docs mode=off — skipping scaffold, generation, and coherence');
   });
 
-  it('AC 54.7a: mode=off guard prevents runDocScaffold/runDocGeneration/runDocCoherenceReview', () => {
-    const spine = readFileSync(resolve(__dirname, '../../orchestration/pipeline.ts'), 'utf-8');
-    // The off mode guard should appear before the bootstrap and update doc calls
-    expect(spine).toContain("internalDocMode === 'off'");
+  it('AC 54.7a: mode=off gates skip bootstrap-doc and internal-docs (prevents scaffold/generation/coherence)', () => {
+    // doc 14 PR 5: behavioural assertion (refactor-proof) replacing the old
+    // brittle "pipeline.ts source contains internalDocMode === 'off'" grep.
+    // The off-guard now lives in gates.ts; mode=off must yield a non-run
+    // decision so the spine never executes the doc phases.
+    const config = makeOffConfig();
+    const ctx = { config } as unknown as Parameters<typeof bootstrapDocGate>[0];
+    const handoff = { isFirstRun: true, triageMap: new Map() } as unknown as Parameters<typeof bootstrapDocGate>[1];
+    expect(bootstrapDocGate(ctx, handoff)).toEqual({ run: false, reason: 'off' });
+    expect(internalDocsGate(ctx, handoff)).toEqual({ run: false, reason: 'off' });
   });
 
   it('AC 54.7c: referenceDocs on AxisContext is empty when mode=off', () => {
