@@ -21,6 +21,17 @@
 > Constraint set by the owner, verbatim in intent: *no debt is acceptable on
 > the orchestrator; it must work correctly.* Every step here is
 > behavior-preserving by construction and bench-gated, or it does not ship.
+>
+> **Closure (executed scope).** The agent / harness / cost track shipped as
+> PR 0, 1, 2-net, 2a, 2b, 3a, 3b, 3c, 4a, 4b — all behavior-preserving,
+> typecheck + suites + spine/handoff goldens green. **PR 4c is a declined,
+> reasoned non-goal** (§8): the literal `runPhase`/`runUnit` merge is
+> aesthetic (runPhase is already the non-divergent phase chokepoint) and the
+> accounting-as-projection rewrite is YAGNI (its motivation was met by
+> PR 2b/4a). §5 and §9 are reconciled to the realized shape so this contract
+> has no internal contradiction. **PR 5** (orchestration policy table, §6)
+> and **PR 6** (directional access) are a separate concern, neither done nor
+> declined here: owner decides them independently.
 
 ## 1. The decision
 
@@ -148,17 +159,32 @@ conflating three categories of state in one mutable bag. This table is binding.
 | Category | Definition | Home | Direction |
 |---|---|---|---|
 | **Lifecycle** | `fatalError`, `interrupted`, `activeAborts`, lock path, renderer / `pipelineState` handles | `RunContext`, forever | not inter-unit, never enters the sink |
-| **Sink** | events, llm costs, conversations, structured logs | one sink, reached only via `HarnessCtx` | fed by unit N, read-only to unit N+1 |
+| **Sink** | events, llm costs, conversations, structured logs | harness-owned, single chokepoint per grain (see realized note) | fed by unit N, read-only to unit N+1 |
 | **Handoff** | the product a unit makes that a later unit consumes (`tasks`, `triageMap`, `ragContext`, `docPipelineResult`, counts) | typed `Handoff` | directional, never a shared mutable counter |
 
 Two anti-dogma rulings, explicit so they are not relitigated:
 
 1. **Lifecycle stays on `ctx`.** Forcing it into the sink for a one-object
    aesthetic is dogma, not value.
-2. **Run accounting is a sink projection, not a fourth bucket.**
-   `totalCostUsd` / `providerStats` / `axisStats` are views derived on read,
-   not a hand-synced `ctx` accumulator (today's
-   [cost.ts](../../src/core/orchestration/cost.ts) reconciliation burden).
+2. **Run accounting is not a scattered fourth bucket.** Original intent: make
+   it a derive-on-read sink projection. Realized instead (PR 2b/4a, and
+   reconciled here): the *scattered hand-synced reconciliation burden* this
+   ruling targeted is gone — every cost write is now a single harness-owned
+   [cost.ts](../../src/core/orchestration/cost.ts) function and
+   `recordLlmCost` is the one reconciliation point. `totalCostUsd` /
+   `providerStats` / `phaseStats` / `axisStats` remain an eager rollup on
+   `ctx` (the §5-sanctioned home for run accounting), written **only** via
+   that harness-owned module, never inline in a phase/agent body, and locked
+   byte-identical by `cost.test.ts`. The literal derive-on-read projection is
+   the declined §8 PR 4c (YAGNI: zero user-visible change, ~44 consumers).
+
+Realized note (post-closure): the single `RunSink` object was **not** built
+(declined §8 PR 4c). What is realized is harness-owned centralization with
+one chokepoint per grain — events via the typed vocabulary (PR 1),
+agent-grain via `runUnit` (PR 2a/3), phase-grain cost via the harness-owned
+`cost.ts` (PR 2b/4a). The "one sink, reached only via `HarnessCtx`" row above
+is the original aspiration, not the shipped shape; it is recorded here so the
+frontier table is not read as delivered-as-written.
 
 ## 6. The orchestration policy table (named gates, procedural spine)
 
@@ -301,11 +327,30 @@ that baseline and the new convention test passes. Each PR reverts with one
     goldens cannot see the filtered/unfiltered difference). Byte-identical
     by construction; gated by the spine + handoff goldens (the handoff
     golden asserts the setup -> review -> report handoff).
-  - **PR 4c** Unify the **phase grain** onto `runUnit` and introduce the
-    one `RunSink` object (doc 14 §5: accounting becomes a sink projection;
-    the 4a-relocated cost fns + the agent cost re-point at the sink). The
-    deepest, least-netted slice. Fork to surface at grounding. Gate: bench
-    F1, orchestration golden.
+  - **PR 4c — DECLINED (deliberate, reasoned non-goal; grounded at
+    `dd9fd56`).** Not debt: an explicit scope boundary, which is what this
+    binding contract exists to record. Two pieces, both rejected:
+    1. *Literal `runPhase` -> `runUnit` merge.* `runPhase` is already the
+       single, non-divergent phase chokepoint (doc 14 §1 called it "the only
+       honest piece"); there is no phase-grain divergence to remove. Its 8
+       effects are `RunPhaseContext`/orchestration-bound while `runUnit` is
+       the zero-dep `core/harness` kernel, so a literal merge re-introduces
+       exactly the orchestration -> harness coupling PR 3a removed. "One
+       harness" is met **logically**: one way to run an agent (`runUnit`),
+       one to run a phase (`runPhase`), both uniform chokepoints in
+       cycle-safe contexts. Forcing one function is aesthetic, against the
+       §1 "simple, no speculative surface" stance.
+    2. *Accounting-as-projection (the §5 ruling-2 end-state).* Its stated
+       motivation was removing the scattered hand-synced reconciliation
+       burden. PR 2b/4a **already achieved that**: every cost write is now a
+       single harness-owned `orchestration/cost.ts` function and
+       `recordLlmCost` is the one reconciliation point. The residual
+       derive-on-read projection is a behaviour-relevant rewrite across ~44
+       eager-rollup consumers (reporter, calibration, report/run-metrics)
+       for **zero user-visible change** (identical numbers), weakly netted.
+       YAGNI and dogma-adjacent; declined. §5 is reconciled accordingly.
+    **The agent / harness / cost track is complete at PR 4b.** (PR 5 and
+    PR 6 below are a separate concern, not part of this closure.)
 - **PR 5** Extract the orchestration policy: every inline gate at
   pipeline.ts:144-292 becomes a `PhaseGate` row in one table; the spine
   becomes a procedural loop over `CANONICAL_PHASES` reading the table; the
@@ -319,12 +364,13 @@ that baseline and the new convention test passes. Each PR reverts with one
 
 ## 9. Acceptance invariants (testable, not aspirational)
 
-1. Exactly one harness. `grep` finds no `recordLlmCost`, no event emission, no
-   transcript write, no log-scope open in any phase or agent body outside
-   `runUnit` / `HarnessCtx`. (Satisfied progressively: PR 2b removes the
-   review phase body's `recordLlmCost` loop into the harness-owned
-   `recordAgentCosts`; full `runUnit`/`HarnessCtx` ownership lands when the
-   §3-correct agent grain and the sink do, PR 3/4.)
+1. No phase or agent **body** contains an inline `recordLlmCost`. Realized
+   (PR 2b/3/4a): phase-grain cost is owned by the harness `orchestration/cost.ts`
+   functions (`recordAgentCosts`, `recordRagCost`, `recordDocGenerationCost`,
+   `recordDocCoherenceCost`, `recordRefinementCost`); every agent flows
+   through `runUnit`. The stronger "single sink reached only via `HarnessCtx`"
+   form is the declined §8 PR 4c, not a pending item: this is the realized,
+   honest invariant.
 2. Every phase and every agent implements `ExecutionUnit` and is registered;
    doc and refinement satisfy the same interface as axes.
 3. Every unit declares its event set; a unit exiting without emitting it fails
@@ -332,7 +378,13 @@ that baseline and the new convention test passes. Each PR reverts with one
 4. Every phase's run/skip condition is one named `PhaseGate` row in one table;
    pipeline.ts contains no inline phase-gating if/else; the spine is a
    procedural loop over the table, not a graph interpreter.
-5. The §5 lifecycle fields are the only mutable `ctx` fields units touch.
+5. Units touch only two mutable `ctx` surfaces: the §5 lifecycle fields, and
+   the run-accounting rollup (`totalCostUsd` / `providerStats` /
+   `phaseStats` / `axisStats`) — and the latter only through the
+   harness-owned `cost.ts` module, never constructed inline in a phase/agent
+   body. (Original wording said "lifecycle only"; reconciled here because
+   accounting-as-projection was declined, §8 PR 4c, so the rollup stays its
+   §5-sanctioned eager `ctx` home.)
 6. The in-memory cost rollup (`totalCostUsd` / `providerStats` /
    `phaseStats` / `axisStats`) is locked by `cost.test.ts`; any cost-fold PR
    keeps it byte-identical against that synthetic net.
