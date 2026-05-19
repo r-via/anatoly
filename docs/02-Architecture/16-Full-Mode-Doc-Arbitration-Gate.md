@@ -317,6 +317,34 @@ detection; `off`/`lite` are out of scope and unchanged):
   end-to-end** (measures D2 — is the RTP/wild inversion caught — and
   confirms the call now returns). PR 3 must not ship B's keep-uncontested
   until that bench is green (§7 hard prerequisite).
+- **ROOT CAUSE of the "detection times out" symptom — found, NOT in
+  doc 16 code.** An instrumented run + the SDK's own `~/.claude/debug`
+  log proved: on the **first `query()` of any run** the bundled `claude`
+  CLI bootstraps the official plugin marketplace via
+  `git clone anthropics/claude-plugins-official` (SSH URL first, built-in
+  `timeout=120000ms`). On the bench VM (IPv6 enabled-but-blackhole, a WSL
+  networking race) the SSH attempt stalls the full 120 s; whatever unit
+  makes the run's first SDK call wears the abort — structurally
+  doc-conflict-detection (it runs at `doc-conflict-update`, before
+  `review`). Every later call is ~3.6 s. The standalone repro proved the
+  detection code itself is correct (same call, **21 s, 1 conflict**). So
+  PR 2 / 2b / 2c were never the cause; the prompt-size / agentic /
+  single-turn / matcher hypotheses were all symptom-chasing.
+- **Fix (applied, owner-directed): disable the dead-weight SDK bootstrap.**
+  anatoly drives the SDK purely programmatically (explicit allowedTools,
+  bypassPermissions) and never uses plugins, the marketplace, or the
+  auto-updater. `anthropic-transport.ts` `query()` options now pass
+  `env: { ...process.env, CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL:
+  '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_AUTOUPDATER:
+  '1' }` for **every** SDK call (the SDK's `env` replaces `process.env`, so
+  it is spread first). This removes the first-call marketplace git-clone
+  run-wide, independent of VM network hygiene; defense-in-depth with the
+  bench-VM WSL IPv6 hardening (`/etc/wsl.conf` `[boot]` re-assert). Gate:
+  typecheck + lint clean, transport+conflict+orchestration 362/0, full
+  suite 3069 pass (the lone fail is the recurring unrelated cache-meta
+  perf flake). Re-bench PR 2b/2c expected clean: detection ~21 s,
+  INV-RTP caught (INV-WILD remains the separate deferred design matter —
+  reference↔internal cosine cannot reach it).
 - **PR 3 — the gate (behavior-relevant, the core).** Replace the
   unconditional scaffold threading with the ratified-view producer behind a
   `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free

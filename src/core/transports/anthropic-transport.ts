@@ -149,6 +149,23 @@ export class AnthropicTransport implements LlmTransport {
         allowDangerouslySkipPermissions: true,
         abortController,
         persistSession: true,
+        // doc 16 root cause: on the FIRST query() of a run the bundled
+        // `claude` CLI bootstraps the official plugin marketplace via
+        // `git clone anthropics/claude-plugins-official` (built-in
+        // timeout 120000ms, SSH URL first). In a network-restricted /
+        // IPv6-blackhole env that stalls the whole 120s, and whatever
+        // unit makes the run's first SDK call (doc-conflict-detection)
+        // wears the abort. anatoly drives the SDK purely programmatically
+        // (explicit allowedTools, bypassPermissions) — it never uses
+        // plugins, the marketplace, or the auto-updater. Disable that
+        // dead-weight bootstrap for every call; spread process.env first
+        // since the SDK's `env` REPLACES it (defaults to process.env).
+        env: {
+          ...process.env,
+          CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '1',
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+          DISABLE_AUTOUPDATER: '1',
+        } as Record<string, string>,
         ...(resumeSessionId ? { resume: resumeSessionId } : {}),
       },
     });
