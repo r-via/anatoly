@@ -33,7 +33,7 @@ function formatMessage(message: SDKMessage): string {
         typeof content === 'string'
           ? content
           : Array.isArray(content)
-            ? (content as Array<Record<string, unknown>>)
+            ? (content as unknown as Array<Record<string, unknown>>)
                 .filter((b) => b.type === 'text' && typeof b.text === 'string')
                 .map((b) => b.text as string)
                 .join('\n')
