@@ -126,23 +126,36 @@ detection; `off`/`lite` are out of scope and unchanged):
    undetected conflict is not in the auditor's context.
 2. **Fail closed, per fragment (owner decision: §7 option B).** Exclusion is
    at fragment grain: a fragment under an open conflict (`pending`, or no
-   detection ran for it) is **excluded**; an uncontested fragment is kept.
-   The audit sees the conflict-free internal scaffold plus doc-wins arbitrated
-   fragments plus the authoritative external reference, never a fragment under
-   an unresolved conflict. The default is exclude, not include: an uncontested
-   fragment is safe to keep, an unratified contested one is not. This trades a
+   detection ran for it) is **excluded**, and **neither side is injected** for
+   it: not the scaffold fragment, and not the reference excerpt (the reference
+   is the unratified other side of an open conflict; using it as authoritative
+   would itself break "only resolved content may be used"). The audit sees the
+   conflict-free internal scaffold plus the conflict-free remainder; for a
+   resolved `doc-wins` + `applied` conflict (human arbitration only, never in
+   unattended/bench) the now-ratified reference excerpt is injected in place of
+   the superseded fragment. The default is exclude, not include. This trades a
    residual "undetected conflict" risk for keeping the uncontested scaffold's
-   value, and therefore depends on detection being strong (D2 / §6 PR 2 is a
-   hard prerequisite, made explicit in §7).
-3. **Detection must see the bug class.** Conflict detection's code input is
+   value, and therefore depends on detection being strong (D2 / §6 PR 2,
+   validated post `cabd123`).
+3. **Surface, do not silently drop (owner decision).** An excluded
+   unresolved conflict is **emitted as a `doc_conflict` finding** in the
+   report, carrying the detector's `divergence` text and the `file`/`symbol`
+   anchor. The tool reports the contradiction; it does **not** adjudicate
+   which side is correct (that is arbitration's job, and the rule forbids
+   using either side until resolved). This is the surfaced, repeatable value
+   of detection, independent of the volatile correction axis; it reuses the
+   existing divergence reporting path. Measured bench-F1 credit for it is a
+   separate anatoly-bench scorer-contract matter (§6 PR 3), not assumed here.
+4. **Detection must see the bug class.** Conflict detection's code input is
    extended past signatures so a body-level numeric/logic divergence between
    the scaffold's claimed behavior and the reference's stated contract is
    detectable (§6 PR 2). The detector stops being a doc-prose-vs-doc-prose
-   comparator.
-4. **Unattended fallback is explicit, not accidental.** With no operator, the
+   comparator. (Realized PR 2b/2c: store-vector cosine pairing + single-turn
+   inversion verification; validated post `cabd123`.)
+5. **Unattended fallback is explicit, not accidental.** With no operator, the
    mode's behavior is the owner-chosen policy of §7, applied deterministically
    and logged, never "inject anyway because the note was only a hint".
-5. **The ledger is durable and independent.** The arbitration store does not
+6. **The ledger is durable and independent.** The arbitration store does not
    live where a scaffold rebuild can delete it; a verdict, once set, is not
    lost by a routine rescaffold.
 
@@ -201,6 +214,14 @@ detection; `off`/`lite` are out of scope and unchanged):
    ratified-view change is behavior-relevant by intent; "no regression" means
    inside the noise band, and the target is correction-axis recovery on the
    buggy fixtures, not byte-identical output.
+7. `full` mode, one fragment with a `pending` conflict: exactly one
+   `doc_conflict` finding is emitted, carrying the detector's `divergence`
+   text and the conflict's `file`/`symbol` anchor, and rendered in the
+   report's divergence section (hermetic; assert on the report model, no
+   LLM). Note: matching this finding to a bench catalog expectation (e.g.
+   INV-RTP, catalogued `axis: correction`) is an anatoly-bench
+   SPEC/scorer-contract change in the sibling repo, tracked separately and
+   not a precondition of this invariant.
 
 ## 6. PR sequence (ascending risk, per-PR gate)
 
@@ -345,27 +366,81 @@ detection; `off`/`lite` are out of scope and unchanged):
   perf flake). Re-bench PR 2b/2c expected clean: detection ~21 s,
   INV-RTP caught (INV-WILD remains the separate deferred design matter —
   reference↔internal cosine cannot reach it).
-- **PR 3 — the gate (behavior-relevant, the core).** Replace the
-  unconditional scaffold threading with the ratified-view producer behind a
-  `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free
-  injected, fragments under an open conflict excluded. setup threads the
-  ratified view, never the raw tree. Because B's keep-uncontested safety
-  depends on PR 2 (§7 hard prerequisite), PR 3 ships ordered after PR 2; if
-  PR 2's bench is not yet green at PR 3 time, the predicate runs in the
-  transitional A state (exclude on any open conflict and on any fragment
-  detection cannot vouch for) until PR 2 lands. Gate: invariants 1 and 2
-  green; full suites + goldens (goldens are hermetic with doc-conflict
-  skipped, so this needs its own bench, exactly as doc-15 PR 1); bench with
-  correction-axis measured on slot-engine specifically (the intended recovery
-  signal).
+- **PR 3 — the gate, a TWO-effect producer (behavior-relevant, the core).**
+  Detection is now validated end-to-end (post `cabd123`, run pr2cfix-doc16:
+  doc-conflict-update 7.8 s, the INV-RTP inversion correctly detected), so
+  the §7 hard prerequisite is met and the transitional-A caveat is lifted:
+  B-per-fragment ships directly. Replace the unconditional scaffold
+  threading ([setup.ts:481-482](../../src/core/orchestration/phases/setup.ts#L481))
+  with a ratified-view producer behind a `gates.ts` predicate (the doc-14
+  PR 5 table the spine reads). For each scaffold fragment the gate has two
+  effects, driven by the `doc-conflicts.yaml` state:
+  - **Effect 1, de-poison (context).** A fragment under a `pending` or
+    undetected conflict is **excluded** from the review/correction context,
+    and **neither side is injected**: not the scaffold fragment, and not the
+    reference/README excerpt either. The reference is the *unratified other
+    side* of an open conflict; injecting it as authoritative would violate
+    the rule (only resolved content may be used). So an unresolved conflict
+    yields code plus the conflict-free remainder only. The reference excerpt
+    is injected **only** for a conflict resolved `doc-wins` + `applied`
+    (then it is ratified, not "in conflict"): that path requires human
+    `anatoly docs arbitrate` and so never fires in unattended/bench. A
+    `code-wins` + `applied` conflict emits a `doc_stale_reference` (existing
+    path), the reference is not injected. Conflict-free fragments pass
+    through unchanged. setup threads this ratified view, never the raw tree.
+  - **Effect 2, surface (finding).** An unresolved conflict is not silently
+    dropped (doc-15 no-silent-drop). It is **emitted as a `doc_conflict`
+    finding** carrying the detector's `divergence` text and the
+    `file`/`symbol` anchor (e.g. INV-RTP: "reference = 5% house edge against
+    the player; code multiplies payout by 1.05 in the player's favour; the
+    two disagree on the direction"). The tool reports the contradiction; it
+    does **not** adjudicate which side is wrong (that is arbitration's job).
+    Reuse the existing divergence path: the `DocDivergence` /
+    `DocStaleReference` schemas ([schemas/review.ts]) and
+    `aggregateDivergences` / `renderDivergenceSection`
+    ([reporter.ts:2258](../../src/core/reporting/reporter.ts#L2258), the
+    "Divergences code ↔ reference" report section); add a pending
+    `doc_conflict` kind through that pipe. Incremental, not a new subsystem.
+  This is what makes doc-16 worthwhile: detection (now reliable) yields a
+  **repeatable surfaced finding** regardless of the volatile correction
+  axis, instead of only a silent context removal whose payoff was unproven.
+  **Hard sub-decision (the design crux of PR 3): the conflict↔fragment
+  mapping.** A `doc-conflicts.yaml` entry anchors to `{file, symbol}` (e.g.
+  `src/engine.ts#computePayout`); scaffold fragments are **topic/section
+  pages**, not one-page-per-file (same obstacle PR 2 hit). So "exclude the
+  fragment that documents `computePayout`" has no trivial deterministic map.
+  Options: (a) page grain (coarse, over-excludes a whole topic page for one
+  contested symbol); (b) **section grain, reusing the PR-2b machinery**:
+  `smartChunkDoc` segments + the cosine pairing already relate a conflict's
+  reference passage to internal section(s), so exclude/cite at that section.
+  (b) is the consistent choice and reuses built code; it is the central
+  thing PR 3 must specify and test.
+  **Scorer-contract caveat (stated, not hidden).** INV-RTP is catalogued
+  `axis: correction / NEEDS_FIX` (anatoly-bench `SPEC.md`). A `doc_conflict`
+  finding will **not** auto-match that expectation until the anatoly-bench
+  SPEC/scorer accepts `DOC_CONFLICT` as a valid way to flag it. So PR 3's
+  product/user value (a reliable surfaced contradiction) is unconditional;
+  the **measured bench-F1 credit is gated on a separate scorer-contract
+  change in the sibling repo** and must not be assumed. PR 3 still does
+  nothing for the 5 non-doc correction misses (structurally out of scope).
+  Gate: invariants 1, 2 and a new 7 green; full suites + goldens (hermetic,
+  doc-conflict skipped, so its own bench, per doc-15 PR 1); bench with
+  correction-axis and the new `doc_conflict` finding both measured on
+  slot-engine.
+  - **New invariant 7 (testable, hermetic):** `full` mode, one fragment
+    with a `pending` conflict — that fragment's text is absent from the
+    assembled review/correction context **and** exactly one `doc_conflict`
+    finding is emitted carrying the divergence text + the conflict's
+    file/symbol anchor; assert on the built context string and the report
+    model, no LLM.
 - **PR 4 — unattended fallback = B, made explicit (behavior-relevant).**
-  B is already the PR 3 behavior in both attended and unattended runs; PR 4
-  is the no-operator hardening: deterministic application with no wizard
-  block, the chosen policy emitted on the structured channel, and the
-  transitional-A guard removed once PR 2 is bench-proven. Gate: invariant 4
-  green; bench (the fallback is what bench/CI actually exercise, so this is
-  the PR whose bench number is the representative full-mode-unattended
-  figure).
+  B is already the PR 3 behavior in both attended and unattended runs (and
+  PR 2 is bench-proven post `cabd123`, so there is no transitional-A left to
+  remove). PR 4 is the no-operator hardening: deterministic application with
+  no wizard block, and the chosen policy plus every emitted `doc_conflict`
+  finding surfaced on the structured channel. Gate: invariant 4 green;
+  bench (the fallback is what bench/CI actually exercise, so this is the PR
+  whose bench number is the representative full-mode-unattended figure).
 - **PR 5 — binding invariant fold-in.** Promote invariants 1 to 5 into the
   CI invariant set so a future change that injects an unratified fragment
   fails the build, mirroring the doc-15 PR-2d enforcement-as-proof shape.
