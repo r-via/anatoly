@@ -77,6 +77,7 @@ vi.mock('./indexer.js', () => ({
 vi.mock('./doc-indexer.js', () => ({
   indexDocSections: vi.fn().mockResolvedValue({ sections: 0, cached: false, costUsd: 0 }),
   areDocTreesIdentical: vi.fn().mockReturnValue(false),
+  resolveReferenceDocFiles: vi.fn().mockReturnValue([]),
 }));
 
 

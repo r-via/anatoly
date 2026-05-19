@@ -12,8 +12,10 @@ import { emitPhaseStart, emitPhaseEnd } from './events.js';
 // ---------------------------------------------------------------------------
 
 /**
- * The 11 canonical pipeline phases post-split (doc-conflict-detection → two
- * named phases: doc-conflict-bootstrap and doc-conflict-update).
+ * The 12 canonical pipeline phases. `doc-conflict-detection` was split into
+ * two named phases (doc-conflict-bootstrap, doc-conflict-update); the
+ * post-doc-update incremental RAG re-index is the named phase
+ * `rag-index-update` (was previously an unwrapped, invisible call).
  */
 export const CANONICAL_PHASES = Object.freeze([
   'scan',
@@ -23,6 +25,7 @@ export const CANONICAL_PHASES = Object.freeze([
   'doc-conflict-bootstrap',
   'rag-index',
   'internal-docs',
+  'rag-index-update',
   'doc-conflict-update',
   'review',
   'refinement',

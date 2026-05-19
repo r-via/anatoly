@@ -30,7 +30,8 @@ import type { Handoff } from '../handoff.js';
 import { resolve, join } from 'node:path';
 import { getDocsDir } from '../../../schemas/config.js';
 import { isFatalAuthError, isAuthFailureMessage, authError } from '../../../utils/errors.js';
-import { smartChunkAndCache, indexDocSections } from '../../../rag/index.js';
+import { smartChunkAndCache } from '../../../rag/index.js';
+import { indexDocSources } from '../../../rag/doc-sources.js';
 import { startGgufContainers, stopGgufContainers } from '../../../rag/docker-gguf.js';
 import { getLogger } from '../../../utils/logger.js';
 import { runWithContext } from '../../../utils/log-context.js';
@@ -398,11 +399,14 @@ export async function runDocUpdate(ctx: RunContext, handoff: Handoff, tasks: Tas
 }
 
 /**
- * Re-index doc sections after the doc-update pipeline has modified `.anatoly/docs/`.
+ * Re-index doc sections after the doc-update pipeline has modified the
+ * internal docs tree.
  *
  * 1. Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate chunk cache.
  * 2. For advanced mode, briefly restart GGUF containers for NLP embedding.
- * 3. Call `indexDocSections` which finds chunk-cache hits → skips Haiku → only embeds + upserts.
+ * 3. Call `indexDocSources` (the SAME unified decision tree the full
+ *    rag-index pass uses) which finds chunk-cache hits → skips Haiku → only
+ *    embeds + upserts, and re-aliases internal → project in dedup mode.
  * 4. Stop containers.
  */
 export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, vectorStore: VectorStore): Promise<void> {
@@ -410,13 +414,18 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
   const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
   const docsDir = getDocsDir(ctx.config);
+  const state = ctx.pipelineState;
+  state?.startTask('rag-index-update', '…');
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
   // Skip project docs when dedup mode — the alias in the vector store maps internal → project.
   const projChunked = ctx.docsIdentical ? 0 : smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
 
-  if (intChunked + projChunked === 0) return; // nothing changed
+  if (intChunked + projChunked === 0) {
+    state?.completeTask('rag-index-update', 'no doc changes');
+    return; // nothing changed
+  }
 
   ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''} doc files`);
 
@@ -427,54 +436,52 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
     containersStarted = await startGgufContainers(ctx.projectRoot, logFn);
     if (!containersStarted) {
       log.warn('GGUF containers failed to restart for doc re-indexing — docs will be re-indexed on next run');
+      state?.completeTask('rag-index-update', 'skipped (containers unavailable)');
       return;
     }
     ctx.renderer?.logPlain('[rag] GGUF containers restarted for doc re-indexing');
   }
 
-  // Phase 3: re-index changed docs (chunk cache hit → no Haiku, just embed + upsert)
+  // Phase 3: re-index changed docs through the shared decision tree — same
+  // docsIdentical/alias logic as the full rag-index pass (chunk cache hit →
+  // no Haiku, just embed + upsert; dedup mode → re-alias internal → project).
+  // `ctx.docsIdentical` was computed by the rag-index pass; pass it through
+  // so identity is not recomputed.
+  let taskSummary = 'failed';
   try {
     const onLog = (msg: string) => {
-      ctx.runLog?.debug({ phase: 'rag-doc-reindex' }, msg);
+      ctx.runLog?.debug({ phase: 'rag-index-update' }, msg);
       ctx.renderer?.logPlain(`[rag] ${msg}`);
     };
 
-    if (intChunked > 0) {
-      const intResult = await indexDocSections({
-        projectRoot: ctx.projectRoot,
-        vectorStore,
-        docsDir: internalDocsDir,
-        cacheSuffix: `${cacheSuffix}-internal`,
-        chunkModel: ctx.config.models.fast,
-        onLog,
-        isInterrupted: () => ctx.interrupted,
-        conversationDir: join(ctx.runDir, 'conversations'),
-        router: ctx.router,
-        docSource: 'internal',
-      });
-      onLog(`doc re-index (internal): ${intResult.sections} sections, $${intResult.costUsd.toFixed(4)}`);
-    }
-
-    if (projChunked > 0) {
-      const projResult = await indexDocSections({
-        projectRoot: ctx.projectRoot,
-        vectorStore,
-        docsDir,
-        cacheSuffix,
-        chunkModel: ctx.config.models.fast,
-        onLog,
-        isInterrupted: () => ctx.interrupted,
-        conversationDir: join(ctx.runDir, 'conversations'),
-        router: ctx.router,
-        docSource: 'project',
-      });
-      onLog(`doc re-index (project): ${projResult.sections} sections, $${projResult.costUsd.toFixed(4)}`);
-    }
+    const result = await indexDocSources({
+      projectRoot: ctx.projectRoot,
+      vectorStore,
+      docsDir,
+      internalDocsDir,
+      cacheSuffix,
+      chunkModel: ctx.config.models.fast,
+      referencePaths: ctx.config.documentation?.reference?.paths ?? [],
+      docsIdentical: ctx.docsIdentical,
+      onLog,
+      isInterrupted: () => ctx.interrupted,
+      conversationDir: join(ctx.runDir, 'conversations'),
+      router: ctx.router,
+    });
+    onLog(
+      `doc re-index: ${result.docSectionsIndexed} sections `
+      + `(internal ${result.internalDocSections}, project ${result.projectDocSections}`
+      + `${result.docsIdentical ? ', aliased' : ''}), $${result.costUsd.toFixed(4)}`,
+    );
+    taskSummary = result.docsIdentical
+      ? `${result.internalDocSections} sections (aliased)`
+      : `${result.docSectionsIndexed} sections`;
   } finally {
     // Phase 4: stop containers
     if (containersStarted) {
       await stopGgufContainers(logFn);
       ctx.renderer?.logPlain('[rag] GGUF containers stopped after doc re-indexing');
     }
+    state?.completeTask('rag-index-update', taskSummary);
   }
 }

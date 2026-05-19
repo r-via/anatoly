@@ -100,6 +100,20 @@ function emitInterruptSummary(ctx: RunContext, handoff: Handoff): void {
   ctx.lockPath = undefined;
 }
 
+/**
+ * One-line TUI/task detail for a completed doc-conflict phase. Structurally
+ * typed (subset of `DetectionSummary`) so this module needn't import the
+ * detector's public type.
+ */
+function formatDocConflictDetail(
+  dc: { newConflicts: number; applied: number; stale: number; pending: number },
+): string {
+  if (dc.newConflicts === 0 && dc.applied === 0 && dc.stale === 0 && dc.pending === 0) {
+    return 'clean';
+  }
+  return `${dc.newConflicts} new · ${dc.applied} applied · ${dc.pending} pending`;
+}
+
 export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<void> {
   const { runId, projectRoot, cmdOpts, initRunDir } = deps;
   const handoff = createHandoff({ resolvedModels: deps.resolvedModels });
@@ -132,6 +146,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         }
         if (handoff.isFirstRun && isDocAxisActive(ctx)) {
           pipelineState.addTask('bootstrap-doc', 'Bootstrapping internal docs');
+          pipelineState.addTask('doc-conflict-bootstrap', 'Detecting doc conflicts (bootstrap)');
         }
         if (ctx.enableRag) {
           pipelineState.addTask('rag-code', 'Embedding code');
@@ -140,6 +155,10 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
         pipelineState.addTask('internal-docs', 'Updating internal docs');
+        if (ctx.enableRag) {
+          pipelineState.addTask('rag-index-update', 'Updating RAG index');
+        }
+        pipelineState.addTask('doc-conflict-update', 'Detecting doc conflicts');
         pipelineState.addTask('review', 'Reviewing files');
         if (ctx.deliberation) {
           pipelineState.addTask('refinement', 'Deliberation');
@@ -186,17 +205,24 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-bootstrap', async () => {
-              const dc = await runDocConflictDetection({
-                projectRoot: ctx.projectRoot,
-                config: ctx.config,
-                tasks: setup.tasks,
-                fragmentsDir,
-                runDir: ctx.runDir,
-                ...(ctx.router ? { router: ctx.router } : {}),
-              });
-              // doc 15 PR 1: fold the doc-conflict cost into the rollup
-              // (the leak this contract closes; ledger already had it).
-              if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-bootstrap', dc.cost);
+              ctx.pipelineState?.startTask('doc-conflict-bootstrap', '…');
+              let detail = 'failed';
+              try {
+                const dc = await runDocConflictDetection({
+                  projectRoot: ctx.projectRoot,
+                  config: ctx.config,
+                  tasks: setup.tasks,
+                  fragmentsDir,
+                  runDir: ctx.runDir,
+                  ...(ctx.router ? { router: ctx.router } : {}),
+                });
+                // doc 15 PR 1: fold the doc-conflict cost into the rollup
+                // (the leak this contract closes; ledger already had it).
+                if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-bootstrap', dc.cost);
+                detail = formatDocConflictDetail(dc);
+              } finally {
+                ctx.pipelineState?.completeTask('doc-conflict-bootstrap', detail);
+              }
             });
           }
         } else if (!bd.run && bd.reason === 'off' && !ctx.interrupted) {
@@ -231,8 +257,15 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           // Re-index doc sections that changed after the doc-update pipeline.
           // Smart-chunk changed files (programmatic, 0 LLM cost) → pre-populate
           // chunk cache → restart embedding containers → re-embed + upsert → stop.
+          // Now a named, observable phase (`rag-index-update`) so it shows in
+          // the TUI / ndjson / `attach` like every other pipeline phase.
           if (ctx.enableRag && ctx.resolvedRagMode && ragContext.vectorStore) {
-            await reindexDocsAfterUpdate(ctx, handoff, ragContext.vectorStore);
+            const store = ragContext.vectorStore;
+            await runPhase(ctx, 'rag-index-update', async () => {
+              await reindexDocsAfterUpdate(ctx, handoff, store);
+            });
+          } else if (ctx.enableRag) {
+            ctx.pipelineState?.completeTask('rag-index-update', 'skipped (rag inactive)');
           }
 
           // Refresh the pipeline-complete marker to record this update.
@@ -247,31 +280,44 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-update', async () => {
-              const dc = await runDocConflictDetection({
-                projectRoot: ctx.projectRoot,
-                config: ctx.config,
-                tasks: setup.tasks,
-                fragmentsDir,
-                runDir: ctx.runDir,
-                ...(ctx.router ? { router: ctx.router } : {}),
-                // doc 16 PR 2b: reuse the already-populated store for the
-                // cosine pair match (internal side not re-embedded).
-                ...(ragContext.vectorStore ? { vectorStore: ragContext.vectorStore } : {}),
-              });
-              // doc 15 PR 1: fold the doc-conflict cost into the rollup
-              // (the leak this contract closes; ledger already had it).
-              if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-update', dc.cost);
+              ctx.pipelineState?.startTask('doc-conflict-update', '…');
+              let detail = 'failed';
+              try {
+                const dc = await runDocConflictDetection({
+                  projectRoot: ctx.projectRoot,
+                  config: ctx.config,
+                  tasks: setup.tasks,
+                  fragmentsDir,
+                  runDir: ctx.runDir,
+                  ...(ctx.router ? { router: ctx.router } : {}),
+                  // doc 16 PR 2b: reuse the already-populated store for the
+                  // cosine pair match (internal side not re-embedded).
+                  ...(ragContext.vectorStore ? { vectorStore: ragContext.vectorStore } : {}),
+                });
+                // doc 15 PR 1: fold the doc-conflict cost into the rollup
+                // (the leak this contract closes; ledger already had it).
+                if (dc.cost) recordDocConflictCost(ctx, 'doc-conflict-update', dc.cost);
+                detail = formatDocConflictDetail(dc);
+              } finally {
+                ctx.pipelineState?.completeTask('doc-conflict-update', detail);
+              }
             });
           }
         } else if (!id.run && id.reason === 'off' && !ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'off');
+          if (ctx.enableRag) ctx.pipelineState?.completeTask('rag-index-update', 'skipped (docs off)');
+          ctx.pipelineState?.completeTask('doc-conflict-update', 'skipped (docs off)');
         } else if (!id.run && id.reason === 'lite (per-file retrieval)' && !ctx.interrupted) {
           // Lite mode no longer materialises an internal-docs artefact at
           // run scope. Reference content reaches the axes per file via RAG
           // retrieval (see file-evaluator → retrieveRelevantDocsForFile).
           ctx.pipelineState?.completeTask('internal-docs', 'lite (per-file retrieval)');
+          if (ctx.enableRag) ctx.pipelineState?.completeTask('rag-index-update', 'skipped (lite)');
+          ctx.pipelineState?.completeTask('doc-conflict-update', 'skipped (lite)');
         } else if (!id.run && id.reason === 'skipped — no evaluable files' && !ctx.interrupted) {
           ctx.pipelineState?.completeTask('internal-docs', 'skipped — no evaluable files');
+          if (ctx.enableRag) ctx.pipelineState?.completeTask('rag-index-update', 'skipped — no evaluable files');
+          ctx.pipelineState?.completeTask('doc-conflict-update', 'skipped — no evaluable files');
         }
         // Story 55.7: load doc-wins arbitrated fragments for axis prompts
         if (!ctx.interrupted) {

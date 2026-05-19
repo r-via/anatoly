@@ -15,7 +15,7 @@ import type { ResolvedModels } from './hardware-detect.js';
 import { generateNlpSummaries } from './nlp-summarizer.js';
 import { runWorkerPool } from '../core/platform/index.js';
 import { contextLogger } from '../utils/log-context.js';
-import { indexDocSections, areDocTreesIdentical, resolveReferenceDocFiles } from './doc-indexer.js';
+import { indexDocSources } from './doc-sources.js';
 import type { TransportRouter } from '../core/transports/index.js';
 
 /**
@@ -587,125 +587,37 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveNlpSummaryCache(projectRoot, nlpSummaryCache);
   }
 
-  // Index doc sections from /docs/ (project) and .anatoly/docs/ (internal)
-  let docSectionsIndexed = 0;
-  let projectDocSections = 0;
-  let projectDocsCached = false;
-  let internalDocSections = 0;
-  let internalDocsCached = false;
-
-  // Check if docs/ and .anatoly/docs/ are byte-identical to avoid double-chunking.
-  // The alias optimization only handles a single source directory, so when the
-  // user declares explicit `reference.paths` (which may include root-level
-  // files like README.md outside docsDir), we always go through the per-file
-  // indexing path to avoid dropping content.
-  const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
-  let docsIdentical = false;
-  const hasExplicitReferencePaths = (options.referencePaths?.length ?? 0) > 0;
-  if (!hasExplicitReferencePaths) {
-    try {
-      docsIdentical = areDocTreesIdentical(projectRoot, options.docsDir ?? 'docs', internalDocsDir);
-    } catch (err) {
-      onLog(`doc identity check failed, falling back to double indexing: ${(err as Error).message}`);
-    }
-  }
-
-  if (docsIdentical) {
-    // Trees are identical — index only internal, then alias as project
-    onLog('docs/ identical to .anatoly/docs/ — indexing internal only, aliasing project');
-
-    onPhase?.('doc-project'); // emit both phases so UI task transitions work
-    onPhase?.('doc-internal');
-    try {
-      const intResult = await indexDocSections({
-        projectRoot,
-        vectorStore: store,
-        docsDir: internalDocsDir,
-        cacheSuffix: `${cacheSuffix}-internal`,
-        chunkModel: options.indexModel,
-        onLog,
-        onProgress,
-        onFileStart,
-        onFileDone,
-        isInterrupted,
-        conversationDir: options.conversationDir,
-        router: options.router,
-        concurrency: docConcurrency,
-        docSource: 'internal',
-      });
-      internalDocSections = intResult.sections;
-      internalDocsCached = intResult.cached;
-      ragCostUsd += intResult.costUsd;
-      docSectionsIndexed += internalDocSections;
-
-      // Alias internal → project in vector store (don't add to docSectionsIndexed — same content)
-      const aliased = await store.aliasDocSource('internal', 'project', options.docsDir ?? 'docs');
-      projectDocSections = aliased;
-      projectDocsCached = intResult.cached;
-    } catch (err) {
-      onLog(`internal doc section indexing failed: ${(err as Error).message}`);
-    }
-  } else {
-    // Trees differ — index both independently (original behavior)
-
-    // Project docs (from documentation.reference.paths when configured, else docsDir glob)
-    onPhase?.('doc-project');
-    const referenceFiles = options.referencePaths
-      ? resolveReferenceDocFiles(projectRoot, options.referencePaths)
-      : undefined;
-    try {
-      const projResult = await indexDocSections({
-        projectRoot,
-        vectorStore: store,
-        ...(referenceFiles && referenceFiles.length > 0 ? { files: referenceFiles } : {}),
-        docsDir: options.docsDir,
-        cacheSuffix,
-        chunkModel: options.indexModel,
-        onLog,
-        onProgress,
-        onFileStart,
-        onFileDone,
-        isInterrupted,
-        conversationDir: options.conversationDir,
-        router: options.router,
-        concurrency: docConcurrency,
-        docSource: 'project',
-      });
-      projectDocSections = projResult.sections;
-      projectDocsCached = projResult.cached;
-      ragCostUsd += projResult.costUsd;
-      docSectionsIndexed += projectDocSections;
-    } catch (err) {
-      onLog(`doc section indexing failed: ${(err as Error).message}`);
-    }
-
-    // Internal docs (.anatoly/docs/)
-    onPhase?.('doc-internal');
-    try {
-      const intResult = await indexDocSections({
-        projectRoot,
-        vectorStore: store,
-        docsDir: internalDocsDir,
-        cacheSuffix: `${cacheSuffix}-internal`,
-        chunkModel: options.indexModel,
-        onLog,
-        onProgress,
-        onFileStart,
-        onFileDone,
-        isInterrupted,
-        conversationDir: options.conversationDir,
-        router: options.router,
-        concurrency: docConcurrency,
-        docSource: 'internal',
-      });
-      internalDocSections = intResult.sections;
-      internalDocsCached = intResult.cached;
-      ragCostUsd += intResult.costUsd;
-      docSectionsIndexed += internalDocSections;
-    } catch (err) {
-      onLog(`internal doc section indexing failed: ${(err as Error).message}`);
-    }
-  }
+  // Index doc sections from /docs/ (project) and the internal docs tree.
+  // The docsIdentical / alias decision tree is unified in `indexDocSources`
+  // (doc-indexer.ts) and shared with the post-update incremental reindex
+  // (reindexDocsAfterUpdate), so both passes stay byte-consistent.
+  const docResult = await indexDocSources({
+    projectRoot,
+    vectorStore: store,
+    docsDir: options.docsDir ?? 'docs',
+    internalDocsDir: join('.anatoly', 'state', 'internal-docs'),
+    cacheSuffix,
+    chunkModel: options.indexModel,
+    referencePaths: options.referencePaths,
+    onLog,
+    onProgress,
+    onFileStart,
+    onFileDone,
+    onPhase,
+    isInterrupted,
+    conversationDir: options.conversationDir,
+    router: options.router,
+    concurrency: docConcurrency,
+  });
+  const {
+    docSectionsIndexed,
+    projectDocSections,
+    projectDocsCached,
+    internalDocSections,
+    internalDocsCached,
+    docsIdentical,
+  } = docResult;
+  ragCostUsd += docResult.costUsd;
 
   const stats = await store.stats();
 

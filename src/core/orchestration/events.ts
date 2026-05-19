@@ -101,6 +101,7 @@ export const PHASE_EVENT_CONTRACT = Object.freeze({
   'doc-conflict-bootstrap': [],
   'rag-index': ['rag_progress'],
   'internal-docs': [],
+  'rag-index-update': [],
   'doc-conflict-update': [],
   review: [
     'estimate_total',
