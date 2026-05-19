@@ -147,9 +147,17 @@ detection; `off`/`lite` are out of scope and unchanged):
    decides which side is authoritative and the `doc-conflicts.yaml` store is
    left intact for that. Safety-net + dedupe: a symbol the correction axis
    already flagged is left untouched (no double-count), so the fold only
-   adds value on runs where the volatile axis missed it. A conflict whose
-   symbol is not in the reviewed set falls back to a human-readable report
-   section only. This is the repeatable, scorable value of detection.
+   adds value on runs where the volatile axis missed it. **Freshness gate
+   (fix after the `a3706d1` re-bench):** only a conflict whose
+   `detected_at` is at or after this run's start (first `anatoly.ndjson`
+   event time) is folded. An unconditional fold also pulled migrated or
+   stale pending entries from prior runs into `NEEDS_FIX`, manufacturing
+   correction false positives on non-defect symbols (net-negative F1). If
+   the run start is unknowable (no run dir, no ndjson), the fold is
+   skipped entirely: conservative, never amplify stale state into a
+   finding. A conflict whose symbol is not in the reviewed set falls back
+   to a human-readable report section only. This is the repeatable,
+   scorable value of detection.
 4. **Detection must see the bug class.** Conflict detection's code input is
    extended past signatures so a body-level numeric/logic divergence between
    the scaffold's claimed behavior and the reference's stated contract is
@@ -407,6 +415,23 @@ detection; `off`/`lite` are out of scope and unchanged):
     unaffected (hermetic, no doc-conflicts.yaml ⇒ 0 folded). This is
     behavior-relevant: a re-bench now measures whether INV-RTP is credited
     via the fold on runs where correction missed it (the safety-net value).
+  - **PR 3a fix (DONE, committed `b940256`) — freshness gate.** The
+    `a3706d1` re-bench showed the unconditional fold was net-negative: it
+    pulled migrated / stale pending entries from prior runs into
+    `NEEDS_FIX` (e.g. `src/events.ts#SpinEventEmitter`,
+    `src/engine.ts#spin` from May-12/15 stale entries), manufacturing
+    correction false positives on non-defect symbols.
+    `applyPendingConflictsToReviews` now takes `runDir` and folds only a
+    conflict whose `detected_at` is at or after this run's start (parsed
+    from the first `anatoly.ndjson` event `time`). If the run start is
+    unknowable (no run dir / no ndjson / unparseable) it folds nothing:
+    conservative, never amplify stale state into a finding. Dedupe and
+    symbol-not-reviewed safety-nets unchanged. Gate met: typecheck (only
+    the unrelated, owner-tracked SDK-0.3 migration error remains) + lint
+    clean, full suite 3078 pass / 0 fail; tests cover fresh-folds,
+    stale-not-folded, unknowable-run-start-folds-nothing. Re-bench at this
+    commit pending (owner-run; the upstream 120s detection abort is
+    defanged VM-side, not yet code-side).
   - **PR 3b (pending design) — Effect 1, de-poison.** The `gates.ts`
     predicate + ratified-view producer that excludes the contested scaffold
     fragment from review/correction context (no side injected for an
