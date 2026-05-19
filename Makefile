@@ -84,9 +84,12 @@ update:
 	   exit 1; \
 	 fi; \
 	 before=$$(git rev-parse HEAD); \
-	 if [ "$$before" = "$$target" ]; then \
+	 if [ "$$before" = "$$target" ] && [ -f dist/index.js ] && [ -d node_modules ]; then \
 	   printf '$(G)  ✔$(N) already on $(B)$(COMMIT)$(N) — nothing to reinstall\n'; \
 	   exit 0; \
+	 fi; \
+	 if [ "$$before" = "$$target" ]; then \
+	   printf '$(Y)  !$(N) on $(B)$(COMMIT)$(N) but build missing/stale — reinstalling\n'; \
 	 fi; \
 	 printf '$(B)→$(N) $(C)checking out $(B)$(COMMIT)$(N) $(D)(detached HEAD)$(N)\n'; \
 	 if ! git checkout --detach "$$target"; then \
@@ -100,6 +103,7 @@ update:
 else
 update:
 	@printf '$(B)→$(N) $(C)fetching origin/$(BRANCH)$(N)\n'; \
+	 before=$$(git rev-parse HEAD); \
 	 git fetch origin $(BRANCH); \
 	 current=$$(git rev-parse --abbrev-ref HEAD); \
 	 if [ "$$current" != "$(BRANCH)" ]; then \
@@ -111,19 +115,21 @@ update:
 	     fi; \
 	   fi; \
 	 fi; \
-	 before=$$(git rev-parse HEAD); \
 	 if ! git pull --ff-only origin $(BRANCH); then \
 	   printf '$(R)✗$(N) pull failed — local commits or divergence on this clone\n'; \
 	   printf '  $(D)resolve manually (git status / git log) before retrying$(N)\n'; \
 	   exit 1; \
 	 fi; \
 	 after=$$(git rev-parse HEAD); \
-	 if [ "$$before" = "$$after" ]; then \
+	 if [ "$$before" = "$$after" ] && [ -f dist/index.js ] && [ -d node_modules ]; then \
 	   printf '$(G)  ✔$(N) already up to date — nothing to reinstall\n'; \
 	   exit 0; \
 	 fi; \
-	 printf '\n$(B)→$(N) $(C)new commits pulled:$(N)\n'; \
-	 git --no-pager log --oneline "$$before..$$after" | head -10 | sed 's/^/  /'; \
+	 if [ "$$before" = "$$after" ]; then \
+	   printf '$(Y)  !$(N) HEAD unchanged but build missing/stale — reinstalling\n'; \
+	 fi; \
+	 printf '\n$(B)→$(N) $(C)now on:$(N)\n'; \
+	 git --no-pager log --oneline -1 | sed 's/^/  /'; \
 	 printf '\n'; \
 	 $(MAKE) --no-print-directory install
 endif
