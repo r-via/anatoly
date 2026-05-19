@@ -18,6 +18,4 @@ export { indexProject, processFileForDualIndex, ragModeArtifacts } from './orche
 export type { RagMode, RagIndexOptions, RagIndexResult, IndexedFileResult } from './orchestrator.js';
 export { parseDocSections, collectDocSections, indexDocSections, buildDocSectionId, stripCodeBlocks, smartChunkAndCache, smartChunkDoc, countChangedDocs, loadDocSectionTexts } from './doc-indexer.js';
 export type { DocSection, DocIndexOptions, DocIndexResult } from './doc-indexer.js';
-export { indexDocSources } from './doc-sources.js';
-export type { IndexDocSourcesOptions, IndexDocSourcesResult } from './doc-sources.js';
 export { startGgufContainers, stopGgufContainers, areGgufContainersRunning } from './docker-gguf.js';
