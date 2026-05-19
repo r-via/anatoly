@@ -137,15 +137,19 @@ detection; `off`/`lite` are out of scope and unchanged):
    residual "undetected conflict" risk for keeping the uncontested scaffold's
    value, and therefore depends on detection being strong (D2 / §6 PR 2,
    validated post `cabd123`).
-3. **Surface, do not silently drop (owner decision).** An excluded
-   unresolved conflict is **emitted as a `doc_conflict` finding** in the
-   report, carrying the detector's `divergence` text and the `file`/`symbol`
-   anchor. The tool reports the contradiction; it does **not** adjudicate
-   which side is correct (that is arbitration's job, and the rule forbids
-   using either side until resolved). This is the surfaced, repeatable value
-   of detection, independent of the volatile correction axis; it reuses the
-   existing divergence reporting path. Measured bench-F1 credit for it is a
-   separate anatoly-bench scorer-contract matter (§6 PR 3), not assumed here.
+3. **Surface, do not silently drop (owner decision).** An unresolved
+   conflict is **folded into the correction axis of its anchored reviewed
+   symbol as an explained `NEEDS_FIX`** (it lives where every finding lives,
+   `axes/<axis>/shard.N.md`, so the existing bench parser+scorer credit it
+   with no SPEC/scorer change). The `detail` states it is a code↔reference
+   conflict, quotes both sides, and points at `anatoly docs arbitrate`: the
+   tool flags the contradiction transparently, while arbitration still
+   decides which side is authoritative and the `doc-conflicts.yaml` store is
+   left intact for that. Safety-net + dedupe: a symbol the correction axis
+   already flagged is left untouched (no double-count), so the fold only
+   adds value on runs where the volatile axis missed it. A conflict whose
+   symbol is not in the reviewed set falls back to a human-readable report
+   section only. This is the repeatable, scorable value of detection.
 4. **Detection must see the bug class.** Conflict detection's code input is
    extended past signatures so a body-level numeric/logic divergence between
    the scaffold's claimed behavior and the reference's stated contract is
@@ -214,14 +218,15 @@ detection; `off`/`lite` are out of scope and unchanged):
    ratified-view change is behavior-relevant by intent; "no regression" means
    inside the noise band, and the target is correction-axis recovery on the
    buggy fixtures, not byte-identical output.
-7. `full` mode, one fragment with a `pending` conflict: exactly one
-   `doc_conflict` finding is emitted, carrying the detector's `divergence`
-   text and the conflict's `file`/`symbol` anchor, and rendered in the
-   report's divergence section (hermetic; assert on the report model, no
-   LLM). Note: matching this finding to a bench catalog expectation (e.g.
-   INV-RTP, catalogued `axis: correction`) is an anatoly-bench
-   SPEC/scorer-contract change in the sibling repo, tracked separately and
-   not a precondition of this invariant.
+7. `full` mode, a `pending` conflict whose anchored symbol was reviewed and
+   is **not** already a correction defect: that symbol's `correction`
+   becomes `NEEDS_FIX` with a `detail` that names the conflict, quotes both
+   sides, and points at `anatoly docs arbitrate` (so it lands in
+   `axes/correction/shard.N.md` and the existing bench scores it against the
+   catalogued expectation, no SPEC/scorer change). Dedupe: a symbol already
+   a correction defect is left untouched (no double-count). Symbol not in
+   the reviewed set: falls back to the report section only. Hermetic;
+   assert on the mutated review model, no LLM.
 
 ## 6. PR sequence (ascending risk, per-PR gate)
 
@@ -375,16 +380,33 @@ detection; `off`/`lite` are out of scope and unchanged):
     `DocConflictFindingSchema` (`kind:'doc_conflict'`, schemas/review.ts);
     `loadPendingConflictsAsDocConflicts` (mirrors
     `loadCodeWinsAsStaleReferences`, filters `verdict:'pending'` +
-    status active/stale); wired into `reporter.ts` next to the stale-ref
-    seam + `renderDocConflictSection` ("Unresolved doc conflicts (code ↔
-    reference) — run `anatoly docs arbitrate`"), folded into
-    `combinedDivergenceSection`. Reliable, deterministic, independent of the
-    volatile correction axis; the tool reports the contradiction, does not
-    adjudicate. Gate met: typecheck + lint clean, full suite 3073 pass / 0
-    fail, +3 hermetic tests (surface filter incl. invariant-7 essence,
-    defensive, render). No axis-context change, so no F1 movement expected
-    from 3a alone; measured-F1 credit still gated on the anatoly-bench
-    scorer-contract (DOC_CONFLICT ↔ INV-RTP, separate sibling repo).
+    status active/stale); a human-readable `renderDocConflictSection`
+    folded into `combinedDivergenceSection`.
+    **Owner decision (supersedes the earlier separate-artifact +
+    scorer-contract plan, which was over-engineered): a finding lives where
+    every finding lives — `axes/<axis>/shard.N.md`.** So
+    `applyPendingConflictsToReviews` (reporter.ts, run in `generateReport`
+    between `loadReviews` and `aggregateReviews`) folds each unresolved
+    conflict into the **correction axis** of its anchored reviewed symbol
+    as an **explained `NEEDS_FIX`** (the `detail` states it is a code↔
+    reference conflict, quotes both sides, and points at
+    `anatoly docs arbitrate`). It is then a normal finding the **existing**
+    bench parser+scorer credit against the catalogued correction
+    expectation (e.g. INV-RTP) with **zero anatoly-bench / SPEC change**.
+    **Safety-net + dedupe:** a symbol whose `correction` is already a defect
+    is left untouched (no double-count under the bench's bipartite
+    matching), so the fold only adds value on the runs the volatile
+    correction axis missed. The `doc-conflicts.yaml` store is left intact
+    for `anatoly docs arbitrate` (surface + flag, while arbitration still
+    decides which side is authoritative; the `detail` is explicit it is a
+    conflict, not a blind code-fault claim). A conflict whose file/symbol is
+    not in the reviewed set falls back to the markdown section only (no
+    fabricated symbols). Gate met: typecheck + lint clean, full suite
+    3076 pass / 0 fail, +6 hermetic tests (surface filter incl. invariant-7
+    essence, defensive, render, fold, dedupe, symbol-miss). Goldens
+    unaffected (hermetic, no doc-conflicts.yaml ⇒ 0 folded). This is
+    behavior-relevant: a re-bench now measures whether INV-RTP is credited
+    via the fold on runs where correction missed it (the safety-net value).
   - **PR 3b (pending design) — Effect 1, de-poison.** The `gates.ts`
     predicate + ratified-view producer that excludes the contested scaffold
     fragment from review/correction context (no side injected for an

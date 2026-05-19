@@ -30,6 +30,7 @@ export {
   aggregateStaleReferences,
   renderStaleReferenceSection,
   renderDocConflictSection,
+  applyPendingConflictsToReviews,
 } from './reporter.js';
 export type { ReportAxisId, AxisReport, RunStats, TriageStats } from './reporter.js';
 

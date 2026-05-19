@@ -369,6 +369,43 @@ export function renderDocConflictSection(conflicts: DocConflictFinding[]): strin
 }
 
 /**
+ * doc 16 PR 3a — fold each unresolved (pending) doc-conflict into the
+ * correction axis of the matching reviewed symbol as an explained
+ * NEEDS_FIX, so it becomes a finding in `axes/correction/shard.N.md`
+ * (where every finding lives and the scorer reads), not only a markdown
+ * section. Safety-net + dedupe: only flip a symbol whose `correction` is
+ * not already a defect (`OK`/`-`), so a conflict the correction axis
+ * already caught is NOT double-counted. The `doc-conflicts.yaml` store is
+ * untouched (arbitration). A conflict whose file/symbol is not in the
+ * reviewed set is left to the markdown section only (no fabricated
+ * symbols). Mutates `reviews` in place; returns the number folded.
+ */
+export function applyPendingConflictsToReviews(reviews: ReviewFile[], projectRoot: string): number {
+  const conflicts = loadPendingConflictsAsDocConflicts(projectRoot);
+  if (conflicts.length === 0) return 0;
+  let folded = 0;
+  for (const c of conflicts) {
+    if (!c.symbol) continue;
+    const rf = reviews.find((r) => r.file === c.file);
+    if (!rf) continue;
+    const sym = rf.symbols.find((s) => s.name === c.symbol);
+    if (!sym) continue;
+    // dedupe / safety-net: correction already flagged ⇒ leave it (the
+    // existing finding scores; a second on the same anchor is a false
+    // positive under the bench's bipartite matching).
+    if (sym.correction !== 'OK' && sym.correction !== '-') continue;
+    sym.correction = 'NEEDS_FIX';
+    sym.detail =
+      `Unresolved code↔reference doc conflict (detected ${c.detected_at}). ` +
+      `Reference (${c.reference_path}): "${c.reference_text}". ` +
+      `Code: "${c.code_summary}". ` +
+      'The code contradicts its documented contract here; run `anatoly docs arbitrate` to resolve which side is authoritative.';
+    folded++;
+  }
+  return folded;
+}
+
+/**
  * Render the Documentation mode line for the report header (FR18).
  */
 export function renderDocModeLine(info: DocModeInfo): string {
@@ -2274,6 +2311,15 @@ export function generateReport(
   docMode?: DocModeInfo,
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
+  // doc 16 PR 3a: fold unresolved (pending) doc-conflicts into the
+  // correction axis as explained NEEDS_FIX findings, so a detected
+  // code↔reference contradiction is a scorable axis finding (it lives in
+  // axes/correction/shard.N.md like every finding), not only a markdown
+  // section. Safety-net + dedupe: only when correction did NOT already
+  // flag that symbol (no double-count). The doc-conflicts.yaml store is
+  // left intact for `anatoly docs arbitrate` (surface ≠ adjudicate; the
+  // detail explains it is a conflict and points at arbitration).
+  applyPendingConflictsToReviews(reviews, projectRoot);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
   const axisReports = buildAxisReports(data);

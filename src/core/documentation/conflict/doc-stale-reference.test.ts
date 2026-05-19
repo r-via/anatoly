@@ -274,3 +274,51 @@ describe('doc 16 PR 3a — loadPendingConflictsAsDocConflicts', () => {
     expect(md).toContain('anatoly docs arbitrate');
   });
 });
+
+// ---------------------------------------------------------------------------
+// doc 16 PR 3a — fold pending conflicts into the correction axis (scorable),
+// safety-net + dedupe, yaml left intact
+// ---------------------------------------------------------------------------
+
+describe('doc 16 PR 3a — applyPendingConflictsToReviews', () => {
+  const mkReview = (correction: string) => ([{
+    file: 'src/core/foo.ts',
+    verdict: 'NEEDS_FIX',
+    symbols: [{
+      name: 'computeBar', kind: 'function', exported: true, line_start: 10, line_end: 25,
+      correction, overengineering: 'ACCEPTABLE', utility: 'USED', duplication: 'UNIQUE',
+      tests: 'GOOD', documentation: 'DOCUMENTED', confidence: 90, detail: 'nothing noted here.',
+    }],
+  }] as unknown as Parameters<typeof import('../../reporting/index.js')['applyPendingConflictsToReviews']>[0]);
+
+  it('folds an unresolved conflict into correction NEEDS_FIX with an explanation', async () => {
+    const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active' })]));
+    const reviews = mkReview('OK');
+    const folded = applyPendingConflictsToReviews(reviews, tmpDir);
+    expect(folded).toBe(1);
+    const s = (reviews as unknown as Array<{ symbols: Array<{ correction: string; detail: string }> }>)[0].symbols[0];
+    expect(s.correction).toBe('NEEDS_FIX');
+    expect(s.detail).toContain('doc conflict');
+    expect(s.detail).toContain('computeBar must never return null');
+    expect(s.detail).toContain('anatoly docs arbitrate');
+  });
+
+  it('dedupes: does NOT touch a symbol correction already flagged (no double-count)', async () => {
+    const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active' })]));
+    const reviews = mkReview('NEEDS_FIX');
+    const before = JSON.stringify(reviews);
+    expect(applyPendingConflictsToReviews(reviews, tmpDir)).toBe(0);
+    expect(JSON.stringify(reviews)).toBe(before);
+  });
+
+  it('skips when the conflict symbol is not in the reviewed set; no crash, no yaml needed', async () => {
+    const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    // no doc-conflicts.yaml at all
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir)).toBe(0);
+    // yaml present but symbol mismatch
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', anchor: { file: 'src/core/foo.ts', symbol: 'otherSym', line_range: [1, 2], code_hash: 'h' } })]));
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir)).toBe(0);
+  });
+});
