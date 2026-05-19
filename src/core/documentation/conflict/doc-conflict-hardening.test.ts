@@ -32,6 +32,18 @@ import { EVALUATOR_TEMPERATURE } from '../../transports/index.js';
 import type { Config } from '../../../schemas/config.js';
 import type { Task } from '../../../schemas/task.js';
 import type { TransportRouter } from '../../transports/index.js';
+import type { DocPairMatcher } from './doc-conflict-pairing.js';
+
+// doc 16 PR 2b: deterministic stub matcher (no store/embed/LLM). ref
+// filePath 'docs/api.md' so the enrich allow-list (= pairs' ref paths)
+// admits the seeded 'docs/api.md' conflict and rejects others.
+const apiPairMatcher: DocPairMatcher = async () => [
+  {
+    ref: { filePath: 'docs/api.md', heading: 'API', content: 'ref text', neighbor: '' },
+    internal: { filePath: '05-modules/core.md', heading: 'core', content: 'internal text', neighbor: '' },
+    score: 0.9,
+  },
+];
 
 let tmp: string;
 
@@ -246,7 +258,7 @@ describe('hardening — reference_path allow-list', () => {
     }));
 
     const result = await detectNewConflictsViaLlm(
-      { projectRoot: tmp, config: makeConfig(), tasks: [], fragmentsDir, router },
+      { projectRoot: tmp, config: makeConfig(), tasks: [], fragmentsDir, router, pairMatcher: apiPairMatcher },
       new Set(),
     );
 
@@ -446,7 +458,7 @@ describe('hardening — temperature 0 for run-to-run stability', () => {
     const router = makeMockRouter(() => JSON.stringify({ conflicts: [] }));
 
     await detectNewConflictsViaLlm(
-      { projectRoot: tmp, config: makeConfig(), tasks: [], fragmentsDir, router },
+      { projectRoot: tmp, config: makeConfig(), tasks: [], fragmentsDir, router, pairMatcher: apiPairMatcher },
       new Set(),
     );
 

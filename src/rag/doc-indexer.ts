@@ -67,6 +67,48 @@ function saveDocChunkCache(projectRoot: string, suffix: string, cache: DocChunkC
   writeFileSync(path, JSON.stringify(cache, null, 2));
 }
 
+/**
+ * doc 16 PR 2b: map `${filePath}#${heading}` → the section's full text and
+ * its in-file neighbour, across every doc chunk cache
+ * (`doc_chunk_cache_*.json`). The chunk cache already persists the
+ * untruncated `smartChunkDoc` content keyed exactly as the vector store's
+ * doc-section rows (filePath + heading == row `name`), so the pair matcher
+ * resolves real passages without re-chunking, re-embedding, or the lossy
+ * 400-char `summary`. Suffix-agnostic by globbing — no RAG-mode coupling.
+ */
+export function loadDocSectionTexts(
+  projectRoot: string,
+): Map<string, { content: string; neighbor: string }> {
+  const out = new Map<string, { content: string; neighbor: string }>();
+  const dir = anatolyPath(projectRoot, 'cache/rag');
+  let files: string[];
+  try {
+    files = globSync(['doc_chunk_cache_*.json'], { cwd: dir, absolute: true });
+  } catch {
+    return out;
+  }
+  for (const file of files) {
+    let cache: DocChunkCache;
+    try {
+      cache = JSON.parse(readFileSync(file, 'utf-8')) as DocChunkCache;
+    } catch {
+      continue;
+    }
+    for (const [filePath, entry] of Object.entries(cache)) {
+      const secs = entry?.sections ?? [];
+      for (let i = 0; i < secs.length; i++) {
+        const before = i > 0 ? secs[i - 1].content : '';
+        const after = i < secs.length - 1 ? secs[i + 1].content : '';
+        out.set(`${filePath}#${secs[i].heading}`, {
+          content: secs[i].content,
+          neighbor: [before, after].filter(Boolean).join('\n\n'),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function computeDocSha(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }

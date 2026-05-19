@@ -260,8 +260,8 @@ describe('doc 16 PR 2 — segmentForDetection', () => {
 
 describe('doc 16 PR 2b — buildPairDetectionUserMessage', () => {
   const pair: CandidatePair = {
-    ref: { filePath: 'README.md', heading: 'RTP', content: 'house edge of 5% against the player', embedText: 'x', neighbor: 'ref neighbour text' },
-    internal: { filePath: '05-modules/engine.md', heading: 'RTP', content: 'multiplied by 1.05 in the player favour', embedText: 'y', neighbor: 'int neighbour text' },
+    ref: { filePath: 'README.md', heading: 'RTP', content: 'house edge of 5% against the player', neighbor: 'ref neighbour text' },
+    internal: { filePath: '05-modules/engine.md', heading: 'RTP', content: 'multiplied by 1.05 in the player favour', neighbor: 'int neighbour text' },
     score: 0.91,
   };
 

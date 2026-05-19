@@ -26,12 +26,19 @@ import type { Task } from '../../../schemas/task.js';
 import type { TransportRouter } from '../../transports/index.js';
 import type { DocPairMatcher } from './doc-conflict-pairing.js';
 
-// doc 16 PR 2b: deterministic stub matcher — pairs the first reference
-// segment with the first internal segment. No embeddings, no LLM (the
-// no-LLM/embeddings-in-tests rule). Production derives the matcher from
-// the vector store / in-memory fallback instead.
-const stubMatcher: DocPairMatcher = async (ref, int) =>
-  ref.length > 0 && int.length > 0 ? [{ ref: ref[0], internal: int[0], score: 0.9 }] : [];
+// doc 16 PR 2b: deterministic stub matcher — one fixed pair. No store, no
+// embeddings, no LLM (the no-LLM/embeddings-in-tests rule). Production
+// derives the matcher from the vector store (storePairMatcher) instead.
+// ref.filePath must be 'docs/api.md' so it matches the mock conflicts'
+// reference_path (enrich validates against the pairs' ref filePaths).
+const stubMatcher: DocPairMatcher = async () => [
+  {
+    ref: { filePath: 'docs/api.md', heading: 'API', content: 'doThing accepts a string.', neighbor: '' },
+    internal: { filePath: '05-modules/core.md', heading: 'core', content: 'doThing accepts a Buffer.', neighbor: '' },
+    score: 0.9,
+  },
+];
+const emptyMatcher: DocPairMatcher = async () => [];
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -247,25 +254,17 @@ describe('Story 55.10 — detectNewConflictsViaLlm', () => {
   // system prompt makes inversions the top-priority divergence — the
   // input-level guard for the D2 bug class.
   it('sends matched passage pairs and the inversion rule (D2 input guard)', async () => {
-    mkdirSync(join(tmp, 'src'), { recursive: true });
-    writeFileSync(join(tmp, 'src/foo.ts'), 'export function spin() { return 1; }\n');
-
-    mkdirSync(join(tmp, 'docs'), { recursive: true });
-    writeFileSync(
-      join(tmp, 'docs/api.md'),
-      "# Slot Engine\n\n## RTP\n\nThe engine targets a theoretical Return-to-Player of 95%. Long-run player return approximates the bet-weighted house edge of 5% against the player.\n",
-    );
-
-    const fragmentsDir = join(tmp, '.anatoly/state/internal-docs');
-    mkdirSync(join(fragmentsDir, '05-modules'), { recursive: true });
-    writeFileSync(
-      join(fragmentsDir, '05-modules/engine.md'),
-      "# Engine\n\n## RTP\n\nThe payout is multiplied by 1.05, returning the bet-weighted edge in the player's favour over the long run.\n",
-    );
-
+    const { projectRoot, fragmentsDir } = seedProject();
+    const rtpMatcher: DocPairMatcher = async () => [
+      {
+        ref: { filePath: 'docs/api.md', heading: 'RTP', content: 'The engine targets a theoretical Return-to-Player of 95%. Long-run player return approximates the bet-weighted house edge of 5% against the player.', neighbor: '' },
+        internal: { filePath: '05-modules/engine.md', heading: 'RTP', content: "The payout is multiplied by 1.05, returning the bet-weighted edge in the player's favour over the long run.", neighbor: '' },
+        score: 0.83,
+      },
+    ];
     const router = makeMockRouter(JSON.stringify({ conflicts: [] }));
     await detectNewConflictsViaLlm(
-      { projectRoot: tmp, config: makeConfig(), tasks: makeTasks(), fragmentsDir, router, pairMatcher: stubMatcher },
+      { projectRoot, config: makeConfig(), tasks: makeTasks(), fragmentsDir, router, pairMatcher: rtpMatcher },
       new Set(),
     );
 
@@ -374,7 +373,6 @@ describe('Story 55.10 — detectNewConflictsViaLlm', () => {
   it('returns empty when no similar passage pairs are found', async () => {
     const { projectRoot, fragmentsDir } = seedProject();
     const router = makeMockRouter(JSON.stringify({ conflicts: [{ file: 'src/foo.ts', reference_path: 'docs/api.md', reference_text: 'a', code_summary: 'b', divergence: 'c' }] }));
-    const emptyMatcher: DocPairMatcher = async () => [];
 
     const conflicts = await detectNewConflictsViaLlm(
       { projectRoot, config: makeConfig(), tasks: makeTasks(), fragmentsDir, router, pairMatcher: emptyMatcher },

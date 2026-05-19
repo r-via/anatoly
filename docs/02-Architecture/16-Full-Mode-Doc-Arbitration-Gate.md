@@ -248,27 +248,49 @@ detection; `off`/`lite` are out of scope and unchanged):
   `## Assistant`) and **not** caused by PR-2 (PR-2 prompt smaller, 100 KB).
   Root cause: a single ~25-30k-token agentic JSON call to Sonnet never
   returns within 120s. The monolithic shape is the defect.
-- **PR 2b (code done, bench-pending) — cosine-matched pair verification.**
-  Removes the monolith. Reuses the already-populated RAG store: segment
-  both sides (`segmentDocs` over `smartChunkDoc`), embed only the few
-  reference sections (`embedNlpBatch`), `vectorStore.searchDocSections(emb,
-  k, 0.5, 'internal')` to get the nearest internal sections, join back to
-  the local section for full content + H2 neighbour, dedupe (best per
-  internal), then LLM-verify **only** the suspect pairs in ≤10-pair batches
-  (`buildPairDetectionUserMessage` + the PR-2 inversion system prompt).
-  Each call is tiny → the 120s timeout is a never-hit safety net. The
-  matcher is injected (`DocPairMatcher`): default = vector-store; no store
-  (RAG off) = in-memory `embedNlpBatch` cosine; tests inject a deterministic
-  stub (no real embedding/LLM, the hermetic rule). `vectorStore` threaded
-  from the pipeline `doc-conflict-update` site. Owner decisions honoured
-  (vector store; ≤10/batch; in-memory fallback). Gate met: typecheck clean,
-  lint clean, documentation+orchestration suites 461/0 (spine/handoff
-  goldens, new `doc-conflict-pairing` + `buildPairDetectionUserMessage`
-  tests, migrated detector tests); full-suite flakes are unrelated perf
-  benchmarks (pass clean). **Bench (owner-run) at the PR-2b tip is the run
-  that finally exercises detection end-to-end** (measures D2 and confirms
-  no 120s abort). PR 3 must not ship B's keep-uncontested until that bench
-  is green (§7 hard prerequisite).
+- **PR 2b-i (committed `0670941`) — first cosine-pair cut. Bench
+  INCONCLUSIVE.** Removed the monolith (timeout fixed: doc-conflict-update
+  11.4 s vs 120 s-abort; global F1 0.6819 > ref, no regression), but
+  detection matched **0 pairs**: a `vectorStorePairMatcher` joined store
+  hits back to a locally re-segmented `smartChunkDoc` section by
+  `filePath#heading`; the store's `filePath` is the projectRoot-relative
+  `.anatoly/state/internal-docs/...` while the local relPath omitted that
+  prefix → every hit dropped. (Earlier "Haiku-title" theory was wrong; the
+  store keys sections by the real `smartChunkDoc` heading, verified.)
+- **PR 2b (code done, bench-pending) — store-only pair verification.**
+  Owner's insight: the vectors **and** addresses are already persisted;
+  the full passage text is already in the **doc chunk cache**
+  (`doc_chunk_cache_*.json`: `{filePath → {sha, sections:[{heading,
+  embedText, content}]}}`, untruncated, keyed exactly as the store rows).
+  So: no re-embed, no re-chunk, no local join, no lossy 400-char `summary`.
+  New `VectorStore.listDocSectionVectors(source)` enumerates stored
+  doc-section rows + their `nlp_vector`; for each reference row,
+  `searchDocSections(refVec, k, 0.5, 'internal')` ranks internal sections
+  on the already-stored vectors; passage text + H2 neighbour for both
+  sides resolved from the chunk cache via new `loadDocSectionTexts`
+  (suffix-agnostic glob, exported from rag); dedupe (best per internal);
+  LLM-verify only the suspect pairs in ≤10-pair batches
+  (`buildPairDetectionUserMessage` + the PR-2 inversion system prompt) —
+  each call tiny, the 120 s timeout a never-hit safety net. Matcher
+  injected (`DocPairMatcher = () => Promise<CandidatePair[]>`): production
+  `storePairMatcher`; no `vectorStore` (RAG off) → detection skipped with
+  a log (no in-memory re-embed; the store-only design has no cheap
+  fallback, accepted scope note); tests inject a deterministic stub (no
+  store/embed/LLM). `vectorStore` threaded from the pipeline
+  `doc-conflict-update` site. Gate met: typecheck + lint clean, full suite
+  **3070 passed / 0 failed** (orchestration goldens 79/0, documentation +
+  rag 637/0, new `doc-conflict-pairing` + `loadDocSectionTexts` +
+  `buildPairDetectionUserMessage` tests, migrated detector/hardening
+  tests). **Tracked follow-up (not silent debt):** the now-unused monolith
+  helpers `buildDetectionUserMessage` / `batchFragmentsByTokenBudget` /
+  `segmentForDetection` (+ their barrel exports/tests) are dead and slated
+  for a scoped cleanup PR; left compiling+green here to keep PR 2b focused.
+  Also tracked separately: replace the indexing-side truncated `summary`
+  with a section anchor + chunk-size tolerance (RAG-layer PR, owner-raised).
+  **Bench (owner-run) at the PR-2b tip is the run that finally exercises
+  detection end-to-end** (measures D2 and confirms no 120 s abort). PR 3
+  must not ship B's keep-uncontested until that bench is green (§7 hard
+  prerequisite).
 - **PR 3 — the gate (behavior-relevant, the core).** Replace the
   unconditional scaffold threading with the ratified-view producer behind a
   `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free

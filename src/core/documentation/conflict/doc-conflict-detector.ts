@@ -15,25 +15,20 @@ import {
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
-import { resolveReferenceDocs } from '../resolution/reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
 import {
   buildPairDetectionUserMessage,
-  collectInternalDocFragments,
   DETECTION_SYSTEM_PROMPT,
   DetectionResponseSchema,
   parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
 import {
-  segmentDocs,
   dedupePairs,
   batchPairs,
-  vectorStorePairMatcher,
-  inMemoryPairMatcher,
+  storePairMatcher,
   type DocPairMatcher,
 } from './doc-conflict-pairing.js';
-import { embedNlpBatch } from '../../../rag/embeddings.js';
 import { EVALUATOR_TEMPERATURE, type TransportRouter, type LlmResponse } from '../../transports/index.js';
 import { countTokens } from '../../run/index.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
@@ -467,23 +462,14 @@ export async function detectNewConflictsViaLlm(
   existingIds: ReadonlySet<string>,
 ): Promise<DocConflict[]> {
   const log = getLogger();
-  const { projectRoot, config, tasks, fragmentsDir, router, abortController } = opts;
+  const { projectRoot, config, tasks, router, abortController } = opts;
 
   if (!router) {
     log.info('doc-conflict-detection: no router available — skipping LLM detection');
     return [];
   }
 
-  // doc 16 PR 2b: raw inputs (structured segments, not a joined string —
-  // the pair matcher needs per-section units).
-  const referenceDocs = await resolveReferenceDocs(projectRoot, config);
-  const internalFragments = collectInternalDocFragments(fragmentsDir);
   const codeSurface = buildCodeSurfaceSummary(tasks);
-
-  if (referenceDocs.length === 0 || internalFragments.length === 0) {
-    log.info('doc-conflict-detection: missing reference docs or internal fragments — nothing to pair');
-    return [];
-  }
 
   // Resolve model: prefer agents.scaffolding, fallback to models.quality.
   const model = config.agents.scaffolding ?? config.models.quality;
@@ -492,31 +478,29 @@ export async function detectNewConflictsViaLlm(
     return [];
   }
 
-  // doc 16 PR 2b: segment both sides by H2/H3, cosine-match each reference
-  // section to its nearest internal section(s), dedupe + neighbour-expand,
-  // then LLM-verify only the suspect pairs in small calls. This replaces
-  // the monolithic whole-corpus call that always hit DETECTION_TIMEOUT_MS
-  // with no model output (see doc 16 §6 diagnosis).
-  const refSegs = segmentDocs(referenceDocs.map(d => ({ path: d.path, content: d.content })));
-  const intSegs = segmentDocs(internalFragments.map(f => ({ path: f.relPath, content: f.content })));
-
-  const matcher: DocPairMatcher =
+  // doc 16 PR 2b: cosine-match reference↔internal doc-sections using the
+  // vectors already persisted in the RAG store and the full passage text
+  // already in the doc chunk cache (no re-embed, no re-chunk), then
+  // LLM-verify only the suspect pairs in small calls. Replaces the
+  // monolithic whole-corpus call that always hit DETECTION_TIMEOUT_MS.
+  const matcher: DocPairMatcher | undefined =
     opts.pairMatcher ??
-    (opts.vectorStore
-      ? vectorStorePairMatcher(opts.vectorStore, embedNlpBatch)
-      : inMemoryPairMatcher(embedNlpBatch));
+    (opts.vectorStore ? storePairMatcher(opts.vectorStore, projectRoot) : undefined);
+  if (!matcher) {
+    log.info('doc-conflict-detection: no vector store available — skipping pair detection');
+    return [];
+  }
 
-  const pairs = dedupePairs(await matcher(refSegs, intSegs));
+  const pairs = dedupePairs(await matcher());
   if (pairs.length === 0) {
-    log.info({ refSegs: refSegs.length, intSegs: intSegs.length },
-      'doc-conflict-detection: no similar passage pairs above threshold — no conflicts');
+    log.info('doc-conflict-detection: no similar passage pairs above threshold — no conflicts');
     return [];
   }
 
   // Snapshot of known ids — grown per batch to dedupe across batches.
   const seenIds = new Set(existingIds);
   const knownDescriptions = Array.from(seenIds).map(id => `id=${id}`);
-  const allowedReferencePaths = new Set(referenceDocs.map(d => d.path));
+  const allowedReferencePaths = new Set(pairs.map(p => p.ref.filePath));
   const newConflicts: DocConflict[] = [];
 
   const batches = batchPairs(pairs, 10);

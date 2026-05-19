@@ -416,6 +416,29 @@ export class VectorStore {
   }
 
   /**
+   * doc 16 PR 2b: enumerate stored doc-section rows for one source, with
+   * their NLP embedding vector. Used by the doc-conflict pair matcher to
+   * cosine-compare reference sections against internal ones using the
+   * already-persisted vectors (no re-embedding). Section text is NOT
+   * stored here (only name/summary); the matcher resolves full passage
+   * text from the doc chunk cache by `${filePath}#${name}`.
+   */
+  async listDocSectionVectors(
+    source: 'internal' | 'project',
+  ): Promise<Array<{ filePath: string; name: string; nlpVector: number[] }>> {
+    if (!this.table) return [];
+    const rows = await this.table
+      .query()
+      .where(`type = 'doc_section' AND source = '${source}'`)
+      .toArray();
+    return rows.map((r: Record<string, unknown>) => ({
+      filePath: String(r.filePath ?? ''),
+      name: String(r.name ?? ''),
+      nlpVector: toNumberArray(r.nlp_vector),
+    }));
+  }
+
+  /**
    * Search by function ID: find the card, then search by its code embedding.
    */
   async searchById(
