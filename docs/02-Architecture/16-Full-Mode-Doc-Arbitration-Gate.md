@@ -287,10 +287,36 @@ detection; `off`/`lite` are out of scope and unchanged):
   for a scoped cleanup PR; left compiling+green here to keep PR 2b focused.
   Also tracked separately: replace the indexing-side truncated `summary`
   with a section anchor + chunk-size tolerance (RAG-layer PR, owner-raised).
-  **Bench (owner-run) at the PR-2b tip is the run that finally exercises
-  detection end-to-end** (measures D2 and confirms no 120 s abort). PR 3
-  must not ship B's keep-uncontested until that bench is green (§7 hard
-  prerequisite).
+- **PR 2b bench (pr2bs-doc16, `ca5793f`): pairing WORKS, abort ROOT-CAUSED.**
+  The store matcher produced pairs and a real `pairs-1` LLM batch was made
+  (the 0-pairs defect is fixed). But that `router.agenticQuery` call again
+  produced **zero `## Assistant` output and aborted at the 120 s
+  `DETECTION_TIMEOUT_MS` — with a 23 KB prompt** (PR-2 was 100 KB, v32
+  123 KB; all identical). This conclusively kills the prompt-size
+  hypothesis: the bottleneck is the Claude Code **agentic subprocess
+  itself**, not prompt size. (Also: `c76db4b` had swept an unrelated
+  parallel-work `doc-sources` barrel export into `rag/index.ts` →
+  clean-checkout build break → corrective `ca5793f`; the parallel
+  doc-sources/orchestrator/events work is left untouched/uncommitted.)
+- **PR 2c (code done, bench-pending) — single-turn query path.** Detection
+  is a no-tool structured-JSON extraction; it never needed the agentic
+  path. Replace `router.agenticQuery(...)` with `runSingleTurnQuery(params,
+  DetectionResponseSchema)` — the exact `transport.query` seam all seven
+  axes use successfully every run (no agentic subprocess, no 120 s hang).
+  `result.data` is schema-validated (drops the manual
+  `parseDetectionResponse`); cost folded into the rollup from the result's
+  numeric fields (doc-15 unchanged); per-batch transcript preserved via
+  `conversationDir`/`conversationPrefix`; the 120 s timeout is now a true
+  safety net. Tests spy `runSingleTurnQuery` (the `vi.spyOn(evaluation,
+  'runSingleTurnQuery')` pattern axes already use) instead of mocking
+  `agenticQuery`; the obsolete temperature assertion is retired (single-turn
+  has no temperature param). Gate met: typecheck + lint clean, full suite
+  **3070 passed / 0 failed** (orchestration goldens, documentation + rag,
+  conflict suites incl. migrated detector/hardening). **Bench (owner-run)
+  at the PR-2c tip is the run that finally exercises detection
+  end-to-end** (measures D2 — is the RTP/wild inversion caught — and
+  confirms the call now returns). PR 3 must not ship B's keep-uncontested
+  until that bench is green (§7 hard prerequisite).
 - **PR 3 — the gate (behavior-relevant, the core).** Replace the
   unconditional scaffold threading with the ratified-view producer behind a
   `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free

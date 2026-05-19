@@ -20,7 +20,6 @@ import {
   buildPairDetectionUserMessage,
   DETECTION_SYSTEM_PROMPT,
   DetectionResponseSchema,
-  parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
 import {
@@ -29,7 +28,8 @@ import {
   storePairMatcher,
   type DocPairMatcher,
 } from './doc-conflict-pairing.js';
-import { EVALUATOR_TEMPERATURE, type TransportRouter, type LlmResponse } from '../../transports/index.js';
+import { runSingleTurnQuery } from '../../evaluation/index.js';
+import { type TransportRouter, type LlmResponse } from '../../transports/index.js';
 import { countTokens } from '../../run/index.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../../../schemas/doc-conflict.js';
@@ -514,47 +514,56 @@ export async function detectNewConflictsViaLlm(
       ...(knownDescriptions.length > 0 ? { knownConflictDescriptions: knownDescriptions } : {}),
     });
 
-    // Hard timeout per (now small) call — a safety net, never hit in practice.
+    // doc 16 PR 2c: the single-turn query path (the same `transport.query`
+    // every axis uses successfully each run), NOT `router.agenticQuery`.
+    // The bench proved the Claude Code agentic subprocess returns zero
+    // output within 120s regardless of prompt size (a 23KB pair prompt
+    // aborted identically to the 100KB/123KB monolith). Detection is a
+    // no-tool structured-JSON extraction — it never needed the agentic
+    // path. The timeout is now a genuine safety net, not the failure mode.
     const ac = abortController ?? new AbortController();
     const timeoutHandle = setTimeout(() => ac.abort(), DETECTION_TIMEOUT_MS);
 
-    let responseText: string;
+    let parsed;
     try {
-      const response = await router.agenticQuery({
-        systemPrompt: DETECTION_SYSTEM_PROMPT,
-        userMessage,
-        model,
-        projectRoot,
-        abortController: ac,
-        allowedTools: [],
-        config,
-        responseSchema: DetectionResponseSchema,
-        temperature: EVALUATOR_TEMPERATURE,
-        attempt: 1,
-        ...(opts.runDir
-          ? {
-              conversationDir: join(opts.runDir, 'conversations'),
-              conversationPrefix: `doc-conflict-detection__pairs-${batchIdx + 1}`,
-            }
-          : {}),
-      });
-      responseText = response.text;
-      // doc 15 PR 1: fold the per-call cost into the run rollup.
-      opts.onLlmResponse?.(response);
+      const result = await runSingleTurnQuery(
+        {
+          systemPrompt: DETECTION_SYSTEM_PROMPT,
+          userMessage,
+          model,
+          projectRoot,
+          abortController: ac,
+          composer: 'doc-conflict',
+          primitive: 'doc-conflict-detection',
+          ...(opts.router ? { router: opts.router } : {}),
+          ...(opts.runDir
+            ? {
+                conversationDir: join(opts.runDir, 'conversations'),
+                conversationPrefix: `doc-conflict-detection__pairs-${batchIdx + 1}`,
+              }
+            : {}),
+        },
+        DetectionResponseSchema,
+      );
+      parsed = result.data; // already schema-validated by runSingleTurnQuery
+      // doc 15 PR 1: fold the per-call cost into the run rollup. The
+      // accumulator reads only these numeric fields.
+      opts.onLlmResponse?.({
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: result.cacheReadTokens,
+        cacheCreationTokens: result.cacheCreationTokens,
+      } as LlmResponse);
     } catch (err) {
       // A provider-auth failure is run-fatal: propagate.
       if (isFatalAuthError(err)) throw err;
       log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx },
-        'doc-conflict-detection: LLM call failed — skipping batch');
+        'doc-conflict-detection: single-turn query failed — skipping batch');
       continue;
     } finally {
       clearTimeout(timeoutHandle);
-    }
-
-    const parsed = parseDetectionResponse(responseText);
-    if (!parsed) {
-      log.warn({ batchIdx }, 'doc-conflict-detection: failed to parse LLM response — skipping batch');
-      continue;
     }
 
     // Enrich + dedupe by id, validate reference_path against allow-list.

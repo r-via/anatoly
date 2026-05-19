@@ -13,10 +13,12 @@
  * - extractLines logs warning on clamp
  * - oversized code file is dropped not hashed
  * - symbol-grained line range resolved via scanner tasks
- * - LLM temperature is set to EVALUATOR_TEMPERATURE (=0)
+ * - detection uses the single-turn query path (doc 16 PR 2c), not the
+ *   agentic subprocess
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as evaluation from '../../evaluation/index.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -28,7 +30,6 @@ import {
   getGitTimestamp,
 } from '../index.js';
 import { buildDetectionUserMessage, parseDetectionResponse } from '../index.js';
-import { EVALUATOR_TEMPERATURE } from '../../transports/index.js';
 import type { Config } from '../../../schemas/config.js';
 import type { Task } from '../../../schemas/task.js';
 import type { TransportRouter } from '../../transports/index.js';
@@ -53,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 function makeConfig(): Config {
@@ -70,19 +72,16 @@ function makeConfig(): Config {
   } as unknown as Config;
 }
 
-function makeMockRouter(handler: (params: { systemPrompt: string; userMessage: string; model: string; temperature?: number }) => string) {
-  const calls: Array<{ systemPrompt: string; userMessage: string; model: string; temperature?: number }> = [];
-  const mock = {
-    calls,
-    agenticQuery: async (params: { systemPrompt: string; userMessage: string; model: string; temperature?: number }) => {
-      calls.push({
-        systemPrompt: params.systemPrompt,
-        userMessage: params.userMessage,
-        model: params.model,
-        ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-      });
+// doc 16 PR 2c: detection uses the single-turn query path. Spy
+// `runSingleTurnQuery` to return a schema-validated canned result; return
+// a truthy router stub (the `if (!router)` guard) + a `.calls` capture.
+function makeMockRouter(handler: (params: { systemPrompt: string; userMessage: string; model: string }) => string) {
+  const calls: Array<{ systemPrompt: string; userMessage: string; model: string }> = [];
+  vi.spyOn(evaluation, 'runSingleTurnQuery').mockImplementation(
+    async (params: { systemPrompt: string; userMessage: string; model: string }) => {
+      calls.push({ systemPrompt: params.systemPrompt, userMessage: params.userMessage, model: params.model });
       return {
-        text: handler(params),
+        data: JSON.parse(handler(params)),
         costUsd: 0.01,
         durationMs: 50,
         inputTokens: 100,
@@ -92,8 +91,8 @@ function makeMockRouter(handler: (params: { systemPrompt: string; userMessage: s
         transcript: '',
       };
     },
-  };
-  return mock as unknown as TransportRouter & { calls: typeof calls };
+  );
+  return { calls } as unknown as TransportRouter & { calls: typeof calls };
 }
 
 function seedProject(): { fragmentsDir: string } {
@@ -452,8 +451,8 @@ describe('hardening — symbol-grained anchor via tasks', () => {
 // LLM call uses EVALUATOR_TEMPERATURE
 // ---------------------------------------------------------------------------
 
-describe('hardening — temperature 0 for run-to-run stability', () => {
-  it('passes temperature: 0 to agenticQuery', async () => {
+describe('hardening — detection uses the single-turn query path (doc 16 PR 2c)', () => {
+  it('invokes runSingleTurnQuery (not the agentic subprocess) for verification', async () => {
     const { fragmentsDir } = seedProject();
     const router = makeMockRouter(() => JSON.stringify({ conflicts: [] }));
 
@@ -463,8 +462,7 @@ describe('hardening — temperature 0 for run-to-run stability', () => {
     );
 
     expect(router.calls.length).toBeGreaterThanOrEqual(1);
-    expect(router.calls[0].temperature).toBe(EVALUATOR_TEMPERATURE);
-    expect(router.calls[0].temperature).toBe(0);
+    expect(vi.mocked(evaluation.runSingleTurnQuery)).toHaveBeenCalled();
   });
 });
 

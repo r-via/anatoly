@@ -10,7 +10,8 @@
  * touching real LLMs.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as evaluation from '../../evaluation/index.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
@@ -82,18 +84,28 @@ function makeTasks(): Task[] {
 }
 
 /**
- * Create a mock TransportRouter whose agenticQuery returns a canned response.
- * Captures the call so tests can assert what was sent.
+ * doc 16 PR 2c: detection now uses the single-turn query path, not
+ * `router.agenticQuery`. This spies `runSingleTurnQuery` (the seam every
+ * axis uses) to return a canned schema-validated result, while still
+ * returning a truthy router stub (the detector's `if (!router)` guard) and
+ * a `.calls` capture so existing assertions on the sent prompt hold. No
+ * real transport/SDK/embedding (the hermetic rule).
  */
 function makeMockRouter(responseJson: string, opts: { throwError?: Error } = {}): TransportRouter & { calls: Array<{ systemPrompt: string; userMessage: string; model: string }> } {
   const calls: Array<{ systemPrompt: string; userMessage: string; model: string }> = [];
-  const mock = {
-    calls,
-    agenticQuery: async (params: { systemPrompt: string; userMessage: string; model: string }) => {
+  vi.spyOn(evaluation, 'runSingleTurnQuery').mockImplementation(
+    async (params: { systemPrompt: string; userMessage: string; model: string }) => {
       calls.push({ systemPrompt: params.systemPrompt, userMessage: params.userMessage, model: params.model });
       if (opts.throwError) throw opts.throwError;
+      let data: unknown;
+      try {
+        data = JSON.parse(responseJson);
+      } catch {
+        // Schema/parse failure inside runSingleTurnQuery surfaces as a throw.
+        throw new Error('single-turn: unparseable response');
+      }
       return {
-        text: responseJson,
+        data,
         costUsd: 0.01,
         durationMs: 100,
         inputTokens: 500,
@@ -103,8 +115,10 @@ function makeMockRouter(responseJson: string, opts: { throwError?: Error } = {})
         transcript: '',
       };
     },
-  };
-  return mock as unknown as TransportRouter & { calls: typeof calls };
+  );
+  // Truthy router stub: only the `if (!router)` guard reads it now; the
+  // real single-turn impl is spied above so the transport never runs.
+  return { calls } as unknown as TransportRouter & { calls: typeof calls };
 }
 
 function seedProject(): { projectRoot: string; fragmentsDir: string } {
