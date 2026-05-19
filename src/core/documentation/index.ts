@@ -48,11 +48,9 @@ export {
   enrichDetectedConflict,
   detectNewConflictsViaLlm,
   derivePresumption,
-  batchFragmentsByTokenBudget,
   getGitTimestamp,
 } from './conflict/doc-conflict-detector.js';
 
-export { buildDetectionUserMessage, parseDetectionResponse } from './conflict/doc-conflict-llm.js';
 export type { DetectedConflictItem } from './conflict/doc-conflict-llm.js';
 
 export {

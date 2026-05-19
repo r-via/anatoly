@@ -30,16 +30,10 @@ import {
 } from './doc-conflict-pairing.js';
 import { runSingleTurnQuery } from '../../evaluation/index.js';
 import { type TransportRouter, type LlmResponse } from '../../transports/index.js';
-import { countTokens } from '../../run/index.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../../../schemas/doc-conflict.js';
 import type { Config } from '../../../schemas/config.js';
 import type { Task } from '../../../schemas/task.js';
-
-/** Token budget for a single detection batch. Below the Sonnet 200k window
- * with margin for system prompt + output. When the assembled prompt exceeds
- * this, the detector batches the internal fragments. */
-const DETECTION_PROMPT_TOKEN_BUDGET = 120_000;
 
 /** Hard timeout on the detection LLM call. Above this the run continues
  * with no new conflicts rather than hanging. */
@@ -396,47 +390,6 @@ export function enrichDetectedConflict(
     verdict: 'pending',
     status: 'active',
   };
-}
-
-// ---------------------------------------------------------------------------
-// Batching helper — Story 55.10 NFR3
-// ---------------------------------------------------------------------------
-
-/**
- * Split internal-doc fragments into batches such that each assembled prompt
- * stays under the detection token budget. Reference docs and code surface
- * are constant overhead per batch — fragments are the variable part that
- * grows with project size.
- *
- * The fixed overhead (reference + surface + scaffolding) is computed once;
- * each fragment is added to the current batch while it still fits, then
- * starts a new batch. A single oversized fragment ends up alone in its
- * batch (acceptable — the model will simply truncate or fail validation,
- * caller handles either case).
- */
-export function batchFragmentsByTokenBudget(
-  fragments: Array<{ relPath: string; content: string }>,
-  fixedOverheadTokens: number,
-  budget: number = DETECTION_PROMPT_TOKEN_BUDGET,
-): Array<Array<{ relPath: string; content: string }>> {
-  if (fragments.length === 0) return [[]];
-
-  const batches: Array<Array<{ relPath: string; content: string }>> = [];
-  let current: Array<{ relPath: string; content: string }> = [];
-  let currentTokens = fixedOverheadTokens;
-
-  for (const f of fragments) {
-    const fragTokens = countTokens(f.relPath) + countTokens(f.content) + 16; // small markup overhead
-    if (current.length > 0 && currentTokens + fragTokens > budget) {
-      batches.push(current);
-      current = [];
-      currentTokens = fixedOverheadTokens;
-    }
-    current.push(f);
-    currentTokens += fragTokens;
-  }
-  if (current.length > 0) batches.push(current);
-  return batches;
 }
 
 // ---------------------------------------------------------------------------
