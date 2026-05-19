@@ -367,6 +367,32 @@ detection; `off`/`lite` are out of scope and unchanged):
   INV-RTP caught (INV-WILD remains the separate deferred design matter —
   reference↔internal cosine cannot reach it).
 - **PR 3 — the gate, a TWO-effect producer (behavior-relevant, the core).**
+  **Split by ascending risk (the schema forces it): `DocConflict` carries no
+  internal-doc fragment identity (anchor = code file/symbol; reference =
+  reference doc), so Effect 2 is buildable now from existing fields while
+  Effect 1 genuinely needs the conflict↔fragment section mapping.**
+  - **PR 3a (DONE, committed) — Effect 2, surface.** New
+    `DocConflictFindingSchema` (`kind:'doc_conflict'`, schemas/review.ts);
+    `loadPendingConflictsAsDocConflicts` (mirrors
+    `loadCodeWinsAsStaleReferences`, filters `verdict:'pending'` +
+    status active/stale); wired into `reporter.ts` next to the stale-ref
+    seam + `renderDocConflictSection` ("Unresolved doc conflicts (code ↔
+    reference) — run `anatoly docs arbitrate`"), folded into
+    `combinedDivergenceSection`. Reliable, deterministic, independent of the
+    volatile correction axis; the tool reports the contradiction, does not
+    adjudicate. Gate met: typecheck + lint clean, full suite 3073 pass / 0
+    fail, +3 hermetic tests (surface filter incl. invariant-7 essence,
+    defensive, render). No axis-context change, so no F1 movement expected
+    from 3a alone; measured-F1 credit still gated on the anatoly-bench
+    scorer-contract (DOC_CONFLICT ↔ INV-RTP, separate sibling repo).
+  - **PR 3b (pending design) — Effect 1, de-poison.** The `gates.ts`
+    predicate + ratified-view producer that excludes the contested scaffold
+    fragment from review/correction context (no side injected for an
+    unresolved conflict; reference excerpt only on resolved doc-wins).
+    Behavior-relevant + unproven payoff; its design crux is the
+    conflict↔fragment mapping (section grain, reusing PR-2b
+    `smartChunkDoc`+cosine). Owner decision before building, given the
+    honest thin/unproven F1 upside vs the correction-axis lever.
   Detection is now validated end-to-end (post `cabd123`, run pr2cfix-doc16:
   doc-conflict-update 7.8 s, the INV-RTP inversion correctly detected), so
   the §7 hard prerequisite is met and the transitional-A caveat is lifted:

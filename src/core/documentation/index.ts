@@ -63,7 +63,7 @@ export {
 
 export { buildCodeSurfaceSummary } from './conflict/doc-coherence-3way.js';
 
-export { loadCodeWinsAsStaleReferences } from './conflict/doc-stale-reference.js';
+export { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from './conflict/doc-stale-reference.js';
 
 // --- reporting/ (doc 13 PR 6c) ---
 export { aggregateDocReport } from './reporting/doc-report-aggregator.js';

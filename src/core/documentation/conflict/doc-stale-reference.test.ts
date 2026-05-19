@@ -213,3 +213,64 @@ describe('Story 55.8 — structural', () => {
     expect(src).toContain('doc_stale_references');
   });
 });
+
+// ---------------------------------------------------------------------------
+// doc 16 PR 3a — surface unresolved conflicts as doc_conflict findings
+// (invariant 7: pending conflict ⇒ exactly one doc_conflict finding with
+//  the anchor + texts; resolved entries are not surfaced)
+// ---------------------------------------------------------------------------
+
+describe('doc 16 PR 3a — loadPendingConflictsAsDocConflicts', () => {
+  it('surfaces exactly the unresolved (pending, active/stale) conflicts with anchor + texts', async () => {
+    const { loadPendingConflictsAsDocConflicts } = await import('./doc-stale-reference.js');
+    writeLock(makeLock([
+      makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active' }),
+      makeConflictEntry({ id: 'p2', verdict: 'pending', status: 'stale-by-codechange' }),
+      // resolved / not-unresolved → must NOT surface
+      makeConflictEntry({ id: 'r1', verdict: 'code-wins', status: 'applied' }),
+      makeConflictEntry({ id: 'r2', verdict: 'doc-wins', status: 'applied' }),
+      makeConflictEntry({ id: 'r3', verdict: 'skip', status: 'skipped' }),
+      makeConflictEntry({ id: 'r4', verdict: 'pending', status: 'applied' }),
+    ]));
+
+    const out = loadPendingConflictsAsDocConflicts(tmpDir);
+    expect(out).toHaveLength(2);
+    const f = out[0];
+    expect(f.kind).toBe('doc_conflict');
+    expect(f.file).toBe('src/core/foo.ts');
+    expect(f.symbol).toBe('computeBar');
+    expect(f.reference_path).toBe('docs/architecture.md');
+    expect(f.reference_line_range).toEqual([5, 10]);
+    expect(f.reference_text).toBe('computeBar must never return null');
+    expect(f.code_summary).toBe('Returns undefined when input is empty');
+    expect(f.detected_at).toBe('2025-01-15T10:00:00.000Z');
+  });
+
+  it('returns [] when no doc-conflicts.yaml / malformed (no crash)', async () => {
+    const { loadPendingConflictsAsDocConflicts } = await import('./doc-stale-reference.js');
+    expect(loadPendingConflictsAsDocConflicts(tmpDir)).toEqual([]);
+    const dir = join(tmpDir, '.anatoly', 'state', 'internal-docs');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'doc-conflicts.yaml'), '{{nope', 'utf-8');
+    expect(loadPendingConflictsAsDocConflicts(tmpDir)).toEqual([]);
+  });
+
+  it('renderDocConflictSection states the contradiction + the arbitrate hint; empty → ""', async () => {
+    const { renderDocConflictSection } = await import('../../reporting/index.js');
+    expect(renderDocConflictSection([])).toBe('');
+    const md = renderDocConflictSection([{
+      kind: 'doc_conflict',
+      file: 'src/engine.ts',
+      symbol: 'computePayout',
+      reference_path: 'README.md',
+      reference_text: 'house edge of 5% against the player',
+      code_summary: 'multiplies payout by 1.05 in the player favour',
+      detected_at: '2026-05-19T12:03:14.347Z',
+    }]);
+    expect(md).toContain('src/engine.ts');
+    expect(md).toContain('computePayout');
+    expect(md).toContain('house edge of 5% against the player');
+    expect(md).toContain('multiplies payout by 1.05 in the player favour');
+    expect(md).toContain('anatoly docs arbitrate');
+  });
+});

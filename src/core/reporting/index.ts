@@ -29,6 +29,7 @@ export {
   renderPublicIndex,
   aggregateStaleReferences,
   renderStaleReferenceSection,
+  renderDocConflictSection,
 } from './reporter.js';
 export type { ReportAxisId, AxisReport, RunStats, TriageStats } from './reporter.js';
 

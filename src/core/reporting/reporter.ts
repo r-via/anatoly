@@ -7,9 +7,9 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { ReviewFileSchema } from '../../schemas/review.js';
-import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference } from '../../schemas/review.js';
+import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference, DocConflictFinding } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
-import { loadCodeWinsAsStaleReferences } from '../documentation/index.js';
+import { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from '../documentation/index.js';
 
 
 export interface TriageStats {
@@ -341,6 +341,29 @@ export function renderStaleReferenceSection(refs: DocStaleReference[]): string {
     if (r.arbitration_note) {
       lines.push(`  - Note: ${r.arbitration_note}`);
     }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * doc 16 PR 3a — render unresolved code↔reference doc-conflicts. These are
+ * detected but unarbitrated: the report states the contradiction and points
+ * the reader at `anatoly docs arbitrate`; it does not adjudicate which side
+ * is correct. Returns empty string when there are none.
+ */
+export function renderDocConflictSection(conflicts: DocConflictFinding[]): string {
+  if (conflicts.length === 0) return '';
+  const lines: string[] = [];
+  lines.push('### Unresolved doc conflicts (code ↔ reference) — run `anatoly docs arbitrate`');
+  lines.push('');
+  for (const c of conflicts) {
+    const sym = c.symbol ? `::${c.symbol}` : '';
+    const ref = c.reference_line_range
+      ? `\`${c.reference_path}\` (lines ${c.reference_line_range[0]}–${c.reference_line_range[1]})`
+      : `\`${c.reference_path}\``;
+    lines.push(`- \`${c.file}\`${sym} vs ${ref} — detected ${c.detected_at}`);
+    lines.push(`  - Reference: ${c.reference_text}`);
+    lines.push(`  - Code: ${c.code_summary}`);
   }
   return lines.join('\n');
 }
@@ -2262,7 +2285,11 @@ export function generateReport(
   // Load stale reference findings directly from doc-conflicts.yaml (Story 55.8)
   const allStaleRefs = loadCodeWinsAsStaleReferences(projectRoot);
   const staleRefSection = renderStaleReferenceSection(allStaleRefs);
-  const combinedDivergenceSection = [divergenceSection, staleRefSection].filter(Boolean).join('\n\n');
+  // doc 16 PR 3a: surface unresolved (pending) conflicts as doc_conflict
+  // findings — detection is not silently dropped.
+  const allDocConflicts = loadPendingConflictsAsDocConflicts(projectRoot);
+  const docConflictSection = renderDocConflictSection(allDocConflicts);
+  const combinedDivergenceSection = [divergenceSection, staleRefSection, docConflictSection].filter(Boolean).join('\n\n');
 
   const baseDir = runDir ?? join(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');

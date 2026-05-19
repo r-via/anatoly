@@ -220,6 +220,26 @@ export const DocStaleReferenceSchema = z.object({
 
 export type DocStaleReference = z.infer<typeof DocStaleReferenceSchema>;
 
+/**
+ * doc 16 PR 3a — an unresolved (pending) code↔reference doc-conflict,
+ * surfaced as a report finding so detection is not silently dropped. The
+ * tool reports the contradiction; it does NOT adjudicate which side is
+ * wrong (arbitration's job). Deterministic, read from doc-conflicts.yaml,
+ * not LLM-produced.
+ */
+export const DocConflictFindingSchema = z.object({
+  kind: z.literal('doc_conflict'),
+  file: z.string(),
+  symbol: z.string().optional(),
+  reference_path: z.string(),
+  reference_line_range: z.tuple([z.int().min(1), z.int().min(1)]).optional(),
+  reference_text: z.string(),
+  code_summary: z.string(),
+  detected_at: z.string(),
+});
+
+export type DocConflictFinding = z.infer<typeof DocConflictFindingSchema>;
+
 // ---------------------------------------------------------------------------
 // Axis metadata (v2)
 // ---------------------------------------------------------------------------
