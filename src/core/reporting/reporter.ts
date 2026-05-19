@@ -369,6 +369,22 @@ export function renderDocConflictSection(conflicts: DocConflictFinding[]): strin
 }
 
 /**
+ * Run start (epoch ms) from the run's `anatoly.ndjson` first event
+ * (the "run started" line, always present by report time). Returns
+ * undefined when it cannot be established — caller then folds nothing.
+ */
+function runStartMs(runDir: string | undefined): number | undefined {
+  if (!runDir) return undefined;
+  try {
+    const first = readFileSync(join(runDir, 'anatoly.ndjson'), 'utf-8').split('\n', 1)[0];
+    const t = (JSON.parse(first) as { time?: unknown }).time;
+    return typeof t === 'number' && Number.isFinite(t) ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * doc 16 PR 3a — fold each unresolved (pending) doc-conflict into the
  * correction axis of the matching reviewed symbol as an explained
  * NEEDS_FIX, so it becomes a finding in `axes/correction/shard.N.md`
@@ -380,12 +396,26 @@ export function renderDocConflictSection(conflicts: DocConflictFinding[]): strin
  * reviewed set is left to the markdown section only (no fabricated
  * symbols). Mutates `reviews` in place; returns the number folded.
  */
-export function applyPendingConflictsToReviews(reviews: ReviewFile[], projectRoot: string): number {
+export function applyPendingConflictsToReviews(
+  reviews: ReviewFile[],
+  projectRoot: string,
+  runDir?: string,
+): number {
   const conflicts = loadPendingConflictsAsDocConflicts(projectRoot);
   if (conflicts.length === 0) return 0;
+  // doc 16 PR 3a fix: fold ONLY conflicts freshly detected in THIS run.
+  // A migrated/stale pending entry (prior run) is low-quality and folding
+  // it manufactures correction false positives (bench pr3a-doc16:
+  // src/events.ts#SpinEventEmitter, src/engine.ts#spin from May-12/15
+  // stale entries). If the run start is unknowable, fold nothing
+  // (conservative: never amplify stale junk into NEEDS_FIX).
+  const startMs = runStartMs(runDir);
+  if (startMs === undefined) return 0;
   let folded = 0;
   for (const c of conflicts) {
     if (!c.symbol) continue;
+    const det = Date.parse(c.detected_at);
+    if (Number.isNaN(det) || det < startMs) continue; // not fresh this run
     const rf = reviews.find((r) => r.file === c.file);
     if (!rf) continue;
     const sym = rf.symbols.find((s) => s.name === c.symbol);
@@ -2319,7 +2349,7 @@ export function generateReport(
   // flag that symbol (no double-count). The doc-conflicts.yaml store is
   // left intact for `anatoly docs arbitrate` (surface ≠ adjudicate; the
   // detail explains it is a conflict and points at arbitration).
-  applyPendingConflictsToReviews(reviews, projectRoot);
+  applyPendingConflictsToReviews(reviews, projectRoot, runDir);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
   const axisReports = buildAxisReports(data);

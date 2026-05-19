@@ -67,6 +67,27 @@ function writeLock(lock: DocConflictsLock): void {
   writeFileSync(join(dir, 'doc-conflicts.yaml'), yamlStringify(lock), 'utf-8');
 }
 
+/**
+ * doc 16 PR 3a fix — a run dir whose `anatoly.ndjson` first line carries
+ * the run start (`time` epoch ms). Returns the run dir path. Pass it to
+ * `applyPendingConflictsToReviews` so the fresh-this-run gate has a
+ * reference point.
+ */
+function writeRunDir(startMs: number): string {
+  const runDir = join(tmpDir, 'run');
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(
+    join(runDir, 'anatoly.ndjson'),
+    `${JSON.stringify({ time: startMs, level: 30, msg: 'run started' })}\n`,
+    'utf-8',
+  );
+  return runDir;
+}
+
+const RUN_START = Date.parse('2025-06-01T00:00:00.000Z');
+const FRESH_AT = '2025-06-01T01:00:00.000Z'; // after RUN_START
+const STALE_AT = '2025-01-15T10:00:00.000Z'; // before RUN_START (default)
+
 // ---------------------------------------------------------------------------
 // AC1: DocStaleReferenceSchema exists with required fields
 // ---------------------------------------------------------------------------
@@ -291,11 +312,12 @@ describe('doc 16 PR 3a — applyPendingConflictsToReviews', () => {
     }],
   }] as unknown as Parameters<typeof import('../../reporting/index.js')['applyPendingConflictsToReviews']>[0]);
 
-  it('folds an unresolved conflict into correction NEEDS_FIX with an explanation', async () => {
+  it('folds a conflict freshly detected THIS run into correction NEEDS_FIX with an explanation', async () => {
     const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
-    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active' })]));
+    const runDir = writeRunDir(RUN_START);
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', detected_at: FRESH_AT })]));
     const reviews = mkReview('OK');
-    const folded = applyPendingConflictsToReviews(reviews, tmpDir);
+    const folded = applyPendingConflictsToReviews(reviews, tmpDir, runDir);
     expect(folded).toBe(1);
     const s = (reviews as unknown as Array<{ symbols: Array<{ correction: string; detail: string }> }>)[0].symbols[0];
     expect(s.correction).toBe('NEEDS_FIX');
@@ -304,21 +326,44 @@ describe('doc 16 PR 3a — applyPendingConflictsToReviews', () => {
     expect(s.detail).toContain('anatoly docs arbitrate');
   });
 
+  it('fresh-this-run gate: does NOT fold a stale conflict detected before run start', async () => {
+    const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    const runDir = writeRunDir(RUN_START);
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', detected_at: STALE_AT })]));
+    const reviews = mkReview('OK');
+    const before = JSON.stringify(reviews);
+    expect(applyPendingConflictsToReviews(reviews, tmpDir, runDir)).toBe(0);
+    expect(JSON.stringify(reviews)).toBe(before);
+  });
+
+  it('fresh-this-run gate: folds nothing when run start is unknowable (no runDir / no ndjson)', async () => {
+    const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', detected_at: FRESH_AT })]));
+    // no runDir at all
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir)).toBe(0);
+    // runDir given but no anatoly.ndjson in it
+    const emptyRun = join(tmpDir, 'empty-run');
+    mkdirSync(emptyRun, { recursive: true });
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir, emptyRun)).toBe(0);
+  });
+
   it('dedupes: does NOT touch a symbol correction already flagged (no double-count)', async () => {
     const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
-    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active' })]));
+    const runDir = writeRunDir(RUN_START);
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', detected_at: FRESH_AT })]));
     const reviews = mkReview('NEEDS_FIX');
     const before = JSON.stringify(reviews);
-    expect(applyPendingConflictsToReviews(reviews, tmpDir)).toBe(0);
+    expect(applyPendingConflictsToReviews(reviews, tmpDir, runDir)).toBe(0);
     expect(JSON.stringify(reviews)).toBe(before);
   });
 
   it('skips when the conflict symbol is not in the reviewed set; no crash, no yaml needed', async () => {
     const { applyPendingConflictsToReviews } = await import('../../reporting/index.js');
+    const runDir = writeRunDir(RUN_START);
     // no doc-conflicts.yaml at all
-    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir)).toBe(0);
-    // yaml present but symbol mismatch
-    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', anchor: { file: 'src/core/foo.ts', symbol: 'otherSym', line_range: [1, 2], code_hash: 'h' } })]));
-    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir)).toBe(0);
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir, runDir)).toBe(0);
+    // yaml present (fresh) but symbol mismatch
+    writeLock(makeLock([makeConflictEntry({ id: 'p1', verdict: 'pending', status: 'active', detected_at: FRESH_AT, anchor: { file: 'src/core/foo.ts', symbol: 'otherSym', line_range: [1, 2], code_hash: 'h' } })]));
+    expect(applyPendingConflictsToReviews(mkReview('OK'), tmpDir, runDir)).toBe(0);
   });
 });
