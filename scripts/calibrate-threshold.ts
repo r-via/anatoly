@@ -16,7 +16,7 @@
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { embedCode, buildEmbedCode, setEmbeddingLogger, getCodeModelId } from '../src/rag/embeddings.js';
-import { buildFunctionCards, buildFunctionId, extractFunctionBody } from '../src/rag/indexer.js';
+import { buildFunctionCards, extractFunctionBody } from '../src/rag/indexer.js';
 import type { Task } from '../src/schemas/task.js';
 import type { FunctionCard } from '../src/rag/types.js';
 
