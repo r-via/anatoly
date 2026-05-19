@@ -254,6 +254,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
                 fragmentsDir,
                 runDir: ctx.runDir,
                 ...(ctx.router ? { router: ctx.router } : {}),
+                // doc 16 PR 2b: reuse the already-populated store for the
+                // cosine pair match (internal side not re-embedded).
+                ...(ragContext.vectorStore ? { vectorStore: ragContext.vectorStore } : {}),
               });
               // doc 15 PR 1: fold the doc-conflict cost into the rollup
               // (the leak this contract closes; ledger already had it).

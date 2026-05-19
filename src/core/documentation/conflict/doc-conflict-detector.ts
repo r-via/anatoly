@@ -18,16 +18,25 @@ import {
 import { resolveReferenceDocs } from '../resolution/reference-docs-resolver.js';
 import { buildCodeSurfaceSummary } from './doc-coherence-3way.js';
 import {
-  buildDetectionUserMessage,
+  buildPairDetectionUserMessage,
   collectInternalDocFragments,
-  segmentForDetection,
   DETECTION_SYSTEM_PROMPT,
   DetectionResponseSchema,
   parseDetectionResponse,
   type DetectedConflictItem,
 } from './doc-conflict-llm.js';
+import {
+  segmentDocs,
+  dedupePairs,
+  batchPairs,
+  vectorStorePairMatcher,
+  inMemoryPairMatcher,
+  type DocPairMatcher,
+} from './doc-conflict-pairing.js';
+import { embedNlpBatch } from '../../../rag/embeddings.js';
 import { EVALUATOR_TEMPERATURE, type TransportRouter, type LlmResponse } from '../../transports/index.js';
 import { countTokens } from '../../run/index.js';
+import type { VectorStore } from '../../../rag/vector-store.js';
 import type { DocConflict, DocConflictsLock, ArbitrationSignals, Presumption } from '../../../schemas/doc-conflict.js';
 import type { Config } from '../../../schemas/config.js';
 import type { Task } from '../../../schemas/task.js';
@@ -86,6 +95,14 @@ export interface DocConflictDetectionOpts {
    *  side-effect-only: omitting it is identical to the pre-PR-1 behaviour
    *  (the cost was on the response and discarded). */
   onLlmResponse?: (r: LlmResponse) => void;
+  /** doc 16 PR 2b: the already-populated RAG vector store. When present
+   *  (real runs), the pair matcher reuses it to find similar internal
+   *  sections without re-embedding them. */
+  vectorStore?: VectorStore;
+  /** doc 16 PR 2b: inject a deterministic pair matcher. Tests pass a stub
+   *  so no real embedding/LLM call happens; production leaves it unset and
+   *  the matcher is derived from `vectorStore` (or in-memory fallback). */
+  pairMatcher?: DocPairMatcher;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,70 +474,63 @@ export async function detectNewConflictsViaLlm(
     return [];
   }
 
-  // Resolve inputs. doc 16 PR 2: both human and machine views are segmented
-  // by section (smartChunkDoc reuse) before comparison, so a localised
-  // inversion is judged section-against-section instead of being skimmed
-  // over in a whole-page prose diff. Segmenting here (not in the message
-  // builder) keeps the token-budget batcher accurate — it counts the
-  // segmented content it will actually send.
-  const referenceDocs = (await resolveReferenceDocs(projectRoot, config)).map(
-    (d) => ({ ...d, content: segmentForDetection(d.path, d.content) }),
-  );
-  const internalFragments = collectInternalDocFragments(fragmentsDir).map(
-    (f) => ({ relPath: f.relPath, content: segmentForDetection(f.relPath, f.content) }),
-  );
+  // doc 16 PR 2b: raw inputs (structured segments, not a joined string —
+  // the pair matcher needs per-section units).
+  const referenceDocs = await resolveReferenceDocs(projectRoot, config);
+  const internalFragments = collectInternalDocFragments(fragmentsDir);
   const codeSurface = buildCodeSurfaceSummary(tasks);
 
-  if (referenceDocs.length === 0 && internalFragments.length === 0) {
-    log.info('doc-conflict-detection: no reference docs and no internal fragments — nothing to compare');
+  if (referenceDocs.length === 0 || internalFragments.length === 0) {
+    log.info('doc-conflict-detection: missing reference docs or internal fragments — nothing to pair');
     return [];
   }
 
   // Resolve model: prefer agents.scaffolding, fallback to models.quality.
-  // Note: scaffolding is the closest existing model slot for non-axis doc
-  // work; a future epic may introduce agents.doc_conflict explicitly.
   const model = config.agents.scaffolding ?? config.models.quality;
   if (!model) {
     log.warn('doc-conflict-detection: no scaffolding/quality model configured — skipping LLM detection');
     return [];
   }
 
-  // Compute fixed overhead (reference + code surface + system prompt) once
-  // so batching only varies on internal fragments.
-  const overheadMessage = buildDetectionUserMessage({
-    referenceDocs,
-    internalFragments: [],
-    codeSurface,
-  });
-  const fixedOverheadTokens = countTokens(overheadMessage) + countTokens(DETECTION_SYSTEM_PROMPT);
+  // doc 16 PR 2b: segment both sides by H2/H3, cosine-match each reference
+  // section to its nearest internal section(s), dedupe + neighbour-expand,
+  // then LLM-verify only the suspect pairs in small calls. This replaces
+  // the monolithic whole-corpus call that always hit DETECTION_TIMEOUT_MS
+  // with no model output (see doc 16 §6 diagnosis).
+  const refSegs = segmentDocs(referenceDocs.map(d => ({ path: d.path, content: d.content })));
+  const intSegs = segmentDocs(internalFragments.map(f => ({ path: f.relPath, content: f.content })));
 
-  // Snapshot of known ids — grown internally per batch to dedupe across batches.
-  // We intentionally clone so the caller's set is never mutated.
-  const seenIds = new Set(existingIds);
-  const knownDescriptions = Array.from(seenIds).map(id => `id=${id}`);
+  const matcher: DocPairMatcher =
+    opts.pairMatcher ??
+    (opts.vectorStore
+      ? vectorStorePairMatcher(opts.vectorStore, embedNlpBatch)
+      : inMemoryPairMatcher(embedNlpBatch));
 
-  const batches = batchFragmentsByTokenBudget(internalFragments, fixedOverheadTokens);
-  if (batches.length > 1) {
-    log.info({ batchCount: batches.length, fragmentCount: internalFragments.length },
-      'doc-conflict-detection: token budget exceeded — splitting into batches');
+  const pairs = dedupePairs(await matcher(refSegs, intSegs));
+  if (pairs.length === 0) {
+    log.info({ refSegs: refSegs.length, intSegs: intSegs.length },
+      'doc-conflict-detection: no similar passage pairs above threshold — no conflicts');
+    return [];
   }
 
-  // Build allow-list for reference_path validation.
+  // Snapshot of known ids — grown per batch to dedupe across batches.
+  const seenIds = new Set(existingIds);
+  const knownDescriptions = Array.from(seenIds).map(id => `id=${id}`);
   const allowedReferencePaths = new Set(referenceDocs.map(d => d.path));
-
   const newConflicts: DocConflict[] = [];
 
-  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-    const batch = batches[batchIdx];
+  const batches = batchPairs(pairs, 10);
+  log.info({ pairs: pairs.length, batches: batches.length },
+    'doc-conflict-detection: verifying matched passage pairs');
 
-    const userMessage = buildDetectionUserMessage({
-      referenceDocs,
-      internalFragments: batch,
+  for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    const userMessage = buildPairDetectionUserMessage({
+      pairs: batches[batchIdx],
       codeSurface,
       ...(knownDescriptions.length > 0 ? { knownConflictDescriptions: knownDescriptions } : {}),
     });
 
-    // Per-batch abort wired to a hard timeout — protects against stuck LLM.
+    // Hard timeout per (now small) call — a safety net, never hit in practice.
     const ac = abortController ?? new AbortController();
     const timeoutHandle = setTimeout(() => ac.abort(), DETECTION_TIMEOUT_MS);
 
@@ -540,18 +550,15 @@ export async function detectNewConflictsViaLlm(
         ...(opts.runDir
           ? {
               conversationDir: join(opts.runDir, 'conversations'),
-              conversationPrefix: `doc-conflict-detection__batch-${batchIdx + 1}`,
+              conversationPrefix: `doc-conflict-detection__pairs-${batchIdx + 1}`,
             }
           : {}),
       });
       responseText = response.text;
-      // doc 15 PR 1: surface the per-batch cost (previously on the
-      // response and discarded). Ledger already has it via the transport;
-      // this lets runDocConflictDetection fold it into the run rollup.
+      // doc 15 PR 1: fold the per-call cost into the run rollup.
       opts.onLlmResponse?.(response);
     } catch (err) {
-      // A provider-auth failure is run-fatal: do not swallow it as a skipped
-      // batch — propagate so the orchestrator stops the whole run.
+      // A provider-auth failure is run-fatal: propagate.
       if (isFatalAuthError(err)) throw err;
       log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx },
         'doc-conflict-detection: LLM call failed — skipping batch');

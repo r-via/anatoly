@@ -239,11 +239,36 @@ detection; `off`/`lite` are out of scope and unchanged):
   (doc-15-aligned, no silent miss). Gate met: typecheck clean, full suite
   3053 pass / 0 fail, lint clean, 5 new tests incl. the D2 input-guard
   (assembled prompt is section-segmented and carries the inversion rule) and
-  an inversion round-trip; no live LLM. **Bench is the owner's to run**
-  (behavior-relevant; more conflicts detected can shift `pending` counts and,
-  once PR 3 lands, the injected view): measured in isolation at the PR-2 tip,
-  correction-axis on slot-engine. PR 3 must not ship B's keep-uncontested
-  until this bench is green (§7 hard prerequisite).
+  an inversion round-trip; no live LLM.
+- **PR 2 bench (run `pr2-doc16`, VM): INCONCLUSIVE.** global F1 0.627
+  (noise band, low side) but the PR-2 path never executed: the single
+  whole-corpus agentic detection call aborted at the 120s
+  `DETECTION_TIMEOUT_MS` with zero model output. Transcript diff proved it
+  pre-existing (v32 prompt 123 KB, same `## User`→`## Error`, no
+  `## Assistant`) and **not** caused by PR-2 (PR-2 prompt smaller, 100 KB).
+  Root cause: a single ~25-30k-token agentic JSON call to Sonnet never
+  returns within 120s. The monolithic shape is the defect.
+- **PR 2b (code done, bench-pending) — cosine-matched pair verification.**
+  Removes the monolith. Reuses the already-populated RAG store: segment
+  both sides (`segmentDocs` over `smartChunkDoc`), embed only the few
+  reference sections (`embedNlpBatch`), `vectorStore.searchDocSections(emb,
+  k, 0.5, 'internal')` to get the nearest internal sections, join back to
+  the local section for full content + H2 neighbour, dedupe (best per
+  internal), then LLM-verify **only** the suspect pairs in ≤10-pair batches
+  (`buildPairDetectionUserMessage` + the PR-2 inversion system prompt).
+  Each call is tiny → the 120s timeout is a never-hit safety net. The
+  matcher is injected (`DocPairMatcher`): default = vector-store; no store
+  (RAG off) = in-memory `embedNlpBatch` cosine; tests inject a deterministic
+  stub (no real embedding/LLM, the hermetic rule). `vectorStore` threaded
+  from the pipeline `doc-conflict-update` site. Owner decisions honoured
+  (vector store; ≤10/batch; in-memory fallback). Gate met: typecheck clean,
+  lint clean, documentation+orchestration suites 461/0 (spine/handoff
+  goldens, new `doc-conflict-pairing` + `buildPairDetectionUserMessage`
+  tests, migrated detector tests); full-suite flakes are unrelated perf
+  benchmarks (pass clean). **Bench (owner-run) at the PR-2b tip is the run
+  that finally exercises detection end-to-end** (measures D2 and confirms
+  no 120s abort). PR 3 must not ship B's keep-uncontested until that bench
+  is green (§7 hard prerequisite).
 - **PR 3 — the gate (behavior-relevant, the core).** Replace the
   unconditional scaffold threading with the ratified-view producer behind a
   `gates.ts` predicate, at fragment grain (§7 B): doc-wins + conflict-free

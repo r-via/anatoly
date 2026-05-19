@@ -9,10 +9,12 @@ import { tmpdir } from 'node:os';
 import {
   collectInternalDocFragments,
   buildDetectionUserMessage,
+  buildPairDetectionUserMessage,
   parseDetectionResponse,
   segmentForDetection,
   DETECTION_SYSTEM_PROMPT,
 } from './doc-conflict-llm.js';
+import type { CandidatePair } from './doc-conflict-pairing.js';
 
 let tmp: string;
 
@@ -249,5 +251,46 @@ describe('doc 16 PR 2 — segmentForDetection', () => {
   it('returns the raw content verbatim when the chunker yields nothing (no silent drop)', () => {
     const tiny = 'short';
     expect(segmentForDetection('x.md', tiny)).toBe(tiny);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc 16 PR 2b — buildPairDetectionUserMessage
+// ---------------------------------------------------------------------------
+
+describe('doc 16 PR 2b — buildPairDetectionUserMessage', () => {
+  const pair: CandidatePair = {
+    ref: { filePath: 'README.md', heading: 'RTP', content: 'house edge of 5% against the player', embedText: 'x', neighbor: 'ref neighbour text' },
+    internal: { filePath: '05-modules/engine.md', heading: 'RTP', content: 'multiplied by 1.05 in the player favour', embedText: 'y', neighbor: 'int neighbour text' },
+    score: 0.91,
+  };
+
+  it('emits one labelled pair with both passages, neighbours and CODE_SURFACE', () => {
+    const msg = buildPairDetectionUserMessage({ pairs: [pair], codeSurface: '### src/engine.ts\n- function `spin`' });
+    expect(msg).toContain('## MATCHED_PASSAGE_PAIRS');
+    expect(msg).toContain('### Pair 1');
+    expect(msg).toContain('REFERENCE_PASSAGE — `README.md` § RTP');
+    expect(msg).toContain('INTERNAL_PASSAGE — `05-modules/engine.md` § RTP');
+    expect(msg).toContain('house edge of 5% against the player');
+    expect(msg).toContain('multiplied by 1.05 in the player favour');
+    expect(msg).toContain('ref neighbour text');
+    expect(msg).toContain('int neighbour text');
+    expect(msg).toContain('## CODE_SURFACE');
+    expect(msg).toContain('function `spin`');
+    expect(msg).toContain('"conflicts"');
+  });
+
+  it('includes the known-conflicts section only when provided', () => {
+    const withKnown = buildPairDetectionUserMessage({ pairs: [pair], codeSurface: 's', knownConflictDescriptions: ['id=abc'] });
+    expect(withKnown).toContain('## ALREADY_KNOWN_CONFLICTS');
+    expect(withKnown).toContain('id=abc');
+    const without = buildPairDetectionUserMessage({ pairs: [pair], codeSurface: 's' });
+    expect(without).not.toContain('ALREADY_KNOWN_CONFLICTS');
+  });
+
+  it('numbers multiple pairs', () => {
+    const msg = buildPairDetectionUserMessage({ pairs: [pair, pair], codeSurface: 's' });
+    expect(msg).toContain('### Pair 1');
+    expect(msg).toContain('### Pair 2');
   });
 });
