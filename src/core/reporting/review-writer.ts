@@ -3,10 +3,11 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ReviewFile, Action } from '../../schemas/review.js';
 import { atomicWriteJson, toOutputName } from '../../utils/cache.js';
 import { getLogger } from '../../utils/logger.js';
+import { reviewJsonPath, reviewMarkdownPath, transcriptLogPath } from '../../utils/run-layout.js';
 
 /**
  * Write both .rev.json and .rev.md for a completed review into the
@@ -21,12 +22,9 @@ export function writeReviewOutput(
   review: ReviewFile,
   runDir: string,
 ): { jsonPath: string; mdPath: string } {
-  const reviewsDir = join(runDir, 'reviews');
-  mkdirSync(reviewsDir, { recursive: true });
-
-  const baseName = toOutputName(review.file);
-  const jsonPath = join(reviewsDir, `${baseName}.rev.json`);
-  const mdPath = join(reviewsDir, `${baseName}.rev.md`);
+  const jsonPath = reviewJsonPath(runDir, review.file);
+  const mdPath = reviewMarkdownPath(runDir, review.file);
+  mkdirSync(dirname(jsonPath), { recursive: true });
 
   atomicWriteJson(jsonPath, review);
   writeFileSync(mdPath, renderReviewMarkdown(review));
@@ -53,10 +51,11 @@ export function writeTranscript(
   transcript: string,
   runDir?: string,
 ): void {
-  const logsDir = runDir ? join(runDir, 'logs') : join(projectRoot, '.anatoly', 'logs');
-  mkdirSync(logsDir, { recursive: true });
-  const baseName = toOutputName(filePath);
-  writeFileSync(join(logsDir, `${baseName}.log`), transcript);
+  const logPath = runDir
+    ? transcriptLogPath(runDir, filePath)
+    : join(projectRoot, '.anatoly', 'logs', `${toOutputName(filePath)}.log`);
+  mkdirSync(dirname(logPath), { recursive: true });
+  writeFileSync(logPath, transcript);
 }
 
 // ---------------------------------------------------------------------------

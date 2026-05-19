@@ -9,6 +9,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { axisDir as runAxisDir } from '../utils/run-layout.js';
 import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporting/index.js';
 import { DISCOVERED_ACT_ID } from './clean.js';
 
@@ -79,7 +80,7 @@ function syncAxis(
   axis: ReportAxisId,
   completedStories: PrdStory[],
 ): { shardChecked: number; allDone: boolean } {
-  const axisDir = join(runDir, 'axes', axis);
+  const axisDir = runAxisDir(runDir, axis);
   if (!existsSync(axisDir)) return { shardChecked: 0, allDone: false };
 
   const shardFiles = readdirSync(axisDir)

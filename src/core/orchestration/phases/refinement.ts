@@ -28,8 +28,8 @@
  * untouched until PR 8" is extraction-era history, superseded here.
  */
 
-import { join } from 'node:path';
 import { writeReviewOutput } from '../../reporting/index.js';
+import { conversationsDir } from '../../../utils/run-layout.js';
 import { loadReviews } from '../../reporting/index.js';
 import { getLogger } from '../../../utils/logger.js';
 import { recordReclassification } from '../../platform/index.js';
@@ -67,7 +67,7 @@ export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setu
                   allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
                   maxTurns: ctx.config.agents.max_turns,
                   config: ctx.config,
-                  conversationDir: join(ctx.runDir, 'conversations'),
+                  conversationDir: conversationsDir(ctx.runDir),
                   conversationPrefix: `tier3-shard-${Date.now()}`,
                   attempt: 1,
                   responseSchema: DeliberationResponseSchema,

@@ -25,7 +25,7 @@
 
 import { writeFileSync } from 'node:fs';
 import type { Handoff } from '../handoff.js';
-import { join, relative, resolve, basename } from 'node:path';
+import { relative, basename } from 'node:path';
 import chalk from 'chalk';
 
 import { getLogger } from '../../../utils/logger.js';
@@ -39,6 +39,7 @@ import { injectBadge } from '../../reporting/index.js';
 import { sendNotifications, type NotificationPayload } from '../../notifications/index.js';
 import { formatCompactTokens, formatRunDuration } from '../../../utils/format.js';
 import { getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../../../utils/llm-calls-sink.js';
+import { runMetricsPath, docReferenceSectionPath, reviewsDir, logsDir, runEventLogPath } from '../../../utils/run-layout.js';
 import { getEnabledEvaluators } from '../../evaluation/index.js';
 import { resolveAxisModel } from '../../evaluation/index.js';
 import { countPendingDocConflicts } from '../../documentation/index.js';
@@ -138,7 +139,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
 
   // Persist doc reference section so `anatoly report` can reload it
   if (docReferenceSection && ctx.runDir) {
-    writeFileSync(join(ctx.runDir, 'doc-reference-section.md'), docReferenceSection);
+    writeFileSync(docReferenceSectionPath(ctx.runDir), docReferenceSection);
   }
 
   const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
@@ -254,9 +255,9 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
       paths: [
         { key: 'run', value: ctx.runId },
         { key: 'report', value: chalk.cyan(rel(reportPath)) },
-        { key: 'reviews', value: chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/') },
-        { key: 'transcripts', value: chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/') },
-        { key: 'log', value: chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson'))) },
+        { key: 'reviews', value: chalk.cyan(rel(reviewsDir(ctx.runDir)) + '/') },
+        { key: 'transcripts', value: chalk.cyan(rel(logsDir(ctx.runDir)) + '/') },
+        { key: 'log', value: chalk.cyan(rel(runEventLogPath(ctx.runDir))) },
       ],
       cost: quotaLine ? `${costLine}\n${quotaLine}` : costLine,
     });
@@ -272,9 +273,9 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     console.log('');
     console.log(`  run          ${ctx.runId}`);
     console.log(`  report       ${chalk.cyan(rel(reportPath))}`);
-    console.log(`  reviews      ${chalk.cyan(rel(resolve(ctx.runDir, 'reviews')) + '/')}`);
-    console.log(`  transcripts  ${chalk.cyan(rel(resolve(ctx.runDir, 'logs')) + '/')}`);
-    console.log(`  log          ${chalk.cyan(rel(resolve(ctx.runDir, 'anatoly.ndjson')))}`);
+    console.log(`  reviews      ${chalk.cyan(rel(reviewsDir(ctx.runDir)) + '/')}`);
+    console.log(`  transcripts  ${chalk.cyan(rel(logsDir(ctx.runDir)) + '/')}`);
+    console.log(`  log          ${chalk.cyan(rel(runEventLogPath(ctx.runDir)))}`);
     console.log('');
     console.log(`  ${costLine}`);
     if (quotaLine) console.log(`  ${quotaLine}`);
@@ -378,7 +379,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     conversations: conversationStats,
   };
   try {
-    writeFileSync(join(ctx.runDir, 'run-metrics.json'), JSON.stringify(metrics, null, 2) + '\n');
+    writeFileSync(runMetricsPath(ctx.runDir), JSON.stringify(metrics, null, 2) + '\n');
   } catch {
     log.warn({ runId: ctx.runId }, 'failed to write run-metrics.json');
   }

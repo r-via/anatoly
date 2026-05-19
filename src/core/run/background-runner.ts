@@ -12,8 +12,8 @@
 
 import { spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { writeRunStatus, getGitInfo, type RunStatus } from './run-status.js';
+import { backgroundLogPath, runErrorLogPath } from '../../utils/run-layout.js';
 
 export interface BackgroundLaunchResult {
   runId: string;
@@ -61,7 +61,7 @@ export function launchBackgroundRun(
 
   // Redirect child stdout/stderr to background.log in the run directory
   mkdirSync(runDir, { recursive: true });
-  const logPath = join(runDir, 'background.log');
+  const logPath = backgroundLogPath(runDir);
   const logStream = createWriteStream(logPath, { flags: 'a' });
 
   const child = spawn(process.execPath, childArgs, {
@@ -90,7 +90,7 @@ export function launchBackgroundRun(
       error: err.message,
     };
     writeRunStatus(runDir, failedStatus);
-    writeFileSync(join(runDir, 'error.log'), `Spawn error: ${err.message}\n`);
+    writeFileSync(runErrorLogPath(runDir), `Spawn error: ${err.message}\n`);
   });
 
   return { runId, pid: status.pid };

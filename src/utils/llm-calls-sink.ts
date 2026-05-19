@@ -22,8 +22,9 @@ import {
   writeFileSync,
   existsSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { getLogContext } from './log-context.js';
+import { costsLedgerPath, costsSummaryPath, costsVariancePath } from './run-layout.js';
 
 // ---------------------------------------------------------------------------
 // Schema v2
@@ -314,7 +315,7 @@ export interface CostVariance {
  * then write `{runDir}/costs/summary.json`.
  */
 export function writeCostSummary(runDir: string): void {
-  const ledgerPath = join(runDir, 'costs', 'ledger.ndjson');
+  const ledgerPath = costsLedgerPath(runDir);
   const records = readLedger(ledgerPath);
 
   // Aggregate actual + unknown calls (skip estimates — those go in variance.json).
@@ -340,7 +341,7 @@ export function writeCostSummary(runDir: string): void {
     accumulateBucket(summary.byModel, r.model, r, cost);
   }
 
-  const outPath = join(runDir, 'costs', 'summary.json');
+  const outPath = costsSummaryPath(runDir);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(summary, null, 2) + '\n');
 }
@@ -371,7 +372,7 @@ function accumulateBucket(
  * then write `{runDir}/costs/variance.json`.
  */
 export function writeCostVariance(runDir: string): void {
-  const ledgerPath = join(runDir, 'costs', 'ledger.ndjson');
+  const ledgerPath = costsLedgerPath(runDir);
   const records = readLedger(ledgerPath);
 
   const estimates = records.filter((r) => r.costSource === 'estimated');
@@ -440,7 +441,7 @@ export function writeCostVariance(runDir: string): void {
     };
   }
 
-  const outPath = join(runDir, 'costs', 'variance.json');
+  const outPath = costsVariancePath(runDir);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify(variance, null, 2) + '\n');
 }

@@ -22,6 +22,7 @@ import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type R
 import { stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
 import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
+import { runErrorLogPath, runEventLogPath } from '../utils/run-layout.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
@@ -665,7 +666,7 @@ export function registerRunCommand(program: Command): void {
 
       const initRunDir = () => {
         ctx.runDir = createRunDir(projectRoot, runId);
-        const runLogPath = join(ctx.runDir, 'anatoly.ndjson');
+        const runLogPath = runEventLogPath(ctx.runDir);
         ctx.runLog = createFileLogger(runLogPath);
         ctx.runLog.info({ runId, concurrency, projectRoot }, 'run started');
 
@@ -765,7 +766,7 @@ export function registerRunCommand(program: Command): void {
           // Write error.log and send desktop notification for background runs
           if (process.env.ANATOLY_BACKGROUND_MODE) {
             try {
-              writeFileSync(join(ctx.runDir, 'error.log'), `${new Date().toISOString()} ${errMsg}\n${error instanceof Error ? error.stack ?? '' : ''}\n`);
+              writeFileSync(runErrorLogPath(ctx.runDir), `${new Date().toISOString()} ${errMsg}\n${error instanceof Error ? error.stack ?? '' : ''}\n`);
             } catch { /* best-effort */ }
 
             // Desktop notification (Story 47.5)

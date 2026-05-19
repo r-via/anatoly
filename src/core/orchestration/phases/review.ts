@@ -28,13 +28,13 @@
  */
 
 import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import picomatch from 'picomatch';
 import { loadTasks } from '../../run/index.js';
 import { ProgressManager } from '../../run/index.js';
 import { writeReviewOutput, writeTranscript } from '../../reporting/index.js';
 import { AnatolyError, ERROR_CODES, isFatalAuthError, isCircuitOpenError, circuitOpenError } from '../../../utils/errors.js';
-import { toOutputName } from '../../../utils/cache.js';
+import { logsDir as runLogsDir, transcriptLogPath, conversationsDir } from '../../../utils/run-layout.js';
 import { getLogger } from '../../../utils/logger.js';
 import { runWithContext } from '../../../utils/log-context.js';
 import { retryWithBackoff } from '../../../utils/rate-limiter.js';
@@ -278,9 +278,9 @@ export async function runReviewPhase(
               ctx.activeAborts.add(currentAbort);
             }
             // Prepare streaming transcript path
-            const logsDir = join(ctx.runDir, 'logs');
+            const logsDir = runLogsDir(ctx.runDir);
             mkdirSync(logsDir, { recursive: true });
-            const logPath = join(logsDir, `${toOutputName(filePath)}.log`);
+            const logPath = transcriptLogPath(ctx.runDir, filePath);
 
             return evaluateFile({
               projectRoot: ctx.projectRoot,
@@ -300,7 +300,7 @@ export async function runReviewPhase(
               internalDocsDir,
               deliberation: ctx.deliberation,
               codeWeight: ctx.config.rag.code_weight,
-              conversationDir: join(ctx.runDir, 'conversations'),
+              conversationDir: conversationsDir(ctx.runDir),
               router: ctx.router,
               userInstructions: ctx.userInstructions,
               arbitratedFragments: handoff.arbitratedFragments,

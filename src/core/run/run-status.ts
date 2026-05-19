@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
+import { runStatusPath } from '../../utils/run-layout.js';
 import { execFileSync } from 'node:child_process';
 
 export type RunStatusState = 'running' | 'done' | 'failed' | 'crashed';
@@ -34,7 +35,7 @@ export interface RunStatus {
  */
 export function writeRunStatus(runDir: string, status: RunStatus): void {
   mkdirSync(runDir, { recursive: true });
-  const statusPath = join(runDir, 'run-status.json');
+  const statusPath = runStatusPath(runDir);
   writeFileSync(statusPath, JSON.stringify(status, null, 2) + '\n');
 }
 
@@ -43,7 +44,7 @@ export function writeRunStatus(runDir: string, status: RunStatus): void {
  * Returns undefined if the file does not exist or is invalid.
  */
 export function readRunStatus(runDir: string): RunStatus | undefined {
-  const statusPath = join(runDir, 'run-status.json');
+  const statusPath = runStatusPath(runDir);
   if (!existsSync(statusPath)) return undefined;
   try {
     return JSON.parse(readFileSync(statusPath, 'utf-8')) as RunStatus;

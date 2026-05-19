@@ -6,6 +6,11 @@ import type { Command } from 'commander';
 import { readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
+import {
+  reviewsDir as runReviewsDir,
+  logsDir as runLogsDir,
+  runMetricsPath,
+} from '../utils/run-layout.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
 import { listRuns, readLatestPointer, updateLatestPointer, resolveRunDir, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
@@ -23,9 +28,9 @@ interface RunInfo {
 
 function getRunInfo(runsDir: string, runId: string): RunInfo {
   const runDir = join(runsDir, runId);
-  const reviewsDir = join(runDir, 'reviews');
-  const logsDir = join(runDir, 'logs');
-  const metricsFile = join(runDir, 'run-metrics.json');
+  const reviewsDir = runReviewsDir(runDir);
+  const logsDir = runLogsDir(runDir);
+  const metricsFile = runMetricsPath(runDir);
 
   let reviews = 0;
   try { reviews = readdirSync(reviewsDir).length; } catch { /* empty */ }

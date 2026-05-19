@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
+import { runMetricsPath } from '../../utils/run-layout.js';
 
 /**
  * Per-axis calibration data, derived from real run timings.
@@ -111,7 +112,7 @@ export function recalibrateFromRuns(projectRoot: string): CalibrationData {
   let skipped = 0;
 
   for (const dir of runDirs) {
-    const metricsPath = join(runsDir, dir, 'run-metrics.json');
+    const metricsPath = runMetricsPath(join(runsDir, dir));
     if (!existsSync(metricsPath)) continue;
     try {
       const metrics = JSON.parse(readFileSync(metricsPath, 'utf-8')) as RunMetrics;

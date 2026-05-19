@@ -3,10 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Config } from '../../schemas/config.js';
 import type { AxisId } from '../evaluation/contract.js';
 import { pkgVersion, pkgCommit } from '../../utils/version.js';
+import { runConfigPath } from '../../utils/run-layout.js';
 
 export type DocMode = 'off' | 'lite' | 'full';
 export type RagMode = 'lite' | 'advanced' | 'auto';
@@ -104,5 +104,5 @@ export function buildRunConfig(input: BuildRunConfigInput): RunConfig {
 }
 
 export function writeRunConfig(runDir: string, config: RunConfig): void {
-  writeFileSync(join(runDir, 'run-config.json'), JSON.stringify(config, null, 2));
+  writeFileSync(runConfigPath(runDir), JSON.stringify(config, null, 2));
 }

@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { isLockActive } from '../utils/lock.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { axisDir as runAxisDir } from '../utils/run-layout.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
 import { REPORT_AXIS_IDS, type ReportAxisId } from '../core/reporting/index.js';
@@ -91,7 +92,7 @@ function resolveAxisShards(projectRoot: string, axis: ReportAxisId): string | nu
   const runDir = resolveRunDir(projectRoot);
   if (!runDir) return null;
 
-  const axisDir = join(runDir, 'axes', axis);
+  const axisDir = runAxisDir(runDir, axis);
   if (!existsSync(axisDir)) return null;
 
   const shardFiles = readdirSync(axisDir)

@@ -25,7 +25,6 @@
  * every phase.
  */
 
-import { join } from 'node:path';
 import { createHandoff } from './handoff.js';
 import type { Handoff } from './handoff.js';
 import { bootstrapDocGate, internalDocsGate, refinementGate } from './gates.js';
@@ -34,6 +33,7 @@ import { acquireLock, releaseLock } from '../../utils/lock.js';
 import { sendDesktopNotification } from '../notifications/desktop.js';
 import { getLogger } from '../../utils/logger.js';
 import { enterLlmCallSink } from '../../utils/llm-calls-sink.js';
+import { costsLedgerPath } from '../../utils/run-layout.js';
 import { runWithContext } from '../../utils/log-context.js';
 import { isDocAxisActive } from '../evaluation/index.js';
 import { formatRunDuration } from '../../utils/format.js';
@@ -130,7 +130,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
 
         // Open the per-call LLM sink for the remainder of the run. Transports
         // emit records via recordLlmCall(), persisted to costs/ledger.ndjson.
-        enterLlmCallSink(join(ctx.runDir, 'costs', 'ledger.ndjson'));
+        enterLlmCallSink(costsLedgerPath(ctx.runDir));
 
         // Detect first run — Story 29.21. The doc ledger lives next to the
         // docs under ctx.projectRoot (runDocScaffold/runDocGeneration write

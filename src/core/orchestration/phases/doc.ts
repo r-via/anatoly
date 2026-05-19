@@ -43,7 +43,7 @@ import { runDocScaffold, runDocGeneration, commitDocPage } from '../../documenta
 import { autoFixStructuralIssues, executeDocPrompts, reviewDocStructure, runDocCoherenceReview, type DocExecutor } from '../../documentation/index.js';
 import { writeCoherenceStatus, computeDocSetSignature, coherenceUpToDate } from '../../documentation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
-import { runPath } from '../../../utils/anatoly-paths.js';
+import { structureReviewDir, coherenceReviewDir, conversationsDir } from '../../../utils/run-layout.js';
 import { buildCodeSurfaceSummary } from '../../documentation/index.js';
 import { recordDocGenerationCost, recordDocCoherenceCost } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
@@ -98,7 +98,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
             allowedTools: ['Read'],
             maxTurns: ctx.config.agents.max_turns,
             config: ctx.config,
-            conversationDir: join(ctx.runDir, 'conversations'),
+            conversationDir: conversationsDir(ctx.runDir),
             conversationPrefix: `doc-gen-${Date.now()}`,
             attempt: 1,
           }),
@@ -132,7 +132,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
       projectRoot: ctx.projectRoot,
       router: ctx.router,
       executor,
-      logDir: join(ctx.runDir, 'conversations'),
+      logDir: conversationsDir(ctx.runDir),
       onPageStart: (pagePath) => {
         ctx.pipelineState?.trackFile(pagePath);
       },
@@ -181,7 +181,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
       ctx.pipelineState?.updateTask(taskId, 'linting docs…');
       ctx.renderer?.logPlain(`[${taskId}] linting doc structure…`);
       try {
-        const lintLogDir = runPath(ctx.projectRoot, ctx.runId, 'structure-review');
+        const lintLogDir = structureReviewDir(ctx.runDir);
         const lintResult = reviewDocStructure(outputDir, ctx.projectRoot, docsPath, undefined, { logDir: lintLogDir });
         log.info({ filesFixed: lintResult.filesFixed, issues: lintResult.issues.length }, 'doc structure lint complete');
         ctx.renderer?.logPlain(`[${taskId}] structure lint: ${lintResult.issues.length} issues, ${lintResult.filesFixed} auto-fixed`);
@@ -227,7 +227,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
       ctx.renderer?.logPlain(`[${taskId}] coherence review (Sonnet) — reviewing ${result.pagesWritten} pages…`);
       const coherenceStart = Date.now();
       try {
-        const coherenceLogDir = runPath(ctx.projectRoot, ctx.runId, 'coherence-review');
+        const coherenceLogDir = coherenceReviewDir(ctx.runDir);
         // Switch the phase tag for the duration of the coherence pass so
         // its llm_call event lands under `phase: "coherence-review"` in
         // the ndjson — the surrounding block is `bootstrap-doc`, which
@@ -465,7 +465,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
       docsIdentical: ctx.docsIdentical,
       onLog,
       isInterrupted: () => ctx.interrupted,
-      conversationDir: join(ctx.runDir, 'conversations'),
+      conversationDir: conversationsDir(ctx.runDir),
       router: ctx.router,
     });
     onLog(

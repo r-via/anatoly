@@ -5,8 +5,9 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, relative, dirname, join, basename } from 'node:path';
+import { relative, dirname, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
+import { runMetricsPath, docReferenceSectionPath, reviewsDir } from '../utils/run-layout.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporting/index.js';
 import { ProgressManager } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -58,7 +59,7 @@ export function registerReportCommand(program: Command): void {
 
       // Try to load run-metrics.json for runStats (used by public_report.md)
       let runStats: RunStats | undefined;
-      const metricsPath = runDir ? join(runDir, 'run-metrics.json') : undefined;
+      const metricsPath = runDir ? runMetricsPath(runDir) : undefined;
       if (metricsPath && existsSync(metricsPath)) {
         try {
           runStats = JSON.parse(readFileSync(metricsPath, 'utf-8')) as RunStats;
@@ -70,7 +71,7 @@ export function registerReportCommand(program: Command): void {
 
       // Re-aggregate doc coverage from current reviews + profile
       let docReferenceSection: string | undefined;
-      if (runDir && existsSync(resolve(runDir, 'reviews'))) {
+      if (runDir && existsSync(reviewsDir(runDir))) {
         try {
           const config = loadConfig(projectRoot);
           const reviews = loadReviews(projectRoot, runDir);
@@ -87,7 +88,7 @@ export function registerReportCommand(program: Command): void {
           docReferenceSection = result.renderedSection;
         } catch {
           // Fallback: load persisted section from previous run
-          const docSectionPath = join(runDir, 'doc-reference-section.md');
+          const docSectionPath = docReferenceSectionPath(runDir);
           if (existsSync(docSectionPath)) {
             docReferenceSection = readFileSync(docSectionPath, 'utf-8');
           }
@@ -96,11 +97,11 @@ export function registerReportCommand(program: Command): void {
 
       let reportData: ReturnType<typeof generateReport>['data'] | undefined;
 
-      if (runDir && existsSync(resolve(runDir, 'reviews'))) {
+      if (runDir && existsSync(reviewsDir(runDir))) {
         // Run-scoped mode: read reviews from run directory
         const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl);
         reportData = data;
-        printReportSummary(data, axisReports, reportPath, resolve(runDir, 'reviews'));
+        printReportSummary(data, axisReports, reportPath, reviewsDir(runDir));
         if (shouldOpen) openFile(reportPath);
       } else {
         // Legacy fallback: read from flat .anatoly/reviews/

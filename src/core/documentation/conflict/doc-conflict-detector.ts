@@ -7,6 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../../../utils/logger.js';
+import { conversationsDir } from '../../../utils/run-layout.js';
 import { isFatalAuthError } from '../../../utils/errors.js';
 import { resolveDocMode } from '../../run/index.js';
 import {
@@ -491,7 +492,7 @@ export async function detectNewConflictsViaLlm(
           ...(opts.router ? { router: opts.router } : {}),
           ...(opts.runDir
             ? {
-                conversationDir: join(opts.runDir, 'conversations'),
+                conversationDir: conversationsDir(opts.runDir),
                 conversationPrefix: `doc-conflict-detection__pairs-${batchIdx + 1}`,
               }
             : {}),

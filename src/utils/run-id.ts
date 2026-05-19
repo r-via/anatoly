@@ -5,6 +5,12 @@
 import { mkdirSync, symlinkSync, unlinkSync, lstatSync, readlinkSync, readdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from './anatoly-paths.js';
+import {
+  logsDir,
+  reviewsDir,
+  conversationsDir,
+  runEventLogPath,
+} from './run-layout.js';
 
 const RUN_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 
@@ -35,9 +41,9 @@ export function createRunDir(projectRoot: string, runId: string): string {
   const runsDir = anatolyPath(projectRoot, 'runs');
   const runDir = join(runsDir, runId);
 
-  mkdirSync(join(runDir, 'logs'), { recursive: true });
-  mkdirSync(join(runDir, 'reviews'), { recursive: true });
-  mkdirSync(join(runDir, 'conversations'), { recursive: true });
+  mkdirSync(logsDir(runDir), { recursive: true });
+  mkdirSync(reviewsDir(runDir), { recursive: true });
+  mkdirSync(conversationsDir(runDir), { recursive: true });
 
   // Update `latest` pointer (symlink preferred, file fallback for Windows)
   updateLatestPointer(runsDir, runId);
@@ -73,8 +79,8 @@ export function createMiniRun(projectRoot: string, prefix: string): MiniRunPaths
   return {
     runId,
     runDir,
-    logPath: join(runDir, 'anatoly.ndjson'),
-    conversationDir: join(runDir, 'conversations'),
+    logPath: runEventLogPath(runDir),
+    conversationDir: conversationsDir(runDir),
   };
 }
 
@@ -154,7 +160,7 @@ export function countEmptyRuns(projectRoot: string): number {
   const runsDir = anatolyPath(projectRoot, 'runs');
   return listRuns(projectRoot).filter((id) => {
     try {
-      return readdirSync(join(runsDir, id, 'reviews')).length === 0;
+      return readdirSync(reviewsDir(join(runsDir, id))).length === 0;
     } catch {
       return true;
     }

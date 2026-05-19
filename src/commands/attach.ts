@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
+import { runEventLogPath } from '../utils/run-layout.js';
 import { tailNdjson, type TailHandle } from '../core/run/index.js';
 import { formatDuration, verdictColor } from '../utils/format.js';
 import { loadReviews, computeGlobalVerdict, renderDocModeLine } from '../core/reporting/index.js';
@@ -632,7 +633,7 @@ export function registerAttachCommand(parent: Command): void {
         process.exit(1);
       }
 
-      const logPath = join(result.runDir, 'anatoly.ndjson');
+      const logPath = runEventLogPath(result.runDir);
 
       // Print header
       console.log(chalk.bold('anatoly — runs attach'));

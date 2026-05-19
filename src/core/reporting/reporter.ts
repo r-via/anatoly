@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
+import { reviewsDir as runReviewsDir, runEventLogPath } from '../../utils/run-layout.js';
 import { ReviewFileSchema } from '../../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference, DocConflictFinding } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
@@ -65,7 +66,7 @@ export interface ReportData {
  * @returns Parsed review files sorted alphabetically by file path, skipping any malformed entries.
  */
 export function loadReviews(projectRoot: string, runDir?: string): ReviewFile[] {
-  const reviewsDir = runDir ? join(runDir, 'reviews') : anatolyPath(projectRoot, 'cache', 'reviews');
+  const reviewsDir = runDir ? runReviewsDir(runDir) : anatolyPath(projectRoot, 'cache', 'reviews');
   let entries: string[];
   try {
     entries = readdirSync(reviewsDir);
@@ -376,7 +377,7 @@ export function renderDocConflictSection(conflicts: DocConflictFinding[]): strin
 function runStartMs(runDir: string | undefined): number | undefined {
   if (!runDir) return undefined;
   try {
-    const first = readFileSync(join(runDir, 'anatoly.ndjson'), 'utf-8').split('\n', 1)[0];
+    const first = readFileSync(runEventLogPath(runDir), 'utf-8').split('\n', 1)[0];
     const t = (JSON.parse(first) as { time?: unknown }).time;
     return typeof t === 'number' && Number.isFinite(t) ? t : undefined;
   } catch {

@@ -25,8 +25,8 @@
  */
 
 import { mkdirSync, createWriteStream } from 'node:fs';
-import { join } from 'node:path';
 import { getV3Source } from '../../../utils/config-loader.js';
+import { ragIndexLogPath, logsDir, conversationsDir } from '../../../utils/run-layout.js';
 import { getDocsDir } from '../../../schemas/config.js';
 import { releaseLock } from '../../../utils/lock.js';
 import { AnatolyError, ERROR_CODES } from '../../../utils/errors.js';
@@ -177,8 +177,8 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
   state.relabelTask('rag-doc-internal', `Chunking & embedding internal docs (${nlpModel})`);
 
   let ragResult: RagIndexResult | undefined;
-  const ragLogPath = join(ctx.runDir, 'logs', 'rag-index.log');
-  mkdirSync(join(ctx.runDir, 'logs'), { recursive: true });
+  const ragLogPath = ragIndexLogPath(ctx.runDir);
+  mkdirSync(logsDir(ctx.runDir), { recursive: true });
   const ragLogStream = createWriteStream(ragLogPath, { flags: 'a' });
   let ragPhase = 'code';
   const ragPhaseToTaskId: Record<string, string> = {
@@ -254,7 +254,7 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
       onFileStart: (file) => { state.trackFile(file); },
       onFileDone: (file) => { state.untrackFile(file); },
       isInterrupted: () => ctx.interrupted,
-      conversationDir: join(ctx.runDir, 'conversations'),
+      conversationDir: conversationsDir(ctx.runDir),
       router: ctx.router,
       fileFilter: ctx.fileFilter ?? undefined,
     });
