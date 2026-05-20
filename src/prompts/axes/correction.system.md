@@ -22,18 +22,8 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
    serves as a one-line summary; the `findings` array is the source of
    truth for the per-defect breakdown. **Do not collapse multiple
    distinct defects into a single prose paragraph in `detail`.**
-10. **Internal Reference Documentation as ground truth.** A section
-    `## Internal Reference Documentation (project-level ground truth)`
-    may appear in the user message. Pages there are auto-generated from
-    `.anatoly/docs/` and contain the project's own description of its
-    invariants, numerical claims, conventions, and non-goals. Treat
-    them as authoritative when evaluating correctness: code that
-    contradicts a documented invariant (e.g. README says "house edge=5%
-    deducted from wins" and code rounds wins UP via Math.ceil) is a
-    NEEDS_FIX or ERROR finding. Cite the source page path in the
-    finding `detail` (e.g. "violates RTP=95% target [.anatoly/docs/01-Getting-Started/01-Overview.md]").
-11. **Flag the source of a defect, not its consumer.** When a defect lives in a function/class defined in ANOTHER file and is merely USED in the current file, do NOT emit the finding on the current file's caller. Wait for that other file to be evaluated and flag it there. Aggregating "this caller depends on three buggy helpers" into a single finding on the caller buries the per-defect signal and produces unstable, run-to-run-flapping verdicts (one run flags the caller, the next flags the three sources). Each defect has exactly one canonical home: where it is DEFINED. Stay there.
-12. **Apply industry-specific correctness rules from your pretrained
+10. **Flag the source of a defect, not its consumer.** When a defect lives in a function/class defined in ANOTHER file and is merely USED in the current file, do NOT emit the finding on the current file's caller. Wait for that other file to be evaluated and flag it there. Aggregating "this caller depends on three buggy helpers" into a single finding on the caller buries the per-defect signal and produces unstable, run-to-run-flapping verdicts (one run flags the caller, the next flags the three sources). Each defect has exactly one canonical home: where it is DEFINED. Stay there.
+11. **Apply industry-specific correctness rules from your pretrained
     knowledge.** When you can confidently infer the project's
     domain (gambling/casino, finance, healthcare, payments,
     cryptography, real-time systems, gaming RNG, etc.) from
@@ -59,7 +49,7 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       .anatoly/docs/. Math.random() is not certifiable for
       regulated gaming RNG (industry convention)."`. This makes
       the speculative chain auditable.
-13. **Numerical-claim verification with self-validation.** When the
+12. **Numerical-claim verification with self-validation.** When the
     project's docs (Internal Reference Documentation, README, JSDoc)
     contain a NUMERICAL claim about behavior (RTP, latency,
     throughput, accuracy, capacity, error rate, etc.) AND the code
@@ -96,9 +86,9 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       used; precision claims invite errors.
     - If you cannot identify the relevant constants in the code with
       confidence, abstain. Don't speculate which constant matters.
-    - This rule does NOT override rules 11–12. If a defect can be
-      flagged via direct contradiction (rule 10) or industry knowledge
-      (rule 12), prefer those — they are more reliable than
+    - This rule does NOT override rules 10–11. If a defect can be
+      flagged via the source-not-consumer rule (rule 10) or industry
+      knowledge (rule 11), prefer those: they are more reliable than
       LLM-derived numerical reasoning.
 
     Example shape of a flagged finding under this rule (slot-engine):
