@@ -2084,6 +2084,24 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     ? `${reportsBaseUrl}/axes/${axis}/index.md`
     : `./axes/${axis}/index.md`;
 
+  // Per-axis CRITICAL count, surfaced separately from `high` so readers don't
+  // conflate "1 ERROR bug" with "20 high-confidence NEEDS_FIX". CRITICAL is
+  // already included in counts[axis].high (via symbolSeverity/bpSevMap), so the
+  // displayed `high` value subtracts it to keep the row total honest.
+  const axisCriticalCount = (axis: ReportAxisId): number => {
+    if (axis === 'correction') {
+      let n = 0;
+      for (const r of data.reviews) for (const s of r.symbols) if (s.confidence >= 30 && s.correction === 'ERROR') n++;
+      return n;
+    }
+    if (axis === 'best-practices') {
+      let n = 0;
+      for (const r of data.reviews) if (r.best_practices) for (const rule of r.best_practices.rules) if (rule.status === 'FAIL' && rule.severity === 'CRITICAL') n++;
+      return n;
+    }
+    return 0;
+  };
+
   lines.push('## Axes');
   lines.push('');
   lines.push('| Axis | Health | Findings | Details |');
@@ -2101,9 +2119,12 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     }
 
     const c = data.counts[countsKeyMap[axis]];
+    const critical = axisCriticalCount(axis);
+    const highDisplay = Math.max(0, c.high - critical);
     const bar = healthBar(pct, c.high, data.totalFiles);
     const parts: string[] = [];
-    if (c.high > 0) parts.push(`${c.high} high`);
+    if (critical > 0) parts.push(`${critical} critical`);
+    if (highDisplay > 0) parts.push(`${highDisplay} high`);
     if (c.medium > 0) parts.push(`${c.medium} med`);
     if (c.low > 0) parts.push(`${c.low} low`);
 
