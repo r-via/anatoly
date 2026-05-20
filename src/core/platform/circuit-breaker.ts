@@ -102,6 +102,10 @@ export class CircuitBreaker {
     if (this._state === 'half-open') {
       this._state = 'open';
       this.trippedAt = this.now();
+      // Each new open period gets its own warning. Without resetting this
+      // flag the prior trip's consumeWarning() would have already toggled
+      // it true, suppressing the CLI warning for the re-trip.
+      this._warningEmitted = false;
       return true;
     }
 

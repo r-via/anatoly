@@ -42,7 +42,10 @@ function normalizeSection(heading: string): string {
  */
 function parseSections(raw: string): Map<string, string> {
   const sections = new Map<string, string>();
-  const parts = raw.split(/^## /m);
+  // Normalize CRLF → LF before splitting; the bare /^## /m regex matches LF
+  // boundaries only, so on Windows-style files the second and later sections
+  // are missed.
+  const parts = raw.replace(/\r\n/g, '\n').split(/^## /m);
 
   for (const part of parts) {
     const nlIndex = part.indexOf('\n');
@@ -91,11 +94,14 @@ export function loadUserInstructions(projectRoot: string): UserInstructions {
 
   if (recognized.size === 0) return EMPTY;
 
-  // Log recognized/ignored sections
+  // Log recognized/ignored sections. The "ignored" array is included only
+  // in the second event so the same data is not emitted twice for the same
+  // load (the first event tracks the loaded state, the second is gated on
+  // ignored.length > 0 with a different message).
   const log = getLogger();
   const recognizedKeys = [...recognized.keys()];
   log.info(
-    { event: 'user_instructions_loaded', recognized: recognizedKeys, ignored },
+    { event: 'user_instructions_loaded', recognized: recognizedKeys },
     `Loaded user instructions from ${ANATOLY_MD_FILENAME} (sections: ${recognizedKeys.join(', ')})`,
   );
 
@@ -135,7 +141,9 @@ export function loadUserInstructions(projectRoot: string): UserInstructions {
 
   return {
     hasInstructions: true,
-    recognizedSections: recognizedKeys,
+    // Freeze so the readonly interface guarantee holds at runtime, not just
+    // at compile time — external callers cannot push/splice into the array.
+    recognizedSections: Object.freeze([...recognizedKeys]),
     forAxis(axisId: AxisId): string | undefined {
       const axisContent = recognized.get(axisId);
 

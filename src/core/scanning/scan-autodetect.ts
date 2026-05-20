@@ -144,8 +144,21 @@ function detectRoots(projectRoot: string, profile: ProjectProfile): string[] {
       : null);
     if (wsList) {
       for (const w of wsList) {
-        // `packages/*` → `packages/*/src` if any sibling has src; else `packages/*`
-        roots.add(`${stripTrailingSlash(w)}/src`);
+        const stripped = stripTrailingSlash(w);
+        // Concrete package path: only append `/src` when a src subdir actually
+        // exists; otherwise add the package path itself (code at package root).
+        // Glob-style entries (e.g. `packages/*`) keep the historical `/src`
+        // suffix since we cannot stat a glob; that mirrors the previous
+        // behaviour and is fine for monorepos that follow the convention.
+        if (!stripped.includes('*')) {
+          if (existsSync(join(projectRoot, stripped, 'src'))) {
+            roots.add(`${stripped}/src`);
+          } else {
+            roots.add(stripped);
+          }
+        } else {
+          roots.add(`${stripped}/src`);
+        }
       }
     }
   }
@@ -156,7 +169,9 @@ function detectRoots(projectRoot: string, profile: ProjectProfile): string[] {
   if (tsconfig && Array.isArray(tsconfig['include'])) {
     for (const inc of tsconfig['include'] as unknown[]) {
       if (typeof inc !== 'string') continue;
-      const dir = inc.replace(/\/?\*\*\/?\*?.*$/, '').replace(/\/$/, '');
+      // Strip leading `./` before the dot-prefix filter so include entries
+      // like `./src/**/*` and `./lib/**/*` are kept (previously dropped).
+      const dir = inc.replace(/\/?\*\*\/?\*?.*$/, '').replace(/\/$/, '').replace(/^\.\//, '');
       if (dir && !dir.startsWith('.')) roots.add(dir);
     }
   }

@@ -77,13 +77,18 @@ export function listRunStatuses(projectRoot: string): RunStatus[] {
 /**
  * Check whether a process with the given PID is still alive.
  * Uses `process.kill(pid, 0)` which checks existence without sending a signal.
+ *
+ * EPERM means the process exists but the caller does not own it (typically
+ * cross-user); treat that as alive. Only ESRCH (or other unknown errors)
+ * mean the process is gone.
  */
 export function isProcessAlive(pid: number): boolean {
   if (pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'EPERM') return true;
     return false;
   }
 }

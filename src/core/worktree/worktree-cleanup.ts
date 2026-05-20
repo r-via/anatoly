@@ -74,15 +74,27 @@ export function cleanupOrphanedWorktrees(projectRoot: string): CleanupResult {
 /**
  * Attempt to remove a worktree directory.
  * Tries `git worktree remove`, then `--force`, then falls back to rmSync.
- * Returns true if removal succeeded.
+ * Returns true if removal succeeded. Each success path is followed by
+ * `git worktree prune` so the dangling registration in `.git/worktrees/<id>`
+ * is cleared too; otherwise `git worktree list` keeps reporting the entry
+ * as corrupt and future cleanups have to remove it manually.
  */
 function removeWorktree(projectRoot: string, wtPath: string): boolean {
+  const pruneRegistration = (): void => {
+    try {
+      execFileSync('git', ['worktree', 'prune'], { cwd: projectRoot, stdio: 'ignore' });
+    } catch {
+      // Best-effort: prune is idempotent and a failure here does not undo the removal.
+    }
+  };
+
   // Try normal git worktree remove
   try {
     execFileSync('git', ['worktree', 'remove', wtPath], {
       cwd: projectRoot,
       stdio: 'ignore',
     });
+    pruneRegistration();
     return true;
   } catch {
     // Normal remove failed
@@ -94,6 +106,7 @@ function removeWorktree(projectRoot: string, wtPath: string): boolean {
       cwd: projectRoot,
       stdio: 'ignore',
     });
+    pruneRegistration();
     return true;
   } catch {
     // Force remove also failed
@@ -102,6 +115,7 @@ function removeWorktree(projectRoot: string, wtPath: string): boolean {
   // Last resort: just remove the directory (non-git cleanup)
   try {
     rmSync(wtPath, { recursive: true, force: true });
+    pruneRegistration();
     return true;
   } catch {
     return false;

@@ -197,21 +197,22 @@ function renderEstimateView(data: EstimateViewData): void {
       colAligns: ['left', 'left', 'right', 'left', 'left'],
     });
     let lastCategory = '';
-    let billedUsd = 0;
     for (const s of sorted) {
       const cost = (s.approximate ? '~' : '') + '$' + s.costUsd.toFixed(2);
       const categoryCell = s.category === lastCategory ? '' : chalk.dim(s.category);
       lastCategory = s.category;
-      if (s.billingMode === 'api') billedUsd += s.costUsd;
       t.push([categoryCell, s.name, cost, chalk.dim(s.billingMode), displayModel(s.model)]);
     }
 
     // Empty row + two totals.
+    // Use `data.forecast.billedUsd` (the canonical figure also rendered in
+    // the Forecast section below) so the breakdown footer and the Forecast
+    // line cannot disagree on the same quantity.
     t.push(['', '', '', '', '']);
     t.push([
       chalk.bold('total billed'),
       '',
-      chalk.yellow.bold('$' + billedUsd.toFixed(2)),
+      chalk.yellow.bold('$' + data.forecast.billedUsd.toFixed(2)),
       '',
       '',
     ]);
