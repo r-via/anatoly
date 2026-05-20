@@ -94,36 +94,35 @@ describe('buildDumpSlug', () => {
 // ---------------------------------------------------------------------------
 
 describe('4-segment filename via initConvDump', () => {
-  it('should create a file with 4-segment prefix naming', () => {
-    const slug = 'review__axes.correction__axes.correction-pass1__c4f8a2';
-    const dump = initConvDump({
-      conversationDir: dir,
-      conversationPrefix: slug,
-      attempt: 1,
-      model: 'claude-sonnet-4-6',
-      provider: 'anthropic',
-      userMessage: 'test',
-    });
+  it('should derive the 4-segment prefix from the ALS scope', () => {
+    const dump = runWithContext(
+      { phase: 'review', composer: 'axes.correction', primitive: 'axes.correction-pass1', callId: 'c4f8a2' },
+      () =>
+        initConvDump({
+          conversationDir: dir,
+          attempt: 1,
+          model: 'claude-sonnet-4-6',
+          provider: 'anthropic',
+          userMessage: 'test',
+        }),
+    );
 
     expect(dump).toBeDefined();
     expect(dump!.fileName).toBe('review__axes.correction__axes.correction-pass1__c4f8a2__1.md');
     expect(existsSync(dump!.path)).toBe(true);
   });
 
-  it('should use slug from buildDumpSlug as prefix', () => {
+  it('should produce different filenames for different primitives', () => {
     const dump = runWithContext(
       { phase: 'review', composer: 'axes.correction', primitive: 'axes.correction-verify', callId: 'd8e1b5' },
-      () => {
-        const slug = buildDumpSlug();
-        return initConvDump({
+      () =>
+        initConvDump({
           conversationDir: dir,
-          conversationPrefix: slug,
           attempt: 1,
           model: 'claude-sonnet-4-6',
           provider: 'anthropic',
           userMessage: 'test',
-        });
-      },
+        }),
     );
 
     expect(dump).toBeDefined();
@@ -166,10 +165,8 @@ describe('concurrent composer executions', () => {
           { phase: 'review', composer: 'axes.utility', primitive: 'axes.utility', callId },
           async () => {
             await new Promise((r) => setTimeout(r, 5));
-            const slug = buildDumpSlug();
             const dump = initConvDump({
               conversationDir: dir,
-              conversationPrefix: slug,
               attempt: 1,
               model: 'claude-sonnet-4-6',
               provider: 'anthropic',

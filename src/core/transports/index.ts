@@ -11,8 +11,13 @@ export interface LlmRequest {
   model: string;
   projectRoot: string;
   abortController: AbortController;
+  /**
+   * Optional directory under which a per-call conversation dump (.md)
+   * is written. The dump filename is derived by the transport from the
+   * ALS log-context via {@link buildDumpSlug} (doc 19 PR 3); callers
+   * MUST NOT pass a hand-built prefix.
+   */
   conversationDir?: string;
-  conversationPrefix?: string;
   /** Session ID to resume (for retry/continuation) */
   resumeSessionId?: string;
   /** Attempt number (1-based, for logging and conversation dump naming) */

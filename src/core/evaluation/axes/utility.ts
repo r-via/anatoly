@@ -192,7 +192,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         projectRoot: ctx.projectRoot,
         abortController,
         conversationDir: ctx.conversationDir,
-        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__utility` : undefined,
+        callId: ctx.callId,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('utility'),
         composer: 'axes.utility',

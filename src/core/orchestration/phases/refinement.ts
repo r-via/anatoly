@@ -35,6 +35,7 @@ import { getLogger } from '../../../utils/logger.js';
 import { recordReclassification } from '../../platform/index.js';
 import { DeliberationResponseSchema } from '../../evaluation/index.js';
 import { extractJson } from '../../../utils/extract-json.js';
+import { runWithContext } from '../../../utils/log-context.js';
 import { runRefinementPhase } from '../../evaluation/index.js';
 import { recordRefinementCost } from '../cost.js';
 import type { RunContext } from '../../../commands/run.js';
@@ -58,20 +59,25 @@ export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setu
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),
               writeReviewFn: (review) => writeReviewOutput(ctx.projectRoot, review, ctx.runDir),
               queryFn: async (params) => {
-                const response = await ctx.router!.agenticQuery({
-                  systemPrompt: params.systemPrompt,
-                  userMessage: params.userMessage,
-                  model: params.model,
-                  projectRoot: params.projectRoot,
-                  abortController: params.abortController,
-                  allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
-                  maxTurns: ctx.config.agents.max_turns,
-                  config: ctx.config,
-                  conversationDir: conversationsDir(ctx.runDir),
-                  conversationPrefix: `tier3-shard-${Date.now()}`,
-                  attempt: 1,
-                  responseSchema: DeliberationResponseSchema,
-                });
+                // doc 19 PR 3: open the harness ALS scope so the transport
+                // derives the dump filename via buildDumpSlug().
+                const shardCallId = `tier3-shard-${Date.now()}`;
+                const response = await runWithContext(
+                  { composer: 'refinement.tier3', primitive: 'refinement.shard', callId: shardCallId },
+                  () => ctx.router!.agenticQuery({
+                    systemPrompt: params.systemPrompt,
+                    userMessage: params.userMessage,
+                    model: params.model,
+                    projectRoot: params.projectRoot,
+                    abortController: params.abortController,
+                    allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'WebFetch'],
+                    maxTurns: ctx.config.agents.max_turns,
+                    config: ctx.config,
+                    conversationDir: conversationsDir(ctx.runDir),
+                    attempt: 1,
+                    responseSchema: DeliberationResponseSchema,
+                  }),
+                );
 
                 const jsonStr = extractJson(response.text);
                 if (!jsonStr) {

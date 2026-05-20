@@ -87,21 +87,26 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
     const pageAc = new AbortController();
     ctx.activeAborts.add(pageAc);
     try {
+      // doc 19 PR 3: tighten the ALS scope so the transport can derive
+      // the dump filename via buildDumpSlug() (4-segment harness slug).
+      const docGenCallId = `doc-gen-${Date.now()}`;
       const response = await withTimeout(
         () => retryWithBackoff(
-          () => transport.agenticQuery!({
-            systemPrompt: system,
-            userMessage: user,
-            model,
-            projectRoot: ctx.projectRoot,
-            abortController: pageAc,
-            allowedTools: ['Read'],
-            maxTurns: ctx.config.agents.max_turns,
-            config: ctx.config,
-            conversationDir: conversationsDir(ctx.runDir),
-            conversationPrefix: `doc-gen-${Date.now()}`,
-            attempt: 1,
-          }),
+          () => runWithContext(
+            { composer: 'doc.generate', primitive: 'doc.page', callId: docGenCallId },
+            () => transport.agenticQuery!({
+              systemPrompt: system,
+              userMessage: user,
+              model,
+              projectRoot: ctx.projectRoot,
+              abortController: pageAc,
+              allowedTools: ['Read'],
+              maxTurns: ctx.config.agents.max_turns,
+              config: ctx.config,
+              conversationDir: conversationsDir(ctx.runDir),
+              attempt: 1,
+            }),
+          ),
           {
             maxRetries: 5,
             baseDelayMs: 5_000,

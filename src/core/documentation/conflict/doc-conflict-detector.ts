@@ -489,12 +489,10 @@ export async function detectNewConflictsViaLlm(
           abortController: ac,
           composer: 'doc-conflict',
           primitive: 'doc-conflict-detection',
+          callId: `pairs-${batchIdx + 1}`,
           ...(opts.router ? { router: opts.router } : {}),
           ...(opts.runDir
-            ? {
-                conversationDir: conversationsDir(opts.runDir),
-                conversationPrefix: `doc-conflict-detection__pairs-${batchIdx + 1}`,
-              }
+            ? { conversationDir: conversationsDir(opts.runDir) }
             : {}),
         },
         DetectionResponseSchema,

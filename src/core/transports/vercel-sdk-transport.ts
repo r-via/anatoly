@@ -87,14 +87,14 @@ export class VercelSdkTransport implements LlmTransport {
    * Single-turn query: no tools.
    */
   async query(params: LlmRequest): Promise<LlmResponse> {
-    const { systemPrompt, userMessage, model: modelId, abortController, conversationDir, conversationPrefix, attempt } = params;
+    const { systemPrompt, userMessage, model: modelId, abortController, conversationDir, attempt } = params;
     const start = Date.now();
     const transcriptLines: string[] = [];
     const providerId = extractProvider(modelId);
 
-    // --- Conversation dump ---
-    const dump = (conversationDir && conversationPrefix != null && attempt != null)
-      ? initConvDump({ conversationDir, conversationPrefix, attempt, model: modelId, provider: `vercel-sdk (${providerId})`, systemPrompt, userMessage })
+    // --- Conversation dump (doc 19 PR 3: harness-assigned name via ALS) ---
+    const dump = (conversationDir && attempt != null)
+      ? initConvDump({ conversationDir, attempt, model: modelId, provider: `vercel-sdk (${providerId})`, systemPrompt, userMessage })
       : undefined;
 
     if (systemPrompt) {
@@ -243,10 +243,10 @@ export class VercelSdkTransport implements LlmTransport {
     const start = Date.now();
     const providerId = extractProvider(params.model);
 
-    const dump = (params.conversationDir && params.conversationPrefix != null && params.attempt != null)
+    // doc 19 PR 3: dump prefix derived by initConvDump from ALS.
+    const dump = (params.conversationDir && params.attempt != null)
       ? initConvDump({
           conversationDir: params.conversationDir,
-          conversationPrefix: params.conversationPrefix,
           attempt: params.attempt,
           model: params.model,
           provider: `vercel-sdk (${providerId})`,

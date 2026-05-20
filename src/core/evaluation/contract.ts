@@ -76,8 +76,10 @@ export interface AxisContext {
   arbitratedFragments?: import('./axes/reference-docs-context.js').ArbitratedFragment[];
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */
   conversationDir?: string;
-  /** Pre-computed file slug for conversation file naming (e.g. "src-cli") */
-  conversationFileSlug?: string;
+  /** doc 19 PR 3 — per-call disambiguator (e.g. file slug "src-cli"). Becomes
+   *  the `callId` segment of the harness-assigned dump slug
+   *  `{phase}__{composer}__{primitive}__{callId}__{attempt}.md`. */
+  callId?: string;
   /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection */
   router?: TransportRouter;
   /** User instructions from ANATOLY.md — loaded once per run, passed to each evaluator */
@@ -148,8 +150,11 @@ export interface SingleTurnQueryParams {
   abortController: AbortController;
   /** Full path to conversations/ dir — when set, a conversation dump .md is written per attempt */
   conversationDir?: string;
-  /** Prefix for conversation file naming (e.g. "src-cli__documentation") */
-  conversationPrefix?: string;
+  /** doc 19 PR 3 — per-call disambiguator added to the ALS scope so the
+   *  transport can derive the harness-assigned dump filename via
+   *  {@link buildDumpSlug}. Replaces the legacy `conversationPrefix` /
+   *  `conversationFileSlug` plumbing. */
+  callId?: string;
   /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection */
   router?: TransportRouter;
   /** User calibration text from ANATOLY.md (pre-resolved for this axis via forAxis()) */

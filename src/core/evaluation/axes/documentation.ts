@@ -171,7 +171,7 @@ export class DocumentationEvaluator implements AxisEvaluator {
         projectRoot: ctx.projectRoot,
         abortController,
         conversationDir: ctx.conversationDir,
-        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__documentation` : undefined,
+        callId: ctx.callId,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('documentation'),
         composer: 'axes.documentation',

@@ -193,9 +193,9 @@ export class GeminiTransport implements LlmTransport {
       chat.setSystemInstruction(params.systemPrompt);
     }
 
-    // --- Conversation dump ---
-    const dump: ConvDump | undefined = (params.conversationDir && params.conversationPrefix != null && params.attempt != null)
-      ? initConvDump({ conversationDir: params.conversationDir, conversationPrefix: params.conversationPrefix, attempt: params.attempt, model: params.model, provider: 'gemini (subscription)', systemPrompt: params.systemPrompt, userMessage: params.userMessage })
+    // --- Conversation dump (doc 19 PR 3: harness-assigned name via ALS) ---
+    const dump: ConvDump | undefined = (params.conversationDir && params.attempt != null)
+      ? initConvDump({ conversationDir: params.conversationDir, attempt: params.attempt, model: params.model, provider: 'gemini (subscription)', systemPrompt: params.systemPrompt, userMessage: params.userMessage })
       : undefined;
 
     // Build transcript header

@@ -150,7 +150,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         projectRoot: ctx.projectRoot,
         abortController,
         conversationDir: ctx.conversationDir,
-        conversationPrefix: ctx.conversationDir ? `${ctx.conversationFileSlug}__overengineering` : undefined,
+        callId: ctx.callId,
         router: ctx.router,
         userInstructions: ctx.userInstructions?.forAxis('overengineering'),
         composer: 'axes.overengineering',

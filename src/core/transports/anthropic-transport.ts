@@ -117,7 +117,6 @@ export class AnthropicTransport implements LlmTransport {
       projectRoot,
       abortController,
       conversationDir,
-      conversationPrefix,
       resumeSessionId,
       attempt,
       retryReason,
@@ -129,10 +128,13 @@ export class AnthropicTransport implements LlmTransport {
     const transcriptLines: string[] = [];
 
     // --- Conversation dump setup ---
+    // doc 19 PR 3: dump prefix is derived by initConvDump from the active
+    // ALS log-context (`{phase}__{composer}__{primitive}__{callId}`); the
+    // caller no longer hands a `conversationPrefix` in.
     let convDump: ConvDump | undefined;
     let convPath: string | undefined;
-    if (conversationDir && conversationPrefix != null && attempt != null) {
-      convDump = initConvDump({ conversationDir, conversationPrefix, attempt, model: rawModel, provider: 'anthropic', systemPrompt, userMessage });
+    if (conversationDir && attempt != null) {
+      convDump = initConvDump({ conversationDir, attempt, model: rawModel, provider: 'anthropic', systemPrompt, userMessage });
       convPath = convDump?.path;
     }
 

@@ -229,7 +229,7 @@ async function runSingleTurnQueryImpl<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, router, userInstructions, composer, primitive } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, callId, router, userInstructions, composer, primitive } = params;
 
   // Acquire concurrency slot + transport from router (handles breaker + semaphore)
   let release: ((opts?: { success: boolean; error?: unknown }) => void) | undefined;
@@ -249,7 +249,7 @@ async function runSingleTurnQueryImpl<T>(
     let success = false;
     let failErr: unknown;
     try {
-      const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, conversationPrefix, schema, effectiveTransport, userInstructions);
+      const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, schema, effectiveTransport, userInstructions);
       success = true;
       return result;
     } catch (err) {
@@ -260,8 +260,12 @@ async function runSingleTurnQueryImpl<T>(
     }
   };
 
-  if (composer || primitive) {
-    return runWithContext({ ...(composer ? { composer } : {}), ...(primitive ? { primitive } : {}) }, exec);
+  if (composer || primitive || callId) {
+    return runWithContext({
+      ...(composer ? { composer } : {}),
+      ...(primitive ? { primitive } : {}),
+      ...(callId ? { callId } : {}),
+    }, exec);
   }
   return exec();
 }
@@ -294,7 +298,6 @@ async function _runSingleTurnQueryInner<T>(
   projectRoot: string,
   abortController: AbortController,
   conversationDir: string | undefined,
-  conversationPrefix: string | undefined,
   schema: z.ZodType<T>,
   transport: LlmTransport,
   userInstructions?: string,
@@ -343,7 +346,6 @@ async function _runSingleTurnQueryInner<T>(
     projectRoot,
     abortController,
     conversationDir,
-    conversationPrefix,
     attempt: 1,
   });
   accumulateFromResponse(initial);
@@ -368,7 +370,6 @@ async function _runSingleTurnQueryInner<T>(
     abortController,
     resumeSessionId: initial.sessionId,
     conversationDir,
-    conversationPrefix,
     attempt: 2,
     retryReason: 'zod_validation_failed',
   });

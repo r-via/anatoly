@@ -113,10 +113,10 @@ describe('LlmRequest', () => {
       projectRoot: '/tmp/test',
       abortController: new AbortController(),
       conversationDir: '/tmp/conversations',
-      conversationPrefix: 'test-prefix',
+      attempt: 1,
     };
     expect(request.conversationDir).toBe('/tmp/conversations');
-    expect(request.conversationPrefix).toBe('test-prefix');
+    expect(request.attempt).toBe(1);
   });
 });
 

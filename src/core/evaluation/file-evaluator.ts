@@ -74,6 +74,8 @@ export interface EvaluateFileOptions {
   conversationDir?: string;
   /** Callback fired after each axis evaluator finishes (success or failure). */
   onAxisComplete?: (axisId: AxisId) => void;
+  /** Callback fired just before an axis evaluator starts. Used to track in-flight axes for timeout diagnostics. */
+  onAxisStart?: (axisId: AxisId) => void;
   /** Stream transcript chunks to disk as each axis completes. */
   onTranscriptChunk?: (chunk: string) => void;
   /** Mode-aware transport router — handles concurrency, circuit breaking, and transport selection */
@@ -129,7 +131,7 @@ export interface EvaluateFileResult {
  *   and a list of any axis IDs that failed during evaluation.
  */
 export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateFileResult> {
-  const { projectRoot, task, config, evaluators, abortController, usageGraph, onAxisComplete } = opts;
+  const { projectRoot, task, config, evaluators, abortController, usageGraph, onAxisComplete, onAxisStart } = opts;
   const effectiveSourceRoot = getEffectiveSourceRoot(projectRoot, opts.sourceRoot);
 
   return runWithContext({ file: task.file }, async () => {
@@ -281,6 +283,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     }
   }
 
+  // doc 19 PR 3: the file slug is the per-call disambiguator (callId
+  // segment) of the harness-assigned dump slug. Axes pass it through
+  // unchanged to runSingleTurnQuery, which feeds it into the ALS scope
+  // alongside composer + primitive.
   const fileSlug = opts.conversationDir ? toOutputName(task.file) : undefined;
 
   const ctx: AxisContext = {
@@ -298,7 +304,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     relevantDocs,
     referenceDocs,
     conversationDir: opts.conversationDir,
-    conversationFileSlug: fileSlug,
+    callId: fileSlug,
     router: opts.router,
     userInstructions: opts.userInstructions,
     arbitratedFragments: opts.arbitratedFragments,
@@ -327,6 +333,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const settledResults = await Promise.allSettled(
     activeEvaluators.map(async (evaluator) => {
       return runWithContext({ axis: evaluator.id }, async () => {
+        onAxisStart?.(evaluator.id);
         const result = await evaluator.evaluate(ctx, abortController);
         onAxisComplete?.(evaluator.id);
         return result;

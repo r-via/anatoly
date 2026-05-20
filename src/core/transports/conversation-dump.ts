@@ -41,10 +41,13 @@ export interface ConvDump {
 /**
  * Initialize a conversation dump file with header (system + user prompt).
  * Returns a handle for subsequent appends, or undefined if setup fails.
+ *
+ * doc 19 PR 3: the dump prefix is derived from the active ALS log-context
+ * by {@link buildDumpSlug}, not supplied by the caller. Transports pass
+ * only the conversation directory and the attempt number.
  */
 export function initConvDump(opts: {
   conversationDir: string;
-  conversationPrefix: string;
   attempt: number;
   model: string;
   provider: string;
@@ -53,14 +56,15 @@ export function initConvDump(opts: {
 }): ConvDump | undefined {
   try {
     mkdirSync(opts.conversationDir, { recursive: true });
+    const prefix = buildDumpSlug();
     const suffix = `__${opts.attempt}.md`;
-    const rawName = `${opts.conversationPrefix}${suffix}`;
+    const rawName = `${prefix}${suffix}`;
     const fileName = rawName.length > 250
-      ? opts.conversationPrefix.slice(0, 250 - suffix.length) + suffix
+      ? prefix.slice(0, 250 - suffix.length) + suffix
       : rawName;
     const path = join(opts.conversationDir, fileName);
 
-    const title = opts.conversationPrefix.replace(/__/g, ' — ');
+    const title = prefix.replace(/__/g, ' — ');
     let header = `# Conversation: ${title} (attempt ${opts.attempt})\n\n`;
     header += `| Field | Value |\n|-------|-------|\n`;
     header += `| Model | ${opts.model} |\n`;
