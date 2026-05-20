@@ -108,11 +108,11 @@ golden.
 
 ## 2. Canonical phases
 
-CONTRACT. The pipeline is exactly these 11 phases, in this order, declared once
+CONTRACT. The pipeline is exactly these 12 phases, in this order, declared once
 in [run-phase.ts](../../src/core/orchestration/run-phase.ts#L17) as
 `CANONICAL_PHASES`. `scan`, `estimate`, `triage` run inside the setup stage;
 the rest run from the orchestration spine in
-[run.ts](../../src/commands/run.ts#L918).
+[pipeline.ts](../../src/core/orchestration/pipeline.ts).
 
 | # | Phase | Gate (runs only if) | LLM? | Agents invoked |
 |---|-------|---------------------|------|----------------|
@@ -123,16 +123,18 @@ the rest run from the orchestration spine in
 | 5 | `doc-conflict-bootstrap` | after `bootstrap-doc`, not interrupted | yes | `agents.doc-conflict-detector` |
 | 6 | `rag-index` | always wrapped; body no-ops if `rag.enabled: false` | yes | `rag.nlp-summary` (code embed + `rag.doc-chunk` are local) |
 | 7 | `internal-docs` | doc mode not `off`/`lite` AND evaluable files exist | yes | `agents.doc-generator` |
-| 8 | `doc-conflict-update` | after `internal-docs`, not interrupted | yes | `agents.doc-conflict-detector` |
-| 9 | `review` | always (pass 1) | yes | 7 axes (one is 2-pass) + `axis-merger` (local) |
-| 10 | `refinement` | `deliberation` enabled AND `filesReviewed > 0` | yes | `agents.tier3-deliberator` (tiers 1+2 local) |
-| 11 | `report` | always | no | none (reporter + badge) |
+| 8 | `rag-index-update` | after `internal-docs` produced changes AND RAG enabled | no | none (incremental re-embed of changed pages, local) |
+| 9 | `doc-conflict-update` | after `internal-docs`, not interrupted | yes | `agents.doc-conflict-detector` |
+| 10 | `review` | always (pass 1) | yes | 7 axes (one is 2-pass) + `axis-merger` (local) |
+| 11 | `refinement` | `deliberation` enabled AND `filesReviewed > 0` | yes | `agents.tier3-deliberator` (tiers 1+2 local) |
+| 12 | `report` | always | no | none (reporter + badge) |
 
 REALITY. Verified at [run.ts:919](../../src/commands/run.ts#L919) (`runSetupPhase`),
 [988](../../src/commands/run.ts#L988) (`bootstrap-doc`),
 [1006](../../src/commands/run.ts#L1006) (`doc-conflict-bootstrap`),
 [1019](../../src/commands/run.ts#L1019) (`rag-index`),
 [1035](../../src/commands/run.ts#L1035) (`internal-docs`),
+[pipeline.ts:264](../../src/core/orchestration/pipeline.ts#L264) (`rag-index-update`, wrapping `reindexDocsAfterUpdate`),
 [1057](../../src/commands/run.ts#L1057) (`doc-conflict-update`),
 [1079](../../src/commands/run.ts#L1079) (`review`),
 [1093](../../src/commands/run.ts#L1093) (`refinement`),

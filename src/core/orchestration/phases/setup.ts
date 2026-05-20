@@ -436,18 +436,25 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
   // Render setup summary table
   renderSetupTable({ project: projectInfo, config: configRows, models: modelsLeft, modelsRight, pipeline: pipelineRows }, ctx.plain);
 
-  // Dry-run: show summary and exit before review
+  // Dry-run: show summary and exit before review.
+  // Reuse the outer `evalTasks` and `estimateTasks` so:
+  //  - --no-triage is honoured (outer `evalTasks` falls back to estimateTasks
+  //    when triageEnabled is false; the inner triageMap-only filter used to
+  //    silently report 0 evaluate),
+  //  - --file scoping is honoured for tokens and counters (estimateTasks is
+  //    the file-scoped subset; allTasks is the pre-filter superset),
+  //  - the three counters share the same base (estimateTasks.length) so
+  //    files / evaluate / skip stay internally consistent.
   if (ctx.dryRun) {
-    const evalTasks = allTasks.filter((t) => triageMap.get(t.file)?.tier === 'evaluate');
-    const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, allTasks);
+    const { inputTokens, outputTokens } = estimateTasksTokens(srcRoot, estimateTasks);
     const estMinutes = estimateCalibratedMinutes(calibration, evalTasks.length, evaluators.map(e => e.id), ctx.concurrency, 0.75, { rag: ctx.enableRag, deliberation: ctx.deliberation });
 
     console.log('');
     console.log(chalk.bold('dry run') + ' — no files were reviewed');
     console.log('');
-    console.log(`  files        ${allTasks.length}`);
+    console.log(`  files        ${estimateTasks.length}`);
     console.log(`  evaluate     ${evalTasks.length}`);
-    console.log(`  skip         ${allTasks.length - evalTasks.length}`);
+    console.log(`  skip         ${estimateTasks.length - evalTasks.length}`);
     console.log(`  tokens       ${formatTokenCount(inputTokens + outputTokens)}`);
     console.log(`  est. time    ${formatCalibratedTime(estMinutes)} (concurrency ${ctx.concurrency})`);
     console.log('');
