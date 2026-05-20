@@ -116,7 +116,7 @@ export interface RunContext {
   /** Errors aggregated by code for end-of-run summary */
   errorsByCode: Record<string, number>;
   /** Per-file error details for end-of-run summary */
-  errorDetails: Array<{ file: string; code: string; message: string }>;
+  errorDetails: Array<{ file: string; code: string; message: string; phase: string; axesInFlight?: string[] }>;
   /** Number of files where at least one axis evaluator crashed */
   degradedReviews: number;
   /** Per-axis aggregated stats for run-metrics.json */

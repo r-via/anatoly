@@ -267,6 +267,11 @@ export async function runReviewPhase(
       let currentAbort = new AbortController();
       ctx.activeAborts.add(currentAbort);
       let timedOut = false;
+      // Axes that started but did not complete (still in flight or crashed).
+      // Captured for SDK_TIMEOUT / generic-failure error details so the
+      // end-of-run summary can name the suspect axes (the per-file timeout
+      // wraps the multi-axis fan-out, otherwise that signal is lost).
+      const axesInFlight = new Set<AxisId>();
 
       try {
         const runEval = () => retryWithBackoff(
@@ -304,7 +309,11 @@ export async function runReviewPhase(
               router: ctx.router,
               userInstructions: ctx.userInstructions,
               arbitratedFragments: handoff.arbitratedFragments,
-              onAxisComplete: () => {
+              onAxisStart: (axisId) => {
+                axesInFlight.add(axisId);
+              },
+              onAxisComplete: (axisId) => {
+                axesInFlight.delete(axisId);
                 state.markAxisDone(filePath);
               },
               onTranscriptChunk: (chunk) => {
@@ -365,7 +374,7 @@ export async function runReviewPhase(
           pm.updateFileStatus(filePath, 'ERROR', msg);
           ctx.errorCount++;
           ctx.errorsByCode[ERROR_CODES.AXES_ALL_FAILED] = (ctx.errorsByCode[ERROR_CODES.AXES_ALL_FAILED] ?? 0) + 1;
-          ctx.errorDetails.push({ file: filePath, code: ERROR_CODES.AXES_ALL_FAILED, message: msg });
+          ctx.errorDetails.push({ file: filePath, code: ERROR_CODES.AXES_ALL_FAILED, message: msg, phase: 'review', axesInFlight: result.failedAxes });
           ctx.degradedReviews++;
           completedCount++;
         } else {
@@ -436,10 +445,11 @@ export async function runReviewPhase(
         pm.updateFileStatus(filePath, errorCode === 'SDK_TIMEOUT' ? 'TIMEOUT' : 'ERROR', message);
         ctx.errorCount++;
         ctx.errorsByCode[errorCode] = (ctx.errorsByCode[errorCode] ?? 0) + 1;
-        ctx.errorDetails.push({ file: filePath, code: errorCode, message });
-        log.error({ file: filePath, code: errorCode, err: error }, 'file review failed');
-        ctx.runLog?.error({ event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, code: errorCode, message, verdict: 'ERROR' }, 'file review failed');
-        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, verdict: 'ERROR', error: errorCode });
+        const inFlight = axesInFlight.size > 0 ? Array.from(axesInFlight) : undefined;
+        ctx.errorDetails.push({ file: filePath, code: errorCode, message, phase: 'review', axesInFlight: inFlight });
+        log.error({ file: filePath, code: errorCode, phase: 'review', axesInFlight: inFlight, err: error }, 'file review failed');
+        ctx.runLog?.error({ event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, code: errorCode, message, phase: 'review', axesInFlight: inFlight, verdict: 'ERROR' }, 'file review failed');
+        ctx.timeline.push({ t: Date.now() - ctx.startTime, event: ('file_review_end' satisfies OrchestrationEventName), file: filePath, verdict: 'ERROR', error: errorCode, axesInFlight: inFlight });
         completedCount++;
       } finally {
         ctx.activeAborts.delete(currentAbort);
