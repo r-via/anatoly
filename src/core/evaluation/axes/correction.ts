@@ -290,7 +290,7 @@ function applyVerification(
     return !okRanges.some((r) => a.line! >= r.start && a.line! <= r.end);
   });
 
-  return { symbols: updatedSymbols, actions: filteredActions };
+  return { symbols: updatedSymbols, actions: filteredActions, doc_divergences: pass1.doc_divergences };
 }
 
 /**
@@ -445,6 +445,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
       cacheReadTokens: totalCacheReadTokens,
       cacheCreationTokens: totalCacheCreationTokens,
       transcript,
+      ...(finalData.doc_divergences ? { doc_divergences: finalData.doc_divergences } : {}),
     };
   }
 }

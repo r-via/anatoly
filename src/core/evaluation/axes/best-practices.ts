@@ -207,6 +207,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
       cacheCreationTokens,
       transcript,
       _bestPractices: data,
+      ...(data.doc_divergences ? { doc_divergences: data.doc_divergences } : {}),
     } as AxisResult & { _bestPractices: BestPracticesResponse };
   }
 }

@@ -91,6 +91,11 @@ export function mergeAxisResults(
   const verdict = computeVerdict(symbols);
   const axisMeta = buildAxisMeta(results);
 
+  // Aggregate reference-vs-code divergences across all axes that may emit
+  // them (correction, tests, overengineering, best-practices). Without this,
+  // the LLM's findings under FR15/Story 54.9 are dropped after Zod parse.
+  const docDivergences = results.flatMap((r) => r.doc_divergences ?? []);
+
   contextLogger().debug(
     {
       file: task.file,
@@ -116,6 +121,7 @@ export function mergeAxisResults(
     ...(bestPractices ? { best_practices: bestPractices } : {}),
     ...(docsCoverage ? { docs_coverage: docsCoverage } : {}),
     ...(Object.keys(axisMeta).length > 0 ? { axis_meta: axisMeta } : {}),
+    ...(docDivergences.length > 0 ? { doc_divergences: docDivergences } : {}),
   };
 }
 

@@ -329,24 +329,33 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const startTime = Date.now();
   const transcriptParts: string[] = [];
 
-  // Execute all evaluators in parallel, each in its own axis sub-context
+  // Execute all evaluators in parallel, each in its own axis sub-context.
+  // onAxisComplete fires in finally so progress counters advance for failed
+  // axes too (the callback contract is "after each evaluator finishes,
+  // success or failure"); placing it after await would skip the failure path.
   const settledResults = await Promise.allSettled(
     activeEvaluators.map(async (evaluator) => {
       return runWithContext({ axis: evaluator.id }, async () => {
         onAxisStart?.(evaluator.id);
-        const result = await evaluator.evaluate(ctx, abortController);
-        onAxisComplete?.(evaluator.id);
-        return result;
+        try {
+          return await evaluator.evaluate(ctx, abortController);
+        } finally {
+          onAxisComplete?.(evaluator.id);
+        }
       });
     }),
   );
 
-  // Collect successful results, log failures — stream transcript chunks as available
+  // Collect successful results, log failures — stream transcript chunks as available.
+  // settledResults is built from activeEvaluators (skipped axes filtered out),
+  // so it must be indexed against activeEvaluators, not the full evaluators
+  // list — otherwise per-axis attribution (transcript header, failedAxes,
+  // warning log) drifts whenever an axis is config-skipped.
   const successResults: AxisResult[] = [];
   const failedAxes: AxisId[] = [];
   for (let i = 0; i < settledResults.length; i++) {
     const settled = settledResults[i];
-    const evaluator = evaluators[i];
+    const evaluator = activeEvaluators[i];
     let chunk: string;
     if (settled.status === 'fulfilled') {
       successResults.push(settled.value);

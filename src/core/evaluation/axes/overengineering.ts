@@ -179,6 +179,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
       cacheReadTokens,
       cacheCreationTokens,
       transcript,
+      ...(data.doc_divergences ? { doc_divergences: data.doc_divergences } : {}),
     };
   }
 }

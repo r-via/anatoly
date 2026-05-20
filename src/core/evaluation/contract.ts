@@ -19,7 +19,7 @@ import type { Config } from '../../schemas/config.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { FileDependencyContext } from '../scanning/index.js';
 import type { SimilarityResult } from '../../rag/types.js';
-import type { Action } from '../../schemas/review.js';
+import type { Action, DocDivergence } from '../../schemas/review.js';
 import type { UserInstructions } from '../../utils/user-instructions.js';
 import type { ReferenceDoc } from '../documentation/index.js';
 import type { TransportRouter } from '../transports/index.js';
@@ -128,6 +128,8 @@ export interface AxisResult {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   transcript: string;
+  /** Reference-vs-code divergences detected by the LLM (Story 54.9 / FR15). */
+  doc_divergences?: DocDivergence[];
 }
 
 /** Contract implemented by all axis evaluators. `defaultModel` selects haiku (fast) or sonnet (capable). */
