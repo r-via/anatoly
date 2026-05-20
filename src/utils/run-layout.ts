@@ -6,7 +6,7 @@
  * Run-layout convention: the single source of truth for the location and
  * naming of every artifact under `<project>/.anatoly/runs/<runId>/`.
  *
- * See `docs/02-Architecture/19-Run-Layout-Convention.md` for the contract.
+ * See `docs/02-Architecture/19-Run-Artifact-Layout-Convention.md` for the contract.
  *
  * Rules (enforced by `run-layout.test.ts`):
  *

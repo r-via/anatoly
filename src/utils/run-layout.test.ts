@@ -14,8 +14,8 @@
  *    nowhere except `run-layout.ts` and its own test. Allowlists are
  *    explicit and minimal; each one has a documented reason.
  *
- * See `docs/02-Architecture/19-Run-Layout-Convention.md` §4 for the
- * invariants this test enforces.
+ * See `docs/02-Architecture/19-Run-Artifact-Layout-Convention.md` §6 for
+ * the invariants this test enforces.
  */
 
 import { describe, it, expect } from 'vitest';
