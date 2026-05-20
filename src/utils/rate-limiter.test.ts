@@ -41,6 +41,26 @@ describe('isRateLimitError', () => {
     expect(isRateLimitError('429')).toBe(false);
     expect(isRateLimitError(null)).toBe(false);
   });
+
+  it('should detect socket closed transient errors', () => {
+    const err = new AnatolyError(
+      'Claude Code SDK query failed: Claude Code returned an error result: API Error: The socket connection was closed unexpectedly.',
+      ERROR_CODES.SDK_ERROR,
+      true,
+    );
+    expect(isRateLimitError(err)).toBe(true);
+  });
+
+  it('should detect socket hang up', () => {
+    const err = new Error('fetch failed: socket hang up');
+    expect(isRateLimitError(err)).toBe(true);
+  });
+
+  it('should detect ECONNRESET / ETIMEDOUT / ECONNREFUSED', () => {
+    expect(isRateLimitError(new Error('connect ECONNRESET 1.2.3.4:443'))).toBe(true);
+    expect(isRateLimitError(new Error('request ETIMEDOUT'))).toBe(true);
+    expect(isRateLimitError(new Error('connect ECONNREFUSED'))).toBe(true);
+  });
 });
 
 describe('calculateBackoff', () => {

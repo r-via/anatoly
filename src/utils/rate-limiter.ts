@@ -63,7 +63,8 @@ export interface RetryWithBackoffOptions {
 
 /**
  * Check if an error is retryable: rate limit 429, overloaded 529, server
- * 500/503, or a Claude Code subprocess crash ("exited with code").
+ * 500/503, transient network failures (socket closed / hang up / reset /
+ * timeout / refused), or a Claude Code subprocess crash ("exited with code").
  * The Anthropic SDK wraps these in various ways.
  */
 export function isRateLimitError(error: unknown): boolean {
@@ -74,7 +75,10 @@ export function isRateLimitError(error: unknown): boolean {
     msg.includes('429') || msg.includes('rate limit') || msg.includes('rate_limit')
     || msg.includes('529') || msg.includes('overloaded')
     || msg.includes('500') || msg.includes('503')
-    || msg.includes('exited with code');
+    || msg.includes('exited with code')
+    || (msg.includes('socket') && (msg.includes('closed') || msg.includes('hang up')))
+    || msg.includes('econnreset') || msg.includes('econnrefused')
+    || msg.includes('etimedout') || msg.includes('socket hang up');
 
   if (error instanceof AnatolyError && (error.code === 'SDK_ERROR')) {
     return check(error.message.toLowerCase());
