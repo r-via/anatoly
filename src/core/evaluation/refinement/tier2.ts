@@ -70,7 +70,13 @@ const BEHAVIORAL_KEYWORDS = [
  *   one without losing functionality. Suppressing it strips the
  *   single fact that makes the cleanup safe.
  * - ERROR → always escalated to tier 3
- * - NEEDS_FIX confidence < 75 isolated → escalated
+ * - NEEDS_FIX isolated → escalated regardless of confidence. Isolation
+ *   (no other axis corroborates) is a stronger FP signal than the
+ *   evaluator's own confidence: a single axis flagging a symbol at
+ *   80-90% with no support from utility/duplication/overeng/tests/docs
+ *   is precisely the shape of an over-confident hallucination. The
+ *   previous `< 75` cap left this band unreviewed and accounted for
+ *   the bulk of high-severity false positives surviving to the report.
  * - Behavioral/config changes → escalated
  *
  * Returns a new ReviewFile (input not mutated).
@@ -136,38 +142,37 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
       }
     }
 
-    // --- Escalation: Low confidence isolated NEEDS_FIX ---
-    if (
-      s.correction === 'NEEDS_FIX' &&
-      s.confidence < LOW_CONFIDENCE_THRESHOLD &&
-      isIsolatedFinding(s)
-    ) {
+    const correctionAlreadyEscalated = (): boolean =>
+      escalated.some((e) => e.file === review.file && e.symbolName === s.name && e.axis === 'correction');
+
+    // --- Escalation: Behavioral/config change detection (more informative
+    // reason than "isolated") — check before the isolated rule so the
+    // behavioral label wins when both apply. ---
+    if (s.correction === 'NEEDS_FIX' && isBehavioralChange(s.detail) && !correctionAlreadyEscalated()) {
       escalated.push({
         file: review.file,
         symbolName: s.name,
         axis: 'correction',
         value: 'NEEDS_FIX',
-        reason: `Low confidence isolated finding (confidence: ${s.confidence})`,
+        reason: 'Behavioral change — needs investigation',
       });
       stats.escalated++;
     }
 
-    // --- Escalation: Behavioral/config change detection ---
-    if (s.correction === 'NEEDS_FIX' && isBehavioralChange(s.detail)) {
-      // Don't double-count if already escalated as isolated
-      const alreadyEscalated = escalated.some(
-        (e) => e.file === review.file && e.symbolName === s.name && e.axis === 'correction',
-      );
-      if (!alreadyEscalated) {
-        escalated.push({
-          file: review.file,
-          symbolName: s.name,
-          axis: 'correction',
-          value: 'NEEDS_FIX',
-          reason: 'Behavioral change — needs investigation',
-        });
-        stats.escalated++;
-      }
+    // --- Escalation: Isolated NEEDS_FIX (any confidence) ---
+    // Isolation = no other axis corroborates. That signal beats the
+    // evaluator's self-reported confidence at predicting false positives,
+    // so we escalate the whole NEEDS_FIX band, not just conf < 75.
+    if (s.correction === 'NEEDS_FIX' && isIsolatedFinding(s) && !correctionAlreadyEscalated()) {
+      const band = s.confidence < LOW_CONFIDENCE_THRESHOLD ? 'low' : 'high';
+      escalated.push({
+        file: review.file,
+        symbolName: s.name,
+        axis: 'correction',
+        value: 'NEEDS_FIX',
+        reason: `Isolated ${band}-confidence finding (confidence: ${s.confidence})`,
+      });
+      stats.escalated++;
     }
 
     return s;

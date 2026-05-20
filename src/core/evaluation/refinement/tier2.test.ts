@@ -212,9 +212,9 @@ describe('applyTier2', () => {
     expect(result.review.symbols[0].correction).toBe('ERROR');
   });
 
-  // --- Low confidence isolated NEEDS_FIX → escalated ---
+  // --- Isolated NEEDS_FIX → escalated (any confidence) ---
 
-  it('AC: NEEDS_FIX confidence < 75 isolated → escalated', async () => {
+  it('AC: NEEDS_FIX low-confidence isolated → escalated', async () => {
     const review = makeReview({
       symbols: [{
         name: 'suspectFunc',
@@ -229,10 +229,27 @@ describe('applyTier2', () => {
     const result = await applyTier2(review);
 
     expect(result.escalated.length).toBe(1);
-    expect(result.escalated[0].reason).toContain('Low confidence isolated finding');
+    expect(result.escalated[0].reason).toContain('Isolated low-confidence finding');
   });
 
-  it('should NOT escalate NEEDS_FIX confidence < 75 when other axes have findings', async () => {
+  it('AC: NEEDS_FIX high-confidence isolated → escalated (catches over-confident FPs)', async () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'overConfidentBug',
+        correction: 'NEEDS_FIX', confidence: 85,
+        utility: 'USED', duplication: 'UNIQUE', overengineering: 'LEAN',
+        tests: 'GOOD', documentation: 'DOCUMENTED',
+        detail: 'Confident claim with no corroborating axis',
+      }],
+    });
+
+    const result = await applyTier2(review);
+
+    expect(result.escalated.length).toBe(1);
+    expect(result.escalated[0].reason).toContain('Isolated high-confidence finding');
+  });
+
+  it('should NOT escalate NEEDS_FIX when other axes have findings (not isolated)', async () => {
     const review = makeReview({
       symbols: [{
         name: 'suspectFunc',
@@ -245,24 +262,7 @@ describe('applyTier2', () => {
     const result = await applyTier2(review);
 
     // Should NOT be escalated as "isolated" — the DEAD+NEEDS_FIX coherence rule applies instead
-    const isolated = result.escalated.filter((e) => e.reason.includes('Low confidence isolated'));
-    expect(isolated.length).toBe(0);
-  });
-
-  it('should NOT escalate NEEDS_FIX when confidence ≥ 75', async () => {
-    const review = makeReview({
-      symbols: [{
-        name: 'confirmedBug',
-        correction: 'NEEDS_FIX', confidence: 80,
-        utility: 'USED', duplication: 'UNIQUE', overengineering: 'LEAN',
-        tests: 'GOOD', documentation: 'DOCUMENTED',
-        detail: 'Confirmed buffer overflow',
-      }],
-    });
-
-    const result = await applyTier2(review);
-
-    const isolated = result.escalated.filter((e) => e.reason.includes('Low confidence'));
+    const isolated = result.escalated.filter((e) => e.reason.includes('Isolated'));
     expect(isolated.length).toBe(0);
   });
 
