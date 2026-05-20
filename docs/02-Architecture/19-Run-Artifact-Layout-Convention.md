@@ -131,10 +131,13 @@ export function runLayout(runDir: string) {
     // conversations/  (doc 15 PR 3: harness-assigned name)
     conversations: {
       dir:  conversationsDir,
-      // The harness builds the name from the unit identity it owns.
-      // Callers MUST NOT pass a hand-built prefix anymore.
-      dump: (unitSlug: string, unitName: string, attempt: number) =>
-        join(conversationsDir, `${unitSlug}__${unitName}__${attempt}.md`),
+      // The harness builds the name from the unit identity it owns,
+      // expressed as the 4-segment slug already tracked by the
+      // ALS log-context (phase / composer / primitive / callId) +
+      // the per-call attempt number. Callers MUST NOT pass a
+      // hand-built prefix anymore.
+      dump: (slug: string, attempt: number) =>
+        join(conversationsDir, `${slug}__${attempt}.md`),
     },
     // structure-review/ and coherence-review/ (doc bootstrap sub-logs)
     structureReview: (subpath?: string) =>
@@ -174,7 +177,7 @@ calls `runLayout(runDir).<...>`. Byte-identical paths.
 | `anatoly.ndjson` | run logger init (in `utils/run-id.ts` / logger setup) | `runLayout(runDir).events` |
 | `structure-review/...` | [doc.ts:184](../../src/core/orchestration/phases/doc.ts#L184) | `runLayout(runDir).structureReview(sub)` |
 | `coherence-review/...` | [doc.ts:230](../../src/core/orchestration/phases/doc.ts#L230) | `runLayout(runDir).coherenceReview(sub)` |
-| `conversations/<prefix>__<n>.md` | [conversation-dump.ts:45](../../src/core/transports/conversation-dump.ts#L45), callers in [doc-indexer.ts:353](../../src/rag/doc-indexer.ts#L353), [nlp-summarizer.ts:116](../../src/rag/nlp-summarizer.ts#L116), each axis transport call | `runLayout(runDir).conversations.dump(slug, name, attempt)` (called by the runUnit harness, NOT the call site) |
+| `conversations/<prefix>__<n>.md` | [conversation-dump.ts:45](../../src/core/transports/conversation-dump.ts#L45), callers in [doc-indexer.ts:353](../../src/rag/doc-indexer.ts#L353), [nlp-summarizer.ts:116](../../src/rag/nlp-summarizer.ts#L116), each axis transport call | `runLayout(runDir).conversations.dump(slug, attempt)`, where `slug = buildDumpSlug()` is read from the ALS log-context (`{phase}__{composer}__{primitive}__{callId}`) by the transport, NOT supplied at the call site |
 
 ## 6. Acceptance invariants (testable)
 
@@ -195,10 +198,13 @@ calls `runLayout(runDir).<...>`. Byte-identical paths.
    at the tip of each migration PR, matches the pre-PR baseline.
 5. **PR 3 is the only filename change.** Conversation dump names move
    from the current ad-hoc `<handcrafted-prefix>__<attempt>.md` (e.g.
-   `rag__doc-chunk__<slug>__1.md`) to
-   `<unit-slug>__<unit-name>__<attempt>.md`. Goldens that reference
-   dump filenames are updated in the same PR; nothing else changes
-   on disk.
+   `rag__doc-chunk__<slug>__1.md`) to the 4-segment harness slug
+   `{phase}__{composer}__{primitive}__{callId}__{attempt}.md` produced
+   by [`buildDumpSlug()`](../../src/core/transports/conversation-dump.ts#L16)
+   from the active ALS log-context. The transport reads the slug from
+   the context; no call site passes a `conversationPrefix` anymore.
+   Goldens that reference dump filenames are updated in the same PR;
+   nothing else changes on disk.
 
 ## 7. PR sequence (ascending risk)
 
@@ -212,9 +218,15 @@ calls `runLayout(runDir).<...>`. Byte-identical paths.
   coherence review). Each is gate-green and produces a structural
   golden diff of zero against the prior tip.
 - **PR 3. Harness-assigned conversation dump names.** Kill per-call-site
-  `conversationPrefix`. The runUnit harness owns the dump name from the
-  unit identity it already carries; transport receives the name from
-  the harness, not from the caller. Updates goldens and any test
+  `conversationPrefix` (and the parallel `conversationFileSlug` axis
+  context field). The harness owns the dump name as the 4-segment ALS
+  log-context slug `{phase}__{composer}__{primitive}__{callId}` produced
+  by [`buildDumpSlug()`](../../src/core/transports/conversation-dump.ts#L16);
+  transports call the helper themselves at dump time. Each non-axis
+  call site (RAG doc-indexer, RAG nlp-summarizer, doc-conflict pair
+  verification, doc scaffolding, refinement tier-3 shards) tightens
+  its `runWithContext({ composer, primitive, callId })` scope so the
+  slug is well-formed at dump time. Updates goldens and any test
   asserting a dump filename. This is the **only behavior-relevant PR**
   (filenames in `conversations/` change). Doc 15 §3 point 4 closed.
 - **PR 4. Enforcement.** Add the structural golden test (hermetic) and
