@@ -70,9 +70,9 @@ export function buildDeliberationSystemPrompt(): string {
  * - The merged ReviewFile serialized as JSON
  * - The full source code of the file under review
  * - Inline deliberation rules: skip clean symbols, address all axis findings
- *   per symbol together, protect ERROR (require confidence >= 95 to downgrade),
- *   require confidence >= 85 for reclassification, and prohibit adding new
- *   findings, symbols, or actions
+ *   per symbol together, require confidence >= 85 for any reclassification
+ *   (including downgrading ERROR — Opus with source in hand beats the initial
+ *   evaluator), and prohibit adding new findings, symbols, or actions
  *
  * @deprecated Per-file deliberation removed in Story 41.1. Retained for
  *   potential reuse by tier 3 agentic investigation (Story 41.4).
@@ -129,8 +129,7 @@ Deliberate ONLY symbols with findings — skip clean symbols. For each symbol, a
 Rules:
 - Only include axes with findings in original/deliberated (omit clean axes)
 - Do NOT add new findings, symbols, or actions
-- Protect ERROR (require ≥ 95 confidence to downgrade)
-- Reclassification requires confidence ≥ 85
+- Reclassification (including downgrading ERROR) requires confidence ≥ 85 — the same threshold applies uniformly across axes and verdicts
 - Copy original values when you agree with the finding
 - When a test file is provided, use it to independently verify tests axis findings — reclassify WEAK→GOOD or NONE→WEAK/GOOD if the test file covers the symbol adequately`);
 

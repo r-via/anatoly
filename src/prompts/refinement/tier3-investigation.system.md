@@ -63,7 +63,6 @@ Where `<axis>` is one of: {{AXIS_LIST}}.
 
 1. **No new findings**: Do NOT add or invent new findings. Only verify, reclassify, or dismiss the existing ones.
 2. **Confidence Scale**: Confidence must be an integer between 0 and 100.
-3. **Reclassification Threshold**: Reclassifying a finding requires a deliberated confidence ≥ 85.
-4. **Protect ERROR Status**: You must have a deliberated confidence ≥ 95 to downgrade an "ERROR" finding.
+3. **Reclassification Threshold**: Reclassifying any finding (including downgrading "ERROR") requires a deliberated confidence ≥ 85. The same threshold applies uniformly — your Opus-level investigation with the source in hand is strictly more reliable than the initial evaluator's claim, so an extra 10-point margin for ERROR over-protects the original verdict against your own corrections and was the primary cause of false-positive ERRORs surviving the run.
 5. **Concrete Evidence**: The `reasoning` field for each symbol MUST contain verifiable evidence (file:line, grep output, or explicit config values).
 6. **Axis constraint**: Only include axes that had findings in the original payload.
