@@ -494,3 +494,38 @@ time, not the table above (which is recorded for orientation only).
   conversation as structurally unreachable (the scaffold is generated
   from the buggy code; comparing them detects nothing). Correction
   reading the code directly is the only path.
+
+## 9. Follow-ups (parked, out of scope for the F1 lever)
+
+These were surfaced during the F1-resolution work but are NOT what is
+blocking the bench result. Logged here so they are not lost.
+
+### 9.1 Pass-2 (correction.verification) vs tier-3 (refinement) partial overlap
+
+`correction.ts:230-394` runs a pass-2 verification on any file with
+deps + ≥1 pass-1 NEEDS_FIX/ERROR. `refinement/tier3.ts` runs an
+agentic deliberation on findings escalated by tier 2 (ERROR always;
+NEEDS_FIX with confidence < 75 isolated; behavioral/config changes).
+
+These are NOT duplicates: pass 2 confronts findings against
+**library README docs** in a deterministic single-turn call, tier 3
+confronts findings against the **actual source code** via an
+agentic Read+grep subprocess. Different contexts, different
+machinery, complementary precision filters.
+
+But they overlap on the sub-population `correction:NEEDS_FIX with
+confidence < 75 and behavioral`: those findings get filtered twice.
+Worth investigating whether:
+
+- tier 2 should skip findings that already passed (or failed) pass 2,
+- or pass 2 should be folded into tier 3 as a deterministic pre-step,
+- or both should stay and the cost is acceptable.
+
+**Why parked:** the overlap is a precision-cost question, not a
+recall lever. The F1 gap on slot-engine (INV-WILD/FREESPIN/JACKPOT)
+is recall-bound and lives upstream of either filter — they only see
+findings pass 1 has already raised. Solve the recall lever first
+(§4.B), then revisit this for cost/clarity.
+
+**When to revisit:** after §4.B ships (or is rejected), or whenever
+a refacto touches `correction.ts` pass-2 or `refinement/` tier 2/3.
