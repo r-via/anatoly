@@ -42,7 +42,7 @@ import { detectHardware, readEmbeddingsReadyFlag } from '../../../rag/hardware-d
 import { getLogger } from '../../../utils/logger.js';
 import type { Task } from '../../../schemas/task.js';
 import { triageFile, type TriageResult } from '../../evaluation/index.js';
-import { buildUsageGraph } from '../../scanning/index.js';
+import { buildUsageGraph, scanUsageImporters } from '../../scanning/index.js';
 import { loadDependencyMeta } from '../../scanning/index.js';
 import { getEnabledEvaluators } from '../../evaluation/index.js';
 import { buildProjectTree } from '../../scanning/index.js';
@@ -319,8 +319,14 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
 
   // --- Phase: usage graph (computed for downstream pipeline; not displayed
   // in the run pre-confirmation table — opaque metric that lives in the
-  // detailed `anatoly estimate` view). ---
-  const usageGraph = buildUsageGraph(srcRoot, allTasks);
+  // detailed `anatoly estimate` view).
+  //
+  // Importer-only tasks (test/spec files) are parsed in-memory and fed as a
+  // second argument so symbols referenced only by tests are not falsely
+  // flagged DEAD by the utility axis. They do not enter the audit set,
+  // estimate, triage, or any LLM call — only their import edges count. ---
+  const usageImporterTasks = await scanUsageImporters(srcRoot, ctx.config);
+  const usageGraph = buildUsageGraph(srcRoot, allTasks, usageImporterTasks);
   const projectTree = buildProjectTree(allTasks.map((t) => t.file));
   const docsTree = buildDocsTree(srcRoot, getDocsDir(ctx.config));
   const internalDocsDir = anatolyPath(srcRoot, 'state/internal-docs');

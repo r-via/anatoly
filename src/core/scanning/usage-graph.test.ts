@@ -240,6 +240,44 @@ describe('buildUsageGraph', () => {
     const graph = buildUsageGraph(testDir, tasks);
     expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual([]);
   });
+
+  it('importerOnlyTasks: test-only imports keep audit symbols USED', () => {
+    // Symbol is exported from src/, used ONLY by a test file. Without the
+    // importer-only superset it would show as DEAD because tests are excluded
+    // from the audit task set.
+    createFile('src/utils/cache.ts', 'export function computeHash() {}\n');
+    createFile('tests/cache.test.ts', "import { computeHash } from '../src/utils/cache.js';\n");
+
+    const auditTasks = [
+      makeTask('src/utils/cache.ts', [{ name: 'computeHash', exported: true }]),
+    ];
+    const importerOnlyTasks = [
+      makeTask('tests/cache.test.ts', []),
+    ];
+
+    const graph = buildUsageGraph(testDir, auditTasks, importerOnlyTasks);
+    expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['tests/cache.test.ts']);
+  });
+
+  it('importerOnlyTasks: namespace-import re-exports stay scoped to audit exports', () => {
+    // Audit file `src/schemas/review.ts` exports A; test file does a star
+    // import on it. Without the importer-only feed, A would be DEAD. The
+    // namespace-import resolution must use the audit export map (A is there),
+    // not anything contributed by importer-only tasks, so the edge for A
+    // points at the test file as importer.
+    createFile('src/schemas/review.ts', 'export const A = 1;\n');
+    createFile('tests/review.test.ts', "import * as Review from '../src/schemas/review.js';\n");
+
+    const auditTasks = [
+      makeTask('src/schemas/review.ts', [{ name: 'A', exported: true, kind: 'constant' }]),
+    ];
+    const importerOnlyTasks = [
+      makeTask('tests/review.test.ts', []),
+    ];
+
+    const graph = buildUsageGraph(testDir, auditTasks, importerOnlyTasks);
+    expect(getSymbolUsage(graph, 'A', 'src/schemas/review.ts')).toEqual(['tests/review.test.ts']);
+  });
 });
 
 // --- Story 31.13: Multi-Language Usage Graph ---

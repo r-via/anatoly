@@ -508,27 +508,40 @@ function resolveNonTsImportPath(
  * Runs in a single local pass (no API calls).
  *
  * @param projectRoot - Absolute path to the project root
- * @param tasks - All scanned tasks (for export information and file list)
+ * @param tasks - All scanned audit tasks (contribute exports + imports).
+ * @param importerOnlyTasks - Optional extra tasks (e.g. test files) whose
+ *   imports are added to the graph but whose exports are NOT registered.
+ *   Used so that symbols imported only by tests are not falsely flagged
+ *   DEAD because `.anatoly.yml scan.exclude` removes tests from the audit
+ *   set. The importer task's file path appears in the importer list returned
+ *   by `getSymbolUsage`, which is exactly what tier-1 / utility evaluators
+ *   need to flip DEAD → USED.
  * @returns UsageGraph mapping "symbol::file" → Set<importer files>
  */
 export function buildUsageGraph(
   projectRoot: string,
   tasks: Task[],
+  importerOnlyTasks: Task[] = [],
 ): UsageGraph {
   const startTime = Date.now();
   const usages = new Map<string, Set<string>>();
   const typeOnlyUsages = new Map<string, Set<string>>();
   const noImportFiles = new Set<string>();
+  // Exports come from the audited tasks only — importer-only tasks (tests)
+  // must not introduce phantom export targets.
   const allExportsByFile = buildExportMap(tasks);
 
+  // Iterate audit tasks + importer-only tasks together for the import pass.
+  const allImporters = importerOnlyTasks.length > 0 ? [...tasks, ...importerOnlyTasks] : tasks;
+
   // Build set of all known task files for non-TS import resolution
-  const taskFileSet = new Set<string>(tasks.map((t) => t.file));
+  const taskFileSet = new Set<string>(allImporters.map((t) => t.file));
 
   // Build Rust workspace crate map for cross-crate import resolution
-  const hasRustFiles = tasks.some((t) => extname(t.file) === '.rs');
+  const hasRustFiles = allImporters.some((t) => extname(t.file) === '.rs');
   const rustCrateMap = hasRustFiles ? buildRustCrateMap(projectRoot, taskFileSet) : undefined;
 
-  for (const task of tasks) {
+  for (const task of allImporters) {
     const ext = extname(task.file);
     const language = task.language ?? resolveAdapter(ext)?.languageId;
 

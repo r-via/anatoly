@@ -13,7 +13,7 @@
  * (doc 13 §8).
  */
 
-export { scanProject, parseFile, parseToRootNode } from './scanner.js';
+export { scanProject, parseFile, parseToRootNode, collectUsageImporterFiles, scanUsageImporters } from './scanner.js';
 
 export { autoDetectScanGlobs } from './scan-autodetect.js';
 

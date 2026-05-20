@@ -226,6 +226,119 @@ export async function collectFiles(
   return result;
 }
 
+/** Default glob patterns for files that contribute to the usage graph but are
+ * not audited. Captures Vitest/Jest/Mocha conventions for JS/TS. */
+const USAGE_IMPORTER_PATTERNS = [
+  '**/*.test.{ts,tsx,js,jsx,mts,cts,mjs,cjs}',
+  '**/*.spec.{ts,tsx,js,jsx,mts,cts,mjs,cjs}',
+] as const;
+
+/** Excludes we always keep when scanning importer-only files: vendor / build
+ * artefacts must never be parsed regardless of test-pattern overlap. */
+const USAGE_IMPORTER_HARD_EXCLUDES = [
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/coverage/**',
+  '**/.next/**',
+  '.anatoly/**',
+  '.git/**',
+] as const;
+
+/**
+ * Collect importer-only files (tests/specs) whose imports should feed the
+ * usage graph but whose contents are NOT audited. These would otherwise be
+ * excluded by `.anatoly.yml scan.exclude` (typical patterns: any glob ending
+ * in `.test.ts` / `.spec.ts`), causing every symbol used only in tests to be
+ * flagged DEAD by the utility axis. We invert that exclusion locally for
+ * this collection — see USAGE_IMPORTER_PATTERNS for the matched globs.
+ */
+export async function collectUsageImporterFiles(
+  projectRoot: string,
+  config: Config,
+): Promise<string[]> {
+  // Strip test/spec patterns from the configured excludes — the whole point
+  // of this function is to find them. Match by substring on the pattern's
+  // dot-separated body to cover '*.test.ts' / '*.spec.{ts,tsx}' / etc.
+  // without a brittle regex over brace syntax. Keep vendor/build excludes
+  // via the hard list so we never wander into node_modules.
+  const isTestPattern = (p: string): boolean => p.includes('*.test.') || p.includes('*.spec.');
+  const nonTestExcludes = config.scan.exclude.filter((p) => !isTestPattern(p));
+  const ignore = [...new Set([...nonTestExcludes, ...USAGE_IMPORTER_HARD_EXCLUDES])];
+
+  const matched = await glob([...USAGE_IMPORTER_PATTERNS], {
+    cwd: projectRoot,
+    ignore,
+  });
+
+  let filtered = matched;
+  if (config.scan.respect_gitignore) {
+    const tracked = getGitTrackedFiles(projectRoot);
+    if (tracked) filtered = matched.filter((f) => tracked.has(f));
+  }
+
+  const result = [...new Set(filtered)].sort();
+  contextLogger().debug(
+    { matched: matched.length, final: result.length },
+    'collectUsageImporterFiles complete',
+  );
+  return result;
+}
+
+/**
+ * Parse importer-only files (tests/specs) into in-memory Tasks for the usage
+ * graph. Not persisted to disk: importer-only tasks are cheap to rebuild and
+ * never enter the audit set or the .anatoly/cache/tasks/ store.
+ *
+ * AST parse errors are tolerated silently — a malformed test file simply
+ * contributes no imports, which is no worse than the pre-change behaviour.
+ */
+export async function scanUsageImporters(
+  projectRoot: string,
+  config: Config,
+): Promise<Task[]> {
+  const files = await collectUsageImporterFiles(projectRoot, config);
+  if (files.length === 0) return [];
+
+  const now = new Date().toISOString();
+  const tasks: Task[] = [];
+  for (const relPath of files) {
+    const absPath = resolve(projectRoot, relPath);
+    let source: string;
+    try {
+      source = readFileSync(absPath, 'utf-8');
+    } catch {
+      continue;
+    }
+    const ext = extname(relPath);
+    const adapter = resolveAdapter(ext);
+    const parseMethod = adapter ? 'ast' : 'heuristic';
+    const detectedLang = classifyFile(relPath);
+
+    let symbols: SymbolInfo[] = [];
+    let imports: ImportRef[] = [];
+    try {
+      const result = await parseFile(relPath, source);
+      symbols = result.symbols;
+      imports = result.imports;
+    } catch {
+      // Silent: importer-only files that fail to parse just contribute no imports.
+    }
+
+    tasks.push({
+      version: 1,
+      file: relPath,
+      hash: computeFileHash(absPath),
+      symbols,
+      ...(imports.length > 0 ? { imports } : {}),
+      language: detectedLang?.toLowerCase() ?? 'unknown',
+      parse_method: parseMethod as 'ast' | 'heuristic',
+      scanned_at: now,
+    });
+  }
+  return tasks;
+}
+
 /**
  * Istanbul coverage JSON per-file entry.
  * Keys in `s`, `f`, `b` are string indices; values are hit counts.
