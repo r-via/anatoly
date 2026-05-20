@@ -273,3 +273,97 @@ describe('run-layout — structural enforcement', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Invariant 2 (doc 19 §6) — no runDir composition outside the layout module.
+// Catches the bypass *pattern* `join(<…>runDir, '<subdir>', …)` rather than
+// specific filenames. The literal-string check above catches leaked names;
+// this catches a fresh writer composing a runDir subpath inline. The match
+// is keyed on the first arg containing `runDir` (case-insensitive, also
+// `ctx.runDir`, `opts.runDir`, etc.) so dual-base writers using
+// `projectRoot` / `'.anatoly'` are not falsely flagged.
+// ---------------------------------------------------------------------------
+
+const RUNDIR_BYPASS_PATTERN =
+  /join\(\s*[A-Za-z_$][\w$.]*[Rr]unDir\b\s*,\s*['"](logs|reviews|conversations|costs|axes|structure-review|coherence-review)['"]/;
+
+describe('run-layout — invariant 2: no runDir subdir composition outside the module', () => {
+  const srcRoot = join(__dirname, '..');
+
+  it('forbids `join(runDir, <subdir>, …)` in production code', () => {
+    const tsFiles = walk(srcRoot, srcRoot);
+    const violations: Array<{ file: string; line: number; snippet: string }> = [];
+    for (const rel of tsFiles) {
+      if (isAllowlisted(join('src', rel))) continue;
+      const content = readFileSync(join(srcRoot, rel), 'utf-8');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const code = lines[i].replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '');
+        if (RUNDIR_BYPASS_PATTERN.test(code)) {
+          violations.push({ file: `src/${rel}`, line: i + 1, snippet: lines[i].trim() });
+        }
+      }
+    }
+    if (violations.length > 0) {
+      const msg = violations
+        .map((v) => `  ${v.file}:${v.line}\n    ${v.snippet}`)
+        .join('\n');
+      throw new Error(
+        `Inline \`join(runDir, '<subdir>', …)\` composition leaked outside ` +
+          `src/utils/run-layout.ts. Use a helper (logsDir, reviewsDir, ` +
+          `conversationsDir, costsDir, axesDir, structureReviewDir, ` +
+          `coherenceReviewDir, or a specific path helper) or, if this is a ` +
+          `legitimate dual-base/legacy site, add it to ALLOWLIST with a ` +
+          `documented reason.\n\n${msg}`,
+      );
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant 3 (doc 19 §6, closing doc 15 §3 point 4) — no hand-built
+// `conversationPrefix:` at call sites. Conversation dump names are
+// harness-assigned (the runUnit harness builds the slug via `buildDumpSlug`
+// and threads it through the transport). The transport itself receives the
+// prefix internally; only `core/transports/` may name the property.
+// ---------------------------------------------------------------------------
+
+describe('run-layout — invariant 3: no per-call-site conversationPrefix', () => {
+  const srcRoot = join(__dirname, '..');
+
+  it('forbids `conversationPrefix:` as a property outside core/transports/', () => {
+    const tsFiles = walk(srcRoot, srcRoot);
+    const allowed = (rel: string) => {
+      const n = rel.split(sep).join('/');
+      return n.startsWith('core/transports/');
+    };
+    const violations: Array<{ file: string; line: number; snippet: string }> = [];
+    for (const rel of tsFiles) {
+      if (allowed(rel)) continue;
+      const content = readFileSync(join(srcRoot, rel), 'utf-8');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const trimmed = raw.trimStart();
+        // skip JSDoc / block-comment lines (legitimate historical mentions)
+        if (trimmed.startsWith('*') || trimmed.startsWith('/**') || trimmed.startsWith('//')) continue;
+        const code = raw.replace(/\/\/.*$/, '').replace(/\/\*.*?\*\//g, '');
+        if (/\bconversationPrefix\s*:/.test(code)) {
+          violations.push({ file: `src/${rel}`, line: i + 1, snippet: raw.trim() });
+        }
+      }
+    }
+    if (violations.length > 0) {
+      const msg = violations
+        .map((v) => `  ${v.file}:${v.line}\n    ${v.snippet}`)
+        .join('\n');
+      throw new Error(
+        `Per-call-site \`conversationPrefix:\` leaked outside ` +
+          `src/core/transports/. Conversation dump names are harness-assigned ` +
+          `(doc 15 §3 point 4 / doc 19 §6 invariant 3): the runUnit harness ` +
+          `builds the 4-segment slug via \`buildDumpSlug\` and threads it to ` +
+          `the transport. Remove the prefix from the call site.\n\n${msg}`,
+      );
+    }
+  });
+});
