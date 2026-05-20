@@ -89,7 +89,9 @@ function normalize(text: string, projectRoot: string): string {
     out = out.split(projectRoot).join('<ROOT>');
   }
   // ISO-8601 timestamps (2026-05-17T08:50:11.586Z and date-only variants).
-  out = out.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z?/g, '<TS>');
+  // The time portion is optional so bare `2026-05-17` also normalizes,
+  // matching the comment's stated intent.
+  out = out.replace(/\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?/g, '<TS>');
   // Long epoch-style digit runs (tier3-shard-1747... etc.).
   out = out.replace(/\d{13,}/g, '<N>');
   return out;

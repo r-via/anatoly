@@ -207,18 +207,30 @@ function computeWeights(types: ProjectType[]): Weights {
     };
   }
 
-  // Reduce smaller dimensions proportionally to fund bonuses
+  // Reduce smaller dimensions proportionally to fund bonuses.
+  // The bonuses are capped against `pool` so the four computed dimensions
+  // (struct, api, m, c, n) sum to ≤ 100, but a bonus exceeding the cap also
+  // means the bonus itself overflows past the pool budget. The previous
+  // formulation let bonuses stay at their raw value while only `factor`
+  // absorbed the cap, so e.g. structBonus=40 + apiBonus=15 produced
+  // structural=65 + apiCoverage=40 + 0 + 0 + 0 = 105, breaching the
+  // 0-100 DocScore.overall contract. Apportion the cap to each bonus
+  // proportionally so the structural+apiCoverage half also stays within
+  // the bonus budget.
   const pool = 20 + 15 + 15; // moduleCoverage + contentQuality + navigation
   const capped = Math.min(totalBonus, pool);
   const factor = (pool - capped) / pool;
+  const scale = capped / totalBonus;
+  const cappedStructBonus = Math.round(structBonus * scale);
+  const cappedApiBonus = capped - cappedStructBonus;
 
   const m = Math.round(20 * factor);
   const c = Math.round(15 * factor);
-  const n = Math.max(0, 100 - (25 + structBonus) - (25 + apiBonus) - m - c);
+  const n = Math.max(0, 100 - (25 + cappedStructBonus) - (25 + cappedApiBonus) - m - c);
 
   return {
-    structural: 25 + structBonus,
-    apiCoverage: 25 + apiBonus,
+    structural: 25 + cappedStructBonus,
+    apiCoverage: 25 + cappedApiBonus,
     moduleCoverage: m,
     contentQuality: c,
     navigation: n,

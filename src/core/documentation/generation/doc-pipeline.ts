@@ -227,10 +227,15 @@ export function runDocGeneration(
     prompts.push(prompt);
   }
 
-  // Remove deleted pages (with traversal guard)
+  // Remove deleted pages (with traversal guard).
+  // The earlier bare startsWith check accepted sibling dirs (outputDir
+  // `/x/internal-docs` would let `/x/internal-docs-extra/f.md` through);
+  // anchor on `root + sep` so only true descendants pass, mirroring the
+  // isScaffoldStub guard at L302.
+  const outputRoot = resolve(outputDir);
   for (const removed of cacheResult.removed) {
     const fullPath = resolve(outputDir, removed);
-    if (!fullPath.startsWith(resolve(outputDir))) continue;
+    if (fullPath !== outputRoot && !fullPath.startsWith(outputRoot + sep)) continue;
     if (existsSync(fullPath)) {
       unlinkSync(fullPath);
     }

@@ -99,8 +99,6 @@ function collectCliContext(projectRoot: string, pkg: Record<string, unknown>): T
     }
   }
 
-  if (lines.length === 0) return null;
-
   // Truncate to avoid prompt bloat (max ~3000 chars)
   let content = lines.join('\n');
   if (content.length > 3000) {

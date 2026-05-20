@@ -108,13 +108,19 @@ export function buildCoherenceUserMessage(opts: CoherenceUserMessageOpts): strin
   parts.push('## INTERNAL_DOCS');
   parts.push('');
   if (opts.contentInjected !== false) {
+    const lead = typeof opts.fileCount === 'number'
+      ? `Below are the ${opts.fileCount} internal documentation files to review.`
+      : `Below are the internal documentation files to review.`;
     parts.push(
-      `Below are the internal documentation files to review.`,
+      lead,
       `Fix any coherence issues using the Write tool.`,
     );
   } else {
+    const lead = typeof opts.fileCount === 'number'
+      ? `The documentation directory (${opts.fileCount} files) is your current working directory.`
+      : `The documentation directory is your current working directory.`;
     parts.push(
-      `The documentation directory is your current working directory.`,
+      lead,
       `Please read all pages, identify coherence issues, and fix them.`,
     );
   }
