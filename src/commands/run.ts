@@ -5,7 +5,7 @@
 import type { Command } from 'commander';
 import { writeFileSync, existsSync } from 'node:fs';
 
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import chalk from 'chalk';
 import * as p from '@clack/prompts';
 import { loadConfig, getV3Source } from '../utils/config-loader.js';

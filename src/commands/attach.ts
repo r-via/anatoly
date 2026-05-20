@@ -13,7 +13,7 @@
 
 import type { Command } from 'commander';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { listRunStatuses, readRunStatus, isProcessAlive, writeRunStatus, type RunStatus } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
