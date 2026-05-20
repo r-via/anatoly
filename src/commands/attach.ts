@@ -643,15 +643,22 @@ export function registerAttachCommand(parent: Command): void {
 
       // Snapshot of current run state — so the user sees the phase/progress
       // immediately, even if `estimate_total` fired before they attached.
+      //
+      // With `--from-start` we skip this seed: the replay re-emits every
+      // historic `estimate_total` and `file_review_end`, so seeding from
+      // progress.json would double-count (counter goes past totalFiles).
+      const fromStart = opts?.fromStart ?? false;
       let snapshotTotal = 0;
       let snapshotReviewed = 0;
-      try {
-        const pm = new ProgressManager(projectRoot);
-        const summary = pm.getSummary();
-        snapshotTotal = pm.totalFiles();
-        snapshotReviewed = summary.DONE + summary.CACHED;
-      } catch {
-        // progress.json missing or unreadable — leave counts at 0
+      if (!fromStart) {
+        try {
+          const pm = new ProgressManager(projectRoot);
+          const summary = pm.getSummary();
+          snapshotTotal = pm.totalFiles();
+          snapshotReviewed = summary.DONE + summary.CACHED;
+        } catch {
+          // progress.json missing or unreadable — leave counts at 0
+        }
       }
       const currentPhase = readCurrentPhase(logPath);
       console.log('  ' + chalk.dim('─'.repeat(60)));
@@ -709,7 +716,6 @@ export function registerAttachCommand(parent: Command): void {
         drawStatusLine();
       }, 1000);
 
-      const fromStart = opts?.fromStart ?? false;
       const tailHandle: TailHandle = tailNdjson(logPath, {
         fromStart,
         onEvent: (ev) => {
