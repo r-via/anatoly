@@ -17,6 +17,7 @@ For each symbol, determine its documentation status:
 - **Types, interfaces, and enums** with self-descriptive names and fields = DOCUMENTED by default (confidence: 95). Only mark PARTIAL/UNDOCUMENTED if they have complex semantics that are not obvious from their names.
 - **Private/internal helper functions** with clear names and <10 lines = tolerate UNDOCUMENTED (lower confidence: 60). Focus on exported public API.
 - **Test files** = all symbols DOCUMENTED by default (confidence: 95). Tests are self-documenting.
+- **Zod schemas** (`z.object({ ... })`) where every non-obvious field carries an inline `/** */` JSDoc comment OR an explanatory `// inline` comment immediately above the field = DOCUMENTED (confidence: 90). Both comment styles are idiomatic for Zod in the TypeScript ecosystem — the schema does not need an additional block-level JSDoc when the field-level docs are present. Only mark PARTIAL when several non-obvious fields are bare (no inline comment of either style), and only mark UNDOCUMENTED when the schema has no field-level docs at all AND the schema purpose is non-obvious from the name.
 
 ## Concept Coverage Rules (only when docs pages are provided)
 
