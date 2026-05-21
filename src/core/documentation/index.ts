@@ -66,6 +66,7 @@ export { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } fro
 // --- reporting/ (doc 13 PR 6c) ---
 export { aggregateDocReport } from './reporting/doc-report-aggregator.js';
 export type { DocReportResult } from './reporting/doc-report-aggregator.js';
+export type { DocReportStats, SymbolCoverage, SyncByType } from './reporting/doc-report-section.js';
 
 export { detectDocGapsV2, formatGapReportV2 } from './reporting/doc-gap-detection.js';
 

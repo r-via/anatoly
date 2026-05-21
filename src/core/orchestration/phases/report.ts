@@ -39,7 +39,7 @@ import { injectBadge } from '../../reporting/index.js';
 import { sendNotifications, type NotificationPayload } from '../../notifications/index.js';
 import { formatCompactTokens, formatRunDuration } from '../../../utils/format.js';
 import { getActiveSinkTotals, writeCostSummary, writeCostVariance } from '../../../utils/llm-calls-sink.js';
-import { runMetricsPath, docReferenceSectionPath, reviewsDir, logsDir, runEventLogPath } from '../../../utils/run-layout.js';
+import { runMetricsPath, docReferenceSectionPath, docReportStatsPath, reviewsDir, logsDir, runEventLogPath } from '../../../utils/run-layout.js';
 import { getEnabledEvaluators } from '../../evaluation/index.js';
 import { resolveAxisModel } from '../../evaluation/index.js';
 import { countPendingDocConflicts } from '../../documentation/index.js';
@@ -137,12 +137,17 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     }
   }
 
-  // Persist doc reference section so `anatoly report` can reload it
+  // Persist doc reference section + structured stats so `anatoly report` can
+  // reload both. The stats are the canonical input for the public report's
+  // doc-coverage section (no regex parsing of the rendered markdown).
   if (docReferenceSection && ctx.runDir) {
     writeFileSync(docReferenceSectionPath(ctx.runDir), docReferenceSection);
   }
+  if (handoff.docReportResult?.reportStats && ctx.runDir) {
+    writeFileSync(docReportStatsPath(ctx.runDir), JSON.stringify(handoff.docReportResult.reportStats, null, 2));
+  }
 
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection);
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection, undefined, undefined, handoff.docReportResult?.reportStats);
 
   if (ctx.config.output?.max_runs) {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);

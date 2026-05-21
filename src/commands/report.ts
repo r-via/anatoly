@@ -7,7 +7,8 @@ import chalk from 'chalk';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, dirname, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
-import { runMetricsPath, docReferenceSectionPath, reviewsDir } from '../utils/run-layout.js';
+import { runMetricsPath, docReferenceSectionPath, docReportStatsPath, reviewsDir } from '../utils/run-layout.js';
+import type { DocReportStats } from '../core/documentation/index.js';
 import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporting/index.js';
 import { ProgressManager } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
@@ -69,8 +70,12 @@ export function registerReportCommand(program: Command): void {
       // reportsBaseUrl is only set by `anatoly run` when publishing to anatoly-reports
       const reportsBaseUrl = undefined;
 
-      // Re-aggregate doc coverage from current reviews + profile
+      // Re-aggregate doc coverage from current reviews + profile.
+      // docReportStats is the structured payload consumed directly by the
+      // public report renderer; docReferenceSection is the markdown for the
+      // internal report + a legacy-compat fallback for the public renderer.
       let docReferenceSection: string | undefined;
+      let docReportStats: DocReportStats | undefined;
       if (runDir && existsSync(reviewsDir(runDir))) {
         try {
           const config = loadConfig(projectRoot);
@@ -86,11 +91,18 @@ export function registerReportCommand(program: Command): void {
             docsPath: getDocsDir(config),
           });
           docReferenceSection = result.renderedSection;
+          docReportStats = result.reportStats;
         } catch {
-          // Fallback: load persisted section from previous run
+          // Fallback: load persisted artifacts from the previous run.
           const docSectionPath = docReferenceSectionPath(runDir);
           if (existsSync(docSectionPath)) {
             docReferenceSection = readFileSync(docSectionPath, 'utf-8');
+          }
+          const statsPath = docReportStatsPath(runDir);
+          if (existsSync(statsPath)) {
+            try {
+              docReportStats = JSON.parse(readFileSync(statsPath, 'utf-8')) as DocReportStats;
+            } catch { /* malformed sidecar — the renderer will fall back to regex-parsing the markdown */ }
           }
         }
       }
@@ -99,7 +111,7 @@ export function registerReportCommand(program: Command): void {
 
       if (runDir && existsSync(reviewsDir(runDir))) {
         // Run-scoped mode: read reviews from run directory
-        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl);
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl, undefined, docReportStats);
         reportData = data;
         printReportSummary(data, axisReports, reportPath, reviewsDir(runDir));
         if (shouldOpen) openFile(reportPath);

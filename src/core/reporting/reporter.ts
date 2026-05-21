@@ -11,6 +11,7 @@ import { ReviewFileSchema } from '../../schemas/review.js';
 import type { ReviewFile, Verdict, Action, SymbolReview, Category, DocDivergence, DocStaleReference, DocConflictFinding } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
 import { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from '../documentation/index.js';
+import type { DocReportStats } from '../documentation/index.js';
 
 
 export interface TriageStats {
@@ -1820,11 +1821,112 @@ function axisVerdictBreakdown(data: ReportData, axis: ReportAxisId): string {
 }
 
 /**
- * Re-render the raw documentation reference section for the public report.
- * Parses the original rendered section and produces a more readable version
- * with explanations of each metric.
+ * Render the public-report "Documentation Coverage" section directly from
+ * the structured stats produced by `aggregateDocReport`. No regex parsing —
+ * the previous implementation re-rendered the markdown by reverse-engineering
+ * the rendered-then-persisted section via ~10 regex patterns, paying a
+ * render→parse→render round-trip for data we already had in memory.
  */
-function renderPublicDocSection(raw: string): string[] {
+function renderPublicDocSectionFromStats(stats: DocReportStats): string[] {
+  const lines: string[] = [];
+  lines.push('## Documentation Coverage');
+  lines.push('');
+  lines.push('Measures inline doc comments (`///` in Rust, `/** */` in JS/TS, docstrings in Python) on exported symbols.');
+  lines.push('Anatoly also generates reference pages in `.anatoly/docs/` for every reviewed module.');
+  lines.push('');
+
+  const pageParts: string[] = [];
+  if (stats.refreshedPages.length > 0) pageParts.push(`${stats.refreshedPages.length} refreshed`);
+  if (stats.cachedPages.length > 0) pageParts.push(`${stats.cachedPages.length} cached`);
+  const pageSummary = pageParts.length > 0 ? ` (${pageParts.join(', ')})` : '';
+  lines.push(`**Reference pages:** ${stats.totalPages} pages generated${pageSummary}`);
+  lines.push('');
+
+  const sc = stats.symbolCoverage;
+  if (sc) {
+    const projectPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.projectDocumented / sc.totalExports) * 100));
+    const internalPct = sc.totalExports === 0 ? 100 : Math.min(100, Math.round((sc.internalDocumented / sc.totalExports) * 100));
+    const projectDocCount = Math.min(sc.projectDocumented, sc.totalExports);
+    const internalDocCount = Math.min(sc.internalDocumented, sc.totalExports);
+
+    if (stats.docsSynced || stats.userDocsPageCount === 0) {
+      lines.push('| Metric | Coverage | Description |');
+      lines.push('|--------|----------|-------------|');
+      lines.push(`| Complete doc comments | ${healthBar(projectPct)} ${projectPct}% (${projectDocCount}/${sc.totalExports}) | Exported symbols with a complete inline doc comment covering description, params, and return |`);
+      lines.push(`| Any doc comment | ${healthBar(internalPct)} ${internalPct}% (${internalDocCount}/${sc.totalExports}) | Exported symbols with at least a partial inline doc comment |`);
+      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+        const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+        lines.push(`| Module guides | ${healthBar(modPct)} ${modPct}% (${sc.internalModulesDocumented}/${sc.totalModules}) | Modules > 200 LOC with a dedicated page in docs/ |`);
+      }
+      if (stats.userDocsPageCount === 0) {
+        lines.push(`| Reference pages | ${stats.totalPages} pages | Anatoly-generated module and API reference pages |`);
+      }
+      lines.push('');
+      lines.push(stats.docsSynced
+        ? '> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.'
+        : '> No `docs/` directory found. Copy `.anatoly/docs/` to `docs/` to adopt the generated documentation and speed up future Anatoly runs.');
+      lines.push('');
+    } else {
+      lines.push('**Project docs (docs/):**');
+      lines.push('');
+      lines.push('| Metric | Coverage | Description |');
+      lines.push('|--------|----------|-------------|');
+      lines.push(`| Complete doc comments | ${healthBar(projectPct)} ${projectPct}% (${projectDocCount}/${sc.totalExports}) | Exported symbols with a complete inline doc comment covering description, params, and return |`);
+      lines.push(`| Any doc comment | ${healthBar(internalPct)} ${internalPct}% (${internalDocCount}/${sc.totalExports}) | Exported symbols with at least a partial inline doc comment |`);
+      if (sc.modulesDocumented !== undefined && sc.totalModules !== undefined) {
+        const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.modulesDocumented / sc.totalModules) * 100));
+        lines.push(`| Module guides | ${healthBar(modPct)} ${modPct}% (${sc.modulesDocumented}/${sc.totalModules}) | Modules > 200 LOC with a dedicated page in docs/ |`);
+      }
+      lines.push('');
+
+      lines.push('**Internal docs (.anatoly/docs/):**');
+      lines.push('');
+      lines.push('| Metric | Coverage | Description |');
+      lines.push('|--------|----------|-------------|');
+      lines.push(`| Reference pages | ${stats.totalPages} pages | Anatoly-generated module and API reference pages |`);
+      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+        const intModPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
+        lines.push(`| Module guides | ${healthBar(intModPct)} ${intModPct}% (${sc.internalModulesDocumented}/${sc.totalModules}) | Modules > 200 LOC with a page in .anatoly/docs/ |`);
+      }
+      lines.push('');
+      lines.push('> Check the internal Anatoly docs in `.anatoly/docs/` or simply replace your current `docs/` with the internal docs to speed up future Anatoly runs.');
+      lines.push('');
+    }
+  }
+
+  if (stats.syncByType) {
+    const syncParts: string[] = [];
+    if (stats.syncByType.toCreate > 0) syncParts.push(`${stats.syncByType.toCreate} pages to create`);
+    if (stats.syncByType.outdated > 0) syncParts.push(`${stats.syncByType.outdated} pages outdated`);
+    if (syncParts.length > 0) {
+      lines.push(`**Gaps:** ${syncParts.join(', ')}.`);
+      lines.push('');
+    }
+  }
+
+  if (stats.newPages.length > 0) {
+    lines.push('<details>');
+    lines.push(`<summary><strong>New pages generated (${stats.newPages.length})</strong></summary>`);
+    lines.push('');
+    for (const { page, source } of stats.newPages) {
+      lines.push(`- .anatoly/docs/${page}  (from ${source})`);
+    }
+    lines.push('');
+    lines.push('</details>');
+    lines.push('');
+  }
+
+  return lines;
+}
+
+/**
+ * Re-render the documentation reference section for the public report.
+ * Prefers structured stats (clean path); falls back to regex-parsing the
+ * rendered markdown when stats are absent (legacy runs without the
+ * doc-report-stats.json sidecar).
+ */
+function renderPublicDocSection(raw: string, stats?: DocReportStats): string[] {
+  if (stats) return renderPublicDocSectionFromStats(stats);
   const lines: string[] = [];
   lines.push('## Documentation Coverage');
   lines.push('');
@@ -1963,7 +2065,7 @@ function renderPublicDocSection(raw: string): string[] {
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
  */
-export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo): string {
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo, docReportStats?: DocReportStats): string {
   const lines: string[] = [];
 
   // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
@@ -2166,8 +2268,8 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
   }
 
   // ── 5. DOCUMENTATION REFERENCE (rewritten for public readability) ─────
-  if (docReferenceSection) {
-    lines.push(...renderPublicDocSection(docReferenceSection));
+  if (docReferenceSection || docReportStats) {
+    lines.push(...renderPublicDocSection(docReferenceSection ?? '', docReportStats));
     lines.push('');
   }
 
@@ -2297,6 +2399,10 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
  * @param triageStats - Optional triage statistics to include in the master index.
  * @param runStats - Optional run-level timing/cost statistics.
  * @param docReferenceSection - Optional markdown section for referenced documentation.
+ * @param docReportStats - Optional structured DocReportStats for the public report's
+ *   doc-coverage section. Passed through verbatim to {@link renderPublicIndex}; when
+ *   present, the public renderer uses it directly instead of regex-parsing
+ *   `docReferenceSection`.
  * @returns An object with `reportPath`, aggregated `data`, legacy `shards`, and per-axis `axisReports`.
  */
 export function generateReport(
@@ -2308,6 +2414,7 @@ export function generateReport(
   docReferenceSection?: string,
   reportsBaseUrl?: string,
   docMode?: DocModeInfo,
+  docReportStats?: DocReportStats,
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   // doc 16 PR 3a: fold unresolved (pending) doc-conflicts into the
@@ -2344,7 +2451,7 @@ export function generateReport(
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode, docReportStats));
 
   // Write per-axis folders
   for (const report of axisReports) {

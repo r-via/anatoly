@@ -120,6 +120,13 @@ export function docReferenceSectionPath(runDir: string): string {
   return join(runDir, 'doc-reference-section.md');
 }
 
+/** Structured DocReportStats emitted alongside doc-reference-section.md so
+ *  the public report renderer can consume the data directly (no regex
+ *  parsing of the rendered markdown). */
+export function docReportStatsPath(runDir: string): string {
+  return join(runDir, 'doc-report-stats.json');
+}
+
 /** Structured event stream for mini-runs (scan/estimate/review/watch). */
 export function runEventLogPath(runDir: string): string {
   return join(runDir, 'anatoly.ndjson');

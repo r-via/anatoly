@@ -56,6 +56,10 @@ export interface DocReportResult {
   score: DocScore;
   recommendations: DocRecommendation[];
   renderedSection: string;
+  /** Structured stats used to build {@link renderedSection}. Exposed so the
+   *  public report renderer can consume the data directly instead of
+   *  regex-parsing the rendered markdown back out. */
+  reportStats: DocReportStats;
   userDocPlan: UserDocPlan | null;
 }
 
@@ -92,7 +96,7 @@ export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const reportStats = buildReportStats(input, scoringInput, recommendations);
   const renderedSection = renderDocReferenceSection(reportStats);
 
-  return { score, recommendations, renderedSection, userDocPlan };
+  return { score, recommendations, renderedSection, reportStats, userDocPlan };
 }
 
 // --- Internal helpers ---

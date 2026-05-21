@@ -895,4 +895,50 @@ describe('crashed-axis degradation (no false 100% clean)', () => {
     expect(md).toContain('Verdict: **DEGRADED**');
     expect(md).not.toContain('Verdict: **CLEAN**');
   });
+
+  it('renderPublicIndex consumes structured DocReportStats directly (no regex parse round-trip)', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    // Structured stats path: pass DocReportStats + a deliberately misleading
+    // markdown body. If the renderer were still regex-parsing the markdown,
+    // we would see "FROM_MD" tokens; the structured path must win.
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined,
+      undefined,
+      'FROM_MD updated: 99 pages (FROM_MD)\nFROM_MD coverage: 99%',
+      undefined,
+      undefined,
+      undefined,
+      {
+        totalPages: 12,
+        newPages: [{ page: '01-Overview.md', source: 'src/core/index.ts' }],
+        refreshedPages: ['02-Modules.md'],
+        cachedPages: ['03-API.md', '04-Guides.md'],
+        userDocsPageCount: 10,
+        symbolCoverage: {
+          projectDocumented: 80,
+          internalDocumented: 90,
+          totalExports: 100,
+          modulesDocumented: 5,
+          totalModules: 7,
+          internalModulesDocumented: 7,
+        },
+        syncByType: { toCreate: 3, outdated: 1 },
+        docsSynced: false,
+      },
+    );
+
+    const section = md.slice(md.indexOf('## Documentation Coverage'));
+    expect(section).toContain('**Reference pages:** 12 pages generated');
+    expect(section).toContain('80% (80/100)');     // project complete coverage
+    expect(section).toContain('90% (90/100)');     // internal partial coverage
+    expect(section).toContain('Module guides');
+    expect(section).toContain('5/7');              // project module coverage
+    expect(section).toContain('7/7');              // internal module coverage
+    expect(section).toContain('**Gaps:** 3 pages to create, 1 pages outdated.');
+    expect(section).toContain('New pages generated (1)');
+    // Regex-parse fallback must NOT have run
+    expect(section).not.toContain('FROM_MD');
+  });
 });
