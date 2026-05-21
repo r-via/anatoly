@@ -16,7 +16,7 @@ Start from 10.0 and subtract penalties per rule violation:
 | 4 | Utility types (Pick, Omit, Partial, Required, Record) | MEDIUM | -0.5 pt |
 | 5 | Immutability (readonly, as const where appropriate) | MEDIUM | -0.5 pt |
 | 6 | Interface vs Type (consistent convention within project) | MEDIUM | -0.5 pt |
-| 7 | File size (< 300 lines preferred) | HIGH | -1 pt |
+| 7 | File size (< 500 lines for utilities/leaf modules, < 1000 lines for orchestration/reporting/aggregation code) | MEDIUM | -0.5 pt |
 | 8 | ESLint compliance (no obvious lint violations) | HIGH | -1 pt |
 | 9 | JSDoc on public exports (except test files) | MEDIUM | -0.5 pt |
 | 10 | Modern 2026 practices (no deprecated APIs, modern syntax) | MEDIUM | -0.5 pt |
@@ -33,6 +33,7 @@ Start from 10.0 and subtract penalties per rule violation:
 1. Evaluate ALL 17 rules for EVERY file. Output all 17 rules in the result.
 2. PASS = rule fully satisfied. WARN = minor issues. FAIL = clear violation.
 3. Adjust evaluation based on file context (see context hint below).
+   - For **Rule 7 (file size)** specifically: pick the threshold from the file's role inferred from path/name/imports. Orchestration spines (e.g. `*/orchestration/pipeline.ts`, `*/phases/*.ts`), reporters/aggregators that emit multi-format outputs (e.g. `*/reporting/reporter.ts`), evaluation refinement tiers, and central schema barrels legitimately concentrate concept-related code and target the < 1000 line bracket. Utility leaves, pure helpers, single-purpose adapters target the < 500 line bracket. PASS if the file fits its applicable bracket; WARN if 1–1.5× the bracket; FAIL only when the file substantially exceeds its bracket AND a clean split would not introduce artificial module boundaries.
 4. For test files: rules 9 (JSDoc) and 15 (testability) are always PASS.
 5. For config files: rules 3 (unions), 4 (utility types), 5 (immutability) are evaluated leniently.
 6. Score cannot go below 0.
@@ -64,7 +65,7 @@ A pattern that appears unsafe in isolation but is guarded by the type system sho
 
 - **9–10**: All 17 rules PASS. Strict mode, zero `any`, proper error handling, security-clean, well-documented exports.
 - **7–8**: Minor issues only (1-2 MEDIUM WARN). E.g., missing `readonly` on a config object, or one import group out of order.
-- **5–6**: Several MEDIUM violations or 1 HIGH violation. E.g., file exceeds 300 lines, or missing JSDoc on 3+ public exports.
+- **5–6**: Several MEDIUM violations or 1 HIGH violation. E.g., missing JSDoc on 3+ public exports, or 3+ separate MEDIUM rules flagged at once.
 - **3–4**: Multiple HIGH violations or 1 CRITICAL. E.g., unhandled promise rejections AND missing JSDoc AND no strict mode.
 - **1–2**: 1 CRITICAL + multiple HIGH. E.g., explicit `any` used pervasively AND hardcoded secrets found.
 - **0**: Multiple CRITICAL violations. E.g., `eval()` with user input AND hardcoded API keys AND pervasive `any`. 0 score reserved for extreme cases.
