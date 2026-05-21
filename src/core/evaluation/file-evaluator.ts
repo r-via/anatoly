@@ -142,13 +142,16 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
 
-  // Resolve associated test file(s)
-  // Strategies (first match wins):
-  //   1. Sibling: foo.test.ts / foo.spec.ts (JS/TS convention)
-  //   2. Sibling: foo_test.go (Go convention)
-  //   3. Sibling: test_foo.py / foo_test.py (Python convention)
-  //   4. __tests__/foo.test.ts or __tests__/foo.spec.ts (Jest/Vitest)
-  //   5. tests/ directory at crate/package root (Rust: crate/tests/*.rs)
+  // Resolve associated test file(s).
+  //
+  // The previous "first match wins" cascade picked one conventional file
+  // (e.g. reporter.test.ts) and stopped, so feature-grouped sibling tests
+  // (e.g. doc-divergence.test.ts testing symbols in reporter.ts) were never
+  // surfaced to the tests-axis grader — which then reported the exercised
+  // symbols as NONE ("not imported in the test file") at 70-90% confidence.
+  // Switch to ALL-match accumulation: each strategy contributes any test
+  // files it finds; we dedupe by path, then concat all contents (capped at
+  // MAX_TEST_LINES inside the grader anyway) into one payload.
   let testFileContent: string | undefined;
   let testFileName: string | undefined;
   const ext = extname(task.file);
@@ -156,69 +159,62 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   const dir = dirname(task.file);
   const lang = task.language;
   if (!base.endsWith('.test') && !base.endsWith('.spec') && !base.startsWith('test_') && !base.endsWith('_test')) {
-    const candidates: string[] = [];
+    const collected = new Set<string>();
 
-    // Strategy 1: sibling .test / .spec (JS/TS/Rust/Python etc.)
-    candidates.push(`${dir}/${base}.test${ext}`, `${dir}/${base}.spec${ext}`);
-
-    // Strategy 2: Go sibling _test
-    if (lang === 'go') {
-      candidates.push(`${dir}/${base}_test${ext}`);
-    }
-
-    // Strategy 3: Python sibling test_foo / foo_test
-    if (lang === 'python') {
-      candidates.push(`${dir}/test_${base}${ext}`, `${dir}/${base}_test${ext}`);
-    }
-
-    // Strategy 4: __tests__/ subdirectory
-    candidates.push(
+    // Convention candidates — JS/TS/Go/Python siblings + Jest-style __tests__/
+    const conventionCandidates: string[] = [
+      `${dir}/${base}.test${ext}`,
+      `${dir}/${base}.spec${ext}`,
       `${dir}/__tests__/${base}.test${ext}`,
       `${dir}/__tests__/${base}.spec${ext}`,
-    );
+    ];
+    if (lang === 'go') conventionCandidates.push(`${dir}/${base}_test${ext}`);
+    if (lang === 'python') conventionCandidates.push(`${dir}/test_${base}${ext}`, `${dir}/${base}_test${ext}`);
+    for (const rel of conventionCandidates) {
+      if (existsSync(resolve(effectiveSourceRoot, rel))) collected.add(rel);
+    }
 
-    for (const relTestPath of candidates) {
-      const testPath = resolve(effectiveSourceRoot, relTestPath);
-      if (existsSync(testPath)) {
+    // tests/ directory at crate/package root (Rust, Python, etc.)
+    const testsDir = resolveTestsDirectory(dir, base, ext, lang, effectiveSourceRoot);
+    if (testsDir) {
+      // resolveTestsDirectory returns concatenated content already; treat its
+      // name as a single virtual entry so downstream concat logic can append.
+      const parts: string[] = [`// ---- ${testsDir.name} ----\n${testsDir.content}`];
+      // Add discoverImportingTestFiles output (sibling *.test.* files that
+      // import this source, in addition to any test-dir matches).
+      for (const rel of discoverImportingTestFiles(effectiveSourceRoot, task.file, base)) {
+        if (!collected.has(rel)) collected.add(rel);
+      }
+      for (const rel of collected) {
         try {
-          testFileContent = readFileSync(testPath, 'utf-8');
-          testFileName = relTestPath;
+          parts.push(`// ---- ${rel} ----\n${readFileSync(resolve(effectiveSourceRoot, rel), 'utf-8')}`);
         } catch (err) {
-          contextLogger().debug({ testPath, err }, 'failed to read test file');
+          contextLogger().debug({ rel, err }, 'failed to read discovered test file');
         }
-        break;
       }
-    }
-
-    // Strategy 5: tests/ directory at crate/package root (Rust, Python, etc.)
-    // For src/lib.rs → look at ../tests/, for src/foo.rs → ../tests/foo.rs
-    if (!testFileContent) {
-      const testsDir = resolveTestsDirectory(dir, base, ext, lang, effectiveSourceRoot);
-      if (testsDir) {
-        testFileContent = testsDir.content;
-        testFileName = testsDir.name;
+      testFileContent = parts.join('\n\n');
+      testFileName = collected.size === 0 ? testsDir.name : `${collected.size + 1} test files (testsDir + sibling-import-discovered)`;
+    } else {
+      // Discover sibling/test-dir files importing this source — added to
+      // the convention matches, not used as a fallback. Catches feature-
+      // grouped tests whose basename doesn't match the source.
+      for (const rel of discoverImportingTestFiles(effectiveSourceRoot, task.file, base)) {
+        collected.add(rel);
       }
-    }
-
-    // Strategy 6: scan nearby test directories for any *.test.* / *.spec.*
-    // file that imports this source file (catches non-conventional names
-    // like `basic.test.ts` importing from `reels.ts`). Test files are
-    // typically excluded from the task set / usage graph, so we scan on demand.
-    if (!testFileContent) {
-      const discovered = discoverImportingTestFiles(effectiveSourceRoot, task.file, base);
-      if (discovered.length > 0) {
+      if (collected.size > 0) {
         const parts: string[] = [];
-        for (const rel of discovered) {
+        for (const rel of collected) {
           try {
-            const content = readFileSync(resolve(effectiveSourceRoot, rel), 'utf-8');
-            parts.push(`// ---- ${rel} ----\n${content}`);
+            parts.push(`// ---- ${rel} ----\n${readFileSync(resolve(effectiveSourceRoot, rel), 'utf-8')}`);
           } catch (err) {
             contextLogger().debug({ rel, err }, 'failed to read discovered test file');
           }
         }
         if (parts.length > 0) {
           testFileContent = parts.join('\n\n');
-          testFileName = discovered.length === 1 ? discovered[0] : `${discovered.length} test files (import-discovered)`;
+          testFileName = collected.size === 1
+            ? [...collected][0]
+            : `${collected.size} test files (convention + sibling-import-discovered)`;
         }
       }
     }
@@ -550,11 +546,18 @@ function discoverImportingTestFiles(
   const importRegex = /(?:import\s[^;]*?from\s+|require\s*\(\s*)['"]([^'"]+)['"]|from\s+([\w.]+)\s+import|import\s+([\w.]+)/g;
   const results = new Set<string>();
 
-  // Collect all candidate test directories: walk up from sourceDir to project root.
+  // Collect all candidate test directories: walk up from sourceDir to project
+  // root, including the source's own directory at each level so feature-grouped
+  // sibling tests (e.g. src/core/reporting/doc-divergence.test.ts testing
+  // symbols defined in src/core/reporting/reporter.ts) are discovered too.
+  // Without the source-dir inclusion the function only found tests living in
+  // `__tests__/` / `tests/` / `test/` subdirs and missed every test file whose
+  // basename didn't match the source — accounting for ~50-100 NONE false
+  // positives on the tests axis in the 2026-05-19 self-audit.
   const candidateDirs = new Set<string>();
   let cur = dirname(sourceRelPath);
-  // Include project root itself (represented as '.').
   while (true) {
+    candidateDirs.add(cur === '' ? '.' : cur);
     for (const td of testDirNames) {
       const rel = cur === '.' ? td : `${cur}/${td}`;
       candidateDirs.add(rel);
