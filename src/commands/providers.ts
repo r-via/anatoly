@@ -256,6 +256,10 @@ async function pingAnthropic(
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         abortController: ac,
+        // SDK isolation — drop the ~700k-token user/project settings prefix
+        // (see anthropic-transport.ts for full rationale). A trivial "Respond
+        // OK" health check has no business loading the whole CLAUDE.md tree.
+        settingSources: [],
       },
     });
 

@@ -151,6 +151,23 @@ export class AnthropicTransport implements LlmTransport {
         allowDangerouslySkipPermissions: true,
         abortController,
         persistSession: true,
+        // SDK isolation: do NOT auto-load user/project/local filesystem
+        // settings. By default the Claude Agent SDK enumerates every entry
+        // under `~/.claude/agents/`, `~/.claude/hooks/`, project `.claude/`,
+        // CLAUDE.md files (recursive), skills, MCP servers — and serializes
+        // them into the cached prompt prefix. On this developer box that
+        // adds ~700k tokens per call (cf. run 2026-05-21_081933 internal-
+        // docs: 686k cacheReadTokens + 43k cacheCreationTokens for ONE page
+        // generation; ~1.7MB of bundled BMAD skills + 559 user-agent
+        // definitions). Anatoly drives the SDK purely programmatically —
+        // explicit allowedTools, explicit systemPrompt, no slash commands,
+        // no MCP, no user-agents — so none of that prefix is reachable from
+        // anatoly's prompts. The empty array drops the auto-load entirely
+        // and shrinks the per-call token footprint by ~20-30x, which
+        // directly buys back ITPM headroom for the subscription rate limit
+        // that triggered the 2026-05-21 cascade. The managed-settings
+        // policy tier (which we don't use) is still read.
+        settingSources: [],
         // doc 16 root cause: on the FIRST query() of a run the bundled
         // `claude` CLI bootstraps the official plugin marketplace via
         // `git clone anthropics/claude-plugins-official` (built-in

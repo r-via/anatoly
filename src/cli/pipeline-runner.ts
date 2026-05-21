@@ -319,6 +319,9 @@ function createExecutor(projectRoot: string): DocExecutor {
             allowedTools: [],
             permissionMode: 'bypassPermissions' as const,
             allowDangerouslySkipPermissions: true,
+            // SDK isolation — see anthropic-transport.ts for the full rationale.
+            // Drops ~700k tokens of auto-loaded user/project settings per call.
+            settingSources: [],
           },
         });
 

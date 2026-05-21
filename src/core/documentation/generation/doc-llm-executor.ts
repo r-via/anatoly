@@ -790,6 +790,11 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
             allowDangerouslySkipPermissions: true,
             maxTurns: 200,
             abortController: ac,
+            // SDK isolation — drop the ~700k-token user/project settings
+            // prefix at every call (see anthropic-transport.ts for full
+            // rationale). doc-gen calls are particularly cache-sensitive
+            // since they run per-page (dozens per audit).
+            settingSources: [],
           },
         });
 
