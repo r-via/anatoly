@@ -106,6 +106,7 @@ export function buildForwardedArgs(cmdOpts: Record<string, unknown>): string[] {
   if (cmdOpts.axes) args.push('--axes', String(cmdOpts.axes));
   if (cmdOpts.cache === false) args.push('--no-cache');
   if (cmdOpts.retryTimeout === true) args.push('--retry-timeout');
+  if (cmdOpts.resume === true) args.push('--resume');
   if (cmdOpts.file) args.push('--file', String(cmdOpts.file));
   if (cmdOpts.concurrency) args.push('--concurrency', String(cmdOpts.concurrency));
   if (cmdOpts.sdkConcurrency) args.push('--sdk-concurrency', String(cmdOpts.sdkConcurrency));

@@ -21,7 +21,8 @@ import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD, readLatestPointer, listRuns } from '../utils/run-id.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
 import { runErrorLogPath, runEventLogPath } from '../utils/run-layout.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
 import { loadUserInstructions } from '../utils/user-instructions.js';
@@ -175,6 +176,7 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Execute full audit pipeline: scan → estimate → review → report')
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
+    .option('--resume', 'resume the previous run: reuse its run directory (artifacts + ledger appended in-place), skip files already DONE, retry TIMEOUT/ERROR/IN_PROGRESS files. Picks the run via .anatoly/runs/latest. Implies --retry-timeout. Mutually exclusive with --run-id.')
     .option('--axes <list>', 'comma-separated axes: utility,duplication,correction,overengineering,tests,best_practices')
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
     .option('--retry-timeout', 'also re-evaluate files left in TIMEOUT status by a previous run (defaults to false — TIMEOUTs persist until explicitly retried)')
@@ -200,7 +202,7 @@ export function registerRunCommand(program: Command): void {
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
-      cache?: boolean; retryTimeout?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
+      cache?: boolean; retryTimeout?: boolean; resume?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
@@ -390,7 +392,46 @@ export function registerRunCommand(program: Command): void {
         }
       }
 
-      const runId = cmdOpts.runId ?? generateRunId();
+      // --resume: reuse the previous run directory (its artifacts, ledger,
+      // anatoly.ndjson are appended in-place; progress.json keeps the
+      // DONE/CACHED/TIMEOUT history so the same `anatoly run` resumes
+      // exactly where it stopped). Implies --retry-timeout so files left in
+      // limbo by a partial run get another attempt. Mutually exclusive with
+      // --run-id to avoid ambiguous selection.
+      if (cmdOpts.resume && cmdOpts.runId) {
+        printNotice({
+          kind: 'error',
+          title: '--resume and --run-id are mutually exclusive',
+          hint: 'omit one — --resume auto-picks the latest run from .anatoly/runs/latest',
+        });
+        process.exitCode = 2;
+        return;
+      }
+      let resolvedRunId: string | undefined;
+      if (cmdOpts.resume) {
+        const runsDir = anatolyPath(projectRoot, 'runs');
+        resolvedRunId = readLatestPointer(runsDir) ?? listRuns(projectRoot)[0];
+        if (!resolvedRunId) {
+          printNotice({
+            kind: 'error',
+            title: '--resume: no previous run found under .anatoly/runs/',
+            hint: 'run `anatoly run` once (without --resume) to produce a run to resume',
+          });
+          process.exitCode = 2;
+          return;
+        }
+        // Imply --retry-timeout for resume so files left in TIMEOUT by the
+        // prior partial run get another attempt automatically. The user can
+        // still opt out by deleting/promoting individual statuses manually.
+        cmdOpts.retryTimeout = true;
+        printNotice({
+          kind: 'info',
+          title: `resuming run ${resolvedRunId}`,
+          hint: 'artifacts will be appended in-place; --retry-timeout implied',
+        });
+      }
+
+      const runId = resolvedRunId ?? cmdOpts.runId ?? generateRunId();
       if (cmdOpts.runId && !isValidRunId(cmdOpts.runId)) {
         printNotice({
           kind: 'error',

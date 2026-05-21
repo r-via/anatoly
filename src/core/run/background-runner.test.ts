@@ -136,6 +136,16 @@ describe('background-runner', () => {
       expect(buildForwardedArgs({ retryTimeout: undefined })).toEqual([]);
     });
 
+    it('should forward --resume when resume is true', () => {
+      const args = buildForwardedArgs({ resume: true });
+      expect(args).toEqual(['--resume']);
+    });
+
+    it('should not forward --resume when resume is false or undefined', () => {
+      expect(buildForwardedArgs({ resume: false })).toEqual([]);
+      expect(buildForwardedArgs({ resume: undefined })).toEqual([]);
+    });
+
     it('should forward --file option', () => {
       const args = buildForwardedArgs({ file: 'src/**/*.ts' });
       expect(args).toEqual(['--file', 'src/**/*.ts']);
