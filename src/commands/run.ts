@@ -225,7 +225,13 @@ export function registerRunCommand(program: Command): void {
       const pricingAxesFilter = parseAxesOption(cmdOpts.axes);
       if (pricingAxesFilter === null) return;
 
-      const useDefaults = cmdOpts.defaultsSettings === true;
+      // --resume implies "use the previous run's config verbatim" — there is
+      // nothing to ask the user about because the prior run already chose.
+      // Treat it as --defaults-settings to skip every interactive prompt
+      // (axes multiselect, end-of-setup choice, etc.). The user can still
+      // override individual flags on the resume command line (e.g.
+      // `--concurrency 4`) and those win as usual.
+      const useDefaults = cmdOpts.defaultsSettings === true || cmdOpts.resume === true;
       if (useDefaults || !process.stdin.isTTY) {
         getLogger().info('running with default settings (no prompts)');
       }
