@@ -109,6 +109,16 @@ export function calculateBackoff(
 const STANDBY_MARGIN_MS = 5 * 60 * 1000;
 /** Max standby sleep cycles before giving up. */
 const MAX_STANDBY_CYCLES = 3;
+/**
+ * Hard cap on a single standby sleep. Beyond this duration the call surfaces
+ * a non-recoverable error instead of silently sleeping the interactive run
+ * for hours: when the quota resets several hours away ("resets 11:20am"
+ * encountered 3h before), waking up at 11:20am to finish a multi-file audit
+ * is not useful — the user wants to know NOW that the run cannot proceed so
+ * they can decide whether to wait, upgrade the plan, or change concurrency.
+ * 15 minutes covers short minute-bucket bursts without lying about progress.
+ */
+const MAX_STANDBY_WAIT_MS = 15 * 60 * 1000;
 
 /**
  * Execute an async function with automatic retry on rate limit (429) errors.
@@ -134,14 +144,34 @@ export async function retryWithBackoff<T>(
 
       // --- Tier-level rate limit with known reset time ---
       if (isRateLimitStandbyError(error)) {
+        const waitMs = Math.max(0, error.resetsAtMs + STANDBY_MARGIN_MS - Date.now());
+        const resumeDate = new Date(error.resetsAtMs + STANDBY_MARGIN_MS);
+        const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        // Reset is so far away that sleeping would silently hang the run for
+        // hours. Surface a non-recoverable error so the user can decide
+        // (wait, upgrade plan, lower concurrency). Note: AnatolyError with
+        // recoverable=false bypasses the circuit-breaker increment via
+        // isProviderHealthFailure (this is a quota signal, not a health
+        // failure), so the rest of the run still fast-fails cleanly without
+        // tripping the breaker further.
+        if (waitMs > MAX_STANDBY_WAIT_MS) {
+          contextLogger().warn(
+            { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr, cap: MAX_STANDBY_WAIT_MS },
+            'rate limit standby exceeds cap — aborting rather than sleeping for hours',
+          );
+          throw new AnatolyError(
+            `Provider quota exhausted until ${resumeStr} (wait ${Math.round(waitMs / 60_000)} min > cap ${MAX_STANDBY_WAIT_MS / 60_000} min) — run aborted`,
+            ERROR_CODES.SDK_ERROR,
+            false,
+            `retry after ${resumeStr}, lower --concurrency, or upgrade the provider plan to extend the quota window`,
+          );
+        }
+
         standbyCycles++;
         if (standbyCycles > MAX_STANDBY_CYCLES) {
           throw new Error(`Rate limit standby exhausted after ${MAX_STANDBY_CYCLES} cycles — giving up`);
         }
-
-        const waitMs = Math.max(0, error.resetsAtMs + STANDBY_MARGIN_MS - Date.now());
-        const resumeDate = new Date(error.resetsAtMs + STANDBY_MARGIN_MS);
-        const resumeStr = resumeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
         contextLogger().info(
           { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr, standbyCycles },

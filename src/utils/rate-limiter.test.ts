@@ -164,6 +164,25 @@ describe('retryWithBackoff', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it('aborts non-recoverably when standby wait exceeds the 15min cap (e.g. "resets 11:20am" hours away)', async () => {
+    // Reset time is 30 min from now → 30 + 5 (margin) = 35 min standby > 15 min cap
+    const resetsAtMs = Date.now() + 30 * 60 * 1000;
+    const standbyErr = new RateLimitStandbyError(resetsAtMs);
+    const fn = vi.fn().mockRejectedValue(standbyErr);
+
+    await expect(
+      retryWithBackoff(fn, {
+        maxRetries: 5,
+        baseDelayMs: 10,
+        maxDelayMs: 100,
+        jitterFactor: 0,
+        filePath: 'test.ts',
+      }),
+    ).rejects.toThrow(/quota exhausted.*run aborted/i);
+    // Should have called fn exactly once — no silent multi-hour sleep, no retry
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it('should sleep until resetsAt + 5min on RateLimitStandbyError then retry', async () => {
     // Reset time is 100ms from now (+ 5 min margin will be applied internally)
     const resetsAtMs = Date.now() + 100;
