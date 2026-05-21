@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../../../utils/logger.js';
 import { conversationsDir } from '../../../utils/run-layout.js';
-import { isFatalAuthError } from '../../../utils/errors.js';
+import { isFatalAuthError, isCircuitOpenError } from '../../../utils/errors.js';
+import { isRateLimitStandbyError } from '../../../utils/rate-limiter.js';
 import { resolveDocMode } from '../../run/index.js';
 import {
   loadDocConflicts,
@@ -511,6 +512,18 @@ export async function detectNewConflictsViaLlm(
     } catch (err) {
       // A provider-auth failure is run-fatal: propagate.
       if (isFatalAuthError(err)) throw err;
+      // Bail-fast on circuit-open / rate-limit-standby: these are
+      // provider-wide signals — every subsequent batch in this loop would
+      // fast-fail with the SAME error in ~1ms, generating 30+ identical
+      // WARN log lines for zero benefit. Propagate so the orchestrator can
+      // decide (review phase treats CIRCUIT_OPEN as fatal; RateLimitStandby
+      // triggers a sleep-until-reset retry).
+      if (isCircuitOpenError(err) || isRateLimitStandbyError(err)) {
+        log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx, remaining: batches.length - batchIdx - 1 },
+          'doc-conflict-detection: provider unavailable — aborting batch loop early');
+        clearTimeout(timeoutHandle);
+        throw err;
+      }
       log.warn({ err: err instanceof Error ? err.message : String(err), batchIdx },
         'doc-conflict-detection: single-turn query failed — skipping batch');
       continue;

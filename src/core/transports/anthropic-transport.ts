@@ -15,7 +15,7 @@ import { appendFileSync } from 'node:fs';
 import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { recordLlmCall } from '../../utils/llm-calls-sink.js';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError } from '../../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError, isRateLimitTranscriptMessage } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendResult, appendError, type ConvDump } from './conversation-dump.js';
@@ -330,6 +330,21 @@ export class AnthropicTransport implements LlmTransport {
       // non-recoverable auth error so the orchestrator stops the whole run.
       if (isAuthFailureMessage(rawMessage) || isAuthFailureMessage(partial)) {
         throw authError('anthropic', partial);
+      }
+      // Rate-limit detection in the transcript: on subscription plans the SDK
+      // can print `API Error: Rate limit reached` in the Assistant channel
+      // and exit code 1, with NO structured `rate_limit_event` to feed the
+      // typed handler above. Without this, three consecutive rate-limit
+      // failures trip the circuit breaker and cascade-kill the whole run
+      // (cf. 2026-05-21_081933: 3 doc-conflict-update batches → CIRCUIT_OPEN
+      // → 30+ skipped batches + fatal review abort). Promote it to the
+      // canonical RateLimitStandbyError so retryWithBackoff sleeps the
+      // call (and doesn't count it against the breaker). We don't know the
+      // exact reset time from the transcript, so use a conservative 60s
+      // standby — the orchestrator wakes up and retries; if still capped,
+      // it standbys again.
+      if (isRateLimitTranscriptMessage(rawMessage) || isRateLimitTranscriptMessage(partial)) {
+        throw new RateLimitStandbyError(Date.now() + 60_000);
       }
       if (err instanceof AnatolyError) throw err;
       throw new AnatolyError(

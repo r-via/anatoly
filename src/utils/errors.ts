@@ -184,6 +184,31 @@ export function isAuthFailureMessage(text: string | null | undefined): boolean {
 }
 
 /**
+ * Heuristic: does this text (typically the SDK transcript) look like a
+ * provider rate-limit rejection?
+ *
+ * The Claude Agent SDK does not always surface a typed `rate_limit_event`
+ * for these — on subscription plans, when the per-minute or per-day cap is
+ * exceeded mid-stream, the subprocess prints `API Error: Rate limit reached`
+ * to the Assistant channel and exits with code 1. Without parsing the
+ * transcript the transport mis-classifies the failure as a generic
+ * SDK_ERROR, which counts against the circuit breaker and trips it after
+ * 3 calls (the entire rest of the run then fast-fails on CIRCUIT_OPEN).
+ * Match the SDK wording plus the canonical Anthropic API rate-limit
+ * phrasings so this signal becomes structurally recoverable.
+ */
+export function isRateLimitTranscriptMessage(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  return (
+    t.includes('rate limit reached') ||
+    t.includes('rate_limit_error') ||
+    /\bapi error:\s*429\b/.test(t) ||
+    /\b429\b[^]*?\b(too many requests|rate)/.test(t)
+  );
+}
+
+/**
  * True when `err` is the canonical, non-recoverable provider-auth failure
  * (an {@link AnatolyError} carrying {@link ERROR_CODES.PROVIDER_AUTH_FAILED}).
  *

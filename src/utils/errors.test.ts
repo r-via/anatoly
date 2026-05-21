@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isRateLimitTranscriptMessage, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
 
 describe('AnatolyError', () => {
   it('should create an error with code and recoverable flag', () => {
@@ -146,6 +146,30 @@ describe('isAuthFailureMessage', () => {
     'ECONNRESET',
   ])('does not false-positive on: %s', (msg) => {
     expect(isAuthFailureMessage(msg as string | null | undefined)).toBe(false);
+  });
+});
+
+describe('isRateLimitTranscriptMessage', () => {
+  it.each([
+    'API Error: Rate limit reached',
+    'Error: rate_limit_error',
+    '{"type":"rate_limit_error","message":"..."}',
+    'API Error: 429 Too Many Requests',
+    'HTTP 429 — rate limit exceeded',
+  ])('detects rate-limit transcript text: %s', (msg) => {
+    expect(isRateLimitTranscriptMessage(msg)).toBe(true);
+  });
+
+  it.each([
+    '',
+    null,
+    undefined,
+    'Claude Code process exited with code 1',
+    'API Error: 401 unauthorized',
+    'random business text mentioning rate or limit in passing',
+    '"file count: 429 files scanned"',
+  ])('does not false-positive on: %s', (msg) => {
+    expect(isRateLimitTranscriptMessage(msg as string | null | undefined)).toBe(false);
   });
 });
 
