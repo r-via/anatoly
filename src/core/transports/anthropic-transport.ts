@@ -15,7 +15,7 @@ import { appendFileSync } from 'node:fs';
 import { stripPrefix, extractProvider, type LlmTransport, type LlmRequest, type LlmResponse } from './index.js';
 import { calculateCost } from '../../utils/cost-calculator.js';
 import { recordLlmCall } from '../../utils/llm-calls-sink.js';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError, isRateLimitTranscriptMessage } from '../../utils/errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError, isRateLimitTranscriptMessage, parseRateLimitResetTime } from '../../utils/errors.js';
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendResult, appendError, type ConvDump } from './conversation-dump.js';
@@ -273,10 +273,26 @@ export class AnthropicTransport implements LlmTransport {
             const errorResult = message as SDKResultError;
             const details =
               errorResult.errors?.join(', ') || errorResult.subtype || 'unknown';
+            const transcript = transcriptLines.join('\n');
             // A 401 / bad-credential is fatal and non-recoverable: do not
             // dress it as a generic (retryable) SDK error.
-            if (isAuthFailureMessage(details) || isAuthFailureMessage(transcriptLines.join('\n'))) {
-              throw authError('anthropic', transcriptLines.join('\n'));
+            if (isAuthFailureMessage(details) || isAuthFailureMessage(transcript)) {
+              throw authError('anthropic', transcript);
+            }
+            // Subscription rate-limit returned as a structured error result
+            // (cf. run 2026-05-21_093126: SDK emits "Claude Code returned an
+            // error result: You've hit your limit · resets 11:20am" — no
+            // structured rate_limit_event, so the typed handler at L195
+            // never fires). Detect it here BEFORE wrapping as generic
+            // SDK_ERROR; the prior path counted these against the circuit
+            // breaker and tripped it after 3 calls, killing the run while
+            // ~36% of files were still un-reviewed. Parse the reset time
+            // from the message when present so retryWithBackoff sleeps
+            // until the quota actually lifts (fallback +60s when unparsed).
+            if (isRateLimitTranscriptMessage(details) || isRateLimitTranscriptMessage(transcript)) {
+              const parsedReset =
+                parseRateLimitResetTime(details) ?? parseRateLimitResetTime(transcript);
+              throw new RateLimitStandbyError(parsedReset ?? Date.now() + 60_000);
             }
             throw new AnatolyError(
               `Claude Code SDK error [${errorResult.subtype}]: ${details}`,
@@ -361,7 +377,9 @@ export class AnthropicTransport implements LlmTransport {
       // standby — the orchestrator wakes up and retries; if still capped,
       // it standbys again.
       if (isRateLimitTranscriptMessage(rawMessage) || isRateLimitTranscriptMessage(partial)) {
-        throw new RateLimitStandbyError(Date.now() + 60_000);
+        const parsedReset =
+          parseRateLimitResetTime(rawMessage) ?? parseRateLimitResetTime(partial);
+        throw new RateLimitStandbyError(parsedReset ?? Date.now() + 60_000);
       }
       if (err instanceof AnatolyError) throw err;
       throw new AnatolyError(

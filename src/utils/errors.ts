@@ -201,11 +201,61 @@ export function isRateLimitTranscriptMessage(text: string | null | undefined): b
   if (!text) return false;
   const t = text.toLowerCase();
   return (
+    // SDK / API phrasings
     t.includes('rate limit reached') ||
     t.includes('rate_limit_error') ||
     /\bapi error:\s*429\b/.test(t) ||
-    /\b429\b[^]*?\b(too many requests|rate)/.test(t)
+    /\b429\b[^]*?\b(too many requests|rate)/.test(t) ||
+    // Claude Code subscription phrasings (claude.ai web error surface)
+    t.includes("you've hit your limit") ||
+    t.includes("you've reached your usage limit") ||
+    t.includes('hit your usage limit') ||
+    t.includes('hit your limit') ||
+    /\bresets\s+(?:at\s+)?\d{1,2}[:.]\d{2}\s*(?:am|pm)?\b/.test(t)
   );
+}
+
+/**
+ * Best-effort: extract the reset time from a rate-limit message and return the
+ * absolute epoch-ms timestamp. Recognised forms:
+ *   "resets 11:20am (Europe/Paris)"
+ *   "resets at 11:20 AM"
+ *   "resets at 23:05"
+ *   "resets at 2026-05-21T11:20:00Z"
+ * Returns `undefined` when no parseable time is found — callers should fall
+ * back to a conservative default (e.g. +60s) so retryWithBackoff still sleeps.
+ */
+export function parseRateLimitResetTime(
+  text: string | null | undefined,
+  now: Date = new Date(),
+): number | undefined {
+  if (!text) return undefined;
+  const t = text.toLowerCase();
+
+  // ISO-8601 form first (most precise)
+  const iso = t.match(/resets\s+(?:at\s+)?(\d{4}-\d{2}-\d{2}t\d{2}:\d{2}(?::\d{2})?(?:z|[+-]\d{2}:?\d{2})?)/i);
+  if (iso) {
+    const ms = Date.parse(iso[1]);
+    if (!Number.isNaN(ms)) return ms;
+  }
+
+  // 12h / 24h clock form, e.g. "resets 11:20am" or "resets at 23:05"
+  const clock = t.match(/resets\s+(?:at\s+)?(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/i);
+  if (clock) {
+    let hour = parseInt(clock[1], 10);
+    const minute = parseInt(clock[2], 10);
+    const meridiem = clock[3]?.toLowerCase();
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return undefined;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+    if (meridiem === 'pm' && hour < 12) hour += 12;
+    const candidate = new Date(now);
+    candidate.setHours(hour, minute, 0, 0);
+    // If the parsed time is in the past today, the reset must be tomorrow
+    if (candidate.getTime() <= now.getTime()) candidate.setDate(candidate.getDate() + 1);
+    return candidate.getTime();
+  }
+
+  return undefined;
 }
 
 /**

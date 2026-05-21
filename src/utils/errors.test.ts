@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isRateLimitTranscriptMessage, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isRateLimitTranscriptMessage, parseRateLimitResetTime, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
 
 describe('AnatolyError', () => {
   it('should create an error with code and recoverable flag', () => {
@@ -156,6 +156,11 @@ describe('isRateLimitTranscriptMessage', () => {
     '{"type":"rate_limit_error","message":"..."}',
     'API Error: 429 Too Many Requests',
     'HTTP 429 — rate limit exceeded',
+    // Claude Code subscription phrasings (claude.ai web)
+    "Claude Code returned an error result: You've hit your limit · resets 11:20am (Europe/Paris)",
+    "You've reached your usage limit. Try again later.",
+    'hit your usage limit, please wait',
+    'service unavailable — resets at 14:30',
   ])('detects rate-limit transcript text: %s', (msg) => {
     expect(isRateLimitTranscriptMessage(msg)).toBe(true);
   });
@@ -170,6 +175,43 @@ describe('isRateLimitTranscriptMessage', () => {
     '"file count: 429 files scanned"',
   ])('does not false-positive on: %s', (msg) => {
     expect(isRateLimitTranscriptMessage(msg as string | null | undefined)).toBe(false);
+  });
+});
+
+describe('parseRateLimitResetTime', () => {
+  // Fix "now" to a known instant so the 12h/24h forward-roll math is deterministic.
+  const NOW = new Date('2026-05-21T09:00:00.000Z');
+
+  it('parses "resets 11:20am" relative to now (same day, future)', () => {
+    const ms = parseRateLimitResetTime("You've hit your limit · resets 11:20am", NOW);
+    expect(ms).toBeDefined();
+    // 11:20 LOCAL on the same date
+    const expected = new Date(NOW); expected.setHours(11, 20, 0, 0);
+    expect(ms).toBe(expected.getTime());
+  });
+
+  it('parses "resets at 14:30" (24h form)', () => {
+    const ms = parseRateLimitResetTime('resets at 14:30', NOW);
+    const expected = new Date(NOW); expected.setHours(14, 30, 0, 0);
+    expect(ms).toBe(expected.getTime());
+  });
+
+  it('rolls forward to tomorrow when the parsed clock time is already past', () => {
+    const lateAt = new Date('2026-05-21T23:30:00.000Z');
+    const ms = parseRateLimitResetTime('resets at 11:20am', lateAt);
+    expect(ms).toBeDefined();
+    expect(ms!).toBeGreaterThan(lateAt.getTime());
+  });
+
+  it('parses an explicit ISO-8601 form', () => {
+    const ms = parseRateLimitResetTime('resets at 2026-05-21T11:20:00Z');
+    expect(ms).toBe(Date.parse('2026-05-21T11:20:00Z'));
+  });
+
+  it('returns undefined when no time is present', () => {
+    expect(parseRateLimitResetTime('hit your limit', NOW)).toBeUndefined();
+    expect(parseRateLimitResetTime('', NOW)).toBeUndefined();
+    expect(parseRateLimitResetTime(undefined, NOW)).toBeUndefined();
   });
 });
 
