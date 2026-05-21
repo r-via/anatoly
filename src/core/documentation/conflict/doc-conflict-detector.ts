@@ -342,7 +342,7 @@ export function enrichDetectedConflict(
     lineRange = resolveSymbolLineRange(opts.tasks, item.file, item.symbol);
   }
 
-  const codeHash = hashCodeAnchor(item.file, item.symbol, lineRange, codeContent);
+  const codeHash = hashCodeAnchor(lineRange, codeContent);
 
   const anchor = {
     file: item.file,

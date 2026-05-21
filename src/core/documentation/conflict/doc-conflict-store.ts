@@ -171,18 +171,10 @@ function extractLines(content: string, lineRange: [number, number]): string {
  * All content is normalised (CRLF→LF, trimmed) before hashing (NFR2).
  */
 export function hashCodeAnchor(
-  _filePath: string,
-  _symbol: string | undefined,
   lineRange: [number, number] | undefined,
   fileContent: string,
 ): string {
-  let target: string;
-  if (lineRange) {
-    target = extractLines(fileContent, lineRange);
-  } else {
-    target = fileContent;
-  }
-
+  const target = lineRange ? extractLines(fileContent, lineRange) : fileContent;
   const normalised = normalise(target);
   return createHash('sha256').update(normalised).digest('hex');
 }
@@ -200,8 +192,6 @@ export function verifyAnchorHash(
   currentFileContent: string,
 ): 'valid' | 'stale' {
   const currentHash = hashCodeAnchor(
-    entry.anchor.file,
-    entry.anchor.symbol,
     entry.anchor.line_range as [number, number] | undefined,
     currentFileContent,
   );

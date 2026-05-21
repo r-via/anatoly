@@ -915,6 +915,41 @@ export function renderAxisIndex(report: AxisReport, allReviews?: ReviewFile[]): 
 }
 
 /**
+ * Render a verdict-count table for the symbol-grain axes. The seven cases
+ * differ only by the axis field they read and the verdict labels; collapse
+ * them with a tiny axis→labels map so adding a verdict is a one-line edit
+ * instead of a copy of the table-rendering block.
+ */
+const SYMBOL_AXIS_LABELS = {
+  utility: { field: 'utility', labels: ['USED', 'DEAD', 'LOW_VALUE'] as const },
+  duplication: { field: 'duplication', labels: ['UNIQUE', 'DUPLICATE'] as const },
+  correction: { field: 'correction', labels: ['OK', 'NEEDS_FIX', 'ERROR'] as const },
+  overengineering: { field: 'overengineering', labels: ['LEAN', 'ACCEPTABLE', 'OVER'] as const },
+  tests: { field: 'tests', labels: ['GOOD', 'WEAK', 'NONE'] as const },
+  documentation: { field: 'documentation', labels: ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'] as const },
+} as const satisfies Partial<Record<ReportAxisId, { field: keyof SymbolReview; labels: readonly string[] }>>;
+
+function renderVerdictCountTable(
+  lines: string[],
+  reliable: SymbolReview[],
+  field: keyof SymbolReview,
+  labels: readonly string[],
+): void {
+  const counts = labels.map((label) => ({
+    label,
+    count: reliable.filter((s) => s[field] === label).length,
+  }));
+  const total = counts.reduce((sum, c) => sum + c.count, 0);
+  if (total === 0) return;
+  lines.push('| Verdict | Count | % |');
+  lines.push('|---------|-------|---|');
+  for (const { label, count } of counts) {
+    if (count > 0) lines.push(`| ${label} | ${count} | ${((count / total) * 100).toFixed(0)}% |`);
+  }
+  lines.push('');
+}
+
+/**
  * Render verdict distribution for a specific axis.
  */
 function renderAxisVerdictDistribution(report: AxisReport): string[] {
@@ -925,112 +960,24 @@ function renderAxisVerdictDistribution(report: AxisReport): string[] {
   lines.push('## 📈 Verdict Distribution');
   lines.push('');
 
-  switch (report.axis) {
-    case 'utility': {
-      const used = reliable.filter((s) => s.utility === 'USED').length;
-      const dead = reliable.filter((s) => s.utility === 'DEAD').length;
-      const low = reliable.filter((s) => s.utility === 'LOW_VALUE').length;
-      const total = used + dead + low;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (used > 0) lines.push(`| USED | ${used} | ${((used / total) * 100).toFixed(0)}% |`);
-        if (dead > 0) lines.push(`| DEAD | ${dead} | ${((dead / total) * 100).toFixed(0)}% |`);
-        if (low > 0) lines.push(`| LOW_VALUE | ${low} | ${((low / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
+  if (report.axis === 'best-practices') {
+    const bpReviews = report.files.filter((r) => r.best_practices);
+    if (bpReviews.length > 0) {
+      const scores = bpReviews.map((r) => r.best_practices!.score);
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const min = Math.min(...scores);
+      const max = Math.max(...scores);
+      lines.push('| Metric | Value |');
+      lines.push('|--------|-------|');
+      lines.push(`| Average score | ${avg.toFixed(1)}/10 |`);
+      lines.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
+      lines.push('');
     }
-    case 'duplication': {
-      const unique = reliable.filter((s) => s.duplication === 'UNIQUE').length;
-      const dup = reliable.filter((s) => s.duplication === 'DUPLICATE').length;
-      const total = unique + dup;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (unique > 0) lines.push(`| UNIQUE | ${unique} | ${((unique / total) * 100).toFixed(0)}% |`);
-        if (dup > 0) lines.push(`| DUPLICATE | ${dup} | ${((dup / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
-    }
-    case 'correction': {
-      const ok = reliable.filter((s) => s.correction === 'OK').length;
-      const fix = reliable.filter((s) => s.correction === 'NEEDS_FIX').length;
-      const err = reliable.filter((s) => s.correction === 'ERROR').length;
-      const total = ok + fix + err;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (ok > 0) lines.push(`| OK | ${ok} | ${((ok / total) * 100).toFixed(0)}% |`);
-        if (fix > 0) lines.push(`| NEEDS_FIX | ${fix} | ${((fix / total) * 100).toFixed(0)}% |`);
-        if (err > 0) lines.push(`| ERROR | ${err} | ${((err / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
-    }
-    case 'overengineering': {
-      const lean = reliable.filter((s) => s.overengineering === 'LEAN').length;
-      const acc = reliable.filter((s) => s.overengineering === 'ACCEPTABLE').length;
-      const over = reliable.filter((s) => s.overengineering === 'OVER').length;
-      const total = lean + acc + over;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (lean > 0) lines.push(`| LEAN | ${lean} | ${((lean / total) * 100).toFixed(0)}% |`);
-        if (acc > 0) lines.push(`| ACCEPTABLE | ${acc} | ${((acc / total) * 100).toFixed(0)}% |`);
-        if (over > 0) lines.push(`| OVER | ${over} | ${((over / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
-    }
-    case 'tests': {
-      const good = reliable.filter((s) => s.tests === 'GOOD').length;
-      const weak = reliable.filter((s) => s.tests === 'WEAK').length;
-      const none = reliable.filter((s) => s.tests === 'NONE').length;
-      const total = good + weak + none;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (good > 0) lines.push(`| GOOD | ${good} | ${((good / total) * 100).toFixed(0)}% |`);
-        if (weak > 0) lines.push(`| WEAK | ${weak} | ${((weak / total) * 100).toFixed(0)}% |`);
-        if (none > 0) lines.push(`| NONE | ${none} | ${((none / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
-    }
-    case 'documentation': {
-      const doc = reliable.filter((s) => s.documentation === 'DOCUMENTED').length;
-      const partial = reliable.filter((s) => s.documentation === 'PARTIAL').length;
-      const undoc = reliable.filter((s) => s.documentation === 'UNDOCUMENTED').length;
-      const total = doc + partial + undoc;
-      if (total > 0) {
-        lines.push('| Verdict | Count | % |');
-        lines.push('|---------|-------|---|');
-        if (doc > 0) lines.push(`| DOCUMENTED | ${doc} | ${((doc / total) * 100).toFixed(0)}% |`);
-        if (partial > 0) lines.push(`| PARTIAL | ${partial} | ${((partial / total) * 100).toFixed(0)}% |`);
-        if (undoc > 0) lines.push(`| UNDOCUMENTED | ${undoc} | ${((undoc / total) * 100).toFixed(0)}% |`);
-        lines.push('');
-      }
-      break;
-    }
-    case 'best-practices': {
-      const bpReviews = report.files.filter((r) => r.best_practices);
-      if (bpReviews.length > 0) {
-        const scores = bpReviews.map((r) => r.best_practices!.score);
-        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const min = Math.min(...scores);
-        const max = Math.max(...scores);
-        lines.push('| Metric | Value |');
-        lines.push('|--------|-------|');
-        lines.push(`| Average score | ${avg.toFixed(1)}/10 |`);
-        lines.push(`| Min / Max | ${min.toFixed(1)} / ${max.toFixed(1)} |`);
-        lines.push('');
-      }
-      break;
-    }
+    return lines;
   }
 
+  const spec = SYMBOL_AXIS_LABELS[report.axis as keyof typeof SYMBOL_AXIS_LABELS];
+  if (spec) renderVerdictCountTable(lines, reliable, spec.field, spec.labels);
   return lines;
 }
 

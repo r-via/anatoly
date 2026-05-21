@@ -178,45 +178,45 @@ describe('Story 55.3 — saveDocConflicts', () => {
 
 describe('Story 55.3 — hashCodeAnchor', () => {
   it('returns a SHA-256 hex string', () => {
-    const hash = hashCodeAnchor('src/foo.ts', undefined, undefined, 'function foo() { return 42; }');
+    const hash = hashCodeAnchor(undefined, 'function foo() { return 42; }');
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('hashes the full file content when no symbol or lineRange provided', () => {
     const content = 'function foo() { return 42; }\n';
-    const h1 = hashCodeAnchor('src/foo.ts', undefined, undefined, content);
-    const h2 = hashCodeAnchor('src/foo.ts', undefined, undefined, content);
+    const h1 = hashCodeAnchor(undefined, content);
+    const h2 = hashCodeAnchor(undefined, content);
     expect(h1).toBe(h2);
   });
 
   it('hashes the line range when provided', () => {
     const lines = ['line1', 'line2', 'line3', 'line4', 'line5'];
     const content = lines.join('\n');
-    const hash = hashCodeAnchor('src/foo.ts', undefined, [2, 4], content);
+    const hash = hashCodeAnchor([2, 4], content);
     // Should hash lines 2-4 only
-    const hash2 = hashCodeAnchor('src/foo.ts', undefined, [2, 4], content);
+    const hash2 = hashCodeAnchor([2, 4], content);
     expect(hash).toBe(hash2);
   });
 
   it('is stable across CRLF vs LF (NFR2 normalisation)', () => {
     const contentLf = 'function foo() {\n  return 42;\n}';
     const contentCrlf = 'function foo() {\r\n  return 42;\r\n}';
-    const h1 = hashCodeAnchor('src/foo.ts', undefined, undefined, contentLf);
-    const h2 = hashCodeAnchor('src/foo.ts', undefined, undefined, contentCrlf);
+    const h1 = hashCodeAnchor(undefined, contentLf);
+    const h2 = hashCodeAnchor(undefined, contentCrlf);
     expect(h1).toBe(h2);
   });
 
   it('is stable across leading/trailing whitespace (NFR2)', () => {
     const content1 = '  function foo() { return 42; }  ';
     const content2 = 'function foo() { return 42; }';
-    const h1 = hashCodeAnchor('src/foo.ts', undefined, undefined, content1);
-    const h2 = hashCodeAnchor('src/foo.ts', undefined, undefined, content2);
+    const h1 = hashCodeAnchor(undefined, content1);
+    const h2 = hashCodeAnchor(undefined, content2);
     expect(h1).toBe(h2);
   });
 
   it('different content produces different hash', () => {
-    const h1 = hashCodeAnchor('src/foo.ts', undefined, undefined, 'function a() {}');
-    const h2 = hashCodeAnchor('src/foo.ts', undefined, undefined, 'function b() {}');
+    const h1 = hashCodeAnchor(undefined, 'function a() {}');
+    const h2 = hashCodeAnchor(undefined, 'function b() {}');
     expect(h1).not.toBe(h2);
   });
 });
@@ -228,7 +228,7 @@ describe('Story 55.3 — hashCodeAnchor', () => {
 describe('Story 55.3 — verifyAnchorHash', () => {
   it('returns "valid" when code_hash matches current content', () => {
     const content = 'function doThing() { return 1; }';
-    const codeHash = hashCodeAnchor('src/foo.ts', undefined, undefined, content);
+    const codeHash = hashCodeAnchor(undefined, content);
     const entry = makeEntry({
       anchor: { file: 'src/foo.ts', code_hash: codeHash },
     });
@@ -247,7 +247,7 @@ describe('Story 55.3 — verifyAnchorHash', () => {
   it('uses line_range from anchor when available', () => {
     const lines = ['line1', 'target line 2', 'target line 3', 'line4'];
     const content = lines.join('\n');
-    const codeHash = hashCodeAnchor('src/foo.ts', undefined, [2, 3], content);
+    const codeHash = hashCodeAnchor([2, 3], content);
     const entry = makeEntry({
       anchor: { file: 'src/foo.ts', line_range: [2, 3], code_hash: codeHash },
     });
@@ -257,7 +257,7 @@ describe('Story 55.3 — verifyAnchorHash', () => {
 
   it('returns "stale" when line range content changed', () => {
     const originalContent = 'line1\noriginal line 2\nline3';
-    const codeHash = hashCodeAnchor('src/foo.ts', undefined, [2, 2], originalContent);
+    const codeHash = hashCodeAnchor([2, 2], originalContent);
     const entry = makeEntry({
       anchor: { file: 'src/foo.ts', line_range: [2, 2], code_hash: codeHash },
     });

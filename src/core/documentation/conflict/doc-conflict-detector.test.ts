@@ -112,7 +112,7 @@ describe('Story 55.4 — markStaleEntries', () => {
 
   it('keeps entry unchanged when hash matches', () => {
     const content = 'function doThing() { return 42; }';
-    const codeHash = hashCodeAnchor('src/foo.ts', undefined, undefined, content);
+    const codeHash = hashCodeAnchor(undefined, content);
     const entry = makeEntry({
       verdict: 'doc-wins',
       status: 'applied',
