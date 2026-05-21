@@ -110,6 +110,23 @@ export async function runReviewPhase(
     }
   }
 
+  // --retry-timeout: promote TIMEOUT files (left behind by a prior run that
+  // crashed mid-axis or hit a real timeout) back to PENDING so this run takes
+  // another shot at them. getPendingFiles() includes PENDING+ERROR+IN_PROGRESS
+  // by default but deliberately excludes TIMEOUT (some files genuinely
+  // timeout every time and shouldn't burn budget on auto-retry); this opt-in
+  // flag is the explicit "I want to retry the stuck ones too" lever.
+  if (ctx.retryTimeout) {
+    const promoted: string[] = [];
+    for (const [, fp] of Object.entries(progress.files)) {
+      if (fp.status === 'TIMEOUT') {
+        pm.updateFileStatus(fp.file, 'PENDING');
+        promoted.push(fp.file);
+      }
+    }
+    log.info({ promoted: promoted.length }, '--retry-timeout: promoted TIMEOUT files to PENDING');
+  }
+
   let pending = pm.getPendingFiles();
   if (ctx.fileFilter) {
     const isMatch = picomatch(ctx.fileFilter);

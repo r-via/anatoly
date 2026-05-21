@@ -126,6 +126,16 @@ describe('background-runner', () => {
       expect(args).toEqual(['--no-cache']);
     });
 
+    it('should forward --retry-timeout when retryTimeout is true', () => {
+      const args = buildForwardedArgs({ retryTimeout: true });
+      expect(args).toEqual(['--retry-timeout']);
+    });
+
+    it('should not forward --retry-timeout when retryTimeout is false or undefined', () => {
+      expect(buildForwardedArgs({ retryTimeout: false })).toEqual([]);
+      expect(buildForwardedArgs({ retryTimeout: undefined })).toEqual([]);
+    });
+
     it('should forward --file option', () => {
       const args = buildForwardedArgs({ file: 'src/**/*.ts' });
       expect(args).toEqual(['--file', 'src/**/*.ts']);

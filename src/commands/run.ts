@@ -75,6 +75,9 @@ export interface RunContext {
   fileFilter?: string;
   /** Skip review cache — re-evaluate all files */
   noCache: boolean;
+  /** Promote TIMEOUT files to PENDING at review-phase start so a previous
+   *  run's timed-out files get another attempt (opt-in via --retry-timeout). */
+  retryTimeout: boolean;
   /** Whether RAG indexing is enabled */
   enableRag: boolean;
   /** User-requested RAG mode from CLI */
@@ -174,6 +177,7 @@ export function registerRunCommand(program: Command): void {
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
     .option('--axes <list>', 'comma-separated axes: utility,duplication,correction,overengineering,tests,best_practices')
     .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
+    .option('--retry-timeout', 'also re-evaluate files left in TIMEOUT status by a previous run (defaults to false — TIMEOUTs persist until explicitly retried)')
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
     .option('--sdk-concurrency <n>', 'max concurrent SDK calls (1-20)', parseInt)
@@ -196,7 +200,7 @@ export function registerRunCommand(program: Command): void {
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
-      cache?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
+      cache?: boolean; retryTimeout?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
@@ -557,6 +561,7 @@ export function registerRunCommand(program: Command): void {
         verbose: parentOpts.verbose as boolean | undefined,
         fileFilter: cmdOpts.file,
         noCache: cmdOpts.cache === false,
+        retryTimeout: cmdOpts.retryTimeout === true,
         enableRag: parentOpts.rag !== false && config.rag.enabled,
         ragMode,
         rebuildRag: cmdOpts.rebuildRag,
