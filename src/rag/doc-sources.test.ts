@@ -69,7 +69,7 @@ describe('indexDocSources', () => {
     const r = await indexDocSources(baseOpts(store));
 
     expect(indexDocSectionsMock).toHaveBeenCalledTimes(1);
-    expect(store.aliasDocSource).toHaveBeenCalledWith('internal', 'project', 'docs');
+    expect(store.aliasDocSource).toHaveBeenCalledWith('internal', 'project', '.anatoly/state/internal-docs', 'docs');
     expect(r.docsIdentical).toBe(true);
     expect(r.internalDocSections).toBe(3);
     expect(r.projectDocSections).toBe(7); // alias return value, not double-counted

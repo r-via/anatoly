@@ -628,12 +628,19 @@ export class VectorStore {
    *
    * @param fromSource - Source to copy from (e.g. 'internal')
    * @param toSource - Source to create aliases for (e.g. 'project')
+   * @param fromDocsDir - Source docs directory whose path prefix the source
+   *   rows carry (e.g. the internal-docs dir when fromSource='internal'). The
+   *   previous implementation hardcoded `.anatoly/docs` for `'internal'` and
+   *   silently set fromDocsDir to toDocsDir for `'project'` — that worked
+   *   only because the single caller passed `'internal'`, but `remapDocPath`
+   *   would have produced unchanged-or-garbled paths in the reverse direction.
    * @param toDocsDir - Target docs directory for path remapping (e.g. 'docs')
    * @returns Number of aliased sections created
    */
   async aliasDocSource(
     fromSource: 'internal' | 'project',
     toSource: 'internal' | 'project',
+    fromDocsDir: string,
     toDocsDir: string,
   ): Promise<number> {
     if (!this.table) return 0;
@@ -652,8 +659,6 @@ export class VectorStore {
       .toArray();
 
     if (rows.length === 0) return 0;
-
-    const fromDocsDir = fromSource === 'internal' ? '.anatoly/docs' : toDocsDir;
 
     // 3. Create aliased rows with remapped paths and recomputed IDs
     const aliasedRows: VectorRow[] = rows.map((row) => {
@@ -797,8 +802,14 @@ export class VectorStore {
 
   /**
    * Delete all cards for a given file path.
+   *
+   * The `type` discriminator matches values stored by `upsert()` —
+   * code rows are `'function'`, doc rows are `'doc_section'`. Earlier
+   * code declared `'function_card'` for the code side, which never
+   * matched any row and silently no-op'd; callers should pass
+   * `'function'` to scope deletion to code rows.
    */
-  async deleteByFile(filePath: string, type?: 'function_card' | 'doc_section'): Promise<void> {
+  async deleteByFile(filePath: string, type?: 'function' | 'doc_section'): Promise<void> {
     if (!this.table) return;
     try {
       const filter = type
@@ -826,13 +837,14 @@ export class VectorStore {
   }
 
   /**
-   * Return the set of distinct file paths that have function_card entries.
+   * Return the set of distinct file paths that have function (code) entries.
+   * Excludes doc_section rows so orphan-GC operates only on code files.
    */
   async listIndexedFiles(): Promise<Set<string>> {
     if (!this.table) return new Set();
     const rows = await this.table
       .query()
-      .where("type = 'function_card'")
+      .where("type = 'function'")
       .select(['filePath'])
       .toArray();
     return new Set(rows.map((r) => r.filePath as string));

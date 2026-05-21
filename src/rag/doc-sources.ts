@@ -165,7 +165,7 @@ export async function indexDocSources(
       docSectionsIndexed += internalDocSections;
 
       // Alias internal → project (don't add to docSectionsIndexed — same content).
-      const aliased = await store.aliasDocSource('internal', 'project', docsDir);
+      const aliased = await store.aliasDocSource('internal', 'project', internalDocsDir, docsDir);
       projectDocSections = aliased;
       projectDocsCached = intResult.cached;
     } catch (err) {
