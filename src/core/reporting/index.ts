@@ -11,28 +11,37 @@
  * (doc 13 §8). Distinct from `documentation/reporting/`, which scores docs.
  */
 
+export { generateReport } from './reporter.js';
+
 export {
-  generateReport,
   loadReviews,
-  axisHealthPercent,
-  REPORT_AXIS_IDS,
-  makeActId,
   computeGlobalVerdict,
   computeFileVerdict,
-  renderDocModeLine,
+  aggregateReviews,
+} from './review-data.js';
+export type { RunStats, TriageStats } from './review-data.js';
+
+export {
+  axisHealthPercent,
+  REPORT_AXIS_IDS,
   docCommentTerm,
+  buildAxisReports,
+} from './axis-registry.js';
+export type { ReportAxisId, AxisReport } from './axis-registry.js';
+
+export {
+  renderDocModeLine,
   renderDivergenceSection,
   aggregateDivergences,
-  renderIndex,
-  aggregateReviews,
-  buildAxisReports,
-  renderPublicIndex,
   aggregateStaleReferences,
   renderStaleReferenceSection,
   renderDocConflictSection,
   applyPendingConflictsToReviews,
-} from './reporter.js';
-export type { ReportAxisId, AxisReport, RunStats, TriageStats } from './reporter.js';
+} from './doc-divergences.js';
+
+export { makeActId } from './render-axis.js';
+
+export { renderIndex, renderPublicIndex } from './render-report.js';
 
 export { writeReviewOutput, writeTranscript } from './review-writer.js';
 
