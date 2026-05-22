@@ -174,7 +174,7 @@ function renderDeliberationSummary(data: ReportData): string[] {
  * @param docReferenceSection - Optional markdown section listing referenced documentation.
  * @returns The full markdown string for the master report index page.
  */
-export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, divergenceSection?: string, docMode?: DocModeInfo): string {
+export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, divergenceSection?: string, docMode?: DocModeInfo, docConflictCount?: number): string {
   const lines: string[] = [];
 
   lines.push('<p align="center">');
@@ -194,6 +194,9 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   }
   if (data.degradedFiles.length > 0) {
     lines.push(`- **Degraded reviews (axis crashes):** ${data.degradedFiles.length}`);
+  }
+  if (docConflictCount && docConflictCount > 0) {
+    lines.push(`- **Unresolved doc conflicts:** ${docConflictCount} (run \`anatoly docs arbitrate\`)`);
   }
   if (docMode) {
     lines.push(`- **${renderDocModeLine(docMode)}**`);
@@ -692,7 +695,7 @@ function renderPublicDocSection(raw: string, stats?: DocReportStats): string[] {
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
  */
-export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo, docReportStats?: DocReportStats): string {
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo, docReportStats?: DocReportStats, docConflictCount?: number): string {
   const lines: string[] = [];
 
   // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
@@ -738,6 +741,9 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     verdictParts.push(`⚠️ ${degradedAxisNames.length} axis evaluator${degradedAxisNames.length > 1 ? 's' : ''} crashed (${degradedAxisNames.join(', ')}) — re-run recommended`);
   }
   lines.push(`> ${verdictParts.join(' · ')}`);
+  if (docConflictCount && docConflictCount > 0) {
+    lines.push(`> ⚠️ ${docConflictCount} unresolved code↔reference doc conflict${docConflictCount > 1 ? 's' : ''} — run \`anatoly docs arbitrate\``);
+  }
   if (docMode) {
     lines.push(`> ${renderDocModeLine(docMode)}`);
   }

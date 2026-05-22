@@ -115,12 +115,18 @@ export function generateReport(
   const baseDir = runDir ?? join(projectRoot, '.anatoly');
   const reportPath = join(baseDir, 'report.md');
 
+  // Surface the count of unresolved doc conflicts in the executive summaries
+  // of both reports — the section listing them lives lower in the body, and
+  // a top-level number makes the doc-vs-code contradiction load visible at a
+  // glance without scrolling through the divergence section.
+  const docConflictCount = allDocConflicts.length;
+
   // Write master index (internal, full detail)
-  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, combinedDivergenceSection, docMode));
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, combinedDivergenceSection, docMode, docConflictCount));
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode, docReportStats));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode, docReportStats, docConflictCount));
 
   // Write per-axis folders
   for (const report of axisReports) {
