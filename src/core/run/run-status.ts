@@ -94,6 +94,70 @@ export function isProcessAlive(pid: number): boolean {
 }
 
 /**
+ * Outcome of {@link detectResumableRun}.
+ *
+ * - `runId` — id of the previous run we can resume into
+ * - `state` — its persisted status (failed / crashed / running-with-dead-pid)
+ * - `pending` — number of files in PENDING/ERROR/IN_PROGRESS/TIMEOUT
+ * - `done` — number of files in DONE/CACHED (already evaluated, will be skipped)
+ */
+export interface ResumableRun {
+  runId: string;
+  state: 'failed' | 'crashed' | 'stale-running';
+  pending: number;
+  done: number;
+}
+
+/**
+ * Detect whether the most recent run on this project is INCOMPLETE and worth
+ * resuming. Used by `anatoly run` to surface a "found an unfinished run —
+ * resume it?" prompt instead of silently starting a fresh run on top of the
+ * stale one. Returns `undefined` when nothing is resumable (no prior run, the
+ * prior run is `done`, or the project has no pending work left in progress.json).
+ *
+ * A run is considered resumable when its status is `failed` / `crashed` / a
+ * `running` entry whose PID is dead, AND the project's progress.json still
+ * has at least one file in PENDING / ERROR / IN_PROGRESS / TIMEOUT — i.e. the
+ * orchestrator's review-phase entry path actually has files to process.
+ */
+export function detectResumableRun(projectRoot: string): ResumableRun | undefined {
+  const statuses = listRunStatuses(projectRoot);
+  if (statuses.length === 0) return undefined;
+  // listRunStatuses returns chronological asc; the last is the most recent.
+  const latest = statuses[statuses.length - 1];
+
+  let state: ResumableRun['state'];
+  if (latest.status === 'failed' || latest.status === 'crashed') {
+    state = latest.status;
+  } else if (latest.status === 'running' && !isProcessAlive(latest.pid)) {
+    state = 'stale-running';
+  } else {
+    return undefined; // done, or actively running
+  }
+
+  // Count files left to evaluate per progress.json
+  const progressPath = join(anatolyPath(projectRoot, 'cache'), 'progress.json');
+  if (!existsSync(progressPath)) return undefined;
+  let progress: { files?: Record<string, { status?: string }> };
+  try {
+    progress = JSON.parse(readFileSync(progressPath, 'utf-8'));
+  } catch {
+    return undefined;
+  }
+
+  let pending = 0;
+  let done = 0;
+  for (const fp of Object.values(progress.files ?? {})) {
+    const s = fp.status;
+    if (s === 'PENDING' || s === 'ERROR' || s === 'IN_PROGRESS' || s === 'TIMEOUT') pending++;
+    else if (s === 'DONE' || s === 'CACHED') done++;
+  }
+  if (pending === 0) return undefined; // nothing left to do
+
+  return { runId: latest.runId, state, pending, done };
+}
+
+/**
  * Sort run statuses for display: running runs first, then by startedAt descending.
  * Does not mutate the input array.
  */

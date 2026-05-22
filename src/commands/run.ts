@@ -46,7 +46,7 @@ import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setu
 import { quickInitDocConfig } from '../core/documentation/index.js';
 import { type ProjectProfile } from '../core/scanning/index.js';
 import { launchBackgroundRun, buildForwardedArgs } from '../core/run/index.js';
-import { writeRunStatus, getGitInfo, type RunStatus } from '../core/run/index.js';
+import { writeRunStatus, getGitInfo, detectResumableRun, type RunStatus } from '../core/run/index.js';
 import { createWorktreeManager } from '../core/worktree/index.js';
 import { runPipeline } from '../core/orchestration/pipeline.js';
 
@@ -224,6 +224,49 @@ export function registerRunCommand(program: Command): void {
       // --axes value should fail fast (not after the user picks a tier).
       const pricingAxesFilter = parseAxesOption(cmdOpts.axes);
       if (pricingAxesFilter === null) return;
+
+      // Auto-detect an incomplete previous run and propose to resume it —
+      // unless the user already expressed explicit run-selection intent
+      // (--resume, --run-id, --background) or asked for non-interactive
+      // execution (--defaults-settings, --quick-win, no TTY). Without this
+      // prompt, a `anatoly run` after a crash silently starts a fresh run
+      // on top of the stale one, losing the in-place ledger continuity and
+      // requiring the user to know about --resume.
+      const canAutoPromptResume =
+        process.stdin.isTTY === true
+        && !cmdOpts.resume
+        && !cmdOpts.runId
+        && !cmdOpts.background
+        && cmdOpts.defaultsSettings !== true
+        && cmdOpts.quickWin !== true;
+      if (canAutoPromptResume) {
+        const resumable = detectResumableRun(projectRoot);
+        if (resumable) {
+          const label = resumable.state === 'failed'
+            ? 'failed'
+            : resumable.state === 'crashed'
+              ? 'crashed'
+              : 'stale (running but process gone)';
+          const choice = await p.select({
+            message: `Found an incomplete previous run (${resumable.runId}, ${label}). ${resumable.done} files done, ${resumable.pending} pending.`,
+            options: [
+              { value: 'resume', label: 'Resume in-place (recommended) — append to that run dir, retry TIMEOUT files' },
+              { value: 'fresh', label: 'Start a fresh run — new run dir, the previous one is left untouched' },
+              { value: 'cancel', label: 'Cancel — quit without doing anything' },
+            ],
+            initialValue: 'resume',
+          });
+          if (p.isCancel(choice) || choice === 'cancel') {
+            getLogger().info('user cancelled after incomplete-run prompt');
+            return;
+          }
+          if (choice === 'resume') {
+            cmdOpts.resume = true;
+          }
+          // 'fresh' → leave cmdOpts.resume undefined; the rest of the flow
+          // generates a brand new runId as usual.
+        }
+      }
 
       // --resume implies "use the previous run's config verbatim" — there is
       // nothing to ask the user about because the prior run already chose.

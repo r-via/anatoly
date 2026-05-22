@@ -23,8 +23,9 @@ export {
   listRunStatuses,
   isProcessAlive,
   getGitInfo,
+  detectResumableRun,
 } from './run-status.js';
-export type { RunStatus } from './run-status.js';
+export type { RunStatus, ResumableRun } from './run-status.js';
 
 export { launchBackgroundRun, buildForwardedArgs } from './background-runner.js';
 

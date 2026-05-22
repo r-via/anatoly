@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { writeRunStatus, readRunStatus, listRunStatuses, isProcessAlive, type RunStatus } from './run-status.js';
+import { writeRunStatus, readRunStatus, listRunStatuses, isProcessAlive, detectResumableRun, type RunStatus } from './run-status.js';
 
 describe('run-status', () => {
   let tempDir: string;
@@ -145,6 +145,67 @@ describe('run-status', () => {
 
     it('should return false for PID 0', () => {
       expect(isProcessAlive(0)).toBe(false);
+    });
+  });
+
+  describe('detectResumableRun', () => {
+    /** Set up `.anatoly/runs/<runId>/run-status.json` + a progress file. */
+    const seed = (runId: string, status: RunStatus, files: Record<string, string>): void => {
+      const runDir = join(tempDir, '.anatoly', 'runs', runId);
+      writeRunStatus(runDir, { ...status, runId });
+      const cacheDir = join(tempDir, '.anatoly', 'cache');
+      mkdirSync(cacheDir, { recursive: true });
+      const progress = { version: 1, files: Object.fromEntries(Object.entries(files).map(([f, s]) => [f, { file: f, status: s, hash: 'h', updated_at: 't' }])) };
+      writeFileSync(join(cacheDir, 'progress.json'), JSON.stringify(progress));
+    };
+
+    it('returns undefined when no runs exist', () => {
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
+
+    it('returns undefined when the latest run is done (nothing to resume)', () => {
+      seed('r1', makeStatus({ status: 'done' }), { 'a.ts': 'DONE' });
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
+
+    it('flags a failed run with pending files', () => {
+      seed('r1', makeStatus({ status: 'failed' }), { 'a.ts': 'DONE', 'b.ts': 'PENDING', 'c.ts': 'TIMEOUT' });
+      const r = detectResumableRun(tempDir);
+      expect(r).toEqual({ runId: 'r1', state: 'failed', pending: 2, done: 1 });
+    });
+
+    it('flags a crashed run', () => {
+      seed('r1', makeStatus({ status: 'crashed' }), { 'a.ts': 'ERROR' });
+      expect(detectResumableRun(tempDir)?.state).toBe('crashed');
+    });
+
+    it('flags a running run with a dead PID as stale-running', () => {
+      seed('r1', makeStatus({ status: 'running', pid: 99999999 }), { 'a.ts': 'IN_PROGRESS' });
+      expect(detectResumableRun(tempDir)?.state).toBe('stale-running');
+    });
+
+    it('does NOT flag a running run with a live PID', () => {
+      seed('r1', makeStatus({ status: 'running', pid: process.pid }), { 'a.ts': 'PENDING' });
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
+
+    it('returns undefined when a failed run has no pending files left', () => {
+      seed('r1', makeStatus({ status: 'failed' }), { 'a.ts': 'DONE', 'b.ts': 'CACHED' });
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
+
+    it('returns undefined when progress.json is absent', () => {
+      const runDir = join(tempDir, '.anatoly', 'runs', 'r1');
+      writeRunStatus(runDir, { ...makeStatus({ status: 'failed' }), runId: 'r1' });
+      // no progress.json written
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
+
+    it('picks the most recent run when multiple exist', () => {
+      seed('r1', makeStatus({ status: 'done' }), { 'a.ts': 'DONE' });
+      seed('r2', makeStatus({ status: 'failed' }), { 'b.ts': 'PENDING' });
+      const r = detectResumableRun(tempDir);
+      expect(r?.runId).toBe('r2');
     });
   });
 });
