@@ -271,4 +271,23 @@ describe('isProviderHealthFailure', () => {
     expect(isProviderHealthFailure(new AnatolyError('Claude Code SDK error [error]: boom', ERROR_CODES.SDK_ERROR, true))).toBe(true);
     expect(isProviderHealthFailure(undefined)).toBe(true);
   });
+
+  it('does NOT count non-recoverable AnatolyErrors (deterministic give-up by our code, not a provider-health signal)', () => {
+    // Repro of run 2026-05-21_093126: the rate-limiter's MAX_STANDBY_WAIT_MS
+    // cap throws AnatolyError(SDK_ERROR, recoverable=false). Without this
+    // exclusion, N parallel callers exiting standby at the same time would
+    // each record a failure on the shared per-provider breaker and trip it
+    // within milliseconds, fast-failing the rest of the review phase with
+    // CIRCUIT_OPEN. The breaker must stay closed for these.
+    const quotaAborted = new AnatolyError(
+      'Provider quota exhausted until 11:20am (wait 142 min > cap 15 min) — run aborted',
+      ERROR_CODES.SDK_ERROR,
+      false,
+    );
+    expect(isProviderHealthFailure(quotaAborted)).toBe(false);
+    // Generic non-recoverable AnatolyError with no message keyword match also stays off the breaker.
+    expect(isProviderHealthFailure(new AnatolyError('we decided to bail', ERROR_CODES.SDK_ERROR, false))).toBe(false);
+    // Same code recoverable=true is still counted (sanity: the prior assertion above already covers it).
+    expect(isProviderHealthFailure(new AnatolyError('transient sdk error', ERROR_CODES.SDK_ERROR, true))).toBe(true);
+  });
 });

@@ -326,6 +326,12 @@ export function isCircuitOpenError(err: unknown): boolean {
  */
 export function isProviderHealthFailure(err: unknown): boolean {
   if (err instanceof AnatolyError) {
+    // A non-recoverable AnatolyError is a deterministic give-up decision made
+    // by our own code (e.g. rate-limiter abandoning when standby would exceed
+    // the 15min cap), not evidence the provider is degrading. Counting it
+    // would let N parallel callers exiting the same quota-cap standby trip
+    // the breaker in ms, then poison the rest of the phase with CIRCUIT_OPEN.
+    if (err.recoverable === false) return false;
     if (
       err.code === ERROR_CODES.PROVIDER_AUTH_FAILED ||
       err.code === ERROR_CODES.SDK_TIMEOUT ||
