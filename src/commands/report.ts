@@ -9,8 +9,8 @@ import { relative, dirname, join, basename } from 'node:path';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { runMetricsPath, docReferenceSectionPath, docReportStatsPath, reviewsDir } from '../utils/run-layout.js';
 import type { DocReportStats } from '../core/documentation/index.js';
-import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporting/index.js';
-import { ProgressManager } from '../core/run/index.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, toReportAxisId, type AxisReport, type RunStats, type ReportAxisId } from '../core/reporting/index.js';
+import { ProgressManager, readRunConfig } from '../core/run/index.js';
 import { resolveRunDir } from '../utils/run-id.js';
 import { openFile } from '../utils/open.js';
 import { verdictColor } from '../utils/format.js';
@@ -110,8 +110,15 @@ export function registerReportCommand(program: Command): void {
       let reportData: ReturnType<typeof generateReport>['data'] | undefined;
 
       if (runDir && existsSync(reviewsDir(runDir))) {
-        // Run-scoped mode: read reviews from run directory
-        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl, undefined, docReportStats);
+        // Run-scoped mode: read reviews from run directory. Recover the
+        // original --axes filter from the persisted run-config so a re-render
+        // doesn't lose the partial-run signal (renders unrun axes as "not in
+        // this run" instead of falsely "All clear").
+        const persistedConfig = readRunConfig(runDir);
+        const axesRequestedForReport = persistedConfig?.axesFilter
+          ? persistedConfig.axesFilter.map(toReportAxisId)
+          : undefined;
+        const { reportPath, data, axisReports } = generateReport(projectRoot, errorFiles, runDir, undefined, runStats, docReferenceSection, reportsBaseUrl, undefined, docReportStats, axesRequestedForReport);
         reportData = data;
         printReportSummary(data, axisReports, reportPath, reviewsDir(runDir));
         if (shouldOpen) openFile(reportPath);

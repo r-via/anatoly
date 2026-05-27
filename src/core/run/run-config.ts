@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import type { Config } from '../../schemas/config.js';
 import type { AxisId } from '../evaluation/contract.js';
 import { pkgVersion, pkgCommit } from '../../utils/version.js';
@@ -105,4 +105,22 @@ export function buildRunConfig(input: BuildRunConfigInput): RunConfig {
 
 export function writeRunConfig(runDir: string, config: RunConfig): void {
   writeFileSync(runConfigPath(runDir), JSON.stringify(config, null, 2));
+}
+
+/**
+ * Read the persisted RunConfig for an existing run directory. Returns null
+ * when the file is missing or unparsable so callers (e.g. `anatoly report`)
+ * can degrade gracefully on legacy runs without a config snapshot.
+ *
+ * Note: not validated against a schema — anatoly-bench treats this as a
+ * stable contract, so the shape is trusted at load time.
+ */
+export function readRunConfig(runDir: string): RunConfig | null {
+  const path = runConfigPath(runDir);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as RunConfig;
+  } catch {
+    return null;
+  }
 }

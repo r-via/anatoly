@@ -896,6 +896,74 @@ describe('crashed-axis degradation (no false 100% clean)', () => {
     expect(md).not.toContain('Verdict: **CLEAN**');
   });
 
+  // A --axes-filtered run only evaluated some axes. The skipped ones have
+  // no data; rendering them as 100% green / "All clear" would lie about
+  // coverage. Regression guard for the user-reported issue where
+  // `--axes utility --no-cache` yielded a report with 5 axes shown as green.
+  it('public report renders axes not in the --axes filter as "not in this run"', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      ['utility'],
+    );
+
+    const correctionRow = md.split('\n').find((l) => l.startsWith('| Correction |'));
+    expect(correctionRow).toBeDefined();
+    expect(correctionRow!).toContain('not in this run');
+    expect(correctionRow!).not.toContain('All clear');
+    expect(correctionRow!).not.toContain('100% OK');
+
+    // Top Findings: skipped axes flag NOT TESTED, not CLEAN.
+    const correctionSection = md.slice(md.indexOf('### 🐛 Correction'));
+    const correctionBlock = correctionSection.slice(0, correctionSection.indexOf('###', 3));
+    expect(correctionBlock).toContain('NOT TESTED');
+    expect(correctionBlock).not.toContain('✨ **CLEAN**');
+  });
+
+  it('a CLEAN run with skipped axes is shown as PARTIAL, not CLEAN', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    expect(data.globalVerdict).toBe('CLEAN');
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      ['utility'],
+    );
+    expect(md).toContain('Verdict: **PARTIAL**');
+    expect(md).not.toContain('Verdict: **CLEAN**');
+    expect(md).toContain('partial run');
+  });
+
+  it('a NEEDS_REFACTOR run with skipped axes keeps its verdict but flags partial scope', () => {
+    const review = makeReview({
+      file: 'a.ts',
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [makeSymbol({ utility: 'DEAD', confidence: 90, name: 'dead_export' })],
+    });
+    const data = aggregateReviews([review]);
+    expect(data.globalVerdict).toBe('NEEDS_REFACTOR');
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      ['utility'],
+    );
+    expect(md).toContain('Verdict: **NEEDS_REFACTOR**');
+    expect(md).toContain('partial run');
+  });
+
+  it('no --axes filter (axesRequested undefined) preserves the existing rendering', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    const md = renderPublicIndex(data, buildAxisReports(data));
+    // Sanity: in the absence of any skipped/crashed axis, the report stays
+    // CLEAN — no new "partial" or "not in this run" leaks into the default.
+    expect(md).toContain('Verdict: **CLEAN**');
+    expect(md).not.toContain('partial run');
+    expect(md).not.toContain('not in this run');
+  });
+
   it('renderPublicIndex consumes structured DocReportStats directly (no regex parse round-trip)', () => {
     const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
     // Structured stats path: pass DocReportStats + a deliberately misleading

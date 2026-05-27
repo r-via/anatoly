@@ -26,6 +26,7 @@ export {
   REPORT_AXIS_IDS,
   docCommentTerm,
   buildAxisReports,
+  toReportAxisId,
 } from './axis-registry.js';
 export type { ReportAxisId, AxisReport } from './axis-registry.js';
 

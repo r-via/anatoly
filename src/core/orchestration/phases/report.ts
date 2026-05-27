@@ -31,7 +31,7 @@ import chalk from 'chalk';
 import { getLogger } from '../../../utils/logger.js';
 import { ProgressManager } from '../../run/index.js';
 import { estimateFileSeconds } from '../../run/index.js';
-import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, type TriageStats, type ReportAxisId } from '../../reporting/index.js';
+import { generateReport, loadReviews, axisHealthPercent, REPORT_AXIS_IDS, toReportAxisId, type TriageStats, type ReportAxisId } from '../../reporting/index.js';
 import { getDocsDir } from '../../../schemas/config.js';
 import { aggregateDocReport } from '../../documentation/index.js';
 import { purgeRuns } from '../../../utils/run-id.js';
@@ -147,7 +147,12 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     writeFileSync(docReportStatsPath(ctx.runDir), JSON.stringify(handoff.docReportResult.reportStats, null, 2));
   }
 
-  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection, undefined, undefined, handoff.docReportResult?.reportStats);
+  // Pass the --axes filter (if any) so the report renders skipped axes as
+  // "not in this run" instead of "All clear" (which would lie about coverage).
+  const axesRequestedForReport = ctx.axesFilter
+    ? ctx.axesFilter.map(toReportAxisId)
+    : undefined;
+  const { reportPath, data } = generateReport(ctx.projectRoot, errorFiles, ctx.runDir, triageStats, runStats, docReferenceSection, undefined, undefined, handoff.docReportResult?.reportStats, axesRequestedForReport);
 
   if (ctx.config.output?.max_runs) {
     purgeRuns(ctx.projectRoot, ctx.config.output.max_runs!);

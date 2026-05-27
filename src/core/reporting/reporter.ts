@@ -53,7 +53,7 @@ export { renderIndex, renderPublicIndex } from './render-report.js';
 import { loadReviews, aggregateReviews, buildShards } from './review-data.js';
 import type { ReportData, ShardInfo, TriageStats, RunStats } from './review-data.js';
 import { buildAxisReports } from './axis-registry.js';
-import type { AxisReport } from './axis-registry.js';
+import type { AxisReport, ReportAxisId } from './axis-registry.js';
 import { applyPendingConflictsToReviews, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
 import type { DocModeInfo } from './doc-divergences.js';
 import { renderIndex, renderPublicIndex } from './render-report.js';
@@ -84,6 +84,7 @@ export function generateReport(
   reportsBaseUrl?: string,
   docMode?: DocModeInfo,
   docReportStats?: DocReportStats,
+  axesRequested?: readonly ReportAxisId[],
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
   // doc 16 PR 3a: fold unresolved (pending) doc-conflicts into the
@@ -122,11 +123,11 @@ export function generateReport(
   const docConflictCount = allDocConflicts.length;
 
   // Write master index (internal, full detail)
-  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, combinedDivergenceSection, docMode, docConflictCount));
+  writeFileSync(reportPath, renderIndex(data, axisReports, triageStats, runStats, docReferenceSection, combinedDivergenceSection, docMode, docConflictCount, axesRequested));
 
   // Write public report (user-facing, polished)
   const publicReportPath = join(baseDir, 'public_report.md');
-  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode, docReportStats, docConflictCount));
+  writeFileSync(publicReportPath, renderPublicIndex(data, axisReports, triageStats, runStats, docReferenceSection, reportsBaseUrl, combinedDivergenceSection, docMode, docReportStats, docConflictCount, axesRequested));
 
   // Write per-axis folders
   for (const report of axisReports) {

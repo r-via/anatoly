@@ -15,7 +15,7 @@
  * (doc 13 §8).
  */
 
-export { resolveDocMode, buildRunConfig, writeRunConfig } from './run-config.js';
+export { resolveDocMode, buildRunConfig, writeRunConfig, readRunConfig } from './run-config.js';
 
 export {
   writeRunStatus,

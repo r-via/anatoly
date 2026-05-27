@@ -2,7 +2,6 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { ReviewFile } from '../../schemas/review.js';
 import type { DocReportStats } from '../documentation/index.js';
 import {
   CRASH_SENTINEL,
@@ -174,7 +173,7 @@ function renderDeliberationSummary(data: ReportData): string[] {
  * @param docReferenceSection - Optional markdown section listing referenced documentation.
  * @returns The full markdown string for the master report index page.
  */
-export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, divergenceSection?: string, docMode?: DocModeInfo, docConflictCount?: number): string {
+export function renderIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, divergenceSection?: string, docMode?: DocModeInfo, docConflictCount?: number, axesRequested?: readonly ReportAxisId[]): string {
   const lines: string[] = [];
 
   lines.push('<p align="center">');
@@ -185,8 +184,14 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   lines.push('');
   lines.push('## Executive Summary');
   lines.push('');
+  const skippedAxesForIndex = axesRequested && axesRequested.length > 0
+    ? REPORT_AXIS_IDS.filter((a) => !axesRequested.includes(a)).map(axisDisplayName)
+    : [];
   lines.push(`- **Files reviewed:** ${data.totalFiles}`);
-  lines.push(`- **Global verdict:** ${data.globalVerdict}`);
+  const verdictSuffix = skippedAxesForIndex.length > 0
+    ? ` · ⚠️ partial run, ${skippedAxesForIndex.length} axis skipped (${skippedAxesForIndex.join(', ')})`
+    : '';
+  lines.push(`- **Global verdict:** ${data.globalVerdict}${verdictSuffix}`);
   lines.push(`- **Clean files:** ${data.cleanFiles.length}`);
   lines.push(`- **Files with findings:** ${data.findingFiles.length}`);
   if (data.errorFiles.length > 0) {
@@ -695,7 +700,7 @@ function renderPublicDocSection(raw: string, stats?: DocReportStats): string[] {
  * Designed for readability: hero block with value KPIs, health scorecard,
  * top findings, and compact run details in a cold zone.
  */
-export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo, docReportStats?: DocReportStats, docConflictCount?: number): string {
+export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], triageStats?: TriageStats, runStats?: RunStats, docReferenceSection?: string, reportsBaseUrl?: string, divergenceSection?: string, docMode?: DocModeInfo, docReportStats?: DocReportStats, docConflictCount?: number, axesRequested?: readonly ReportAxisId[]): string {
   const lines: string[] = [];
 
   // ── 1. HERO BLOCK ──────────────────────────────────────────────────────
@@ -725,20 +730,40 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     if (axis === 'best-practices') return data.degradedFiles.length > 0;
     return crashedAxes.has(axis);
   };
+  // A `--axes <list>` run intentionally skipped some axes. Those are NOT
+  // crashes (re-run not "recommended", just optional) but they must not be
+  // rendered as "All clear / 100% green" either — that would lie about
+  // coverage. Distinct from `isAxisDegraded`: skipped is intentional,
+  // degraded is a failure mode.
+  const axesRequestedSet = axesRequested && axesRequested.length > 0
+    ? new Set<ReportAxisId>(axesRequested)
+    : null;
+  const isAxisNotRequested = (axis: ReportAxisId): boolean =>
+    axesRequestedSet !== null && !axesRequestedSet.has(axis);
   const degradedAxisNames = REPORT_AXIS_IDS
     .filter((a) => isAxisDegraded(a, axisHealthPercent(data, a).evaluated))
+    .map((a) => axisDisplayName(a));
+  const skippedAxisNames = REPORT_AXIS_IDS
+    .filter(isAxisNotRequested)
     .map((a) => axisDisplayName(a));
 
   // A run with un-evaluated axes cannot honestly be called CLEAN — the
   // "clean" verdict would only reflect the axes that happened to run.
-  const displayVerdict = data.globalVerdict === 'CLEAN' && degradedAxisNames.length > 0
-    ? 'DEGRADED'
-    : data.globalVerdict;
+  // Crashes win over skips: an unintended failure is a stronger signal than
+  // an intentional --axes filter.
+  let displayVerdict: string = data.globalVerdict;
+  if (data.globalVerdict === 'CLEAN') {
+    if (degradedAxisNames.length > 0) displayVerdict = 'DEGRADED';
+    else if (skippedAxisNames.length > 0) displayVerdict = 'PARTIAL';
+  }
   const verdictParts = [`Verdict: **${displayVerdict}**`];
   if (errorSymbols.length > 0) verdictParts.push(`${errorSymbols.length} critical bug${errorSymbols.length > 1 ? 's' : ''} found`);
   verdictParts.push(`${totalFindings} finding${totalFindings !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`);
   if (degradedAxisNames.length > 0) {
     verdictParts.push(`⚠️ ${degradedAxisNames.length} axis evaluator${degradedAxisNames.length > 1 ? 's' : ''} crashed (${degradedAxisNames.join(', ')}) — re-run recommended`);
+  }
+  if (skippedAxisNames.length > 0) {
+    verdictParts.push(`⚠️ partial run: ${skippedAxisNames.length} axis skipped via --axes (${skippedAxisNames.join(', ')}) — re-run without filter for full coverage`);
   }
   lines.push(`> ${verdictParts.join(' · ')}`);
   if (docConflictCount && docConflictCount > 0) {
@@ -792,6 +817,14 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     const name = axisDisplayName(axis);
     const { pct, label, evaluated } = axisHealthPercent(data, axis);
 
+    // Axis not in the --axes filter: rendered as explicitly skipped (not
+    // "All clear" — we have zero signal). Distinct from crashed: skipped is
+    // intentional, no re-run "recommended" tone.
+    if (isAxisNotRequested(axis)) {
+      lines.push(`| ${name} | ⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ not in this run | — | — |`);
+      continue;
+    }
+
     // Crashed axis: never render a health bar / "All clear". It was not
     // evaluated, so show it explicitly as degraded with a re-run hint.
     if (isAxisDegraded(axis, evaluated)) {
@@ -833,6 +866,18 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     const emoji = axisEmoji(axis);
     const name = axisDisplayName(axis);
     const report = axisReports.find((r) => r.axis === axis);
+
+    // Filtered-out axis (--axes <list>): render NOT TESTED unconditionally,
+    // even if a side-channel (e.g. doc-coverage stats) populated an
+    // axisReport for it. We did not run the axis review; surfacing findings
+    // would mix two signals and lie about coverage.
+    if (isAxisNotRequested(axis)) {
+      lines.push(`### ${emoji} ${name}`);
+      lines.push('');
+      lines.push(`⚪ **NOT TESTED** — axis skipped via --axes filter. Re-run without --axes to evaluate.`);
+      lines.push('');
+      continue;
+    }
 
     if (!report || report.files.length === 0) {
       lines.push(`### ${emoji} ${name}`);
