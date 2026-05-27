@@ -7,6 +7,7 @@ import { resolve, dirname, relative, extname, join } from 'node:path';
 import type { Task } from '../../schemas/task.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
+import { detectPythonSourceRoots } from './python-source-roots.js';
 
 export interface UsageGraph {
   /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
@@ -427,6 +428,7 @@ function resolveNonTsImportPath(
   importerRelPath: string,
   taskFileSet: Set<string>,
   rustCrateMap?: RustCrateMap,
+  pythonSourceRoots?: readonly string[],
 ): string | null {
   const importerDir = dirname(importerRelPath);
   const importerExt = extname(importerRelPath);
@@ -437,18 +439,29 @@ function resolveNonTsImportPath(
     return taskFileSet.has(resolved) ? resolved : null;
   }
 
-  // Python: module name → file path
+  // Python: module name → file path. Tries, in order:
+  //   1. Each declared source root (pyproject.toml: setuptools / poetry /
+  //      hatch + `src/` heuristic) — covers the standard src-layout where
+  //      code lives under `src/<pkg>/...` but imports are written as
+  //      absolute `<pkg>.module`.
+  //   2. Relative to the importer directory (legacy bare-layout edges).
+  //   3. As a package under the importer directory (`__init__.py`).
   if (importerExt === '.py') {
     const modulePath = importSource.replace(/\./g, '/');
-    // Try relative to importer directory first
+    const roots = pythonSourceRoots && pythonSourceRoots.length > 0
+      ? pythonSourceRoots
+      : [''];
+    for (const root of roots) {
+      const base = root ? join(root, modulePath) : modulePath;
+      const fileCandidate = base + '.py';
+      if (taskFileSet.has(fileCandidate)) return fileCandidate;
+      const pkgCandidate = join(base, '__init__.py');
+      if (taskFileSet.has(pkgCandidate)) return pkgCandidate;
+    }
     const relCandidate = join(importerDir, modulePath + '.py');
     if (taskFileSet.has(relCandidate)) return relCandidate;
-    // Try relative to project root
-    const rootCandidate = modulePath + '.py';
-    if (taskFileSet.has(rootCandidate)) return rootCandidate;
-    // Try as package
-    const pkgCandidate = join(importerDir, modulePath, '__init__.py');
-    if (taskFileSet.has(pkgCandidate)) return pkgCandidate;
+    const relPkgCandidate = join(importerDir, modulePath, '__init__.py');
+    if (taskFileSet.has(relPkgCandidate)) return relPkgCandidate;
     return null;
   }
 
@@ -541,6 +554,12 @@ export function buildUsageGraph(
   const hasRustFiles = allImporters.some((t) => extname(t.file) === '.rs');
   const rustCrateMap = hasRustFiles ? buildRustCrateMap(projectRoot, taskFileSet) : undefined;
 
+  // Detect Python source roots once per build so src-layout absolute imports
+  // (`from pkg.mod import x` → `src/pkg/mod.py`) resolve. Skipped when no
+  // Python file is in the audit set.
+  const hasPythonFiles = allImporters.some((t) => extname(t.file) === '.py');
+  const pythonSourceRoots = hasPythonFiles ? detectPythonSourceRoots(projectRoot) : undefined;
+
   for (const task of allImporters) {
     const ext = extname(task.file);
     const language = task.language ?? resolveAdapter(ext)?.languageId;
@@ -596,7 +615,7 @@ export function buildUsageGraph(
       }
 
       for (const ref of importRefs) {
-        const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet, rustCrateMap);
+        const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet, rustCrateMap, pythonSourceRoots);
         if (!resolvedFile || resolvedFile === task.file) continue;
 
         const exports = allExportsByFile.get(resolvedFile);

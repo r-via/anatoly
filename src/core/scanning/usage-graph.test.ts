@@ -323,6 +323,73 @@ describe('buildUsageGraph — multi-language', () => {
     expect(getSymbolUsage(graph, 'format_output', 'src/helpers.py')).toEqual(['src/main.py']);
   });
 
+  // Python src-layout: absolute import (`from pkg.mod import x`) resolves
+  // through pyproject.toml-declared source roots, not just importer-relative.
+  // Regression guard: the bench on anselms-journey (src-layout) reported
+  // every Python export as "0 importers" because the resolver only tried
+  // importer-relative and project-root.
+  it('python src-layout: absolute imports resolve through pyproject source roots', () => {
+    createFile('pyproject.toml', '[tool.setuptools.packages.find]\nwhere = ["src"]\n');
+    createFile('src/open_saga/scaffold.py', 'def universal_slots(): pass\nSCAFFOLD_SCHEMA_VERSION = 1\nline3\nline4\nline5\n');
+    createFile(
+      'src/open_saga/outliner.py',
+      'from open_saga.scaffold import universal_slots, SCAFFOLD_SCHEMA_VERSION\nuniversal_slots()\nline3\nline4\nline5\n',
+    );
+
+    const tasks = [
+      { ...makeTask('src/open_saga/scaffold.py', [
+        { name: 'universal_slots', exported: true },
+        { name: 'SCAFFOLD_SCHEMA_VERSION', exported: true, kind: 'constant' },
+      ]), language: 'python' } as Task,
+      { ...makeTask('src/open_saga/outliner.py', [
+        { name: 'main', exported: true },
+      ]), language: 'python' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'universal_slots', 'src/open_saga/scaffold.py')).toEqual(['src/open_saga/outliner.py']);
+    expect(getSymbolUsage(graph, 'SCAFFOLD_SCHEMA_VERSION', 'src/open_saga/scaffold.py')).toEqual(['src/open_saga/outliner.py']);
+  });
+
+  // src-layout heuristic: even without pyproject.toml, a `src/` directory
+  // is enough to opt into src-layout resolution.
+  it('python src-layout: falls back to src/ heuristic when pyproject.toml is missing', () => {
+    createFile('src/pkg/foo.py', 'def helper(): pass\nline2\nline3\nline4\nline5\n');
+    createFile(
+      'src/pkg/bar.py',
+      'from pkg.foo import helper\nhelper()\nline3\nline4\nline5\n',
+    );
+
+    const tasks = [
+      { ...makeTask('src/pkg/foo.py', [{ name: 'helper', exported: true }]), language: 'python' } as Task,
+      { ...makeTask('src/pkg/bar.py', [{ name: 'main', exported: true }]), language: 'python' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'helper', 'src/pkg/foo.py')).toEqual(['src/pkg/bar.py']);
+  });
+
+  // poetry layout: `packages = [{include = "pkg", from = "src"}]`
+  it('python src-layout: parses poetry packages[].from', () => {
+    createFile(
+      'pyproject.toml',
+      '[tool.poetry]\nname = "demo"\npackages = [{include = "demo", from = "lib"}]\n',
+    );
+    createFile('lib/demo/util.py', 'def shared(): pass\nline2\nline3\nline4\nline5\n');
+    createFile(
+      'lib/demo/main.py',
+      'from demo.util import shared\nshared()\nline3\nline4\nline5\n',
+    );
+
+    const tasks = [
+      { ...makeTask('lib/demo/util.py', [{ name: 'shared', exported: true }]), language: 'python' } as Task,
+      { ...makeTask('lib/demo/main.py', [{ name: 'main', exported: true }]), language: 'python' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'shared', 'lib/demo/util.py')).toEqual(['lib/demo/main.py']);
+  });
+
   // AC 31.13.4: Rust use crate edge
   it('AC 31.13.4: tracks rust crate import edges', () => {
     createFile('src/scanner.rs', 'pub fn parse() {}\nline2\nline3\nline4\nline5\n');
