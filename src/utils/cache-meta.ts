@@ -110,6 +110,37 @@ export function loadCacheWithMeta<T>(
   }
 }
 
+/**
+ * Load a cache file validating only schema, returning data + cached prompt
+ * hash. Skips the prompt-hash equality gate of {@link loadCacheWithMeta}.
+ *
+ * Used by the selective-refresh merge path: the bundle prompt hash differs
+ * between a `--axes utility` run and the prior full run that produced the
+ * cache blob, even when each individual axis's system prompt is unchanged.
+ * The merge needs the cached verdicts for the non-refreshed axes — gating
+ * that load on the bundle hash would refuse a perfectly valid source.
+ *
+ * The caller receives the cached prompt hash so it can surface a warning
+ * when prompts have drifted between runs (a real staleness risk the user
+ * should know about, even if we proceed with the merge).
+ */
+export function loadCacheWithMetaIgnoringPromptHash<T>(
+  path: string,
+  expected: { schema: number },
+): { data: T; cachedPromptHash: string } | null {
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const parsed = JSON.parse(raw) as CacheFile<T>;
+
+    if (!parsed._meta) return null;
+    if (parsed._meta.schema !== expected.schema) return null;
+
+    return { data: parsed.data, cachedPromptHash: parsed._meta.prompt_hash };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // writeCacheWithMeta
 // ---------------------------------------------------------------------------

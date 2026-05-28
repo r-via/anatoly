@@ -386,11 +386,11 @@ export async function runReviewPhase(
 
         // Selective refresh: when (--cache-refresh + --axes filter) only
         // some axes ran, but the on-disk cache may still hold valid verdicts
-        // for the others (same file content, same prompt hash). Merge the
-        // fresh partial result with the cached entry so the run dir AND
-        // the cache reflect full coverage; otherwise --axes utility
-        // --cache-refresh would shrink the cache to utility-only and force
-        // every future run to re-evaluate everything to recover.
+        // for the others (same file content). Merge the fresh partial
+        // result with the cached entry so the run dir AND the cache reflect
+        // full coverage; otherwise --axes utility --cache-refresh would
+        // shrink the cache to utility-only and force every future run to
+        // re-evaluate everything to recover.
         let outputReview = result.review;
         let coverageAxes: string[] = fileEvaluators.map((e) => e.id);
         if (ctx.cacheRefresh && ctx.axesFilter && ctx.axesFilter.length > 0) {
@@ -400,18 +400,33 @@ export async function runReviewPhase(
               ctx.projectRoot,
               filePath,
               readFileSync(absPath, 'utf-8'),
-              reviewPromptHash,
             );
             if (cacheSource.review) {
               outputReview = mergeRefreshedReview(cacheSource.review, result.review, ctx.axesFilter);
               coverageAxes = computeMergedAxesCoverage(outputReview, ctx.axesFilter, cacheSource.axes);
+              if (cacheSource.cachedPromptHash && cacheSource.cachedPromptHash !== reviewPromptHash) {
+                // Prompts have drifted between the cached run and now (different
+                // bundle hash). We still trust the cached verdicts for the
+                // non-refreshed axes — that is the selective-refresh contract —
+                // but the user should know so they can choose to force a full
+                // `--cache-refresh` after a tool upgrade.
+                getLogger().warn(
+                  { file: filePath, cached: cacheSource.cachedPromptHash, current: reviewPromptHash },
+                  'selective-refresh: cached prompt hash drifted; non-refreshed axes may be stale (run `--cache-refresh` without --axes to fully refresh)',
+                );
+              }
+            } else {
+              // No usable cache source. Log at warn (not debug) so a broken
+              // merge does not silently downgrade coverage. Common causes:
+              // file content changed since last cache, no prior run at all,
+              // index entry missing.
+              getLogger().warn(
+                { file: filePath, reason: cacheSource.axes.length === 0 ? 'no-index-entry-or-content-drift' : 'cache-blob-missing' },
+                'selective-refresh: no cache source to merge — partial review will be written instead of full coverage',
+              );
             }
           } catch (err) {
-            // No usable cache to merge with — fall back to the fresh
-            // partial review. The user still gets correct refreshed axes;
-            // they just lose cached coverage for the others (same as
-            // running --axes X without --cache-refresh on a fresh project).
-            getLogger().debug({ file: filePath, err }, 'selective-refresh merge skipped (no cache source)');
+            getLogger().warn({ file: filePath, err }, 'selective-refresh merge failed; falling back to partial review');
           }
         }
         writeReviewOutput(ctx.projectRoot, outputReview, ctx.runDir);

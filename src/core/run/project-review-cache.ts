@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { computeContentHash, atomicWriteJson, toOutputName } from '../../utils/cache.js';
-import { writeCacheWithMeta, loadCacheWithMeta } from '../../utils/cache-meta.js';
+import { writeCacheWithMeta, loadCacheWithMeta, loadCacheWithMetaIgnoringPromptHash } from '../../utils/cache-meta.js';
 import { getLogger } from '../../utils/logger.js';
 import { ReviewFileSchema, type ReviewFile } from '../../schemas/review.js';
 
@@ -134,44 +134,57 @@ export function loadProjectReview(
 }
 
 /**
- * Load the cached review for a file ignoring the axes-coverage gate. Used
- * by the selective-refresh path (`--axes X --cache-refresh`): the caller
- * intends to merge the cached payload with a freshly-evaluated subset, so
- * the usual "cache must cover all enabled axes" gate would falsely
- * suppress the merge source whenever cached axes are a strict subset of
- * what the current run is asking about.
+ * Load the cached review for a file ignoring both the axes-coverage gate
+ * AND the bundle prompt-hash gate. Used by the selective-refresh path
+ * (`--axes X --cache-refresh`).
  *
- * Returns both the cached `ReviewFile` (or null on miss) and the axes the
- * index entry says it covers, so callers can compute the post-merge axis
- * union for the new index entry.
+ * Why we skip the prompt-hash gate: `computeAxesPromptHash` hashes the
+ * full bundle of enabled-axes system prompts together. A `--axes utility`
+ * run computes a different bundle hash than the prior full run that
+ * produced the cache blob — even when each individual axis's system
+ * prompt is byte-identical. Gating the merge source on the bundle hash
+ * would silently refuse a perfectly valid source for every selective
+ * refresh, defeating the whole feature (the bug shipped briefly in the
+ * first cut: the merge never fired, the cache shrank to the refreshed
+ * axis only).
  *
- * Still requires content hash + prompt hash to match — a stale cache for
- * a different file content or a different prompt version is not a valid
- * merge source.
+ * Returns the cached payload, the axes the index entry says it covers,
+ * and the cached prompt hash so callers can warn the user on drift.
+ *
+ * Caveat the caller should communicate: when the cached prompt hash
+ * differs from the current run's bundle hash, the non-refreshed axes'
+ * cached verdicts could be stale (an axis's system prompt may have
+ * changed between runs). The selective-refresh contract is "trust the
+ * cache for what we did not just re-evaluate" — drift is the user's
+ * responsibility to resolve via a full `--cache-refresh` when prompts
+ * are upgraded.
  */
 export function loadProjectReviewRaw(
   root: string,
   filePath: string,
   fileContent: string,
-  promptHash: string,
-): { review: ReviewFile | null; axes: string[] } {
+): { review: ReviewFile | null; axes: string[]; cachedPromptHash: string | undefined } {
   const contentHash = computeContentHash(fileContent);
   const cachePath = projectReviewPath(root, contentHash);
 
   const index = loadReviewIndex(root);
   const entry = index.files[filePath];
   if (entry) {
-    if (entry.hash !== contentHash) return { review: null, axes: [] };
-    if (entry.status !== 'DONE' && entry.status !== 'CACHED') return { review: null, axes: [] };
-    const review = loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
-    return { review, axes: [...entry.axes] };
+    if (entry.hash !== contentHash) return { review: null, axes: [], cachedPromptHash: undefined };
+    if (entry.status !== 'DONE' && entry.status !== 'CACHED') return { review: null, axes: [], cachedPromptHash: undefined };
+    const loaded = loadCacheWithMetaIgnoringPromptHash<ReviewFile>(cachePath, { schema: 1 });
+    return loaded
+      ? { review: loaded.data, axes: [...entry.axes], cachedPromptHash: loaded.cachedPromptHash }
+      : { review: null, axes: [...entry.axes], cachedPromptHash: undefined };
   }
   // No index entry but the blob might still exist (rename/vendor). Without
   // an index entry we have no record of axis coverage; return an empty
   // axes list so the merger treats every axis as "freshly evaluated" and
   // does not pretend to have cached values for unrun axes.
-  const review = loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
-  return { review, axes: [] };
+  const loaded = loadCacheWithMetaIgnoringPromptHash<ReviewFile>(cachePath, { schema: 1 });
+  return loaded
+    ? { review: loaded.data, axes: [], cachedPromptHash: loaded.cachedPromptHash }
+    : { review: null, axes: [], cachedPromptHash: undefined };
 }
 
 // ---------------------------------------------------------------------------

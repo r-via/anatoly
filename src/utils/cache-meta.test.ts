@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import type { CacheFile } from './cache-meta.js';
-import { computePromptHash, loadCacheWithMeta, writeCacheWithMeta } from './cache-meta.js';
+import { computePromptHash, loadCacheWithMeta, loadCacheWithMetaIgnoringPromptHash, writeCacheWithMeta } from './cache-meta.js';
 
 // ---------------------------------------------------------------------------
 // computePromptHash
@@ -246,5 +246,58 @@ describe('writeCacheWithMeta / loadCacheWithMeta', () => {
 
     writeCacheWithMeta(filePath, { v: 2 }, { schema: 1, prompt_hash: 'sha256:yyy', model_id: 'm' });
     expect(loadCacheWithMeta<{ v: number }>(filePath, { schema: 1, promptHash: 'sha256:yyy' })).toEqual({ v: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadCacheWithMetaIgnoringPromptHash — used by selective-refresh merge
+// ---------------------------------------------------------------------------
+//
+// Why this exists: the bundle prompt hash differs between a `--axes utility`
+// run and the prior full run that wrote the cache. Gating the merge source
+// on the bundle hash would refuse a valid source for every selective
+// refresh — exactly the bug fixed here.
+
+describe('loadCacheWithMetaIgnoringPromptHash', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'cache-meta-ignore-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns the blob and the cached prompt hash even when the hash differs', () => {
+    const filePath = join(tempDir, 'drift.json');
+    writeCacheWithMeta(filePath, { v: 42 }, { schema: 1, prompt_hash: 'sha256:full-bundle', model_id: 'm' });
+
+    const result = loadCacheWithMetaIgnoringPromptHash<{ v: number }>(filePath, { schema: 1 });
+    expect(result).not.toBeNull();
+    expect(result!.data).toEqual({ v: 42 });
+    expect(result!.cachedPromptHash).toBe('sha256:full-bundle');
+  });
+
+  it('still rejects on schema mismatch (a real corruption signal)', () => {
+    const filePath = join(tempDir, 'schema-mismatch.json');
+    writeCacheWithMeta(filePath, { v: 1 }, { schema: 1, prompt_hash: 'sha256:x', model_id: 'm' });
+    expect(loadCacheWithMetaIgnoringPromptHash(filePath, { schema: 2 })).toBeNull();
+  });
+
+  it('returns null when the file is missing', () => {
+    expect(loadCacheWithMetaIgnoringPromptHash('/nonexistent', { schema: 1 })).toBeNull();
+  });
+
+  it('returns null when the JSON is corrupt', () => {
+    const filePath = join(tempDir, 'corrupt.json');
+    writeFileSync(filePath, '{ this is not json');
+    expect(loadCacheWithMetaIgnoringPromptHash(filePath, { schema: 1 })).toBeNull();
+  });
+
+  it('returns null when _meta is absent (malformed payload)', () => {
+    const filePath = join(tempDir, 'no-meta.json');
+    writeFileSync(filePath, JSON.stringify({ data: { x: 1 } }));
+    expect(loadCacheWithMetaIgnoringPromptHash(filePath, { schema: 1 })).toBeNull();
   });
 });
