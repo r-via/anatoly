@@ -263,7 +263,7 @@ function runList(projectRoot: string): void {
     console.log(`  ${chalk.bold(s.name)}`);
     console.log(`    ${chalk.dim('reason:')}   ${s.reason}${s.note ? ` (${s.note})` : ''}`);
     console.log(`    ${chalk.dim('created:')}  ${s.createdAt}`);
-    console.log(`    ${chalk.dim('size:')}     ${s.fileCount} files, ${formatBytes(s.sizeBytes)}`);
+    console.log(`    ${chalk.dim('size:')}     ${s.fileCount} files, ${formatBytes(s.sizeBytes)} (${s.format === 'tar' ? 'tar.gz' : 'directory'})`);
     if (s.gitCommit) console.log(`    ${chalk.dim('git:')}      ${s.gitCommit.slice(0, 8)}`);
     if (s.anatolyVersion) console.log(`    ${chalk.dim('anatoly:')}  ${s.anatolyVersion}`);
     if (s.triggerCommand) console.log(`    ${chalk.dim('command:')}  ${s.triggerCommand}`);
