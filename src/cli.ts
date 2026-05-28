@@ -24,6 +24,7 @@ import {
   registerNotificationsCommand,
   registerRunsCommand,
   registerAttachCommand,
+  registerCacheCommand,
   registerGitCommand,
   runAutoGitCleanup,
 } from './commands/index.js';
@@ -132,6 +133,9 @@ export function createProgram(): Command {
   // Parent "runs" command with subcommands: list, attach, remove, repair
   const runsCmd = registerRunsCommand(program);
   registerAttachCommand(runsCmd);
+
+  // Parent "cache" command with subcommands: reseed (snapshot/restore TBD)
+  registerCacheCommand(program);
 
   // Parent "git" command with subcommands: cleanup
   registerGitCommand(program);

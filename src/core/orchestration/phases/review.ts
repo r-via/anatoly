@@ -51,8 +51,7 @@ import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
 import { writeProjectReview, loadProjectReview, loadProjectReviewRaw, loadLegacyPathBasedReview } from '../../run/index.js';
 import { mergeRefreshedReview, computeMergedAxesCoverage } from '../../run/review-merge.js';
-import { computePromptHash } from '../../../utils/cache-meta.js';
-import { resolveSystemPrompt } from '../../platform/index.js';
+import { computeAxesPromptHash } from '../../run/axes-prompt-hash.js';
 import { recordAgentCosts } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RagContext, Handoff } from '../handoff.js';
@@ -618,22 +617,6 @@ function loadCachedReview(projectRoot: string, filePath: string, enabledAxes: Ax
   return undefined;
 }
 
-/**
- * Compute a combined prompt hash for all enabled axis system prompts.
- * Used as the `prompt_hash` in shared review cache `_meta` headers.
- */
-function computeAxesPromptHash(axisIds: string[], modelId: string): string {
-  const sortedAxes = [...axisIds].sort();
-  const systemPrompts = sortedAxes.map((id) => {
-    try { return resolveSystemPrompt(id); } catch { return id; }
-  }).join('\0');
-  return computePromptHash({
-    schemaVersion: 1,
-    modelId,
-    systemPrompt: systemPrompts,
-    userTemplate: '', // User template varies per file — we use content hash for that
-  });
-}
 
 /**
  * Persist a review to the project-local content-addressable store.

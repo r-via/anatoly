@@ -22,3 +22,4 @@ export { registerProvidersCommand } from './providers.js';
 export { registerNotificationsCommand } from './notifications.js';
 export { registerRunsCommand } from './runs.js';
 export { registerAttachCommand } from './attach.js';
+export { registerCacheCommand } from './cache.js';
