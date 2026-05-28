@@ -484,20 +484,29 @@ function axisVerdictBreakdown(data: ReportData, axis: ReportAxisId): string {
  * the rendered-then-persisted section via ~10 regex patterns, paying a
  * render→parse→render round-trip for data we already had in memory.
  */
-function renderPublicDocSectionFromStats(stats: DocReportStats): string[] {
+function renderPublicDocSectionFromStats(stats: DocReportStats, docMode?: DocModeInfo): string[] {
   const lines: string[] = [];
+  // In lite/off mode, Anatoly never generates `.anatoly/docs/` reference pages —
+  // the documentation axis only audits inline doc comments. Saying "Anatoly
+  // generates reference pages" or reporting "0 pages generated" would be
+  // misleading: those metrics are off by design, not by failure.
+  const generatesPages = docMode?.mode === 'full';
   lines.push('## Documentation Coverage');
   lines.push('');
   lines.push('Measures inline doc comments (`///` in Rust, `/** */` in JS/TS, docstrings in Python) on exported symbols.');
-  lines.push('Anatoly also generates reference pages in `.anatoly/docs/` for every reviewed module.');
+  if (generatesPages) {
+    lines.push('Anatoly also generates reference pages in `.anatoly/docs/` for every reviewed module.');
+  }
   lines.push('');
 
-  const pageParts: string[] = [];
-  if (stats.refreshedPages.length > 0) pageParts.push(`${stats.refreshedPages.length} refreshed`);
-  if (stats.cachedPages.length > 0) pageParts.push(`${stats.cachedPages.length} cached`);
-  const pageSummary = pageParts.length > 0 ? ` (${pageParts.join(', ')})` : '';
-  lines.push(`**Reference pages:** ${stats.totalPages} pages generated${pageSummary}`);
-  lines.push('');
+  if (generatesPages) {
+    const pageParts: string[] = [];
+    if (stats.refreshedPages.length > 0) pageParts.push(`${stats.refreshedPages.length} refreshed`);
+    if (stats.cachedPages.length > 0) pageParts.push(`${stats.cachedPages.length} cached`);
+    const pageSummary = pageParts.length > 0 ? ` (${pageParts.join(', ')})` : '';
+    lines.push(`**Reference pages:** ${stats.totalPages} pages generated${pageSummary}`);
+    lines.push('');
+  }
 
   const sc = stats.symbolCoverage;
   if (sc) {
@@ -511,18 +520,20 @@ function renderPublicDocSectionFromStats(stats: DocReportStats): string[] {
       lines.push('|--------|----------|-------------|');
       lines.push(`| Complete doc comments | ${healthBar(projectPct)} ${projectPct}% (${projectDocCount}/${sc.totalExports}) | Exported symbols with a complete inline doc comment covering description, params, and return |`);
       lines.push(`| Any doc comment | ${healthBar(internalPct)} ${internalPct}% (${internalDocCount}/${sc.totalExports}) | Exported symbols with at least a partial inline doc comment |`);
-      if (sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
+      if (generatesPages && sc.totalModules !== undefined && sc.internalModulesDocumented !== undefined) {
         const modPct = sc.totalModules === 0 ? 100 : Math.min(100, Math.round((sc.internalModulesDocumented / sc.totalModules) * 100));
         lines.push(`| Module guides | ${healthBar(modPct)} ${modPct}% (${sc.internalModulesDocumented}/${sc.totalModules}) | Modules > 200 LOC with a dedicated page in docs/ |`);
       }
-      if (stats.userDocsPageCount === 0) {
+      if (generatesPages && stats.userDocsPageCount === 0) {
         lines.push(`| Reference pages | ${stats.totalPages} pages | Anatoly-generated module and API reference pages |`);
       }
       lines.push('');
-      lines.push(stats.docsSynced
-        ? '> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.'
-        : '> No `docs/` directory found. Copy `.anatoly/docs/` to `docs/` to adopt the generated documentation and speed up future Anatoly runs.');
-      lines.push('');
+      if (generatesPages) {
+        lines.push(stats.docsSynced
+          ? '> `docs/` is synced with `.anatoly/docs/` — documentation is evaluated against the Anatoly-generated reference.'
+          : '> No `docs/` directory found. Copy `.anatoly/docs/` to `docs/` to adopt the generated documentation and speed up future Anatoly runs.');
+        lines.push('');
+      }
     } else {
       lines.push('**Project docs (docs/):**');
       lines.push('');
@@ -582,8 +593,8 @@ function renderPublicDocSectionFromStats(stats: DocReportStats): string[] {
  * rendered markdown when stats are absent (legacy runs without the
  * doc-report-stats.json sidecar).
  */
-function renderPublicDocSection(raw: string, stats?: DocReportStats): string[] {
-  if (stats) return renderPublicDocSectionFromStats(stats);
+function renderPublicDocSection(raw: string, stats?: DocReportStats, docMode?: DocModeInfo): string[] {
+  if (stats) return renderPublicDocSectionFromStats(stats, docMode);
   const lines: string[] = [];
   lines.push('## Documentation Coverage');
   lines.push('');
@@ -947,7 +958,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
 
   // ── 5. DOCUMENTATION REFERENCE (rewritten for public readability) ─────
   if (docReferenceSection || docReportStats) {
-    lines.push(...renderPublicDocSection(docReferenceSection ?? '', docReportStats));
+    lines.push(...renderPublicDocSection(docReferenceSection ?? '', docReportStats, docMode));
     lines.push('');
   }
 
@@ -984,16 +995,24 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     lines.push('');
   }
 
-  // ── 6b. DOCUMENTATION (always present — link updated by publish.sh) ──
-  const docsLink = reportsBaseUrl
-    ? `${reportsBaseUrl}/docs/index.md`
-    : './docs/index.md';
-  lines.push('## 📚 Documentation');
-  lines.push('');
-  lines.push('Anatoly generated a complete documentation for this project during the audit.');
-  lines.push('');
-  lines.push(`**[Browse the documentation →](${docsLink})**`);
-  lines.push('');
+  // ── 6b. DOCUMENTATION (generated only in `full` internal mode) ────────
+  // In `lite` / `off`, Anatoly does not produce `.anatoly/docs/`, so a
+  // "browse the documentation" link would point at a directory that does
+  // not exist. Skip the section entirely in those modes; the
+  // "Documentation Coverage" section above already conveys the relevant
+  // signal (inline-doc-comment coverage) without false claims about
+  // generated reference pages.
+  if (docMode?.mode === 'full') {
+    const docsLink = reportsBaseUrl
+      ? `${reportsBaseUrl}/docs/index.md`
+      : './docs/index.md';
+    lines.push('## 📚 Documentation');
+    lines.push('');
+    lines.push('Anatoly generated a complete documentation for this project during the audit.');
+    lines.push('');
+    lines.push(`**[Browse the documentation →](${docsLink})**`);
+    lines.push('');
+  }
 
   // ── 7. RUN DETAILS (cold zone) ────────────────────────────────────────
   if (runStats) {

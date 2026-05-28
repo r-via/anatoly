@@ -969,6 +969,8 @@ describe('crashed-axis degradation (no false 100% clean)', () => {
     // Structured stats path: pass DocReportStats + a deliberately misleading
     // markdown body. If the renderer were still regex-parsing the markdown,
     // we would see "FROM_MD" tokens; the structured path must win.
+    // docMode=full so reference-page lines are rendered (they're skipped
+    // in lite/off — see the dedicated lite-mode test below).
     const md = renderPublicIndex(
       data,
       buildAxisReports(data),
@@ -977,7 +979,7 @@ describe('crashed-axis degradation (no false 100% clean)', () => {
       'FROM_MD updated: 99 pages (FROM_MD)\nFROM_MD coverage: 99%',
       undefined,
       undefined,
-      undefined,
+      { mode: 'full' },
       {
         totalPages: 12,
         newPages: [{ page: '01-Overview.md', source: 'src/core/index.ts' }],
@@ -1008,5 +1010,64 @@ describe('crashed-axis degradation (no false 100% clean)', () => {
     expect(section).toContain('New pages generated (1)');
     // Regex-parse fallback must NOT have run
     expect(section).not.toContain('FROM_MD');
+  });
+
+  // doc-build (internal-docs generation) only runs in `full` mode. In `lite`
+  // and `off`, the public report must not claim "Anatoly generated a
+  // complete documentation", must not link to a non-existent ./docs/index.md,
+  // and must not report "0 pages generated" as if it were a real metric.
+  it('lite mode: no "browse docs" link, no "X pages generated" line, no false claims', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined, undefined, undefined, undefined, undefined,
+      { mode: 'lite', digestTokens: 1024 },
+      {
+        totalPages: 0,
+        newPages: [],
+        refreshedPages: [],
+        cachedPages: [],
+        userDocsPageCount: 0,
+        symbolCoverage: { projectDocumented: 40, internalDocumented: 60, totalExports: 100 },
+        docsSynced: false,
+      },
+    );
+
+    // No misleading section 6b
+    expect(md).not.toContain('Anatoly generated a complete documentation');
+    expect(md).not.toContain('Browse the documentation');
+    expect(md).not.toContain('./docs/index.md');
+
+    // Coverage section still rendered (inline-doc audit is meaningful in lite)
+    // but without reference-page claims
+    expect(md).toContain('## Documentation Coverage');
+    expect(md).toContain('40% (40/100)'); // projectDocumented
+    expect(md).not.toContain('pages generated');
+    expect(md).not.toContain('Anatoly also generates reference pages');
+    expect(md).not.toContain('Reference pages | 0 pages');
+  });
+
+  it('full mode: keeps the "browse docs" link and reference-page metrics', () => {
+    const data = aggregateReviews([makeReview({ file: 'a.ts' })]);
+    const md = renderPublicIndex(
+      data,
+      buildAxisReports(data),
+      undefined, undefined, undefined, undefined, undefined,
+      { mode: 'full' },
+      {
+        totalPages: 5,
+        newPages: [],
+        refreshedPages: ['a.md'],
+        cachedPages: [],
+        userDocsPageCount: 0,
+        symbolCoverage: { projectDocumented: 40, internalDocumented: 60, totalExports: 100 },
+        docsSynced: false,
+      },
+    );
+
+    expect(md).toContain('Anatoly generated a complete documentation');
+    expect(md).toContain('Browse the documentation');
+    expect(md).toContain('5 pages generated');
   });
 });
