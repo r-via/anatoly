@@ -45,7 +45,6 @@ import {
 /** Transport identifies which client SDK is used to talk to the provider. */
 export const TransportSchema = z.enum([
   'claude_agent_sdk',         // @anthropic-ai/claude-agent-sdk (agentic + single_turn)
-  'google_genai',             // @google/genai (agentic + single_turn)
   'openai_compatible',        // @ai-sdk/openai-compatible (single_turn + embeddings)
   'onnxruntime_node',         // onnxruntime-node (in-process embeddings only)
 ]);
@@ -54,7 +53,7 @@ export type Transport = z.infer<typeof TransportSchema>;
 
 /**
  * Auth method. Only meaningful for transports that talk to a network.
- * - `oauth` — interactive session (Anthropic, Google).
+ * - `oauth` — interactive session (Anthropic).
  * - `api_key` — bearer token read from `env_key`.
  * - `none` — no authentication (e.g. system-local sidecar on localhost).
  *   Restricted to `openai_compatible`; must not specify `env_key`.
@@ -66,7 +65,6 @@ export type Auth = z.infer<typeof AuthSchema>;
 /** Set of transports that can run an agentic loop (multi-turn + tools). */
 export const AGENTIC_TRANSPORTS: ReadonlySet<Transport> = new Set([
   'claude_agent_sdk',
-  'google_genai',
 ]);
 
 /** Set of transports that can produce embeddings. */
@@ -78,7 +76,6 @@ export const EMBEDDING_TRANSPORTS: ReadonlySet<Transport> = new Set([
 /** Set of transports that talk to a network endpoint (need auth). */
 export const NETWORK_TRANSPORTS: ReadonlySet<Transport> = new Set([
   'claude_agent_sdk',
-  'google_genai',
   'openai_compatible',
 ]);
 
@@ -130,7 +127,7 @@ export const ProviderConfigSchema = z.object({
 
   // `none` is reserved for system-local sidecars exposed via openai_compatible
   // (no key sent on the wire). Network SDKs that always inject auth headers
-  // (claude_agent_sdk, google_genai) are not compatible with it.
+  // (claude_agent_sdk) are not compatible with it.
   if (data.auth === 'none' && data.transport !== 'openai_compatible') {
     ctx.addIssue({
       code: 'custom',
@@ -502,7 +499,7 @@ export const ConfigV3Schema = PreConfigSchema.superRefine((data, ctx) => {
       ctx.addIssue({
         code: 'custom',
         path: refKey.split('.'),
-        message: `slot "${refKey}" requires an agentic-capable transport (claude_agent_sdk, google_genai); "${parsed.provider}" uses ${t}`,
+        message: `slot "${refKey}" requires an agentic-capable transport (claude_agent_sdk); "${parsed.provider}" uses ${t}`,
       });
     }
     if (requirement === 'embeddings' && !EMBEDDING_TRANSPORTS.has(t)) {

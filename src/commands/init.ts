@@ -118,7 +118,7 @@ export function mergeDocumentationIntoYaml(
   return lines.join('\n');
 }
 
-const SUBSCRIPTION_PROVIDERS = new Set(['anthropic', 'google']);
+const SUBSCRIPTION_PROVIDERS = new Set(['anthropic']);
 
 /**
  * Validate that a provider supports the given mode.
@@ -129,7 +129,7 @@ export function validateProviderMode(
   mode: string,
 ): string | null {
   if (mode === 'subscription' && !SUBSCRIPTION_PROVIDERS.has(providerId)) {
-    return `Subscription mode only available for Anthropic and Google`;
+    return `Subscription mode only available for Anthropic`;
   }
   return null;
 }
@@ -142,8 +142,6 @@ export function detectApiKey(providerId: string): string | null {
   const known = KNOWN_PROVIDERS[providerId];
   const envKey = known?.env_key ?? `${providerId.toUpperCase().replace(/-/g, '_')}_API_KEY`;
   if (process.env[envKey]) return envKey;
-  // Backward compat: also check GOOGLE_API_KEY for google provider
-  if (providerId === 'google' && process.env.GOOGLE_API_KEY) return 'GOOGLE_API_KEY';
   return null;
 }
 

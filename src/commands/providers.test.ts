@@ -88,8 +88,8 @@ describe('formatAuthLabel', () => {
   });
 
   it('returns "API Key (ENV_VAR)" for api_key with env_key', () => {
-    expect(formatAuthLabel({ transport: 'google_genai', auth: 'api_key', env_key: 'GEMINI_API_KEY' }))
-      .toBe('API Key (GEMINI_API_KEY)');
+    expect(formatAuthLabel({ transport: 'openai_compatible', auth: 'api_key', env_key: 'GROQ_API_KEY' }))
+      .toBe('API Key (GROQ_API_KEY)');
   });
 
   it('returns "Local" for auth=none (system-local sidecar)', () => {
@@ -113,12 +113,6 @@ describe('buildProviderChecks (v3)', () => {
   it('walks every routing reference and includes transport + auth from v3', () => {
     const config = makeV3Config({
       ...withProviders({
-        google: {
-          transport: 'google_genai',
-          auth: 'api_key',
-          env_key: 'GEMINI_API_KEY',
-          models: ['gemini-2.5-flash-lite'],
-        },
         'local-advanced': {
           transport: 'openai_compatible',
           auth: 'none',
@@ -131,7 +125,7 @@ describe('buildProviderChecks (v3)', () => {
           quality: 'anthropic/claude-sonnet-4-6',
           fast: 'anthropic/claude-haiku-4-5',
           deliberation: 'anthropic/claude-opus-4-6',
-          summarization: 'google/gemini-2.5-flash-lite',
+          summarization: 'anthropic/claude-haiku-4-5',
         },
         embeddings: {
           code: 'local-advanced/nomic-embed-code-gguf',
@@ -147,10 +141,6 @@ describe('buildProviderChecks (v3)', () => {
     expect(byProvider('anthropic').length).toBeGreaterThanOrEqual(3);
     expect(byProvider('anthropic')[0]!.transport).toBe('claude_agent_sdk');
     expect(byProvider('anthropic')[0]!.auth).toBe('OAuth');
-
-    expect(byProvider('google').length).toBe(1);
-    expect(byProvider('google')[0]!.transport).toBe('google_genai');
-    expect(byProvider('google')[0]!.auth).toBe('API Key (GEMINI_API_KEY)');
 
     expect(byProvider('local-advanced').length).toBe(2);
     expect(byProvider('local-advanced')[0]!.transport).toBe('openai_compatible');

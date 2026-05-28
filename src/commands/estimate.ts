@@ -485,7 +485,7 @@ export function registerEstimateCommand(program: Command): void {
       // Pipeline Plan) collapses into one semantic block: "what's set up
       // for this run". The rest of the diagnostic info is in the JSON payload.
       const configRows: { key: string; value: string }[] = [
-        { key: 'concurrency', value: `${concurrency} files · ${config.providers.google ? `${config.providers.anthropic?.concurrency ?? 8} Claude + ${config.providers.google.concurrency} Gemini slots` : `${config.providers.anthropic?.concurrency ?? 8} Claude slots`}` },
+        { key: 'concurrency', value: `${concurrency} files · ${config.providers.anthropic?.concurrency ?? 8} Claude slots` },
         { key: 'cache', value: ignoreCache ? 'ignored (--no-cache)' : 'on' },
       ];
 

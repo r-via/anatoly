@@ -27,7 +27,7 @@ functionality, and how to disable it.
 
 | Endpoint | Source file | Trigger | Mandatory? | How to disable |
 |---|---|---|---|---|
-| `api.anthropic.com` (and other LLM provider APIs via the AI SDK) | `src/core/providers/` | Every audit run that uses an Anthropic / OpenAI / Google model | Yes (this *is* the product) | Do not run `anatoly run` |
+| `api.anthropic.com` (and other LLM provider APIs via the AI SDK) | `src/core/providers/` | Every audit run that uses an Anthropic / OpenAI model | Yes (this *is* the product) | Do not run `anatoly run` |
 | `api.telegram.org/bot<TOKEN>/...` | `src/core/notifications/telegram.ts` | Notifications enabled in `.anatoly.yml` *and* `ANATOLY_TELEGRAM_BOT_TOKEN` set | No | Remove `notifications.telegram` block from `.anatoly.yml` or unset the env var |
 | `api.exa.ai/search` | `src/core/tools/web-search.ts` | Web-search tool invoked by an axis prompt *and* `EXA_API_KEY` set | No | Do not set `EXA_API_KEY`; the web-search tool short-circuits when the key is absent |
 | `huggingface.co` | `src/rag/gguf-prefetch.ts` | First run of `anatoly local-embeddings` (model download) | Only if local embeddings mode is selected | Stay on the default cloud-embeddings path |
@@ -91,7 +91,6 @@ runs build/test commands as part of an audit.
 | Variable | Purpose | Required? |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Default LLM provider | Required for default config |
-| `GOOGLE_GENERATIVE_AI_API_KEY` / `GOOGLE_API_KEY` | Gemini provider | Only if Gemini selected |
 | `OPENAI_API_KEY` | OpenAI provider | Only if OpenAI selected |
 | `EXA_API_KEY` | Web-search tool | Only if web-search axis enabled |
 | `ANATOLY_TELEGRAM_BOT_TOKEN` | Telegram notifications | Only if notifications enabled |

@@ -47,7 +47,6 @@ function makeCtx() {
     totalCostUsd: 0,
     providerStats: {
       anthropic: { calls: 0, costUsd: 0 },
-      gemini: { calls: 0, costUsd: 0 },
     },
     phaseStats: {} as Record<string, Bucket>,
     axisStats: {} as Record<string, Bucket>,
@@ -71,7 +70,6 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
 
     expect(ctx.totalCostUsd).toBeCloseTo(0.005, 10);
     expect(ctx.providerStats.anthropic).toEqual({ calls: 1, costUsd: 0.005 });
-    expect(ctx.providerStats.gemini).toEqual({ calls: 0, costUsd: 0 });
     expect(ctx.phaseStats['review']).toEqual({
       calls: 1,
       totalDurationMs: 1200,
@@ -108,14 +106,6 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
     expect(ctx.phaseStats['refinement'].calls).toBe(4);
   });
 
-  it('routes a gemini entry to the gemini provider bucket only', () => {
-    const ctx = makeCtx();
-    recordLlmCost(ctx, { provider: 'gemini', phase: 'review', costUsd: 0.003 });
-
-    expect(ctx.providerStats.gemini).toEqual({ calls: 1, costUsd: 0.003 });
-    expect(ctx.providerStats.anthropic).toEqual({ calls: 0, costUsd: 0 });
-  });
-
   it('creates and then accumulates the axis bucket only when axis is given', () => {
     const ctx = makeCtx();
     recordLlmCost(ctx, {
@@ -147,7 +137,7 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
       durationMs: 100, inputTokens: 1000, outputTokens: 500,
     });
     recordLlmCost(ctx, {
-      provider: 'gemini', phase: 'review', costUsd: 0.002,
+      provider: 'anthropic', phase: 'review', costUsd: 0.002,
       durationMs: 200, inputTokens: 2000, outputTokens: 50,
     });
 
@@ -161,8 +151,7 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
       totalCacheReadTokens: 0,
       totalCacheCreationTokens: 0,
     });
-    expect(ctx.providerStats.anthropic).toEqual({ calls: 1, costUsd: 0.005 });
-    expect(ctx.providerStats.gemini).toEqual({ calls: 1, costUsd: 0.002 });
+    expect(ctx.providerStats.anthropic).toEqual({ calls: 2, costUsd: 0.007 });
   });
 
   it('mirrors the review.ts per-axis loop: N axisTiming entries roll up identically', () => {
@@ -172,7 +161,7 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
     const axisTiming = [
       { provider: 'anthropic' as const, axisId: 'correction', costUsd: 0.004, durationMs: 100, inputTokens: 200, outputTokens: 80, cacheReadTokens: 1, cacheCreationTokens: 2 },
       { provider: 'anthropic' as const, axisId: 'utility', costUsd: 0.003, durationMs: 90, inputTokens: 150, outputTokens: 60, cacheReadTokens: 0, cacheCreationTokens: 0 },
-      { provider: 'gemini' as const, axisId: 'duplication', costUsd: 0.001, durationMs: 70, inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
+      { provider: 'anthropic' as const, axisId: 'duplication', costUsd: 0.001, durationMs: 70, inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
     ];
     for (const at of axisTiming) {
       recordLlmCost(ctx, {
@@ -185,8 +174,7 @@ describe('recordLlmCost — in-memory rollup contract (doc 14 PR 2-net)', () => 
 
     expect(ctx.totalCostUsd).toBeCloseTo(0.008, 10);
     expect(ctx.phaseStats['review'].calls).toBe(3);
-    expect(ctx.providerStats.anthropic).toEqual({ calls: 2, costUsd: 0.007 });
-    expect(ctx.providerStats.gemini).toEqual({ calls: 1, costUsd: 0.001 });
+    expect(ctx.providerStats.anthropic).toEqual({ calls: 3, costUsd: 0.008 });
     expect(Object.keys(ctx.axisStats).sort()).toEqual(['correction', 'duplication', 'utility']);
     expect(ctx.axisStats['utility'].totalCostUsd).toBeCloseTo(0.003, 10);
   });
@@ -196,7 +184,7 @@ describe('recordAgentCosts — byte-identical to the inline review.ts loop (doc 
   const axisTiming: AxisTiming[] = [
     { axisId: 'correction', provider: 'anthropic', costUsd: 0.004, durationMs: 100, inputTokens: 200, outputTokens: 80, cacheReadTokens: 1, cacheCreationTokens: 2 },
     { axisId: 'utility', provider: 'anthropic', costUsd: 0.003, durationMs: 90, inputTokens: 150, outputTokens: 60, cacheReadTokens: 0, cacheCreationTokens: 0 },
-    { axisId: 'duplication', provider: 'gemini', costUsd: 0.001, durationMs: 70, inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
+    { axisId: 'duplication', provider: 'anthropic', costUsd: 0.001, durationMs: 70, inputTokens: 120, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0 },
   ];
 
   it('produces a rollup identical to the pre-PR-2b manual per-axis loop', () => {
@@ -230,7 +218,7 @@ describe('recordAgentCosts — byte-identical to the inline review.ts loop (doc 
     const ctx = makeCtx();
     recordAgentCosts(ctx, []);
     expect(ctx.totalCostUsd).toBe(0);
-    expect(ctx.providerStats).toEqual({ anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } });
+    expect(ctx.providerStats).toEqual({ anthropic: { calls: 0, costUsd: 0 } });
     expect(Object.keys(ctx.phaseStats)).toHaveLength(0);
     expect(Object.keys(ctx.axisStats)).toHaveLength(0);
   });

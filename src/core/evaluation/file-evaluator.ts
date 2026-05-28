@@ -13,7 +13,7 @@ import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../../schemas/review.js';
 import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './contract.js';
-import { extractProvider, type TransportRouter } from '../transports/index.js';
+import type { TransportRouter } from '../transports/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
 import { extractFileDeps } from '../scanning/index.js';
@@ -23,7 +23,6 @@ import { retrieveRelevantDocsForFile } from '../../rag/per-file-doc-retrieval.js
 import { resolveRelevantDocsViaRag, resolveAllRelevantDocs } from '../documentation/index.js';
 import type { ReferenceDoc } from '../documentation/index.js';
 import { mergeAxisResults } from './axis-merger.js';
-import { resolveAxisModel } from './evaluator.js';
 import { getEffectiveSourceRoot } from '../worktree/index.js';
 
 // ---------------------------------------------------------------------------
@@ -88,8 +87,8 @@ export interface EvaluateFileOptions {
 
 export interface AxisTiming {
   axisId: AxisId;
-  /** LLM provider used for this axis call ('anthropic' or 'gemini'). */
-  provider: 'anthropic' | 'gemini';
+  /** LLM provider used for this axis call. */
+  provider: 'anthropic';
   costUsd: number;
   durationMs: number;
   inputTokens: number;
@@ -434,20 +433,16 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   const totalDuration = Date.now() - startTime;
   const transcript = transcriptParts.join('\n---\n\n');
-  const axisTiming: AxisTiming[] = successResults.map((r) => {
-    const ev = activeEvaluators.find(e => e.id === r.axisId);
-    const model = ev ? resolveAxisModel(ev, opts.config) : '';
-    return {
-      axisId: r.axisId,
-      provider: (extractProvider(model) === 'google' ? 'gemini' : 'anthropic') as 'anthropic' | 'gemini',
-      costUsd: r.costUsd,
-      durationMs: r.durationMs,
-      inputTokens: r.inputTokens,
-      outputTokens: r.outputTokens,
-      cacheReadTokens: r.cacheReadTokens,
-      cacheCreationTokens: r.cacheCreationTokens,
-    };
-  });
+  const axisTiming: AxisTiming[] = successResults.map((r) => ({
+    axisId: r.axisId,
+    provider: 'anthropic' as const,
+    costUsd: r.costUsd,
+    durationMs: r.durationMs,
+    inputTokens: r.inputTokens,
+    outputTokens: r.outputTokens,
+    cacheReadTokens: r.cacheReadTokens,
+    cacheCreationTokens: r.cacheCreationTokens,
+  }));
 
   return {
     review,

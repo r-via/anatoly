@@ -72,15 +72,15 @@ function baseConfig(): unknown {
 // ---------------------------------------------------------------------------
 
 describe('TransportSchema', () => {
-  it('accepts the four canonical transports', () => {
+  it('accepts the three canonical transports', () => {
     expect(TransportSchema.parse('claude_agent_sdk')).toBe('claude_agent_sdk');
-    expect(TransportSchema.parse('google_genai')).toBe('google_genai');
     expect(TransportSchema.parse('openai_compatible')).toBe('openai_compatible');
     expect(TransportSchema.parse('onnxruntime_node')).toBe('onnxruntime_node');
   });
 
   it('rejects unknown transports', () => {
     expect(() => TransportSchema.parse('vercel_ai_sdk')).toThrow();
+    expect(() => TransportSchema.parse('google_genai')).toThrow();
     expect(() => TransportSchema.parse('@anthropic-ai/claude-agent-sdk')).toThrow();
     expect(() => TransportSchema.parse('')).toThrow();
   });
@@ -98,9 +98,8 @@ describe('AuthSchema', () => {
 });
 
 describe('Capability sets', () => {
-  it('AGENTIC_TRANSPORTS covers exactly claude_agent_sdk + google_genai', () => {
+  it('AGENTIC_TRANSPORTS covers exactly claude_agent_sdk', () => {
     expect(AGENTIC_TRANSPORTS.has('claude_agent_sdk')).toBe(true);
-    expect(AGENTIC_TRANSPORTS.has('google_genai')).toBe(true);
     expect(AGENTIC_TRANSPORTS.has('openai_compatible')).toBe(false);
     expect(AGENTIC_TRANSPORTS.has('onnxruntime_node')).toBe(false);
   });
@@ -108,7 +107,6 @@ describe('Capability sets', () => {
     expect(EMBEDDING_TRANSPORTS.has('openai_compatible')).toBe(true);
     expect(EMBEDDING_TRANSPORTS.has('onnxruntime_node')).toBe(true);
     expect(EMBEDDING_TRANSPORTS.has('claude_agent_sdk')).toBe(false);
-    expect(EMBEDDING_TRANSPORTS.has('google_genai')).toBe(false);
   });
 });
 

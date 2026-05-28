@@ -11,7 +11,7 @@
  */
 
 export interface KnownProviderEntry {
-  /** Base URL for the API. `null` for native SDK providers (anthropic, google, openai). */
+  /** Base URL for the API. `null` for native SDK providers (anthropic, openai). */
   readonly base_url: string | null;
   /** Environment variable name holding the API key. */
   readonly env_key: string;
@@ -23,11 +23,6 @@ export const KNOWN_PROVIDERS: Readonly<Record<string, KnownProviderEntry>> = {
   anthropic: {
     base_url: null,
     env_key: 'ANTHROPIC_API_KEY',
-    type: 'native',
-  },
-  google: {
-    base_url: null,
-    env_key: 'GOOGLE_GENERATIVE_AI_API_KEY',
     type: 'native',
   },
   openai: {

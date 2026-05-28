@@ -99,7 +99,7 @@ describe('loadConfig', () => {
     expect(() => loadConfig(tempDir)).toThrow(AnatolyError);
   });
 
-  it('should load v2-prefixed config without providers.google', () => {
+  it('should load v2-prefixed config with anthropic only', () => {
     const yml = `
 models:
   quality: anthropic/claude-sonnet-4-6
@@ -112,7 +112,6 @@ runtime:
 `;
     writeYml(join(tempDir, '.anatoly.yml'), yml);
     const config = loadConfig(tempDir);
-    expect(config.providers.google).toBeUndefined();
     expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
     expect(config.models.fast).toBe('anthropic/claude-haiku-4-5-20251001');
     expect(config.providers.anthropic!.concurrency).toBe(24);
@@ -135,9 +134,6 @@ models:
 providers:
   anthropic:
     concurrency: 16
-  google:
-    mode: api
-    concurrency: 8
 runtime:
   timeout_per_file: 300
   concurrency: 4
@@ -152,8 +148,6 @@ axes:
     const config = loadConfig(tempDir);
     expect(config.models.quality).toBe('anthropic/claude-opus-4-6');
     expect(config.providers.anthropic!.concurrency).toBe(16);
-    expect(config.providers.google?.mode).toBe('api');
-    expect(config.providers.google?.concurrency).toBe(8);
     expect(config.runtime.timeout_per_file).toBe(300);
     expect(config.agents.deliberation).toBe('anthropic/claude-opus-4-6');
     expect(config.axes.correction?.model).toBe('anthropic/claude-opus-4-6');

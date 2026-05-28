@@ -127,8 +127,7 @@ anatoly run
 **Prerequisites:** Node.js >= 20.19, plus one LLM auth path:
 
 - **Claude Code subscription** (default): no API key needed
-- **Gemini CLI**: Google OAuth, $0/token
-- **BYOK**: `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.
+- **BYOK**: `ANTHROPIC_API_KEY`, etc.
 - **Local**: Ollama, LM Studio, vLLM
 
 See [Installation](docs/01-Getting-Started/01-Installation.md) and [Recommended LLM Setup](docs/01-Getting-Started/03-Recommended-LLM-Setup.md).

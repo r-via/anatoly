@@ -31,17 +31,17 @@ describe('AnthropicTransport', () => {
     expect(transport.provider).toBe('anthropic');
   });
 
-  it('AC 37.2.1: supports() returns true for any model NOT starting with gemini-', () => {
+  it('supports() returns true for claude models', () => {
     const transport = new AnthropicTransport();
     expect(transport.supports('claude-sonnet-4-20250514')).toBe(true);
     expect(transport.supports('claude-haiku-4-5-20251001')).toBe(true);
-    expect(transport.supports('some-other-model')).toBe(true);
+    expect(transport.supports('anthropic/claude-opus-4-6')).toBe(true);
   });
 
-  it('AC 37.2.1: supports() returns false for gemini models', () => {
+  it('supports() returns false for non-anthropic providers', () => {
     const transport = new AnthropicTransport();
-    expect(transport.supports('gemini-2.5-flash')).toBe(false);
-    expect(transport.supports('gemini-2.5-flash')).toBe(false);
+    expect(transport.supports('openai/gpt-4o')).toBe(false);
+    expect(transport.supports('groq/llama-3-70b')).toBe(false);
   });
 
   it('AC 37.2.1: implements LlmTransport interface', () => {

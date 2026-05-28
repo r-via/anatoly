@@ -220,11 +220,8 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     : cached > 0 ? ` (${cachedNote}${evaluated} evaluated)` : '';
   const duration = formatRunDuration(Date.now() - ctx.startTime);
   const rel = (p: string) => relative(process.cwd(), p) || '.';
-  const claudeCost = ctx.providerStats.anthropic.costUsd;
-  const geminiCost = ctx.providerStats.gemini.costUsd;
   const costStr = `$${ctx.totalCostUsd.toFixed(2)}`;
   const costColor = ctx.totalCostUsd > 5 ? chalk.red.bold : ctx.totalCostUsd > 1 ? chalk.yellow.bold : chalk.green.bold;
-  const hasGemini = ctx.providerStats.gemini.calls > 0;
 
   // Token counts come from the per-call sink (totals updated on every
   // recordLlmCall). We render compact (e.g. 58K) and skip them entirely
@@ -245,16 +242,11 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     ? ` \u00b7 ${chalk.green.bold('$0.00')} with Claude Code`
     : '';
 
-  const dollars = hasGemini
-    ? `${costColor(`$${claudeCost.toFixed(2)}`)} (Claude) \u00b7 ${chalk.green.bold(`$${geminiCost.toFixed(2)}`)} (Gemini)`
-    : `${costColor(costStr)} in API calls`;
+  const dollars = `${costColor(costStr)} in API calls`;
 
   const costLine = tokensFragment
     ? `${chalk.bold('Cost:')} ${tokensFragment} \u00b7 ${dollars}${claudeCodeHint}`
     : `${chalk.bold('Cost:')} ${dollars}${claudeCodeHint}`;
-  const quotaLine = hasGemini
-    ? `${chalk.bold('Quota:')} ${ctx.providerStats.anthropic.calls} Claude \u00b7 ${ctx.providerStats.gemini.calls} Gemini (\u2212${Math.round((ctx.providerStats.gemini.calls / (ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls)) * 100)}%)`
-    : undefined;
 
   // Transition pipeline display to summary
   const state = ctx.pipelineState;
@@ -269,7 +261,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
         { key: 'transcripts', value: chalk.cyan(rel(logsDir(ctx.runDir)) + '/') },
         { key: 'log', value: chalk.cyan(rel(runEventLogPath(ctx.runDir))) },
       ],
-      cost: quotaLine ? `${costLine}\n${quotaLine}` : costLine,
+      cost: costLine,
     });
   }
 
@@ -288,7 +280,6 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     console.log(`  log          ${chalk.cyan(rel(runEventLogPath(ctx.runDir)))}`);
     console.log('');
     console.log(`  ${costLine}`);
-    if (quotaLine) console.log(`  ${quotaLine}`);
   }
 
   // Quick-win suggestion (Story 48.8) — only on successful runs
@@ -359,12 +350,6 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     }
   }
 
-  // Compute provider stats (Story 39.2)
-  const totalCalls = ctx.providerStats.anthropic.calls + ctx.providerStats.gemini.calls;
-  const claude_quota_saved_pct = totalCalls > 0
-    ? Math.round((ctx.providerStats.gemini.calls / totalCalls) * 100)
-    : 0;
-
   // Write run-metrics.json
   const metrics = {
     runId: ctx.runId,
@@ -379,9 +364,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     costUsd: ctx.totalCostUsd,
     providers: {
       anthropic: { calls: ctx.providerStats.anthropic.calls, costUsd: Math.round(ctx.providerStats.anthropic.costUsd * 100) / 100 },
-      gemini: { calls: ctx.providerStats.gemini.calls, costUsd: Math.round(ctx.providerStats.gemini.costUsd * 100) / 100 },
     },
-    claude_quota_saved_pct,
     phaseDurations: ctx.phaseDurations,
     axisStats: ctx.axisStats,
     phaseStats: ctx.phaseStats,

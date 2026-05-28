@@ -58,14 +58,14 @@ When enabled, Anatoly runs the configured command to produce a JSON coverage rep
 
 ### `providers` (v2)
 
-Declares one or more LLM providers. Each provider entry configures its transport mode (subscription-based CLI vs. direct API), concurrency ceiling, and — for OpenAI-compatible providers — the `base_url` and `env_key`.
+Declares one or more LLM providers. Each provider entry configures its transport mode (subscription-based CLI vs. direct API), concurrency ceiling, and (for OpenAI-compatible providers) the `base_url` and `env_key`.
 
 At least one provider must be configured. `anthropic` is present by default (`mode: subscription`, `concurrency: 24`).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `mode` | `'subscription' \| 'api'` | `'api'` (`'subscription'` for `anthropic` and `google`) | Transport mode for all calls |
-| `concurrency` | `integer 1–32` | `8` (`24` for anthropic, `10` for google) | Max concurrent in-flight calls to this provider |
+| `mode` | `'subscription' \| 'api'` | `'api'` (`'subscription'` for `anthropic`) | Transport mode for all calls |
+| `concurrency` | `integer 1–32` | `8` (`24` for anthropic) | Max concurrent in-flight calls to this provider |
 | `single_turn` | `'subscription' \| 'api'` | — | Override transport for single-turn (axis) calls |
 | `agents` | `'subscription' \| 'api'` | — | Override transport for agentic (multi-turn tool-use) calls |
 | `base_url` | `string` | — (from registry for known providers) | Base URL for OpenAI-compatible providers |
@@ -76,7 +76,6 @@ At least one provider must be configured. `anthropic` is present by default (`mo
 | Provider | Default `env_key` | Default `base_url` | Transport |
 |----------|-------------------|--------------------|-----------|
 | `anthropic` | `ANTHROPIC_API_KEY` | — | native |
-| `google` | `GOOGLE_GENERATIVE_AI_API_KEY` | — | native |
 | `openai` | `OPENAI_API_KEY` | — | native |
 | `qwen` | `DASHSCOPE_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | openai-compatible |
 | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | openai-compatible |
@@ -92,16 +91,13 @@ providers:
   anthropic:
     mode: subscription
     concurrency: 24
-  google:
-    mode: api
-    concurrency: 10
 ```
 
 ---
 
 ### `models` (v2)
 
-Selects the concrete model used for each pipeline role. Model strings use `provider/model-id` form (e.g. `anthropic/claude-sonnet-4-6`, `google/gemini-2.5-flash-lite`).
+Selects the concrete model used for each pipeline role. Model strings use `provider/model-id` form (e.g. `anthropic/claude-sonnet-4-6`).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -110,7 +106,7 @@ Selects the concrete model used for each pipeline role. Model strings use `provi
 | `deliberation` | `string` | `'anthropic/claude-opus-4-6'` | Model used for the tier-3 deliberation pass |
 | `code_summary` | `string` | — (falls back to `models.fast`) | Model used for per-file code summaries during RAG indexing |
 
-`code_summary` is typically pointed at a cheap/fast non-Claude model (e.g. `google/gemini-2.5-flash-lite`) to offload the Claude quota — it is invoked once per indexed file. When unset, `models.fast` (Haiku) is used.
+`code_summary` defaults to `models.fast` (Haiku) and is invoked once per indexed file. Override it to point at any provider/model registered in `providers`.
 
 ---
 
@@ -163,7 +159,7 @@ Each axis entry accepts:
 | Key | Type | Description |
 |-----|------|-------------|
 | `enabled` | `boolean` | Whether the axis runs |
-| `model` | `string` | Optional model override (e.g. `google/gemini-2.5-flash`). Ignored if its provider is not configured. |
+| `model` | `string` | Optional model override (e.g. `anthropic/claude-opus-4-6`). Ignored if its provider is not configured. |
 | `skip` | `string[]` | Glob patterns (relative paths) to skip for this axis |
 
 ```yaml
@@ -362,35 +358,6 @@ badge:
   enabled: false
 ```
 
-### Dual-provider config (Anthropic + Gemini for summaries)
-
-```yaml
-# .anatoly.yml
-project:
-  name: my-service
-
-providers:
-  anthropic:
-    mode: subscription
-    concurrency: 24
-  google:
-    mode: api
-    concurrency: 10
-    env_key: GOOGLE_GENERATIVE_AI_API_KEY
-
-models:
-  quality: anthropic/claude-sonnet-4-6
-  fast: anthropic/claude-haiku-4-5-20251001
-  deliberation: anthropic/claude-opus-4-6
-  code_summary: google/gemini-2.5-flash-lite
-
-axes:
-  correction:
-    model: anthropic/claude-opus-4-6
-  duplication:
-    model: google/gemini-2.5-flash
-```
-
 ### Full annotated config
 
 ```yaml
@@ -423,7 +390,7 @@ models:
   quality: anthropic/claude-sonnet-4-6
   fast: anthropic/claude-haiku-4-5-20251001
   deliberation: anthropic/claude-opus-4-6
-  # code_summary: google/gemini-2.5-flash-lite   # optional — offloads RAG summaries off the Claude quota
+  # code_summary: anthropic/claude-haiku-4-5     # optional override (defaults to models.fast)
 
 agents:
   enabled: true
@@ -518,7 +485,6 @@ The following flags override config values at runtime without modifying `.anatol
 | Variable | Description |
 |----------|-------------|
 | `ANTHROPIC_API_KEY` | Authentication for the Claude API when `providers.anthropic.mode: api`. |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Authentication for Gemini when `providers.google` is configured in `api` mode. |
 | `OPENAI_API_KEY`, `GROQ_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY` | Provider API keys for the corresponding registry entry. Override the env var name with `providers.<id>.env_key`. |
 | `ANATOLY_TELEGRAM_BOT_TOKEN` | Default env var read when `notifications.telegram.enabled: true`. Rename via `bot_token_env`. |
 | `ANATOLY_LOG_LEVEL` | Sets the log level when `--log-level` and `--verbose` are absent. Accepts the same values as `logging.level`. |

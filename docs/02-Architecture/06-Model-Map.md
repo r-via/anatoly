@@ -93,9 +93,6 @@ providers:
   anthropic:
     mode: subscription
     concurrency: 24
-  google:
-    mode: api
-    concurrency: 10
 
 models:
   quality: anthropic/claude-sonnet-4-6

@@ -4,7 +4,6 @@
 
 import { generateText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
-import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LlmTransport, LlmRequest, LlmResponse, AgenticRequest } from './index.js';
@@ -22,8 +21,8 @@ import type { Config } from '../../schemas/config.js';
  * Resolve a model identifier to a Vercel AI SDK model instance.
  *
  * Uses `extractProvider()` to identify the provider, then delegates to the
- * appropriate AI SDK factory (`@ai-sdk/anthropic`, `@ai-sdk/google`,
- * `@ai-sdk/openai`, or `@ai-sdk/openai-compatible`).
+ * appropriate AI SDK factory (`@ai-sdk/anthropic`, `@ai-sdk/openai`, or
+ * `@ai-sdk/openai-compatible`).
  *
  * @throws If the provider's API key is missing (except for ollama)
  */
@@ -51,7 +50,6 @@ export function getVercelModel(
   // Native SDK providers
   if (providerConfig.type === 'native') {
     if (providerId === 'anthropic') return anthropic(bareModel);
-    if (providerId === 'google') return google(bareModel);
     if (providerId === 'openai') return openai(bareModel);
   }
 
@@ -110,8 +108,8 @@ export class VercelSdkTransport implements LlmTransport {
         prompt: userMessage,
         // Pin temperature for run-to-run reproducibility on evaluator
         // pipelines. Without this, the SDK inherits its provider's
-        // default (~1.0 across @ai-sdk/anthropic, @ai-sdk/google,
-        // @ai-sdk/openai), which made bench measurements noisy.
+        // default (~1.0 across @ai-sdk/anthropic, @ai-sdk/openai),
+        // which made bench measurements noisy.
         temperature: params.temperature ?? EVALUATOR_TEMPERATURE,
         abortSignal: abortController.signal,
       });

@@ -26,7 +26,7 @@ import type { ProviderSelection } from '../commands/init.js';
 export const DEFAULT_PROVIDER_CONCURRENCY = 8;
 
 export interface V3ProviderEntry {
-  transport: 'claude_agent_sdk' | 'google_genai' | 'openai_compatible';
+  transport: 'claude_agent_sdk' | 'openai_compatible';
   auth: 'oauth' | 'api_key';
   env_key?: string;
   base_url?: string;
@@ -54,7 +54,6 @@ interface ModelsInput {
 /** v3 transport for a provider name. */
 function transportFor(name: string): Transport {
   if (name === 'anthropic') return 'claude_agent_sdk';
-  if (name === 'google') return 'google_genai';
   return 'openai_compatible';
 }
 

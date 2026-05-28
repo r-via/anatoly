@@ -31,13 +31,13 @@ describe('enumerateActiveModels', () => {
   it('includes axis-level model overrides', () => {
     const config = parseTestConfig({
       axes: {
-        utility: { enabled: true, model: 'google/gemini-2.5-flash-lite' },
-        duplication: { enabled: true, model: 'google/gemini-2.5-flash' },
+        utility: { enabled: true, model: 'anthropic/claude-haiku-4-5-20251001' },
+        duplication: { enabled: true, model: 'anthropic/claude-opus-4-6' },
       },
     });
     const models = enumerateActiveModels(config);
-    expect(models).toContain('google/gemini-2.5-flash-lite');
-    expect(models).toContain('google/gemini-2.5-flash');
+    expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
+    expect(models).toContain('anthropic/claude-opus-4-6');
   });
 
   it('includes optional models.code_summary', () => {
@@ -46,11 +46,11 @@ describe('enumerateActiveModels', () => {
         quality: 'anthropic/claude-sonnet-4-6',
         fast: 'anthropic/claude-haiku-4-5-20251001',
         deliberation: 'anthropic/claude-opus-4-6',
-        code_summary: 'google/gemini-2.5-flash-lite',
+        code_summary: 'anthropic/claude-haiku-4-5',
       },
     });
     const models = enumerateActiveModels(config);
-    expect(models).toContain('google/gemini-2.5-flash-lite');
+    expect(models).toContain('anthropic/claude-haiku-4-5');
   });
 
   it('includes optional agents overrides', () => {
@@ -58,13 +58,13 @@ describe('enumerateActiveModels', () => {
       agents: {
         enabled: true,
         scaffolding: 'anthropic/claude-haiku-4-5-20251001',
-        review: 'google/gemini-2.5-pro',
+        review: 'anthropic/claude-sonnet-4-6',
         deliberation: 'anthropic/claude-opus-4-6',
       },
     });
     const models = enumerateActiveModels(config);
     expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
-    expect(models).toContain('google/gemini-2.5-pro');
+    expect(models).toContain('anthropic/claude-sonnet-4-6');
     expect(models).toContain('anthropic/claude-opus-4-6');
   });
 
@@ -138,12 +138,11 @@ describe('enumerateActiveModels', () => {
       },
       agents: {
         enabled: true,
-        deliberation: 'google/gemini-2.5-pro',
+        deliberation: 'anthropic/claude-opus-4-6',
       },
     });
     const models = enumerateActiveModels(config, { enableDeliberation: false });
     expect(models).not.toContain('anthropic/claude-opus-4-6');
-    expect(models).not.toContain('google/gemini-2.5-pro');
     // Quality + fast tiers still present
     expect(models).toContain('anthropic/claude-sonnet-4-6');
   });
@@ -151,14 +150,14 @@ describe('enumerateActiveModels', () => {
   it('restricts axis-model collection to the listed axesFilter', () => {
     const config = parseTestConfig({
       axes: {
-        utility: { enabled: true, model: 'google/gemini-2.5-flash-lite' },
-        duplication: { enabled: true, model: 'google/gemini-2.5-flash' },
+        utility: { enabled: true, model: 'groq/llama-3.1-8b' },
+        duplication: { enabled: true, model: 'groq/llama-3.1-70b' },
         tests: { enabled: true, model: 'anthropic/claude-haiku-4-5-20251001' },
       },
     });
     const models = enumerateActiveModels(config, { axesFilter: ['utility', 'tests'] });
-    expect(models).toContain('google/gemini-2.5-flash-lite');
-    expect(models).not.toContain('google/gemini-2.5-flash');
+    expect(models).toContain('groq/llama-3.1-8b');
+    expect(models).not.toContain('groq/llama-3.1-70b');
     expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
   });
 });

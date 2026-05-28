@@ -24,7 +24,6 @@ import { extractJson } from '../../utils/extract-json.js';
 import { runWithContext } from '../../utils/log-context.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 import type { LlmTransport, LlmResponse } from '../transports/index.js';
-import { extractProvider } from '../transports/index.js';
 import { AnthropicTransport } from '../transports/anthropic-transport.js';
 import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult } from './contract.js';
 import { runUnit } from '../harness/index.js';
@@ -92,9 +91,6 @@ export function getLanguageLines(task: Task): string[] {
  * Resolve the effective model for an axis evaluator based on config overrides.
  * Priority: axes.[axis].model → (haiku ? models.fast : models.quality)
  *
- * Gemini routing is now implicit: if the user sets `axes.utility.model: gemini-2.5-flash`
- * in the config, the model name determines the transport (no separate defaultGeminiMode flag).
- *
  * v3 path: when the config originated from a `version: 3` YAML, this reads
  * `evaluation.axes.<id>.model` (object form) for overrides and falls back to
  * `routing.generation.fast` (haiku tier) or `routing.generation.quality`.
@@ -104,14 +100,7 @@ export function resolveAxisModel(evaluator: AxisEvaluator, config: Config): stri
   if (v3) return resolveAxisModelV3(evaluator, v3, config);
 
   const axisConfig = config.axes?.[evaluator.id];
-  // Honour per-axis override, but ignore gemini-* models when Google provider is absent
-  if (axisConfig?.model) {
-    if (extractProvider(axisConfig.model) === 'google' && !config.providers.google) {
-      // Fall through to default resolution — Gemini provider not configured
-    } else {
-      return axisConfig.model;
-    }
-  }
+  if (axisConfig?.model) return axisConfig.model;
 
   return evaluator.defaultModel === 'haiku'
     ? config.models.fast
@@ -126,7 +115,7 @@ function resolveAxisModelV3(
   const axis = v3.evaluation.axes[evaluator.id as keyof typeof v3.evaluation.axes];
   if (axis && typeof axis === 'object' && 'model' in axis && axis.model) {
     // Honour per-axis override, but skip if it points at a transport whose
-    // provider is missing (e.g. Gemini override but no google provider).
+    // provider is missing in the v3 providers map.
     const parsed = parseModelRef(axis.model);
     if (parsed && v3.providers[parsed.provider]) return axis.model;
   }
@@ -137,7 +126,7 @@ function resolveAxisModelV3(
 
 /**
  * Resolve the model for code summarization during RAG indexing.
- * Returns `code_summary` when set (e.g. a Gemini model), falls back to `models.fast` (Haiku).
+ * Returns `code_summary` when set, falls back to `models.fast` (Haiku).
  *
  * v3 path: returns `routing.generation.summarization`, which is the explicit
  * slot for this purpose in the v3 schema.
@@ -150,36 +139,22 @@ export function resolveCodeSummaryModel(config: Config): string {
 
 /**
  * Build per-provider stats from axis timing data.
- * Returns a `providers` object with call counts and cost per provider,
- * plus `claude_quota_saved_pct` indicating what percentage of calls were offloaded to Gemini.
+ * Returns a `providers` object with call counts and cost per provider.
  */
-export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic' | 'gemini'; costUsd: number }>): {
-  providers: { anthropic: { calls: number; costUsd: number }; gemini: { calls: number; costUsd: number } };
-  claude_quota_saved_pct: number;
+export function buildProviderStats(timings: ReadonlyArray<{ provider: 'anthropic'; costUsd: number }>): {
+  providers: { anthropic: { calls: number; costUsd: number } };
 } {
   const anthropic = { calls: 0, costUsd: 0 };
-  const gemini = { calls: 0, costUsd: 0 };
 
   for (const t of timings) {
-    if (t.provider === 'gemini') {
-      gemini.calls++;
-      gemini.costUsd += t.costUsd;
-    } else {
-      anthropic.calls++;
-      anthropic.costUsd += t.costUsd;
-    }
+    anthropic.calls++;
+    anthropic.costUsd += t.costUsd;
   }
 
   // Round cost to avoid floating point noise
   anthropic.costUsd = Math.round(anthropic.costUsd * 100) / 100;
-  gemini.costUsd = Math.round(gemini.costUsd * 100) / 100;
 
-  const total = anthropic.calls + gemini.calls;
-  const claude_quota_saved_pct = total > 0
-    ? Math.round((gemini.calls / total) * 100)
-    : 0;
-
-  return { providers: { anthropic, gemini }, claude_quota_saved_pct };
+  return { providers: { anthropic } };
 }
 
 /**

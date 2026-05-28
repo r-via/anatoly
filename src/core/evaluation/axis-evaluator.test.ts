@@ -75,24 +75,6 @@ describe('resolveAxisModel', () => {
     expect(resolveAxisModel(evaluator, config)).toBe('provider/override');
   });
 
-  it('should use axis model when its provider is configured', () => {
-    const config = makeConfig({
-      providers: { google: { mode: 'subscription' } },
-      axes: { utility: { model: 'google/gemini-2.5-flash' } },
-    });
-    const evaluator = makeEvaluator('haiku');
-    expect(resolveAxisModel(evaluator, config)).toBe('google/gemini-2.5-flash');
-  });
-
-  it('should fall through google axis model when Google provider is absent', () => {
-    const config = makeConfig({
-      axes: { utility: { model: 'google/gemini-2.5-flash' } },
-    });
-    const evaluator = makeEvaluator('haiku');
-    // No providers.google → fall through to default
-    expect(resolveAxisModel(evaluator, config)).toBe(config.models.fast);
-  });
-
   it('should return models.quality for sonnet evaluators with no override', () => {
     const config = makeConfig({
       models: { quality: 'provider/quality-model' },
@@ -110,9 +92,9 @@ describe('resolveAxisModel', () => {
 describe('resolveCodeSummaryModel', () => {
   it('returns models.code_summary when defined', () => {
     const config = makeConfig({
-      models: { code_summary: 'google/gemini-2.5-flash' },
+      models: { code_summary: 'anthropic/claude-haiku-4-5' },
     });
-    expect(resolveCodeSummaryModel(config)).toBe('google/gemini-2.5-flash');
+    expect(resolveCodeSummaryModel(config)).toBe('anthropic/claude-haiku-4-5');
   });
 
   it('falls back to models.fast when code_summary is undefined', () => {
@@ -327,10 +309,10 @@ describe('All 7 axes: language/framework injection', () => {
 // Story 39.2: buildProviderStats — provider breakdown for run-metrics
 // ---------------------------------------------------------------------------
 
-function makeTiming(axisId: string, provider: 'anthropic' | 'gemini', costUsd = 0.05): AxisTiming {
+function makeTiming(axisId: string, costUsd = 0.05): AxisTiming {
   return {
     axisId: axisId as AxisTiming['axisId'],
-    provider,
+    provider: 'anthropic',
     costUsd,
     durationMs: 100,
     inputTokens: 500,
@@ -341,63 +323,34 @@ function makeTiming(axisId: string, provider: 'anthropic' | 'gemini', costUsd = 
 }
 
 describe('buildProviderStats', () => {
-  it('AC 39.2.1: returns providers object with anthropic and gemini breakdowns', () => {
+  it('returns providers object with anthropic breakdown', () => {
     const timings: AxisTiming[] = [
-      makeTiming('utility', 'gemini', 0),
-      makeTiming('duplication', 'gemini', 0),
-      makeTiming('correction', 'anthropic', 0.10),
-      makeTiming('best_practices', 'anthropic', 0.12),
+      makeTiming('correction', 0.10),
+      makeTiming('best_practices', 0.12),
     ];
     const stats = buildProviderStats(timings);
     expect(stats.providers.anthropic).toEqual({ calls: 2, costUsd: 0.22 });
-    expect(stats.providers.gemini).toEqual({ calls: 2, costUsd: 0 });
-  });
-
-  it('AC 39.2.1: computes claude_quota_saved_pct', () => {
-    const timings: AxisTiming[] = [
-      makeTiming('utility', 'gemini', 0),
-      makeTiming('duplication', 'gemini', 0),
-      makeTiming('overengineering', 'gemini', 0),
-      makeTiming('correction', 'anthropic', 0.10),
-    ];
-    const stats = buildProviderStats(timings);
-    // 3 out of 4 calls routed to Gemini = 75%
-    expect(stats.claude_quota_saved_pct).toBe(75);
-  });
-
-  it('returns 0% quota saved when no Gemini calls', () => {
-    const timings: AxisTiming[] = [
-      makeTiming('correction', 'anthropic', 0.10),
-      makeTiming('best_practices', 'anthropic', 0.12),
-    ];
-    const stats = buildProviderStats(timings);
-    expect(stats.claude_quota_saved_pct).toBe(0);
-    expect(stats.providers.gemini).toEqual({ calls: 0, costUsd: 0 });
   });
 
   it('handles empty timings', () => {
     const stats = buildProviderStats([]);
-    expect(stats.claude_quota_saved_pct).toBe(0);
     expect(stats.providers.anthropic).toEqual({ calls: 0, costUsd: 0 });
-    expect(stats.providers.gemini).toEqual({ calls: 0, costUsd: 0 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// Story 42.3: AxisEvaluator interface no longer has defaultGeminiMode
+// AxisEvaluator interface
 // ---------------------------------------------------------------------------
 
 describe('AxisEvaluator interface', () => {
-  it('should not require defaultGeminiMode', () => {
+  it('has id, defaultModel, and evaluate', () => {
     const evaluator: AxisEvaluator = {
       id: 'utility',
       defaultModel: 'haiku',
       evaluate: async () => { throw new Error('not implemented'); },
     };
-    // Should compile and work without defaultGeminiMode
     expect(evaluator.id).toBe('utility');
     expect(evaluator.defaultModel).toBe('haiku');
-    expect((evaluator as unknown as Record<string, unknown>).defaultGeminiMode).toBeUndefined();
   });
 });
 
@@ -477,13 +430,6 @@ providers:
       - claude-sonnet-4-6
       - claude-haiku-4-5-20251001
       - claude-opus-4-6
-  google:
-    transport: google_genai
-    auth: api_key
-    env_key: GEMINI_API_KEY
-    models:
-      - gemini-2.5-flash-lite
-      - gemini-2.5-pro
   'local-lite':
     transport: onnxruntime_node
     models:
@@ -494,7 +440,7 @@ routing:
     quality: anthropic/claude-sonnet-4-6
     fast: anthropic/claude-haiku-4-5-20251001
     deliberation: anthropic/claude-opus-4-6
-    summarization: google/gemini-2.5-flash-lite
+    summarization: anthropic/claude-haiku-4-5-20251001
   embeddings:
     code: local-lite/jinaai/jina-embeddings-v2-base-code
     text: local-lite/Xenova/all-MiniLM-L6-v2
@@ -547,7 +493,7 @@ evaluation:
       const config = loadV3(baseV3);
       const sym = Symbol.for('anatoly.config.v3Source');
       const v3 = (config as unknown as Record<symbol, { evaluation: { axes: Record<string, unknown> } }>)[sym];
-      v3.evaluation.axes.utility = { enabled: true, model: 'ghost/gemini-2.5-flash' };
+      v3.evaluation.axes.utility = { enabled: true, model: 'ghost/some-model' };
       const evaluator = { id: 'utility', defaultModel: 'haiku' } as AxisEvaluator;
       expect(resolveAxisModel(evaluator, config)).toBe('anthropic/claude-haiku-4-5-20251001');
     });
@@ -556,7 +502,7 @@ evaluation:
   describe('resolveCodeSummaryModel', () => {
     it('returns routing.generation.summarization', () => {
       const config = loadV3(baseV3);
-      expect(resolveCodeSummaryModel(config)).toBe('google/gemini-2.5-flash-lite');
+      expect(resolveCodeSummaryModel(config)).toBe('anthropic/claude-haiku-4-5-20251001');
     });
   });
 

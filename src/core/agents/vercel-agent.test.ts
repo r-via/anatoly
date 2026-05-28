@@ -198,10 +198,10 @@ describe('runVercelAgent', () => {
   });
 
   it('resolves the model via getVercelModel', async () => {
-    await runVercelAgent(makeParams({ model: 'google/gemini-2.5-pro' }));
+    await runVercelAgent(makeParams({ model: 'openai/gpt-4o' }));
 
     expect(mockGetVercelModel).toHaveBeenCalledWith(
-      'google/gemini-2.5-pro',
+      'openai/gpt-4o',
       expect.anything(),
     );
     expect(mockGenerateText).toHaveBeenCalledWith(

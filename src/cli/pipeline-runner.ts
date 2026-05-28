@@ -33,13 +33,11 @@ import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type Pro
 import type { DocExecutor } from '../core/documentation/index.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
-import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
+import { TransportRouter } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
-import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 
 // --- Public interfaces ---
@@ -166,42 +164,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     }
   }
 
-  // Validate Google provider auth — fail fast if misconfigured
-  if (config.providers.google) {
-    const googleConfig = config.providers.google;
-    const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
-    let reason: string | null = null;
-    if (googleConfig.mode === 'api') {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
-        reason = 'neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set in the environment';
-      }
-    } else {
-      const authOk = await checkGeminiAuth(projectRoot, geminiModel);
-      if (!authOk) {
-        reason = 'Gemini CLI auth failed (not logged in or session expired)';
-      }
-    }
-    if (reason) {
-      throw new AnatolyError(
-        renderProviderAuthBox('google', googleConfig.mode, reason),
-        ERROR_CODES.PROVIDER_AUTH_FAILED,
-        false,
-        undefined,
-        undefined,
-        true,
-      );
-    }
-  }
-
   // Build mode-aware transport router
-  const googleEnabled = !!config.providers.google;
   const nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
     anthropic: new AnthropicTransport(),
   };
-  if (googleEnabled) {
-    const geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
-    nativeTransports.google = new GeminiTransport(projectRoot, geminiModel);
-  }
   const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
   for (const [id, prov] of Object.entries(config.providers)) {
     if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };

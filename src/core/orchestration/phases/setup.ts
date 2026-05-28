@@ -176,7 +176,7 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
 
   const ragLabel = ctx.enableRag ? (ctx.resolvedRagMode ?? 'lite') : 'off';
   configRows.push(
-    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.google ? `${ctx.config.providers.anthropic?.concurrency ?? 8} Claude + ${ctx.config.providers.google.concurrency} Gemini slots` : `${ctx.config.providers.anthropic?.concurrency ?? 8} Claude slots`}` },
+    { key: 'concurrency', value: `${ctx.concurrency} files · ${ctx.config.providers.anthropic?.concurrency ?? 8} Claude slots` },
     { key: 'rag', value: ragLabel },
     { key: 'cache', value: ctx.noCache ? 'off' : 'on' },
   );

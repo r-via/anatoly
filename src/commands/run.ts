@@ -29,15 +29,13 @@ import { loadUserInstructions } from '../utils/user-instructions.js';
 import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption } from '../utils/axes-filter.js';
-import { checkGeminiAuth } from '../utils/gemini-auth.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory } from '../core/platform/index.js';
 import { type AxisId } from '../core/evaluation/index.js';
 import { ALL_AXIS_IDS } from '../core/evaluation/index.js';
-import { TransportRouter, findModelForProvider } from '../core/transports/index.js';
+import { TransportRouter } from '../core/transports/index.js';
 import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
-import { GeminiTransport } from '../core/transports/gemini-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
@@ -135,7 +133,7 @@ export interface RunContext {
   /** Per-phase aggregated stats for run-metrics.json (mirrors axisStats but keyed by pipeline phase, including non-axis phases like rag-index, doc-generation, coherence-review, refinement). */
   phaseStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   /** Per-provider call counts and cost (Story 39.2) */
-  providerStats: { anthropic: { calls: number; costUsd: number }; gemini: { calls: number; costUsd: number } };
+  providerStats: { anthropic: { calls: number; costUsd: number } };
   /** Timeline of key events for run-metrics.json (phase + file level) */
   timeline: Array<{ t: number; event: string; [k: string]: unknown }>;
   /** Per-run file logger (writes to <runDir>/anatoly.ndjson) */
@@ -612,40 +610,10 @@ export function registerRunCommand(program: Command): void {
         }
       }
 
-      // Validate Google provider auth — fail fast if misconfigured
-      if (config.providers.google) {
-        const google = config.providers.google;
-        let reason: string | null = null;
-        if (google.mode === 'subscription') {
-          const googleModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
-          const authOk = await checkGeminiAuth(projectRoot, googleModel);
-          if (!authOk) {
-            reason = 'Gemini CLI auth failed (not logged in or session expired)';
-          }
-        } else if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.GOOGLE_API_KEY) {
-          reason = 'neither GOOGLE_GENERATIVE_AI_API_KEY nor GOOGLE_API_KEY is set in the environment';
-        }
-        if (reason) {
-          throw new AnatolyError(
-            renderProviderAuthBox('google', google.mode, reason),
-            ERROR_CODES.PROVIDER_AUTH_FAILED,
-            false,
-            undefined,
-            undefined,
-            true,
-          );
-        }
-      }
-
       // Build mode-aware transport router
-      const googleEnabled = !!config.providers.google;
       const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
         anthropic: new AnthropicTransport(),
       };
-      if (googleEnabled) {
-        const _geminiModel = findModelForProvider(config, 'google') ?? 'google/gemini-2.5-flash';
-        _nativeTransports.google = new GeminiTransport(projectRoot, _geminiModel);
-      }
       const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
       for (const [id, prov] of Object.entries(config.providers)) {
         if (prov) _providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };
@@ -694,7 +662,7 @@ export function registerRunCommand(program: Command): void {
         degradedReviews: 0,
         axisStats: {},
         phaseStats: {},
-        providerStats: { anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } },
+        providerStats: { anthropic: { calls: 0, costUsd: 0 } },
         timeline: [],
         axesFilter,
         dryRun,
@@ -762,23 +730,18 @@ export function registerRunCommand(program: Command): void {
         }
       }
 
-      // Raise max listeners to account for concurrent SDK subprocess exit handlers
-      // and gemini-cli-core Config instances that each add a model-changed listener.
+      // Raise max listeners to account for concurrent SDK subprocess exit handlers.
       // Also bump events.defaultMaxListeners so child AbortSignal instances created
       // by the SDK during parallel primitive invocations (DAG executor fan-out)
       // don't trip the MaxListenersExceededWarning — epic 56 surfaced this by
       // running 7 axis primitives concurrently, each propagating the same parent
       // AbortSignal through the transport stack.
-      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 8, config.providers.google?.concurrency ?? 0);
+      const maxConcurrency = config.providers.anthropic?.concurrency ?? 8;
       process.setMaxListeners(Math.max(process.getMaxListeners(), maxConcurrency + 10));
       const { EventEmitter } = await import('node:events');
       if (EventEmitter.defaultMaxListeners < maxConcurrency + 10) {
         EventEmitter.defaultMaxListeners = maxConcurrency + 10;
       }
-      try {
-        const { coreEvents } = await import('@google/gemini-cli-core');
-        coreEvents.setMaxListeners(Math.max(coreEvents.getMaxListeners(), maxConcurrency + 10));
-      } catch { /* gemini-cli-core not installed — no-op */ }
 
       const initRunDir = () => {
         ctx.runDir = createRunDir(projectRoot, runId);

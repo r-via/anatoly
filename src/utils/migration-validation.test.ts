@@ -12,14 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-describe('@google/genai removal', () => {
-  it('is not listed in package.json dependencies', () => {
-    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8'));
-    expect(pkg.dependencies?.['@google/genai']).toBeUndefined();
+describe('Google/Gemini provider package removal', () => {
+  const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8'));
+  const removed = ['@google/genai', '@google/gemini-cli-core', '@ai-sdk/google'];
+
+  it.each(removed)('%s is not listed in dependencies', (name) => {
+    expect(pkg.dependencies?.[name]).toBeUndefined();
   });
 
-  it('is not listed in package.json devDependencies', () => {
-    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8'));
-    expect(pkg.devDependencies?.['@google/genai']).toBeUndefined();
+  it.each(removed)('%s is not listed in devDependencies', (name) => {
+    expect(pkg.devDependencies?.[name]).toBeUndefined();
   });
 });

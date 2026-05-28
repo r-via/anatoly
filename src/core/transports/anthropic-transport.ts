@@ -83,7 +83,7 @@ export class AnthropicTransport implements LlmTransport {
   readonly provider = 'anthropic' as const;
 
   supports(model: string): boolean {
-    return extractProvider(model) !== 'google';
+    return extractProvider(model) === 'anthropic';
   }
 
   /**

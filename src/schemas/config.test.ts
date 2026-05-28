@@ -57,34 +57,6 @@ describe('ProvidersConfigSchema', () => {
     expect(config.providers.anthropic!.concurrency).toBe(8);
   });
 
-  it('should default google to undefined (Gemini disabled)', () => {
-    const config = parseTestConfig({});
-    expect(config.providers.google).toBeUndefined();
-  });
-
-  it('should accept providers.google with empty object — defaults applied', () => {
-    const config = parseTestConfig({
-      providers: { google: {} },
-    });
-    expect(config.providers.google).toBeDefined();
-    expect(config.providers.google!.mode).toBe('subscription');
-    expect(config.providers.google!.concurrency).toBe(8);
-  });
-
-  it('should accept providers.google.mode = api', () => {
-    const config = parseTestConfig({
-      providers: { google: { mode: 'api' } },
-    });
-    expect(config.providers.google!.mode).toBe('api');
-  });
-
-  it('should reject providers.google.mode = invalid', () => {
-    const result = ConfigSchema.safeParse({
-      providers: { google: { mode: 'invalid' } },
-    });
-    expect(result.success).toBe(false);
-  });
-
   it('should accept custom anthropic concurrency', () => {
     const config = parseTestConfig({
       providers: { anthropic: { concurrency: 16 } },
@@ -123,14 +95,6 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
     expect(config.providers.anthropic!.agents).toBe('api');
   });
 
-  it('should accept google single_turn and agents mode overrides', () => {
-    const config = parseTestConfig({
-      providers: { google: { single_turn: 'api', agents: 'subscription' } },
-    });
-    expect(config.providers.google!.single_turn).toBe('api');
-    expect(config.providers.google!.agents).toBe('subscription');
-  });
-
   it('should default single_turn and agents to undefined', () => {
     const config = parseTestConfig({});
     expect(config.providers.anthropic!.single_turn).toBeUndefined();
@@ -138,12 +102,12 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
   });
 
   // --- anthropic optional ---
-  it('should allow anthropic to be absent when google is present', () => {
+  it('should allow anthropic to be absent when a custom provider is present', () => {
     const config = parseTestConfig({
-      providers: { google: {} },
+      providers: { ollama: { mode: 'api' } },
     });
     expect(config.providers.anthropic).toBeUndefined();
-    expect(config.providers.google).toBeDefined();
+    expect(config.providers.ollama).toBeDefined();
   });
 
   // --- at least one provider required ---
@@ -187,12 +151,10 @@ describe('ProvidersConfigSchema — Story 43.1 extensions', () => {
     const config = parseTestConfig({
       providers: {
         anthropic: { mode: 'api' },
-        google: { mode: 'api' },
         ollama: { mode: 'api', base_url: 'http://localhost:11434' },
       },
     });
     expect(config.providers.anthropic!.mode).toBe('api');
-    expect(config.providers.google!.mode).toBe('api');
     expect(config.providers.ollama!.mode).toBe('api');
   });
 });
@@ -242,10 +204,10 @@ describe('ModelsConfigSchema', () => {
 
   it('should accept custom models', () => {
     const config = parseTestConfig({
-      models: { quality: 'custom-model', code_summary: 'gemini-2.5-flash' },
+      models: { quality: 'custom-model', code_summary: 'custom-fast-model' },
     });
     expect(config.models.quality).toBe('custom-model');
-    expect(config.models.code_summary).toBe('gemini-2.5-flash');
+    expect(config.models.code_summary).toBe('custom-fast-model');
   });
 });
 
@@ -757,7 +719,6 @@ describe('Exported schemas', () => {
   it('should export all v1.0 + v2.0 + embedding schema names', async () => {
     const mod = await import('./config.js');
     expect(mod.AnthropicProviderConfigSchema).toBeDefined();
-    expect(mod.GoogleProviderConfigSchema).toBeDefined();
     expect(mod.GenericProviderConfigSchema).toBeDefined();
     expect(mod.ProvidersConfigSchema).toBeDefined();
     expect(mod.ModelsConfigSchema).toBeDefined();

@@ -4,12 +4,11 @@ The transport layer routes all LLM calls (single-turn and agentic) to the approp
 
 ## Backends
 
-Anatoly has four LLM backends, each implemented as a transport class:
+Anatoly has three LLM backends, each implemented as a transport class:
 
 | Backend | Class | SDK / Runtime | Use case |
 |---------|-------|--------------|----------|
 | **Anthropic Agent** | `AnthropicTransport` | `@anthropic-ai/claude-agent-sdk` (Claude Code subprocess) | Subscription-mode Anthropic calls |
-| **Gemini Agent** | `GeminiTransport` | `@google/gemini-cli-core` (Gemini CLI stream) | Subscription-mode Google calls |
 | **Vercel API via SDK** | `VercelSdkTransport` | Vercel AI SDK `generateText()` (HTTP API) | API-mode single-turn calls (any provider) |
 | **Vercel Agent via SDK** | `VercelSdkTransport` | Vercel AI SDK `generateText()` + tools | API-mode agentic calls (any provider) |
 
@@ -23,8 +22,6 @@ The `TransportRouter` dispatches every call based on two dimensions: **provider 
 |------|------|----------|---------|--------|
 | subscription | single-turn | anthropic | Anthropic Agent | `AnthropicTransport.query()` |
 | subscription | agentic | anthropic | Anthropic Agent | `AnthropicTransport.agenticQuery()` |
-| subscription | single-turn | google | Gemini Agent | `GeminiTransport.query()` |
-| subscription | agentic | google | Gemini Agent | `GeminiTransport.agenticQuery()` |
 | api | single-turn | *any* | Vercel API via SDK | `VercelSdkTransport.query()` |
 | api | agentic | *any* | Vercel Agent via SDK | `VercelSdkTransport.agenticQuery()` |
 
@@ -38,8 +35,6 @@ providers:
     mode: subscription        # base mode
     single_turn: subscription # override for axis evaluation (optional)
     agents: subscription      # override for agentic calls (optional)
-  google:
-    mode: api
 ```
 
 Resolution order: `providers.<id>.agents` (for agentic) or `providers.<id>.single_turn` (for single-turn) > `providers.<id>.mode` > default `api`.
@@ -79,9 +74,8 @@ Each transport follows the same internal pattern:
 | `agenticQuery(params)` | Public agentic entry point |
 | `_execute(params, opts)` | Private shared logic (SDK call, streaming, token counting, logging) |
 
-- `AnthropicTransport._execute()` — wraps Claude SDK `query()` with configurable `allowedTools` and `maxTurns`
-- `GeminiTransport._execute()` — wraps Gemini CLI `sendMessageStream()` (tools are future work, currently delegates to single-turn)
-- `VercelSdkTransport` — `query()` uses `generateText()` directly; `agenticQuery()` delegates to `runVercelAgent()` which adds tool use
+- `AnthropicTransport._execute()`: wraps Claude SDK `query()` with configurable `allowedTools` and `maxTurns`
+- `VercelSdkTransport`: `query()` uses `generateText()` directly; `agenticQuery()` delegates to `runVercelAgent()` which adds tool use
 
 ## TransportRouter
 
@@ -123,7 +117,7 @@ Every transport writes conversation transcripts to `<runDir>/conversations/` usi
 - `appendResult()` — appends final metrics table (duration, cost, tokens, cache hit rate)
 - `appendError()` — appends error details on failure
 
-All three transports produce dumps in the same format. The only difference is granularity: Anthropic streams message-by-message; Gemini and Vercel write the complete response after it finishes.
+Both transports produce dumps in the same format. The only difference is granularity: Anthropic streams message-by-message; Vercel writes the complete response after it finishes.
 
 ## Configuration Reference
 
@@ -134,9 +128,6 @@ providers:
     concurrency: 24            # max concurrent calls
     single_turn: subscription  # optional per-task override
     agents: subscription       # optional per-task override
-  google:
-    mode: api
-    concurrency: 10
 
 agents:
   enabled: true
@@ -158,7 +149,6 @@ agents:
 |------|------|
 | `src/core/transports/index.ts` | `TransportRouter`, `LlmTransport`, `AgenticRequest` |
 | `src/core/transports/anthropic-transport.ts` | Anthropic Agent (Claude SDK subprocess) |
-| `src/core/transports/gemini-transport.ts` | Gemini Agent (gemini-cli-core) |
 | `src/core/transports/vercel-sdk-transport.ts` | Vercel API + Vercel Agent (Vercel AI SDK) |
 | `src/core/transports/conversation-dump.ts` | Shared conversation dump helpers |
 | `src/core/agents/vercel-agent.ts` | `runVercelAgent()` — Vercel AI SDK with tools |
@@ -167,6 +157,5 @@ agents:
 
 ## Future Work
 
-- **Gemini agentic tools** — `GeminiTransport.agenticQuery()` currently delegates to single-turn. When gemini-cli-core adds tool support, wire it in.
-- **Custom Vercel tools** — Read, Grep, Glob as native Vercel AI SDK tools (currently available through bash equivalents). See `src/core/tools/`.
-- **Sandboxed Bash** — allowlist mechanism for tier 3 to safely execute commands on audited projects.
+- **Custom Vercel tools**: Read, Grep, Glob as native Vercel AI SDK tools (currently available through bash equivalents). See `src/core/tools/`.
+- **Sandboxed Bash**: allowlist mechanism for tier 3 to safely execute commands on audited projects.

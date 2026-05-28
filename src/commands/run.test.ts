@@ -11,7 +11,7 @@ import { CANONICAL_PHASES, runPhase, type RunPhaseContext } from '../core/orches
 function makeBookkeepingCtx(): Pick<RunContext, 'totalCostUsd' | 'providerStats' | 'phaseStats' | 'axisStats'> {
   return {
     totalCostUsd: 0,
-    providerStats: { anthropic: { calls: 0, costUsd: 0 }, gemini: { calls: 0, costUsd: 0 } },
+    providerStats: { anthropic: { calls: 0, costUsd: 0 } },
     phaseStats: {},
     axisStats: {},
   };
@@ -26,11 +26,11 @@ describe('recordLlmCost — three-bucket reconciliation invariant', () => {
       { provider: 'anthropic' as const, phase: 'rag-index', costUsd: 0.05 },
       { provider: 'anthropic' as const, phase: 'coherence-review', costUsd: 0.20, durationMs: 12000 },
       { provider: 'anthropic' as const, phase: 'refinement', costUsd: 0.03, calls: 2 },
-      { provider: 'gemini' as const, phase: 'review', axis: 'utility', costUsd: 0.01 },
+      { provider: 'anthropic' as const, phase: 'review', axis: 'utility', costUsd: 0.01 },
     ];
     for (const c of calls) recordLlmCost(ctx, c);
 
-    const providerSum = ctx.providerStats.anthropic.costUsd + ctx.providerStats.gemini.costUsd;
+    const providerSum = ctx.providerStats.anthropic.costUsd;
     const phaseSum = Object.values(ctx.phaseStats).reduce((s, p) => s + p.totalCostUsd, 0);
     const axisSum = Object.values(ctx.axisStats).reduce((s, a) => s + a.totalCostUsd, 0);
 
@@ -45,10 +45,9 @@ describe('recordLlmCost — three-bucket reconciliation invariant', () => {
     const ctx = makeBookkeepingCtx() as RunContext;
     recordLlmCost(ctx, { provider: 'anthropic', phase: 'review', axis: 'utility', costUsd: 0.5 });
     recordLlmCost(ctx, { provider: 'anthropic', phase: 'rag-index', costUsd: 0.2 });
-    recordLlmCost(ctx, { provider: 'gemini', phase: 'review', axis: 'duplication', costUsd: 0.1 });
+    recordLlmCost(ctx, { provider: 'anthropic', phase: 'review', axis: 'duplication', costUsd: 0.1 });
 
-    expect(ctx.providerStats.anthropic.calls).toBe(2);
-    expect(ctx.providerStats.gemini.calls).toBe(1);
+    expect(ctx.providerStats.anthropic.calls).toBe(3);
     expect(ctx.phaseStats['rag-index']?.calls).toBe(1);
     expect(ctx.phaseStats.review?.calls).toBe(2);
     expect(ctx.axisStats.utility?.calls).toBe(1);

@@ -200,7 +200,7 @@ All axes implement `evaluate(ctx: AxisContext, abort: AbortController): Promise<
 | `correction` | `axes/correction.ts` | Sonnet | Bugs, type errors, logic errors |
 | `best_practices` | `axes/best-practices.ts` | Sonnet | Language-specific rules |
 
-Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which routes through the `TransportRouter` to the appropriate backend (Anthropic Agent, Gemini Agent, or Vercel API via SDK — see [Transport Architecture](./08-Transport-Architecture.md)). The response is parsed for JSON and validated against an axis-specific Zod schema. Per-provider `Semaphore` instances in the router cap concurrent calls, and `CircuitBreaker` instances prevent cascade failures.
+Each axis calls `runSingleTurnQuery()` in `src/core/axis-evaluator.ts`, which routes through the `TransportRouter` to the appropriate backend (Anthropic Agent or Vercel API via SDK, see [Transport Architecture](./08-Transport-Architecture.md)). The response is parsed for JSON and validated against an axis-specific Zod schema. Per-provider `Semaphore` instances in the router cap concurrent calls, and `CircuitBreaker` instances prevent cascade failures.
 
 ### 3. Result Merging (`src/core/axis-merger.ts`)
 
@@ -252,7 +252,7 @@ Two independent limits prevent resource exhaustion:
 | Setting | Config Key | Default | Controls |
 |---------|------------|---------|----------|
 | File concurrency | `runtime.concurrency` | `8` | Files evaluated in parallel (1-10) |
-| Provider concurrency | `providers.<id>.concurrency` | `24` (Anthropic), `10` (Google) | Max in-flight calls per provider |
+| Provider concurrency | `providers.<id>.concurrency` | `24` (Anthropic) | Max in-flight calls per provider |
 
 The `TransportRouter` manages per-provider `Semaphore` instances (caps concurrent calls) and `CircuitBreaker` instances (trips after consecutive failures). See [Transport Architecture](./08-Transport-Architecture.md).
 

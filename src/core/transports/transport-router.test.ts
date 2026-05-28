@@ -32,10 +32,10 @@ function buildConfig(providers: Record<string, number>): TransportRouterConfig {
 
 describe('TransportRouter — Story 46.1: semaphores & breakers per provider', () => {
   it('should create a semaphore per provider from concurrency config', () => {
-    const router = new TransportRouter(buildConfig({ anthropic: 24, google: 10 }));
+    const router = new TransportRouter(buildConfig({ anthropic: 24, openai: 10 }));
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')).toEqual({ active: 0, total: 24 });
-    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('openai')).toEqual({ active: 0, total: 10 });
   });
 
   it('should default semaphore concurrency to the uniform 8 when not specified', () => {
@@ -50,9 +50,9 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
   });
 
   it('should create a circuit breaker per provider', () => {
-    const router = new TransportRouter(buildConfig({ anthropic: 24, google: 10 }));
+    const router = new TransportRouter(buildConfig({ anthropic: 24, openai: 10 }));
     expect(router.getBreakerState('anthropic')).toBe('closed');
-    expect(router.getBreakerState('google')).toBe('closed');
+    expect(router.getBreakerState('openai')).toBe('closed');
   });
 
   it('should return undefined for unknown provider breaker state', () => {
@@ -61,7 +61,7 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
   });
 
   it('should track semaphore stats after direct semaphore use', async () => {
-    const router = new TransportRouter(buildConfig({ anthropic: 24, google: 10 }));
+    const router = new TransportRouter(buildConfig({ anthropic: 24, openai: 10 }));
 
     // Acquire 3 anthropic slots directly
     const sem = router.semaphores.get('anthropic')!;
@@ -71,7 +71,7 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
 
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')).toEqual({ active: 3, total: 24 });
-    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('openai')).toEqual({ active: 0, total: 10 });
 
     // Release all
     sem.release();
@@ -167,14 +167,14 @@ describe('TransportRouter — Story 46.1: semaphores & breakers per provider', (
       vercelSdkTransport: stubTransport('vercel-sdk'),
       providerModes: {
         anthropic: { mode: 'subscription', concurrency: 24 },
-        google: { mode: 'api' }, // no concurrency → uniform default 8
+        openai: { mode: 'api' }, // no concurrency → uniform default 8
       },
     };
     const router = new TransportRouter(config);
     expect(router.getBreakerState('anthropic')).toBe('closed');
-    expect(router.getBreakerState('google')).toBe('closed');
+    expect(router.getBreakerState('openai')).toBe('closed');
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')!.total).toBe(24);
-    expect(stats.get('google')!.total).toBe(8);
+    expect(stats.get('openai')!.total).toBe(8);
   });
 });

@@ -14,7 +14,7 @@ describe('getProviderHeaders', () => {
     });
   });
 
-  it.each(['anthropic', 'openai', 'google', 'groq', 'mistral', 'deepseek', 'ollama', 'voyage', 'cohere'])(
+  it.each(['anthropic', 'openai', 'groq', 'mistral', 'deepseek', 'ollama', 'voyage', 'cohere'])(
     'returns undefined for non-openrouter provider %s',
     (providerId) => {
       expect(getProviderHeaders(providerId)).toBeUndefined();

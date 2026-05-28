@@ -46,9 +46,9 @@ describe('LlmTransport interface', () => {
   });
 
   it('supports() returns boolean', () => {
-    const transport = createStubTransport('anthropic', (m) => !m.startsWith('gemini-'));
+    const transport = createStubTransport('anthropic', (m) => !m.startsWith('gpt-'));
     expect(transport.supports('claude-sonnet-4-20250514')).toBe(true);
-    expect(transport.supports('gemini-2.5-flash')).toBe(false);
+    expect(transport.supports('gpt-4o')).toBe(false);
   });
 
   it('query() returns LlmResponse with all required fields', async () => {
@@ -166,12 +166,11 @@ describe('TransportRouter — basic', () => {
 
 describe('TransportRouter — mode-aware resolve', () => {
   const stubAnthropicNative = createStubTransport('anthropic-native', () => true);
-  const stubGeminiNative = createStubTransport('gemini-native', () => true);
   const stubVercelSdk = createStubTransport('vercel-sdk', () => true);
 
   it('resolve() routes subscription-mode anthropic to native transport', () => {
     const router = new TransportRouter({
-      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      nativeTransports: { anthropic: stubAnthropicNative },
       vercelSdkTransport: stubVercelSdk,
       providerModes: { anthropic: { mode: 'subscription' } },
     });
@@ -180,29 +179,11 @@ describe('TransportRouter — mode-aware resolve', () => {
 
   it('resolve() routes api-mode anthropic to vercel-sdk transport', () => {
     const router = new TransportRouter({
-      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      nativeTransports: { anthropic: stubAnthropicNative },
       vercelSdkTransport: stubVercelSdk,
       providerModes: { anthropic: { mode: 'api' } },
     });
     expect(router.resolve('anthropic/claude-sonnet-4-6')).toBe(stubVercelSdk);
-  });
-
-  it('resolve() routes subscription-mode google to native gemini transport', () => {
-    const router = new TransportRouter({
-      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
-      vercelSdkTransport: stubVercelSdk,
-      providerModes: { google: { mode: 'subscription' } },
-    });
-    expect(router.resolve('google/gemini-2.5-flash')).toBe(stubGeminiNative);
-  });
-
-  it('resolve() routes api-mode google to vercel-sdk transport', () => {
-    const router = new TransportRouter({
-      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
-      vercelSdkTransport: stubVercelSdk,
-      providerModes: { google: { mode: 'api' } },
-    });
-    expect(router.resolve('google/gemini-2.5-flash')).toBe(stubVercelSdk);
   });
 
   it('resolve() uses single_turn mode override when task is single_turn', () => {
@@ -244,12 +225,11 @@ describe('TransportRouter — mode-aware resolve', () => {
 
   it('resolve() handles bare model names via extractProvider', () => {
     const router = new TransportRouter({
-      nativeTransports: { anthropic: stubAnthropicNative, google: stubGeminiNative },
+      nativeTransports: { anthropic: stubAnthropicNative },
       vercelSdkTransport: stubVercelSdk,
-      providerModes: { anthropic: { mode: 'subscription' }, google: { mode: 'subscription' } },
+      providerModes: { anthropic: { mode: 'subscription' } },
     });
     expect(router.resolve('claude-sonnet-4-6')).toBe(stubAnthropicNative);
-    expect(router.resolve('gemini-2.5-flash')).toBe(stubGeminiNative);
   });
 
   it('resolve() defaults unknown providers to api mode (vercel-sdk)', () => {
@@ -265,7 +245,6 @@ describe('TransportRouter — mode-aware resolve', () => {
 describe('extractProvider', () => {
   it('should extract provider from prefixed model id', () => {
     expect(extractProvider('anthropic/claude-sonnet-4-6')).toBe('anthropic');
-    expect(extractProvider('google/gemini-2.5-flash')).toBe('google');
     expect(extractProvider('openai/gpt-4o')).toBe('openai');
     expect(extractProvider('groq/llama-3-70b')).toBe('groq');
   });
@@ -277,10 +256,9 @@ describe('extractProvider', () => {
     expect(extractProvider('claude-opus-4-20250514')).toBe('anthropic');
   });
 
-  it('should infer google from gemini-* bare names', () => {
-    expect(extractProvider('gemini-2.5-flash')).toBe('google');
-    expect(extractProvider('gemini-2.5-flash-lite')).toBe('google');
-    expect(extractProvider('gemini-3-flash-preview')).toBe('google');
+  it('should infer openai from gpt-* bare names', () => {
+    expect(extractProvider('gpt-4o')).toBe('openai');
+    expect(extractProvider('gpt-4-turbo')).toBe('openai');
   });
 
   it('should return anthropic as default for unknown bare names', () => {
@@ -303,12 +281,12 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
       vercelSdkTransport: stubVercel,
       providerModes: {
         anthropic: { mode: 'subscription', concurrency: 24 },
-        google: { mode: 'api', concurrency: 10 },
+        ollama: { mode: 'api', concurrency: 10 },
       },
     });
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')).toEqual({ active: 0, total: 24 });
-    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('ollama')).toEqual({ active: 0, total: 10 });
   });
 
   it('should default concurrency to the uniform 8 when not specified', () => {
@@ -327,11 +305,11 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
       vercelSdkTransport: stubVercel,
       providerModes: {
         anthropic: { mode: 'subscription' },
-        google: { mode: 'api' },
+        openai: { mode: 'api' },
       },
     });
     expect(router.getBreakerState('anthropic')).toBe('closed');
-    expect(router.getBreakerState('google')).toBe('closed');
+    expect(router.getBreakerState('openai')).toBe('closed');
   });
 
   it('getSemaphoreStats() should reflect acquired slots', async () => {
@@ -340,7 +318,7 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
       vercelSdkTransport: stubVercel,
       providerModes: {
         anthropic: { mode: 'subscription', concurrency: 24 },
-        google: { mode: 'api', concurrency: 10 },
+        ollama: { mode: 'api', concurrency: 10 },
       },
     });
 
@@ -352,7 +330,7 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
 
     const stats = router.getSemaphoreStats();
     expect(stats.get('anthropic')).toEqual({ active: 3, total: 24 });
-    expect(stats.get('google')).toEqual({ active: 0, total: 10 });
+    expect(stats.get('ollama')).toEqual({ active: 0, total: 10 });
 
     // Cleanup
     sem.release();
@@ -373,18 +351,18 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
     const router = new TransportRouter({
       nativeTransports: {},
       vercelSdkTransport: stubVercel,
-      providerModes: { google: { mode: 'api' } },
+      providerModes: { openai: { mode: 'api' } },
     });
 
-    const breaker = router.breakers.get('google')!;
-    expect(router.getBreakerState('google')).toBe('closed');
+    const breaker = router.breakers.get('openai')!;
+    expect(router.getBreakerState('openai')).toBe('closed');
 
     // 3 consecutive failures should trip the breaker (default threshold)
     breaker.recordFailure();
     breaker.recordFailure();
     breaker.recordFailure();
 
-    expect(router.getBreakerState('google')).toBe('open');
+    expect(router.getBreakerState('openai')).toBe('open');
   });
 });
 
@@ -395,39 +373,39 @@ describe('TransportRouter — semaphores & breakers (Story 46.1)', () => {
 describe('TransportRouter — acquire / acquireSlot / release (Story 46.2)', () => {
   const stubVercel = createStubTransport('vercel-sdk', () => true);
   const stubAnthropic = createStubTransport('anthropic-native', () => true);
-  const stubGoogle = createStubTransport('google-native', () => true);
+  const stubOpenai = createStubTransport('openai-native', () => true);
 
   it('acquire() returns transport and release when breaker is closed', async () => {
     const router = new TransportRouter({
-      nativeTransports: { google: stubGoogle },
+      nativeTransports: { openai: stubOpenai },
       vercelSdkTransport: stubVercel,
-      providerModes: { google: { mode: 'subscription', concurrency: 10 } },
+      providerModes: { openai: { mode: 'subscription', concurrency: 10 } },
     });
-    const { transport, release } = await router.acquire('google/gemini-2.5-flash');
-    expect(transport).toBe(stubGoogle);
+    const { transport, release } = await router.acquire('openai/gpt-4o');
+    expect(transport).toBe(stubOpenai);
     const stats = router.getSemaphoreStats();
-    expect(stats.get('google')!.active).toBe(1);
+    expect(stats.get('openai')!.active).toBe(1);
     release();
-    expect(router.getSemaphoreStats().get('google')!.active).toBe(0);
+    expect(router.getSemaphoreStats().get('openai')!.active).toBe(0);
   });
 
   it('acquire() throws when breaker is open', async () => {
     const router = new TransportRouter({
       nativeTransports: {},
       vercelSdkTransport: stubVercel,
-      providerModes: { google: { mode: 'api', concurrency: 10 } },
+      providerModes: { openai: { mode: 'api', concurrency: 10 } },
     });
     // Trip the breaker
-    const breaker = router.breakers.get('google')!;
+    const breaker = router.breakers.get('openai')!;
     breaker.recordFailure();
     breaker.recordFailure();
     breaker.recordFailure();
 
-    await expect(router.acquire('google/gemini-2.5-flash')).rejects.toThrow(
-      "Provider 'google' circuit breaker is open",
+    await expect(router.acquire('openai/gpt-4o')).rejects.toThrow(
+      "Provider 'openai' circuit breaker is open",
     );
     // No semaphore slot should be consumed
-    expect(router.getSemaphoreStats().get('google')!.active).toBe(0);
+    expect(router.getSemaphoreStats().get('openai')!.active).toBe(0);
   });
 
   it('acquireSlot() returns release function', async () => {
@@ -446,30 +424,30 @@ describe('TransportRouter — acquire / acquireSlot / release (Story 46.2)', () 
     const router = new TransportRouter({
       nativeTransports: {},
       vercelSdkTransport: stubVercel,
-      providerModes: { google: { mode: 'api', concurrency: 10 } },
+      providerModes: { openai: { mode: 'api', concurrency: 10 } },
     });
     // Record a failure first, then succeed
-    const breaker = router.breakers.get('google')!;
+    const breaker = router.breakers.get('openai')!;
     breaker.recordFailure();
-    const { release } = await router.acquireSlot('google/gemini-2.5-flash');
+    const { release } = await router.acquireSlot('openai/gpt-4o');
     release({ success: true });
     // Breaker should be closed (success resets counter)
-    expect(router.getBreakerState('google')).toBe('closed');
+    expect(router.getBreakerState('openai')).toBe('closed');
   });
 
   it('release({ success: false }) records failure on breaker', async () => {
     const router = new TransportRouter({
       nativeTransports: {},
       vercelSdkTransport: stubVercel,
-      providerModes: { google: { mode: 'api', concurrency: 10 } },
+      providerModes: { openai: { mode: 'api', concurrency: 10 } },
     });
     // 2 prior failures + 1 from release = 3 = trip
-    const breaker = router.breakers.get('google')!;
+    const breaker = router.breakers.get('openai')!;
     breaker.recordFailure();
     breaker.recordFailure();
-    const { release } = await router.acquireSlot('google/gemini-2.5-flash');
+    const { release } = await router.acquireSlot('openai/gpt-4o');
     release({ success: false });
-    expect(router.getBreakerState('google')).toBe('open');
+    expect(router.getBreakerState('openai')).toBe('open');
   });
 
   it('release() without args defaults to success', async () => {

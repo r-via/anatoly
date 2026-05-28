@@ -28,10 +28,6 @@ describe('validateProviderMode', () => {
     expect(validateProviderMode('anthropic', 'subscription')).toBeNull();
   });
 
-  it('allows subscription mode for google', () => {
-    expect(validateProviderMode('google', 'subscription')).toBeNull();
-  });
-
   it('rejects subscription mode for other providers', () => {
     expect(validateProviderMode('groq', 'subscription')).toMatch(
       /subscription mode only available/i,
@@ -59,11 +55,6 @@ describe('detectApiKey', () => {
     expect(detectApiKey('anthropic')).toBe('ANTHROPIC_API_KEY');
   });
 
-  it('detects GOOGLE_GENERATIVE_AI_API_KEY for google', () => {
-    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
-    expect(detectApiKey('google')).toBe('GOOGLE_GENERATIVE_AI_API_KEY');
-  });
-
   it('returns null when env var is missing', () => {
     delete process.env.GROQ_API_KEY;
     expect(detectApiKey('groq')).toBeNull();
@@ -84,11 +75,11 @@ describe('buildInitConfig', () => {
     const selections: WizardSelections = {
       providers: new Map([
         ['anthropic', { mode: 'subscription' }],
-        ['google', { mode: 'api' }],
+        ['groq', { mode: 'api' }],
       ]),
       models: {
         quality: 'anthropic/claude-sonnet-4-6',
-        fast: 'google/gemini-2.5-flash-lite',
+        fast: 'anthropic/claude-haiku-4-5',
         deliberation: 'anthropic/claude-opus-4-6',
       },
     };
@@ -96,9 +87,9 @@ describe('buildInitConfig', () => {
     const config = buildInitConfig(selections);
 
     expect(config.providers.anthropic).toEqual({ mode: 'subscription' });
-    expect(config.providers.google).toEqual({ mode: 'api' });
+    expect(config.providers.groq).toEqual({ mode: 'api' });
     expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
-    expect(config.models.fast).toBe('google/gemini-2.5-flash-lite');
+    expect(config.models.fast).toBe('anthropic/claude-haiku-4-5');
     expect(config.models.deliberation).toBe('anthropic/claude-opus-4-6');
   });
 

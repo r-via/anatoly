@@ -21,7 +21,7 @@ import type { AxisTiming } from '../evaluation/index.js';
 export function recordLlmCost(
   ctx: RunContext,
   entry: {
-    provider: 'anthropic' | 'gemini';
+    provider: 'anthropic';
     phase: string;
     axis?: string;
     costUsd: number;

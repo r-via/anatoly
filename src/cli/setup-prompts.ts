@@ -792,12 +792,6 @@ function renderProvidersBlock(
       config: OPENROUTER_PROVIDER,
     });
   }
-  optional.push({
-    name: 'google',
-    comment: 'Gemini API for single-turn axes. Requires GEMINI_API_KEY.',
-    config: GOOGLE_PROVIDER,
-  });
-
   const optionalBlocks = optional
     .map(({ name, comment, config }) => [
       `  # ${comment}`,
@@ -883,14 +877,6 @@ const OPENROUTER_PROVIDER: Record<string, unknown> = {
 // onnxruntime_node (local-lite) is in-process — like auth/env_key/base_url,
 // `concurrency` is meaningless there, so it is intentionally omitted (the v2
 // adapter drops onnx providers entirely).
-
-const GOOGLE_PROVIDER: Record<string, unknown> = {
-  transport: 'google_genai',
-  auth: 'api_key',
-  env_key: 'GEMINI_API_KEY',
-  concurrency: DEFAULT_PROVIDER_CONCURRENCY,
-  models: ['gemini-2.5-pro', 'gemini-2.5-flash-lite'],
-};
 
 /**
  * v3 schema requires bare model ids inside `providers.<name>.models`, then

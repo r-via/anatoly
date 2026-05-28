@@ -17,7 +17,6 @@ import { PRICING_PATHS, _resetPricingCache } from '../../utils/pricing-cache.js'
 const {
   mockGenerateText,
   mockAnthropicFactory,
-  mockGoogleFactory,
   mockOpenaiFactory,
   mockCompatibleModelFn,
   mockCreateOpenAICompatible,
@@ -27,7 +26,6 @@ const {
   return {
     mockGenerateText: vi.fn(),
     mockAnthropicFactory: vi.fn().mockReturnValue('anthropic-model-ref'),
-    mockGoogleFactory: vi.fn().mockReturnValue('google-model-ref'),
     mockOpenaiFactory: vi.fn().mockReturnValue('openai-model-ref'),
     mockCompatibleModelFn,
     mockCreateOpenAICompatible: vi.fn().mockReturnValue(mockCompatibleModelFn),
@@ -37,7 +35,6 @@ const {
 
 vi.mock('ai', () => ({ generateText: mockGenerateText }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: mockAnthropicFactory }));
-vi.mock('@ai-sdk/google', () => ({ google: mockGoogleFactory }));
 vi.mock('@ai-sdk/openai', () => ({ openai: mockOpenaiFactory }));
 vi.mock('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible: mockCreateOpenAICompatible }));
 vi.mock('../agents/vercel-agent.js', () => ({ runVercelAgent: mockRunVercelAgent }));
@@ -67,7 +64,7 @@ function seedPricingFor(root: string): void {
       generated_at: new Date().toISOString(),
       models: {
         'anthropic/claude-sonnet-4-6': { input: 3, output: 15, source: 'litellm' },
-        'google/gemini-2.5-flash': { input: 0.3, output: 2.5, source: 'litellm' },
+        'openai/gpt-4o': { input: 0.3, output: 2.5, source: 'litellm' },
       },
     }),
   );
@@ -90,7 +87,6 @@ function makeRequest(model: string): LlmRequest {
 describe('getVercelModel', () => {
   beforeEach(() => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
-    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
     vi.stubEnv('OPENAI_API_KEY', 'test-key');
     vi.stubEnv('GROQ_API_KEY', 'test-key');
   });
@@ -104,12 +100,6 @@ describe('getVercelModel', () => {
     const config = makeConfig();
     getVercelModel('anthropic/claude-sonnet-4-6', config);
     expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-4-6');
-  });
-
-  it('should return google model for google/ prefix', () => {
-    const config = makeConfig({ providers: { google: { mode: 'api' } } });
-    getVercelModel('google/gemini-2.5-flash', config);
-    expect(mockGoogleFactory).toHaveBeenCalledWith('gemini-2.5-flash');
   });
 
   it('should return openai model for openai/ prefix', () => {
@@ -173,11 +163,6 @@ describe('getVercelModel', () => {
     expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-4-6');
   });
 
-  it('should handle bare gemini-* model names (inferred google)', () => {
-    const config = makeConfig({ providers: { google: { mode: 'api' } } });
-    getVercelModel('gemini-2.5-flash', config);
-    expect(mockGoogleFactory).toHaveBeenCalledWith('gemini-2.5-flash');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -187,7 +172,6 @@ describe('getVercelModel', () => {
 describe('VercelSdkTransport', () => {
   beforeEach(() => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
-    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-key');
     mockGenerateText.mockReset();
     testProjectRoot = mkdtempSync(join(tmpdir(), 'anatoly-vsdk-'));
     seedPricingFor(testProjectRoot);
@@ -209,7 +193,7 @@ describe('VercelSdkTransport', () => {
   it('supports() should return true for any model', () => {
     const transport = new VercelSdkTransport(makeConfig());
     expect(transport.supports('anthropic/claude-sonnet-4-6')).toBe(true);
-    expect(transport.supports('google/gemini-2.5-flash')).toBe(true);
+    expect(transport.supports('openai/gpt-4o')).toBe(true);
     expect(transport.supports('unknown/model')).toBe(true);
   });
 

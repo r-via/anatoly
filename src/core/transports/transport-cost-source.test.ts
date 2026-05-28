@@ -17,47 +17,9 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
 }));
 
-// Gemini CLI Core
-vi.mock('@google/gemini-cli-core', () => {
-  class MockConfig {
-    geminiClient;
-    constructor() {
-      this.geminiClient = {
-        resetChat: vi.fn(),
-        getChat: vi.fn(() => ({ setSystemInstruction: vi.fn() })),
-        sendMessageStream: vi.fn(() =>
-          (async function* () {
-            yield { type: 'content', value: 'test response' };
-            yield {
-              type: 'finished',
-              value: {
-                usageMetadata: {
-                  promptTokenCount: 200,
-                  candidatesTokenCount: 75,
-                  cachedContentTokenCount: 50,
-                },
-              },
-            };
-          })(),
-        ),
-      };
-    }
-    async refreshAuth() { /* mock */ }
-    async initialize() { /* mock */ }
-  }
-
-  return {
-    Config: MockConfig,
-    AuthType: { LOGIN_WITH_GOOGLE: 'LOGIN_WITH_GOOGLE' },
-    getAuthTypeFromEnv: vi.fn(() => 'LOGIN_WITH_GOOGLE'),
-    createSessionId: vi.fn(() => 'mock-session-id'),
-  };
-});
-
 // Vercel AI SDK + provider factories
 vi.mock('ai', () => ({ generateText: vi.fn() }));
 vi.mock('@ai-sdk/anthropic', () => ({ anthropic: vi.fn(() => 'mock-model') }));
-vi.mock('@ai-sdk/google', () => ({ google: vi.fn(() => 'mock-model') }));
 vi.mock('@ai-sdk/openai', () => ({ openai: vi.fn(() => 'mock-model') }));
 vi.mock('@ai-sdk/openai-compatible', () => ({
   createOpenAICompatible: vi.fn(() => () => 'mock-model'),
@@ -85,7 +47,6 @@ vi.mock('./conversation-dump.js', () => ({
 // ---------------------------------------------------------------------------
 
 import { AnthropicTransport } from './anthropic-transport.js';
-import { GeminiTransport } from './gemini-transport.js';
 import { VercelSdkTransport } from './vercel-sdk-transport.js';
 
 // ---------------------------------------------------------------------------
@@ -189,51 +150,6 @@ describe('anthropic transport (subscription mode)', () => {
     expect(events[0].outputTokens).toBe(250);
     expect(events[0].cacheReadTokens).toBe(100);
     expect(events[0].cacheCreationTokens).toBe(10);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Gemini transport (subscription mode)
-// ---------------------------------------------------------------------------
-
-describe('gemini transport (subscription mode)', () => {
-  it('emits costUsd: null + costSource: unknown + pricingModel: subscription-gemini-cli-core', async () => {
-    const sinkPath = join(dir, 'ledger.ndjson');
-    await withLlmCallSink(sinkPath, async () => {
-      await new GeminiTransport(dir, 'gemini-2.5-flash').query({
-        systemPrompt: 'sys',
-        userMessage: 'msg',
-        model: 'gemini-2.5-flash',
-        projectRoot: dir,
-        abortController: new AbortController(),
-      });
-    });
-
-    const events = readEvents(sinkPath);
-    expect(events).toHaveLength(1);
-    expect(events[0].costUsd).toBeNull();
-    expect(events[0].costSource).toBe('unknown');
-    expect(events[0].pricingModel).toBe('subscription-gemini-cli-core');
-    expect(events[0].provider).toBe('gemini');
-  });
-
-  it('captures tokens from subscription-mode call', async () => {
-    const sinkPath = join(dir, 'ledger.ndjson');
-    await withLlmCallSink(sinkPath, async () => {
-      await new GeminiTransport(dir, 'gemini-2.5-flash').query({
-        systemPrompt: 'sys',
-        userMessage: 'msg',
-        model: 'gemini-2.5-flash',
-        projectRoot: dir,
-        abortController: new AbortController(),
-      });
-    });
-
-    const events = readEvents(sinkPath);
-    expect(events[0].costUsd).toBeNull();
-    expect(events[0].inputTokens).toBe(200);
-    expect(events[0].outputTokens).toBe(75);
-    expect(events[0].cacheReadTokens).toBe(50);
   });
 });
 

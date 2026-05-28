@@ -34,14 +34,6 @@ describe('wizardProvidersToV3', () => {
     });
   });
 
-  it('3. google subscription → google_genai + oauth', () => {
-    const r = wizardProvidersToV3(new Map([['google', sel({ mode: 'subscription' })]]), {
-      ...MODELS,
-      quality: 'google/gemini-2.5-pro',
-    });
-    expect(r.providers.google).toMatchObject({ transport: 'google_genai', auth: 'oauth' });
-  });
-
   it('4. openai-compatible (groq) api → openai_compatible + api_key + GROQ_API_KEY + base_url', () => {
     const r = wizardProvidersToV3(new Map([['groq', sel({ mode: 'api' })]]), {
       ...MODELS,

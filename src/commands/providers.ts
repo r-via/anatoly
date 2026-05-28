@@ -17,10 +17,7 @@ import { getLogger } from '../utils/logger.js';
 import type { Config } from '../schemas/config.js';
 import type { ConfigV3, ProviderConfig, Transport } from '../schemas/config-v3.js';
 import { parseModelRef } from '../schemas/config-v3.js';
-import { GeminiTransport } from '../core/transports/gemini-transport.js';
-import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import { extractProvider, stripPrefix, type LlmTransport } from '../core/transports/index.js';
-import { coreEvents } from '@google/gemini-cli-core';
+import { extractProvider, stripPrefix } from '../core/transports/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,7 +25,7 @@ import { coreEvents } from '@google/gemini-cli-core';
 
 /** Describes a provider/model pair to check. */
 export interface ProviderCheck {
-  /** v3 provider id (e.g. "anthropic", "google", "local-advanced"). */
+  /** v3 provider id (e.g. "anthropic", "local-advanced"). */
   provider: string;
   /** Full `<provider>/<model>` reference. */
   model: string;
@@ -97,9 +94,9 @@ export function formatAuthLabel(provider: {
  * v2 fallback: derive an auth label from the post-adapter `mode` field. Only
  * used when no v3 source is attached (legacy configs without `version: 3`).
  */
-function formatAuthLabelV2(providerId: string, provider: { mode: string; env_key?: string }): string {
+function formatAuthLabelV2(_providerId: string, provider: { mode: string; env_key?: string }): string {
   if (provider.mode === 'subscription') {
-    return providerId === 'google' ? 'Google OAuth' : 'OAuth';
+    return 'OAuth';
   }
   const env = provider.env_key;
   return env ? `API Key (${env})` : 'API Key';
@@ -107,12 +104,11 @@ function formatAuthLabelV2(providerId: string, provider: { mode: string; env_key
 
 /**
  * v2 fallback: guess transport from the provider id. v2 had no explicit
- * transport field, so anthropic/google are special-cased and any other
- * catchall provider is assumed to be openai-compatible.
+ * transport field, so anthropic is special-cased and any other catchall
+ * provider is assumed to be openai-compatible.
  */
 function guessTransportV2(providerId: string): Transport {
   if (providerId === 'anthropic') return 'claude_agent_sdk';
-  if (providerId === 'google') return 'google_genai';
   return 'openai_compatible';
 }
 
@@ -301,63 +297,6 @@ async function checkAnthropic(check: ProviderCheck, projectRoot: string, signal?
 }
 
 // ---------------------------------------------------------------------------
-// Gemini (google_genai) probe
-// ---------------------------------------------------------------------------
-
-function createGeminiTransport(mode: 'subscription' | 'api', projectRoot: string, model: string, config: Config): LlmTransport {
-  return mode === 'api' ? new VercelSdkTransport(config) : new GeminiTransport(projectRoot, model);
-}
-
-async function pingGemini(
-  model: string,
-  projectRoot: string,
-  mode: 'subscription' | 'api',
-  config: Config,
-): Promise<{ ok: boolean; error?: string; latencyMs: number }> {
-  const start = Date.now();
-  const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), 30_000);
-  try {
-    const transport = createGeminiTransport(mode, projectRoot, model, config);
-    const response = await transport.query({
-      systemPrompt: 'Respond with exactly "OK" and nothing else.',
-      userMessage: 'Respond OK',
-      model,
-      projectRoot,
-      abortController: ac,
-    });
-    const text = response.text.trim();
-    return text.length > 0
-      ? { ok: true, latencyMs: Date.now() - start }
-      : { ok: false, error: 'empty response', latencyMs: Date.now() - start };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), latencyMs: Date.now() - start };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function checkGemini(check: ProviderCheck, projectRoot: string, config: Config): Promise<ProviderCheckResult> {
-  // v3 oauth → subscription, api_key → api. Honor `auth` directly when v3 was used;
-  // fall back to v2's mode field otherwise.
-  const mode: 'subscription' | 'api' = (() => {
-    const v2Mode = config.providers.google?.mode;
-    if (v2Mode) return v2Mode;
-    return 'subscription';
-  })();
-  const r = await pingGemini(check.model, projectRoot, mode, config);
-  return {
-    provider: check.provider,
-    model: check.model,
-    status: r.ok ? 'ok' : 'error',
-    latencyMs: r.latencyMs,
-    auth: check.auth,
-    transport: check.transport,
-    ...(r.error ? { error: r.error } : {}),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // OpenAI-compatible (embeddings) probe
 // ---------------------------------------------------------------------------
 
@@ -463,39 +402,6 @@ async function stressAnthropic(model: string, projectRoot: string, n: number): P
   return { attempted: n, succeeded, failed: n - succeeded, totalMs: Date.now() - start };
 }
 
-async function stressGemini(model: string, projectRoot: string, n: number, mode: 'subscription' | 'api', config: Config): Promise<ConcurrencyResult> {
-  const start = Date.now();
-  const bail = new AbortController();
-  // subscription: each call needs its own transport — resetChat() is not safe for concurrent use
-  // api: single transport is fine — stateless SDK
-  const sharedTransport = mode === 'api' ? createGeminiTransport(mode, projectRoot, model, config) : undefined;
-  const promises = Array.from({ length: n }, () => {
-    const transport = sharedTransport ?? createGeminiTransport(mode, projectRoot, model, config);
-    const ac = new AbortController();
-    const timeout = setTimeout(() => ac.abort(), 60_000);
-    bail.signal.addEventListener('abort', () => ac.abort(), { once: true });
-    return transport.query({
-      systemPrompt: 'Respond with exactly "OK" and nothing else.',
-      userMessage: 'Respond OK',
-      model,
-      projectRoot,
-      abortController: ac,
-    }).then(r => {
-      clearTimeout(timeout);
-      const ok = r.text.trim().length > 0;
-      if (!ok) bail.abort();
-      return ok;
-    }).catch(() => {
-      clearTimeout(timeout);
-      bail.abort();
-      return false;
-    });
-  });
-  const outcomes = await Promise.all(promises);
-  const succeeded = outcomes.filter(Boolean).length;
-  return { attempted: n, succeeded, failed: n - succeeded, totalMs: Date.now() - start };
-}
-
 function formatConcurrencyTable(results: { provider: string; model: string; concurrency: ConcurrencyResult }[]): string {
   const table = new Table({
     chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '  ', 'left-mid': '  ', mid: '─', 'mid-mid': ' ', right: '', 'right-mid': '', middle: ' ' },
@@ -536,13 +442,10 @@ export function registerProvidersCommand(program: Command): void {
 
       const checks = buildProviderChecks(config);
 
-      // Raise limit early — each SDK query() adds an exit listener to process,
-      // and each gemini-cli-core Config adds listeners to the shared coreEvents emitter
-      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 8, config.providers.google?.concurrency ?? 0, checks.length);
+      // Raise limit early — each SDK query() adds an exit listener to process
+      const maxConcurrency = Math.max(config.providers.anthropic?.concurrency ?? 8, checks.length);
       const prevMaxListeners = process.getMaxListeners();
-      const prevCoreMaxListeners = coreEvents.getMaxListeners();
       process.setMaxListeners(Math.max(prevMaxListeners, maxConcurrency + 10));
-      coreEvents.setMaxListeners(Math.max(prevCoreMaxListeners, maxConcurrency + 10));
 
       if (!opts.json) {
         console.log(chalk.bold('\nanatoly — providers\n'));
@@ -557,9 +460,6 @@ export function registerProvidersCommand(program: Command): void {
           case 'claude_agent_sdk':
             result = await checkAnthropic(check, projectRoot);
             break;
-          case 'google_genai':
-            result = await checkGemini(check, projectRoot, config);
-            break;
           case 'openai_compatible':
             result = await checkOpenAICompatible(check);
             break;
@@ -572,25 +472,21 @@ export function registerProvidersCommand(program: Command): void {
 
       // --- Concurrency stress test (LLM transports only — embeddings/ONNX skipped) ---
       const concurrencyResults: { provider: string; model: string; concurrency: ConcurrencyResult }[] = [];
-      const reachable = results.filter(r => r.status === 'ok' && (r.transport === 'claude_agent_sdk' || r.transport === 'google_genai'));
+      const reachable = results.filter(r => r.status === 'ok' && r.transport === 'claude_agent_sdk');
       const testedTransports = new Set<Transport>();
 
       for (const r of reachable) {
         if (testedTransports.has(r.transport)) continue;
         testedTransports.add(r.transport);
 
-        const slots = r.transport === 'google_genai'
-          ? (config.providers.google?.concurrency ?? 8)
-          : (config.providers.anthropic?.concurrency ?? 8);
+        const slots = config.providers.anthropic?.concurrency ?? 8;
 
         if (!opts.json) {
           console.log(chalk.dim(`  Stress-testing ${r.provider} (${r.model}) × ${slots} concurrent...`));
         }
 
         try {
-          const cr = r.transport === 'google_genai'
-            ? await stressGemini(r.model, projectRoot, slots, config.providers.google?.mode ?? 'subscription', config)
-            : await stressAnthropic(r.model, projectRoot, slots);
+          const cr = await stressAnthropic(r.model, projectRoot, slots);
           concurrencyResults.push({ provider: r.provider, model: r.model, concurrency: cr });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -639,6 +535,5 @@ export function registerProvidersCommand(program: Command): void {
       }
 
       process.setMaxListeners(prevMaxListeners);
-      coreEvents.setMaxListeners(prevCoreMaxListeners);
     });
 }

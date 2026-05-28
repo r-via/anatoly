@@ -430,7 +430,7 @@ seam, not a backlog gap. It is split five ways:
   `router.agenticQuery()` ([run.ts:1111](../../src/commands/run.ts#L1111)).
 - transports themselves
   ([anthropic-transport.ts](../../src/core/transports/anthropic-transport.ts),
-  gemini, vercel-sdk) each call `recordLlmCall()` and `initConvDump()`
+  vercel-sdk) each call `recordLlmCall()` and `initConvDump()`
   directly.
 
 The one thing that is de-facto central is the D.4 sink, only because it is

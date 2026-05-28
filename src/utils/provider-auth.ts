@@ -13,7 +13,7 @@ import chalk from 'chalk';
  * consistent whatever provider failed.
  */
 
-export type ProviderId = 'anthropic' | 'google';
+export type ProviderId = 'anthropic';
 export type ProviderMode = 'subscription' | 'api';
 
 interface ProviderInstallStep {
@@ -54,21 +54,6 @@ const REGISTRY: Record<ProviderId, ProviderInfo> = {
     api: {
       keyVar: 'ANTHROPIC_API_KEY',
       keyExample: 'sk-ant-...',
-    },
-  },
-  google: {
-    display: 'Google',
-    subscription: {
-      cliName: 'Gemini CLI',
-      install: [
-        { cmd: 'npm install -g @google/gemini-cli' },
-        { cmd: 'gemini auth login' },
-      ],
-    },
-    api: {
-      keyVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
-      altVars: ['GOOGLE_API_KEY'],
-      keyExample: 'AIza...',
     },
   },
 };

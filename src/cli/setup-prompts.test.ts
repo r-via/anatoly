@@ -1076,17 +1076,17 @@ describe('writeFirstRunConfig', () => {
     expect(content).toMatch(/^# search:$/m);
   });
 
-  it('renders inactive providers (google, advanced, external) as commented blocks for lite tier', async () => {
+  it('renders inactive providers (advanced, external) as commented blocks for lite tier', async () => {
     await writeFirstRunConfig(dir, { tier: 'lite' });
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     // local-lite is active (uncommented)
     expect(content).toContain('  local-lite:');
     expect(content).toMatch(/^  local-lite:$/m);
-    // local-advanced, mistral, openrouter, google are commented
+    // local-advanced, mistral, openrouter are commented
     expect(content).toContain('  # local-advanced:');
     expect(content).toContain('  # mistral:');
     expect(content).toContain('  # openrouter:');
-    expect(content).toContain('  # google:');
+    expect(content).not.toContain('google:');
   });
 
   it('keeps local-lite active and comments other providers for advanced tier', async () => {

@@ -18,8 +18,8 @@ Prep results:
   Array<Record<string, unknown>>` (matches the file's existing
   `usage` cast idiom). No other API surface change.
 - typecheck clean; full suite 3078 pass / 0 fail; migration file
-  lint-clean. (Two pre-existing lint errors in `calibrate-threshold.ts` /
-  `gemini-transport-spike.mjs` are unrelated and out of scope.)
+  lint-clean. (A pre-existing lint error in `calibrate-threshold.ts` is
+  unrelated and out of scope.)
 
 Decisions:
 1. Pin: caret `^0.3.144` (keep existing convention).

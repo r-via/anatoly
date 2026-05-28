@@ -1,43 +1,5 @@
 # Future Optimizations
 
-## Multi-turn grouped axes per provider
-
-**Status**: Planned
-**Impact**: ~2.4M tokens/run saved on Gemini (~$0.18), reduced latency
-
-Currently each axis sends the full source file independently. For a 3K-token file evaluated on 7 axes, the code is sent 7 times (21K tokens wasted).
-
-**Proposal**: Group axes by provider into a single multi-turn conversation:
-- 1 Gemini conversation: send file once, then ask utility + duplication + overengineering sequentially
-- Claude axes stay isolated (each has unique context: test file, docs pages, deps)
-
-**Trade-offs**:
-- Loses per-axis concurrency within the same provider (sequential vs parallel)
-- Error in one axis could affect the others in the same conversation
-- Requires multi-turn query support in the Vercel AI SDK transport layer
-- Need to handle different Zod schemas per turn in the response parser
-
-**Estimated savings**: ~20K tokens/file × 120 files = ~2.4M input tokens on Gemini
-
-## Gemini context caching
-
-**Status**: Investigated, not viable currently
-**Reason**: System prompts are ~900-1000 tokens, under the 2048 minimum required by the Gemini caching API
-
-Could become viable if:
-- System prompts grow beyond 2048 tokens
-- Google lowers the minimum threshold
-- We bundle system prompt + a reusable context primer to exceed the threshold
-
-## Route best-practices to Gemini
-
-**Status**: To validate
-**Impact**: ~$32/run saved (most expensive Claude axis)
-
-best-practices is the costliest axis ($32.70/run, 122 calls, ~14K output tokens/call). Its output is highly structured (17 fixed rules). Could be a good candidate for Gemini if quality holds.
-
-**Next step**: Spike with gemini-2.5-flash on 5-10 files, compare verdicts against Claude reference.
-
 ## Reduce correction axis output verbosity
 
 **Status**: To investigate
@@ -88,9 +50,7 @@ Currently, the gold set is a vitest suite run manually against a single model. T
   ─────────────────────────────  ────  ────  ───────  ──────
   claude-haiku-4-5-20251001      14/14  0    $0.68    12.3s
   claude-sonnet-4-5-20250514     14/14  0    $2.40    18.1s
-  gemini-2.5-flash               12/14  2    $0.12    8.4s
-    ✗ correction-bugs: clamp → NEEDS_FIX (expected OK)
-    ✗ overengineered: slugify → ACCEPTABLE (expected LEAN)
+  claude-opus-4-6                14/14  0    $6.80    24.0s
 ```
 
 **Implementation**:
@@ -100,7 +60,7 @@ Currently, the gold set is a vitest suite run manually against a single model. T
 - Add `--yes` to skip cost confirmation prompt
 - Support `--json` for machine-readable output
 
-**Cost**: ~$2/model (Haiku), ~$8/model (Sonnet), ~$0.50/model (Gemini Flash)
+**Cost**: ~$2/model (Haiku), ~$8/model (Sonnet)
 
 ## Gold set v2 — Mini-project with full pipeline validation
 
@@ -159,7 +119,7 @@ Currently `anatoly clean run` spawns the `claude` CLI process, pipes a `CLAUDE.m
 **Proposal**: Rewrite the clean executor to use the Vercel AI SDK transport (already available via Epic 43), similar to how tier 3 refinement uses `query()` with tools:
 - Use the Vercel AI SDK agent (`vercel-agent.ts`) with tools: `Read`, `Edit`, `Write`, `Grep`, `Glob`, `Bash`
 - Route through `TransportRouter` for concurrency/resilience (semaphores, circuit breakers from Epic 46)
-- Support any model available via Vercel SDK (Claude, Gemini, Qwen, etc.) — not just Anthropic
+- Support any model available via Vercel SDK (Claude, Qwen, etc.), not just Anthropic
 - Keep the PRD/story generation step (`clean generate`) as-is; only the execution step changes
 
 **Benefits**:
@@ -221,12 +181,12 @@ See [Transport Architecture](docs/02-Architecture/08-Transport-Architecture.md) 
 **Status**: DONE (merge 2c7d67b)
 **Impact**: Eliminates vendor lock-in, enables cost optimization via provider selection
 
-Migrated from `@google/genai` to Vercel AI SDK for non-subscription transports. Now supports arbitrary providers: Anthropic, Google, Qwen, Groq, DeepSeek, Mistral, OpenRouter, Ollama.
+Migrated to Vercel AI SDK for non-subscription transports. Now supports arbitrary providers: Anthropic, Qwen, Groq, DeepSeek, Mistral, OpenRouter, Ollama.
 
 Key changes:
 - `known-providers.ts` registry with `resolveProvider()` for model prefix inference
-- Mode-aware `TransportRouter` with subscription (Anthropic SDK, Gemini CLI Core) and API (Vercel SDK) modes
-- Config v2 format with per-axis `model` fields using provider prefixes (e.g. `google/gemini-2.5-flash`)
+- Mode-aware `TransportRouter` with subscription (Anthropic SDK) and API (Vercel SDK) modes
+- Config v2 format with per-axis `model` fields using provider prefixes (e.g. `anthropic/claude-sonnet-4-6`)
 - Interactive `anatoly init` wizard for multi-provider setup
 - Vercel AI SDK agent with bash-tool and web-search capabilities (Story 43.6)
 
@@ -258,7 +218,7 @@ Post-run summary sent to Telegram as a single photo+caption message with:
 - `CircuitBreaker` — per-provider, trips after consecutive failures
 - `acquire()` / `acquireSlot()` / `release()` for single-turn calls
 - `agenticQuery()` for agentic calls (slot + retry + breaker managed internally)
-- Four backends: Anthropic Agent, Gemini Agent, Vercel API via SDK, Vercel Agent via SDK
+- Three backends: Anthropic Agent, Vercel API via SDK, Vercel Agent via SDK
 - Each transport implements `query()` + optional `agenticQuery()` with unified `_execute()` pattern
 
 See [Transport Architecture](docs/02-Architecture/08-Transport-Architecture.md) for details.

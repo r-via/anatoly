@@ -67,7 +67,7 @@ import { circuitOpenError, isProviderHealthFailure } from '../../utils/errors.js
 import { maybeWrapTransport } from './recording-transport.js';
 
 /**
- * Common interface for LLM providers (Anthropic, Gemini, etc.).
+ * Common interface for LLM providers (Anthropic, custom OpenAI-compatible, etc.).
  */
 export interface LlmTransport {
   readonly provider: string;
@@ -82,7 +82,6 @@ export interface LlmTransport {
  *
  * - Prefixed: `"anthropic/claude-sonnet-4-6"` → `"anthropic"`
  * - Bare `claude-*` → `"anthropic"`
- * - Bare `gemini-*` → `"google"`
  * - Unknown bare name → `"anthropic"` (default fallback)
  */
 export function extractProvider(modelId: string): string {
@@ -90,14 +89,13 @@ export function extractProvider(modelId: string): string {
     return modelId.split('/')[0];
   }
   if (modelId.startsWith('claude-')) return 'anthropic';
-  if (modelId.startsWith('gemini-')) return 'google';
   if (modelId.startsWith('gpt-')) return 'openai';
   return 'anthropic';
 }
 
 /**
  * Strip the provider prefix from a model identifier.
- * E.g. `"google/gemini-2.5-flash"` → `"gemini-2.5-flash"`, bare names pass through.
+ * E.g. `"openai/gpt-4o"` → `"gpt-4o"`, bare names pass through.
  */
 export function stripPrefix(modelId: string): string {
   return modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
@@ -153,7 +151,7 @@ export interface AgenticRequest extends LlmRequest {
 
 /** Configuration for the mode-aware TransportRouter. */
 export interface TransportRouterConfig {
-  /** Native transports keyed by provider id (e.g. anthropic, google). */
+  /** Native transports keyed by provider id (e.g. anthropic). */
   nativeTransports: Record<string, LlmTransport>;
   /** Vercel AI SDK transport for all api-mode calls. */
   vercelSdkTransport: LlmTransport;
@@ -169,7 +167,7 @@ export interface TransportRouterConfig {
  * Routes models to the appropriate transport based on the provider's configured
  * mode (subscription vs api) and optional task-level overrides (single_turn, agents).
  *
- * - subscription → native transport (AnthropicTransport, GeminiTransport)
+ * - subscription → native transport (AnthropicTransport)
  * - api → VercelSdkTransport
  */
 /**
@@ -308,7 +306,6 @@ export class TransportRouter {
    * with an agents-specific override. Each transport owns its agentic implementation:
    * - AnthropicTransport → Claude Code subprocess with tools
    * - VercelSdkTransport → Vercel AI SDK generateText() with tools
-   * - GeminiTransport    → Gemini CLI (falls back to single-turn, tools not yet supported)
    *
    * **Retry contract:** This method manages retry/backoff internally (3 retries, 5s base,
    * 60s max, jitter 0.2). Callers MUST NOT wrap calls in their own retryWithBackoff.

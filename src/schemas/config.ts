@@ -75,7 +75,7 @@ export const GenericProviderConfigSchema = z.object({
   env_key: z.string().optional(),
 });
 
-// Anthropic/Google only override the transport `mode` default; `concurrency`
+// Anthropic only overrides the transport `mode` default; `concurrency`
 // is intentionally NOT overridden so every provider shares the single uniform
 // default (8) from GenericProviderConfigSchema. The first-run wizard writes
 // `concurrency: 8` explicitly into the generated config — this default is only
@@ -84,13 +84,8 @@ export const AnthropicProviderConfigSchema = GenericProviderConfigSchema.extend(
   mode: ProviderModeSchema.default('subscription'),
 });
 
-export const GoogleProviderConfigSchema = GenericProviderConfigSchema.extend({
-  mode: ProviderModeSchema.default('subscription'),
-});
-
 export const ProvidersConfigSchema = z.object({
   anthropic: AnthropicProviderConfigSchema.optional(),
-  google: GoogleProviderConfigSchema.optional(),
 }).catchall(GenericProviderConfigSchema).refine(
   (data) => Object.keys(data).length > 0,
   'At least one provider must be configured',
@@ -332,7 +327,6 @@ export const ConfigSchema = z.object({
 export type AxisConfig = z.infer<typeof AxisConfigSchema>;
 export type GenericProviderConfig = z.infer<typeof GenericProviderConfigSchema>;
 export type AnthropicProviderConfig = z.infer<typeof AnthropicProviderConfigSchema>;
-export type GoogleProviderConfig = z.infer<typeof GoogleProviderConfigSchema>;
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;

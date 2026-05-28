@@ -8,12 +8,11 @@
 
   | Mode | Setup | Cost | When to pick |
   |------|-------|------|--------------|
-  | **Subscription** *(default)* | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed + logged in | Your Claude.ai (Pro / Max) subscription | Most users — **no API key needed** |
-  | **Subscription (Google)** | Google OAuth via [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Your Code Assist subscription, $0/token | Cost-optimize lightweight axes |
-  | **BYOK API** | Set `ANTHROPIC_API_KEY` *(or `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, etc.)* | Per-token billing | No subscription, or pay-as-you-go preferred |
+  | **Subscription** *(default)* | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI installed + logged in | Your Claude.ai (Pro / Max) subscription | Most users (no API key needed) |
+  | **BYOK API** | Set `ANTHROPIC_API_KEY` *(or `OPENAI_API_KEY`, etc.)* | Per-token billing | No subscription, or pay-as-you-go preferred |
   | **Local** | Run Ollama / LM Studio / vLLM | Free | Code that cannot leave your network |
 
-By default Anatoly assumes **subscription mode** for `anthropic` and `google` providers — the configured `.anatoly.yml` lists these as `mode: subscription`. If you prefer API mode, set the relevant env var and switch the provider's `mode` to `api`:
+By default Anatoly assumes **subscription mode** for the `anthropic` provider: the configured `.anatoly.yml` lists it as `mode: subscription`. If you prefer API mode, set the relevant env var and switch the provider's `mode` to `api`:
 
 ```bash
 # Only needed for BYOK API mode

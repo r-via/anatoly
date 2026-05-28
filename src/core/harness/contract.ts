@@ -41,7 +41,7 @@
  * contract: NOT the full form-first PhaseEnvelope doc 14 declined (PR 4c).
  */
 export interface UnitCostEntry {
-  provider: 'anthropic' | 'gemini';
+  provider: 'anthropic';
   /** the run-metrics phase bucket (e.g. 'review', 'rag-index', a doc taskId). */
   phase: string;
   /** axis bucket, when the unit is a single axis. */
