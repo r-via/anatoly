@@ -74,8 +74,15 @@ export interface RunContext {
   verbose?: boolean;
   /** Glob pattern to restrict reviewed files */
   fileFilter?: string;
-  /** Skip review cache — re-evaluate all files */
+  /** Skip review cache — re-evaluate all files. Does NOT write fresh
+   *  results back to the cache; the on-disk store is left untouched. */
   noCache: boolean;
+  /** Force re-evaluation of every file (like --no-cache) AND write the
+   *  fresh results back to the cache, overwriting stale entries. Useful
+   *  after a tool-internal logic change (e.g. an evaluator bug fix) where
+   *  the prompt hash is unchanged but the cached verdict is no longer
+   *  correct. Mutually exclusive with `noCache`. */
+  cacheRefresh: boolean;
   /** Promote TIMEOUT files to PENDING at review-phase start so a previous
    *  run's timed-out files get another attempt (opt-in via --retry-timeout). */
   retryTimeout: boolean;
@@ -178,7 +185,8 @@ export function registerRunCommand(program: Command): void {
     .option('--run-id <id>', 'custom run ID (alphanumeric, dashes, underscores)')
     .option('--resume', 'resume the previous run: reuse its run directory (artifacts + ledger appended in-place), skip files already DONE, retry TIMEOUT/ERROR/IN_PROGRESS files. Picks the run via .anatoly/runs/latest. Implies --retry-timeout. Mutually exclusive with --run-id.')
     .option('--axes <list>', 'comma-separated axes: utility,duplication,correction,overengineering,tests,best_practices')
-    .option('--no-cache', 'ignore SHA-256 cache, re-review all files')
+    .option('--no-cache', 'ignore SHA-256 cache for this run, re-review all files; on-disk cache is left untouched (does not refresh stale entries)')
+    .option('--cache-refresh', 'force re-evaluation of every file AND overwrite the on-disk cache with the fresh results (mutually exclusive with --no-cache; use this after a tool-internal fix that changes verdicts without changing the prompt hash)')
     .option('--retry-timeout', 'also re-evaluate files left in TIMEOUT status by a previous run (defaults to false — TIMEOUTs persist until explicitly retried)')
     .option('--file <glob>', 'restrict scope to matching files')
     .option('--concurrency <n>', 'number of concurrent reviews (1-10)', parseInt)
@@ -202,7 +210,7 @@ export function registerRunCommand(program: Command): void {
     .option('--source-root <path>', '[internal] source root for background worktree runs')
     .action(async (cmdOpts: {
       runId?: string; axes?: string; flushMemory?: boolean;
-      cache?: boolean; retryTimeout?: boolean; resume?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
+      cache?: boolean; cacheRefresh?: boolean; retryTimeout?: boolean; resume?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
       triage?: boolean; deliberation?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
@@ -456,6 +464,18 @@ export function registerRunCommand(program: Command): void {
         process.exitCode = 2;
         return;
       }
+      // --no-cache (read+write bypass) and --cache-refresh (force re-eval +
+      // overwrite cache) make contradictory promises about the on-disk
+      // store. Force the user to pick.
+      if (cmdOpts.cache === false && cmdOpts.cacheRefresh === true) {
+        printNotice({
+          kind: 'error',
+          title: '--no-cache and --cache-refresh are mutually exclusive',
+          hint: '--no-cache bypasses the cache without touching it; --cache-refresh forces a re-eval AND overwrites the cache. Pick one.',
+        });
+        process.exitCode = 2;
+        return;
+      }
       let resolvedRunId: string | undefined;
       if (cmdOpts.resume) {
         const runsDir = anatolyPath(projectRoot, 'runs');
@@ -651,6 +671,7 @@ export function registerRunCommand(program: Command): void {
         verbose: parentOpts.verbose as boolean | undefined,
         fileFilter: cmdOpts.file,
         noCache: cmdOpts.cache === false,
+        cacheRefresh: cmdOpts.cacheRefresh === true,
         retryTimeout: cmdOpts.retryTimeout === true,
         enableRag: parentOpts.rag !== false && config.rag.enabled,
         ragMode,
@@ -779,6 +800,7 @@ export function registerRunCommand(program: Command): void {
           ragMode: ctx.ragMode,
           enableRag: ctx.enableRag,
           noCache: ctx.noCache,
+          cacheRefresh: ctx.cacheRefresh,
           rebuildRag: ctx.rebuildRag,
           deliberation: ctx.deliberation,
           dryRun: ctx.dryRun,

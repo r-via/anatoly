@@ -41,6 +41,10 @@ export interface RunConfig {
   ragMode: RagMode;
   enableRag: boolean;
   noCache: boolean;
+  /** When true, the run forced re-evaluation AND wrote fresh reviews back
+   *  to the project-global cache, overwriting prior entries. Distinct from
+   *  `noCache: true` which bypasses cache without touching it. */
+  cacheRefresh?: boolean;
   rebuildRag?: boolean;
   deliberation: boolean;
   dryRun: boolean;
@@ -65,6 +69,7 @@ export interface BuildRunConfigInput {
   ragMode: RagMode;
   enableRag: boolean;
   noCache: boolean;
+  cacheRefresh?: boolean;
   rebuildRag?: boolean;
   deliberation: boolean;
   dryRun: boolean;
@@ -85,6 +90,7 @@ export function buildRunConfig(input: BuildRunConfigInput): RunConfig {
     ragMode: input.ragMode,
     enableRag: input.enableRag,
     noCache: input.noCache,
+    cacheRefresh: input.cacheRefresh,
     rebuildRag: input.rebuildRag,
     deliberation: input.deliberation,
     dryRun: input.dryRun,

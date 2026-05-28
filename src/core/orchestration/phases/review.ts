@@ -108,6 +108,17 @@ export async function runReviewPhase(
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
     }
+  } else if (ctx.cacheRefresh) {
+    // --cache-refresh: same PENDING promotion as --no-cache, but writes
+    // are NOT gated — fresh reviews overwrite stale cache entries. Use
+    // case: a tool-internal fix changed verdicts without changing the
+    // prompt hash, so the on-disk cache is now stale for content the
+    // user has not touched. --no-cache alone would re-eval but leave the
+    // stale entries forever.
+    log.info('--cache-refresh: forcing re-evaluation and overwriting the cache for every file.');
+    for (const [, fp] of Object.entries(progress.files)) {
+      if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
+    }
   }
 
   // --retry-timeout: promote TIMEOUT files (left behind by a prior run that
