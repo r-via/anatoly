@@ -133,6 +133,47 @@ export function loadProjectReview(
   return loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
 }
 
+/**
+ * Load the cached review for a file ignoring the axes-coverage gate. Used
+ * by the selective-refresh path (`--axes X --cache-refresh`): the caller
+ * intends to merge the cached payload with a freshly-evaluated subset, so
+ * the usual "cache must cover all enabled axes" gate would falsely
+ * suppress the merge source whenever cached axes are a strict subset of
+ * what the current run is asking about.
+ *
+ * Returns both the cached `ReviewFile` (or null on miss) and the axes the
+ * index entry says it covers, so callers can compute the post-merge axis
+ * union for the new index entry.
+ *
+ * Still requires content hash + prompt hash to match — a stale cache for
+ * a different file content or a different prompt version is not a valid
+ * merge source.
+ */
+export function loadProjectReviewRaw(
+  root: string,
+  filePath: string,
+  fileContent: string,
+  promptHash: string,
+): { review: ReviewFile | null; axes: string[] } {
+  const contentHash = computeContentHash(fileContent);
+  const cachePath = projectReviewPath(root, contentHash);
+
+  const index = loadReviewIndex(root);
+  const entry = index.files[filePath];
+  if (entry) {
+    if (entry.hash !== contentHash) return { review: null, axes: [] };
+    if (entry.status !== 'DONE' && entry.status !== 'CACHED') return { review: null, axes: [] };
+    const review = loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
+    return { review, axes: [...entry.axes] };
+  }
+  // No index entry but the blob might still exist (rename/vendor). Without
+  // an index entry we have no record of axis coverage; return an empty
+  // axes list so the merger treats every axis as "freshly evaluated" and
+  // does not pretend to have cached values for unrun axes.
+  const review = loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
+  return { review, axes: [] };
+}
+
 // ---------------------------------------------------------------------------
 // Index I/O
 // ---------------------------------------------------------------------------

@@ -49,7 +49,8 @@ import { countReviewFindings } from '../../../utils/format.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
-import { writeProjectReview, loadProjectReview, loadLegacyPathBasedReview } from '../../run/index.js';
+import { writeProjectReview, loadProjectReview, loadProjectReviewRaw, loadLegacyPathBasedReview } from '../../run/index.js';
+import { mergeRefreshedReview, computeMergedAxesCoverage } from '../../run/review-merge.js';
 import { computePromptHash } from '../../../utils/cache-meta.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { recordAgentCosts } from '../cost.js';
@@ -383,7 +384,37 @@ export async function runReviewPhase(
           },
         });
 
-        writeReviewOutput(ctx.projectRoot, result.review, ctx.runDir);
+        // Selective refresh: when (--cache-refresh + --axes filter) only
+        // some axes ran, but the on-disk cache may still hold valid verdicts
+        // for the others (same file content, same prompt hash). Merge the
+        // fresh partial result with the cached entry so the run dir AND
+        // the cache reflect full coverage; otherwise --axes utility
+        // --cache-refresh would shrink the cache to utility-only and force
+        // every future run to re-evaluate everything to recover.
+        let outputReview = result.review;
+        let coverageAxes: string[] = fileEvaluators.map((e) => e.id);
+        if (ctx.cacheRefresh && ctx.axesFilter && ctx.axesFilter.length > 0) {
+          try {
+            const absPath = resolve(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), filePath);
+            const cacheSource = loadProjectReviewRaw(
+              ctx.projectRoot,
+              filePath,
+              readFileSync(absPath, 'utf-8'),
+              reviewPromptHash,
+            );
+            if (cacheSource.review) {
+              outputReview = mergeRefreshedReview(cacheSource.review, result.review, ctx.axesFilter);
+              coverageAxes = computeMergedAxesCoverage(outputReview, ctx.axesFilter, cacheSource.axes);
+            }
+          } catch (err) {
+            // No usable cache to merge with — fall back to the fresh
+            // partial review. The user still gets correct refreshed axes;
+            // they just lose cached coverage for the others (same as
+            // running --axes X without --cache-refresh on a fresh project).
+            getLogger().debug({ file: filePath, err }, 'selective-refresh merge skipped (no cache source)');
+          }
+        }
+        writeReviewOutput(ctx.projectRoot, outputReview, ctx.runDir);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
           ? fileEvaluators.map(e => e.id).filter(id => !result.failedAxes.includes(id))
@@ -406,7 +437,7 @@ export async function runReviewPhase(
           ctx.degradedReviews++;
           completedCount++;
         } else {
-          if (!ctx.noCache) cacheReview(ctx.projectRoot, result.review, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
+          if (!ctx.noCache) cacheReview(ctx.projectRoot, outputReview, reviewPromptHash, reviewModelId, coverageAxes, ctx.sourceRoot);
           pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
           handoff.filesReviewed++;
           ctx.reviewCounts.evaluated++;

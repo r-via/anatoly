@@ -45,6 +45,7 @@ export type { ForecastStep } from './estimator.js';
 export {
   writeProjectReview,
   loadProjectReview,
+  loadProjectReviewRaw,
   loadLegacyPathBasedReview,
   projectReviewPath,
 } from './project-review-cache.js';
