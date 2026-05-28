@@ -4,6 +4,7 @@
 
 import { dirname } from 'node:path';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
+import { setAxisSegment, getAxisSegmentText } from './detail-segment.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -110,8 +111,12 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
     // legacy.ts → engine.ts in the slot-engine fixture).
     if (s.utility === 'DEAD') {
       if (s.correction === 'NEEDS_FIX') {
+        const originalText = getAxisSegmentText(s.detail, 'NEEDS_FIX');
+        const newText = originalText
+          ? `Moot — symbol is DEAD (was NEEDS_FIX: ${originalText})`
+          : 'Moot — symbol is DEAD';
         s.correction = 'OK';
-        s.detail = `Moot — symbol is DEAD | ${s.detail}`;
+        s.detail = setAxisSegment(s.detail, 'NEEDS_FIX', 'OK', newText);
         stats.resolved++;
       }
       if (s.overengineering === 'OVER') {

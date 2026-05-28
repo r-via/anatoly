@@ -8,6 +8,7 @@ import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { UsageGraph } from '../../scanning/index.js';
 import type { PreResolvedRag } from '../contract.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../../scanning/index.js';
+import { setAxisSegment, getAxisSegmentText } from './detail-segment.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,9 +125,10 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (fileContent && ctx.projectRoot) {
         const resolved = verifyCorrectionImport(s.detail, fileContent, review.file, ctx.projectRoot);
         if (resolved) {
+          const oldVerdict = s.correction;
           s.correction = 'OK';
           s.confidence = 95;
-          s.detail = `Auto-resolved: import verified on disk (${resolved})`;
+          s.detail = setAxisSegment(s.detail, oldVerdict, 'OK', `Auto-resolved: import verified on disk (${resolved})`);
           stats.resolved++;
           stats.breakdown.correctionImportResolved++;
         }
@@ -138,9 +140,10 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (fileContent) {
         const match = verifyArrayBounds(s.detail, fileContent, s.line_start, s.line_end);
         if (match) {
+          const oldVerdict = s.correction;
           s.correction = 'OK';
           s.confidence = 95;
-          s.detail = `Auto-resolved: ${match}`;
+          s.detail = setAxisSegment(s.detail, oldVerdict, 'OK', `Auto-resolved: ${match}`);
           stats.resolved++;
           stats.breakdown.correctionBoundsResolved++;
         }
@@ -149,9 +152,13 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
     // --- Correction: generated file → downgrade ERROR to NEEDS_FIX ---
     if (isGenerated && s.correction === 'ERROR') {
+      const originalErrorText = getAxisSegmentText(s.detail, 'ERROR');
+      const newText = originalErrorText
+        ? `Downgraded: generated/auto-generated code (was ERROR: ${originalErrorText})`
+        : `Downgraded: generated/auto-generated code`;
       s.correction = 'NEEDS_FIX';
       s.confidence = Math.min(s.confidence, 55);
-      s.detail = `Downgraded: generated/auto-generated code | ${s.detail}`;
+      s.detail = setAxisSegment(s.detail, 'ERROR', 'NEEDS_FIX', newText);
       stats.resolved++;
       stats.breakdown.correctionGeneratedDowngraded++;
     }
@@ -165,14 +172,14 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (runtimeImporters.length > 0) {
           s.utility = 'USED';
           s.confidence = 95;
-          s.detail = `Auto-resolved: runtime-imported by ${runtimeImporters.length} files`;
+          s.detail = setAxisSegment(s.detail, 'DEAD', 'USED', `Auto-resolved: runtime-imported by ${runtimeImporters.length} files`);
           resolved = true;
         } else {
           const typeOnlyImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
           if (typeOnlyImporters.length > 0) {
             s.utility = 'USED';
             s.confidence = 95;
-            s.detail = `Auto-resolved: type-only imported by ${typeOnlyImporters.length} files`;
+            s.detail = setAxisSegment(s.detail, 'DEAD', 'USED', `Auto-resolved: type-only imported by ${typeOnlyImporters.length} files`);
             resolved = true;
           }
         }
@@ -184,7 +191,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (transitiveRefs.length > 0) {
           s.utility = 'USED';
           s.confidence = 95;
-          s.detail = `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`;
+          s.detail = setAxisSegment(s.detail, 'DEAD', 'USED', `Auto-resolved: transitively used by ${transitiveRefs.join(', ')}`);
           resolved = true;
         }
       }
@@ -196,7 +203,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (intraRefs && intraRefs.size > 0) {
           s.utility = 'USED';
           s.confidence = 95;
-          s.detail = `Auto-resolved: referenced by ${[...intraRefs].join(', ')} in same file`;
+          s.detail = setAxisSegment(s.detail, 'DEAD', 'USED', `Auto-resolved: referenced by ${[...intraRefs].join(', ')} in same file`);
           resolved = true;
         }
       }
@@ -225,7 +232,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       // Rule: trivial function (≤ 2 lines) → always unique
       if (symLines <= TRIVIAL_FUNCTION_MAX_LINES) {
         s.duplication = 'UNIQUE';
-        s.detail = `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`;
+        s.detail = setAxisSegment(s.detail, 'DUPLICATE', 'UNIQUE', `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`);
         s.confidence = 90;
         downgradedDuplication.add(s.name);
         stats.resolved++;
@@ -239,7 +246,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (topScore < RAG_DUPLICATE_THRESHOLD) {
           s.duplication = 'UNIQUE';
           s.confidence = 90;
-          s.detail = `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`;
+          s.detail = setAxisSegment(s.detail, 'DUPLICATE', 'UNIQUE', `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`);
           downgradedDuplication.add(s.name);
           stats.resolved++;
           stats.breakdown.duplicateToUnique++;
@@ -253,13 +260,13 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
       if (TYPE_KINDS.has(s.kind)) {
         s.overengineering = 'LEAN';
-        s.detail = `Auto-resolved: ${s.kind} cannot be over-engineered`;
+        s.detail = setAxisSegment(s.detail, 'OVER', 'LEAN', `Auto-resolved: ${s.kind} cannot be over-engineered`);
         downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
       } else if (symLines <= SMALL_FUNCTION_MAX_LINES) {
         s.overengineering = 'LEAN';
-        s.detail = `Auto-resolved: function ≤ ${SMALL_FUNCTION_MAX_LINES} lines`;
+        s.detail = setAxisSegment(s.detail, 'OVER', 'LEAN', `Auto-resolved: function ≤ ${SMALL_FUNCTION_MAX_LINES} lines`);
         downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
@@ -281,7 +288,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (totalImporters <= 1) {
           s.overengineering = 'OVER';
           s.confidence = 80;
-          s.detail = `Auto-promoted: exported class imported by ${totalImporters} file${totalImporters === 1 ? '' : 's'} — abstraction built for a single client`;
+          s.detail = setAxisSegment(s.detail, 'LEAN', 'OVER', `Auto-promoted: exported class imported by ${totalImporters} file${totalImporters === 1 ? '' : 's'} — abstraction built for a single client`);
           promotedOverengineering.push(s);
           stats.resolved++;
           stats.breakdown.leanToOver++;
@@ -305,13 +312,13 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         if (hasJsDocBefore(content, s.line_start)) {
           s.documentation = 'DOCUMENTED';
           s.confidence = 90;
-          s.detail = 'Auto-resolved: JSDoc block found before symbol';
+          s.detail = setAxisSegment(s.detail, 'UNDOCUMENTED', 'DOCUMENTED', 'Auto-resolved: JSDoc block found before symbol');
           stats.resolved++;
           stats.breakdown.undocToDoc++;
         } else if (TYPE_KINDS.has(s.kind) && isSelfDescriptiveType(content, s)) {
           s.documentation = 'DOCUMENTED';
           s.confidence = 90;
-          s.detail = 'Self-descriptive type';
+          s.detail = setAxisSegment(s.detail, 'UNDOCUMENTED', 'DOCUMENTED', 'Self-descriptive type');
           stats.resolved++;
           stats.breakdown.undocToDoc++;
         }

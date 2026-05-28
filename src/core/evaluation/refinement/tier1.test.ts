@@ -562,4 +562,97 @@ describe('applyTier1', () => {
     expect(result._tier1Stats).toBeDefined();
     expect(result._tier1Stats!.resolved).toBeGreaterThan(0);
   });
+
+  // --- Detail-segment preservation (regression: see PR fix(report))
+  //
+  // axis-merger emits `detail` as `[VERDICT_A] text | [VERDICT_B] text | ...`.
+  // render-axis.axisDetail(s, axis) locates a segment by its `[VERDICT] ` tag.
+  // Prior to this fix, tier1 reclassification sites assigned a flat string,
+  // wiping every other axis's segment — so the public report showed (for
+  // example) "Auto-resolved: runtime-imported by N files" as the rationale
+  // on the correction, tests, and documentation axes for the same symbol,
+  // when the LLM's per-axis rationale was the real signal.
+
+  it('utility DEAD→USED preserves segments of other axes in detail', () => {
+    const graph = makeUsageGraph({
+      usages: new Map([['doWork::src/core/example.ts', new Set(['src/index.ts', 'src/cli.ts'])]]),
+    });
+    const review = makeReview({
+      symbols: [{
+        name: 'doWork',
+        utility: 'DEAD',
+        overengineering: 'OVER',
+        tests: 'NONE',
+        documentation: 'UNDOCUMENTED',
+        confidence: 70,
+        detail: '[DEAD] No importers found | [OVER] Bloated class with many methods | [NONE] No test file exists | [UNDOCUMENTED] Public function, no docstring',
+      }],
+    });
+    const ctx = makeContext({ usageGraph: graph });
+
+    const result = applyTier1(review, ctx);
+    const d = result.symbols[0].detail;
+
+    // utility segment was rewritten
+    expect(d).toContain('[USED] Auto-resolved: runtime-imported by 2 files');
+    expect(d).not.toContain('[DEAD]');
+    // other axes preserved verbatim
+    expect(d).toContain('[OVER] Bloated class with many methods');
+    expect(d).toContain('[NONE] No test file exists');
+    expect(d).toContain('[UNDOCUMENTED] Public function, no docstring');
+    // pipe-delimited format intact
+    expect(d.split(' | ').length).toBe(4);
+  });
+
+  it('overengineering LEAN→OVER preserves other axis segments', () => {
+    const graph = makeUsageGraph({
+      usages: new Map([['BigClass::src/core/example.ts', new Set(['src/sole-client.ts'])]]),
+    });
+    const review = makeReview({
+      symbols: [{
+        name: 'BigClass',
+        kind: 'class',
+        exported: true,
+        line_start: 1,
+        line_end: 40,
+        overengineering: 'LEAN',
+        correction: 'NEEDS_FIX',
+        detail: '[NEEDS_FIX] Off-by-one in loop bound | [LEAN] Class is concise | [USED] Imported by 1 file',
+      }],
+    });
+    const ctx = makeContext({ usageGraph: graph });
+
+    const result = applyTier1(review, ctx);
+    const d = result.symbols[0].detail;
+
+    expect(result.symbols[0].overengineering).toBe('OVER');
+    expect(d).toContain('[OVER] Auto-promoted: exported class imported by 1 file');
+    // The correction rationale from the LLM must survive
+    expect(d).toContain('[NEEDS_FIX] Off-by-one in loop bound');
+    expect(d).toContain('[USED] Imported by 1 file');
+  });
+
+  it('overengineering OVER→LEAN preserves other axis segments', () => {
+    const review = makeReview({
+      symbols: [{
+        name: 'tinyHelper',
+        kind: 'function',
+        line_start: 1,
+        line_end: 3,
+        overengineering: 'OVER',
+        correction: 'OK',
+        utility: 'USED',
+        detail: '[OK] No bug | [OVER] Looks over-designed | [USED] Imported by 5 files',
+      }],
+    });
+    const ctx = makeContext();
+
+    const result = applyTier1(review, ctx);
+    const d = result.symbols[0].detail;
+
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+    expect(d).toContain('[LEAN] Auto-resolved: function ≤');
+    expect(d).toContain('[OK] No bug');
+    expect(d).toContain('[USED] Imported by 5 files');
+  });
 });
