@@ -50,5 +50,15 @@ export {
   projectReviewPath,
 } from './project-review-cache.js';
 
+export {
+  createSnapshot,
+  listSnapshots,
+  restoreSnapshot,
+  deleteSnapshot,
+  pruneSnapshots,
+  snapshotAndPrune,
+} from './cache-snapshot.js';
+export type { SnapshotMeta, SnapshotReason, CreateSnapshotInput } from './cache-snapshot.js';
+
 export { tailNdjson } from './ndjson-tail.js';
 export type { TailHandle } from './ndjson-tail.js';

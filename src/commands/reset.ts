@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import { isLockActive } from '../utils/lock.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 import { VectorStore } from '../rag/vector-store.js';
+import { snapshotAndPrune } from '../core/run/index.js';
 
 /**
  * Count items that will be deleted during reset, for the confirmation summary.
@@ -123,6 +124,18 @@ export function registerResetCommand(program: Command): void {
           console.log('  reset cancelled.');
           return;
         }
+      }
+
+      // Safety: snapshot the cache before deletion so a wrong `reset`
+      // (or one the user immediately regrets) is recoverable via
+      // `anatoly cache restore`. No-op when there is no cache to back up.
+      const snap = snapshotAndPrune({
+        projectRoot,
+        reason: 'auto-reset',
+        triggerCommand: process.argv.slice(1).join(' '),
+      });
+      if (snap) {
+        console.log(chalk.dim(`  ↺ pre-reset cache snapshot: ${snap.name} (${snap.fileCount} files)`));
       }
 
       let cleaned = 0;

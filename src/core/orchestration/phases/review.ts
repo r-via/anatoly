@@ -49,7 +49,7 @@ import { countReviewFindings } from '../../../utils/format.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
-import { writeProjectReview, loadProjectReview, loadProjectReviewRaw, loadLegacyPathBasedReview } from '../../run/index.js';
+import { writeProjectReview, loadProjectReview, loadProjectReviewRaw, loadLegacyPathBasedReview, snapshotAndPrune } from '../../run/index.js';
 import { mergeRefreshedReview, computeMergedAxesCoverage } from '../../run/review-merge.js';
 import { computeAxesPromptHash } from '../../run/axes-prompt-hash.js';
 import { recordAgentCosts } from '../cost.js';
@@ -115,6 +115,19 @@ export async function runReviewPhase(
     // prompt hash, so the on-disk cache is now stale for content the
     // user has not touched. --no-cache alone would re-eval but leave the
     // stale entries forever.
+    //
+    // Take an auto-snapshot of the current cache BEFORE the overwrite —
+    // a previous version of this code path silently corrupted the cache
+    // on a real user run; never again. The snapshot survives the run's
+    // outcome and is recoverable via `anatoly cache restore`.
+    const snap = snapshotAndPrune({
+      projectRoot: ctx.projectRoot,
+      reason: 'auto-cache-refresh',
+      triggerCommand: process.argv.slice(1).join(' '),
+    });
+    if (snap) {
+      log.info({ snapshot: snap.name, files: snap.fileCount }, 'auto-snapshot of cache taken before --cache-refresh');
+    }
     log.info('--cache-refresh: forcing re-evaluation and overwriting the cache for every file.');
     for (const [, fp] of Object.entries(progress.files)) {
       if (fp.status === 'CACHED') pm.updateFileStatus(fp.file, 'PENDING');
