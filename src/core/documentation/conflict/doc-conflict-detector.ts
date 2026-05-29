@@ -187,13 +187,17 @@ export function applyResolvedVerdicts(
   const updated = entries.map((entry) => {
     // Only apply verdicts on active entries that have a non-pending verdict
     if (entry.verdict === 'pending') return entry;
-    if (entry.status === 'applied' || entry.status === 'skipped') return entry;
+    if (entry.status === 'applied' || entry.status === 'skipped' || entry.status === 'auto-resolved') return entry;
     if (entry.status === 'stale-by-codechange') return entry;
 
     appliedCount++;
 
     if (entry.verdict === 'skip') {
       return { ...entry, status: 'skipped' as const };
+    }
+
+    if (entry.verdict === 'dismiss') {
+      return { ...entry, status: 'auto-resolved' as const };
     }
 
     return { ...entry, status: 'applied' as const };

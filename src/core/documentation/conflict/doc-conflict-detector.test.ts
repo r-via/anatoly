@@ -221,6 +221,29 @@ describe('Story 55.4 — applyResolvedVerdicts', () => {
     expect(result.appliedCount).toBe(0);
     expect(result.entries[0].status).toBe('applied');
   });
+
+  it('applies dismiss verdict by marking status as auto-resolved', () => {
+    const entry = makeEntry({
+      verdict: 'dismiss',
+      verdict_set_at: '2025-06-02T00:00:00Z',
+      status: 'active',
+    });
+
+    const result = applyResolvedVerdicts([entry]);
+    expect(result.appliedCount).toBe(1);
+    expect(result.entries[0].status).toBe('auto-resolved');
+  });
+
+  it('does not re-apply entries already in auto-resolved status', () => {
+    const entry = makeEntry({
+      verdict: 'dismiss',
+      status: 'auto-resolved',
+    });
+
+    const result = applyResolvedVerdicts([entry]);
+    expect(result.appliedCount).toBe(0);
+    expect(result.entries[0].status).toBe('auto-resolved');
+  });
 });
 
 // ---------------------------------------------------------------------------

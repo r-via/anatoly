@@ -8,10 +8,14 @@ import { z } from 'zod';
 // Verdicts & statuses — Story 55.3 FR2
 // ---------------------------------------------------------------------------
 
-export const DocConflictVerdictSchema = z.enum(['pending', 'doc-wins', 'code-wins', 'skip']);
+export const DocConflictVerdictSchema = z.enum(['pending', 'doc-wins', 'code-wins', 'skip', 'dismiss']);
 export type DocConflictVerdict = z.infer<typeof DocConflictVerdictSchema>;
 
-export const DocConflictStatusSchema = z.enum(['active', 'stale-by-codechange', 'applied', 'skipped']);
+// `auto-resolved` is the terminal status for a verdict set by the LLM refresh
+// (not by a human). Kept distinct from `applied`/`skipped` so the injection
+// path (loadArbitratedFragments, loadCodeWinsAsStaleReferences) which gates
+// on human ratification continues to exclude machine-decided entries.
+export const DocConflictStatusSchema = z.enum(['active', 'stale-by-codechange', 'applied', 'skipped', 'auto-resolved']);
 export type DocConflictStatus = z.infer<typeof DocConflictStatusSchema>;
 
 export const PresumptionSchema = z.enum(['doc-stale', 'code-drift', 'unknown']);

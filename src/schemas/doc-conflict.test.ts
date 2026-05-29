@@ -144,14 +144,14 @@ describe('Story 55.3 — DocConflictsLockSchema', () => {
 });
 
 describe('Story 55.3 — enum schemas', () => {
-  it('DocConflictVerdictSchema accepts all 4 verdicts', () => {
-    for (const v of ['pending', 'doc-wins', 'code-wins', 'skip']) {
+  it('DocConflictVerdictSchema accepts all verdicts', () => {
+    for (const v of ['pending', 'doc-wins', 'code-wins', 'skip', 'dismiss']) {
       expect(DocConflictVerdictSchema.safeParse(v).success).toBe(true);
     }
   });
 
-  it('DocConflictStatusSchema accepts all 4 statuses', () => {
-    for (const s of ['active', 'stale-by-codechange', 'applied', 'skipped']) {
+  it('DocConflictStatusSchema accepts all statuses', () => {
+    for (const s of ['active', 'stale-by-codechange', 'applied', 'skipped', 'auto-resolved']) {
       expect(DocConflictStatusSchema.safeParse(s).success).toBe(true);
     }
   });
