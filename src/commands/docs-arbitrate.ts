@@ -238,8 +238,10 @@ export async function runArbitrateWizard(
           lock.generated_at = new Date().toISOString();
           saveDocConflicts(projectRoot, lock);
           refreshSummary = summary;
-          const auto = summary.autoResolved.dismiss + summary.autoResolved.docWins + summary.autoResolved.codeWins;
-          spinner.stop(`Refresh done — ${auto}/${summary.inspected} auto-resolved (${summary.autoResolved.dismiss} dismiss · ${summary.autoResolved.docWins} doc-wins · ${summary.autoResolved.codeWins} code-wins), ${summary.stillPending} still need you.`);
+          spinner.stop(formatRefreshBilan(summary, { prefix: 'Refresh done' }));
+          if (summary.conversationDir) {
+            p.log.info(`Transcripts: ${summary.conversationDir}`);
+          }
         } catch (err) {
           spinner.stop('Refresh failed — continuing with the wizard on the original ledger.');
           p.log.warn(err instanceof Error ? err.message : String(err));
@@ -371,9 +373,33 @@ export async function runRefreshStandalone(
     saveDocConflicts(projectRoot, lock);
   }
 
-  const auto = summary.autoResolved.dismiss + summary.autoResolved.docWins + summary.autoResolved.codeWins;
-  const verb = opts.dryRun ? 'would auto-resolve' : 'auto-resolved';
-  const message = `Inspected ${summary.inspected} pending · ${verb} ${auto} (${summary.autoResolved.dismiss} dismiss · ${summary.autoResolved.docWins} doc-wins · ${summary.autoResolved.codeWins} code-wins) · ${summary.stillPending} still pending · ${summary.belowConfidence} below confidence · ${summary.errors} errors${opts.dryRun ? '\n(dry-run: no changes written)' : ''}`;
+  const lines: string[] = [];
+  lines.push(formatRefreshBilan(summary, { prefix: opts.dryRun ? 'Dry-run' : 'Refresh done' }));
+  if (summary.conversationDir) {
+    lines.push(`Transcripts: ${summary.conversationDir}`);
+  }
+  if (opts.dryRun) {
+    lines.push('(dry-run: no changes written)');
+  }
 
-  return { exitCode: 0, summary, message };
+  return { exitCode: 0, summary, message: lines.join('\n') };
+}
+
+// ---------------------------------------------------------------------------
+// Shared bilan formatter
+// ---------------------------------------------------------------------------
+
+function formatRefreshBilan(summary: RefreshSummary, opts: { prefix: string }): string {
+  const auto = summary.autoResolved.dismiss + summary.autoResolved.docWins + summary.autoResolved.codeWins;
+  const parts: string[] = [];
+  parts.push(`${opts.prefix} — ${auto}/${summary.inspected} auto-resolved`);
+  parts.push(`(${summary.autoResolved.dismiss} dismiss · ${summary.autoResolved.docWins} doc-wins · ${summary.autoResolved.codeWins} code-wins)`);
+  parts.push(`${summary.stillPending} still pending`);
+  if (summary.belowConfidence > 0) parts.push(`${summary.belowConfidence} below confidence`);
+  if (summary.errors > 0) parts.push(`${summary.errors} errors`);
+  if (summary.cost) {
+    const secs = (summary.cost.durationMs / 1000).toFixed(1);
+    parts.push(`$${summary.cost.costUsd.toFixed(4)} in ${secs}s (${summary.cost.calls} call${summary.cost.calls !== 1 ? 's' : ''})`);
+  }
+  return parts.join(' · ');
 }

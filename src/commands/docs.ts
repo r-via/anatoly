@@ -1145,5 +1145,12 @@ function buildRouter(config: Config): TransportRouter {
 function buildRefreshFn(projectRoot: string): RefreshFn {
   const config = loadConfig(projectRoot);
   const router = buildRouter(config);
-  return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router });
+  // Ad-hoc, prunable observability dir for transcripts. We deliberately do
+  // NOT use `.anatoly/runs/` here — that namespace is reserved for real
+  // audit runs (the user explicitly asked to keep it untouched). The cache
+  // tree is the natural home for regeneratable observability output and is
+  // already covered by the snapshot/prune system.
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const runDir = anatolyPath(projectRoot, 'cache', 'refresh', ts);
+  return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router, runDir });
 }

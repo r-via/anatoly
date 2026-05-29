@@ -67,6 +67,10 @@ export interface RefreshSummary {
     cacheCreationTokens: number;
     calls: number;
   };
+  /** Absolute path of the conversation-dump directory used for this pass.
+   *  Present only when {@link RefreshOpts.runDir} was set. Surfaced so the
+   *  CLI can point the user at the transcripts for debugging auto-verdicts. */
+  conversationDir?: string;
 }
 
 export interface RefreshResult {
@@ -361,6 +365,10 @@ export async function refreshPendingConflicts(
       cacheCreationTokens: totalCacheCreationTokens,
       calls,
     };
+  }
+
+  if (opts.runDir) {
+    summary.conversationDir = conversationsDir(opts.runDir);
   }
 
   return { entries: next, summary };

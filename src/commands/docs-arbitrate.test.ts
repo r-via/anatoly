@@ -453,11 +453,34 @@ describe('runRefreshStandalone', () => {
     const result = await runRefreshStandalone(tmpDir, { refreshFn });
     expect(result.exitCode).toBe(0);
     expect(result.summary?.autoResolved.dismiss).toBe(1);
-    expect(result.message).toContain('auto-resolved 1');
+    expect(result.message).toContain('1/2 auto-resolved');
 
     const saved = loadDocConflicts(tmpDir);
     expect(saved!.entries[0].verdict).toBe('dismiss');
     expect(saved!.entries[0].status).toBe('auto-resolved');
+  });
+
+  it('surfaces cost and transcript dir in the bilan when present', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+
+    const refreshFn = vi.fn(async (entries: DocConflict[]) => ({
+      entries: entries.map((e) => ({ ...e, verdict: 'dismiss' as const, status: 'auto-resolved' as const })),
+      summary: {
+        inspected: 1,
+        autoResolved: { dismiss: 1, docWins: 0, codeWins: 0 },
+        stillPending: 0,
+        belowConfidence: 0,
+        errors: 0,
+        cost: { costUsd: 0.0123, durationMs: 4200, inputTokens: 100, outputTokens: 30, cacheReadTokens: 0, cacheCreationTokens: 0, calls: 2 },
+        conversationDir: '/tmp/fake/refresh-x/conversations',
+      },
+    }));
+
+    const result = await runRefreshStandalone(tmpDir, { refreshFn });
+    expect(result.message).toContain('$0.0123');
+    expect(result.message).toContain('4.2s');
+    expect(result.message).toContain('2 calls');
+    expect(result.message).toContain('/tmp/fake/refresh-x/conversations');
   });
 
   it('honours --dry-run by skipping the write', async () => {
