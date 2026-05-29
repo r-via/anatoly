@@ -20,7 +20,12 @@ import { detectDocGapsV2, formatGapReportV2 } from '../core/documentation/index.
 import { VectorStore } from '../rag/vector-store.js';
 import { resolveSystemPrompt } from '../core/platform/index.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
-import { runArbitrateWizard } from './docs-arbitrate.js';
+import { runArbitrateWizard, runRefreshStandalone, type RefreshFn } from './docs-arbitrate.js';
+import { refreshPendingConflicts } from '../core/documentation/index.js';
+import { TransportRouter, type ProviderModeConfig, type LlmTransport } from '../core/transports/index.js';
+import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
+import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
+import type { Config } from '../schemas/config.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -1043,12 +1048,13 @@ export function registerDocsCommand(program: Command): void {
 
   // --- Story 55.6: arbitrate ---
 
-  docs
+  const arbitrate = docs
     .command('arbitrate')
     .description('Interactive wizard to resolve doc-code conflicts')
     .option('--list', 'Display summary table without interactive wizard')
     .option('--review', 'Re-review previously applied verdicts')
-    .action(async (opts: { list?: boolean; review?: boolean }) => {
+    .option('--no-refresh', 'Skip the optional LLM refresh prompt at start')
+    .action(async (opts: { list?: boolean; review?: boolean; refresh?: boolean }) => {
       const projectRoot = process.cwd();
 
       if (isLockActive(projectRoot)) {
@@ -1057,7 +1063,22 @@ export function registerDocsCommand(program: Command): void {
         return;
       }
 
-      const result = await runArbitrateWizard(projectRoot, opts);
+      const wizardOpts: Parameters<typeof runArbitrateWizard>[1] = {
+        ...(opts.list ? { list: true } : {}),
+        ...(opts.review ? { review: true } : {}),
+      };
+      // The default for commander --no-X flags is true; --no-refresh sets it to false.
+      if (opts.refresh !== false && !opts.list && !opts.review) {
+        try {
+          wizardOpts.refreshFn = buildRefreshFn(projectRoot);
+        } catch (err) {
+          // Config or router build failure is non-fatal: the wizard still runs
+          // on the existing ledger without the refresh option.
+          console.warn(chalk.yellow(`Could not build refresh: ${err instanceof Error ? err.message : String(err)}`));
+        }
+      }
+
+      const result = await runArbitrateWizard(projectRoot, wizardOpts);
 
       if (result.error) {
         console.error(chalk.red(result.error));
@@ -1072,4 +1093,57 @@ export function registerDocsCommand(program: Command): void {
         process.exitCode = result.exitCode;
       }
     });
+
+  arbitrate
+    .command('refresh')
+    .description('Run only the LLM refresh pass over pending conflicts, then exit')
+    .option('--dry-run', 'Inspect and report what would change without writing')
+    .action(async (opts: { dryRun?: boolean }) => {
+      const projectRoot = process.cwd();
+
+      if (isLockActive(projectRoot)) {
+        console.error(chalk.red('A run is currently in progress. Wait for it to finish.'));
+        process.exitCode = 1;
+        return;
+      }
+
+      let refreshFn: RefreshFn;
+      try {
+        refreshFn = buildRefreshFn(projectRoot);
+      } catch (err) {
+        console.error(chalk.red(`Could not build refresh: ${err instanceof Error ? err.message : String(err)}`));
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = await runRefreshStandalone(projectRoot, {
+        refreshFn,
+        ...(opts.dryRun ? { dryRun: true } : {}),
+      });
+
+      if (result.error) console.error(chalk.red(result.error));
+      if (result.message) console.log(result.message);
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+    });
+}
+
+function buildRouter(config: Config): TransportRouter {
+  const nativeTransports: Record<string, LlmTransport> = {
+    anthropic: new AnthropicTransport(),
+  };
+  const providerModes: Record<string, ProviderModeConfig> = {};
+  for (const [id, prov] of Object.entries(config.providers)) {
+    if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };
+  }
+  return new TransportRouter({
+    nativeTransports,
+    vercelSdkTransport: new VercelSdkTransport(config),
+    providerModes,
+  });
+}
+
+function buildRefreshFn(projectRoot: string): RefreshFn {
+  const config = loadConfig(projectRoot);
+  const router = buildRouter(config);
+  return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router });
 }

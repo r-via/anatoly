@@ -4,15 +4,26 @@
 
 import * as p from '@clack/prompts';
 import { loadDocConflicts, saveDocConflicts } from '../core/documentation/index.js';
+import type { RefreshSummary } from '../core/documentation/index.js';
 import type { DocConflict, DocConflictsLock, DocConflictVerdict } from '../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
+/** Callback that runs an LLM refresh pass over the given entries and returns
+ *  the updated entries + a summary. Injected by the CLI handler so the wizard
+ *  module stays decoupled from transport/router construction. */
+export type RefreshFn = (entries: DocConflict[]) => Promise<{ entries: DocConflict[]; summary: RefreshSummary }>;
+
 export interface ArbitrateOptions {
   list?: boolean;
   review?: boolean;
+  refreshFn?: RefreshFn;
+  /** Skip the interactive "refresh first?" prompt. Used by tests and by the
+   *  standalone `arbitrate refresh` subcommand (where the refresh is the
+   *  whole point, not an optional pre-step). */
+  skipRefreshPrompt?: boolean;
 }
 
 export interface ArbitrateResult {
@@ -21,6 +32,19 @@ export interface ArbitrateResult {
   table?: string;
   error?: string;
   cancelled?: boolean;
+  refreshSummary?: RefreshSummary;
+}
+
+export interface RefreshStandaloneOptions {
+  refreshFn: RefreshFn;
+  dryRun?: boolean;
+}
+
+export interface RefreshStandaloneResult {
+  exitCode: number;
+  message?: string;
+  error?: string;
+  summary?: RefreshSummary;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +213,41 @@ export async function runArbitrateWizard(
     return { exitCode: 0, table };
   }
 
+  // Optional pre-step: LLM refresh of pending entries. Only offered when a
+  // refreshFn was injected (the CLI handler builds router+config; tests pass
+  // their own or none), outside --review mode, and only if there is still
+  // something pending to refresh.
+  let refreshSummary: RefreshSummary | undefined;
+  if (!opts.review && opts.refreshFn && !opts.skipRefreshPrompt) {
+    const pendingCount = filterPendingEntries(lock.entries).length;
+    if (pendingCount > 0) {
+      const confirm = await p.confirm({
+        message: `Refresh ${pendingCount} pending entr${pendingCount > 1 ? 'ies' : 'y'} via LLM first? (recommended)`,
+        initialValue: true,
+      });
+      if (p.isCancel(confirm)) {
+        p.cancel('Arbitration cancelled.');
+        return { exitCode: 0, cancelled: true };
+      }
+      if (confirm) {
+        const spinner = p.spinner();
+        spinner.start('Refreshing pending entries via LLM...');
+        try {
+          const { entries: updated, summary } = await opts.refreshFn(lock.entries);
+          lock.entries = updated;
+          lock.generated_at = new Date().toISOString();
+          saveDocConflicts(projectRoot, lock);
+          refreshSummary = summary;
+          const auto = summary.autoResolved.dismiss + summary.autoResolved.docWins + summary.autoResolved.codeWins;
+          spinner.stop(`Refresh done — ${auto}/${summary.inspected} auto-resolved (${summary.autoResolved.dismiss} dismiss · ${summary.autoResolved.docWins} doc-wins · ${summary.autoResolved.codeWins} code-wins), ${summary.stillPending} still need you.`);
+        } catch (err) {
+          spinner.stop('Refresh failed — continuing with the wizard on the original ledger.');
+          p.log.warn(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+  }
+
   // Determine which entries to iterate
   const targets = opts.review
     ? filterReviewableEntries(lock.entries)
@@ -199,6 +258,7 @@ export async function runArbitrateWizard(
     return {
       exitCode: 0,
       message: `No ${modeLabel}. Run \`anatoly run\` first to generate conflicts.`,
+      refreshSummary,
     };
   }
 
@@ -276,5 +336,44 @@ export async function runArbitrateWizard(
 
   p.outro(`Done — ${savedCount} verdict${savedCount !== 1 ? 's' : ''} applied.`);
 
-  return { exitCode: 0 };
+  return { exitCode: 0, refreshSummary };
+}
+
+// ---------------------------------------------------------------------------
+// Standalone refresh — used by `docs arbitrate refresh`
+// ---------------------------------------------------------------------------
+
+export async function runRefreshStandalone(
+  projectRoot: string,
+  opts: RefreshStandaloneOptions,
+): Promise<RefreshStandaloneResult> {
+  let lock: DocConflictsLock | null;
+  try {
+    lock = loadDocConflicts(projectRoot);
+  } catch (err) {
+    return { exitCode: 1, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!lock || lock.entries.length === 0) {
+    return { exitCode: 0, message: 'No conflicts to refresh.' };
+  }
+
+  const pendingCount = filterPendingEntries(lock.entries).length;
+  if (pendingCount === 0) {
+    return { exitCode: 0, message: 'No pending entries — nothing to refresh.' };
+  }
+
+  const { entries: updated, summary } = await opts.refreshFn(lock.entries);
+
+  if (!opts.dryRun) {
+    lock.entries = updated;
+    lock.generated_at = new Date().toISOString();
+    saveDocConflicts(projectRoot, lock);
+  }
+
+  const auto = summary.autoResolved.dismiss + summary.autoResolved.docWins + summary.autoResolved.codeWins;
+  const verb = opts.dryRun ? 'would auto-resolve' : 'auto-resolved';
+  const message = `Inspected ${summary.inspected} pending · ${verb} ${auto} (${summary.autoResolved.dismiss} dismiss · ${summary.autoResolved.docWins} doc-wins · ${summary.autoResolved.codeWins} code-wins) · ${summary.stillPending} still pending · ${summary.belowConfidence} below confidence · ${summary.errors} errors${opts.dryRun ? '\n(dry-run: no changes written)' : ''}`;
+
+  return { exitCode: 0, summary, message };
 }

@@ -16,19 +16,25 @@ import { loadDocConflicts } from '../core/documentation/index.js';
 
 const selectMock = vi.fn<(opts: unknown) => Promise<string | symbol>>();
 const textMock = vi.fn<(opts: unknown) => Promise<string | symbol>>();
+const confirmMock = vi.fn<(opts: unknown) => Promise<boolean | symbol>>();
 const noteMock = vi.fn();
 const introMock = vi.fn();
 const outroMock = vi.fn();
 const cancelMock = vi.fn();
+const spinnerStartMock = vi.fn();
+const spinnerStopMock = vi.fn();
+const spinnerMock = vi.fn(() => ({ start: spinnerStartMock, stop: spinnerStopMock }));
 const logMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), step: vi.fn(), success: vi.fn(), message: vi.fn() };
 
 vi.mock('@clack/prompts', () => ({
   select: (opts: unknown) => selectMock(opts),
   text: (opts: unknown) => textMock(opts),
+  confirm: (opts: unknown) => confirmMock(opts),
   note: (...args: unknown[]) => noteMock(...args),
   intro: (...args: unknown[]) => introMock(...args),
   outro: (...args: unknown[]) => outroMock(...args),
   cancel: (...args: unknown[]) => cancelMock(...args),
+  spinner: () => spinnerMock(),
   isCancel: (val: unknown) => typeof val === 'symbol',
   log: logMock,
 }));
@@ -100,6 +106,7 @@ const {
   formatListTable,
   applyVerdict,
   runArbitrateWizard,
+  runRefreshStandalone,
 } = await import('./docs-arbitrate.js');
 
 // ---------------------------------------------------------------------------
@@ -325,6 +332,172 @@ describe('Story 55.6 — runArbitrateWizard (defer choice)', () => {
     expect(saved).not.toBeNull();
     // Deferred entry remains pending
     expect(saved!.entries[0].verdict).toBe('pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refresh wire-up (PR 3)
+// ---------------------------------------------------------------------------
+
+describe('arbitrate refresh — wizard pre-step', () => {
+  it('prompts for refresh, runs it on accept, then continues into the wizard', async () => {
+    writeLock(makeLock([
+      makeEntry({ id: 'c1', verdict: 'pending' }),
+      makeEntry({ id: 'c2', verdict: 'pending' }),
+    ]));
+
+    confirmMock.mockResolvedValue(true);
+    selectMock.mockResolvedValue('defer');
+
+    const refreshFn = vi.fn(async (entries: DocConflict[]) => ({
+      entries: entries.map((e) => e.id === 'c1'
+        ? { ...e, verdict: 'dismiss' as const, status: 'auto-resolved' as const }
+        : e),
+      summary: {
+        inspected: 2,
+        autoResolved: { dismiss: 1, docWins: 0, codeWins: 0 },
+        stillPending: 1,
+        belowConfidence: 0,
+        errors: 0,
+      },
+    }));
+
+    const result = await runArbitrateWizard(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+    expect(result.refreshSummary?.autoResolved.dismiss).toBe(1);
+
+    // Lock on disk should reflect the auto-resolution.
+    const saved = loadDocConflicts(tmpDir);
+    expect(saved!.entries[0].verdict).toBe('dismiss');
+    expect(saved!.entries[0].status).toBe('auto-resolved');
+    expect(saved!.entries[1].verdict).toBe('pending');
+  });
+
+  it('skips refresh when the user declines', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+    confirmMock.mockResolvedValue(false);
+    selectMock.mockResolvedValue('defer');
+
+    const refreshFn = vi.fn();
+    const result = await runArbitrateWizard(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(refreshFn).not.toHaveBeenCalled();
+  });
+
+  it('cancels wizard when user cancels the refresh prompt', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+    confirmMock.mockResolvedValue(Symbol.for('cancel'));
+
+    const refreshFn = vi.fn();
+    const result = await runArbitrateWizard(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(result.cancelled).toBe(true);
+    expect(refreshFn).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt when skipRefreshPrompt is set', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+    selectMock.mockResolvedValue('defer');
+
+    const refreshFn = vi.fn();
+    await runArbitrateWizard(tmpDir, { refreshFn, skipRefreshPrompt: true });
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(refreshFn).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt in --review mode', async () => {
+    writeLock(makeLock([
+      makeEntry({ id: 'c1', verdict: 'doc-wins', status: 'applied' }),
+    ]));
+    selectMock.mockResolvedValue('keep');
+
+    const refreshFn = vi.fn();
+    await runArbitrateWizard(tmpDir, { review: true, refreshFn });
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(refreshFn).not.toHaveBeenCalled();
+  });
+
+  it('continues into the wizard if refreshFn throws', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+    confirmMock.mockResolvedValue(true);
+    selectMock.mockResolvedValue('defer');
+
+    const refreshFn = vi.fn(async () => { throw new Error('LLM down'); });
+    const result = await runArbitrateWizard(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(refreshFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runRefreshStandalone', () => {
+  it('saves the refreshed ledger and reports the summary', async () => {
+    writeLock(makeLock([
+      makeEntry({ id: 'c1', verdict: 'pending' }),
+      makeEntry({ id: 'c2', verdict: 'pending' }),
+    ]));
+
+    const refreshFn = vi.fn(async (entries: DocConflict[]) => ({
+      entries: entries.map((e) => e.id === 'c1'
+        ? { ...e, verdict: 'dismiss' as const, status: 'auto-resolved' as const }
+        : e),
+      summary: {
+        inspected: 2,
+        autoResolved: { dismiss: 1, docWins: 0, codeWins: 0 },
+        stillPending: 1,
+        belowConfidence: 0,
+        errors: 0,
+      },
+    }));
+
+    const result = await runRefreshStandalone(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(result.summary?.autoResolved.dismiss).toBe(1);
+    expect(result.message).toContain('auto-resolved 1');
+
+    const saved = loadDocConflicts(tmpDir);
+    expect(saved!.entries[0].verdict).toBe('dismiss');
+    expect(saved!.entries[0].status).toBe('auto-resolved');
+  });
+
+  it('honours --dry-run by skipping the write', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'pending' })]));
+
+    const refreshFn = vi.fn(async (entries: DocConflict[]) => ({
+      entries: entries.map((e) => ({ ...e, verdict: 'dismiss' as const, status: 'auto-resolved' as const })),
+      summary: {
+        inspected: 1,
+        autoResolved: { dismiss: 1, docWins: 0, codeWins: 0 },
+        stillPending: 0,
+        belowConfidence: 0,
+        errors: 0,
+      },
+    }));
+
+    const result = await runRefreshStandalone(tmpDir, { refreshFn, dryRun: true });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain('dry-run');
+
+    const saved = loadDocConflicts(tmpDir);
+    expect(saved!.entries[0].verdict).toBe('pending');
+  });
+
+  it('returns early with a message when no pending entries exist', async () => {
+    writeLock(makeLock([makeEntry({ id: 'c1', verdict: 'doc-wins', status: 'applied' })]));
+
+    const refreshFn = vi.fn();
+    const result = await runRefreshStandalone(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain('No pending');
+    expect(refreshFn).not.toHaveBeenCalled();
+  });
+
+  it('returns early when the ledger file is absent', async () => {
+    const refreshFn = vi.fn();
+    const result = await runRefreshStandalone(tmpDir, { refreshFn });
+    expect(result.exitCode).toBe(0);
+    expect(result.message).toContain('No conflicts');
+    expect(refreshFn).not.toHaveBeenCalled();
   });
 });
 
