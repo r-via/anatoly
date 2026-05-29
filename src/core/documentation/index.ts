@@ -63,6 +63,15 @@ export { buildCodeSurfaceSummary } from './conflict/doc-coherence-3way.js';
 
 export { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from './conflict/doc-stale-reference.js';
 
+export {
+  refreshPendingConflicts,
+  buildRefreshUserMessage,
+  REFRESH_SYSTEM_PROMPT,
+  RefreshDecisionSchema,
+  RefreshResponseSchema,
+} from './conflict/doc-conflict-refresh.js';
+export type { RefreshOpts, RefreshSummary, RefreshResult, RefreshDecision } from './conflict/doc-conflict-refresh.js';
+
 // --- reporting/ (doc 13 PR 6c) ---
 export { aggregateDocReport } from './reporting/doc-report-aggregator.js';
 export type { DocReportResult } from './reporting/doc-report-aggregator.js';
