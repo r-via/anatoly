@@ -63,6 +63,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     project_root: tmp,
     models: { quality: 'anthropic/claude-sonnet-4-6', fast: 'anthropic/claude-haiku-4-5' },
     agents: { enabled: true, max_turns: 30 },
+    runtime: { timeout_per_call: 600, max_retries: 3, concurrency: 8, min_confidence: 70, max_stop_iterations: 3 },
     axes: {},
     documentation: {
       reference: { paths: ['docs/**/*.md'] },

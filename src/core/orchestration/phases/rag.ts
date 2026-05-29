@@ -197,6 +197,7 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
       tasks,
       rebuild: ctx.rebuildRag,
       rebuildOnDrift: getV3Source(ctx.config)?.runtime.rag.rebuild_on_drift ?? true,
+      timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       concurrency: ctx.concurrency,
       verbose: ctx.verbose,
       indexModel,

@@ -255,6 +255,7 @@ export class DuplicationEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('duplication'),
         composer: 'axes.duplication',
         primitive: 'axes.duplication',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       DuplicationResponseSchema,
     );

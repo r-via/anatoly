@@ -167,6 +167,11 @@ export interface SingleTurnQueryParams {
   /** Story 56.11 — primitive name (e.g. 'axes.correction-pass1'); opens an ALS scope
    *  so the llm-calls-sink ledger record carries `primitive` for D.4 aggregations. */
   primitive?: string;
+  /** Per-call wall-clock budget in milliseconds. Each `transport.query()`
+   *  attempt is wrapped with this timeout; on expiry the abortController
+   *  is aborted and the call rejects with SDK_TIMEOUT. Callers should pass
+   *  `config.runtime.timeout_per_call * 1000`. Omitted ⇒ no per-call bound. */
+  timeoutMs?: number;
 }
 
 export interface SingleTurnQueryResult<T> {

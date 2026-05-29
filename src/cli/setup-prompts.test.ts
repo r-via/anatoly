@@ -1046,7 +1046,7 @@ describe('writeFirstRunConfig', () => {
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content).toMatch(/^# runtime:$/m);
     expect(content).toContain('#   concurrency: 8');
-    expect(content).toContain('#   timeout_per_file: 600');
+    expect(content).toContain('#   timeout_per_call: 600');
     expect(content).toContain('#   agents:');
     expect(content).toContain('#     max_turns: 30');
     expect(content).toContain('#   rag:');

@@ -485,7 +485,7 @@ describe('TransportRouter — agenticQuery dispatch', () => {
     agents: { enabled: true, max_turns: 30 },
     providers: { anthropic: { mode: 'subscription' as const, concurrency: 24 } },
     models: { quality: 'anthropic/claude-sonnet-4-6', fast: 'anthropic/claude-haiku-4-5', deliberation: 'anthropic/claude-opus-4-6' },
-    runtime: { timeout_per_file: 600, max_retries: 3, concurrency: 8, min_confidence: 70, max_stop_iterations: 3 },
+    runtime: { timeout_per_call: 600, max_retries: 3, concurrency: 8, min_confidence: 70, max_stop_iterations: 3 },
     axes: {},
   } as import('../../schemas/config.js').Config;
 

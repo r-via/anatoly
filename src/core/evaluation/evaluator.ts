@@ -23,6 +23,7 @@ import { formatSchemaExample } from '../../utils/schema-example.js';
 import { extractJson } from '../../utils/extract-json.js';
 import { runWithContext } from '../../utils/log-context.js';
 import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
+import { withTimeout } from '../../utils/with-timeout.js';
 import type { LlmTransport, LlmResponse } from '../transports/index.js';
 import { AnthropicTransport } from '../transports/anthropic-transport.js';
 import type { AxisEvaluator, SingleTurnQueryParams, SingleTurnQueryResult } from './contract.js';
@@ -204,7 +205,7 @@ async function runSingleTurnQueryImpl<T>(
   params: SingleTurnQueryParams,
   schema: z.ZodType<T>,
 ): Promise<SingleTurnQueryResult<T>> {
-  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, callId, router, userInstructions, composer, primitive } = params;
+  const { systemPrompt: rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, callId, router, userInstructions, composer, primitive, timeoutMs } = params;
 
   // Acquire concurrency slot + transport from router (handles breaker + semaphore)
   let release: ((opts?: { success: boolean; error?: unknown }) => void) | undefined;
@@ -224,7 +225,7 @@ async function runSingleTurnQueryImpl<T>(
     let success = false;
     let failErr: unknown;
     try {
-      const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, schema, effectiveTransport, userInstructions);
+      const result = await _runSingleTurnQueryInner(rawSystemPrompt, userMessage, model, projectRoot, abortController, conversationDir, schema, effectiveTransport, userInstructions, timeoutMs);
       success = true;
       return result;
     } catch (err) {
@@ -276,6 +277,7 @@ async function _runSingleTurnQueryInner<T>(
   schema: z.ZodType<T>,
   transport: LlmTransport,
   userInstructions?: string,
+  timeoutMs?: number,
 ): Promise<SingleTurnQueryResult<T>> {
 
   // Compose the system prompt: json-evaluator-wrapper → guard-rails → axis-specific prompt → user calibration → schema example
@@ -313,8 +315,23 @@ async function _runSingleTurnQueryInner<T>(
   // Capture the user prompt in the transcript (SDK does not stream it back)
   transcriptParts.push(`## User\n\n${userMessage}\n`);
 
+  // Bound each transport.query() with a per-call wall-clock budget. On
+  // expiry we abort the controller (which stops the SDK subprocess) and
+  // reject with SDK_TIMEOUT. The previous per-file budget killed every
+  // parallel axis at once when any of them blew the wall; bounding here
+  // isolates a stuck call to its own axis attempt.
+  const queryOnce = (
+    body: Parameters<typeof transport.query>[0],
+    label: string,
+  ) => {
+    const inner = () => transport.query(body);
+    return timeoutMs && timeoutMs > 0
+      ? withTimeout(inner, { timeoutMs, label, onTimeout: () => abortController.abort() })
+      : inner();
+  };
+
   // --- Attempt 1 ---
-  const initial = await transport.query({
+  const initial = await queryOnce({
     systemPrompt,
     userMessage,
     model,
@@ -322,7 +339,7 @@ async function _runSingleTurnQueryInner<T>(
     abortController,
     conversationDir,
     attempt: 1,
-  });
+  }, 'single-turn LLM call (attempt 1)');
   accumulateFromResponse(initial);
 
   const v1 = tryValidate(initial.text, schema);
@@ -337,7 +354,7 @@ async function _runSingleTurnQueryInner<T>(
   transcriptParts.push(`\n## Retry: validation failed\n${v1.error}\n`);
 
   const feedback = `Your JSON output failed validation:\n  ${v1.error}\n\nFix these issues and output ONLY the corrected JSON object. No markdown fences, no explanation.`;
-  const retry = await transport.query({
+  const retry = await queryOnce({
     systemPrompt,
     userMessage: feedback,
     model,
@@ -347,7 +364,7 @@ async function _runSingleTurnQueryInner<T>(
     conversationDir,
     attempt: 2,
     retryReason: 'zod_validation_failed',
-  });
+  }, 'single-turn LLM call (attempt 2, zod retry)');
   accumulateFromResponse(retry);
 
   const v2 = tryValidate(retry.text, schema);

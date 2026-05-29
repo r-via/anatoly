@@ -176,6 +176,7 @@ export class DocumentationEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('documentation'),
         composer: 'axes.documentation',
         primitive: 'axes.documentation',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       DocumentationResponseSchema,
     );

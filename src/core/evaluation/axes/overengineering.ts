@@ -155,6 +155,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('overengineering'),
         composer: 'axes.overengineering',
         primitive: 'axes.overengineering',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       OverengineeringResponseSchema,
     );

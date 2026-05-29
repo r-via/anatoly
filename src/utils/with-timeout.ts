@@ -9,7 +9,7 @@
  * timeout: a stuck call never yields a `result` message and hangs forever.
  * When such a call sits inside a `Promise.allSettled` (doc generation, per-file
  * axis evaluation) a single stuck call freezes the whole phase. This wraps the
- * call so `runtime.timeout_per_file` becomes a hard wall: on expiry we abort the
+ * call so `runtime.timeout_per_call` becomes a hard wall: on expiry we abort the
  * in-flight call and reject, turning an infinite hang into one isolated failure.
  *
  * Concurrency control and retry stay the caller's responsibility — this only
@@ -22,7 +22,7 @@ import { AnatolyError, ERROR_CODES } from './errors.js';
 export class TimeoutError extends AnatolyError {
   constructor(label: string, timeoutMs: number) {
     super(
-      `${label} exceeded the ${Math.round(timeoutMs / 1000)}s budget (runtime.timeout_per_file)`,
+      `${label} exceeded the ${Math.round(timeoutMs / 1000)}s budget (runtime.timeout_per_call)`,
       ERROR_CODES.SDK_TIMEOUT,
       true,
     );

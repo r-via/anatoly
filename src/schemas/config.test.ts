@@ -34,7 +34,7 @@ describe('ConfigSchema — v1.0 new sections', () => {
         command: 'npx jest --coverage',
         report_path: 'coverage/lcov.json',
       },
-      runtime: { timeout_per_file: 300, max_retries: 5 },
+      runtime: { timeout_per_call: 300, max_retries: 5 },
       models: { quality: 'claude-opus-4-6' },
       documentation: {
         reference: { paths: ['README.md'], inline_comments: { enabled: false } },
@@ -45,7 +45,7 @@ describe('ConfigSchema — v1.0 new sections', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.project.name).toBe('my-project');
-      expect(result.data.runtime.timeout_per_file).toBe(300);
+      expect(result.data.runtime.timeout_per_call).toBe(300);
       expect(result.data.models.quality).toBe('claude-opus-4-6');
     }
   });
@@ -234,9 +234,9 @@ describe('AgentsConfigSchema', () => {
 });
 
 describe('RuntimeConfigSchema', () => {
-  it('should default timeout_per_file to 600', () => {
+  it('should default timeout_per_call to 600', () => {
     const config = parseTestConfig({});
-    expect(config.runtime.timeout_per_file).toBe(600);
+    expect(config.runtime.timeout_per_call).toBe(600);
   });
 
   it('should default max_retries to 3', () => {
@@ -261,14 +261,14 @@ describe('RuntimeConfigSchema', () => {
 
   it('should accept custom runtime values', () => {
     const config = parseTestConfig({
-      runtime: { timeout_per_file: 300, concurrency: 4 },
+      runtime: { timeout_per_call: 300, concurrency: 4 },
     });
-    expect(config.runtime.timeout_per_file).toBe(300);
+    expect(config.runtime.timeout_per_call).toBe(300);
     expect(config.runtime.concurrency).toBe(4);
   });
 
-  it('should reject timeout_per_file below 1', () => {
-    expect(ConfigSchema.safeParse({ runtime: { timeout_per_file: 0 } }).success).toBe(false);
+  it('should reject timeout_per_call below 1', () => {
+    expect(ConfigSchema.safeParse({ runtime: { timeout_per_call: 0 } }).success).toBe(false);
   });
 
   it('should reject min_confidence below 0', () => {

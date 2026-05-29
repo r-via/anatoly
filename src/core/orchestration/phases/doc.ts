@@ -67,7 +67,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
   ctx.pipelineState?.startTask(taskId, startDetail);
 
   const phaseStart = Date.now();
-  const timeoutMs = ctx.config.runtime.timeout_per_file * 1000;
+  const timeoutMs = ctx.config.runtime.timeout_per_call * 1000;
   let completed = 0;
   const executor: DocExecutor = async ({ system, user, model }) => {
     // Concurrency is owned by executeDocPrompts/executeOnePage, which already

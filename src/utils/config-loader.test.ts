@@ -52,7 +52,7 @@ describe('loadConfig', () => {
     expect(config.scan.include).toEqual([]);
     expect(config.scan.exclude).toContain('node_modules/**');
     expect(config.coverage.enabled).toBe(true);
-    expect(config.runtime.timeout_per_file).toBe(600);
+    expect(config.runtime.timeout_per_call).toBe(600);
     expect(config.runtime.max_retries).toBe(3);
   });
 
@@ -83,8 +83,8 @@ describe('loadConfig', () => {
   });
 
   it('should throw CONFIG_INVALID for invalid config values', () => {
-    // runtime.timeout_per_file: 0 is invalid (min 1)
-    writeFileSync(join(tempDir, '.anatoly.yml'), 'runtime:\n  timeout_per_file: 0\n');
+    // runtime.timeout_per_call: 0 is invalid (min 1)
+    writeFileSync(join(tempDir, '.anatoly.yml'), 'runtime:\n  timeout_per_call: 0\n');
     expect(() => loadConfig(tempDir)).toThrow(AnatolyError);
     try {
       loadConfig(tempDir);
@@ -135,7 +135,7 @@ providers:
   anthropic:
     concurrency: 16
 runtime:
-  timeout_per_file: 300
+  timeout_per_call: 300
   concurrency: 4
 agents:
   enabled: true
@@ -148,7 +148,7 @@ axes:
     const config = loadConfig(tempDir);
     expect(config.models.quality).toBe('anthropic/claude-opus-4-6');
     expect(config.providers.anthropic!.concurrency).toBe(16);
-    expect(config.runtime.timeout_per_file).toBe(300);
+    expect(config.runtime.timeout_per_call).toBe(300);
     expect(config.agents.deliberation).toBe('anthropic/claude-opus-4-6');
     expect(config.axes.correction?.model).toBe('anthropic/claude-opus-4-6');
   });

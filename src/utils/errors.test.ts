@@ -257,7 +257,7 @@ describe('isProviderHealthFailure', () => {
     expect(isProviderHealthFailure(new Error('Claude Code process aborted by user'))).toBe(false);
     expect(isProviderHealthFailure(new Error('The operation was aborted'))).toBe(false);
     expect(isProviderHealthFailure(new Error('AbortError: aborted'))).toBe(false);
-    expect(isProviderHealthFailure(new AnatolyError('doc page generation exceeded the 600s budget (runtime.timeout_per_file)', ERROR_CODES.SDK_TIMEOUT, true))).toBe(false);
+    expect(isProviderHealthFailure(new AnatolyError('doc page generation exceeded the 600s budget (runtime.timeout_per_call)', ERROR_CODES.SDK_TIMEOUT, true))).toBe(false);
     expect(isProviderHealthFailure(new AnatolyError('review src/x.ts exceeded the 600s budget', ERROR_CODES.SDK_ERROR, true))).toBe(false);
     expect(isProviderHealthFailure(authError('anthropic'))).toBe(false);
     expect(isProviderHealthFailure(circuitOpenError('anthropic'))).toBe(false);

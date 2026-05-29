@@ -114,7 +114,7 @@ export const AgentsConfigSchema = z.object({
 // --- v1.0 Runtime ---
 
 export const RuntimeConfigSchema = z.object({
-  timeout_per_file: z.int().min(1).default(600),
+  timeout_per_call: z.int().min(1).default(600),
   max_retries: z.int().min(1).max(10).default(3),
   concurrency: z.int().min(1).max(10).default(8),
   min_confidence: z.int().min(0).max(100).default(70),
@@ -289,7 +289,7 @@ export const ConfigSchema = z.object({
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
   runtime: RuntimeConfigSchema.default({
-    timeout_per_file: 600,
+    timeout_per_call: 600,
     max_retries: 3,
     concurrency: 8,
     min_confidence: 70,

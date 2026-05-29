@@ -197,6 +197,7 @@ export class UtilityEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('utility'),
         composer: 'axes.utility',
         primitive: 'axes.utility',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       refinedSchema,
     );

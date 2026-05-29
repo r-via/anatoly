@@ -345,6 +345,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('correction'),
         composer: 'axes.correction',
         primitive: 'axes.correction-pass1',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       CorrectionResponseSchema,
     );
@@ -377,6 +378,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
             userInstructions: ctx.userInstructions?.forAxis('correction'),
             composer: 'axes.correction',
             primitive: 'axes.correction-verify',
+            timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
           },
           VerificationResponseSchema,
         );

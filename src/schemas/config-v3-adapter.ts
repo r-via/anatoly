@@ -68,7 +68,7 @@ export function adaptV3ToV2(v3: ConfigV3): LooseRecord {
   // 4. runtime numeric knobs (concurrency clamped — v2's limit is tighter)
   v2.runtime = {
     concurrency: Math.min(v3.runtime.concurrency, V2_MAX_RUNTIME_CONCURRENCY),
-    timeout_per_file: v3.runtime.timeout_per_file,
+    timeout_per_call: v3.runtime.timeout_per_call,
     max_retries: v3.runtime.max_retries,
     min_confidence: v3.runtime.min_confidence,
     max_stop_iterations: v3.runtime.max_stop_iterations,

@@ -188,6 +188,7 @@ export class BestPracticesEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('best_practices'),
         composer: 'axes.best-practices',
         primitive: 'axes.best-practices',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       BestPracticesResponseSchema,
     );

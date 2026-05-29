@@ -80,6 +80,10 @@ export interface RagIndexOptions {
    *  silently corrupts search ranking. Sourced from
    *  `runtime.rag.rebuild_on_drift` in .anatoly.yml. */
   rebuildOnDrift?: boolean;
+  /** Per-LLM-call wall-clock budget in ms (= `runtime.timeout_per_call * 1000`).
+   *  Forwarded to NLP summarization calls so a stuck SDK subprocess aborts
+   *  instead of stalling the indexer indefinitely. */
+  timeoutMs?: number;
 }
 
 /**
@@ -200,6 +204,7 @@ export async function processFileForDualIndex(
   deferNlpEmbeddings?: boolean,
   conversationDir?: string,
   router?: TransportRouter,
+  timeoutMs?: number,
 ): Promise<IndexedFileResult> {
   const built = readAndBuildCards(projectRoot, task, cache);
   if (!built) return { task, cards: [], embeddings: [] };
@@ -222,7 +227,7 @@ export async function processFileForDualIndex(
   // Non-deferred path: summarize + embed in one shot
   const { mergedSummaries, nlpCacheUpdates, costUsd: nlpCostUsd } = await summarizeFile(
     built.toIndex, functionBodies, task.file, indexModel, projectRoot,
-    nlpSummaryCache, conversationDir, router,
+    nlpSummaryCache, conversationDir, router, timeoutMs,
   );
 
   const { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
@@ -252,6 +257,7 @@ async function summarizeFile(
   nlpSummaryCache?: NlpSummaryCache,
   conversationDir?: string,
   router?: TransportRouter,
+  timeoutMs?: number,
 ): Promise<{
   mergedSummaries: Map<string, import('./nlp-summarizer.js').NlpSummary>;
   nlpCacheUpdates: Record<string, { bodyHash: string; summary: import('./nlp-summarizer.js').NlpSummary }>;
@@ -281,7 +287,7 @@ async function summarizeFile(
   if (uncachedCards.length > 0) {
     const nlpResult = await generateNlpSummaries(
       uncachedCards, uncachedBodies, filePath, indexModel, projectRoot,
-      conversationDir, router,
+      conversationDir, router, timeoutMs,
     );
     costUsd = nlpResult.costUsd;
 
@@ -473,7 +479,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       onFileStart?.(task.file);
 
       try {
-        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.router);
+        const result = await processFileForDualIndex(projectRoot, task, cache, options.indexModel, nlpSummaryCache, true, options.conversationDir, options.router, options.timeoutMs);
 
         if (result.cards.length > 0) {
           results.push(result);
@@ -511,7 +517,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
         const { mergedSummaries, nlpCacheUpdates, costUsd } = await summarizeFile(
           result.cards, result.functionBodies, result.task.file, options.indexModel,
-          projectRoot, nlpSummaryCache, options.conversationDir, options.router,
+          projectRoot, nlpSummaryCache, options.conversationDir, options.router, options.timeoutMs,
         );
         const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(result.cards, mergedSummaries);
         result.cards = enrichedCards;

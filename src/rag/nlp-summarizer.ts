@@ -95,6 +95,7 @@ export async function generateNlpSummaries(
   projectRoot: string,
   conversationDir?: string,
   router?: TransportRouter,
+  timeoutMs?: number,
 ): Promise<{ summaries: Map<string, NlpSummary>; costUsd: number }> {
   const summaries = new Map<string, NlpSummary>();
   if (cards.length === 0) return { summaries, costUsd: 0 };
@@ -117,6 +118,7 @@ export async function generateNlpSummaries(
         primitive: 'rag.nlp-summary',
         callId: fileSlug,
         router,
+        timeoutMs,
       },
       NlpResponseSchema,
     ));

@@ -76,7 +76,7 @@ function fullV3(): unknown {
     },
     runtime: {
       concurrency: 16,
-      timeout_per_file: 900,
+      timeout_per_call: 900,
       max_retries: 5,
       min_confidence: 80,
       max_stop_iterations: 4,
@@ -254,7 +254,7 @@ describe('adaptV3ToV2 — runtime', () => {
     const { v2 } = adapt(fullV3());
     expect(v2.runtime).toEqual({
       concurrency: 10, // clamped from v3's 16 to v2's max=10
-      timeout_per_file: 900,
+      timeout_per_call: 900,
       max_retries: 5,
       min_confidence: 80,
       max_stop_iterations: 4,

@@ -135,6 +135,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
       isInterrupted,
       conversationDir,
       router: opts.router,
+      timeoutMs: config.runtime.timeout_per_call * 1000,
     });
   } finally {
     await stopGgufContainers(onLog);

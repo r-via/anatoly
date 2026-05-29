@@ -198,6 +198,7 @@ export class TestsEvaluator implements AxisEvaluator {
         userInstructions: ctx.userInstructions?.forAxis('tests'),
         composer: 'axes.tests',
         primitive: 'axes.tests',
+        timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
       },
       TestsResponseSchema,
     );

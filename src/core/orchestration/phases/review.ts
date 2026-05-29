@@ -38,7 +38,6 @@ import { logsDir as runLogsDir, transcriptLogPath, conversationsDir } from '../.
 import { getLogger } from '../../../utils/logger.js';
 import { runWithContext } from '../../../utils/log-context.js';
 import { retryWithBackoff } from '../../../utils/rate-limiter.js';
-import { withTimeout } from '../../../utils/with-timeout.js';
 import type { Task } from '../../../schemas/task.js';
 import type { ReviewFile } from '../../../schemas/review.js';
 import { generateSkipReview, evaluatorAxesForSkip } from '../../evaluation/index.js';
@@ -307,11 +306,9 @@ export async function runReviewPhase(
 
       let currentAbort = new AbortController();
       ctx.activeAborts.add(currentAbort);
-      let timedOut = false;
       // Axes that started but did not complete (still in flight or crashed).
       // Captured for SDK_TIMEOUT / generic-failure error details so the
-      // end-of-run summary can name the suspect axes (the per-file timeout
-      // wraps the multi-axis fan-out, otherwise that signal is lost).
+      // end-of-run summary can name the suspect axes.
       const axesInFlight = new Set<AxisId>();
 
       try {
@@ -368,7 +365,7 @@ export async function runReviewPhase(
             maxDelayMs: 120_000,
             jitterFactor: 0.2,
             filePath,
-            isInterrupted: () => ctx.interrupted || timedOut,
+            isInterrupted: () => ctx.interrupted,
             onRetry: (attempt, delayMs) => {
               rl?.info({ event: ('retry' satisfies OrchestrationEventName), file: filePath, attempt, delayMs }, 'rate limited, retrying');
               const delaySec = (delayMs / 1000).toFixed(0);
@@ -383,18 +380,15 @@ export async function runReviewPhase(
             },
           },
         );
-        // Wall-clock budget per file: the agentic axes have no SDK-level
-        // timeout, so a single stuck file would otherwise hang the review
-        // worker pool indefinitely. `currentAbort` is read live (it may be
-        // re-created across retries), so the abort always hits the active call.
-        const result = await withTimeout(runEval, {
-          timeoutMs: ctx.config.runtime.timeout_per_file * 1000,
-          label: `review ${filePath}`,
-          onTimeout: () => {
-            timedOut = true;
-            currentAbort.abort();
-          },
-        });
+        // Per-LLM-call wall-clock budget lives in runSingleTurnQuery
+        // (`runtime.timeout_per_call`), so each axis attempt is bounded
+        // individually. Earlier this layer wrapped the full multi-axis
+        // fan-out with a per-file wall: when the budget expired, every
+        // in-flight axis was aborted at once (durationMs:0 in the
+        // ledger) even when each call would have finished within its
+        // own budget. With per-call bounding the file is naturally
+        // bounded by max-axis-duration, and the per-file wall is gone.
+        const result = await runEval();
 
         // Selective refresh: when (--cache-refresh + --axes filter) only
         // some axes ran, but the on-disk cache may still hold valid verdicts

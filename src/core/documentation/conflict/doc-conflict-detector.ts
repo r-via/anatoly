@@ -491,6 +491,7 @@ export async function detectNewConflictsViaLlm(
           composer: 'doc-conflict',
           primitive: 'doc-conflict-detection',
           callId: `pairs-${batchIdx + 1}`,
+          timeoutMs: config.runtime.timeout_per_call * 1000,
           ...(opts.router ? { router: opts.router } : {}),
           ...(opts.runDir
             ? { conversationDir: conversationsDir(opts.runDir) }

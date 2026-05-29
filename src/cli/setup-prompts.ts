@@ -671,7 +671,7 @@ export function buildAnnotatedV3Yaml(
     commentedYaml({
       runtime: {
         concurrency: 8,
-        timeout_per_file: 600,
+        timeout_per_call: 600,
         max_retries: 3,
         min_confidence: 70,
         max_stop_iterations: 3,

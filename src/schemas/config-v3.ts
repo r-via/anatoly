@@ -376,8 +376,11 @@ export const LoggingRuntimeSchema = z.object({
 export const RuntimeConfigSchema = z.object({
   /** Max parallel files in the evaluation pipeline. */
   concurrency: z.int().min(1).max(64).default(8),
-  /** Per-file timeout in seconds for the evaluation pipeline. */
-  timeout_per_file: z.int().min(1).default(600),
+  /** Per-LLM-call timeout in seconds. Each transport.query() is wrapped
+   *  with this wall-clock budget; on expiry the call is aborted with
+   *  SDK_TIMEOUT. Bounds individual stuck calls (e.g. SDK subprocess
+   *  hangs) without killing other parallel axes for the same file. */
+  timeout_per_call: z.int().min(1).default(600),
   /** Retry budget for transient transport errors. */
   max_retries: z.int().min(1).max(10).default(3),
   /** Minimum confidence threshold for hook-mode auto-stop (0..100). */
@@ -422,7 +425,7 @@ const PreConfigSchema = z.object({
   evaluation: EvaluationConfigSchema,
   runtime: RuntimeConfigSchema.default({
     concurrency: 8,
-    timeout_per_file: 600,
+    timeout_per_call: 600,
     max_retries: 3,
     min_confidence: 70,
     max_stop_iterations: 3,
