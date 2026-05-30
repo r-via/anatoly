@@ -438,7 +438,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
   let containersStarted = false;
   if (ctx.resolvedRagMode === 'advanced') {
-    containersStarted = await startGgufContainers(ctx.projectRoot, logFn);
+    containersStarted = await startGgufContainers(ctx.projectRoot, 'nlp', logFn);
     if (!containersStarted) {
       log.warn('GGUF containers failed to restart for doc re-indexing — docs will be re-indexed on next run');
       state?.completeTask('rag-index-update', 'skipped (containers unavailable)');

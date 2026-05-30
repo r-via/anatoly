@@ -92,7 +92,7 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
   // Start GGUF containers if advanced mode
   if (effectiveBackend === 'advanced-gguf') {
     onLog('starting GGUF Docker containers…');
-    const started = await startGgufContainers(projectRoot, onLog);
+    const started = await startGgufContainers(projectRoot, 'lazy', onLog);
     if (!started) {
       if (rebuild) {
         onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');

@@ -98,7 +98,12 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
       } else {
         log.info(ggufMsg);
       }
-      const started = await startGgufContainers(ctx.projectRoot, logFn);
+      // Lazy: validate prereqs only (model files, Docker daemon, zombie
+      // cleanup) but do NOT load a model into VRAM yet. The SDK pre_hook
+      // will spawn the right container on the first embed call. Runs whose
+      // cache is fully warm (e.g. 0 cards to index) therefore never pay the
+      // 30-120 s VRAM load cost.
+      const started = await startGgufContainers(ctx.projectRoot, 'lazy', logFn);
       if (!started) {
         if (ctx.rebuildRag) {
           log.warn('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
@@ -192,6 +197,14 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
   state.startTask('rag-code', '0/?');
 
   try {
+    // Re-install the VRAM-load progress handler for the indexer phase. With
+    // lazy startGgufContainers (no eager model load at setup time), the
+    // pre_hook may spawn a container on the first embed inside indexProject.
+    // Without this handler the spinner would freeze for tens of seconds.
+    setGgufWaitProgressHandler((model, elapsed) => {
+      const taskId = ragPhaseToTaskId[ragPhase];
+      if (taskId) state.updateTask(taskId, `loading ${model} model · ${elapsed}s`);
+    });
     ragResult = await indexProject({
       projectRoot: ctx.projectRoot,
       tasks,
@@ -260,6 +273,7 @@ export async function runRagPhase(ctx: RunContext, handoff: Handoff, tasks: Task
       fileFilter: ctx.fileFilter ?? undefined,
     });
   } finally {
+    setGgufWaitProgressHandler(undefined);
     ragLogStream.end();
     // Free GPU/VRAM immediately — review uses pre-computed vectors from LanceDB.
     await stopGgufContainers(logFn);

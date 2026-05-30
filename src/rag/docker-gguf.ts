@@ -283,19 +283,30 @@ export function activePort(): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Validate prerequisites for GGUF containers (model files, Docker daemon).
- * Starts the code model by default so the first embedCode() call is instant.
+ * Validate prerequisites for GGUF containers (model files present, Docker
+ * daemon up, zombie containers cleaned) and, when requested, eagerly load
+ * an initial model into VRAM.
+ *
+ * Initial-model strategy:
+ *   - `'lazy'` (default): validate prereqs only; do NOT load any model. The
+ *     `pre_hook` wired in `sdk-embedding.ts` will spawn the right container
+ *     on the first `embedCode()` / `embedNlp()` call. Runs whose cache is
+ *     fully warm therefore never load a model and never pay the boot cost.
+ *   - `'code'` / `'nlp'`: eagerly load that model so the first embed is
+ *     instant. Use this only when the caller knows it will embed.
  *
  * For per-second progress feedback during the VRAM load (initial start *and*
  * subsequent swaps), register a callback via {@link setGgufWaitProgressHandler}
  * before calling this function.
  *
  * @param projectRoot - Project root path (reserved for future per-project config).
+ * @param initialModel - Which model to eagerly load. Defaults to `'lazy'` (none).
  * @param onLog - Optional callback for status/error messages during startup.
- * @returns `true` if the code-model container started and became healthy, `false` on any failure.
+ * @returns `true` if prerequisites validated (and the eager model, if any, became healthy), `false` on any failure.
  */
 export async function startGgufContainers(
   projectRoot: string,
+  initialModel: 'code' | 'nlp' | 'lazy' = 'lazy',
   onLog?: (message: string) => void,
 ): Promise<boolean> {
   modelsDirectory = anatolyPath(projectRoot, 'shared/models/gguf');
@@ -339,9 +350,12 @@ export async function startGgufContainers(
     // ignore cleanup errors
   }
 
+  // Lazy mode: prereqs validated, no model loaded. The SDK pre_hook will
+  // spawn the right container on the first embed call (if any).
+  if (initialModel === 'lazy') return true;
+
   try {
-    // Start with the code model (most common first call)
-    await ensureModel('code');
+    await ensureModel(initialModel);
     return true;
   } catch (err) {
     onLog?.(`GGUF container start failed: ${(err as Error).message}`);

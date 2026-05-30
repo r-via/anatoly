@@ -3,11 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, relative, dirname, basename, sep, extname } from 'node:path';
+import { join, relative, dirname, basename, sep } from 'node:path';
 import type { RelevantDoc } from '../../evaluation/contract.js';
 import { getDocsDir, type Config } from '../../../schemas/config.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
-import { embedNlp } from '../../../rag/embeddings.js';
 
 const MAX_PAGES = 3;
 const MAX_LINES_PER_PAGE = 300;
@@ -308,8 +307,9 @@ function loadDoc(fullPath: string, docsDir: string): RelevantDoc | null {
 
 /**
  * Resolve documentation sections relevant to a source file using RAG NLP search.
- * Uses pre-computed NLP vectors from LanceDB when available (no runtime embedding needed).
- * Falls back to ONNX embedNlp with file name as query when no pre-computed vectors exist.
+ * Uses pre-computed NLP vectors from LanceDB. Returns [] when the file has no
+ * stored vectors: we deliberately do NOT fall back to embedding a basename
+ * proxy at review time (weak signal + would spin up the NLP GGUF container).
  * Doc token budget = 20% of model context window, split equally between project/internal sources.
  */
 export async function resolveRelevantDocsViaRag(
@@ -318,17 +318,10 @@ export async function resolveRelevantDocsViaRag(
   projectRoot: string,
   model?: string,
 ): Promise<RelevantDoc[]> {
-  // 1. Try pre-computed average NLP vector (no runtime embedding needed)
-  let queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
-
-  // Fallback: embed file name via ONNX (works in lite mode without containers)
-  if (!queryEmbedding) {
-    try {
-      queryEmbedding = await embedNlp(`Module: ${basename(filePath, extname(filePath))}`);
-    } catch {
-      return [];
-    }
-  }
+  // 1. Use the pre-computed average NLP vector from the indexer pass. If the
+  //    file has no stored cards (e.g. .d.ts, excluded paths), skip retrieval.
+  const queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
+  if (!queryEmbedding) return [];
 
   // 2. Search doc sections by similarity
   const results = await vectorStore.searchDocSections(queryEmbedding, RAG_MAX_SECTIONS);

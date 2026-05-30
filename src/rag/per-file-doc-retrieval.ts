@@ -28,8 +28,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
-import { embedNlp } from './embeddings.js';
+import { basename, join } from 'node:path';
 import type { RagQueryContext, VectorStore } from './vector-store.js';
 import type { ReferenceDoc } from '../core/documentation/index.js';
 
@@ -138,14 +137,14 @@ export async function retrieveRelevantDocsForFile(
   const k = options.k ?? 3;
   const minScore = options.minScore ?? 0.5;
 
-  let queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
-  if (!queryEmbedding) {
-    try {
-      queryEmbedding = await embedNlp(`Module: ${basename(filePath, extname(filePath))}`);
-    } catch {
-      return [];
-    }
-  }
+  const queryEmbedding = await vectorStore.getAverageNlpVectorByFile(filePath);
+  // No stored vector for this file → no retrieval. We deliberately do NOT
+  // fall back to embedding a basename proxy: the basename signal is too
+  // weak to drive useful retrieval, and triggering an embed at review time
+  // would spin up the NLP GGUF container (~30-120 s VRAM load) for the rest
+  // of the run. Better to return [] and let the axis run without RAG context
+  // for this file.
+  if (!queryEmbedding) return [];
 
   // Query the doc-section index. The caller context flows into the
   // `rag.query` audit-trail event emitted by the vector store.
