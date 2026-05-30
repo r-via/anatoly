@@ -7,6 +7,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync
 import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
 import { anatolyPath } from '../utils/anatoly-paths.js';
+import { pruneRefreshRuns } from '../utils/refresh-retention.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
@@ -1142,15 +1143,28 @@ function buildRouter(config: Config): TransportRouter {
   });
 }
 
+/** How many `arbitrate refresh` transcript dirs to keep under
+ *  `.anatoly/refresh/`. Observability output, not a cache, so it gets a
+ *  small bounded history rather than unbounded growth. */
+const REFRESH_RUNS_KEPT = 10;
+
 function buildRefreshFn(projectRoot: string): RefreshFn {
   const config = loadConfig(projectRoot);
   const router = buildRouter(config);
-  // Ad-hoc, prunable observability dir for transcripts. We deliberately do
-  // NOT use `.anatoly/runs/` here — that namespace is reserved for real
-  // audit runs (the user explicitly asked to keep it untouched). The cache
-  // tree is the natural home for regeneratable observability output and is
-  // already covered by the snapshot/prune system.
+  // Timestamped observability dir for LLM conversation transcripts.
+  //
+  // This is NOT placed under `.anatoly/cache/`: transcripts are forensic,
+  // non-reproducible output (rerunning never reproduces them, nothing is
+  // read back by key), so they are not a content-addressable cache. Living
+  // in the cache tree was actively harmful — `cache snapshot` would mirror
+  // them into every snapshot, `cache restore` would wipe the in-flight
+  // arbitration history, and `cache prune` never touched them (unbounded
+  // growth). It is also kept out of `.anatoly/runs/`, which is reserved for
+  // real audit runs. Instead it gets its own `.anatoly/refresh/` namespace
+  // with simple keep-most-recent-N retention.
+  const refreshRoot = anatolyPath(projectRoot, 'refresh');
+  pruneRefreshRuns(refreshRoot, REFRESH_RUNS_KEPT - 1);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const runDir = anatolyPath(projectRoot, 'cache', 'refresh', ts);
+  const runDir = join(refreshRoot, ts);
   return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router, runDir });
 }

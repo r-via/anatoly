@@ -41,6 +41,7 @@ describe('anatolyPath', () => {
       'cache/rag',
       'cache/rag/lancedb',
       'cache/doc-build',
+      'refresh',
       'runs',
       'runtime',
       'setup',

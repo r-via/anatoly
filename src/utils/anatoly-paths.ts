@@ -48,6 +48,7 @@ export type AnatolyArea =
   | 'cache/rag/lancedb'
   | 'cache/doc-build'
   | 'cache-snapshots'
+  | 'refresh'
   | 'runs'
   | 'runtime'
   | 'setup'
