@@ -30,6 +30,7 @@ import { PipelineState } from '../cli/pipeline-state.js';
 import { ScreenRenderer } from '../cli/screen-renderer.js';
 import { parseAxesOption } from '../utils/axes-filter.js';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
+import { recordingModeFromEnv } from '../core/transports/recording-transport.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { saveDeliberationMemory } from '../core/platform/index.js';
 import { type AxisId } from '../core/evaluation/index.js';
@@ -595,7 +596,10 @@ export function registerRunCommand(program: Command): void {
       // Catches missing `claude` CLI (subscription) or missing
       // ANTHROPIC_API_KEY (api) before the first axis call would
       // surface an opaque crash deep in the pipeline.
-      if (config.providers.anthropic) {
+      // Skipped in replay transport mode: the cassette serves every model
+      // call, so no real `claude` CLI / API key is ever needed (hermetic
+      // goldens run with ANATOLY_TRANSPORT=replay on a CI box without claude).
+      if (config.providers.anthropic && recordingModeFromEnv() !== 'replay') {
         const anthropic = config.providers.anthropic;
         const result = checkAnthropicAuth(anthropic.mode);
         if (!result.ok) {

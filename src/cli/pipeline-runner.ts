@@ -34,6 +34,7 @@ import type { DocExecutor } from '../core/documentation/index.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { checkAnthropicAuth } from '../utils/anthropic-auth.js';
+import { recordingModeFromEnv } from '../core/transports/recording-transport.js';
 import { renderProviderAuthBox } from '../utils/provider-auth.js';
 import { AnatolyError, ERROR_CODES } from '../utils/errors.js';
 import { TransportRouter } from '../core/transports/index.js';
@@ -149,7 +150,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
   // missing ANTHROPIC_API_KEY (api mode) would only surface several
   // seconds in, deep inside the first axis evaluator, as an opaque
   // "spawn failed" or 401 error. Caught early here with a clear message.
-  if (config.providers.anthropic) {
+  // Skipped in replay transport mode: the cassette serves every model call,
+  // so no real `claude` CLI / API key is needed (hermetic goldens).
+  if (config.providers.anthropic && recordingModeFromEnv() !== 'replay') {
     const anthropicConfig = config.providers.anthropic;
     const result = checkAnthropicAuth(anthropicConfig.mode);
     if (!result.ok) {
