@@ -14,6 +14,7 @@ import {
   buildDocumentationConfig,
   LANGUAGE_DOC_KINDS,
   mergeDocumentationIntoYaml,
+  mergeScanIntoYaml,
   type WizardSelections,
   type DocWizardSelections,
 } from './init.js';
@@ -390,5 +391,81 @@ models:
     const result1 = mergeDocumentationIntoYaml(existingYaml, docConfig);
     const result2 = mergeDocumentationIntoYaml(existingYaml, docConfig);
     expect(result1).toBe(result2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeScanIntoYaml — `init --phases scope`
+// (docs/02-Architecture/21-Scope-Reconfiguration-Phase.md §3.3)
+// ---------------------------------------------------------------------------
+
+describe('mergeScanIntoYaml', () => {
+  const base = `scan:
+  include:
+    - src/**/*.ts
+  exclude:
+    - node_modules/**   # vendored
+    - dist/**
+  respect_gitignore: true
+providers:
+  anthropic:
+    mode: subscription
+`;
+
+  it('unions new globs into scan.exclude and dedupes against existing', () => {
+    const result = mergeScanIntoYaml(base, ['dist/**', 'src/__fixtures__/**']);
+    const parsed = yaml.load(result) as { scan: { exclude: string[] } };
+    const ex = parsed.scan.exclude;
+    // existing kept, no duplicate for dist, new one appended
+    expect(ex.filter((g) => g === 'dist/**')).toHaveLength(1);
+    expect(ex).toContain('node_modules/**');
+    expect(ex).toContain('src/__fixtures__/**');
+  });
+
+  it('touches only scan.exclude — other sections and keys are preserved', () => {
+    const result = mergeScanIntoYaml(base, ['src/__fixtures__/**']);
+    const parsed = yaml.load(result) as {
+      providers: { anthropic: { mode: string } };
+      scan: { include: string[]; respect_gitignore: boolean };
+    };
+    expect(parsed.providers.anthropic.mode).toBe('subscription');
+    expect(parsed.scan.include).toEqual(['src/**/*.ts']);
+    expect(parsed.scan.respect_gitignore).toBe(true);
+  });
+
+  it('preserves existing comments (surgical, not a re-dump)', () => {
+    const result = mergeScanIntoYaml(base, ['src/__fixtures__/**']);
+    expect(result).toContain('# vendored');
+  });
+
+  it('stamps new entries with a dated origin comment', () => {
+    const result = mergeScanIntoYaml(base, ['src/__fixtures__/**'], { dateStamp: '2026-05-30' });
+    expect(result).toContain('src/__fixtures__/** # added by anatoly init --phases scope on 2026-05-30');
+  });
+
+  it('never deletes hand-added entries', () => {
+    const result = mergeScanIntoYaml(base, ['new/**']);
+    const parsed = yaml.load(result) as { scan: { exclude: string[] } };
+    expect(parsed.scan.exclude).toContain('node_modules/**');
+    expect(parsed.scan.exclude).toContain('dist/**');
+  });
+
+  it('is idempotent: returns input verbatim when nothing is new', () => {
+    expect(mergeScanIntoYaml(base, ['dist/**', 'node_modules/**'])).toBe(base);
+    expect(mergeScanIntoYaml(base, [])).toBe(base);
+  });
+
+  it('re-running the merged output adds nothing', () => {
+    const once = mergeScanIntoYaml(base, ['src/__fixtures__/**'], { dateStamp: '2026-05-30' });
+    const twice = mergeScanIntoYaml(once, ['src/__fixtures__/**'], { dateStamp: '2026-05-30' });
+    expect(twice).toBe(once);
+  });
+
+  it('creates scan.exclude when the section is absent', () => {
+    const noScan = `providers:\n  anthropic:\n    mode: subscription\n`;
+    const result = mergeScanIntoYaml(noScan, ['src/__fixtures__/**']);
+    const parsed = yaml.load(result) as { scan: { exclude: string[] } };
+    expect(parsed.scan.exclude).toContain('src/__fixtures__/**');
+    expect((yaml.load(result) as { providers?: unknown }).providers).toBeDefined();
   });
 });

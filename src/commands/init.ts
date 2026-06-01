@@ -7,6 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
+import { parseDocument as parseYamlDoc, isSeq, isMap } from 'yaml';
 import { ConfigSchema } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
@@ -116,6 +117,59 @@ export function mergeDocumentationIntoYaml(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Surgically union `globs` into the `scan.exclude` list of an existing YAML
+ * string. Used by the `scope` init phase (`anatoly init --phases scope`).
+ *
+ * Contract (see docs/02-Architecture/21-Scope-Reconfiguration-Phase.md §3.3):
+ * - Touches ONLY `scan.exclude`; every other section, key, and comment is
+ *   preserved byte-for-byte (CST-preserving parse, not a re-dump).
+ * - Union + dedupe: each glob ends up present exactly once.
+ * - Never deletes: hand-added entries survive.
+ * - Idempotent: when nothing is new, returns the input verbatim (no diff).
+ * - New entries carry a dated trailing comment marking their origin.
+ *
+ * Deterministic: the date stamp comes from the caller (or is omitted) so a
+ * wall-clock `new Date()` cannot drift the output between runs.
+ */
+export function mergeScanIntoYaml(
+  existingYaml: string,
+  globs: string[],
+  opts: { dateStamp?: string } = {},
+): string {
+  const toMerge = [...new Set(globs)];
+  if (toMerge.length === 0) return existingYaml;
+
+  const doc = parseYamlDoc(existingYaml);
+
+  let scan = doc.get('scan');
+  if (!isMap(scan)) {
+    scan = doc.createNode({});
+    doc.set('scan', scan);
+  }
+  if (!isMap(scan)) return existingYaml; // unreachable; satisfies the narrower
+  let seq = scan.get('exclude');
+  if (!isSeq(seq)) {
+    seq = doc.createNode([]);
+    scan.set('exclude', seq);
+  }
+  if (!isSeq(seq)) return existingYaml; // unreachable; satisfies the narrower
+
+  const present = new Set(seq.items.map((it) => String((it as { value?: unknown }).value ?? it)));
+  const toAdd = toMerge.filter((g) => !present.has(g));
+  if (toAdd.length === 0) return existingYaml; // idempotent: no change
+
+  const stamp = opts.dateStamp
+    ? ` added by anatoly init --phases scope on ${opts.dateStamp}`
+    : ' added by anatoly init --phases scope';
+  for (const g of toAdd) {
+    const node = doc.createNode(g);
+    node.comment = stamp;
+    seq.add(node);
+  }
+  return doc.toString();
 }
 
 const SUBSCRIPTION_PROVIDERS = new Set(['anthropic']);
@@ -445,19 +499,20 @@ export function registerInitCommand(program: Command): void {
     .option('--defaults', 'generate commented-out defaults (non-interactive)')
     .option('--quick', 'skip the Quick/Advanced question and run the quick zero-prompt setup')
     .option('--advanced', 'skip the Quick/Advanced question and run the full wizard (RAG tier, providers, docs, notifications)')
-    .option('--phases <list>', 'reconfigure only these phases on an existing config (comma-separated: rag,providers,documentation,notifications)')
+    .option('--phases <list>', 'reconfigure only these phases on an existing config (comma-separated: rag,providers,documentation,notifications,scope)')
     .option('--rag', 'reconfigure only the RAG/embedding-tier phase (= --phases rag)')
     .option('--providers', 'reconfigure only the providers/models phase (= --phases providers)')
     .option('--documentation', 'reconfigure only the documentation phase (= --phases documentation)')
     .option('--reconfigure-docs', 'alias of --documentation')
     .option('--notifications', 'reconfigure only the Telegram notifications phase (= --phases notifications)')
-    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean; quick?: boolean; phases?: string; rag?: boolean; providers?: boolean; documentation?: boolean; notifications?: boolean }) => {
+    .option('--scope', 're-detect the audit scope (scan.exclude) and merge it in (= --phases scope)')
+    .action(async (opts: { force?: boolean; defaults?: boolean; reconfigureDocs?: boolean; advanced?: boolean; quick?: boolean; phases?: string; rag?: boolean; providers?: boolean; documentation?: boolean; notifications?: boolean; scope?: boolean }) => {
       const projectRoot = process.cwd();
       const configPath = resolve(projectRoot, CONFIG_FILENAME);
 
       // --phases / per-phase flags: reconfigure a subset against an existing
       // config and merge the result back in.
-      const VALID_PHASES = ['rag', 'providers', 'documentation', 'notifications'] as const;
+      const VALID_PHASES = ['rag', 'providers', 'documentation', 'notifications', 'scope'] as const;
       type Phase = (typeof VALID_PHASES)[number];
       const requestedPhases = new Set<Phase>();
       if (opts.phases) {
@@ -473,6 +528,7 @@ export function registerInitCommand(program: Command): void {
       if (opts.providers) requestedPhases.add('providers');
       if (opts.documentation || opts.reconfigureDocs) requestedPhases.add('documentation');
       if (opts.notifications) requestedPhases.add('notifications');
+      if (opts.scope) requestedPhases.add('scope');
 
       if (requestedPhases.size > 0) {
         if (!existsSync(configPath)) {
@@ -495,6 +551,25 @@ export function registerInitCommand(program: Command): void {
         if (requestedPhases.has('notifications')) {
           // runTelegramSetup patches .anatoly.yml in place (writeConfig=true).
           await runTelegramSetup(projectRoot, { writeConfig: true });
+        }
+
+        if (requestedPhases.has('scope')) {
+          // Re-detect the audit perimeter and surgically union the freshly
+          // detected excludes into scan.exclude. Deterministic baseline only
+          // (no LLM): the suggestion layer is a later PR. See
+          // docs/02-Architecture/21-Scope-Reconfiguration-Phase.md.
+          const { exclude } = await detectScanGlobs(projectRoot);
+          const existing = readFileSync(configPath, 'utf-8');
+          const merged = mergeScanIntoYaml(existing, exclude, { dateStamp: new Date().toISOString().slice(0, 10) });
+          if (merged === existing) {
+            p.log.info('scan.exclude is already up to date — nothing to add.');
+          } else {
+            p.note(merged, 'Preview (scope)');
+            const confirmed = await p.confirm({ message: 'Write scope changes?' });
+            if (isCancelled(confirmed) || !confirmed) { p.cancel('Aborted.'); return; }
+            writeFileSync(configPath, merged);
+            p.log.success(`${CONFIG_FILENAME} scan section updated.`);
+          }
         }
 
         if (requestedPhases.has('rag') || requestedPhases.has('providers')) {
