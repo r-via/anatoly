@@ -57,7 +57,6 @@ const TYPE_KINDS: ReadonlySet<string> = new Set(['type', 'enum']);
 const OVER_ABSTRACTION_MIN_LINES = 15;
 /** Names that are legitimately imported from a single site (entry points). */
 const ENTRY_POINT_NAMES: ReadonlySet<string> = new Set(['main', 'index', 'app', 'bootstrap', 'setup', 'init', 'run', 'start']);
-const FIXTURE_PATTERNS = ['__gold-set__', '__fixtures__'];
 const GENERATED_MARKERS = ['@generated', 'DO NOT EDIT', 'AUTO-GENERATED', 'BEGIN GENERATED', 'auto-generated'];
 const MISSING_IMPORT_PATTERNS = /\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b.*\b(?:function|import|module|export|method|symbol)\b|\b(?:function|import|module|export|method|symbol)\b.*\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b/i;
 const BOUNDS_PATTERNS = /\b(?:out[- ]of[- ]bounds|array.*(?:has|only|contains)\s+\d+.*(?:but|while|however).*\d+|index\s+\d+.*(?:but|while).*length\s+\d+)\b/i;
@@ -74,13 +73,11 @@ const BOUNDS_PATTERNS = /\b(?:out[- ]of[- ]bounds|array.*(?:has|only|contains)\s
  * - DUPLICATE → UNIQUE when no RAG candidate or trivial function
  * - OVER → LEAN when kind is type/enum or function ≤ 5 lines
  * - UNDOCUMENTED → DOCUMENTED when JSDoc exists or type is self-descriptive
- * - Fixture/gold-set files: correction/utility findings skipped
  *
  * Zero network calls. Returns a new ReviewFile (input not mutated).
  */
 export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & { _tier1Stats?: Tier1Stats } {
   const stats: Tier1Stats = { resolved: 0, confirmed: 0, breakdown: { deadToUsed: 0, duplicateToUnique: 0, overToLean: 0, leanToOver: 0, undocToDoc: 0, fixtureSkipped: 0, correctionImportResolved: 0, correctionBoundsResolved: 0, correctionGeneratedDowngraded: 0 } };
-  const isFixture = FIXTURE_PATTERNS.some((p) => review.file.includes(p));
 
   // Detect generated files: check for markers in file content
   let fileContent = ctx.fileContents.get(review.file);
@@ -103,22 +100,6 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
   const newSymbols = review.symbols.map((sym) => {
     const s = { ...sym };
-
-    // --- Fixture/gold-set file: skip correction + utility findings ---
-    if (isFixture) {
-      if (s.correction !== 'OK' && s.correction !== '-') {
-        s.correction = 'OK';
-        stats.resolved++;
-        stats.breakdown.fixtureSkipped++;
-      }
-      if (s.utility !== 'USED' && s.utility !== '-') {
-        s.utility = 'USED';
-        stats.resolved++;
-        stats.breakdown.fixtureSkipped++;
-      }
-      s.detail = 'Intentional fixture code';
-      return s;
-    }
 
     // --- Correction: missing import → OK when import resolves on disk ---
     if ((s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') && MISSING_IMPORT_PATTERNS.test(s.detail)) {
