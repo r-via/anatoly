@@ -51,6 +51,11 @@ const REEXPORT_RE =
 const STAR_REEXPORT_RE =
   /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
 
+// Inline import-type query: `import('./path').Type` (TS type position). The
+// member is the used export; always type-only.
+const INLINE_IMPORT_TYPE_RE =
+  /import\(\s*['"]([^'"]+)['"]\s*\)\.(\w+)/g;
+
 /**
  * Resolve a relative import specifier to a project-relative file path.
  * Handles: .js → .ts, bare → .ts or /index.ts.
@@ -129,11 +134,20 @@ function extractImports(
     const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
     if (!resolved) return;
     for (const part of namesStr.split(',')) {
-      const trimmed = part.trim();
+      let trimmed = part.trim();
       if (!trimmed) continue;
+      // Inline type specifier inside a value import: `{ foo, type Bar }`.
+      // Strip the per-specifier `type ` prefix so the symbol is `Bar`, not
+      // `type Bar`, and mark just that specifier type-only.
+      let specifierTypeOnly = typeOnly;
+      const typeMatch = /^type\s+/.exec(trimmed);
+      if (typeMatch) {
+        trimmed = trimmed.slice(typeMatch[0].length);
+        specifierTypeOnly = true;
+      }
       const originalName = trimmed.split(/\s+as\s+/)[0].trim();
       if (originalName) {
-        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly });
+        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly: specifierTypeOnly });
       }
     }
   }
@@ -188,6 +202,13 @@ function extractImports(
         results.push({ symbol: sym, sourceFile: resolved, importerFile, typeOnly: false });
       }
     }
+  }
+
+  // Inline import-type queries: import('./path').Type
+  for (const match of source.matchAll(INLINE_IMPORT_TYPE_RE)) {
+    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot);
+    if (!resolved) continue;
+    results.push({ symbol: match[2], sourceFile: resolved, importerFile, typeOnly: true });
   }
 
   return results;

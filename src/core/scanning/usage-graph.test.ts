@@ -230,6 +230,35 @@ describe('buildUsageGraph', () => {
     expect(getTypeOnlySymbolUsage(graph, 'Task', 'src/schemas/task.ts')).toEqual(['src/core/scanner.ts']);
   });
 
+  it('tracks an inline type specifier in a mixed named import (import { x, type Y })', () => {
+    createFile('src/rag/prefetch.ts', 'export function prefetch() {}\nexport type Progress = { pct: number };\n');
+    createFile('src/cli/setup.ts', "import { prefetch, type Progress } from '../rag/prefetch.js';\n");
+
+    const tasks = [
+      makeTask('src/rag/prefetch.ts', [{ name: 'prefetch', exported: true }, { name: 'Progress', exported: true, kind: 'type' }]),
+      makeTask('src/cli/setup.ts', [{ name: 'run', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'prefetch', 'src/rag/prefetch.ts')).toEqual(['src/cli/setup.ts']);
+    // `type Progress` must resolve to symbol `Progress` (not `type Progress`),
+    // tracked as a type-only importer — this is the bug that flagged it DEAD.
+    expect(getTypeOnlySymbolUsage(graph, 'Progress', 'src/rag/prefetch.ts')).toEqual(['src/cli/setup.ts']);
+  });
+
+  it("tracks an inline import-type query (import('./path').Type)", () => {
+    createFile('src/schemas/review.ts', 'export type DocsCoverage = { pct: number };\n');
+    createFile('src/core/merger.ts', "function f(x?: import('../schemas/review.js').DocsCoverage) { return x; }\n");
+
+    const tasks = [
+      makeTask('src/schemas/review.ts', [{ name: 'DocsCoverage', exported: true, kind: 'type' }]),
+      makeTask('src/core/merger.ts', [{ name: 'f', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getTypeOnlySymbolUsage(graph, 'DocsCoverage', 'src/schemas/review.ts')).toEqual(['src/core/merger.ts']);
+  });
+
   it('does not count self-imports', () => {
     createFile('src/utils/cache.ts', "import { computeHash } from './cache.js';\nexport function computeHash() {}\n");
 
