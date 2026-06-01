@@ -339,6 +339,74 @@ describe('runRefinementPhase', () => {
     expect(result.totalCostUsd).toBeGreaterThan(0);
   });
 
+  // --- AC: axis-scoped deliberation (--axes) ---
+
+  it('freezes non-selected axes back to their pre-deliberation verdict', async () => {
+    // DEAD + NEEDS_FIX: tier 2's inter-axis coherence rule downgrades
+    // correction NEEDS_FIX → OK because the symbol is dead. With
+    // --axes utility, that cross-axis write to correction must be frozen
+    // out (correction stays NEEDS_FIX), while the selected utility axis
+    // keeps its deliberated value.
+    const reviews = [
+      makeReview({
+        file: 'src/core/a.ts',
+        symbols: [{
+          name: 'deadFunc',
+          utility: 'DEAD',
+          correction: 'NEEDS_FIX',
+          exported: true,
+          confidence: 80,
+          detail: '[DEAD] No importers found | [NEEDS_FIX] Off-by-one at line 5',
+        }],
+      }),
+    ];
+
+    const writeReviewFn = vi.fn();
+    const ctx = makeCtx({
+      // empty usage graph → tier 1 leaves DEAD in place
+      loadReviewsFn: vi.fn().mockReturnValue(reviews),
+      writeReviewFn,
+      axesFilter: ['utility'],
+    });
+
+    await runRefinementPhase(ctx);
+
+    const written = writeReviewFn.mock.calls[0][0] as ReviewFile;
+    // non-selected axis: frozen to pre-deliberation value
+    expect(written.symbols[0].correction).toBe('NEEDS_FIX');
+    // selected axis: deliberation outcome preserved
+    expect(written.symbols[0].utility).toBe('DEAD');
+  });
+
+  it('skips tier 3 for findings outside the selected axes', async () => {
+    // correction:ERROR escalates to tier 3, but --axes utility means the
+    // correction axis is out of scope: no LLM investigation should run.
+    const reviews = [
+      makeReview({
+        file: 'src/core/a.ts',
+        symbols: [{
+          name: 'errorFunc',
+          correction: 'ERROR',
+          utility: 'USED',
+          confidence: 95,
+          detail: '[ERROR] Critical crash at runtime',
+        }],
+      }),
+    ];
+
+    const queryFn = vi.fn();
+    const ctx = makeCtx({
+      loadReviewsFn: vi.fn().mockReturnValue(reviews),
+      queryFn,
+      axesFilter: ['utility'],
+    });
+
+    const result = await runRefinementPhase(ctx);
+
+    expect(queryFn).not.toHaveBeenCalled();
+    expect(result.tier3Stats.investigated).toBe(0);
+  });
+
   // --- AC: No tier 3 when no escalations ---
 
   it('AC: skips tier 3 when no findings are escalated', async () => {

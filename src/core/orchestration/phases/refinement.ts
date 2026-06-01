@@ -54,6 +54,7 @@ export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setu
               preResolvedRag: new Map(), // RAG results are per-file, not cached globally
               abortController: (() => { const ac = new AbortController(); ctx.activeAborts.add(ac); return ac; })(),
               deliberation: ctx.deliberation,
+              axesFilter: ctx.axesFilter,
               freshFiles: ctx.freshFiles,
               plain: ctx.plain,
               loadReviewsFn: (pr, rd) => loadReviews(pr, rd),

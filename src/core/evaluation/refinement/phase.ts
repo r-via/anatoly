@@ -6,7 +6,8 @@ import type { ReviewFile } from '../../../schemas/review.js';
 import type { Config } from '../../../schemas/config.js';
 import type { UsageGraph } from '../../scanning/index.js';
 import { resolveDeliberationModel } from '../evaluator.js';
-import type { PreResolvedRag } from '../contract.js';
+import type { PreResolvedRag, AxisId } from '../contract.js';
+import { mergeRefreshedReview } from '../../run/review-merge.js';
 import type { ReclassificationEntry } from '../../platform/index.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
@@ -34,6 +35,16 @@ export interface RefinementContext {
   abortController: AbortController;
   deliberation: boolean;
   plain: boolean;
+  /**
+   * CLI axes filter (from `--axes`). When set, deliberation is scoped to
+   * these axes: tier 3 only investigates findings on the selected axes
+   * (no LLM spend on the rest), and the written reviews keep every
+   * non-selected axis byte-identical to its pre-deliberation (cached)
+   * state. Tier 2 still reads all axes for inter-axis coherence, but its
+   * writes to non-selected axes are frozen out by the post-pass merge.
+   * Undefined ⇒ full run, deliberation spans all axes (legacy behaviour).
+   */
+  axesFilter?: AxisId[];
   /** Files that were freshly reviewed (not cached) in this run — their deliberation cache entries are invalidated. */
   freshFiles?: Set<string>;
   /** Progress callback for UI updates. */
@@ -103,6 +114,15 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   if (reviews.length === 0) {
     return { ...emptyResult, skipped: false };
   }
+
+  // Axis-scoped deliberation (--axes). Snapshot the pre-deliberation reviews
+  // so we can freeze every non-selected axis back to its cached state after
+  // the tiers run (see the freeze-merge at the write step). Cloned because
+  // the tiers produce fresh symbol objects but may share nested references.
+  const axesFilter = ctx.axesFilter && ctx.axesFilter.length > 0 ? ctx.axesFilter : undefined;
+  const preDeliberationByFile = axesFilter
+    ? new Map(reviews.map((r) => [r.file, structuredClone(r)]))
+    : undefined;
 
   const totalFindings = reviews.reduce((sum, r) => sum + r.symbols.length, 0);
 
@@ -175,7 +195,15 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   ctx.onProgress?.('tier2-done', t2Detail);
 
   // --- Tier 3: Agentic investigation (only if there are escalated findings) ---
-  ctx.onProgress?.('tier3-start', `${allEscalated.length} findings`);
+  // Axis-scoped run: only investigate findings on the selected axes. Tier 2
+  // still escalated everything (its coherence pass is global), but spending
+  // LLM budget re-investigating axes the user did not ask to refresh would
+  // contradict `--axes`; those escalations are dropped here. Non-selected
+  // verdicts are frozen back to cache by the post-pass merge regardless.
+  const escalatedForTier3 = axesFilter
+    ? allEscalated.filter((e) => (axesFilter as string[]).includes(e.axis))
+    : allEscalated;
+  ctx.onProgress?.('tier3-start', `${escalatedForTier3.length} findings`);
 
   let tier3Stats = { investigated: 0, confirmed: 0, reclassified: 0 };
   let tier3CostUsd = 0;
@@ -186,8 +214,8 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   let tier3CacheCreationTokens = 0;
   const finalReviews = new Map(tier2Reviews.map((r) => [r.file, r]));
 
-  if (allEscalated.length > 0 && ctx.queryFn) {
-    const shards = buildShards(allEscalated);
+  if (escalatedForTier3.length > 0 && ctx.queryFn) {
+    const shards = buildShards(escalatedForTier3);
 
     // Build file hashes for content-addressable refinement cache
     const fileHashes = new Map<string, string>();
@@ -251,8 +279,17 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   ctx.onProgress?.('tier3-done', summaryParts.join(' · ') + totalSuffix);
 
   // --- Write refined ReviewFiles back to disk ---
+  // Axis-scoped run: freeze every non-selected axis back to its
+  // pre-deliberation (cached) verdict, detail segment and findings, keeping
+  // only the selected axes' deliberation outcome. Reuses the selective-refresh
+  // merge (base = pre-deliberation, overlay = selected axes from the refined
+  // review), so non-selected axes stay byte-identical to the cache the user
+  // chose not to refresh.
   for (const review of finalReviews.values()) {
-    ctx.writeReviewFn(review);
+    const toWrite = axesFilter
+      ? mergeRefreshedReview(preDeliberationByFile?.get(review.file) ?? null, review, axesFilter)
+      : review;
+    ctx.writeReviewFn(toWrite);
   }
 
   const totalDurationMs = Date.now() - phaseStart;
