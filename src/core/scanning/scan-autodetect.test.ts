@@ -127,6 +127,21 @@ describe('autoDetectScanGlobs', () => {
     expect(result.exclude).toContain('vendor/**');
   });
 
+  it('always excludes __fixtures__/__mocks__ dirs, even with no testing framework', () => {
+    const profile = buildProfile({
+      languages: {
+        languages: [{ name: 'TypeScript', percentage: 100, fileCount: 10 }],
+        totalFiles: 10,
+      },
+      frameworks: [],
+    });
+    const result = autoDetectScanGlobs(dir, profile);
+    expect(result.exclude).toContain('**/__fixtures__/**');
+    expect(result.exclude).toContain('**/__mocks__/**');
+    // Fixture DIRS are unconditional; test FILES still require a framework.
+    expect(result.exclude).not.toContain('**/*.test.ts');
+  });
+
   it('drops languages below the 5% noise threshold', () => {
     const profile = buildProfile({
       languages: {

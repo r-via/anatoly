@@ -55,6 +55,16 @@ const LANGUAGE_VENDOR_EXCLUDES: Record<string, string[]> = {
 const BASE_EXCLUDES = ['.git/**', '.anatoly/**'];
 
 /**
+ * Test-support fixture directories that are never product surface, applied
+ * unconditionally like Go's `testdata/`. Double-underscore names are framework
+ * conventions (Jest/Vitest) that never name a real module, so excluding the
+ * directory cannot silently drop audited code — unlike a `*.test.ts` *file*,
+ * which a project may legitimately want to audit (hence those stay gated on a
+ * detected framework below).
+ */
+const FIXTURE_DIR_EXCLUDES = ['**/__fixtures__/**', '**/__mocks__/**'];
+
+/**
  * Build include/exclude glob lists for the project at `projectRoot` based on
  * its detected profile. Pure read-only — no filesystem mutation.
  */
@@ -65,7 +75,7 @@ export function autoDetectScanGlobs(
   const langs = profile.languages.languages.filter((l) => l.percentage >= 5);
   if (langs.length === 0) {
     // Nothing detected — emit a permissive default so the run doesn't no-op.
-    return { include: ['src/**/*'], exclude: [...BASE_EXCLUDES, 'node_modules/**', 'dist/**'] };
+    return { include: ['src/**/*'], exclude: [...BASE_EXCLUDES, ...FIXTURE_DIR_EXCLUDES, 'node_modules/**', 'dist/**'] };
   }
 
   const roots = detectRoots(projectRoot, profile);
@@ -79,7 +89,7 @@ export function autoDetectScanGlobs(
     }
   }
 
-  const excludeSet = new Set<string>(BASE_EXCLUDES);
+  const excludeSet = new Set<string>([...BASE_EXCLUDES, ...FIXTURE_DIR_EXCLUDES]);
   for (const lang of langs) {
     const v = LANGUAGE_VENDOR_EXCLUDES[lang.name];
     if (v) for (const e of v) excludeSet.add(e);
