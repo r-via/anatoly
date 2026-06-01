@@ -61,6 +61,21 @@ const GENERATED_MARKERS = ['@generated', 'DO NOT EDIT', 'AUTO-GENERATED', 'BEGIN
 const MISSING_IMPORT_PATTERNS = /\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b.*\b(?:function|import|module|export|method|symbol)\b|\b(?:function|import|module|export|method|symbol)\b.*\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b/i;
 const BOUNDS_PATTERNS = /\b(?:out[- ]of[- ]bounds|array.*(?:has|only|contains)\s+\d+.*(?:but|while|however).*\d+|index\s+\d+.*(?:but|while).*length\s+\d+)\b/i;
 
+/**
+ * For every axis whose verdict can synthesize an action (axis-merger's
+ * `synthesizeActionsFromSymbols`), the set of verdicts that still JUSTIFY that
+ * action. After tier1 resolves a symbol's verdict, an action survives only if
+ * the symbol's current verdict on the action's `source` axis is still in this
+ * set — purging any action tier1 made stale, for every axis at once. Sources
+ * not listed here (doc divergences, etc.) are never purged.
+ */
+const ACTIONABLE_VERDICTS: Record<string, ReadonlySet<string>> = {
+  utility: new Set(['DEAD', 'LOW_VALUE']),
+  duplication: new Set(['DUPLICATE']),
+  overengineering: new Set(['OVER']),
+  documentation: new Set(['UNDOCUMENTED', 'PARTIAL']),
+};
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -89,14 +104,9 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
   }
   const isGenerated = fileContent ? GENERATED_MARKERS.some((m) => fileContent!.includes(m)) : false;
 
-  // Track symbols whose axis verdict was downgraded → used to purge stale
-  // synthesized actions (duplicate_target, overengineering) that were created
-  // before tier1 ran. Invariant: no action with source=X should survive
-  // for a symbol whose axis X verdict no longer justifies it.
-  const downgradedDuplication = new Set<string>();
-  const downgradedOverengineering = new Set<string>();
-  /** Symbols flipped DEAD → USED — used to purge stale `Remove dead code` actions. */
-  const downgradedUtility = new Set<string>();
+  // Stale synthesized actions (created from the pre-tier1 verdict) are purged
+  // declaratively after the symbol pass, via ACTIONABLE_VERDICTS — no per-axis
+  // bookkeeping. See the purge step below.
   /** Symbols promoted LEAN → OVER by the usage-graph rule (need action synthesis). */
   const promotedOverengineering: SymbolReview[] = [];
 
@@ -194,9 +204,6 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (resolved) {
         stats.resolved++;
         stats.breakdown.deadToUsed++;
-        // The DEAD verdict synthesized a `Remove dead code` action before
-        // tier1 ran; purge it now that the symbol is USED.
-        downgradedUtility.add(s.name);
       }
     }
 
@@ -220,7 +227,6 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         s.duplication = 'UNIQUE';
         s.detail = setAxisSegment(s.detail, 'DUPLICATE', 'UNIQUE', `Trivial function (≤ ${TRIVIAL_FUNCTION_MAX_LINES} lines)`);
         s.confidence = 90;
-        downgradedDuplication.add(s.name);
         stats.resolved++;
         stats.breakdown.duplicateToUnique++;
       } else {
@@ -233,7 +239,6 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
           s.duplication = 'UNIQUE';
           s.confidence = 90;
           s.detail = setAxisSegment(s.detail, 'DUPLICATE', 'UNIQUE', `Auto-resolved: no RAG candidate above ${RAG_DUPLICATE_THRESHOLD} threshold`);
-          downgradedDuplication.add(s.name);
           stats.resolved++;
           stats.breakdown.duplicateToUnique++;
         }
@@ -247,13 +252,11 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (TYPE_KINDS.has(s.kind)) {
         s.overengineering = 'LEAN';
         s.detail = setAxisSegment(s.detail, 'OVER', 'LEAN', `Auto-resolved: ${s.kind} cannot be over-engineered`);
-        downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
       } else if (symLines <= SMALL_FUNCTION_MAX_LINES) {
         s.overengineering = 'LEAN';
         s.detail = setAxisSegment(s.detail, 'OVER', 'LEAN', `Auto-resolved: function ≤ ${SMALL_FUNCTION_MAX_LINES} lines`);
-        downgradedOverengineering.add(s.name);
         stats.resolved++;
         stats.breakdown.overToLean++;
       }
@@ -325,15 +328,16 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
   // Purge synthesized actions that no longer match a symbol verdict.
   // Invariant: an action with source=X targeting symbol S requires that
   // S's X-axis verdict still justifies the action.
-  const purgedActions = (downgradedDuplication.size > 0 || downgradedOverengineering.size > 0 || downgradedUtility.size > 0)
-    ? review.actions.filter((a) => {
-        if (!a.target_symbol) return true;
-        if (a.source === 'duplication' && downgradedDuplication.has(a.target_symbol)) return false;
-        if (a.source === 'overengineering' && downgradedOverengineering.has(a.target_symbol)) return false;
-        if (a.source === 'utility' && downgradedUtility.has(a.target_symbol)) return false;
-        return true;
-      })
-    : review.actions;
+  const verdictBySymbol = new Map(newSymbols.map((s) => [s.name, s]));
+  const purgedActions = review.actions.filter((a) => {
+    if (!a.target_symbol || !a.source) return true;
+    const actionable = ACTIONABLE_VERDICTS[a.source];
+    if (!actionable) return true; // source is not a verdict-driven axis — never purge
+    const sym = verdictBySymbol.get(a.target_symbol);
+    if (!sym) return true; // can't evaluate the verdict — keep
+    const verdict = (sym as unknown as Record<string, unknown>)[a.source];
+    return actionable.has(String(verdict)); // keep only while the verdict still justifies it
+  });
 
   // Synthesize actions for LEAN → OVER promotions (axis-merger ran before
   // tier1 so these symbols had no OVER action at merge time).

@@ -115,6 +115,59 @@ describe('applyTier1', () => {
     expect(result.actions.find((a) => a.source === 'utility' && a.target_symbol === 'Progress')).toBeUndefined();
   });
 
+  it('generalizes the purge to documentation (UNDOCUMENTED→DOCUMENTED drops the JSDoc action)', () => {
+    const content = '/**\n * A clear description of foo and what it returns.\n */\nexport function foo() {}\n';
+    const review = makeReview({
+      file: 'src/x.ts',
+      symbols: [{ name: 'foo', exported: true, documentation: 'UNDOCUMENTED', confidence: 80, detail: 'No JSDoc', line_start: 4, line_end: 4 }],
+      actions: [{
+        id: 1, description: 'Add a JSDoc block to `foo`', severity: 'medium', effort: 'trivial', category: 'refactor',
+        source: 'documentation', target_symbol: 'foo', target_lines: 'L4-L4',
+      }],
+    });
+    const ctx = makeContext({ fileContents: new Map([['src/x.ts', content]]) });
+
+    const result = applyTier1(review, ctx);
+
+    expect(result.symbols[0].documentation).toBe('DOCUMENTED');
+    expect(result.actions.find((a) => a.source === 'documentation' && a.target_symbol === 'foo')).toBeUndefined();
+  });
+
+  it('keeps an action whose source is not a verdict-driven axis', () => {
+    const graph = makeUsageGraph({ usages: new Map([['x::src/x.ts', new Set(['src/y.ts'])]]) });
+    const review = makeReview({
+      file: 'src/x.ts',
+      symbols: [{ name: 'x', exported: true, utility: 'DEAD', confidence: 90, detail: 'No importers found' }],
+      actions: [{
+        id: 1, description: 'Reference a doc divergence', severity: 'medium', effort: 'trivial', category: 'refactor',
+        source: 'internal', target_symbol: 'x', target_lines: 'L1-L1',
+      }],
+    });
+
+    const result = applyTier1(review, makeContext({ usageGraph: graph }));
+
+    // x flips DEAD→USED, but the action's source is not an axis → never purged.
+    expect(result.symbols[0].utility).toBe('USED');
+    expect(result.actions.some((a) => a.source === 'internal' && a.target_symbol === 'x')).toBe(true);
+  });
+
+  it('keeps a synthesized action when the verdict stays actionable', () => {
+    const review = makeReview({
+      file: 'src/x.ts',
+      symbols: [{ name: 'gone', exported: true, utility: 'DEAD', confidence: 90, detail: 'No importers found' }],
+      actions: [{
+        id: 1, description: 'Remove dead code: `gone` is exported but unused', severity: 'high', effort: 'trivial', category: 'quickwin',
+        source: 'utility', target_symbol: 'gone', target_lines: 'L1-L1',
+      }],
+    });
+
+    // Empty usage graph → no importers → stays DEAD → action kept.
+    const result = applyTier1(review, makeContext());
+
+    expect(result.symbols[0].utility).toBe('DEAD');
+    expect(result.actions.some((a) => a.source === 'utility' && a.target_symbol === 'gone')).toBe(true);
+  });
+
   it('AC: reclassifies DEAD→USED when transitively used', () => {
     const graph = makeUsageGraph({
       intraFileRefs: new Map([['doWork::src/core/example.ts', new Set(['mainExport'])]]),
