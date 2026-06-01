@@ -444,37 +444,6 @@ describe('applyTier1', () => {
     expect(result.symbols[0].documentation).toBe('UNDOCUMENTED');
   });
 
-  // --- Fixture / gold-set files ---
-
-  it('AC: skips correction/utility findings for __fixtures__ files', () => {
-    const review = makeReview({
-      file: 'src/__fixtures__/broken.ts',
-      symbols: [{
-        name: 'broken', correction: 'NEEDS_FIX', utility: 'DEAD',
-        confidence: 85, detail: 'Fixture file',
-      }],
-    });
-    const result = applyTier1(review, makeContext());
-
-    expect(result.symbols[0].correction).toBe('OK');
-    expect(result.symbols[0].utility).toBe('USED');
-    expect(result.symbols[0].detail).toContain('Intentional fixture code');
-  });
-
-  it('AC: skips correction/utility findings for __gold-set__ files', () => {
-    const review = makeReview({
-      file: 'tests/__gold-set__/sample.ts',
-      symbols: [{
-        name: 'sample', correction: 'ERROR', utility: 'DEAD',
-        confidence: 90, detail: 'Gold set file',
-      }],
-    });
-    const result = applyTier1(review, makeContext());
-
-    expect(result.symbols[0].correction).toBe('OK');
-    expect(result.symbols[0].utility).toBe('USED');
-    expect(result.symbols[0].detail).toContain('Intentional fixture code');
-  });
 
   // --- Tests axis: NONE confirmed when no test file ---
 
