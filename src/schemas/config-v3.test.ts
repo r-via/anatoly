@@ -608,6 +608,29 @@ describe('ConfigV3Schema — cross-reference: provider existence', () => {
     }
   });
 
+  it('accepts a commands section with declared model refs', () => {
+    const cfg = baseConfig() as Record<string, unknown>;
+    cfg.commands = {
+      model: 'anthropic/claude-sonnet-4-6',
+      scope: 'anthropic/claude-opus-4-6',
+      refresh: 'anthropic/claude-haiku-4-5-20251001',
+    };
+    expect(ConfigV3Schema.safeParse(cfg).success).toBe(true);
+  });
+
+  it('rejects a commands ref pointing to an unknown provider', () => {
+    const cfg = baseConfig() as Record<string, unknown>;
+    cfg.commands = { scope: 'ghost/some-model' };
+    const r = ConfigV3Schema.safeParse(cfg);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues).toContainEqual(expect.objectContaining({
+        path: ['commands', 'scope'],
+        message: expect.stringContaining('provider "ghost" not declared') as unknown as string,
+      }));
+    }
+  });
+
   it('rejects evaluation override pointing to unknown provider', () => {
     const cfg = baseConfig() as Record<string, unknown>;
     cfg.evaluation = {

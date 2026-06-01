@@ -64,6 +64,9 @@ export interface ProposeExcludesParams {
   router: TransportRouter;
   /** Relative file paths currently in the audit surface (post scan.exclude). */
   files: string[];
+  /** Model ref for the call. Resolve via `resolveCommandModel(config, 'scope')`
+   *  at the call site. Falls back to `models.quality` (single-turn) when omitted. */
+  model?: string;
   /** Globs already present in scan.exclude — never re-proposed. */
   alreadyExcluded?: string[];
   abortController?: AbortController;
@@ -83,7 +86,7 @@ export async function proposeExcludes(params: ProposeExcludesParams): Promise<Ex
   if (files.length === 0) return [];
 
   const query = params.queryFn ?? runSingleTurnQuery;
-  const model = config.models.deliberation || config.models.quality;
+  const model = params.model ?? config.models.quality;
   const already = params.alreadyExcluded ?? [];
   const tree = buildProjectTree(files);
   const userMessage =

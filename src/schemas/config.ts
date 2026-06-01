@@ -100,6 +100,21 @@ export const ModelsConfigSchema = z.object({
   code_summary: z.string().optional(),
 });
 
+/**
+ * Explicit model selection for standalone commands that make LLM calls
+ * outside an audit run (`docs arbitrate refresh`, `init --scope`, ...).
+ *
+ * `model` is the default for all such commands; a command key overrides it.
+ * All optional: an absent entry makes {@link resolveCommandModel} fall back
+ * to the single-turn `models.quality` slot. These calls are single-turn, so
+ * the fallback is deliberately NOT `models.deliberation` (the agentic slot).
+ */
+export const CommandsConfigSchema = z.object({
+  model: z.string().optional(),
+  scope: z.string().optional(),
+  refresh: z.string().optional(),
+});
+
 // --- v1.0 Agents ---
 
 export const AgentsConfigSchema = z.object({
@@ -288,6 +303,7 @@ export const ConfigSchema = z.object({
     deliberation: DEFAULT_MODELS.deliberation,
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
+  commands: CommandsConfigSchema.optional(),
   runtime: RuntimeConfigSchema.default({
     timeout_per_call: 600,
     max_retries: 3,
@@ -336,7 +352,22 @@ export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type EmbeddingProviderConfig = z.infer<typeof EmbeddingProviderConfigSchema>;
 export type EmbeddingConfig = z.infer<typeof EmbeddingConfigSchema>;
 export type DocumentationConfig = z.infer<typeof DocumentationConfigSchema>;
+export type CommandsConfig = z.infer<typeof CommandsConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
+
+/**
+ * Resolve the model a standalone command uses for its LLM calls.
+ * Precedence: per-command override (`commands.<command>`) → default
+ * (`commands.model`) → `models.quality`. The final fallback is the
+ * single-turn quality slot, never `models.deliberation` (the agentic slot),
+ * so a command that forgets to configure itself still gets a single-turn
+ * capable model.
+ */
+export function resolveCommandModel(config: Config, command: string): string {
+  const c = config.commands;
+  const perCommand = c ? (c as Record<string, string | undefined>)[command] : undefined;
+  return perCommand ?? c?.model ?? config.models.quality;
+}
 
 /**
  * Derive the primary docs directory from reference.paths.

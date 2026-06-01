@@ -642,6 +642,18 @@ export function buildAnnotatedV3Yaml(
     sectionHeader('routing'),
     activeYaml({ routing: routingForTier(tier, overrides?.generation?.routing) }),
     '',
+    sectionHeader('commands (optional — per-command model for standalone LLM commands)'),
+    '# Standalone commands that call an LLM outside an audit run (docs arbitrate',
+    '# refresh, init --scope). `model` is the default; a command key overrides it.',
+    '# Absent ⇒ the command uses routing.generation.quality (a single-turn slot).',
+    commentedYaml({
+      commands: {
+        model: 'anthropic/claude-sonnet-4-6',
+        scope: 'anthropic/claude-opus-4-6',
+        refresh: 'anthropic/claude-haiku-4-5-20251001',
+      },
+    }),
+    '',
     sectionHeader('evaluation'),
     // Story 54.1 no-magic: the documentation axis MUST be written in its full
     // object form with explicit reference.paths and internal.mode. The bool

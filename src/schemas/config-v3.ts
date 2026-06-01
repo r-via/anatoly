@@ -251,6 +251,21 @@ export const RoutingConfigSchema = z.object({
 
 export type RoutingConfig = z.infer<typeof RoutingConfigSchema>;
 
+/**
+ * Explicit model selection for standalone commands that make LLM calls
+ * outside an audit run (`docs arbitrate refresh`, `init --scope`, ...).
+ * `model` is the default; a command key overrides it. Each ref is validated
+ * to point at a declared provider model, like every routing slot. Absent ⇒
+ * the command falls back to `routing.generation.quality` (single-turn).
+ */
+export const CommandsConfigSchema = z.object({
+  model: ModelRefSchema.optional(),
+  scope: ModelRefSchema.optional(),
+  refresh: ModelRefSchema.optional(),
+});
+
+export type CommandsConfig = z.infer<typeof CommandsConfigSchema>;
+
 // ---------------------------------------------------------------------------
 // Evaluation (per-axis switches with optional overrides)
 // ---------------------------------------------------------------------------
@@ -419,6 +434,7 @@ const PreConfigSchema = z.object({
   // Restructured v3 sections.
   providers: ProvidersConfigSchema,
   routing: RoutingConfigSchema,
+  commands: CommandsConfigSchema.optional(),
   // Story 54.1 no-magic: `evaluation` is REQUIRED because its
   // `axes.documentation` block carries mandatory user-supplied paths
   // and internal-mode declaration that cannot be inferred from a default.
@@ -455,6 +471,12 @@ function* iterateModelRefs(
     if (typeof axis === 'object' && axis !== null && 'model' in axis && axis.model) {
       yield { ref: axis.model, path: ['evaluation', 'axes', axisId, 'model'] };
     }
+  }
+
+  if (data.commands) {
+    if (data.commands.model) yield { ref: data.commands.model, path: ['commands', 'model'] };
+    if (data.commands.scope) yield { ref: data.commands.scope, path: ['commands', 'scope'] };
+    if (data.commands.refresh) yield { ref: data.commands.refresh, path: ['commands', 'refresh'] };
   }
 }
 

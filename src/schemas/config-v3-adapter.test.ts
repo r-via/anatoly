@@ -530,3 +530,23 @@ describe('adaptV3ToV2 — round-trip through ConfigSchema', () => {
     expect(parsed).toHaveProperty('runtime');
   });
 });
+
+describe('adaptV3ToV2 — commands', () => {
+  it('passes a commands section through to v2 unchanged', () => {
+    const v3 = fullV3() as Record<string, unknown>;
+    v3.commands = {
+      model: 'anthropic/claude-sonnet-4-6',
+      scope: 'anthropic/claude-opus-4-6',
+    };
+    const { v2 } = adapt(v3);
+    expect(v2.commands).toEqual({
+      model: 'anthropic/claude-sonnet-4-6',
+      scope: 'anthropic/claude-opus-4-6',
+    });
+  });
+
+  it('omits commands from v2 when absent in v3', () => {
+    const { v2 } = adapt(fullV3());
+    expect(v2).not.toHaveProperty('commands');
+  });
+});

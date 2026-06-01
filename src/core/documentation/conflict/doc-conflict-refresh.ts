@@ -12,7 +12,7 @@ import { isRateLimitStandbyError } from '../../../utils/rate-limiter.js';
 import { runSingleTurnQuery } from '../../evaluation/index.js';
 import { type TransportRouter, type LlmResponse } from '../../transports/index.js';
 import type { DocConflict, DocConflictVerdict } from '../../../schemas/doc-conflict.js';
-import type { Config } from '../../../schemas/config.js';
+import { resolveCommandModel, type Config } from '../../../schemas/config.js';
 
 const REFRESH_TIMEOUT_MS = 120_000;
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.85;
@@ -258,9 +258,9 @@ export async function refreshPendingConflicts(
     return { entries, summary };
   }
 
-  const model = config.models.fast ?? config.models.quality;
+  const model = resolveCommandModel(config, 'refresh');
   if (!model) {
-    log.warn('doc-conflict-refresh: no fast/quality model configured — skipping');
+    log.warn('doc-conflict-refresh: no model resolved for refresh — skipping');
     return { entries, summary };
   }
 

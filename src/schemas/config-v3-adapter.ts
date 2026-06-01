@@ -102,6 +102,8 @@ export function adaptV3ToV2(v3: ConfigV3): LooseRecord {
   v2.badge = v3.badge;
   v2.search = v3.search;
   if (v3.notifications) v2.notifications = v3.notifications;
+  // commands — explicit per-command model selection (same shape in v2/v3)
+  if (v3.commands) v2.commands = v3.commands;
 
   return v2;
 }

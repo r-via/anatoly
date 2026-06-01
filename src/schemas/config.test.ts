@@ -8,6 +8,8 @@ import {
   ConfigSchema,
   AxisConfigSchema,
   GenericProviderConfigSchema,
+  resolveCommandModel,
+  type Config,
 } from './config.js';
 
 describe('ConfigSchema — v1.0 new sections', () => {
@@ -730,5 +732,30 @@ describe('Exported schemas', () => {
     expect(mod.NotificationsConfigSchema).toBeDefined();
     expect(mod.EmbeddingProviderConfigSchema).toBeDefined();
     expect(mod.EmbeddingConfigSchema).toBeDefined();
+  });
+});
+
+describe('resolveCommandModel', () => {
+  const base = (commands?: unknown): Config => ({
+    models: { quality: 'p/quality', fast: 'p/fast', deliberation: 'p/deliberation' },
+    commands,
+  } as unknown as Config);
+
+  it('uses the per-command override first', () => {
+    expect(resolveCommandModel(base({ model: 'p/default', scope: 'p/scope' }), 'scope')).toBe('p/scope');
+  });
+
+  it('falls back to the commands.model default', () => {
+    expect(resolveCommandModel(base({ model: 'p/default' }), 'scope')).toBe('p/default');
+  });
+
+  it('falls back to models.quality when commands is absent (never deliberation)', () => {
+    const m = resolveCommandModel(base(undefined), 'scope');
+    expect(m).toBe('p/quality');
+    expect(m).not.toBe('p/deliberation');
+  });
+
+  it('falls back to models.quality when the command has no override and no default', () => {
+    expect(resolveCommandModel(base({ refresh: 'p/refresh' }), 'scope')).toBe('p/quality');
   });
 });

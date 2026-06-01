@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
@@ -14,7 +14,7 @@ import { createCliRouter } from '../core/transports/cli-router.js';
 import { commandPath } from '../utils/anatoly-paths.js';
 import { pruneTimestampedRuns } from '../utils/command-retention.js';
 import { conversationsDir } from '../utils/run-layout.js';
-import { ConfigSchema } from '../schemas/config.js';
+import { ConfigSchema, resolveCommandModel } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
 import { ALL_AXIS_IDS } from '../core/evaluation/index.js';
@@ -592,6 +592,7 @@ export function registerInitCommand(program: Command): void {
                   config: cfg,
                   router: createCliRouter(cfg),
                   files,
+                  model: resolveCommandModel(cfg, 'scope'),
                   alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
                   conversationDir: conversationsDir(transcriptDir),
                 });
@@ -601,6 +602,14 @@ export function registerInitCommand(program: Command): void {
             } catch (err) {
               spin.stop('Model suggestion skipped.');
               p.log.warn(`Scope suggestion unavailable: ${err instanceof Error ? err.message : String(err)}`);
+              // Drop the transcript dir if the failed call left it empty, so a
+              // failure does not litter .anatoly/commands/scope/ with empties.
+              try {
+                const conv = conversationsDir(transcriptDir);
+                if (!existsSync(conv) || readdirSync(conv).length === 0) {
+                  rmSync(transcriptDir, { recursive: true, force: true });
+                }
+              } catch { /* best-effort */ }
             }
           }
 
