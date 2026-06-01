@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { Command } from 'commander';
-import { existsSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
@@ -11,9 +11,7 @@ import { parseDocument as parseYamlDoc, isSeq, isMap } from 'yaml';
 import { glob } from 'tinyglobby';
 import { proposeExcludes, type ExcludeSuggestion } from '../core/scanning/propose-excludes.js';
 import { createCliRouter } from '../core/transports/cli-router.js';
-import { commandPath } from '../utils/anatoly-paths.js';
-import { pruneTimestampedRuns } from '../utils/command-retention.js';
-import { conversationsDir } from '../utils/run-layout.js';
+import { withCommandObservability } from '../core/run/command-observability.js';
 import { ConfigSchema, resolveCommandModel } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
@@ -601,38 +599,32 @@ export function registerInitCommand(program: Command): void {
           let suggestions: ExcludeSuggestion[] = [];
           if (process.stdin.isTTY) {
             const spin = p.spinner();
-            // Standalone-command observability: one timestamped dir of LLM
-            // transcripts under .anatoly/commands/scope/, bounded retention.
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            pruneTimestampedRuns(commandPath(projectRoot, 'scope'), SCOPE_RUNS_KEPT - 1);
-            const transcriptDir = commandPath(projectRoot, 'scope', ts);
             try {
               const files = await glob(cfg.scan.include, { cwd: projectRoot, ignore: cfg.scan.exclude });
               if (files.length > 0) {
                 spin.start('Asking the model to propose scope exclusions');
-                suggestions = await proposeExcludes({
-                  projectRoot,
-                  config: cfg,
-                  router: createCliRouter(cfg),
-                  files,
-                  model: resolveCommandModel(cfg, 'scope'),
-                  alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
-                  conversationDir: conversationsDir(transcriptDir),
-                });
+                // Route the model call through the centralized command
+                // observability scope so the transcript, cost ledger and logs
+                // are captured under .anatoly/commands/scope/<timestamp>/.
+                let obsDir = '';
+                suggestions = await withCommandObservability(projectRoot, 'scope', async ({ runDir, conversationDir }) => {
+                  obsDir = runDir;
+                  return proposeExcludes({
+                    projectRoot,
+                    config: cfg,
+                    router: createCliRouter(cfg),
+                    files,
+                    model: resolveCommandModel(cfg, 'scope'),
+                    alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
+                    conversationDir,
+                  });
+                }, { keep: SCOPE_RUNS_KEPT });
                 spin.stop(`Model proposed ${suggestions.length} exclusion${suggestions.length === 1 ? '' : 's'}.`);
-                p.log.info(`Transcript: ${transcriptDir}`);
+                p.log.info(`Observability: ${obsDir}`);
               }
             } catch (err) {
               spin.stop('Model suggestion skipped.');
               p.log.warn(`Scope suggestion unavailable: ${err instanceof Error ? err.message : String(err)}`);
-              // Drop the transcript dir if the failed call left it empty, so a
-              // failure does not litter .anatoly/commands/scope/ with empties.
-              try {
-                const conv = conversationsDir(transcriptDir);
-                if (!existsSync(conv) || readdirSync(conv).length === 0) {
-                  rmSync(transcriptDir, { recursive: true, force: true });
-                }
-              } catch { /* best-effort */ }
             }
           }
 

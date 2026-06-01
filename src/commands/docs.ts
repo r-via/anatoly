@@ -6,8 +6,8 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync, cpSync, lstatSync } from 'node:fs';
 import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
-import { anatolyPath, commandPath } from '../utils/anatoly-paths.js';
-import { pruneTimestampedRuns } from '../utils/command-retention.js';
+import { anatolyPath } from '../utils/anatoly-paths.js';
+import { withCommandObservability } from '../core/run/command-observability.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
@@ -1151,21 +1151,16 @@ const REFRESH_RUNS_KEPT = 10;
 function buildRefreshFn(projectRoot: string): RefreshFn {
   const config = loadConfig(projectRoot);
   const router = buildRouter(config);
-  // Timestamped observability dir for LLM conversation transcripts.
-  //
-  // This is NOT placed under `.anatoly/cache/`: transcripts are forensic,
-  // non-reproducible output (rerunning never reproduces them, nothing is
-  // read back by key), so they are not a content-addressable cache. Living
-  // in the cache tree was actively harmful — `cache snapshot` would mirror
-  // them into every snapshot, `cache restore` would wipe the in-flight
-  // arbitration history, and `cache prune` never touched them (unbounded
-  // growth). It is also kept out of `.anatoly/runs/`, which is reserved for
-  // real audit runs. Instead it lives under the shared standalone-command
-  // observability namespace `.anatoly/commands/<command>/` (here `refresh`),
-  // with simple keep-most-recent-N retention.
-  const refreshRoot = commandPath(projectRoot, 'refresh');
-  pruneTimestampedRuns(refreshRoot, REFRESH_RUNS_KEPT - 1);
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const runDir = join(refreshRoot, ts);
-  return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router, runDir });
+  // Route the refresh LLM work through the centralized command observability
+  // scope: transcripts, cost ledger and logs land under
+  // .anatoly/commands/refresh/<timestamp>/, and the ALS `phase` it opens is
+  // what lets the conversation dumps actually write. See
+  // src/core/run/command-observability.ts and doc 19 section 10.
+  return async (entries) =>
+    withCommandObservability(
+      projectRoot,
+      'refresh',
+      ({ runDir }) => refreshPendingConflicts(entries, { projectRoot, config, router, runDir }),
+      { keep: REFRESH_RUNS_KEPT },
+    );
 }

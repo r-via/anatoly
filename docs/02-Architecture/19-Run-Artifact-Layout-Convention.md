@@ -276,13 +276,23 @@ conversation transcripts. These were first written to a top-level
 scale: every new such command would add another top-level dir.
 
 The convention groups them under a single namespace, one sub-directory
-per command:
+per command. Each invocation runs through `withCommandObservability`
+([command-observability.ts](../../src/core/run/command-observability.ts)),
+which opens the same three scopes an audit run does, so a command gets
+the full set of artifacts (event log, cost ledger, transcripts), not just
+transcripts:
 
 ```
-.anatoly/commands/<command>/<timestamp>/conversations/<dump>.md
-                  refresh/2026-05-29T.../conversations/...
-                  scope/2026-05-30T.../conversations/...
+.anatoly/commands/<command>/<timestamp>/
+                  anatoly.ndjson              (structured event log)
+                  costs/ledger.ndjson         (per-call cost records)
+                  conversations/<dump>.md     (LLM transcripts)
 ```
+
+Crucially, the scope opens the ALS log-context with `phase: <command>`,
+which `buildDumpSlug` requires: without it the transports silently wrote
+no conversation dump (the dirs came out empty), which is exactly the bug
+standalone commands hit before this helper existed.
 
 Rules:
 
