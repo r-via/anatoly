@@ -181,6 +181,28 @@ export function mergeScanIntoYaml(
   return doc.toString();
 }
 
+/**
+ * Materialize the `commands` section into an existing YAML string if it is
+ * absent, so standalone-command model selection is written explicitly (no
+ * hidden defaults). Never overwrites an existing `commands` section, and
+ * touches nothing else. Deterministic: the date stamp comes from the caller.
+ */
+export function ensureCommandsInYaml(
+  existingYaml: string,
+  commands: { model: string; scope: string; refresh: string },
+  opts: { dateStamp?: string } = {},
+): string {
+  const doc = parseYamlDoc(existingYaml);
+  if (doc.get('commands') !== undefined) return existingYaml; // already explicit; leave it
+
+  const node = doc.createNode(commands);
+  node.commentBefore = opts.dateStamp
+    ? ` commands: materialized by anatoly init --phases scope on ${opts.dateStamp}`
+    : ' commands: standalone-command model selection';
+  doc.set('commands', node);
+  return doc.toString();
+}
+
 const SUBSCRIPTION_PROVIDERS = new Set(['anthropic']);
 
 /**
@@ -573,6 +595,8 @@ export function registerInitCommand(program: Command): void {
           // docs/02-Architecture/21-Scope-Reconfiguration-Phase.md.
           const { exclude: detected } = await detectScanGlobs(projectRoot);
           const existing = readFileSync(configPath, 'utf-8');
+          const cfg = loadConfig(projectRoot);
+          const dateStamp = new Date().toISOString().slice(0, 10);
 
           let suggestions: ExcludeSuggestion[] = [];
           if (process.stdin.isTTY) {
@@ -583,7 +607,6 @@ export function registerInitCommand(program: Command): void {
             pruneTimestampedRuns(commandPath(projectRoot, 'scope'), SCOPE_RUNS_KEPT - 1);
             const transcriptDir = commandPath(projectRoot, 'scope', ts);
             try {
-              const cfg = loadConfig(projectRoot);
               const files = await glob(cfg.scan.include, { cwd: projectRoot, ignore: cfg.scan.exclude });
               if (files.length > 0) {
                 spin.start('Asking the model to propose scope exclusions');
@@ -614,9 +637,17 @@ export function registerInitCommand(program: Command): void {
           }
 
           const allGlobs = [...detected, ...suggestions.map((sg) => sg.glob)];
-          const merged = mergeScanIntoYaml(existing, allGlobs, { dateStamp: new Date().toISOString().slice(0, 10) });
+          let merged = mergeScanIntoYaml(existing, allGlobs, { dateStamp });
+          // No hidden defaults: materialize the commands section if the config
+          // predates it, so the model selection is written explicitly like the
+          // rest of the yaml. Never overwrites an existing commands section.
+          merged = ensureCommandsInYaml(merged, {
+            model: cfg.models.quality,
+            scope: cfg.models.quality,
+            refresh: cfg.models.fast,
+          }, { dateStamp });
           if (merged === existing) {
-            p.log.info('scan.exclude is already up to date — nothing to add.');
+            p.log.info('scan.exclude and commands are already present — nothing to add.');
           } else {
             if (suggestions.length > 0) {
               p.note(
@@ -628,7 +659,7 @@ export function registerInitCommand(program: Command): void {
             const confirmed = await p.confirm({ message: 'Write scope changes?' });
             if (isCancelled(confirmed) || !confirmed) { p.cancel('Aborted.'); return; }
             writeFileSync(configPath, merged);
-            p.log.success(`${CONFIG_FILENAME} scan section updated.`);
+            p.log.success(`${CONFIG_FILENAME} updated (scan + commands).`);
           }
         }
 

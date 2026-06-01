@@ -859,6 +859,21 @@ describe('writeFirstRunConfig', () => {
     expect(anthropic.env_key).toBeUndefined();
   });
 
+  it('writes an active commands section with explicit per-command models (no hidden defaults)', async () => {
+    await writeFirstRunConfig(dir);
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    // Active, not commented.
+    expect(content).toMatch(/\ncommands:\n/);
+    const yaml = await import('js-yaml');
+    const parsed = yaml.load(content) as { commands?: { model?: string; scope?: string; refresh?: string } };
+    expect(parsed.commands?.model).toMatch(/^anthropic\//);
+    expect(parsed.commands?.scope).toMatch(/^anthropic\//);
+    expect(parsed.commands?.refresh).toMatch(/^anthropic\//);
+    // The generated config (with the commands section) still validates as v3.
+    const { ConfigV3Schema } = await import('../schemas/config-v3.js');
+    expect(ConfigV3Schema.safeParse(parsed).success).toBe(true);
+  });
+
   it('emits anthropic with auth: api_key + env_key when ANTHROPIC_API_KEY is set', async () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
     await writeFirstRunConfig(dir);

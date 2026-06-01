@@ -15,6 +15,7 @@ import {
   LANGUAGE_DOC_KINDS,
   mergeDocumentationIntoYaml,
   mergeScanIntoYaml,
+  ensureCommandsInYaml,
   type WizardSelections,
   type DocWizardSelections,
 } from './init.js';
@@ -467,5 +468,31 @@ providers:
     const parsed = yaml.load(result) as { scan: { exclude: string[] } };
     expect(parsed.scan.exclude).toContain('src/__fixtures__/**');
     expect((yaml.load(result) as { providers?: unknown }).providers).toBeDefined();
+  });
+});
+
+describe('ensureCommandsInYaml', () => {
+  const cmds = { model: 'anthropic/q', scope: 'anthropic/s', refresh: 'anthropic/r' };
+
+  it('materializes the commands section when absent', () => {
+    const yamlStr = `providers:\n  anthropic:\n    mode: subscription\n`;
+    const result = ensureCommandsInYaml(yamlStr, cmds);
+    const parsed = yaml.load(result) as { commands: typeof cmds; providers?: unknown };
+    expect(parsed.commands).toEqual(cmds);
+    expect(parsed.providers).toBeDefined();
+  });
+
+  it('never overwrites an existing commands section', () => {
+    const yamlStr = `commands:\n  model: anthropic/keep\nproviders: {}\n`;
+    const result = ensureCommandsInYaml(yamlStr, cmds);
+    expect(result).toBe(yamlStr);
+    expect((yaml.load(result) as { commands: { model: string } }).commands.model).toBe('anthropic/keep');
+  });
+
+  it('is idempotent after materializing', () => {
+    const yamlStr = `providers: {}\n`;
+    const once = ensureCommandsInYaml(yamlStr, cmds, { dateStamp: '2026-06-01' });
+    const twice = ensureCommandsInYaml(once, cmds, { dateStamp: '2026-06-01' });
+    expect(twice).toBe(once);
   });
 });
