@@ -8,6 +8,9 @@ import { resolve } from 'node:path';
 import * as p from '@clack/prompts';
 import yaml from 'js-yaml';
 import { parseDocument as parseYamlDoc, isSeq, isMap } from 'yaml';
+import { glob } from 'tinyglobby';
+import { proposeExcludes, type ExcludeSuggestion } from '../core/scanning/propose-excludes.js';
+import { createCliRouter } from '../core/transports/cli-router.js';
 import { ConfigSchema } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
@@ -555,15 +558,50 @@ export function registerInitCommand(program: Command): void {
 
         if (requestedPhases.has('scope')) {
           // Re-detect the audit perimeter and surgically union the freshly
-          // detected excludes into scan.exclude. Deterministic baseline only
-          // (no LLM): the suggestion layer is a later PR. See
+          // detected excludes into scan.exclude. The deterministic baseline
+          // (autoDetectScanGlobs) always runs; in an interactive TTY a single
+          // model pass proposes extra exclusions the heuristic missed
+          // (fixtures/generated/examples/vendored). Headless paths stay on the
+          // baseline — no LLM decides scope silently. The human confirms the
+          // diff before anything is written. See
           // docs/02-Architecture/21-Scope-Reconfiguration-Phase.md.
-          const { exclude } = await detectScanGlobs(projectRoot);
+          const { exclude: detected } = await detectScanGlobs(projectRoot);
           const existing = readFileSync(configPath, 'utf-8');
-          const merged = mergeScanIntoYaml(existing, exclude, { dateStamp: new Date().toISOString().slice(0, 10) });
+
+          let suggestions: ExcludeSuggestion[] = [];
+          if (process.stdin.isTTY) {
+            const spin = p.spinner();
+            try {
+              const cfg = loadConfig(projectRoot);
+              const files = await glob(cfg.scan.include, { cwd: projectRoot, ignore: cfg.scan.exclude });
+              if (files.length > 0) {
+                spin.start('Asking the model to propose scope exclusions');
+                suggestions = await proposeExcludes({
+                  projectRoot,
+                  config: cfg,
+                  router: createCliRouter(cfg),
+                  files,
+                  alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
+                });
+                spin.stop(`Model proposed ${suggestions.length} exclusion${suggestions.length === 1 ? '' : 's'}.`);
+              }
+            } catch (err) {
+              spin.stop('Model suggestion skipped.');
+              p.log.warn(`Scope suggestion unavailable: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+
+          const allGlobs = [...detected, ...suggestions.map((sg) => sg.glob)];
+          const merged = mergeScanIntoYaml(existing, allGlobs, { dateStamp: new Date().toISOString().slice(0, 10) });
           if (merged === existing) {
             p.log.info('scan.exclude is already up to date — nothing to add.');
           } else {
+            if (suggestions.length > 0) {
+              p.note(
+                suggestions.map((sg) => `${sg.glob}  [${sg.category}] ${sg.reason}`).join('\n'),
+                'Model-proposed exclusions',
+              );
+            }
             p.note(merged, 'Preview (scope)');
             const confirmed = await p.confirm({ message: 'Write scope changes?' });
             if (isCancelled(confirmed) || !confirmed) { p.cancel('Aborted.'); return; }

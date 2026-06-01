@@ -1,14 +1,18 @@
 # 21. Scope Reconfiguration Phase (`init --phases scope`)
 
-> Status: DESIGN. No code yet. Scope: give an already-initialized
-> project a deterministic, human-confirmed write path for the audit
-> perimeter (`scan.exclude` / `scan.include`), and make fixture
-> directories excluded by default at the scan layer instead of patched
-> per-axis or post-review. Supersedes the tier1 `FIXTURE_PATTERNS`
-> band-aid (see section 7). Sibling of the init-phase mechanism in
-> [init.ts](../../src/commands/init.ts) and the bootstrap detector in
-> [scan-autodetect.ts](../../src/core/scanning/scan-autodetect.ts).
-> Decision context: project memory `project_scope_phase_exclusions`.
+> Status: PR 1 (deterministic core), PR 2 (model suggestion), PR 3
+> (run-side hint) and the tier1 band-aid removal all landed. Scope: give
+> an already-initialized project a deterministic, human-confirmed write
+> path for the audit perimeter (`scan.exclude` / `scan.include`), and
+> make fixture directories excluded by default at the scan layer instead
+> of patched per-axis or post-review. Supersedes the tier1
+> `FIXTURE_PATTERNS` band-aid (removed, see section 7). Implemented in
+> [init.ts](../../src/commands/init.ts) (the `scope` phase +
+> `mergeScanIntoYaml`), [scan-autodetect.ts](../../src/core/scanning/scan-autodetect.ts)
+> (bootstrap default), [propose-excludes.ts](../../src/core/scanning/propose-excludes.ts)
+> (the model suggestion) and [hint-detector.ts](../../src/cli/hint-detector.ts)
+> (the run-side nudge). Decision context: project memory
+> `project_scope_phase_exclusions`.
 
 ## 1. The decision
 
@@ -141,39 +145,49 @@ Invariants:
    therefore caught at confirm time and visible in the git diff, never
    applied silently.
 
-## 5. The suggestion layer (deferred, interface-first)
+## 5. The suggestion layer (built, [propose-excludes.ts](../../src/core/scanning/propose-excludes.ts))
 
-The Opus pass is built behind a narrow seam so the phase ships
-deterministic first and the model layer is added without reworking the
-flow, and so tests never call a real model (project rule: no LLM in
-tests):
+The model pass sits behind a narrow seam so the phase ships deterministic
+first and the model layer is added without reworking the flow, and so
+tests never call a real model (project rule: no LLM in tests). The shipped
+signature:
 
 ```
-proposeExcludes(tree: ProjectTree): Array<{
+proposeExcludes(params: {
+  projectRoot, config, router, files,
+  alreadyExcluded?, abortController?,
+  queryFn?,   // injectable seam; defaults to runSingleTurnQuery
+}): Promise<Array<{
   glob: string;
   category: 'fixture' | 'generated' | 'example' | 'vendored';
   reason: string;
-}>
+}>>
 ```
 
-The phase composes `autoDetectScanGlobs` (always) with
-`proposeExcludes` (TTY only), unions the globs, and feeds them to
-`mergeScanIntoYaml`. The category and reason are shown in the preview so
-the human can judge each entry. `proposeExcludes` is mockable in tests;
-the deterministic path needs no model.
+The phase composes `autoDetectScanGlobs` (always) with `proposeExcludes`
+(TTY only), unions the globs, and feeds them to `mergeScanIntoYaml`. The
+in-scope file list is rendered to a condensed tree via `buildProjectTree`
+for the prompt; the model is told that a wrongly-excluded real file is a
+silently-missed bug and to bias hard toward fewer, high-confidence
+exclusions. The category and reason are shown in the confirm preview so
+the human judges each entry. `queryFn` injection keeps it mockable; the
+deterministic path needs no model, and `config.models.deliberation`
+(Opus) drives the call.
 
 ## 6. Implementation plan
 
-- **PR 1 (deterministic core).** Add the `scope` phase to `VALID_PHASES`
-  and the per-phase flag. Implement `mergeScanIntoYaml` with hermetic
-  string-to-string tests covering the six invariants. Phase wiring
-  detects via `autoDetectScanGlobs`, merges, previews, confirms, writes.
-  No LLM. This alone gives an existing repo a clean write path.
-- **PR 2 (suggestion layer).** Add `proposeExcludes` behind the seam in
+- **PR 1 (deterministic core). DONE.** Added the `scope` phase to
+  `VALID_PHASES` and the `--scope` flag. `mergeScanIntoYaml` with hermetic
+  string-to-string tests covering the six invariants. Phase wiring detects
+  via `autoDetectScanGlobs`, merges, previews, confirms, writes. No LLM.
+- **PR 2 (suggestion layer). DONE.** `proposeExcludes` behind the seam in
   section 5, gated on TTY, surfaced in the preview with category and
-  reason. Mocked in tests.
-- **PR 3 (run-side hint).** Emit a notice from `run` when fixture-shaped
-  files remain in scope, pointing at the phase. No write.
+  reason, `queryFn`-mocked in tests. Shared router factory
+  `createCliRouter` extracted to avoid a sixth duplicated `buildRouter`.
+- **PR 3 (run-side hint). DONE.** The setup phase passes the in-scope file
+  list to the hint detector, which emits a `fixtures-in-scope` hint
+  pointing at `init --scope` when a fixture-shaped path survived
+  `scan.exclude`. No write, no LLM.
 
 ## 7. What this supersedes
 
