@@ -142,21 +142,42 @@ function normalise(content: string): string {
 /**
  * Extract lines from content by 1-based line range [start, end] inclusive.
  *
- * Out-of-range values are clamped — and the clamp is **logged** when it
- * actually rewrites the range. Silent clamping was previously masking
- * false-positive conflicts where the LLM emitted line numbers far past
- * EOF; the resulting hash anchored to one stray line and the entry was
- * marked stale on the next run regardless of code changes.
+ * Out-of-range values are clamped. The clamp is logged, but the level depends
+ * on whether it can actually mis-anchor the hash:
+ *
+ * - **Material (warn).** The start is pushed up from `<1`, or the start lands
+ *   at/past EOF. Both collapse the fragment to empty or a single stray line —
+ *   the pathology this guard exists for: silent clamping used to mask
+ *   false-positive conflicts where the LLM emitted line numbers far past EOF,
+ *   the hash anchored to a stray line, and the entry was marked stale on the
+ *   next run regardless of code changes.
+ * - **Benign (debug).** Only the end was trimmed back to EOF while the start is
+ *   valid. The hash then covers the real file tail (lines `start..EOF`), which
+ *   is essentially the intended fragment — common when the LLM rounds a
+ *   symbol's end a few lines past the last line. Not worth a warning.
  */
 function extractLines(content: string, lineRange: [number, number]): string {
   const lines = content.split('\n');
   const start = Math.max(1, lineRange[0]);
   const end = Math.min(lines.length, lineRange[1]);
   if (start !== lineRange[0] || end !== lineRange[1]) {
-    getLogger().warn(
-      { requested: lineRange, clamped: [start, end], fileLines: lines.length },
-      'doc-conflict-store: line range clamped to file bounds — anchor may not match the intended fragment',
-    );
+    // Material when the start was clamped up (negative/zero) or the requested
+    // start sits at/past EOF (slice collapses to empty or the last stray line).
+    // A pure end-overshoot with a valid in-range start still anchors to the
+    // real file tail, so it is benign.
+    const material = lineRange[0] < 1 || lineRange[0] >= lines.length;
+    const payload = { requested: lineRange, clamped: [start, end], fileLines: lines.length };
+    if (material) {
+      getLogger().warn(
+        payload,
+        'doc-conflict-store: line range clamped to file bounds — anchor may not match the intended fragment',
+      );
+    } else {
+      getLogger().debug(
+        payload,
+        'doc-conflict-store: line range end clamped to EOF — anchor covers the file tail, unaffected',
+      );
+    }
   }
   return lines.slice(start - 1, end).join('\n');
 }

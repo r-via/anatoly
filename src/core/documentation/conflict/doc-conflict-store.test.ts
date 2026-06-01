@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,7 @@ import {
   hashCodeAnchor,
   verifyAnchorHash,
 } from './doc-conflict-store.js';
+import * as logger from '../../../utils/logger.js';
 import type { DocConflictsLock, DocConflict } from '../../../schemas/doc-conflict.js';
 
 // ---------------------------------------------------------------------------
@@ -218,6 +219,60 @@ describe('Story 55.3 — hashCodeAnchor', () => {
     const h1 = hashCodeAnchor(undefined, 'function a() {}');
     const h2 = hashCodeAnchor(undefined, 'function b() {}');
     expect(h1).not.toBe(h2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Line-range clamp logging — warn only when the clamp can mis-anchor
+// ---------------------------------------------------------------------------
+
+describe('hashCodeAnchor — clamp log level', () => {
+  let warn: ReturnType<typeof vi.fn>;
+  let debug: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    warn = vi.fn();
+    debug = vi.fn();
+    vi.spyOn(logger, 'getLogger').mockReturnValue(
+      { warn, debug, info: vi.fn(), error: vi.fn() } as unknown as ReturnType<typeof logger.getLogger>,
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const tenLines = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n');
+
+  it('does not log when the range is fully in bounds', () => {
+    hashCodeAnchor([2, 5], tenLines);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('logs debug (not warn) when only the end overshoots EOF with a valid start', () => {
+    // Mirrors the real run: src/core/transports/index.ts [183, 416] on a
+    // 414-line file. Start in range, end a few lines past EOF → benign.
+    hashCodeAnchor([3, 14], tenLines);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
+  });
+
+  it('still anchors to the real file tail on a benign end-overshoot', () => {
+    // [3, 14] clamps to [3, 10] → identical hash to the explicit tail range.
+    expect(hashCodeAnchor([3, 14], tenLines)).toBe(hashCodeAnchor([3, 10], tenLines));
+  });
+
+  it('warns when the start is clamped up from below 1', () => {
+    hashCodeAnchor([0, 4], tenLines);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('warns when the start sits at/past EOF (fragment collapses to a stray line)', () => {
+    hashCodeAnchor([10, 20], tenLines);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(debug).not.toHaveBeenCalled();
   });
 });
 
