@@ -56,6 +56,30 @@ describe('detectHints', () => {
     const hints = detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true });
     expect(hints.map((h) => h.id)).not.toContain('no-telegram-bot');
   });
+
+  it('emits fixtures-in-scope hint when a fixture-shaped file is in scope', () => {
+    const hints = detectHints({
+      projectRoot,
+      ragEnabled: false,
+      telegramEnabled: true,
+      inScopeFiles: ['src/app.ts', 'src/prompts/__gold-set__/terrible-1.ts', 'src/__fixtures__/dead.ts'],
+    });
+    expect(hints.map((h) => h.id)).toContain('fixtures-in-scope');
+    const h = hints.find((x) => x.id === 'fixtures-in-scope');
+    expect(h?.command?.argv).toEqual(['init', '--scope']);
+    expect(h?.title).toContain('2 fixture files');
+  });
+
+  it('omits fixtures-in-scope hint when scope is clean or omitted', () => {
+    expect(
+      detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true, inScopeFiles: ['src/app.ts'] })
+        .map((h) => h.id),
+    ).not.toContain('fixtures-in-scope');
+    expect(
+      detectHints({ projectRoot, ragEnabled: false, telegramEnabled: true })
+        .map((h) => h.id),
+    ).not.toContain('fixtures-in-scope');
+  });
 });
 
 describe('hint dismissal persistence', () => {

@@ -423,6 +423,7 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
       resolvedRagMode: ctx.resolvedRagMode,
       hardware,
       telegramEnabled: ctx.config.notifications?.telegram?.enabled === true,
+      inScopeFiles: scanResult.files?.map((f) => f.file),
     });
   }
 

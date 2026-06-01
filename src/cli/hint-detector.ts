@@ -41,7 +41,18 @@ export interface HintContext {
   hardware?: HardwareProfile;
   /** Whether `notifications.telegram.enabled` is true in the loaded config. */
   telegramEnabled: boolean;
+  /** Relative paths of files in the audit scope (after scan.exclude). A
+   *  fixture-shaped path here means the perimeter still includes fixtures the
+   *  user probably wants excluded — nudges `init --scope`. Optional: callers
+   *  that don't have the scan result yet simply omit it. */
+  inScopeFiles?: string[];
 }
+
+/** Directory markers that signal test-support fixtures, not product surface.
+ *  An in-scope file matching one of these means fixtures slipped past
+ *  scan.exclude. Kept in sync with FIXTURE_DIR_EXCLUDES in scan-autodetect.ts
+ *  plus the Anatoly-specific gold-set. */
+const FIXTURE_SCOPE_MARKERS = ['__fixtures__', '__mocks__', '__gold-set__'];
 
 interface DismissalFile {
   dismissed?: string[];
@@ -91,6 +102,24 @@ export function detectHints(ctx: HintContext): Hint[] {
         '`anatoly init --notifications` walks you through creating a Telegram bot via @BotFather,\n' +
         'saves the token to .env, and writes the username into .anatoly.yml.',
       command: { label: 'Run anatoly init --notifications', argv: ['init', '--notifications'] },
+    });
+  }
+
+  const fixturesInScope = (ctx.inScopeFiles ?? []).filter((f) =>
+    FIXTURE_SCOPE_MARKERS.some((m) => f.includes(m)),
+  );
+  if (fixturesInScope.length > 0) {
+    const sample = fixturesInScope.slice(0, 3).join(', ');
+    const more = fixturesInScope.length > 3 ? `, +${fixturesInScope.length - 3} more` : '';
+    const plural = fixturesInScope.length === 1 ? '' : 's';
+    hints.push({
+      id: 'fixtures-in-scope',
+      title: `${fixturesInScope.length} fixture file${plural} in the audit scope`,
+      body:
+        `Files under __fixtures__/__mocks__/__gold-set__ are being audited (${sample}${more}).\n` +
+        'These are usually test scaffolding, not product surface, and pollute every axis with false positives.\n' +
+        '`anatoly init --scope` re-detects the perimeter and merges the exclusions into scan.exclude (with your confirmation).',
+      command: { label: 'Run anatoly init --scope', argv: ['init', '--scope'] },
     });
   }
 
