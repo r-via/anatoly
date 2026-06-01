@@ -95,6 +95,8 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
   // for a symbol whose axis X verdict no longer justifies it.
   const downgradedDuplication = new Set<string>();
   const downgradedOverengineering = new Set<string>();
+  /** Symbols flipped DEAD → USED — used to purge stale `Remove dead code` actions. */
+  const downgradedUtility = new Set<string>();
   /** Symbols promoted LEAN → OVER by the usage-graph rule (need action synthesis). */
   const promotedOverengineering: SymbolReview[] = [];
 
@@ -192,6 +194,9 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       if (resolved) {
         stats.resolved++;
         stats.breakdown.deadToUsed++;
+        // The DEAD verdict synthesized a `Remove dead code` action before
+        // tier1 ran; purge it now that the symbol is USED.
+        downgradedUtility.add(s.name);
       }
     }
 
@@ -320,11 +325,12 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
   // Purge synthesized actions that no longer match a symbol verdict.
   // Invariant: an action with source=X targeting symbol S requires that
   // S's X-axis verdict still justifies the action.
-  const purgedActions = (downgradedDuplication.size > 0 || downgradedOverengineering.size > 0)
+  const purgedActions = (downgradedDuplication.size > 0 || downgradedOverengineering.size > 0 || downgradedUtility.size > 0)
     ? review.actions.filter((a) => {
         if (!a.target_symbol) return true;
         if (a.source === 'duplication' && downgradedDuplication.has(a.target_symbol)) return false;
         if (a.source === 'overengineering' && downgradedOverengineering.has(a.target_symbol)) return false;
+        if (a.source === 'utility' && downgradedUtility.has(a.target_symbol)) return false;
         return true;
       })
     : review.actions;

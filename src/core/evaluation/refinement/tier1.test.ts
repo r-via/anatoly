@@ -92,6 +92,29 @@ describe('applyTier1', () => {
     expect(result.symbols[0].detail).toContain('Auto-resolved: runtime-imported by 2 files');
   });
 
+  it('purges the synthesized "Remove dead code" action when DEAD→USED resolves', () => {
+    const graph = makeUsageGraph({
+      typeOnlyUsages: new Map([['Progress::src/rag/prefetch.ts', new Set(['src/cli/setup.ts'])]]),
+    });
+    const review = makeReview({
+      file: 'src/rag/prefetch.ts',
+      symbols: [{ name: 'Progress', exported: true, utility: 'DEAD', confidence: 90, detail: 'No importers found' }],
+      actions: [{
+        id: 1,
+        description: 'Remove dead code: `Progress` is exported but unused',
+        severity: 'high', effort: 'trivial', category: 'quickwin',
+        source: 'utility', target_symbol: 'Progress', target_lines: 'L1-L3',
+      }],
+    });
+    const ctx = makeContext({ usageGraph: graph });
+
+    const result = applyTier1(review, ctx);
+
+    expect(result.symbols[0].utility).toBe('USED');
+    // the now-stale dead-code action must be gone, not surfaced in the report
+    expect(result.actions.find((a) => a.source === 'utility' && a.target_symbol === 'Progress')).toBeUndefined();
+  });
+
   it('AC: reclassifies DEAD→USED when transitively used', () => {
     const graph = makeUsageGraph({
       intraFileRefs: new Map([['doWork::src/core/example.ts', new Set(['mainExport'])]]),
