@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withCommandObservability } from './command-observability.js';
@@ -48,7 +48,10 @@ describe('withCommandObservability', () => {
     expect(dir).toContain(join('.anatoly', 'commands', 'scope'));
     expect(convDir).toBe(conversationsDir(dir));
     expect(sinkPath).toBe(costsLedgerPath(dir));
-    expect(existsSync(runEventLogPath(dir))).toBe(true);
+    // anatoly.ndjson carries at least the command_start/command_done trace.
+    const log = readFileSync(runEventLogPath(dir), 'utf-8');
+    expect(log).toContain('command_start');
+    expect(log).toContain('command_done');
   });
 
   it('prunes old timestamped dirs beyond keep before creating the new one', async () => {

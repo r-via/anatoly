@@ -607,17 +607,21 @@ export function registerInitCommand(program: Command): void {
                 // observability scope so the transcript, cost ledger and logs
                 // are captured under .anatoly/commands/scope/<timestamp>/.
                 let obsDir = '';
-                suggestions = await withCommandObservability(projectRoot, 'scope', async ({ runDir, conversationDir }) => {
+                const model = resolveCommandModel(cfg, 'scope');
+                suggestions = await withCommandObservability(projectRoot, 'scope', async ({ runDir, conversationDir, log }) => {
                   obsDir = runDir;
-                  return proposeExcludes({
+                  log.info({ event: 'scope_request', model, fileCount: files.length }, 'scope: requesting exclusions');
+                  const res = await proposeExcludes({
                     projectRoot,
                     config: cfg,
                     router: createCliRouter(cfg),
                     files,
-                    model: resolveCommandModel(cfg, 'scope'),
+                    model,
                     alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
                     conversationDir,
                   });
+                  log.info({ event: 'scope_suggestions', count: res.length, globs: res.map((s) => s.glob) }, 'scope: model proposed exclusions');
+                  return res;
                 }, { keep: SCOPE_RUNS_KEPT });
                 spin.stop(`Model proposed ${suggestions.length} exclusion${suggestions.length === 1 ? '' : 's'}.`);
                 p.log.info(`Observability: ${obsDir}`);

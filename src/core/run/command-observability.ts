@@ -27,13 +27,16 @@ import { pruneTimestampedRuns } from '../../utils/command-retention.js';
 import { conversationsDir, runEventLogPath, costsLedgerPath } from '../../utils/run-layout.js';
 import { runWithContext } from '../../utils/log-context.js';
 import { withLlmCallSink } from '../../utils/llm-calls-sink.js';
-import { createFileLogger, flushFileLogger } from '../../utils/logger.js';
+import { createFileLogger, flushFileLogger, type Logger } from '../../utils/logger.js';
 
 export interface CommandObservability {
   /** `<project>/.anatoly/commands/<command>/<timestamp>/`. */
   runDir: string;
   /** Pass to LLM calls so their transcripts dump here. */
   conversationDir: string;
+  /** Per-command file logger (writes to the run dir's anatoly.ndjson).
+   *  Emit command-specific outcome events here so the trace is not empty. */
+  log: Logger;
 }
 
 const DEFAULT_KEEP = 10;
@@ -53,14 +56,17 @@ export async function withCommandObservability<T>(
   pruneTimestampedRuns(commandPath(projectRoot, command), (opts.keep ?? DEFAULT_KEEP) - 1);
   const runDir = commandPath(projectRoot, command, ts);
   mkdirSync(runDir, { recursive: true });
-  createFileLogger(runEventLogPath(runDir));
+  const log = createFileLogger(runEventLogPath(runDir));
+  const startedAt = Date.now();
+  log.info({ event: 'command_start', command, runId: ts }, `command ${command} started`);
   try {
     return await runWithContext({ phase: command, runId: ts }, () =>
       withLlmCallSink(costsLedgerPath(runDir), () =>
-        fn({ runDir, conversationDir: conversationsDir(runDir) }),
+        fn({ runDir, conversationDir: conversationsDir(runDir), log }),
       ),
     );
   } finally {
+    log.info({ event: 'command_done', command, runId: ts, durationMs: Date.now() - startedAt }, `command ${command} done`);
     flushFileLogger();
   }
 }
