@@ -62,6 +62,15 @@ export interface LlmCallEvent {
   cacheCreationTokens: number;
   /** Actual cost, or null when the provider is subscription-based. */
   costUsd: number | null;
+  /**
+   * Equivalent cost computed from this call's actual tokens at pay-per-token
+   * API pricing, recorded when {@link costUsd} is null (subscription flat-rate
+   * billing). Lets the ledger and the transcript agree on a number without
+   * inflating the honest $0 subscription total: `writeCostSummary` keeps using
+   * {@link costUsd}, so this never enters the official total. Distinct from
+   * {@link estimatedUsd}, which is a pre-flight prediction.
+   */
+  equivalentCostUsd?: number;
   durationMs: number;
   /** 1-based retry attempt number. */
   attempt?: number;

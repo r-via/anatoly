@@ -343,6 +343,7 @@ export class AnthropicTransport implements LlmTransport {
         cacheReadTokens,
         cacheCreationTokens,
         costUsd: null,
+        ...(costUsd > 0 ? { equivalentCostUsd: costUsd } : {}),
         costSource: 'unknown',
         pricingModel: 'subscription-claude-code-sdk',
         durationMs,
@@ -422,6 +423,9 @@ export class AnthropicTransport implements LlmTransport {
       cacheReadTokens,
       cacheCreationTokens,
       costUsd: null,
+      // Real cost is $0 (subscription); record the API-equivalent so the
+      // ledger is not blank. Does not enter the official total (no fiction).
+      ...(costUsd > 0 ? { equivalentCostUsd: costUsd } : {}),
       costSource: 'unknown',
       pricingModel: 'subscription-claude-code-sdk',
       durationMs,

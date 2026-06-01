@@ -124,6 +124,9 @@ describe('anthropic transport (subscription mode)', () => {
     expect(events[0].costSource).toBe('unknown');
     expect(events[0].pricingModel).toBe('subscription-claude-code-sdk');
     expect(events[0].provider).toBe('anthropic');
+    // Real cost is null (subscription) but the API-equivalent is recorded so
+    // the ledger is not blank — and it must NOT collide with the real total.
+    expect(events[0].equivalentCostUsd).toBeGreaterThan(0);
   });
 
   it('captures tokens even when costUsd is null', async () => {
