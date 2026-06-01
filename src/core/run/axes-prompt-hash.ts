@@ -6,25 +6,28 @@ import { resolveSystemPrompt } from '../platform/index.js';
 import { computePromptHash } from '../../utils/cache-meta.js';
 
 /**
- * Compute a combined prompt hash for a set of enabled axis system prompts.
+ * Compute the freshness hash for a SINGLE axis: its system prompt + the model
+ * that axis runs on. This is the per-axis review cache key.
  *
- * Used as the `prompt_hash` in shared review cache `_meta` headers, and
- * also by the reseed command to compute the hash a re-imported review
- * SHOULD carry now (so a future read matches).
+ * The per-axis review cache stores one of these per (file, axis) so that a
+ * `--axes utility` run only invalidates utility's key and a later full run
+ * reuses the other six axes' cached verdicts. A change to one axis's system
+ * prompt (or its model) invalidates only that axis, never the rest. This is
+ * the inverse of the pre-v2 bundle hash, which combined every enabled axis's
+ * prompt into one digest and so made a single-axis run's cache entry disjoint
+ * from a full run's — forcing a full re-evaluation to recover coverage.
  *
- * The hash bundles every axis prompt together: that is what makes a
- * `--axes utility` cache entry distinct from a full-axes cache entry,
- * even when each individual axis prompt is byte-identical.
+ * The content dimension is handled separately by the content-addressed blob
+ * (a file edit invalidates every axis for that file), so it is deliberately
+ * NOT part of this hash.
  */
-export function computeAxesPromptHash(axisIds: string[], modelId: string): string {
-  const sortedAxes = [...axisIds].sort();
-  const systemPrompts = sortedAxes.map((id) => {
-    try { return resolveSystemPrompt(id); } catch { return id; }
-  }).join('\0');
+export function computeAxisPromptHash(axisId: string, modelId: string): string {
+  let systemPrompt: string;
+  try { systemPrompt = resolveSystemPrompt(axisId); } catch { systemPrompt = axisId; }
   return computePromptHash({
     schemaVersion: 1,
     modelId,
-    systemPrompt: systemPrompts,
+    systemPrompt,
     userTemplate: '', // User template varies per file — we use content hash for that
   });
 }

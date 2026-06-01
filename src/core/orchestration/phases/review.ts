@@ -6,13 +6,13 @@
  * Review phase (extracted from run.ts in PR 7, doc 11 Strategy B).
  *
  * The hot path, deliberately extracted last and against the most-exercised
- * regression net. Move-only: the block below is the verbatim run.ts tail
- * (runReviewPhase + its four review-only helpers filterReviewAxes,
- * loadCachedReview, computeAxesPromptHash, cacheReview, with their JSDocs).
- * Forced edits only: `export` on runReviewPhase (the spine calls it; the
- * four helpers are cluster-private, unexported, verbatim) and the inline
- * dynamic-import path `import('../schemas/review.js')` rebased to
- * `import('../../../schemas/review.js')` for the new module depth.
+ * regression net. Originally a move-only extraction of the run.ts tail
+ * (runReviewPhase + the review-only helpers filterReviewAxes / cacheReview).
+ * Since then the cache layer moved to per-axis freshness keys: runReviewPhase
+ * resolves, per file, which requested axes are reusable vs stale (via
+ * resolveAxisCache) and runs only the stale ones, merging onto the cached
+ * blob. `export` on runReviewPhase (the spine calls it); the helpers are
+ * cluster-private.
  *
  * No run.ts-local helpers were needed: recordLlmCost and
  * requestFatalStop already live in their relocated homes (PR 4/5).
@@ -48,9 +48,9 @@ import { countReviewFindings } from '../../../utils/format.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
-import { writeProjectReview, loadProjectReview, loadProjectReviewRaw, loadLegacyPathBasedReview, snapshotAndPrune } from '../../run/index.js';
-import { mergeRefreshedReview, computeMergedAxesCoverage } from '../../run/review-merge.js';
-import { computeAxesPromptHash } from '../../run/axes-prompt-hash.js';
+import { writeProjectReview, resolveAxisCache, snapshotAndPrune } from '../../run/index.js';
+import { mergeRefreshedReview } from '../../run/review-merge.js';
+import { computeAxisPromptHash } from '../../run/axes-prompt-hash.js';
 import { recordAgentCosts } from '../cost.js';
 import { requestFatalStop } from '../run-control.js';
 import type { RagContext, Handoff } from '../handoff.js';
@@ -167,39 +167,94 @@ export async function runReviewPhase(
     return;
   }
 
-  handoff.totalFiles = pending.length + cachedFiles.length;
-  // Story 53.5 FR6: announce total file count so `anatoly attach` can render
-  // the progress bar denominator (pending + cached).
-  rl?.info({ event: ('estimate_total' satisfies OrchestrationEventName), phase: 'review', total: handoff.totalFiles, pending: pending.length, cached: cachedFiles.length }, 'estimate total');
-
   const allTasks = loadTasks(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot));
   const taskMap = new Map<string, Task>();
   for (const t of allTasks) taskMap.set(t.file, t);
-
-  const reviewItems: Array<{ filePath: string; task: Task; cached: boolean }> = [
-    // Cached files first — instant, no API call
-    ...cachedFiles
-      .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file), cached: true }))
-      .filter((item): item is { filePath: string; task: Task; cached: boolean } => item.task !== undefined),
-    // Pending files — actual evaluation
-    ...pending
-      .map((fp) => ({ filePath: fp.file, task: taskMap.get(fp.file), cached: false }))
-      .filter((item): item is { filePath: string; task: Task; cached: boolean } => item.task !== undefined),
-  ];
 
   const evaluators = getEnabledEvaluators(ctx.config, ctx.axesFilter);
   if (ctx.axesFilter) {
     warnDisabledAxes(ctx.axesFilter, evaluators.map((e) => e.id));
   }
   const axisIds = evaluators.map((e) => e.id);
-  const reviewModelId = evaluators.map((e) => resolveAxisModel(e, ctx.config)).sort().join('+');
-  const reviewPromptHash = computeAxesPromptHash(axisIds, reviewModelId);
+  const axesTotal = evaluators.length;
+
+  // Per-axis freshness keys (replaces the bundle prompt hash). Each axis
+  // carries its own system-prompt hash + model, so a `--axes utility` run
+  // invalidates only utility's key and a later full run reuses the rest.
+  const axisModelIds: Record<string, string> = {};
+  const axisPromptHashes: Record<string, string> = {};
+  for (const e of evaluators) {
+    const model = resolveAxisModel(e, ctx.config);
+    axisModelIds[e.id] = model;
+    axisPromptHashes[e.id] = computeAxisPromptHash(e.id, model);
+  }
+  const axisMetaFor = (axes: readonly string[]): Record<string, { prompt_hash: string; model_id: string }> => {
+    const out: Record<string, { prompt_hash: string; model_id: string }> = {};
+    for (const a of axes) {
+      if (axisPromptHashes[a]) out[a] = { prompt_hash: axisPromptHashes[a], model_id: axisModelIds[a] };
+    }
+    return out;
+  };
+
+  // Resolve, per file, which requested axes are reusable from cache vs stale.
+  // This is BOTH the per-axis reuse decision and the source of truth for the
+  // counter: a file is "cached" (no LLM work) only when zero axes are stale.
+  const sourceRootEff = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
+  const fileFilterMatch = ctx.fileFilter ? picomatch(ctx.fileFilter) : null;
+  type Resolution = { staleAxes: AxisId[]; reusableAxes: AxisId[]; cached: ReviewFile | null };
+  const resolveFile = (filePath: string): Resolution => {
+    // --no-cache or an explicit --file match: bypass cache → every axis stale.
+    if (ctx.noCache || (fileFilterMatch && fileFilterMatch(filePath))) {
+      return { staleAxes: [...axisIds], reusableAxes: [], cached: null };
+    }
+    let content: string;
+    try { content = readFileSync(resolve(sourceRootEff, filePath), 'utf-8'); }
+    catch { return { staleAxes: [...axisIds], reusableAxes: [], cached: null }; }
+    const res = resolveAxisCache(ctx.projectRoot, filePath, content, axisIds, axisPromptHashes, axisModelIds);
+    const stale = new Set<AxisId>(res.staleAxes as AxisId[]);
+    // --cache-refresh: force re-evaluation of the targeted axes (axesFilter, or
+    // all enabled axes when no filter) even when their per-axis key still matches.
+    if (ctx.cacheRefresh) {
+      const forced = ctx.axesFilter && ctx.axesFilter.length > 0 ? ctx.axesFilter : axisIds;
+      for (const a of forced) if (axisIds.includes(a as AxisId)) stale.add(a as AxisId);
+    }
+    return {
+      staleAxes: axisIds.filter((a) => stale.has(a)),
+      reusableAxes: axisIds.filter((a) => !stale.has(a)),
+      cached: res.cached,
+    };
+  };
+
+  const resolutions = new Map<string, Resolution>();
+  const reviewItems: Array<{ filePath: string; task: Task; cached: boolean }> = [];
+  for (const fp of [...cachedFiles, ...pending]) {
+    const task = taskMap.get(fp.file);
+    if (!task) continue;
+    const r = resolveFile(fp.file);
+    resolutions.set(fp.file, r);
+    reviewItems.push({ filePath: fp.file, task, cached: r.staleAxes.length === 0 });
+  }
+  // Cached files first — instant, no API call.
+  reviewItems.sort((a, b) => Number(b.cached) - Number(a.cached));
+
+  const cachedCount = reviewItems.filter((i) => i.cached).length;
+  const pendingCount = reviewItems.length - cachedCount;
+  handoff.totalFiles = reviewItems.length;
+  // Story 53.5 FR6: announce total file count so `anatoly attach` can render
+  // the progress bar denominator (pending + cached). pending here = files with
+  // at least one stale axis (real LLM work), not just status===PENDING.
+  rl?.info({ event: ('estimate_total' satisfies OrchestrationEventName), phase: 'review', total: handoff.totalFiles, pending: pendingCount, cached: cachedCount }, 'estimate total');
+
   // A file counts toward evaluateTotal when at least one axis evaluator
   // actually runs on it. Skip-tier files with a partial-axes policy
   // (e.g. trivial files keeping correction/duplication/utility via
   // evaluatorAxesForSkip) DO trigger completedCount++ in the handler,
   // so they must be included here — otherwise completedCount can exceed
-  // evaluateTotal and produce displays like "13/12".
+  // evaluateTotal and produce displays like "13/12". Files with zero stale
+  // axes are fully cache-served and excluded. doc: the pre-doc-15 bug where
+  // cache-miss-fallthrough files re-evaluated but were never counted (the
+  // "210 files re-run, counter shows 5" symptom) is gone — staleAxes drives
+  // both the decision and the count.
   const evaluateTotal = reviewItems.filter((item) => {
     if (item.cached) return false;
     if (!ctx.triageEnabled) return true;
@@ -211,7 +266,6 @@ export async function runReviewPhase(
     return evaluators.some((e) => partialAxes.has(e.id));
   }).length;
   const state = ctx.pipelineState!;
-  const axesTotal = evaluators.length;
   state.setPhase('review');
   state.startTask('review', `0/${evaluateTotal}`);
 
@@ -230,9 +284,16 @@ export async function runReviewPhase(
       const { filePath, task, cached } = item;
       await runWithContext({ file: filePath, worker: workerIndex }, async () => {
 
-      // Handle cached files: load existing review, count findings, display [CACHED]
+      const resolution = resolutions.get(filePath);
+      // Axes to (re-)evaluate this run, the axes reused from cache, and the
+      // cached blob the fresh verdicts are merged onto.
+      let staleAxes: AxisId[] = resolution?.staleAxes ?? [...axisIds];
+      const reusableAxes: AxisId[] = resolution?.reusableAxes ?? [];
+      const cachedBlob: ReviewFile | null = resolution?.cached ?? null;
+
+      // Fully-cached file (zero stale axes): serve the blob, no API call.
       if (cached) {
-        const cachedReview = loadCachedReview(ctx.projectRoot, filePath, evaluators.map((e) => e.id), reviewPromptHash, ctx.sourceRoot);
+        const cachedReview = cachedBlob ? filterReviewAxes(cachedBlob, axisIds) : undefined;
         if (cachedReview) {
           // Copy into current run dir so the report is complete
           writeReviewOutput(ctx.projectRoot, cachedReview, ctx.runDir);
@@ -249,16 +310,17 @@ export async function runReviewPhase(
           rl?.info({ event: ('file_review_end' satisfies OrchestrationEventName), phase: 'review', file: filePath, verdict: cachedReview.verdict, source: 'cache' }, 'file review end');
           return;
         }
-        // doc 15: the file was DONE/CACHED in progress.json but no review is
-        // retrievable for the current axes/prompt-hash (stale cross-run
-        // progress, axis-coverage mismatch, or a wiped cache). The pre-doc-15
-        // code `return`ed here SILENTLY: the file was audited by nobody and
-        // produced zero signal — the exact root cause of `src/wild.ts`
-        // vanishing from every slot-engine bench (INV-WILD a structural
-        // miss). Make the escape impossible: emit a first-class typed event
-        // and fall through to a full evaluation so the file IS reviewed.
+        // doc 15: the file was classified cached (zero stale axes) but the
+        // blob is not retrievable (wiped/partial cache, index/blob drift). The
+        // pre-doc-15 code `return`ed here SILENTLY: the file was audited by
+        // nobody and produced zero signal — the exact root cause of
+        // `src/wild.ts` vanishing from every slot-engine bench (INV-WILD a
+        // structural miss). Make the escape impossible: emit a first-class
+        // typed event and fall through to a FULL evaluation so the file IS
+        // reviewed.
         rl?.warn({ event: ('file_cache_miss' satisfies OrchestrationEventName), phase: 'review', file: filePath }, 'expected-cached review missing — re-evaluating (no silent drop)');
         if (ctx.plain) ctx.renderer?.logPlain(`[review] [CACHE-MISS] ${filePath} → re-evaluating (no cached review for current axes)`);
+        staleAxes = [...axisIds]; // blob gone — every axis must be re-evaluated
         // intentional fall-through (no return): the normal evaluate path runs.
       }
 
@@ -274,9 +336,13 @@ export async function runReviewPhase(
       const partialAxesOnSkip = isSkipTier
         ? evaluatorAxesForSkip(triage.reason)
         : null;
+      // Only the STALE axes run; reusable axes come from the cached blob via
+      // the merge below. Skip-tier further narrows to the partial-axes policy.
+      const staleSet = new Set<AxisId>(staleAxes);
+      const staleEvaluators = evaluators.filter((e) => staleSet.has(e.id));
       const fileEvaluators = partialAxesOnSkip
-        ? evaluators.filter((e) => partialAxesOnSkip.has(e.id))
-        : evaluators;
+        ? staleEvaluators.filter((e) => partialAxesOnSkip.has(e.id))
+        : staleEvaluators;
 
       // Pure-skip path: triage decided no axis should run on this file.
       // Generate a synthetic review; the usage graph still resolves the
@@ -286,8 +352,10 @@ export async function runReviewPhase(
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
         const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter, usageGraph);
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
-        if (!ctx.noCache) cacheReview(ctx.projectRoot, skipReview, reviewPromptHash, reviewModelId, axisIds, ctx.sourceRoot);
-        pm.updateFileStatus(filePath, 'DONE', undefined, evaluators.map(e => e.id));
+        // The synthetic review carries a verdict for every enabled axis, so
+        // mark all axes fresh — the file is fully cache-served next run.
+        if (!ctx.noCache) cacheReview(ctx.projectRoot, skipReview, axisMetaFor(axisIds), axisIds, ctx.sourceRoot);
+        pm.updateFileStatus(filePath, 'DONE', undefined, axisIds);
         handoff.filesReviewed++;
         ctx.reviewCounts.skipped++;
         rl?.info({ event: ('file_skip' satisfies OrchestrationEventName), phase: 'review', file: filePath, reason: triage.reason }, 'file skipped');
@@ -390,51 +458,15 @@ export async function runReviewPhase(
         // bounded by max-axis-duration, and the per-file wall is gone.
         const result = await runEval();
 
-        // Selective refresh: when (--cache-refresh + --axes filter) only
-        // some axes ran, but the on-disk cache may still hold valid verdicts
-        // for the others (same file content). Merge the fresh partial
-        // result with the cached entry so the run dir AND the cache reflect
-        // full coverage; otherwise --axes utility --cache-refresh would
-        // shrink the cache to utility-only and force every future run to
-        // re-evaluate everything to recover.
-        let outputReview = result.review;
-        let coverageAxes: string[] = fileEvaluators.map((e) => e.id);
-        if (ctx.cacheRefresh && ctx.axesFilter && ctx.axesFilter.length > 0) {
-          try {
-            const absPath = resolve(getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot), filePath);
-            const cacheSource = loadProjectReviewRaw(
-              ctx.projectRoot,
-              filePath,
-              readFileSync(absPath, 'utf-8'),
-            );
-            if (cacheSource.review) {
-              outputReview = mergeRefreshedReview(cacheSource.review, result.review, ctx.axesFilter);
-              coverageAxes = computeMergedAxesCoverage(outputReview, ctx.axesFilter, cacheSource.axes);
-              if (cacheSource.cachedPromptHash && cacheSource.cachedPromptHash !== reviewPromptHash) {
-                // Prompts have drifted between the cached run and now (different
-                // bundle hash). We still trust the cached verdicts for the
-                // non-refreshed axes — that is the selective-refresh contract —
-                // but the user should know so they can choose to force a full
-                // `--cache-refresh` after a tool upgrade.
-                getLogger().warn(
-                  { file: filePath, cached: cacheSource.cachedPromptHash, current: reviewPromptHash },
-                  'selective-refresh: cached prompt hash drifted; non-refreshed axes may be stale (run `--cache-refresh` without --axes to fully refresh)',
-                );
-              }
-            } else {
-              // No usable cache source. Log at warn (not debug) so a broken
-              // merge does not silently downgrade coverage. Common causes:
-              // file content changed since last cache, no prior run at all,
-              // index entry missing.
-              getLogger().warn(
-                { file: filePath, reason: cacheSource.axes.length === 0 ? 'no-index-entry-or-content-drift' : 'cache-blob-missing' },
-                'selective-refresh: no cache source to merge — partial review will be written instead of full coverage',
-              );
-            }
-          } catch (err) {
-            getLogger().warn({ file: filePath, err }, 'selective-refresh merge failed; falling back to partial review');
-          }
-        }
+        // Per-axis merge (now the DEFAULT path, no longer gated on
+        // --cache-refresh): only the stale axes ran this file; merge their
+        // fresh verdicts onto the cached blob so the run dir AND the rewritten
+        // cache blob keep FULL coverage. `cachedBlob` is null when nothing was
+        // reusable (new or content-changed file) → merge returns `fresh`. This
+        // is what lets `--axes utility` then a full run reuse utility and only
+        // run the other six axes per file.
+        const freshAxes = fileEvaluators.map((e) => e.id) as AxisId[];
+        const outputReview = mergeRefreshedReview(cachedBlob, result.review, freshAxes);
         writeReviewOutput(ctx.projectRoot, outputReview, ctx.runDir);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0
@@ -458,13 +490,18 @@ export async function runReviewPhase(
           ctx.degradedReviews++;
           completedCount++;
         } else {
-          if (!ctx.noCache) cacheReview(ctx.projectRoot, outputReview, reviewPromptHash, reviewModelId, coverageAxes, ctx.sourceRoot);
-          pm.updateFileStatus(filePath, 'DONE', undefined, succeededAxes);
+          // Write per-axis keys ONLY for the axes that succeeded this run;
+          // writeProjectReview preserves the reused axes' prior keys (same
+          // content). Progress coverage = reused ∪ freshly-succeeded so the
+          // scanner's next-run coarse classification stays accurate.
+          if (!ctx.noCache) cacheReview(ctx.projectRoot, outputReview, axisMetaFor(succeededAxes), succeededAxes, ctx.sourceRoot);
+          const coverageAxes = [...new Set<AxisId>([...reusableAxes, ...(succeededAxes as AxisId[])])];
+          pm.updateFileStatus(filePath, 'DONE', undefined, coverageAxes);
           handoff.filesReviewed++;
           ctx.reviewCounts.evaluated++;
           ctx.freshFiles.add(filePath);
           completedCount++;
-          handoff.totalFindings += countReviewFindings(result.review, 60);
+          handoff.totalFindings += countReviewFindings(outputReview, 60);
           if (result.failedAxes.length > 0) {
             ctx.degradedReviews++;
           }
@@ -588,63 +625,26 @@ function filterReviewAxes(review: ReviewFile, enabledAxes: AxisId[]): ReviewFile
 }
 
 /**
- * Load a single cached review from the project-local content-addressable store.
- * Returns the parsed ReviewFile or undefined if not found / malformed.
+ * Persist a (merged, full-coverage) review to the project-local store and
+ * record per-axis freshness keys for the axes just run. Failures are silently
+ * swallowed (non-fatal, logged at debug level).
  *
- * Both `enabledAxes` and `promptHash` are required: the cache key depends on
- * both, and callers that want to bypass cache should simply not call this.
- *
- * Falls back to the pre-Story-52.4 path-based cache layout when the new store
- * has no entry, so projects upgrading from an older anatoly version don't
- * lose every cached review at once. The legacy fallback is read-only and
- * will be removed in a future release.
- *
- * Filters out stale data for axes that are no longer enabled in the current config.
- */
-function loadCachedReview(projectRoot: string, filePath: string, enabledAxes: AxisId[], promptHash: string, sourceRoot?: string): ReviewFile | undefined {
-  const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
-  const absPath = resolve(effectiveRoot, filePath);
-
-  let fileContent: string;
-  try {
-    fileContent = readFileSync(absPath, 'utf-8');
-  } catch (err) {
-    getLogger().debug({ file: filePath, err }, 'cache lookup skipped: source file unreadable');
-    return undefined;
-  }
-
-  // Current content-addressable cache (post-Story-52.4)
-  const cached = loadProjectReview(projectRoot, filePath, fileContent, promptHash, enabledAxes);
-  if (cached) return filterReviewAxes(cached, enabledAxes);
-
-  // Transitional: legacy path-based cache. Warns once per process on first hit.
-  const legacy = loadLegacyPathBasedReview(projectRoot, filePath);
-  if (legacy) return filterReviewAxes(legacy, enabledAxes);
-
-  return undefined;
-}
-
-
-/**
- * Persist a review to the project-local content-addressable store.
- * Failures are silently swallowed (non-fatal, logged at debug level).
- *
- * @param projectRoot Absolute path to the project root.
- * @param review Parsed review file to cache.
+ * @param axisMeta    Per-axis `{prompt_hash, model_id}` for the just-run axes.
+ * @param justRunAxes Axes evaluated this run — their keys are (re)written;
+ *                    reused axes keep their prior key (same content).
  */
 function cacheReview(
   projectRoot: string,
   review: ReviewFile,
-  promptHash: string,
-  modelId: string,
-  axes: string[],
+  axisMeta: Record<string, { prompt_hash: string; model_id: string }>,
+  justRunAxes: string[],
   sourceRoot?: string,
 ): void {
   const effectiveRoot = getEffectiveSourceRoot(projectRoot, sourceRoot);
   try {
     const absPath = resolve(effectiveRoot, review.file);
     const fileContent = readFileSync(absPath, 'utf-8');
-    writeProjectReview(projectRoot, review, fileContent, promptHash, modelId, axes);
+    writeProjectReview(projectRoot, review, fileContent, axisMeta, justRunAxes);
   } catch (err) {
     getLogger().debug({ file: review.file, err }, 'failed to write project review cache (non-fatal)');
   }

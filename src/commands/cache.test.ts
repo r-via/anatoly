@@ -142,11 +142,14 @@ describe('anatoly cache reseed', () => {
     const entry = index.files['src/foo.ts'];
     expect(entry.status).toBe('DONE');
     // All 7 axes covered (correction, overengineering, utility, duplication,
-    // tests, documentation, best_practices)
-    expect(entry.axes.sort()).toEqual([
+    // tests, documentation, best_practices). v2 index: axes is a per-axis
+    // Record of freshness keys, not a string[].
+    expect(Object.keys(entry.axes).sort()).toEqual([
       'best_practices', 'correction', 'documentation', 'duplication',
       'overengineering', 'tests', 'utility',
     ].sort());
+    expect(entry.axes.correction.prompt_hash).toMatch(/^sha256:/);
+    expect(typeof entry.axes.correction.model_id).toBe('string');
   });
 
   it('skips reviews whose source file no longer exists', async () => {

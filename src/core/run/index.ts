@@ -44,11 +44,11 @@ export type { ForecastStep } from './estimator.js';
 
 export {
   writeProjectReview,
-  loadProjectReview,
-  loadProjectReviewRaw,
+  resolveAxisCache,
   loadLegacyPathBasedReview,
   projectReviewPath,
 } from './project-review-cache.js';
+export type { AxisCacheMeta, AxisCacheResolution, ReviewIndex, ReviewIndexEntry } from './project-review-cache.js';
 
 export {
   createSnapshot,

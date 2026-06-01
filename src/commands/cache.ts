@@ -16,7 +16,7 @@ import {
   createSnapshot, listSnapshots, restoreSnapshot, deleteSnapshot, pruneSnapshots,
 } from '../core/run/index.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
-import { computeAxesPromptHash } from '../core/run/axes-prompt-hash.js';
+import { computeAxisPromptHash } from '../core/run/axes-prompt-hash.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getEnabledEvaluators, resolveAxisModel } from '../core/evaluation/index.js';
 import { pkgVersion } from '../utils/version.js';
@@ -167,22 +167,22 @@ async function runReseed(projectRoot: string, runId: string | undefined, force: 
       continue;
     }
 
-    // Compute the prompt hash + model id under which the CURRENT binary
+    // Compute the per-axis freshness keys under which the CURRENT binary
     // would store this review. Future reads use these same values, so the
-    // cache lookup will match. (The cached verdicts may be from older
-    // prompts — the version-mismatch warning above is the user-facing
+    // per-axis cache lookup will match. (The cached verdicts may be from
+    // older prompts — the version-mismatch warning above is the user-facing
     // guard for that.)
-    const modelId = axes
-      .map((a) => axisIdToEvaluator.get(a))
-      .filter((e): e is NonNullable<typeof e> => e !== undefined)
-      .map((e) => resolveAxisModel(e, config))
-      .sort()
-      .join('+');
-    const promptHash = computeAxesPromptHash(axes, modelId);
+    const axisMeta: Record<string, { prompt_hash: string; model_id: string }> = {};
+    for (const a of axes) {
+      const ev = axisIdToEvaluator.get(a);
+      if (!ev) continue;
+      const model = resolveAxisModel(ev, config);
+      axisMeta[a] = { prompt_hash: computeAxisPromptHash(a, model), model_id: model };
+    }
 
     try {
       const fileContent = readFileSync(sourcePath, 'utf-8');
-      writeProjectReview(projectRoot, parsed, fileContent, promptHash, modelId, axes);
+      writeProjectReview(projectRoot, parsed, fileContent, axisMeta, axes);
       stats.reseeded++;
     } catch (err) {
       stats.errors.push({ file: reviewFile, reason: err instanceof Error ? err.message : String(err) });

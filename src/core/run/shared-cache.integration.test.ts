@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
-  loadProjectReview,
+  resolveAxisCache,
   projectReviewPath,
 } from './index.js';
 import {
@@ -30,6 +30,19 @@ function makeReview(file: string): ReviewFile {
     actions: [],
     verdict: 'CLEAN',
   } as unknown as ReviewFile;
+}
+
+/** Per-axis `{prompt_hash, model_id}` map for writeProjectReview. */
+function meta(axes: string[], promptHash = 'sha256:p', model = 'model'): Record<string, { prompt_hash: string; model_id: string }> {
+  return Object.fromEntries(axes.map((a) => [a, { prompt_hash: promptHash, model_id: model }]));
+}
+
+/** Per-axis prompt-hash / model maps for resolveAxisCache. */
+function keys(axes: string[], promptHash = 'sha256:p', model = 'model'): { prompt: Record<string, string>; model: Record<string, string> } {
+  return {
+    prompt: Object.fromEntries(axes.map((a) => [a, promptHash])),
+    model: Object.fromEntries(axes.map((a) => [a, model])),
+  };
 }
 
 /**
@@ -97,11 +110,13 @@ describe('isolation guard: reviews + NLP summaries are project-local', () => {
     const fileContent = 'export function util() { return 42; }\n';
     const review = makeReview('src/util.ts');
 
-    writeProjectReview(projA, review, fileContent, 'sha256:prompt-v1', 'claude-3.5-sonnet', ['correction', 'utility']);
+    writeProjectReview(projA, review, fileContent, meta(['correction', 'utility'], 'sha256:prompt-v1'), ['correction', 'utility']);
 
-    // Same content, same axes, but DIFFERENT project — must miss.
-    const loaded = loadProjectReview(projB, 'src/util.ts', fileContent, 'sha256:prompt-v1', ['correction', 'utility']);
-    expect(loaded).toBeNull();
+    // Same content, same axes, but DIFFERENT project — must miss (all stale).
+    const k = keys(['correction', 'utility'], 'sha256:prompt-v1');
+    const res = resolveAxisCache(projB, 'src/util.ts', fileContent, ['correction', 'utility'], k.prompt, k.model);
+    expect(res.cached).toBeNull();
+    expect(res.staleAxes.sort()).toEqual(['correction', 'utility']);
   });
 
   it('NLP summary written by project A is NOT readable by project B', () => {
@@ -143,7 +158,7 @@ describe('sharding distribution (AC7)', () => {
       seenPrefixes.add(prefix);
 
       const review = makeReview(`src/file-${i}.ts`);
-      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
+      writeProjectReview(root, review, content, meta(['correction']), ['correction']);
 
       const cachePath = projectReviewPath(root, hash);
       expect(existsSync(cachePath)).toBe(true);
@@ -181,42 +196,41 @@ describe('prompt invalidation (AC8)', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('returns null when prompt_hash changes (prompt modified)', () => {
+  it('marks the axis stale when its prompt_hash changes (prompt modified)', () => {
     const review = makeReview('src/foo.ts');
     const content = 'const x = 42;\n';
 
-    // Write with prompt hash X
-    writeProjectReview(root, review, content, 'sha256:original-prompt-hash', 'model', ['correction']);
+    writeProjectReview(root, review, content, meta(['correction'], 'sha256:original-prompt-hash'), ['correction']);
 
-    // Verify cache hit with same hash
-    const hit = loadProjectReview(root, 'src/foo.ts', content, 'sha256:original-prompt-hash', ['correction']);
-    expect(hit).not.toBeNull();
+    // Same prompt hash → reusable.
+    const hit = resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:original-prompt-hash' }, { correction: 'model' });
+    expect(hit.staleAxes).toEqual([]);
+    expect(hit.reusableAxes).toEqual(['correction']);
 
-    // Simulate prompt modification → new prompt_hash Y
-    const miss = loadProjectReview(root, 'src/foo.ts', content, 'sha256:modified-prompt-hash', ['correction']);
-    expect(miss).toBeNull(); // Cache miss — review must be re-evaluated
+    // Modified prompt hash → stale (must be re-evaluated).
+    const miss = resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:modified-prompt-hash' }, { correction: 'model' });
+    expect(miss.staleAxes).toEqual(['correction']);
   });
 
-  it('re-evaluated review replaces stale one when prompt changes', () => {
+  it('re-evaluated review replaces the stale one when the prompt changes', () => {
     const content = 'const x = 42;\n';
     const reviewV1 = { ...makeReview('src/foo.ts'), verdict: 'CLEAN' as const };
     const reviewV2 = { ...makeReview('src/foo.ts'), verdict: 'NEEDS_REFACTOR' as const };
 
-    // Write v1 with old prompt
-    writeProjectReview(root, reviewV1, content, 'sha256:old-prompt', 'model', ['correction']);
+    writeProjectReview(root, reviewV1, content, meta(['correction'], 'sha256:old-prompt'), ['correction']);
 
-    // Can't load with new prompt
-    expect(loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction'])).toBeNull();
+    // New prompt → stale.
+    expect(resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:new-prompt' }, { correction: 'model' }).staleAxes).toEqual(['correction']);
 
-    // Write v2 with new prompt (overwrites same cache entry since content hash is same)
-    writeProjectReview(root, reviewV2 as unknown as ReviewFile, content, 'sha256:new-prompt', 'model', ['correction']);
+    // Re-write v2 with the new prompt (same content → overwrites the axis key).
+    writeProjectReview(root, reviewV2 as unknown as ReviewFile, content, meta(['correction'], 'sha256:new-prompt'), ['correction']);
 
-    // Now loads with new prompt
-    const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.verdict).toBe('NEEDS_REFACTOR');
+    // New prompt now reuses v2.
+    const loaded = resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:new-prompt' }, { correction: 'model' });
+    expect(loaded.staleAxes).toEqual([]);
+    expect(loaded.cached!.verdict).toBe('NEEDS_REFACTOR');
 
-    // Old prompt still misses (because cache entry was overwritten)
-    expect(loadProjectReview(root, 'src/foo.ts', content, 'sha256:old-prompt', ['correction'])).toBeNull();
+    // Old prompt is now stale (key was overwritten).
+    expect(resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:old-prompt' }, { correction: 'model' }).staleAxes).toEqual(['correction']);
   });
 });

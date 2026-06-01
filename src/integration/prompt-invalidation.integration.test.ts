@@ -21,7 +21,7 @@ import { bootstrapAnatoly } from '../utils/anatoly-paths.js';
 import { computePromptHash } from '../utils/cache-meta.js';
 import {
   writeProjectReview,
-  loadProjectReview,
+  resolveAxisCache,
 } from '../core/run/index.js';
 import type { ReviewFile } from '../schemas/review.js';
 
@@ -33,6 +33,11 @@ function makeReview(file: string, verdict: string): ReviewFile {
     verdict,
   } as unknown as ReviewFile;
 }
+
+/** Single-axis (correction) per-axis maps for the helpers below. */
+const correctionMeta = (h: string, m = 'claude-3.5-sonnet') => ({ correction: { prompt_hash: h, model_id: m } });
+const resolveCorrection = (root: string, file: string, content: string, h: string, m = 'claude-3.5-sonnet') =>
+  resolveAxisCache(root, file, content, ['correction'], { correction: h }, { correction: m });
 
 describe('prompt invalidation integration (Story 52.7)', () => {
   let base: string;
@@ -73,12 +78,12 @@ describe('prompt invalidation integration (Story 52.7)', () => {
     });
 
     const review = makeReview('src/app.ts', 'CLEAN');
-    writeProjectReview(root, review, fileContent, promptHash, 'claude-3.5-sonnet', ['correction']);
+    writeProjectReview(root, review, fileContent, correctionMeta(promptHash), ['correction']);
 
-    // Same prompt hash → cache hit
-    const loaded = loadProjectReview(root, 'src/app.ts', fileContent, promptHash, ['correction']);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.verdict).toBe('CLEAN');
+    // Same prompt hash → reusable.
+    const res = resolveCorrection(root, 'src/app.ts', fileContent, promptHash);
+    expect(res.staleAxes).toEqual([]);
+    expect(res.cached!.verdict).toBe('CLEAN');
   });
 
   it('review is invalidated when system prompt changes (new prompt hash)', () => {
@@ -106,13 +111,13 @@ describe('prompt invalidation integration (Story 52.7)', () => {
 
     // Write review with V1 prompt
     const review = makeReview('src/app.ts', 'CLEAN');
-    writeProjectReview(root, review, fileContent, promptHashV1, 'claude-3.5-sonnet', ['correction']);
+    writeProjectReview(root, review, fileContent, correctionMeta(promptHashV1), ['correction']);
 
-    // Load with V1 → cache hit
-    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashV1, ['correction'])).not.toBeNull();
+    // V1 → reusable.
+    expect(resolveCorrection(root, 'src/app.ts', fileContent, promptHashV1).staleAxes).toEqual([]);
 
-    // Load with V2 → cache miss (prompt changed)
-    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashV2, ['correction'])).toBeNull();
+    // V2 → stale (prompt changed).
+    expect(resolveCorrection(root, 'src/app.ts', fileContent, promptHashV2).staleAxes).toEqual(['correction']);
   });
 
   it('re-evaluated review replaces stale one after prompt change', () => {
@@ -122,23 +127,22 @@ describe('prompt invalidation integration (Story 52.7)', () => {
 
     // Write original review
     const reviewV1 = makeReview('src/app.ts', 'CLEAN');
-    writeProjectReview(root, reviewV1, fileContent, promptHashOld, 'model', ['correction']);
+    writeProjectReview(root, reviewV1, fileContent, correctionMeta(promptHashOld, 'model'), ['correction']);
 
-    // Old prompt → hit
-    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).not.toBeNull();
-    // New prompt → miss
-    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction'])).toBeNull();
+    // Old prompt → reusable; new prompt → stale.
+    expect(resolveCorrection(root, 'src/app.ts', fileContent, promptHashOld, 'model').staleAxes).toEqual([]);
+    expect(resolveCorrection(root, 'src/app.ts', fileContent, promptHashNew, 'model').staleAxes).toEqual(['correction']);
 
-    // Re-evaluate: write new review with new prompt hash (overwrites shared file)
+    // Re-evaluate: write new review with the new prompt hash (overwrites the key).
     const reviewV2 = makeReview('src/app.ts', 'NEEDS_REFACTOR');
-    writeProjectReview(root, reviewV2 as unknown as ReviewFile, fileContent, promptHashNew, 'model', ['correction']);
+    writeProjectReview(root, reviewV2 as unknown as ReviewFile, fileContent, correctionMeta(promptHashNew, 'model'), ['correction']);
 
-    // New prompt → hit with updated verdict
-    const loaded = loadProjectReview(root, 'src/app.ts', fileContent, promptHashNew, ['correction']);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.verdict).toBe('NEEDS_REFACTOR');
+    // New prompt → reusable with updated verdict.
+    const loaded = resolveCorrection(root, 'src/app.ts', fileContent, promptHashNew, 'model');
+    expect(loaded.staleAxes).toEqual([]);
+    expect(loaded.cached!.verdict).toBe('NEEDS_REFACTOR');
 
-    // Old prompt → miss (file was overwritten)
-    expect(loadProjectReview(root, 'src/app.ts', fileContent, promptHashOld, ['correction'])).toBeNull();
+    // Old prompt → stale (key was overwritten).
+    expect(resolveCorrection(root, 'src/app.ts', fileContent, promptHashOld, 'model').staleAxes).toEqual(['correction']);
   });
 });

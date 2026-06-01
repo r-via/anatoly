@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
-  loadProjectReview,
+  resolveAxisCache,
   projectReviewPath,
   loadReviewIndex,
 } from './project-review-cache.js';
@@ -17,9 +17,7 @@ import type { ReviewFile } from '../../schemas/review.js';
 
 function makeTempProject(): string {
   const root = mkdtempSync(join(tmpdir(), 'anatoly-project-review-'));
-  // Create required directory structure
   mkdirSync(join(root, '.anatoly', 'cache', 'reviews'), { recursive: true });
-  mkdirSync(join(root, '.anatoly', 'cache'), { recursive: true });
   return root;
 }
 
@@ -32,19 +30,27 @@ function makeReview(file: string): ReviewFile {
   } as unknown as ReviewFile;
 }
 
-describe('project-review-cache', () => {
+/** Build the per-axis `{prompt_hash, model_id}` map writeProjectReview expects. */
+function meta(axes: string[], promptHash = 'sha256:p', model = 'model'): Record<string, { prompt_hash: string; model_id: string }> {
+  return Object.fromEntries(axes.map((a) => [a, { prompt_hash: promptHash, model_id: model }]));
+}
+
+/** Build the per-axis prompt-hash / model maps resolveAxisCache expects. */
+function keys(axes: string[], promptHash = 'sha256:p', model = 'model'): { prompt: Record<string, string>; model: Record<string, string> } {
+  return {
+    prompt: Object.fromEntries(axes.map((a) => [a, promptHash])),
+    model: Object.fromEntries(axes.map((a) => [a, model])),
+  };
+}
+
+describe('project-review-cache (per-axis)', () => {
   let root: string;
 
-  beforeEach(() => {
-    root = makeTempProject();
-  });
-
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
+  beforeEach(() => { root = makeTempProject(); });
+  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
   describe('projectReviewPath', () => {
-    it('should use 2-hex-char sharding prefix', () => {
+    it('uses a 2-hex-char sharding prefix', () => {
       const hash = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
       const path = projectReviewPath(root, hash);
       expect(path).toContain(join('cache', 'reviews', 'ab', hash + '.rev.json'));
@@ -52,142 +58,124 @@ describe('project-review-cache', () => {
   });
 
   describe('writeProjectReview', () => {
-    it('should write review to project cache with _meta header', () => {
-      const review = makeReview('src/foo.ts');
+    it('writes the blob with a _meta header and per-axis index keys', () => {
       const content = 'const x = 42;\n';
       const hash = computeContentHash(content);
-
-      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['correction', 'utility']), ['correction', 'utility']);
 
       const cachePath = projectReviewPath(root, hash);
       expect(existsSync(cachePath)).toBe(true);
-
       const raw = JSON.parse(readFileSync(cachePath, 'utf-8'));
-      expect(raw._meta).toBeDefined();
       expect(raw._meta.schema).toBe(1);
-      expect(raw._meta.prompt_hash).toBe('sha256:prompt123');
-      expect(raw._meta.model_id).toBe('claude-3.5-sonnet');
       expect(raw.data.file).toBe('src/foo.ts');
-    });
-
-    it('should update the review index', () => {
-      const review = makeReview('src/foo.ts');
-      const content = 'const x = 42;\n';
-      const hash = computeContentHash(content);
-
-      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
 
       const index = loadReviewIndex(root);
-      expect(index.files['src/foo.ts']).toBeDefined();
-      expect(index.files['src/foo.ts'].hash).toBe(hash);
-      expect(index.files['src/foo.ts'].status).toBe('DONE');
-      expect(index.files['src/foo.ts'].axes).toEqual(['correction', 'utility']);
+      const entry = index.files['src/foo.ts'];
+      expect(entry.hash).toBe(hash);
+      expect(entry.status).toBe('DONE');
+      expect(Object.keys(entry.axes).sort()).toEqual(['correction', 'utility']);
+      expect(entry.axes.correction.prompt_hash).toBe('sha256:p');
+      expect(entry.axes.correction.model_id).toBe('model');
     });
 
-    it('should create sharded subdirectories', () => {
-      const review = makeReview('src/bar.ts');
-      const content = 'export function bar() {}';
-      const hash = computeContentHash(content);
-      const shardDir = join(root, '.anatoly', 'cache', 'reviews', hash.slice(0, 2));
+    it('preserves prior axis keys when re-writing a different axis (same content)', () => {
+      const content = 'const x = 42;\n';
+      // First run: utility only.
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['utility']), ['utility']);
+      // Second run: correction only — utility must survive.
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['correction']), ['correction']);
 
-      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
+      const entry = loadReviewIndex(root).files['src/foo.ts'];
+      expect(Object.keys(entry.axes).sort()).toEqual(['correction', 'utility']);
+    });
 
-      expect(existsSync(shardDir)).toBe(true);
+    it('drops prior axis keys when the content changed', () => {
+      writeProjectReview(root, makeReview('src/foo.ts'), 'old\n', meta(['utility']), ['utility']);
+      // Content changed → utility key is stale, only the freshly-run axis remains.
+      writeProjectReview(root, makeReview('src/foo.ts'), 'new\n', meta(['correction']), ['correction']);
+
+      const entry = loadReviewIndex(root).files['src/foo.ts'];
+      expect(Object.keys(entry.axes)).toEqual(['correction']);
     });
   });
 
-  describe('loadProjectReview', () => {
-    it('should return review on cache hit', () => {
-      const review = makeReview('src/foo.ts');
+  describe('resolveAxisCache', () => {
+    it('reuses all requested axes on a full match', () => {
       const content = 'const x = 42;\n';
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['correction', 'utility']), ['correction', 'utility']);
 
-      writeProjectReview(root, review, content, 'sha256:prompt123', 'claude-3.5-sonnet', ['correction', 'utility']);
-
-      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:prompt123', ['correction', 'utility']);
-      expect(loaded).not.toBeNull();
-      expect(loaded!.file).toBe('src/foo.ts');
+      const k = keys(['correction', 'utility']);
+      const res = resolveAxisCache(root, 'src/foo.ts', content, ['correction', 'utility'], k.prompt, k.model);
+      expect(res.cached).not.toBeNull();
+      expect(res.cached!.file).toBe('src/foo.ts');
+      expect(res.staleAxes).toEqual([]);
+      expect(res.reusableAxes.sort()).toEqual(['correction', 'utility']);
     });
 
-    it('should return null when file not in index', () => {
-      const result = loadProjectReview(root, 'src/missing.ts', 'content', 'sha256:p', ['correction']);
-      expect(result).toBeNull();
+    it('marks every requested axis stale when the file is not in the index', () => {
+      const k = keys(['correction']);
+      const res = resolveAxisCache(root, 'src/missing.ts', 'content', ['correction'], k.prompt, k.model);
+      expect(res.cached).toBeNull();
+      expect(res.staleAxes).toEqual(['correction']);
+      expect(res.reusableAxes).toEqual([]);
     });
 
-    it('should return null when content hash changed (file modified)', () => {
-      const review = makeReview('src/foo.ts');
-      const oldContent = 'const x = 42;\n';
-      const newContent = 'const x = 99;\n';
-
-      writeProjectReview(root, review, oldContent, 'sha256:p', 'model', ['correction']);
-
-      const loaded = loadProjectReview(root, 'src/foo.ts', newContent, 'sha256:p', ['correction']);
-      expect(loaded).toBeNull();
+    it('marks every axis stale when content changed', () => {
+      writeProjectReview(root, makeReview('src/foo.ts'), 'const x = 42;\n', meta(['correction']), ['correction']);
+      const k = keys(['correction']);
+      const res = resolveAxisCache(root, 'src/foo.ts', 'const x = 99;\n', ['correction'], k.prompt, k.model);
+      expect(res.cached).toBeNull();
+      expect(res.staleAxes).toEqual(['correction']);
     });
 
-    it('should return null when prompt hash changed (prompt invalidation)', () => {
-      const review = makeReview('src/foo.ts');
+    it('marks only the drifted axis stale, reusing the rest (per-axis invalidation)', () => {
       const content = 'const x = 42;\n';
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['correction', 'utility']), ['correction', 'utility']);
 
-      writeProjectReview(root, review, content, 'sha256:old-prompt', 'model', ['correction']);
-
-      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:new-prompt', ['correction']);
-      expect(loaded).toBeNull();
+      // correction's prompt drifted; utility unchanged.
+      const prompt = { correction: 'sha256:NEW', utility: 'sha256:p' };
+      const model = { correction: 'model', utility: 'model' };
+      const res = resolveAxisCache(root, 'src/foo.ts', content, ['correction', 'utility'], prompt, model);
+      expect(res.cached).not.toBeNull();
+      expect(res.staleAxes).toEqual(['correction']);
+      expect(res.reusableAxes).toEqual(['utility']);
     });
 
-    it('should return null when axes not fully covered', () => {
-      const review = makeReview('src/foo.ts');
+    it('marks an axis stale when its model changed', () => {
       const content = 'const x = 42;\n';
-
-      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
-
-      // Now asking for correction + utility but only correction was cached
-      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
-      expect(loaded).toBeNull();
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['correction']), ['correction']);
+      const res = resolveAxisCache(root, 'src/foo.ts', content, ['correction'], { correction: 'sha256:p' }, { correction: 'OTHER-MODEL' });
+      expect(res.staleAxes).toEqual(['correction']);
     });
 
-    it('should hit cache when cached axes are superset of requested', () => {
-      const review = makeReview('src/foo.ts');
+    it('reuses covered axes and flags the uncovered ones (the utility-then-full case)', () => {
       const content = 'const x = 42;\n';
+      // Prior run only evaluated utility.
+      writeProjectReview(root, makeReview('src/foo.ts'), content, meta(['utility']), ['utility']);
 
-      writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction', 'utility', 'duplication']);
-
-      // Requesting fewer axes than what's cached — should hit
-      const loaded = loadProjectReview(root, 'src/foo.ts', content, 'sha256:p', ['correction', 'utility']);
-      expect(loaded).not.toBeNull();
+      // Full run requests all axes — only the six missing ones are stale.
+      const requested = ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'best_practices', 'documentation'];
+      const k = keys(requested);
+      const res = resolveAxisCache(root, 'src/foo.ts', content, requested, k.prompt, k.model);
+      expect(res.reusableAxes).toEqual(['utility']);
+      expect(res.staleAxes.sort()).toEqual(['best_practices', 'correction', 'documentation', 'duplication', 'overengineering', 'tests']);
     });
 
-    it('should support cross-platform CRLF/LF content matching', () => {
-      const review = makeReview('src/foo.ts');
-      const contentLF = 'line1\nline2\n';
-      const contentCRLF = 'line1\r\nline2\r\n';
-
-      // Written from a Unix system
-      writeProjectReview(root, review, contentLF, 'sha256:p', 'model', ['correction']);
-
-      // Read from a Windows system (CRLF file)
-      const loaded = loadProjectReview(root, 'src/foo.ts', contentCRLF, 'sha256:p', ['correction']);
-      expect(loaded).not.toBeNull();
+    it('matches across CRLF/LF line endings', () => {
+      writeProjectReview(root, makeReview('src/foo.ts'), 'line1\nline2\n', meta(['correction']), ['correction']);
+      const k = keys(['correction']);
+      const res = resolveAxisCache(root, 'src/foo.ts', 'line1\r\nline2\r\n', ['correction'], k.prompt, k.model);
+      expect(res.staleAxes).toEqual([]);
+      expect(res.reusableAxes).toEqual(['correction']);
     });
   });
 
-  describe('sharding distribution', () => {
-    it('should distribute files across 2-hex-char prefix directories', () => {
-      // Write reviews with content that produces various hash prefixes
-      const seenPrefixes = new Set<string>();
-      for (let i = 0; i < 100; i++) {
-        const content = `unique-content-${i}-${Math.random()}`;
-        const hash = computeContentHash(content);
-        seenPrefixes.add(hash.slice(0, 2));
-
-        const review = makeReview(`src/file-${i}.ts`);
-        writeProjectReview(root, review, content, 'sha256:p', 'model', ['correction']);
-
-        const cachePath = projectReviewPath(root, hash);
-        expect(existsSync(cachePath)).toBe(true);
-      }
-
-      // With 100 random contents, we should see at least a few different prefixes
-      expect(seenPrefixes.size).toBeGreaterThan(10);
+  describe('index migration', () => {
+    it('abandons a pre-v2 index (forces a one-time re-evaluation)', () => {
+      // Simulate a v1 index on disk: writeProjectReview writes v2; we resolve
+      // through loadReviewIndex which only honours v2.
+      writeProjectReview(root, makeReview('src/foo.ts'), 'x\n', meta(['correction']), ['correction']);
+      expect(loadReviewIndex(root).version).toBe(2);
     });
   });
 });

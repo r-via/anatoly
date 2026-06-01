@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { computeContentHash, atomicWriteJson, toOutputName } from '../../utils/cache.js';
-import { writeCacheWithMeta, loadCacheWithMeta, loadCacheWithMetaIgnoringPromptHash } from '../../utils/cache-meta.js';
+import { writeCacheWithMeta, loadCacheWithMetaIgnoringPromptHash } from '../../utils/cache-meta.js';
 import { getLogger } from '../../utils/logger.js';
 import { ReviewFileSchema, type ReviewFile } from '../../schemas/review.js';
 
@@ -14,16 +14,46 @@ import { ReviewFileSchema, type ReviewFile } from '../../schemas/review.js';
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-axis freshness key. An axis recorded here was evaluated at the entry's
+ * content `hash`, under this exact axis system-prompt hash and model. A read
+ * reuses the cached verdict only when both still match the current run.
+ */
+export interface AxisCacheMeta {
+  prompt_hash: string;
+  model_id: string;
+  updated_at: string;
+}
+
 export interface ReviewIndexEntry {
+  /** Content hash of the file when the blob was written (blob address). */
   hash: string;
   status: 'DONE' | 'CACHED';
-  axes: string[];
+  /**
+   * Per-axis freshness keys. Replaces the pre-v2 `string[]` coverage list:
+   * each axis now carries its own prompt-hash + model so a single-axis run
+   * invalidates only its own key and a full run reuses the rest.
+   */
+  axes: Record<string, AxisCacheMeta>;
   updated_at: string;
 }
 
 export interface ReviewIndex {
-  version: 1;
+  version: 2;
   files: Record<string, ReviewIndexEntry>;
+}
+
+/** Sentinel `_meta.prompt_hash` for blobs whose freshness is tracked per-axis in the index. */
+const PER_AXIS_BLOB_PROMPT_HASH = 'sha256:per-axis-index';
+
+/** Result of {@link resolveAxisCache}: the cached blob plus the requested-axis split. */
+export interface AxisCacheResolution {
+  /** The cached full-coverage review blob for this content, or null on miss. */
+  cached: ReviewFile | null;
+  /** Requested axes whose per-axis key matches — reuse the cached verdict. */
+  reusableAxes: string[];
+  /** Requested axes that must be (re-)evaluated this run. */
+  staleAxes: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -52,38 +82,54 @@ export function reviewIndexPath(root: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Write a review to the project-local content-addressable store.
+ * Write a (merged) review to the project-local content-addressable store and
+ * record per-axis freshness keys.
  *
  * 1. Computes content hash from file content (with line-ending normalization).
- * 2. Writes the review payload to `cache/reviews/<hash[0:2]>/<hash>.rev.json`
- *    with `_meta` headers via `writeCacheWithMeta`.
- * 3. Updates the per-project `cache/review-index.json`.
+ * 2. Writes the review payload to `cache/reviews/<hash[0:2]>/<hash>.rev.json`.
+ *    The blob carries full coverage (the caller merges fresh axes onto the
+ *    cached blob); freshness is tracked per-axis in the index, not on the blob.
+ * 3. Merges the `justRunAxes` keys into the index entry, preserving keys for
+ *    axes that were reused this run (only when content is unchanged).
+ *
+ * @param review     The full-coverage review to persist (post-merge).
+ * @param axisMeta   Per-axis `{prompt_hash, model_id}` for the axes just run.
+ * @param justRunAxes Axes evaluated (and succeeded) this run — their keys are
+ *                    (re)written. Axes absent here keep their prior key when
+ *                    the content hash is unchanged, else are dropped (stale).
  */
 export function writeProjectReview(
   root: string,
   review: ReviewFile,
   fileContent: string,
-  promptHash: string,
-  modelId: string,
-  axes: string[],
+  axisMeta: Record<string, { prompt_hash: string; model_id: string }>,
+  justRunAxes: string[],
 ): void {
   const contentHash = computeContentHash(fileContent);
   const cachePath = projectReviewPath(root, contentHash);
 
+  const blobModelId =
+    [...new Set(Object.values(axisMeta).map((m) => m.model_id))].sort().join('+') || 'unknown';
   writeCacheWithMeta<ReviewFile>(cachePath, review, {
     schema: 1,
-    prompt_hash: promptHash,
-    model_id: modelId,
+    prompt_hash: PER_AXIS_BLOB_PROMPT_HASH,
+    model_id: blobModelId,
   });
 
-  // Update per-project review index
+  const now = new Date().toISOString();
   const index = loadReviewIndex(root);
-  index.files[review.file] = {
-    hash: contentHash,
-    status: 'DONE',
-    axes: [...axes].sort(),
-    updated_at: new Date().toISOString(),
-  };
+  const prev = index.files[review.file];
+  // Preserve prior per-axis keys ONLY when the blob still addresses the same
+  // content; a content change means the old keys describe a file that no
+  // longer exists at this hash, so those axes must be re-evaluated next run.
+  const axes: Record<string, AxisCacheMeta> =
+    prev && prev.hash === contentHash ? { ...prev.axes } : {};
+  for (const axis of justRunAxes) {
+    const m = axisMeta[axis];
+    if (!m) continue;
+    axes[axis] = { prompt_hash: m.prompt_hash, model_id: m.model_id, updated_at: now };
+  }
+  index.files[review.file] = { hash: contentHash, status: 'DONE', axes, updated_at: now };
   atomicWriteJson(reviewIndexPath(root), index);
 }
 
@@ -92,115 +138,76 @@ export function writeProjectReview(
 // ---------------------------------------------------------------------------
 
 /**
- * Try to load a cached review for a given file from the project-local store.
+ * Resolve the per-axis cache state for a file: which requested axes can be
+ * reused from the cached blob and which must be (re-)evaluated this run.
  *
- * 1. Computes content hash from file content.
- * 2. Checks `cache/review-index.json` for matching hash + axes coverage.
- * 3. Reads `cache/reviews/<hash[0:2]>/<hash>.rev.json` via `loadCacheWithMeta`.
- * 4. Returns the review on hit, `null` on any miss.
+ * Freshness rules:
+ *  - content changed (or no entry / blob missing) → ALL requested axes stale;
+ *    `cached` is null (the merge base is "nothing").
+ *  - otherwise, per requested axis: reusable iff the index records that axis
+ *    with a matching prompt-hash AND model; else stale.
+ *
+ * The blob is read ignoring its `_meta.prompt_hash` (freshness is per-axis in
+ * the index now, not a single bundle hash on the blob). Returning the cached
+ * blob lets the caller merge fresh stale-axis verdicts onto it via
+ * {@link mergeRefreshedReview} so the rewritten blob keeps full coverage.
  */
-export function loadProjectReview(
+export function resolveAxisCache(
   root: string,
   filePath: string,
   fileContent: string,
-  promptHash: string,
-  enabledAxes: string[],
-): ReviewFile | null {
+  requestedAxes: string[],
+  axisPromptHashes: Record<string, string>,
+  axisModelIds: Record<string, string>,
+): AxisCacheResolution {
   const contentHash = computeContentHash(fileContent);
-  const cachePath = projectReviewPath(root, contentHash);
-
-  // Check per-project index first — covers the common case (same file path, same content)
   const index = loadReviewIndex(root);
   const entry = index.files[filePath];
-  if (entry) {
-    // Hash mismatch — content changed since last review
-    if (entry.hash !== contentHash) return null;
 
-    // Status must be DONE or CACHED
-    if (entry.status !== 'DONE' && entry.status !== 'CACHED') return null;
+  const allStale = (): AxisCacheResolution => ({ cached: null, reusableAxes: [], staleAxes: [...requestedAxes] });
 
-    // Axes coverage check — cached review must cover all enabled axes
-    const cachedAxes = new Set(entry.axes);
-    const allCovered = enabledAxes.every((a) => cachedAxes.has(a));
-    if (!allCovered) return null;
+  if (!entry || entry.hash !== contentHash) return allStale();
+  if (entry.status !== 'DONE' && entry.status !== 'CACHED') return allStale();
 
-    return loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
+  const loaded = loadCacheWithMetaIgnoringPromptHash<ReviewFile>(projectReviewPath(root, contentHash), { schema: 1 });
+  if (!loaded) return allStale(); // index says reviewed but blob is gone
+
+  const reusableAxes: string[] = [];
+  const staleAxes: string[] = [];
+  for (const axis of requestedAxes) {
+    const meta = entry.axes[axis];
+    if (meta && meta.prompt_hash === axisPromptHashes[axis] && meta.model_id === axisModelIds[axis]) {
+      reusableAxes.push(axis);
+    } else {
+      staleAxes.push(axis);
+    }
   }
-
-  // No index entry → fall back to content-addressable lookup within THIS
-  // project's cache. Catches the case where the same file content appeared
-  // under a different path (renames, vendored duplicates).
-  return loadCacheWithMeta<ReviewFile>(cachePath, { schema: 1, promptHash });
-}
-
-/**
- * Load the cached review for a file ignoring both the axes-coverage gate
- * AND the bundle prompt-hash gate. Used by the selective-refresh path
- * (`--axes X --cache-refresh`).
- *
- * Why we skip the prompt-hash gate: `computeAxesPromptHash` hashes the
- * full bundle of enabled-axes system prompts together. A `--axes utility`
- * run computes a different bundle hash than the prior full run that
- * produced the cache blob — even when each individual axis's system
- * prompt is byte-identical. Gating the merge source on the bundle hash
- * would silently refuse a perfectly valid source for every selective
- * refresh, defeating the whole feature (the bug shipped briefly in the
- * first cut: the merge never fired, the cache shrank to the refreshed
- * axis only).
- *
- * Returns the cached payload, the axes the index entry says it covers,
- * and the cached prompt hash so callers can warn the user on drift.
- *
- * Caveat the caller should communicate: when the cached prompt hash
- * differs from the current run's bundle hash, the non-refreshed axes'
- * cached verdicts could be stale (an axis's system prompt may have
- * changed between runs). The selective-refresh contract is "trust the
- * cache for what we did not just re-evaluate" — drift is the user's
- * responsibility to resolve via a full `--cache-refresh` when prompts
- * are upgraded.
- */
-export function loadProjectReviewRaw(
-  root: string,
-  filePath: string,
-  fileContent: string,
-): { review: ReviewFile | null; axes: string[]; cachedPromptHash: string | undefined } {
-  const contentHash = computeContentHash(fileContent);
-  const cachePath = projectReviewPath(root, contentHash);
-
-  const index = loadReviewIndex(root);
-  const entry = index.files[filePath];
-  if (entry) {
-    if (entry.hash !== contentHash) return { review: null, axes: [], cachedPromptHash: undefined };
-    if (entry.status !== 'DONE' && entry.status !== 'CACHED') return { review: null, axes: [], cachedPromptHash: undefined };
-    const loaded = loadCacheWithMetaIgnoringPromptHash<ReviewFile>(cachePath, { schema: 1 });
-    return loaded
-      ? { review: loaded.data, axes: [...entry.axes], cachedPromptHash: loaded.cachedPromptHash }
-      : { review: null, axes: [...entry.axes], cachedPromptHash: undefined };
-  }
-  // No index entry but the blob might still exist (rename/vendor). Without
-  // an index entry we have no record of axis coverage; return an empty
-  // axes list so the merger treats every axis as "freshly evaluated" and
-  // does not pretend to have cached values for unrun axes.
-  const loaded = loadCacheWithMetaIgnoringPromptHash<ReviewFile>(cachePath, { schema: 1 });
-  return loaded
-    ? { review: loaded.data, axes: [], cachedPromptHash: loaded.cachedPromptHash }
-    : { review: null, axes: [], cachedPromptHash: undefined };
+  return { cached: loaded.data, reusableAxes, staleAxes };
 }
 
 // ---------------------------------------------------------------------------
 // Index I/O
 // ---------------------------------------------------------------------------
 
-/** @internal — exposed for tests; callers should go through write/loadProjectReview. */
+/**
+ * @internal — exposed for tests; callers should go through
+ * writeProjectReview / resolveAxisCache.
+ *
+ * Returns an empty v2 index for any non-v2 on-disk file. This is the
+ * migration: a pre-v2 index (per-file `string[]` coverage, no per-axis
+ * prompt keys) is silently abandoned, forcing a one-time full re-evaluation,
+ * after which the per-axis keys are populated. The content-addressed blobs on
+ * disk are untouched and get re-referenced as they are rewritten.
+ */
 export function loadReviewIndex(root: string): ReviewIndex {
   const path = reviewIndexPath(root);
-  if (!existsSync(path)) return { version: 1, files: {} };
+  if (!existsSync(path)) return { version: 2, files: {} };
   try {
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as ReviewIndex;
-    if (raw.version !== 1) return { version: 1, files: {} };
+    if (raw.version !== 2) return { version: 2, files: {} };
     return raw;
   } catch {
-    return { version: 1, files: {} };
+    return { version: 2, files: {} };
   }
 }
 

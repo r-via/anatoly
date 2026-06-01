@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
-  loadProjectReview,
+  resolveAxisCache,
 } from './index.js';
 import { computePromptHash } from '../../utils/cache-meta.js';
 import type { ReviewFile } from '../../schemas/review.js';
@@ -32,6 +32,10 @@ function makeReview(file: string): ReviewFile {
     verdict: 'CLEAN',
   } as unknown as ReviewFile;
 }
+
+const correctionMeta = (h: string, m = 'claude-3.5-sonnet') => ({ correction: { prompt_hash: h, model_id: m } });
+const resolveCorrection = (root: string, file: string, content: string, h: string, m = 'claude-3.5-sonnet') =>
+  resolveAxisCache(root, file, content, ['correction'], { correction: h }, { correction: m });
 
 describe('prompt invalidation integration', () => {
   let root: string;
@@ -62,12 +66,12 @@ describe('prompt invalidation integration', () => {
 
     // Write review with initial prompt hash
     const review = makeReview('src/hello.ts');
-    writeProjectReview(root, review, fileContent, hash1, modelId, ['correction']);
+    writeProjectReview(root, review, fileContent, correctionMeta(hash1, modelId), ['correction']);
 
-    // Verify cache hit with same prompt
-    const hit = loadProjectReview(root, 'src/hello.ts', fileContent, hash1, ['correction']);
-    expect(hit).not.toBeNull();
-    expect(hit!.verdict).toBe('CLEAN');
+    // Same prompt → reusable.
+    const hit = resolveCorrection(root, 'src/hello.ts', fileContent, hash1, modelId);
+    expect(hit.staleAxes).toEqual([]);
+    expect(hit.cached!.verdict).toBe('CLEAN');
 
     // Modify one character in the system prompt
     const modifiedPrompt = 'You are a code review assistant. Be thorough and precise!'; // . → !
@@ -81,23 +85,23 @@ describe('prompt invalidation integration', () => {
     // Hashes must differ
     expect(hash2).not.toBe(hash1);
 
-    // Cache miss with modified prompt
-    const miss = loadProjectReview(root, 'src/hello.ts', fileContent, hash2, ['correction']);
-    expect(miss).toBeNull();
+    // Modified prompt → stale.
+    expect(resolveCorrection(root, 'src/hello.ts', fileContent, hash2, modelId).staleAxes).toEqual(['correction']);
   });
 
-  it('same file content + same prompt → cache hit across different file paths', () => {
-    const systemPrompt = 'Review code.';
-    const userTemplate = '{{file}}';
+  it('per-axis keys are path-scoped: a different path is not reused (re-evaluated)', () => {
     const modelId = 'model';
-    const hash = computePromptHash({ schemaVersion: 1, modelId, systemPrompt, userTemplate });
+    const hash = 'sha256:p';
     const content = 'const x = 42;\n';
 
-    // Write review for file A
-    writeProjectReview(root, makeReview('src/a.ts'), content, hash, modelId, ['correction']);
+    // Write review for file A.
+    writeProjectReview(root, makeReview('src/a.ts'), content, correctionMeta(hash, modelId), ['correction']);
 
-    // Load for file B with identical content → cache hit (content-addressed)
-    const loaded = loadProjectReview(root, 'src/b.ts', content, hash, ['correction']);
-    expect(loaded).not.toBeNull();
+    // File B with identical content but no index entry of its own → stale.
+    // The pre-v2 cache reused the content-addressed blob across paths; per-axis
+    // freshness keys are stored per path, so a rename/copy re-evaluates (safe).
+    const res = resolveCorrection(root, 'src/b.ts', content, hash, modelId);
+    expect(res.cached).toBeNull();
+    expect(res.staleAxes).toEqual(['correction']);
   });
 });
