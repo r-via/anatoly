@@ -6,14 +6,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pruneRefreshRuns } from './refresh-retention.js';
+import { pruneTimestampedRuns } from './command-retention.js';
 
-describe('pruneRefreshRuns', () => {
+describe('pruneTimestampedRuns', () => {
   let root: string;
   let refreshRoot: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'refresh-retention-'));
+    root = mkdtempSync(join(tmpdir(), 'command-retention-'));
     refreshRoot = join(root, 'refresh');
   });
 
@@ -40,7 +40,7 @@ describe('pruneRefreshRuns', () => {
   it('keeps the most recent N and removes the rest', () => {
     for (const ts of TS) mkRun(ts);
 
-    const removed = pruneRefreshRuns(refreshRoot, 2);
+    const removed = pruneTimestampedRuns(refreshRoot, 2);
 
     expect(removed.sort()).toEqual(TS.slice(0, 4).sort());
     const surviving = readdirSync(refreshRoot).sort();
@@ -54,19 +54,19 @@ describe('pruneRefreshRuns', () => {
     mkRun(TS[0]);
     mkRun(TS[1]);
 
-    expect(pruneRefreshRuns(refreshRoot, 5)).toEqual([]);
+    expect(pruneTimestampedRuns(refreshRoot, 5)).toEqual([]);
     expect(readdirSync(refreshRoot).length).toBe(2);
   });
 
   it('returns empty when the refresh root does not exist', () => {
-    expect(pruneRefreshRuns(join(root, 'nope'), 3)).toEqual([]);
+    expect(pruneTimestampedRuns(join(root, 'nope'), 3)).toEqual([]);
   });
 
   it('removes everything when keep is 0', () => {
     mkRun(TS[0]);
     mkRun(TS[1]);
 
-    const removed = pruneRefreshRuns(refreshRoot, 0);
+    const removed = pruneTimestampedRuns(refreshRoot, 0);
     expect(removed.length).toBe(2);
     expect(readdirSync(refreshRoot).length).toBe(0);
     expect(existsSync(refreshRoot)).toBe(true);
@@ -76,7 +76,7 @@ describe('pruneRefreshRuns', () => {
     for (const ts of TS) mkRun(ts);
     writeFileSync(join(refreshRoot, 'README.txt'), 'not a run dir');
 
-    pruneRefreshRuns(refreshRoot, 1);
+    pruneTimestampedRuns(refreshRoot, 1);
 
     expect(existsSync(join(refreshRoot, 'README.txt'))).toBe(true);
     const dirs = readdirSync(refreshRoot, { withFileTypes: true })

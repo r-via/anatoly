@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 
 import type { AnatolyArea } from './anatoly-paths.js';
-import { anatolyPath, runPath, bootstrapAnatoly, clearCache, clearShared } from './anatoly-paths.js';
+import { anatolyPath, runPath, commandPath, bootstrapAnatoly, clearCache, clearShared } from './anatoly-paths.js';
 
 describe('anatolyPath', () => {
   it('resolves area under <root>/.anatoly/', () => {
@@ -41,7 +41,7 @@ describe('anatolyPath', () => {
       'cache/rag',
       'cache/rag/lancedb',
       'cache/doc-build',
-      'refresh',
+      'commands',
       'runs',
       'runtime',
       'setup',
@@ -52,6 +52,17 @@ describe('anatolyPath', () => {
       const result = anatolyPath('/tmp/test', area);
       expect(result).toBe(join('/tmp/test', '.anatoly', ...area.split('/')));
     }
+  });
+});
+
+describe('commandPath', () => {
+  it('resolves path under .anatoly/commands/<command>/', () => {
+    expect(commandPath('/tmp/proj', 'refresh')).toBe(
+      join('/tmp/proj', '.anatoly', 'commands', 'refresh'),
+    );
+    expect(commandPath('/tmp/proj', 'scope', '2026-05-30', 'conversations')).toBe(
+      join('/tmp/proj', '.anatoly', 'commands', 'scope', '2026-05-30', 'conversations'),
+    );
   });
 });
 

@@ -48,7 +48,7 @@ export type AnatolyArea =
   | 'cache/rag/lancedb'
   | 'cache/doc-build'
   | 'cache-snapshots'
-  | 'refresh'
+  | 'commands'
   | 'runs'
   | 'runtime'
   | 'setup'
@@ -66,6 +66,20 @@ export function anatolyPath(root: string, area: AnatolyArea, ...rest: string[]):
  */
 export function runPath(root: string, runId: string, ...rest: string[]): string {
   return join(root, '.anatoly', 'runs', runId, ...rest);
+}
+
+/**
+ * Resolve a path under `<root>/.anatoly/commands/<command>/[...rest]`.
+ *
+ * Single home for the observability of standalone commands that make LLM
+ * calls outside an audit run (`docs arbitrate refresh`, `init --scope`, ...).
+ * Each invocation writes a timestamped sub-directory of conversation
+ * transcripts here, kept out of `runs/` (reserved for audits) and out of
+ * `cache/` (these are forensic, non-reproducible, not content-addressable).
+ * Bounded retention via {@link pruneTimestampedRuns}.
+ */
+export function commandPath(root: string, command: string, ...rest: string[]): string {
+  return join(root, '.anatoly', 'commands', command, ...rest);
 }
 
 /** Resolve the user-wide anatoly root (`~/.anatoly/`). */

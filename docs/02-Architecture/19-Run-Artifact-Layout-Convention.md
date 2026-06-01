@@ -265,3 +265,40 @@ convention into a hard rail.
 - **No change to in-memory cost rollup.** That is already standardized
   by `orchestration/cost.ts` (doc 14 §9 invariant 1) and is out of
   scope here; this convention is about on-disk artifacts.
+
+## 10. Standalone-command observability (`commands/`)
+
+`runs/` is reserved for audit runs. Standalone commands that make LLM
+calls outside a run (today `docs arbitrate refresh` and `init --scope`,
+more later) still produce observability: timestamped directories of
+conversation transcripts. These were first written to a top-level
+`.anatoly/refresh/` namespace, a sibling of `runs/`, which does not
+scale: every new such command would add another top-level dir.
+
+The convention groups them under a single namespace, one sub-directory
+per command:
+
+```
+.anatoly/commands/<command>/<timestamp>/conversations/<dump>.md
+                  refresh/2026-05-29T.../conversations/...
+                  scope/2026-05-30T.../conversations/...
+```
+
+Rules:
+
+1. **Single helper.** `commandPath(root, command, ...rest)` in
+   [anatoly-paths.ts](../../src/utils/anatoly-paths.ts) is the only way
+   to resolve a path here, exactly as `runPath` is for runs. `commands`
+   is the one top-level area in `AnatolyArea`; the command name is an
+   argument, not a frozen union member (commands are open-ended).
+2. **Not a cache, not a run.** These are forensic, non-reproducible
+   (rerunning never reproduces a transcript, nothing is read back by
+   key). They are kept out of `cache/` (which `cache snapshot/restore/
+   prune` would mishandle) and out of `runs/` (audits only).
+3. **Bounded retention.** Each command prunes its own
+   `commands/<command>/` to the newest N timestamped dirs via
+   `pruneTimestampedRuns` ([command-retention.ts](../../src/utils/command-retention.ts)),
+   best-effort, never failing the command.
+4. **Migration.** Pre-existing `.anatoly/refresh/` trees are left in
+   place (disposable forensic output); no data move. New writes land
+   under `commands/refresh/`.

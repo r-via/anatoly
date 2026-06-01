@@ -67,6 +67,9 @@ export interface ProposeExcludesParams {
   /** Globs already present in scan.exclude — never re-proposed. */
   alreadyExcluded?: string[];
   abortController?: AbortController;
+  /** When set, the LLM conversation transcript is dumped here (observability).
+   *  Typically `<.anatoly/commands/scope/<timestamp>>/conversations/`. */
+  conversationDir?: string;
   /** Injectable seam for hermetic tests; defaults to the real single-turn query. */
   queryFn?: typeof runSingleTurnQuery;
 }
@@ -102,6 +105,7 @@ export async function proposeExcludes(params: ProposeExcludesParams): Promise<Ex
       primitive: 'scope.propose-excludes',
       timeoutMs: config.runtime.timeout_per_call * 1000,
       router,
+      ...(params.conversationDir ? { conversationDir: params.conversationDir, callId: 'propose-excludes' } : {}),
     },
     ProposeExcludesResponseSchema,
   );

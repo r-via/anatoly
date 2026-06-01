@@ -11,6 +11,9 @@ import { parseDocument as parseYamlDoc, isSeq, isMap } from 'yaml';
 import { glob } from 'tinyglobby';
 import { proposeExcludes, type ExcludeSuggestion } from '../core/scanning/propose-excludes.js';
 import { createCliRouter } from '../core/transports/cli-router.js';
+import { commandPath } from '../utils/anatoly-paths.js';
+import { pruneTimestampedRuns } from '../utils/command-retention.js';
+import { conversationsDir } from '../utils/run-layout.js';
 import { ConfigSchema } from '../schemas/config.js';
 import type { DocCommentKind } from '../schemas/config.js';
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
@@ -26,6 +29,9 @@ import { wizardProvidersToV3 } from '../cli/wizard-v3-mapping.js';
 import { runTelegramSetup } from './notifications.js';
 
 const CONFIG_FILENAME = '.anatoly.yml';
+
+/** How many timestamped `init --scope` observability dirs to retain. */
+const SCOPE_RUNS_KEPT = 10;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -571,6 +577,11 @@ export function registerInitCommand(program: Command): void {
           let suggestions: ExcludeSuggestion[] = [];
           if (process.stdin.isTTY) {
             const spin = p.spinner();
+            // Standalone-command observability: one timestamped dir of LLM
+            // transcripts under .anatoly/commands/scope/, bounded retention.
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            pruneTimestampedRuns(commandPath(projectRoot, 'scope'), SCOPE_RUNS_KEPT - 1);
+            const transcriptDir = commandPath(projectRoot, 'scope', ts);
             try {
               const cfg = loadConfig(projectRoot);
               const files = await glob(cfg.scan.include, { cwd: projectRoot, ignore: cfg.scan.exclude });
@@ -582,8 +593,10 @@ export function registerInitCommand(program: Command): void {
                   router: createCliRouter(cfg),
                   files,
                   alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
+                  conversationDir: conversationsDir(transcriptDir),
                 });
                 spin.stop(`Model proposed ${suggestions.length} exclusion${suggestions.length === 1 ? '' : 's'}.`);
+                p.log.info(`Transcript: ${transcriptDir}`);
               }
             } catch (err) {
               spin.stop('Model suggestion skipped.');

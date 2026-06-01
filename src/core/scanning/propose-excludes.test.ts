@@ -61,6 +61,24 @@ describe('proposeExcludes', () => {
     expect(out.map((s) => s.glob)).toEqual(['**/generated/**']);
   });
 
+  it('threads conversationDir + callId into the query params', async () => {
+    let captured: { conversationDir?: string; callId?: string } | undefined;
+    const capturing = ((params: { conversationDir?: string; callId?: string }) => {
+      captured = params;
+      return Promise.resolve({
+        data: { excludes: [] }, costUsd: 0, durationMs: 0,
+        inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, transcript: '',
+      });
+    }) as unknown as typeof runSingleTurnQuery;
+    await proposeExcludes({
+      projectRoot: '/x', config: cfg, router, files,
+      conversationDir: '/x/.anatoly/commands/scope/ts/conversations',
+      queryFn: capturing,
+    });
+    expect(captured?.conversationDir).toBe('/x/.anatoly/commands/scope/ts/conversations');
+    expect(captured?.callId).toBe('propose-excludes');
+  });
+
   it('dedupes repeated globs within the response', async () => {
     const out = await proposeExcludes({
       projectRoot: '/x', config: cfg, router, files,

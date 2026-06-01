@@ -6,8 +6,8 @@ import type { Command } from 'commander';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, readdirSync, statSync, cpSync, lstatSync } from 'node:fs';
 import { resolve, join, relative, dirname } from 'node:path';
 import chalk from 'chalk';
-import { anatolyPath } from '../utils/anatoly-paths.js';
-import { pruneRefreshRuns } from '../utils/refresh-retention.js';
+import { anatolyPath, commandPath } from '../utils/anatoly-paths.js';
+import { pruneTimestampedRuns } from '../utils/command-retention.js';
 import { isLockActive } from '../utils/lock.js';
 import { loadConfig } from '../utils/config-loader.js';
 import { getDocsDir } from '../schemas/config.js';
@@ -1160,10 +1160,11 @@ function buildRefreshFn(projectRoot: string): RefreshFn {
   // them into every snapshot, `cache restore` would wipe the in-flight
   // arbitration history, and `cache prune` never touched them (unbounded
   // growth). It is also kept out of `.anatoly/runs/`, which is reserved for
-  // real audit runs. Instead it gets its own `.anatoly/refresh/` namespace
+  // real audit runs. Instead it lives under the shared standalone-command
+  // observability namespace `.anatoly/commands/<command>/` (here `refresh`),
   // with simple keep-most-recent-N retention.
-  const refreshRoot = anatolyPath(projectRoot, 'refresh');
-  pruneRefreshRuns(refreshRoot, REFRESH_RUNS_KEPT - 1);
+  const refreshRoot = commandPath(projectRoot, 'refresh');
+  pruneTimestampedRuns(refreshRoot, REFRESH_RUNS_KEPT - 1);
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const runDir = join(refreshRoot, ts);
   return async (entries) => refreshPendingConflicts(entries, { projectRoot, config, router, runDir });
