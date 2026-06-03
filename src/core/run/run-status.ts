@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runStatusPath } from '../../utils/run-layout.js';
 import { execFileSync } from 'node:child_process';
+import { isProcessRunning } from '../../utils/process.js';
 
 export type RunStatusState = 'running' | 'done' | 'failed' | 'crashed';
 
@@ -82,15 +83,10 @@ export function listRunStatuses(projectRoot: string): RunStatus[] {
  * cross-user); treat that as alive. Only ESRCH (or other unknown errors)
  * mean the process is gone.
  */
+/** Whether a process with `pid` is alive. Thin wrapper over the shared
+ *  {@link isProcessRunning}; kept as a named export for existing callers. */
 export function isProcessAlive(pid: number): boolean {
-  if (pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'EPERM') return true;
-    return false;
-  }
+  return isProcessRunning(pid);
 }
 
 /**

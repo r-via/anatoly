@@ -16,7 +16,7 @@ import { enumerateActiveModels } from '../utils/active-models.js';
 import { getLogger } from '../utils/logger.js';
 import type { Config } from '../schemas/config.js';
 import type { ConfigV3, ProviderConfig, Transport } from '../schemas/config-v3.js';
-import { parseModelRef } from '../schemas/config-v3.js';
+import { parseModelRef, transportForProvider } from '../schemas/config-v3.js';
 import { extractProvider, stripPrefix } from '../core/transports/index.js';
 
 // ---------------------------------------------------------------------------
@@ -107,10 +107,6 @@ function formatAuthLabelV2(_providerId: string, provider: { mode: string; env_ke
  * transport field, so anthropic is special-cased and any other catchall
  * provider is assumed to be openai-compatible.
  */
-function guessTransportV2(providerId: string): Transport {
-  if (providerId === 'anthropic') return 'claude_agent_sdk';
-  return 'openai_compatible';
-}
 
 // ---------------------------------------------------------------------------
 // Pure functions (testable)
@@ -180,7 +176,7 @@ function buildProviderChecksV2(config: Config): ProviderCheck[] {
       provider: providerId,
       model,
       auth: formatAuthLabelV2(providerId, provider),
-      transport: guessTransportV2(providerId),
+      transport: transportForProvider(providerId),
       envKey: provider.env_key,
       baseUrl: provider.base_url,
     });

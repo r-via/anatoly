@@ -23,10 +23,7 @@ import { resolveSystemPrompt } from '../core/platform/index.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
 import { runArbitrateWizard, runRefreshStandalone, type RefreshFn } from './docs-arbitrate.js';
 import { refreshPendingConflicts } from '../core/documentation/index.js';
-import { TransportRouter, type ProviderModeConfig, type LlmTransport } from '../core/transports/index.js';
-import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
-import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
-import type { Config } from '../schemas/config.js';
+import { createCliRouter } from '../core/transports/cli-router.js';
 
 // --- Shared: RAG-driven update + lint + coherence ---
 
@@ -1128,20 +1125,6 @@ export function registerDocsCommand(program: Command): void {
     });
 }
 
-function buildRouter(config: Config): TransportRouter {
-  const nativeTransports: Record<string, LlmTransport> = {
-    anthropic: new AnthropicTransport(),
-  };
-  const providerModes: Record<string, ProviderModeConfig> = {};
-  for (const [id, prov] of Object.entries(config.providers)) {
-    if (prov) providerModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents, concurrency: prov.concurrency };
-  }
-  return new TransportRouter({
-    nativeTransports,
-    vercelSdkTransport: new VercelSdkTransport(config),
-    providerModes,
-  });
-}
 
 /** How many `arbitrate refresh` transcript dirs to keep under
  *  `.anatoly/refresh/`. Observability output, not a cache, so it gets a
@@ -1150,7 +1133,7 @@ const REFRESH_RUNS_KEPT = 10;
 
 function buildRefreshFn(projectRoot: string): RefreshFn {
   const config = loadConfig(projectRoot);
-  const router = buildRouter(config);
+  const router = createCliRouter(config);
   // Route the refresh LLM work through the centralized command observability
   // scope: transcripts, cost ledger and logs land under
   // .anatoly/commands/refresh/<timestamp>/, and the ALS `phase` it opens is

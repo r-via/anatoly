@@ -11,8 +11,10 @@
  * runtime TEI usage.
  */
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { getHfCachePath } from '../utils/anatoly-paths.js';
+import { removeContainer, waitForContainer } from './docker-helpers.js';
+import { detectDocker } from './hardware-detect.js';
 
 export const TEI_DOCKER_IMAGE = 'ghcr.io/huggingface/text-embeddings-inference:1.9';
 export const TEI_CODE_PORT = 11435;
@@ -26,27 +28,6 @@ const READY_TIMEOUT_MS = 300_000; // TEI can take longer to download models
 let containersStarted = false;
 
 /** Check if Docker daemon is running and accessible. */
-function isDockerAvailable(): boolean {
-  try {
-    execSync('docker info', { stdio: 'ignore', timeout: 10_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Remove a Docker container by name (running or stopped).
- * No-op if the container doesn't exist.
- */
-function removeContainer(name: string): void {
-  try {
-    execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore', timeout: 10_000 });
-  } catch {
-    // Container doesn't exist — OK
-  }
-}
-
 /**
  * Start a TEI container for a given model.
  * The model is downloaded by TEI on first run (cached in the data volume).
@@ -78,35 +59,6 @@ function runContainer(
 }
 
 /**
- * Wait for a container's /health endpoint to respond OK.
- * TEI models may need to be downloaded on first run (can take minutes).
- */
-async function waitForContainer(
-  port: number,
-  timeoutMs: number,
-  onProgress?: (elapsed: number) => void,
-): Promise<boolean> {
-  const start = Date.now();
-  const url = `http://127.0.0.1:${port}/health`;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(t);
-      if (res.ok) return true;
-    } catch {
-      // Not ready yet
-    }
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    onProgress?.(elapsed);
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-  return false;
-}
-
-/**
  * Start TEI Docker containers for code and NLP embedding.
  * Returns true if both containers are healthy, false on any failure.
  *
@@ -120,7 +72,7 @@ export async function startTeiContainers(
   onLog?: (message: string) => void,
   onProgress?: (elapsed: number) => void,
 ): Promise<boolean> {
-  if (!isDockerAvailable()) {
+  if (!detectDocker()) {
     onLog?.('Docker not available — cannot start TEI containers');
     return false;
   }

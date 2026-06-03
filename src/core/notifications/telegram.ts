@@ -3,6 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import type { NotificationChannel, NotificationPayload } from './index.js';
+import { healthBar } from '../reporting/render-axis.js';
 
 const TELEGRAM_MAX_LENGTH = 4096;
 
@@ -43,22 +44,6 @@ const AXIS_EMOJI: Record<string, string> = {
  * Build a compact 5-block emoji health bar for mobile.
  * Color by pct + high-finding density (same logic as public report).
  */
-function healthBar(pct: number, highFindings = 0, totalFiles = 0): string {
-  const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
-  const density = totalFiles > 0 ? highFindings / totalFiles : highFindings > 0 ? 1 : 0;
-  let square: string;
-  if (density >= 0.15) {
-    square = '🟥';
-  } else if (density >= 0.03) {
-    square = pct >= 50 ? '🟨' : '🟥';
-  } else if (density > 0) {
-    square = pct >= 95 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
-  } else {
-    square = pct >= 80 ? '🟩' : pct >= 50 ? '🟨' : '🟥';
-  }
-  return square.repeat(filled) + '⬜'.repeat(10 - filled);
-}
-
 /** Build a human-readable Telegram message from the notification payload. */
 export function renderTelegramMessage(payload: NotificationPayload): string {
   const e = escapeMarkdownV2;

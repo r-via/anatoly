@@ -9,6 +9,7 @@ import type { UsageGraph } from '../../scanning/index.js';
 import type { PreResolvedRag } from '../contract.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../../scanning/index.js';
 import { setAxisSegment, getAxisSegmentText } from './detail-segment.js';
+import { computeVerdict } from './verdict.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -611,25 +612,3 @@ function isSelfDescriptiveType(content: string, sym: SymbolReview): boolean {
   return fields.every((f) => f.length > 2);
 }
 
-/**
- * Recompute file verdict from symbol data (mirrors axis-merger logic).
- */
-function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {
-  const CONFIDENCE_THRESHOLD = 60;
-
-  for (const s of symbols) {
-    if (s.confidence < CONFIDENCE_THRESHOLD) continue;
-    if (s.correction === 'ERROR') return 'CRITICAL';
-  }
-
-  for (const s of symbols) {
-    if (s.confidence < CONFIDENCE_THRESHOLD) continue;
-    if (s.correction === 'NEEDS_FIX') return 'NEEDS_REFACTOR';
-    if (s.utility === 'DEAD') return 'NEEDS_REFACTOR';
-    if (s.duplication === 'DUPLICATE') return 'NEEDS_REFACTOR';
-    if (s.overengineering === 'OVER') return 'NEEDS_REFACTOR';
-    if (s.exported && s.documentation === 'UNDOCUMENTED') return 'NEEDS_REFACTOR';
-  }
-
-  return 'CLEAN';
-}

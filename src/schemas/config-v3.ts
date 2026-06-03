@@ -216,6 +216,15 @@ export function parseModelRef(raw: string): ModelRef | null {
   };
 }
 
+/**
+ * Map a provider id to its transport: anthropic uses the Claude Agent SDK,
+ * everything else is an OpenAI-compatible HTTP endpoint. Shared by the init
+ * wizard and the `providers` command (which carried identical copies).
+ */
+export function transportForProvider(providerId: string): 'claude_agent_sdk' | 'openai_compatible' {
+  return providerId === 'anthropic' ? 'claude_agent_sdk' : 'openai_compatible';
+}
+
 /** A `<provider>/<model>` reference string. Cross-checked at root level. */
 export const ModelRefSchema = z.string().refine(
   (v) => parseModelRef(v) !== null,

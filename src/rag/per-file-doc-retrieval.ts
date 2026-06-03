@@ -28,8 +28,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import type { RagQueryContext, VectorStore } from './vector-store.js';
+import { classifySource } from '../core/documentation/resolution/reference-docs-resolver.js';
 import type { ReferenceDoc } from '../core/documentation/index.js';
 
 interface H2Block {
@@ -102,13 +103,6 @@ export function loadH2Neighborhood(
 }
 
 /** Classify a doc path into the `ReferenceDoc.source` value the renderer expects. */
-function classifyDocSource(filePath: string): 'readme' | 'spec' | 'md' {
-  const base = basename(filePath).toLowerCase();
-  if (base === 'readme.md') return 'readme';
-  if (filePath.startsWith('specs/') || filePath.startsWith('specs\\')) return 'spec';
-  return 'md';
-}
-
 export interface RetrieveDocsForFileOptions {
   /** Top-K matches to retrieve from the vector store. Default `3`. */
   k?: number;
@@ -168,7 +162,7 @@ export async function retrieveRelevantDocsForFile(
     if (!content) continue;
 
     docs.push({
-      source: classifyDocSource(docFilePath),
+      source: classifySource(docFilePath),
       path: docFilePath,
       content,
     });

@@ -5,6 +5,7 @@
 import { dirname } from 'node:path';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import { setAxisSegment, getAxisSegmentText } from './detail-segment.js';
+import { computeVerdict } from './verdict.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -257,25 +258,3 @@ function isBehavioralChange(detail: string): boolean {
   return BEHAVIORAL_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-/**
- * Recompute file verdict from symbol data (mirrors axis-merger logic).
- */
-function computeVerdict(symbols: SymbolReview[]): 'CLEAN' | 'NEEDS_REFACTOR' | 'CRITICAL' {
-  const CONFIDENCE_THRESHOLD = 60;
-
-  for (const s of symbols) {
-    if (s.confidence < CONFIDENCE_THRESHOLD) continue;
-    if (s.correction === 'ERROR') return 'CRITICAL';
-  }
-
-  for (const s of symbols) {
-    if (s.confidence < CONFIDENCE_THRESHOLD) continue;
-    if (s.correction === 'NEEDS_FIX') return 'NEEDS_REFACTOR';
-    if (s.utility === 'DEAD') return 'NEEDS_REFACTOR';
-    if (s.duplication === 'DUPLICATE') return 'NEEDS_REFACTOR';
-    if (s.overengineering === 'OVER') return 'NEEDS_REFACTOR';
-    if (s.exported && s.documentation === 'UNDOCUMENTED') return 'NEEDS_REFACTOR';
-  }
-
-  return 'CLEAN';
-}

@@ -14,6 +14,7 @@
  */
 
 import { KNOWN_PROVIDERS } from '../core/providers/known-providers.js';
+import { transportForProvider } from '../schemas/config-v3.js';
 import type { ProviderSelection } from '../commands/init.js';
 
 /**
@@ -42,7 +43,6 @@ export interface WizardV3Mapping {
 }
 
 type Auth = 'oauth' | 'api_key';
-type Transport = V3ProviderEntry['transport'];
 
 interface ModelsInput {
   quality: string;
@@ -52,10 +52,6 @@ interface ModelsInput {
 }
 
 /** v3 transport for a provider name. */
-function transportFor(name: string): Transport {
-  if (name === 'anthropic') return 'claude_agent_sdk';
-  return 'openai_compatible';
-}
 
 /** env var name for a provider (catalog, else `${NAME}_API_KEY`). */
 function envKeyFor(name: string): string {
@@ -80,7 +76,7 @@ function splitRef(ref: string): { provider: string; model: string } {
  * a warning. `models` is filled by the caller.
  */
 function makeEntry(name: string, auth: Auth, warnings: string[]): V3ProviderEntry {
-  const transport = transportFor(name);
+  const transport = transportForProvider(name);
   let effectiveAuth = auth;
   if (auth === 'oauth' && transport === 'openai_compatible') {
     effectiveAuth = 'api_key';

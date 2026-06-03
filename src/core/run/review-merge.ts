@@ -4,7 +4,7 @@
 
 import type { ReviewFile, SymbolReview, Action } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
-import { setAxisSegment } from '../evaluation/refinement/detail-segment.js';
+import { setAxisSegment, getAxisSegmentText } from '../evaluation/refinement/detail-segment.js';
 
 /**
  * Selective-refresh review merge.
@@ -228,19 +228,11 @@ function rebuildDetail(cached: SymbolReview, fresh: SymbolReview, refreshed: Set
   for (const { axis, cached: cachedVerdict, fresh: freshVerdict } of axisToVerdict) {
     if (!refreshed.has(axis)) continue;
     if (freshVerdict === '-') continue; // fresh skipped/crashed this axis; keep cached segment
-    const freshSegmentText = extractSegmentText(fresh.detail, freshVerdict);
+    const freshSegmentText = getAxisSegmentText(fresh.detail, freshVerdict);
     if (freshSegmentText === undefined) continue;
     detail = setAxisSegment(detail, cachedVerdict, freshVerdict, freshSegmentText);
   }
   return detail;
-}
-
-function extractSegmentText(mergedDetail: string, verdict: string): string | undefined {
-  const tag = `[${verdict}] `;
-  for (const seg of mergedDetail.split(' | ')) {
-    if (seg.startsWith(tag)) return seg.slice(tag.length);
-  }
-  return undefined;
 }
 
 /**
