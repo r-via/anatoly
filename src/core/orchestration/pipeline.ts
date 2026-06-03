@@ -184,6 +184,17 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         // `bootstrapDocGate` (gates.ts); the bodies/effects stay inline and
         // verbatim. Behaviorally byte-identical: same conditions, same
         // skip-reason strings, same order, same `!ctx.interrupted` guards.
+        // doc-conflict detection's only scored output is the fold into the
+        // correction axis (applyPendingConflictsToReviews). When a `--axes`
+        // run excludes correction, that fold is skipped, so the (expensive,
+        // abort-prone) detection has no scored destination this run — skip it
+        // entirely. Already-arbitrated/pending conflicts are still loaded from
+        // the store (loadArbitratedFragments / the report's markdown section),
+        // so this only defers detection of NEW conflicts to a run that
+        // includes correction. Unfiltered runs always run it.
+        const docConflictInScope =
+          !ctx.axesFilter || ctx.axesFilter.length === 0 || ctx.axesFilter.includes('correction');
+
         const bd = bootstrapDocGate(ctx, handoff);
         if (bd.run && !ctx.interrupted) {
           await runPhase(ctx, 'bootstrap-doc', async () => {
@@ -202,7 +213,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           }
 
           // Run doc-conflict detection after bootstrap — Story 55.4 FR5
-          if (!ctx.interrupted) {
+          if (!ctx.interrupted && !docConflictInScope) {
+            ctx.pipelineState?.completeTask('doc-conflict-bootstrap', 'skipped (correction not in --axes)');
+          } else if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-bootstrap', async () => {
               ctx.pipelineState?.startTask('doc-conflict-bootstrap', '…');
@@ -277,7 +290,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           }
 
           // Run doc-conflict detection after update — Story 55.4 FR5
-          if (!ctx.interrupted) {
+          if (!ctx.interrupted && !docConflictInScope) {
+            ctx.pipelineState?.completeTask('doc-conflict-update', 'skipped (correction not in --axes)');
+          } else if (!ctx.interrupted) {
             const fragmentsDir = anatolyPath(ctx.projectRoot, 'state/internal-docs');
             await runPhase(ctx, 'doc-conflict-update', async () => {
               ctx.pipelineState?.startTask('doc-conflict-update', '…');

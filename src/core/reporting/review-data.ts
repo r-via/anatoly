@@ -126,6 +126,88 @@ export function isDegradedReview(review: ReviewFile): boolean {
 }
 
 /**
+ * Symbol-level axis verdict fields, in the exact positional order they are
+ * joined into a symbol's `detail` string by `mergeSymbol` (axis-merger):
+ * `[VALUE] text | [VALUE] text | …`. `best-practices` is file-level and has no
+ * symbol-detail segment.
+ */
+const SYMBOL_AXIS_FIELDS = [
+  'utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation',
+] as const;
+
+/**
+ * Restrict a freshly-loaded review set to the axes actually evaluated this run.
+ *
+ * The per-file review cache is merged across runs: a `--axes utility` run reuses
+ * cached `correction`/`tests`/`documentation`/… verdicts (and their crash
+ * sentinels) from earlier, differently-filtered runs and writes them into this
+ * run's `reviews/` dir alongside the fresh `utility` verdict. Without scoping,
+ * those stale verdicts leak into the report — they get counted as findings,
+ * drive file verdicts, spawn `axes/<axis>/` shard dirs (so `anatoly runs` lists
+ * axes that never ran), and resurface old crashes as fresh "axis evaluator
+ * crashed" / Degraded Reviews warnings.
+ *
+ * For every axis NOT in `evaluatedAxes` this resets the symbol verdict to `'-'`
+ * and neutralizes its `detail` segment (dropping any crash sentinel), and drops
+ * file-level `best_practices`. When `evaluatedAxes` covers every axis (a full,
+ * unfiltered run) this is a no-op, so unfiltered runs are unchanged.
+ *
+ * Mutates in place — callers pass reviews loaded solely for report rendering,
+ * never the persisted cache blobs.
+ *
+ * @param reviews - Reviews loaded for the current report (mutated in place).
+ * @param evaluatedAxes - Report-axis ids evaluated this run (e.g. the `--axes` selection).
+ */
+export function restrictReviewsToEvaluatedAxes(
+  reviews: ReviewFile[],
+  evaluatedAxes: ReadonlySet<string>,
+): void {
+  // Full coverage → nothing to strip; keep unfiltered runs byte-for-byte stable.
+  if (SYMBOL_AXIS_FIELDS.every((a) => evaluatedAxes.has(a)) && evaluatedAxes.has('best-practices')) {
+    return;
+  }
+  for (const review of reviews) {
+    for (const s of review.symbols) {
+      if (!evaluatedAxes.has('utility')) s.utility = '-';
+      if (!evaluatedAxes.has('duplication')) s.duplication = '-';
+      if (!evaluatedAxes.has('correction')) s.correction = '-';
+      if (!evaluatedAxes.has('overengineering')) s.overengineering = '-';
+      if (!evaluatedAxes.has('tests')) s.tests = '-';
+      if (!evaluatedAxes.has('documentation')) s.documentation = '-';
+
+      // Neutralize the matching detail segments. The detail is a positional
+      // `[VALUE] text | …` join in SYMBOL_AXIS_FIELDS order. Only when all six
+      // segments are present (the shape produced by a prior full run, which is
+      // exactly where the stale cross-axis data comes from) can we map index →
+      // axis safely; dropping the non-evaluated segments also removes their
+      // crash sentinels so isDegradedReview / crashedAxisIds stop flagging an
+      // axis that did not run this run.
+      const segments = s.detail.split(/\s*\|\s*/);
+      if (segments.length === SYMBOL_AXIS_FIELDS.length) {
+        for (let i = 0; i < SYMBOL_AXIS_FIELDS.length; i++) {
+          if (!evaluatedAxes.has(SYMBOL_AXIS_FIELDS[i])) {
+            segments[i] = '[-] (axis not evaluated this run)';
+          }
+        }
+        s.detail = segments.join(' | ');
+      }
+    }
+    if (!evaluatedAxes.has('best-practices')) {
+      review.best_practices = undefined;
+    }
+    // Actions are attributed to a source axis (AxisId form, e.g. 'best_practices').
+    // Drop those owned by an axis that did not run this run, so they neither
+    // appear in the action lists nor spawn an `axes/<axis>/` shard dir via
+    // buildAxisReports. Actions without a source are kept (unattributable).
+    review.actions = review.actions.filter((a) => {
+      if (!a.source) return true;
+      const reportAxis = a.source === 'best_practices' ? 'best-practices' : a.source;
+      return evaluatedAxes.has(reportAxis);
+    });
+  }
+}
+
+/**
  * Recompute file verdict from symbols — standardizes the LLM's verdict.
  * Low-confidence findings (< 60) are ignored for verdict purposes.
  * @param review - The review file to evaluate.

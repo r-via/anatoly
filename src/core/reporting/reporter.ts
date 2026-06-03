@@ -16,7 +16,7 @@ export {
   loadReviews,
   computeFileVerdict, computeGlobalVerdict,
   aggregateReviews, sortFindingFiles, buildShards,
-  isDegradedReview, CRASH_SENTINEL,
+  isDegradedReview, CRASH_SENTINEL, restrictReviewsToEvaluatedAxes,
 } from './review-data.js';
 export type { TriageStats, RunStats, ReportData, ShardInfo } from './review-data.js';
 
@@ -50,9 +50,9 @@ export { renderIndex, renderPublicIndex } from './render-report.js';
 // Entry point — generateReport
 // ---------------------------------------------------------------------------
 
-import { loadReviews, aggregateReviews, buildShards } from './review-data.js';
+import { loadReviews, aggregateReviews, buildShards, restrictReviewsToEvaluatedAxes } from './review-data.js';
 import type { ReportData, ShardInfo, TriageStats, RunStats } from './review-data.js';
-import { buildAxisReports } from './axis-registry.js';
+import { buildAxisReports, REPORT_AXIS_IDS } from './axis-registry.js';
 import type { AxisReport, ReportAxisId } from './axis-registry.js';
 import { applyPendingConflictsToReviews, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
 import type { DocModeInfo } from './doc-divergences.js';
@@ -87,6 +87,13 @@ export function generateReport(
   axesRequested?: readonly ReportAxisId[],
 ): { reportPath: string; data: ReportData; shards: ShardInfo[]; axisReports: AxisReport[] } {
   const reviews = loadReviews(projectRoot, runDir);
+  // Axes actually evaluated this run: the explicit `--axes` selection, or all
+  // axes when unfiltered. Used to scope the report to what ran, so a filtered
+  // run never surfaces cached verdicts from axes that did not run (see
+  // restrictReviewsToEvaluatedAxes).
+  const evaluatedAxes: ReadonlySet<string> = axesRequested && axesRequested.length > 0
+    ? new Set<string>(axesRequested)
+    : new Set<string>(REPORT_AXIS_IDS);
   // doc 16 PR 3a: fold unresolved (pending) doc-conflicts into the
   // correction axis as explained NEEDS_FIX findings, so a detected
   // code↔reference contradiction is a scorable axis finding (it lives in
@@ -95,7 +102,16 @@ export function generateReport(
   // flag that symbol (no double-count). The doc-conflicts.yaml store is
   // left intact for `anatoly docs arbitrate` (surface ≠ adjudicate; the
   // detail explains it is a conflict and points at arbitration).
-  applyPendingConflictsToReviews(reviews, projectRoot, runDir);
+  // Only when the correction axis actually ran this run — otherwise the fold
+  // would inject correction findings into a run that never evaluated that axis
+  // (e.g. `--axes utility`), manufacturing findings from stale pending conflicts.
+  if (evaluatedAxes.has('correction')) {
+    applyPendingConflictsToReviews(reviews, projectRoot, runDir);
+  }
+  // Drop cached verdicts (and crash sentinels) for axes not evaluated this run
+  // before any aggregation, so counts, file verdicts, axis shard dirs, and the
+  // degraded/crashed warnings all reflect only what ran.
+  restrictReviewsToEvaluatedAxes(reviews, evaluatedAxes);
   const data = aggregateReviews(reviews, errorFiles);
   const shards = buildShards(data);
   const axisReports = buildAxisReports(data);

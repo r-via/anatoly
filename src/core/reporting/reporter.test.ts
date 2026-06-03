@@ -840,6 +840,68 @@ describe('generateReport', () => {
     const { reportPath } = generateReport(tmpDir);
     expect(reportPath.endsWith('report.md')).toBe(true);
   });
+
+  it('scopes a --axes run to evaluated axes: stale cached cross-axis verdicts do not leak', () => {
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
+    mkdirSync(reviewsDir, { recursive: true });
+    // A cache-merged review from earlier full runs: fresh DEAD utility verdict
+    // plus stale cached correction/tests findings AND a documentation crash
+    // sentinel — all in the positional detail order.
+    writeFileSync(
+      join(reviewsDir, 'f.rev.json'),
+      JSON.stringify(makeReview({
+        file: 'f.ts',
+        symbols: [makeSymbol({
+          utility: 'DEAD',
+          correction: 'NEEDS_FIX',
+          tests: 'NONE',
+          documentation: '-',
+          confidence: 90,
+          detail: '[DEAD] unused export | [UNIQUE] no clone | [NEEDS_FIX] off-by-one | [LEAN] fine | [NONE] untested | [DOCUMENTED] *(axis crashed — see transcript)*',
+        })],
+      })),
+    );
+
+    // Run requested only utility.
+    const { data } = generateReport(
+      tmpDir, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      ['utility'],
+    );
+
+    // Only utility is counted; correction/tests are masked away.
+    expect(data.counts.dead.high).toBe(1);
+    expect(data.counts.correction.high + data.counts.correction.medium + data.counts.correction.low).toBe(0);
+    expect(data.counts.tests.high + data.counts.tests.medium + data.counts.tests.low).toBe(0);
+    // The stale documentation crash must not surface as a fresh degraded review.
+    expect(data.degradedFiles).toHaveLength(0);
+
+    // No axis shard dir for an axis that did not run this run.
+    expect(existsSync(join(tmpDir, '.anatoly', 'axes', 'utility', 'index.md'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.anatoly', 'axes', 'correction'))).toBe(false);
+    expect(existsSync(join(tmpDir, '.anatoly', 'axes', 'tests'))).toBe(false);
+    expect(existsSync(join(tmpDir, '.anatoly', 'axes', 'documentation'))).toBe(false);
+  });
+
+  it('an unfiltered run still aggregates every axis (scoping is a no-op)', () => {
+    const reviewsDir = join(tmpDir, '.anatoly', 'cache', 'reviews');
+    mkdirSync(reviewsDir, { recursive: true });
+    writeFileSync(
+      join(reviewsDir, 'f.rev.json'),
+      JSON.stringify(makeReview({
+        file: 'f.ts',
+        symbols: [makeSymbol({
+          utility: 'DEAD',
+          correction: 'NEEDS_FIX',
+          confidence: 90,
+          detail: '[DEAD] unused | [UNIQUE] ok | [NEEDS_FIX] bug | [LEAN] ok | [GOOD] ok | [DOCUMENTED] ok',
+        })],
+      })),
+    );
+
+    const { data } = generateReport(tmpDir); // no axesRequested → full coverage
+    expect(data.counts.dead.high).toBe(1);
+    expect(data.counts.correction.high).toBe(1);
+  });
 });
 
 describe('crashed-axis degradation (no false 100% clean)', () => {
