@@ -307,38 +307,3 @@ export function formatReclassificationsForAxis(
 
   return lines.join('\n');
 }
-
-/**
- * Format known false positives as a prompt section (correction axis, with dependency filtering).
- * Returns empty string if no relevant false positives exist.
- */
-export function formatMemoryForPrompt(
-  projectRoot: string,
-  depNames?: string[],
-): string {
-  const memory = loadDeliberationMemory(projectRoot);
-  if (memory.false_positives.length === 0) return '';
-
-  // Filter to entries with correction-axis reclassifications matching deps
-  const depSet = depNames ? new Set(depNames) : undefined;
-  const relevant = memory.false_positives.filter(
-    (fp) =>
-      fp.reclassifications.some((r) => r.axis === 'correction') &&
-      (!fp.dependency || !depSet || depSet.has(fp.dependency)),
-  );
-
-  if (relevant.length === 0) return '';
-
-  const lines = ['## Known False Positives (from previous verified runs)', ''];
-  lines.push('The following patterns have been verified as false positives in this codebase. Do NOT flag them again:');
-  lines.push('');
-  for (const fp of relevant) {
-    const dep = fp.dependency ? ` (${fp.dependency})` : '';
-    const axisChange = fp.reclassifications.find((r) => r.axis === 'correction');
-    const transition = axisChange ? ` [${axisChange.from} → ${axisChange.to}]` : '';
-    lines.push(`- **${fp.symbol}${dep}${transition}**: ${fp.reason}`);
-  }
-  lines.push('');
-
-  return lines.join('\n');
-}

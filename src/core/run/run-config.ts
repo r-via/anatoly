@@ -9,7 +9,7 @@ import { pkgVersion, pkgCommit } from '../../utils/version.js';
 import { runConfigPath } from '../../utils/run-layout.js';
 
 export type DocMode = 'off' | 'lite' | 'full';
-export type RagMode = 'lite' | 'advanced' | 'auto';
+type RagMode = 'lite' | 'advanced' | 'auto';
 
 /**
  * Resolve the documentation internal mode from a validated Config.
@@ -20,7 +20,7 @@ export function resolveDocMode(config: Config): DocMode {
   return config.documentation.internal.mode;
 }
 
-export interface RunConfigBadge {
+interface RunConfigBadge {
   enabled: boolean;
   verdict: boolean;
   link?: string;

@@ -56,9 +56,8 @@ export function verdictColor(verdict: string): string {
  *   formatCompactTokens(58_000)  // "58K"
  *   formatCompactTokens(1_500_000) // "1.5M"
  *
- * No `~` prefix (we have exact counts at this point); use
- * {@link formatTokenSummary} or `formatTokenCount` for forecast/estimate
- * contexts where the approximation marker matters.
+ * No `~` prefix (we have exact counts at this point); use `formatTokenCount`
+ * for forecast/estimate contexts where the approximation marker matters.
  */
 export function formatCompactTokens(count: number): string {
   if (count >= 1_000_000) {
@@ -71,25 +70,6 @@ export function formatCompactTokens(count: number): string {
     return `${(count / 1_000).toFixed(1)}K`;
   }
   return `${count}`;
-}
-
-/**
- * Format token counts for verbose display.
- * Shows input/output tokens and cache read hit rate.
- */
-export function formatTokenSummary(
-  inputTokens: number,
-  outputTokens: number,
-  cacheReadTokens: number,
-  cacheCreationTokens: number,
-): string {
-  const parts = [`${inputTokens} in`, `${outputTokens} out`];
-  if (cacheReadTokens > 0) {
-    const totalInput = inputTokens + cacheReadTokens + cacheCreationTokens;
-    const hitRate = totalInput > 0 ? Math.round((cacheReadTokens / totalInput) * 100) : 0;
-    parts.push(`cache ${hitRate}%`);
-  }
-  return parts.join(' / ');
 }
 
 /**

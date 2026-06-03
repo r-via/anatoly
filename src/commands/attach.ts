@@ -173,31 +173,6 @@ export interface LiveSnapshot {
 }
 
 /**
- * Build the initial "what's happening right now" block printed once on
- * attach, before the live tail starts streaming.
- */
-export function buildLiveSnapshot(snapshot: LiveSnapshot): string {
-  const lines: string[] = [];
-  lines.push(`  phase       ${snapshot.phase ?? '—'}`);
-  // Prefer the live rag sub-phase counter (e.g. nlp 42/196) when we're not
-  // yet in review — otherwise `reviewedFiles/totalFiles` would lie with 0/N.
-  if (snapshot.ragProgress) {
-    const { phase, current, total } = snapshot.ragProgress;
-    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
-    lines.push(`  progress    rag ${phase} ${current}/${total} (${pct}%)`);
-  } else if (snapshot.reviewedFiles > 0 && snapshot.totalFiles > 0) {
-    const pct = Math.round((snapshot.reviewedFiles / snapshot.totalFiles) * 100);
-    lines.push(`  progress    ${snapshot.reviewedFiles}/${snapshot.totalFiles} (${pct}%)`);
-  } else if (snapshot.totalFiles > 0) {
-    lines.push(`  progress    waiting for review phase (${snapshot.totalFiles} files queued)`);
-  } else {
-    lines.push(`  progress    — (not yet estimated)`);
-  }
-  lines.push(`  elapsed     ${formatDuration(snapshot.elapsedMs)}`);
-  return lines.join('\n');
-}
-
-/**
  * One-line status renderer for live refresh at the bottom of the attach
  * output. Designed to coexist with scrolling event lines via the
  * `clear-and-rewrite` pattern (\r + ANSI clear-line).

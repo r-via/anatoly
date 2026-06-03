@@ -56,7 +56,6 @@ export const DetectionResponseSchema = z.object({
   conflicts: z.array(DetectedConflictItemSchema),
 });
 
-export type DetectionResponse = z.infer<typeof DetectionResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Prompt builders

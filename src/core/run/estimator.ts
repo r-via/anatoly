@@ -79,10 +79,6 @@ export const CONCURRENCY_EFFICIENCY = 0.75;
 /** Number of axis evaluators per file (derived from registry — single source of truth) */
 export const AXIS_COUNT = ALL_AXIS_IDS.length;
 
-/** Axes using haiku (cheaper/faster) vs sonnet (costlier/deeper) */
-export const HAIKU_AXES = 5; // utility, duplication, overengineering, tests, documentation
-export const SONNET_AXES = 2; // correction, best_practices
-
 export interface EstimateResult {
   files: number;
   symbols: number;

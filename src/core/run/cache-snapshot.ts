@@ -471,11 +471,6 @@ function isTarAvailable(): boolean {
   return _tarAvailable;
 }
 
-/** Test-only hook: reset the cached tar probe so tests can force re-probe. */
-export function _resetTarProbeForTests(): void {
-  _tarAvailable = undefined;
-}
-
 function fsSafeTimestamp(date: Date): string {
   return date.toISOString().replace(/:/g, '-').replace(/\.\d+Z$/, 'Z');
 }

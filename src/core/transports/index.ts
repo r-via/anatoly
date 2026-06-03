@@ -101,27 +101,6 @@ export function stripPrefix(modelId: string): string {
   return modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
 }
 
-/**
- * Find the first model in the config that belongs to a given provider.
- * Searches `config.axes.*.model`, `config.models.*`, and `config.agents.*`.
- * Returns `undefined` if no model for the given provider is found.
- */
-export function findModelForProvider(config: { axes: Record<string, { model?: string }>; models: Record<string, string | undefined>; agents: Record<string, unknown> }, providerId: string): string | undefined {
-  // Check axes models first
-  for (const axis of Object.values(config.axes)) {
-    if (axis && axis.model && extractProvider(axis.model) === providerId) return axis.model;
-  }
-  // Check named models
-  for (const value of Object.values(config.models)) {
-    if (typeof value === 'string' && extractProvider(value) === providerId) return value;
-  }
-  // Check agents
-  for (const [key, value] of Object.entries(config.agents)) {
-    if (key !== 'enabled' && typeof value === 'string' && extractProvider(value) === providerId) return value;
-  }
-  return undefined;
-}
-
 /** Provider mode config used by the router. */
 export interface ProviderModeConfig {
   mode: 'subscription' | 'api';
