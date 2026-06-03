@@ -306,15 +306,19 @@ CONTRACT. For every agent call, exactly four artefacts, joined only by
 - Role: structured event stream for the watch UI, `attach`, and `jq`.
 - Location: `runs/<id>/logs/anatoly.ndjson` (pino), plus the in-memory
   `ctx.timeline` and `ctx.pipelineState`.
-- CONTRACT producer: `runPhase` for phase events; the gateway for
+- CONTRACT producer: `runPhase` for phase events; the transports for
   `resource_call_*` / `cache_*` / `retry_*`; one versioned vocabulary in
-  [execution-events.ts](../../src/schemas/execution-events.ts).
+  [events.ts](../../src/core/orchestration/events.ts).
 - Consumer: `ndjson-tail` / `attach`, the screen renderer via `pipelineState`.
 - REALITY: phase events are emitted correctly and symmetrically by `runPhase`
   ([run-phase.ts:119-189](../../src/core/orchestration/run-phase.ts#L119)).
   `resource_call_*` events are emitted from inside the transports, not a
-  gateway. The 16-event v1 vocabulary schema exists; it is not enforced at the
-  emit sites.
+  gateway. The live vocabulary is the typed, compile-checked name union in
+  `orchestration/events.ts` (convention-first, doc 14): event names are
+  enforced, payloads are not Zod-validated (this plane is write-only
+  observability). The earlier Epic 56 `schemas/execution-events.ts` Zod
+  payload vocabulary described the deleted gateway/composer runtime and was
+  never wired; it has been removed as superseded.
 
 ### D.4 Cost ledger
 
