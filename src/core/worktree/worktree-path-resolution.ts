@@ -12,34 +12,6 @@
  * In normal (foreground) mode, sourceRoot === projectRoot.
  */
 
-import { resolve } from 'node:path';
-
-interface PathContext {
-  /** Absolute path to the original project directory (used for outputs). */
-  projectRoot: string;
-  /** Absolute path to the source tree (worktree or same as projectRoot). */
-  sourceRoot?: string;
-  /** Relative file path (from project root). */
-  relativePath: string;
-}
-
-/**
- * Resolve a source file path — reads from `sourceRoot` when available,
- * otherwise falls back to `projectRoot`.
- */
-export function resolveSourcePath(ctx: PathContext): string {
-  const root = ctx.sourceRoot ?? ctx.projectRoot;
-  return resolve(root, ctx.relativePath);
-}
-
-/**
- * Resolve an output file path — always uses `projectRoot` regardless of
- * whether a worktree is active.
- */
-export function resolveOutputPath(ctx: PathContext): string {
-  return resolve(ctx.projectRoot, ctx.relativePath);
-}
-
 /**
  * Return the effective source root: `sourceRoot` if defined, otherwise `projectRoot`.
  */
