@@ -6,8 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseDocSections, stripCodeBlocks, buildDocSectionId, splitIntoBatches, MAX_BATCH_CHARS, areDocTreesIdentical, remapDocPath, smartChunkDoc, resolveReferenceDocFiles } from './doc-indexer.js';
-import type { DocSection } from './doc-indexer.js';
+import { parseDocSections, stripCodeBlocks, buildDocSectionId, areDocTreesIdentical, remapDocPath, smartChunkDoc, resolveReferenceDocFiles } from './doc-indexer.js';
 
 describe('stripCodeBlocks', () => {
   it('removes fenced code blocks', () => {
@@ -149,73 +148,6 @@ More content.
     expect(sections[0].heading).toBe('Main Section');
     expect(sections[0].content).toContain('Subsection');
     expect(sections[0].content).toContain('Content under subsection');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// splitIntoBatches
-// ---------------------------------------------------------------------------
-
-function makeEntry(prose: string, originalIndex: number): { section: DocSection; prose: string; originalIndex: number } {
-  return {
-    section: { filePath: 'test.md', heading: `H${originalIndex}`, embedText: prose, content: prose },
-    prose,
-    originalIndex,
-  };
-}
-
-describe('splitIntoBatches', () => {
-  it('returns a single batch when total prose is under limit', () => {
-    const entries = [
-      makeEntry('a'.repeat(1000), 0),
-      makeEntry('b'.repeat(1000), 1),
-      makeEntry('c'.repeat(1000), 2),
-    ];
-    const batches = splitIntoBatches(entries);
-    expect(batches).toHaveLength(1);
-    expect(batches[0]).toHaveLength(3);
-  });
-
-  it('splits into multiple batches when total prose exceeds limit', () => {
-    const entries = [
-      makeEntry('a'.repeat(20_000), 0),
-      makeEntry('b'.repeat(20_000), 1),
-      makeEntry('c'.repeat(20_000), 2),
-    ];
-    const batches = splitIntoBatches(entries);
-    // 20k + 20k = 40k > 30k, so second entry starts a new batch
-    expect(batches.length).toBeGreaterThanOrEqual(2);
-    // All entries accounted for
-    const total = batches.reduce((sum, b) => sum + b.length, 0);
-    expect(total).toBe(3);
-  });
-
-  it('keeps a single oversized section in its own batch', () => {
-    const entries = [
-      makeEntry('x'.repeat(MAX_BATCH_CHARS + 5000), 0),
-      makeEntry('y'.repeat(1000), 1),
-    ];
-    const batches = splitIntoBatches(entries);
-    expect(batches).toHaveLength(2);
-    expect(batches[0]).toHaveLength(1);
-    expect(batches[0][0].originalIndex).toBe(0);
-    expect(batches[1]).toHaveLength(1);
-    expect(batches[1][0].originalIndex).toBe(1);
-  });
-
-  it('returns empty array for empty input', () => {
-    expect(splitIntoBatches([])).toHaveLength(0);
-  });
-
-  it('preserves original indices across batches', () => {
-    const entries = [
-      makeEntry('a'.repeat(16_000), 2),
-      makeEntry('b'.repeat(16_000), 5),
-      makeEntry('c'.repeat(16_000), 8),
-    ];
-    const batches = splitIntoBatches(entries);
-    const allIndices = batches.flatMap(b => b.map(e => e.originalIndex));
-    expect(allIndices).toEqual([2, 5, 8]);
   });
 });
 

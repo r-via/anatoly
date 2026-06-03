@@ -37,7 +37,6 @@ import docWriterArchPrompt from '../../prompts/doc-generation/doc-internal-write
 import docWriterApiPrompt from '../../prompts/doc-generation/doc-internal-writer.api-reference.system.md';
 import docCoherenceReviewPrompt from '../../prompts/doc-generation/doc-internal-coherence-review.system.md';
 import docUpdaterPrompt from '../../prompts/doc-generation/doc-internal-updater.system.md';
-import sectionRefinerPrompt from '../../prompts/rag/section-refiner.system.md';
 import nlpSummarizerPrompt from '../../prompts/rag/nlp-summarizer.system.md';
 import jsonEvaluatorWrapperPrompt from '../../prompts/_shared/json-evaluator-wrapper.system.md';
 import guardRailsPrompt from '../../prompts/_shared/guard-rails.system.md';
@@ -49,7 +48,7 @@ import tier3InvestigationPrompt from '../../prompts/refinement/tier3-investigati
  * Key naming conventions:
  * - Axes use underscores: `best_practices`, `best_practices.python`, `best_practices.react`
  * - Non-axis domains use hyphens: `doc-generation`, `doc-generation.architecture`
- * - Composite keys use dot separator: `rag.section-refiner`, `_shared.json-evaluator-wrapper`
+ * - Composite keys use dot separator: `rag.nlp-summarizer`, `_shared.json-evaluator-wrapper`
  *
  * For axes, the dot separator enables cascade resolution (framework → language → default).
  * For non-axis domains, composite keys are resolved as direct lookups — do NOT pass
@@ -100,7 +99,6 @@ function registerDefaults(): void {
   register('doc-generation.updater', docUpdaterPrompt);
 
   // --- RAG ---
-  register('rag.section-refiner', sectionRefinerPrompt);
   register('rag.nlp-summarizer', nlpSummarizerPrompt);
 
   // --- Refinement ---
@@ -129,7 +127,7 @@ export function registerPrompt(key: string, content: string): void {
  * Returns the prompt content string of the first match.
  *
  * @param axisId - Axis identifier (e.g. `"utility"`, `"best_practices"`)
- *                 or composite key (e.g. `"doc-generation"`, `"rag.section-refiner"`).
+ *                 or composite key (e.g. `"doc-generation"`, `"rag.nlp-summarizer"`).
  * @param language - Optional language variant (e.g. `"python"`, `"rust"`).
  * @param framework - Optional framework variant (e.g. `"react"`, `"nextjs"`);
  *                    checked before language in the cascade.

@@ -134,11 +134,6 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('usage example');
   });
 
-  it('resolves rag.section-refiner prompt', () => {
-    const prompt = resolveSystemPrompt('rag.section-refiner');
-    expect(prompt).toContain('documentation analyzer');
-  });
-
   it('resolves rag.nlp-summarizer prompt', () => {
     const prompt = resolveSystemPrompt('rag.nlp-summarizer');
     expect(prompt).toContain('code documentation assistant');
@@ -154,7 +149,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains exactly 41 entries after reset', () => {
+  it('registry contains exactly 40 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -163,7 +158,7 @@ describe('universal registry — new domain keys', () => {
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
       'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.updater',
-      'rag.section-refiner', 'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
+      'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
       'refinement.tier3-investigation',
     ];
     for (const key of expectedKeys) {
@@ -312,7 +307,6 @@ describe('Story 33.4 — registry coherence', () => {
         "duplication",
         "overengineering",
         "rag.nlp-summarizer",
-        "rag.section-refiner",
         "refinement.tier3-investigation",
         "tests",
         "utility",
