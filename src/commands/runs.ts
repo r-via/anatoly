@@ -10,6 +10,7 @@ import {
   reviewsDir as runReviewsDir,
   logsDir as runLogsDir,
   runMetricsPath,
+  axesDir as runAxesDir,
 } from '../utils/run-layout.js';
 import chalk from 'chalk';
 import Table from 'cli-table3';
@@ -24,6 +25,7 @@ interface RunInfo {
   logs: number;
   hasMetrics: boolean;
   sizeKb: number;
+  axes: string[];
 }
 
 function getRunInfo(runsDir: string, runId: string): RunInfo {
@@ -34,6 +36,15 @@ function getRunInfo(runsDir: string, runId: string): RunInfo {
 
   let reviews = 0;
   try { reviews = readdirSync(reviewsDir).length; } catch { /* empty */ }
+
+  // Axes that ran = the per-axis subdirectories under axes/.
+  let axes: string[] = [];
+  try {
+    axes = readdirSync(runAxesDir(runDir), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch { /* empty */ }
 
   let logs = 0;
   try { logs = readdirSync(logsDir).length; } catch { /* empty */ }
@@ -60,7 +71,7 @@ function getRunInfo(runsDir: string, runId: string): RunInfo {
     sizeKb = Math.round(sizeKb / 1024);
   } catch { /* empty */ }
 
-  return { id: runId, reviews, logs, hasMetrics, sizeKb };
+  return { id: runId, reviews, logs, hasMetrics, sizeKb, axes };
 }
 
 function isEmpty(info: RunInfo): boolean {
@@ -111,7 +122,7 @@ export function registerRunsCommand(program: Command): Command {
       const table = new Table({
         chars: { top: '', 'top-mid': '', 'top-left': '', 'top-right': '', bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '', left: '  ', 'left-mid': '', mid: '', 'mid-mid': '', right: '', 'right-mid': '', middle: ' ' },
         style: { 'padding-left': 0, 'padding-right': 0, head: ['dim'] },
-        head: ['Run ID', 'Reviews', 'Logs', 'Size', 'Status'],
+        head: ['Run ID', 'Reviews', 'Logs', 'Size', 'Axes', 'Status'],
       });
 
       for (const info of infos) {
@@ -120,7 +131,8 @@ export function registerRunsCommand(program: Command): Command {
           : info.hasMetrics
             ? chalk.green('complete')
             : chalk.blue('partial');
-        table.push([info.id, String(info.reviews), String(info.logs), formatSize(info.sizeKb), status]);
+        const axes = info.axes.length > 0 ? info.axes.join(', ') : chalk.dim('—');
+        table.push([info.id, String(info.reviews), String(info.logs), formatSize(info.sizeKb), axes, status]);
       }
 
       console.log(table.toString());
