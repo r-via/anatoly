@@ -120,7 +120,12 @@ function autoResolveSymbol(
 
 export class UtilityEvaluator implements AxisEvaluator {
   readonly id = 'utility' as const;
-  readonly defaultModel = 'haiku' as const;
+  // Axis evaluation is a judgement over the full file + import-analysis context
+  // (~20K tokens), not chunk summarisation — it runs on the quality model.
+  // Haiku is reserved for code-summary / RAG chunk work; on these large-context
+  // verdicts it over-reasons (≈13K thinking tokens, ~100s/call) and tips the
+  // largest files past the per-call timeout.
+  readonly defaultModel = 'sonnet' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     // --- Phase 1: auto-resolve trivially deterministic symbols ---

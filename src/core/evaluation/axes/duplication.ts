@@ -208,11 +208,14 @@ function buildAutoUniqueResults(ctx: AxisContext): AxisSymbolResult[] {
  * the source code together with RAG-retrieved similar candidates to an LLM,
  * then parsing the structured response against {@link DuplicationResponseSchema}.
  * Implements the {@link AxisEvaluator} interface with `id = 'duplication'` and
- * a default model of `'haiku'`.
+ * a default model of `'sonnet'` (the quality model — axis verdicts are not
+ * chunk summarisation).
  */
 export class DuplicationEvaluator implements AxisEvaluator {
   readonly id = 'duplication' as const;
-  readonly defaultModel = 'haiku' as const;
+  // Axis evaluation runs on the quality model (see UtilityEvaluator): Haiku is
+  // reserved for code-summary / RAG chunk work, not large-context axis verdicts.
+  readonly defaultModel = 'sonnet' as const;
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     // --- Skip LLM when no symbol has similarity candidates ---
