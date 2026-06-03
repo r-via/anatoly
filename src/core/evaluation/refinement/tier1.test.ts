@@ -139,16 +139,16 @@ describe('applyTier1', () => {
       file: 'src/x.ts',
       symbols: [{ name: 'x', exported: true, utility: 'DEAD', confidence: 90, detail: 'No importers found' }],
       actions: [{
-        id: 1, description: 'Reference a doc divergence', severity: 'medium', effort: 'trivial', category: 'refactor',
-        source: 'internal', target_symbol: 'x', target_lines: 'L1-L1',
+        id: 1, description: 'Apply a best-practice rule', severity: 'medium', effort: 'trivial', category: 'refactor',
+        source: 'best_practices', target_symbol: 'x', target_lines: 'L1-L1',
       }],
     });
 
     const result = applyTier1(review, makeContext({ usageGraph: graph }));
 
-    // x flips DEAD→USED, but the action's source is not an axis → never purged.
+    // x flips DEAD→USED, but the action's source axis is not verdict-action-driven → never purged.
     expect(result.symbols[0].utility).toBe('USED');
-    expect(result.actions.some((a) => a.source === 'internal' && a.target_symbol === 'x')).toBe(true);
+    expect(result.actions.some((a) => a.source === 'best_practices' && a.target_symbol === 'x')).toBe(true);
   });
 
   it('keeps a synthesized action when the verdict stays actionable', () => {
