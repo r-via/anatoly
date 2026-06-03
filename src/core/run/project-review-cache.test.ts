@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   writeProjectReview,
+  writeProjectReviewAtHash,
   resolveAxisCache,
   projectReviewPath,
   loadReviewIndex,
@@ -167,6 +168,35 @@ describe('project-review-cache (per-axis)', () => {
       const res = resolveAxisCache(root, 'src/foo.ts', 'line1\r\nline2\r\n', ['correction'], k.prompt, k.model);
       expect(res.staleAxes).toEqual([]);
       expect(res.reusableAxes).toEqual(['correction']);
+    });
+  });
+
+  describe('provenance (writeProjectReviewAtHash)', () => {
+    it('keys the entry by the given source hash and stamps content_hash on the blob', () => {
+      const srcContent = 'SOURCE CONTENT\n';
+      const srcHash = computeContentHash(srcContent);
+      writeProjectReviewAtHash(root, makeReview('src/foo.ts'), srcHash, meta(['correction']), ['correction']);
+
+      expect(loadReviewIndex(root).files['src/foo.ts'].hash).toBe(srcHash);
+
+      // Reused only when the current content hashes to the keyed source hash.
+      const k = keys(['correction']);
+      const res = resolveAxisCache(root, 'src/foo.ts', srcContent, ['correction'], k.prompt, k.model);
+      expect(res.staleAxes).toEqual([]);
+      expect(res.cached!.content_hash).toBe(srcHash);
+    });
+
+    it('does NOT reuse when current content differs from the keyed hash (the reseed re-stamp bug)', () => {
+      // Simulate reseed: key a review by the OLD content it describes.
+      const srcHash = computeContentHash('OLD VERSION\n');
+      writeProjectReviewAtHash(root, makeReview('src/foo.ts'), srcHash, meta(['correction']), ['correction']);
+
+      // The file now holds DIFFERENT content → must be stale (re-evaluated),
+      // never served from the old review.
+      const k = keys(['correction']);
+      const res = resolveAxisCache(root, 'src/foo.ts', 'NEW VERSION\n', ['correction'], k.prompt, k.model);
+      expect(res.cached).toBeNull();
+      expect(res.staleAxes).toEqual(['correction']);
     });
   });
 

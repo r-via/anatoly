@@ -105,7 +105,26 @@ export function writeProjectReview(
   axisMeta: Record<string, { prompt_hash: string; model_id: string }>,
   justRunAxes: string[],
 ): void {
-  const contentHash = computeContentHash(fileContent);
+  writeProjectReviewAtHash(root, review, computeContentHash(fileContent), axisMeta, justRunAxes);
+}
+
+/**
+ * Same as {@link writeProjectReview} but takes the content hash directly
+ * instead of deriving it from the file content. Used by `cache reseed`, which
+ * must key a review by the SOURCE content it was computed against (carried in
+ * `review.content_hash`), not by whatever the file holds now — otherwise a
+ * review of an older version would be re-stamped under the current content and
+ * wrongly reused. Stamps `review.content_hash` so the persisted blob is
+ * self-describing.
+ */
+export function writeProjectReviewAtHash(
+  root: string,
+  review: ReviewFile,
+  contentHash: string,
+  axisMeta: Record<string, { prompt_hash: string; model_id: string }>,
+  justRunAxes: string[],
+): void {
+  review.content_hash = contentHash;
   const cachePath = projectReviewPath(root, contentHash);
 
   const blobModelId =

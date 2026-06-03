@@ -272,6 +272,15 @@ export const ReviewFileSchema = z.object({
   /** Parse method used for symbol extraction: 'ast' or 'heuristic' — Story 31.20 */
   parse_method: z.enum(['ast', 'heuristic']).optional(),
 
+  /**
+   * Provenance: SHA-256 (line-ending-normalized) of the source file content
+   * this review was computed against. Lets `anatoly cache reseed` key the cache
+   * by the content the verdicts actually describe, instead of re-stamping them
+   * under whatever the file holds at reseed time. Optional: reviews produced
+   * before this field existed lack it (reseed falls back to current content).
+   */
+  content_hash: z.string().optional(),
+
   verdict: VerdictSchema,
   symbols: z.array(SymbolReviewSchema),
   actions: z.array(ActionSchema).default([]),

@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { Command } from 'commander';
 import { registerCacheCommand } from './cache.js';
 import { pkgVersion } from '../utils/version.js';
+import { computeContentHash } from '../utils/cache.js';
 
 // Reseed integration test: scaffolds a runs/<id>/reviews/ from a known
 // payload, runs `cache reseed`, and asserts the project-global cache now
@@ -23,14 +24,16 @@ function writeFile(path: string, content: string): void {
   writeFileSync(path, content);
 }
 
-function makeReviewFixture(file: string): string {
+function makeReviewFixture(file: string, contentHash?: string): string {
   // Minimal but valid v2 ReviewFile with all axes carrying non-`-` verdicts,
-  // so computeCoveredAxes returns the full set.
+  // so computeCoveredAxes returns the full set. Pass contentHash to attach the
+  // provenance field (omit to simulate a pre-provenance legacy review).
   return JSON.stringify({
     version: 2,
     file,
     is_generated: false,
     verdict: 'CLEAN',
+    ...(contentHash ? { content_hash: contentHash } : {}),
     symbols: [{
       name: 'doWork',
       kind: 'function',
@@ -256,5 +259,60 @@ describe('anatoly cache reseed', () => {
     // At least one shard subdirectory exists
     const shards = readdirSync(cacheReviewsDir);
     expect(shards.length).toBeGreaterThan(0);
+  });
+});
+
+async function runReseedAllCmd(): Promise<void> {
+  const program = new Command();
+  program.exitOverride();
+  registerCacheCommand(program);
+  await program.parseAsync(['cache', 'reseed', '--all'], { from: 'user' });
+}
+
+describe('anatoly cache reseed --all', () => {
+  function scaffoldRun(runId: string, file: string, contentHash?: string): void {
+    const runDir = join(testDir, '.anatoly', 'runs', runId);
+    writeFile(join(runDir, 'reviews', file.replace(/\//g, '-').replace(/\.ts$/, '') + '.rev.json'),
+      makeReviewFixture(file, contentHash));
+  }
+
+  it('reseeds a file from a provenance review that matches current content', async () => {
+    const content = 'export function doWork() { return 1; }\n';
+    writeFile(join(testDir, 'src/foo.ts'), content);
+    scaffoldRun('2026-01-01_000000', 'src/foo.ts', computeContentHash(content));
+
+    await runReseedAllCmd();
+
+    const indexPath = join(testDir, '.anatoly', 'cache', 'review-index.json');
+    expect(existsSync(indexPath)).toBe(true);
+    const entry = JSON.parse(readFileSync(indexPath, 'utf-8')).files['src/foo.ts'];
+    expect(entry).toBeDefined();
+    expect(entry.hash).toBe(computeContentHash(content));
+    expect(Object.keys(entry.axes).length).toBe(7);
+  });
+
+  it('does NOT reseed a provenance review whose hash differs from the current file (no stale reuse)', async () => {
+    writeFile(join(testDir, 'src/foo.ts'), 'CURRENT CONTENT\n');
+    // Review describes a different (older) version.
+    scaffoldRun('2026-01-01_000000', 'src/foo.ts', computeContentHash('OLD DIFFERENT CONTENT\n'));
+
+    await runReseedAllCmd();
+
+    const indexPath = join(testDir, '.anatoly', 'cache', 'review-index.json');
+    if (existsSync(indexPath)) {
+      expect(JSON.parse(readFileSync(indexPath, 'utf-8')).files['src/foo.ts']).toBeUndefined();
+    }
+  });
+
+  it('skips legacy reviews that carry no provenance hash', async () => {
+    writeFile(join(testDir, 'src/foo.ts'), 'export function doWork() { return 1; }\n');
+    scaffoldRun('2026-01-01_000000', 'src/foo.ts'); // no content_hash
+
+    await runReseedAllCmd();
+
+    const indexPath = join(testDir, '.anatoly', 'cache', 'review-index.json');
+    if (existsSync(indexPath)) {
+      expect(JSON.parse(readFileSync(indexPath, 'utf-8')).files['src/foo.ts']).toBeUndefined();
+    }
   });
 });

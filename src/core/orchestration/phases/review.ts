@@ -45,6 +45,7 @@ import { getEnabledEvaluators } from '../../evaluation/index.js';
 import { evaluateFile } from '../../evaluation/index.js';
 import { runWorkerPool } from '../../platform/index.js';
 import { countReviewFindings } from '../../../utils/format.js';
+import { computeContentHash } from '../../../utils/cache.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
@@ -201,15 +202,16 @@ export async function runReviewPhase(
   // counter: a file is "cached" (no LLM work) only when zero axes are stale.
   const sourceRootEff = getEffectiveSourceRoot(ctx.projectRoot, ctx.sourceRoot);
   const fileFilterMatch = ctx.fileFilter ? picomatch(ctx.fileFilter) : null;
-  type Resolution = { staleAxes: AxisId[]; reusableAxes: AxisId[]; cached: ReviewFile | null };
+  type Resolution = { staleAxes: AxisId[]; reusableAxes: AxisId[]; cached: ReviewFile | null; contentHash: string | null };
   const resolveFile = (filePath: string): Resolution => {
-    // --no-cache or an explicit --file match: bypass cache → every axis stale.
-    if (ctx.noCache || (fileFilterMatch && fileFilterMatch(filePath))) {
-      return { staleAxes: [...axisIds], reusableAxes: [], cached: null };
+    // Read once for the content hash (provenance stamp + cache lookup).
+    let content: string | null = null;
+    try { content = readFileSync(resolve(sourceRootEff, filePath), 'utf-8'); } catch { /* unreadable */ }
+    const contentHash = content !== null ? computeContentHash(content) : null;
+    // Unreadable, --no-cache, or an explicit --file match: bypass cache → every axis stale.
+    if (content === null || ctx.noCache || (fileFilterMatch && fileFilterMatch(filePath))) {
+      return { staleAxes: [...axisIds], reusableAxes: [], cached: null, contentHash };
     }
-    let content: string;
-    try { content = readFileSync(resolve(sourceRootEff, filePath), 'utf-8'); }
-    catch { return { staleAxes: [...axisIds], reusableAxes: [], cached: null }; }
     const res = resolveAxisCache(ctx.projectRoot, filePath, content, axisIds, axisPromptHashes, axisModelIds);
     const stale = new Set<AxisId>(res.staleAxes as AxisId[]);
     // --cache-refresh: force re-evaluation of the targeted axes (axesFilter, or
@@ -222,6 +224,7 @@ export async function runReviewPhase(
       staleAxes: axisIds.filter((a) => stale.has(a)),
       reusableAxes: axisIds.filter((a) => !stale.has(a)),
       cached: res.cached,
+      contentHash,
     };
   };
 
@@ -351,6 +354,7 @@ export async function runReviewPhase(
       if (isSkipTier && fileEvaluators.length === 0) {
         pm.updateFileStatus(filePath, 'IN_PROGRESS');
         const skipReview = generateSkipReview(task, triage.reason, ctx.axesFilter, usageGraph);
+        if (resolution?.contentHash) skipReview.content_hash = resolution.contentHash;
         writeReviewOutput(ctx.projectRoot, skipReview, ctx.runDir);
         // The synthetic review carries a verdict for every enabled axis, so
         // mark all axes fresh — the file is fully cache-served next run.
@@ -467,6 +471,10 @@ export async function runReviewPhase(
         // run the other six axes per file.
         const freshAxes = fileEvaluators.map((e) => e.id) as AxisId[];
         const outputReview = mergeRefreshedReview(cachedBlob, result.review, freshAxes);
+        // Provenance: stamp the content these verdicts describe so a later
+        // `cache reseed` keys this review by the right hash (not the file's
+        // content at reseed time).
+        if (resolution?.contentHash) outputReview.content_hash = resolution.contentHash;
         writeReviewOutput(ctx.projectRoot, outputReview, ctx.runDir);
         writeTranscript(ctx.projectRoot, filePath, result.transcript, ctx.runDir);
         const succeededAxes = result.failedAxes.length > 0

@@ -12,13 +12,15 @@ import { reviewsDir as runReviewsDir } from '../utils/run-layout.js';
 import { ReviewFileSchema, type ReviewFile } from '../schemas/review.js';
 import type { AxisId } from '../core/evaluation/contract.js';
 import {
-  writeProjectReview, readRunConfig,
+  writeProjectReview, writeProjectReviewAtHash, readRunConfig,
   createSnapshot, listSnapshots, restoreSnapshot, deleteSnapshot, pruneSnapshots,
 } from '../core/run/index.js';
 import { confirm, isInteractive } from '../utils/confirm.js';
 import { computeAxisPromptHash } from '../core/run/axes-prompt-hash.js';
+import { computeContentHash } from '../utils/cache.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { getEnabledEvaluators, resolveAxisModel } from '../core/evaluation/index.js';
+import { getEnabledEvaluators, resolveAxisModel, type AxisEvaluator } from '../core/evaluation/index.js';
+import type { Config } from '../schemas/config.js';
 import { pkgVersion } from '../utils/version.js';
 
 /**
@@ -39,9 +41,11 @@ export function registerCacheCommand(program: Command): Command {
     .command('reseed [runId]')
     .description('Rebuild the project review cache from a prior run\'s reviews/ directory. Defaults to latest.')
     .option('--force', 'proceed even when the source run\'s anatoly version differs from the current binary')
-    .action(async (runId: string | undefined, opts: { force?: boolean }) => {
+    .option('--all', 'sweep ALL runs and reseed each file from the newest run whose review matches the current file content (maximizes valid coverage; requires provenance hashes)')
+    .action(async (runId: string | undefined, opts: { force?: boolean; all?: boolean }) => {
       const projectRoot = resolve('.');
-      await runReseed(projectRoot, runId, opts.force === true);
+      if (opts.all) await runReseedAll(projectRoot);
+      else await runReseed(projectRoot, runId, opts.force === true);
     });
 
   cacheCmd
@@ -87,7 +91,28 @@ interface ReseedStats {
   reseeded: number;
   skippedSourceMissing: number;
   skippedNotReviewable: number;
+  legacyFallback: number;
   errors: Array<{ file: string; reason: string }>;
+}
+
+/**
+ * Per-axis freshness keys ({prompt_hash, model_id}) under which the CURRENT
+ * binary would store these axes — so a future read with the same prompts/model
+ * hits. Shared by the single-run and --all reseed paths.
+ */
+function buildAxisMeta(
+  axes: AxisId[],
+  axisIdToEvaluator: Map<AxisId, AxisEvaluator>,
+  config: Config,
+): Record<string, { prompt_hash: string; model_id: string }> {
+  const meta: Record<string, { prompt_hash: string; model_id: string }> = {};
+  for (const a of axes) {
+    const ev = axisIdToEvaluator.get(a);
+    if (!ev) continue;
+    const model = resolveAxisModel(ev, config);
+    meta[a] = { prompt_hash: computeAxisPromptHash(a, model), model_id: model };
+  }
+  return meta;
 }
 
 async function runReseed(projectRoot: string, runId: string | undefined, force: boolean): Promise<void> {
@@ -135,6 +160,7 @@ async function runReseed(projectRoot: string, runId: string | undefined, force: 
     reseeded: 0,
     skippedSourceMissing: 0,
     skippedNotReviewable: 0,
+    legacyFallback: 0,
     errors: [],
   };
 
@@ -167,22 +193,21 @@ async function runReseed(projectRoot: string, runId: string | undefined, force: 
       continue;
     }
 
-    // Compute the per-axis freshness keys under which the CURRENT binary
-    // would store this review. Future reads use these same values, so the
-    // per-axis cache lookup will match. (The cached verdicts may be from
-    // older prompts — the version-mismatch warning above is the user-facing
-    // guard for that.)
-    const axisMeta: Record<string, { prompt_hash: string; model_id: string }> = {};
-    for (const a of axes) {
-      const ev = axisIdToEvaluator.get(a);
-      if (!ev) continue;
-      const model = resolveAxisModel(ev, config);
-      axisMeta[a] = { prompt_hash: computeAxisPromptHash(a, model), model_id: model };
-    }
+    const axisMeta = buildAxisMeta(axes, axisIdToEvaluator, config);
 
     try {
-      const fileContent = readFileSync(sourcePath, 'utf-8');
-      writeProjectReview(projectRoot, parsed, fileContent, axisMeta, axes);
+      // Provenance: key the cache by the SOURCE content the review describes
+      // (review.content_hash), so a future run reuses it only when the file
+      // still holds that exact content. Reviews produced before this field
+      // existed fall back to the current file content (the re-stamp caveat in
+      // the closing note applies to those).
+      const srcHash = parsed.content_hash;
+      if (srcHash) {
+        writeProjectReviewAtHash(projectRoot, parsed, srcHash, axisMeta, axes);
+      } else {
+        writeProjectReview(projectRoot, parsed, readFileSync(sourcePath, 'utf-8'), axisMeta, axes);
+        stats.legacyFallback++;
+      }
       stats.reseeded++;
     } catch (err) {
       stats.errors.push({ file: reviewFile, reason: err instanceof Error ? err.message : String(err) });
@@ -204,10 +229,87 @@ async function runReseed(projectRoot: string, runId: string | undefined, force: 
     }
     if (stats.errors.length > 5) console.log(chalk.red(`    ... and ${stats.errors.length - 5} more`));
   }
+  if (stats.legacyFallback > 0) {
+    console.log('');
+    console.log(chalk.dim(`  Note: ${stats.legacyFallback} review(s) lacked a provenance hash and were keyed by`));
+    console.log(chalk.dim('  CURRENT file content. If such a file was modified since the source run, its'));
+    console.log(chalk.dim('  entry describes the older version — re-run with that file changed, or wait for'));
+    console.log(chalk.dim('  the next anatoly run to re-evaluate it. No silent corruption either way.'));
+  }
+}
+
+/**
+ * `cache reseed --all`: sweep every run and reseed each file from the newest
+ * run whose review describes the file's CURRENT content (max axis coverage on
+ * ties). Only provenance-bearing reviews are eligible, so every reseeded entry
+ * is guaranteed to match the current file (no re-stamp risk). Useful when the
+ * latest run is partial/failed and earlier runs still cover the rest.
+ */
+async function runReseedAll(projectRoot: string): Promise<void> {
+  console.log(chalk.bold('anatoly — cache reseed (--all)'));
+
+  const config = loadConfig(projectRoot);
+  const evaluators = getEnabledEvaluators(config);
+  const axisIdToEvaluator = new Map(evaluators.map((e) => [e.id, e]));
+
+  // Newest run first: ids are timestamped (YYYY-MM-DD_HHMMSS), lexicographically sortable.
+  const runIds = [...listRuns(projectRoot)].sort().reverse();
+  if (runIds.length === 0) {
+    console.log(chalk.red('  No runs found.'));
+    process.exitCode = 2;
+    return;
+  }
+
+  const currentHash = new Map<string, string | null>(); // file -> current content hash (null = gone)
+  const hashOf = (file: string): string | null => {
+    if (currentHash.has(file)) return currentHash.get(file)!;
+    let h: string | null = null;
+    try { h = computeContentHash(readFileSync(join(projectRoot, file), 'utf-8')); } catch { h = null; }
+    currentHash.set(file, h);
+    return h;
+  };
+
+  // file -> best provenance-matching review (max coverage, newest on tie)
+  const chosen = new Map<string, { review: ReviewFile; axes: AxisId[]; srcHash: string }>();
+  let scanned = 0, noProvenance = 0, contentMismatch = 0;
+
+  for (const rid of runIds) {
+    const rdir = resolveRunDir(projectRoot, rid);
+    if (!rdir) continue;
+    const reviewsPath = runReviewsDir(rdir);
+    if (!existsSync(reviewsPath)) continue;
+    for (const rf of readdirSync(reviewsPath).filter((f) => f.endsWith('.rev.json'))) {
+      let parsed: ReviewFile;
+      try { parsed = ReviewFileSchema.parse(JSON.parse(readFileSync(join(reviewsPath, rf), 'utf-8'))); }
+      catch { continue; }
+      scanned++;
+      const srcHash = parsed.content_hash;
+      if (!srcHash) { noProvenance++; continue; }       // can't validate without provenance
+      if (hashOf(parsed.file) !== srcHash) { contentMismatch++; continue; } // describes a different version
+      const axes = computeCoveredAxes(parsed);
+      if (axes.length === 0) continue;
+      const prev = chosen.get(parsed.file);
+      // Newest-first iteration: first-seen wins ties; replace only on strictly
+      // greater coverage so a full run beats a later partial run at same content.
+      if (!prev || axes.length > prev.axes.length) {
+        chosen.set(parsed.file, { review: parsed, axes, srcHash });
+      }
+    }
+  }
+
+  let reseeded = 0;
+  for (const { review, axes, srcHash } of chosen.values()) {
+    try {
+      writeProjectReviewAtHash(projectRoot, review, srcHash, buildAxisMeta(axes, axisIdToEvaluator, config), axes);
+      reseeded++;
+    } catch { /* non-fatal per file */ }
+  }
+
+  console.log(chalk.dim(`  Swept ${runIds.length} run(s), ${scanned} review file(s).`));
   console.log('');
-  console.log(chalk.dim('  Note: cache content hash uses CURRENT file content. Files modified since'));
-  console.log(chalk.dim('  the source run get a cache entry that will not match anything until the'));
-  console.log(chalk.dim('  next anatoly run re-evaluates them — no silent corruption.'));
+  console.log(chalk.green(`  ✓ ${reseeded} file(s) reseeded (newest content-matching review each)`));
+  if (noProvenance > 0) console.log(chalk.dim(`  ↷ ${noProvenance} review(s) skipped (no provenance hash — pre-upgrade)`));
+  if (contentMismatch > 0) console.log(chalk.dim(`  ↷ ${contentMismatch} review(s) skipped (describe an older version of the file)`));
 }
 
 /**
