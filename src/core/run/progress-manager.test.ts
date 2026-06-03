@@ -82,6 +82,45 @@ describe('ProgressManager', () => {
     expect(summary.IN_PROGRESS).toBe(0);
   });
 
+  it('getErrorFilesSince scopes failures to the current run by updated_at', () => {
+    const cacheDir = join(tempDir, '.anatoly', 'cache');
+    mkdirSync(cacheDir, { recursive: true });
+    const runStart = Date.parse('2026-06-03T10:00:00Z');
+    atomicWriteJson(join(cacheDir, 'progress.json'), {
+      version: 1,
+      started_at: '2026-06-03T10:00:00Z',
+      files: {
+        // failed THIS run (updated at/after run start) → included
+        'src/fresh-error.ts': { file: 'src/fresh-error.ts', hash: 'h', status: 'ERROR', updated_at: '2026-06-03T10:05:00Z' },
+        'src/fresh-timeout.ts': { file: 'src/fresh-timeout.ts', hash: 'h', status: 'TIMEOUT', updated_at: '2026-06-03T10:00:00Z' },
+        // failed an EARLIER run (stale updated_at) → excluded
+        'src/stale-timeout.ts': { file: 'src/stale-timeout.ts', hash: 'h', status: 'TIMEOUT', updated_at: '2026-06-01T08:00:00Z' },
+        'src/stale-error.ts': { file: 'src/stale-error.ts', hash: 'h', status: 'ERROR', updated_at: '2026-05-30T12:00:00Z' },
+        // not a failure → never included regardless of timestamp
+        'src/done.ts': { file: 'src/done.ts', hash: 'h', status: 'DONE', updated_at: '2026-06-03T10:06:00Z' },
+        'src/pending.ts': { file: 'src/pending.ts', hash: 'h', status: 'PENDING', updated_at: '2026-06-03T10:06:00Z' },
+      },
+    });
+
+    const pm = new ProgressManager(tempDir);
+    expect(pm.getErrorFilesSince(runStart).sort()).toEqual(['src/fresh-error.ts', 'src/fresh-timeout.ts']);
+  });
+
+  it('getErrorFilesSince keeps a failure whose updated_at is unparseable (no silent drop)', () => {
+    const cacheDir = join(tempDir, '.anatoly', 'cache');
+    mkdirSync(cacheDir, { recursive: true });
+    atomicWriteJson(join(cacheDir, 'progress.json'), {
+      version: 1,
+      started_at: '2026-06-03T10:00:00Z',
+      files: {
+        'src/weird.ts': { file: 'src/weird.ts', hash: 'h', status: 'ERROR', updated_at: 'not-a-date' },
+      },
+    });
+
+    const pm = new ProgressManager(tempDir);
+    expect(pm.getErrorFilesSince(Date.parse('2026-06-03T10:00:00Z'))).toEqual(['src/weird.ts']);
+  });
+
   it('should update file status atomically', async () => {
     makeProgress(tempDir, {
       'src/a.ts': { status: 'PENDING' },

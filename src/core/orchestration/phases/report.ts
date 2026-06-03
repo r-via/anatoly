@@ -53,11 +53,13 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
   const log = getLogger();
   const rl = ctx.runLog;
   const pm = new ProgressManager(ctx.projectRoot);
-  const errorFiles: string[] = [];
-  const progress = pm.getProgress();
-  for (const [, fp] of Object.entries(progress.files)) {
-    if (fp.status === 'ERROR' || fp.status === 'TIMEOUT') errorFiles.push(fp.file);
-  }
+  // Scope "Files in Error" to failures that occurred during THIS run. The
+  // progress store is global (persists across runs), so scanning it unfiltered
+  // re-listed files left ERROR/TIMEOUT by an earlier run in every subsequent
+  // report — even when the current run never touched them, contradicting the
+  // run's own errors:0 summary. getErrorFilesSince keeps only failures whose
+  // updated_at falls within this run.
+  const errorFiles = pm.getErrorFilesSince(ctx.startTime);
 
   let triageStats: TriageStats | undefined;
   if (ctx.triageEnabled) {

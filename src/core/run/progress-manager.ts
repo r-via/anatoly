@@ -45,6 +45,27 @@ export class ProgressManager {
   }
 
   /**
+   * Files that failed (ERROR or TIMEOUT) during the run that started at
+   * `sinceMs` (epoch ms). The progress store is global and persists across
+   * runs, so a file left ERROR/TIMEOUT by an earlier run would otherwise be
+   * reported as a failure of every later run that never touched it. A real
+   * failure this run has its `updated_at` refreshed at/after the run start;
+   * a stale one predates it. An unparseable `updated_at` is treated as
+   * in-scope (never silently drop a real failure).
+   * @param sinceMs - Epoch ms of the current run's start (e.g. `ctx.startTime`).
+   * @returns The file paths that failed during this run, in store order.
+   */
+  getErrorFilesSince(sinceMs: number): string[] {
+    const out: string[] = [];
+    for (const f of Object.values(this.progress.files)) {
+      if (f.status !== 'ERROR' && f.status !== 'TIMEOUT') continue;
+      const updatedMs = Date.parse(f.updated_at);
+      if (Number.isNaN(updatedMs) || updatedMs >= sinceMs) out.push(f.file);
+    }
+    return out;
+  }
+
+  /**
    * Get summary counts by status.
    */
   getSummary(): Record<FileStatus, number> {
