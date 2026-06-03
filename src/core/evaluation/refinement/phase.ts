@@ -124,10 +124,15 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
     ? new Map(reviews.map((r) => [r.file, structuredClone(r)]))
     : undefined;
 
-  const totalFindings = reviews.reduce((sum, r) => sum + r.symbols.length, 0);
+  // Tiers 1 & 2 examine EVERY evaluated symbol (auto-resolve + inter-axis
+  // coherence are per-symbol), so their denominator is the symbol count, not
+  // the actionable-findings count shown by the review phase. Label it
+  // "symbols" so the deliberation line does not read as a (larger, different)
+  // findings total and contradict the review's findings counter.
+  const totalSymbols = reviews.reduce((sum, r) => sum + r.symbols.length, 0);
 
   // --- Tier 1: Deterministic auto-resolve ---
-  ctx.onProgress?.('tier1-start', `${reviews.length} files, ${totalFindings} findings`);
+  ctx.onProgress?.('tier1-start', `${reviews.length} files, ${totalSymbols} symbols`);
 
   const tier1Ctx: Tier1Context = {
     usageGraph: ctx.usageGraph ?? { usages: new Map(), typeOnlyUsages: new Map(), intraFileRefs: new Map(), noImportFiles: new Set() },
@@ -166,11 +171,11 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   if (bd.correctionBoundsResolved) parts.push(`${bd.correctionBoundsResolved} bounds→OK`);
   if (bd.correctionGeneratedDowngraded) parts.push(`${bd.correctionGeneratedDowngraded} generated↓`);
   const breakdownStr = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-  const tier1Remaining = totalFindings - tier1TotalStats.resolved;
-  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved}/${totalFindings} resolved, ${tier1Remaining} remaining${breakdownStr}`);
+  const tier1Remaining = totalSymbols - tier1TotalStats.resolved;
+  ctx.onProgress?.('tier1-done', `${tier1TotalStats.resolved}/${totalSymbols} symbols resolved, ${tier1Remaining} remaining${breakdownStr}`);
 
   // --- Tier 2: Inter-axis coherence ---
-  ctx.onProgress?.('tier2-start', `${tier1Reviews.length} files, ${tier1Remaining} findings`);
+  ctx.onProgress?.('tier2-start', `${tier1Reviews.length} files, ${tier1Remaining} symbols`);
 
   const tier2TotalStats: Tier2Stats = { resolved: 0, escalated: 0 };
   const allEscalated: EscalatedFinding[] = [];
@@ -190,7 +195,7 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   tier2TotalStats.escalated += crossFileFindings.length;
 
   const tier2Confirmed = tier1Remaining - tier2TotalStats.resolved - tier2TotalStats.escalated;
-  const t2Detail = `${tier2TotalStats.resolved}/${tier1Remaining} resolved, ${tier2TotalStats.escalated} escalated, ${tier2Confirmed} confirmed` +
+  const t2Detail = `${tier2TotalStats.resolved}/${tier1Remaining} symbols resolved, ${tier2TotalStats.escalated} escalated, ${tier2Confirmed} confirmed` +
     (crossFileFindings.length > 0 ? ` (${crossFileFindings.length} systemic)` : '');
   ctx.onProgress?.('tier2-done', t2Detail);
 
