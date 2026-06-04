@@ -133,7 +133,7 @@ export class OverengineeringEvaluator implements AxisEvaluator {
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildOverengineeringSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('overengineering', ctx.task.language, ctx.task.framework);
     let userMessage = buildOverengineeringUserMessage(ctx);
 
     const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));

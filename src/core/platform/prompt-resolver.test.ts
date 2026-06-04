@@ -93,6 +93,21 @@ describe('resolveSystemPrompt', () => {
     }
   });
 
+  // Phase 1: the generic axis defaults must be language-neutral so they serve
+  // non-TypeScript files without falsely claiming to audit TypeScript. The
+  // cascade (framework → language → default) supplies language specifics.
+  it('default axis prompts are language-neutral (no hardcoded "TypeScript")', () => {
+    _resetPromptRegistry();
+
+    const axes = ['utility', 'correction', 'duplication', 'tests', 'overengineering'];
+    for (const axis of axes) {
+      const prompt = resolveSystemPrompt(axis);
+      expect(prompt, `${axis} default prompt should not hardcode TypeScript framing`)
+        .not.toContain('TypeScript code auditor');
+      expect(prompt).toContain('rigorous code auditor');
+    }
+  });
+
   // Additional: throws for unknown axis
   it('throws for unknown axis with no prompt registered', () => {
     expect(() => resolveSystemPrompt('nonexistent')).toThrow('No system prompt found');

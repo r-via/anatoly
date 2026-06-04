@@ -321,7 +321,7 @@ export class CorrectionEvaluator implements AxisEvaluator {
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildCorrectionSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('correction', ctx.task.language, ctx.task.framework);
     let userMessage = buildCorrectionUserMessage(ctx);
 
     // Inject known false positives from memory into the prompt

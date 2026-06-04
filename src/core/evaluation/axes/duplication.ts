@@ -236,7 +236,7 @@ export class DuplicationEvaluator implements AxisEvaluator {
 
     // --- At least one symbol has candidates — full LLM evaluation ---
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildDuplicationSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('duplication', ctx.task.language, ctx.task.framework);
     let userMessage = buildDuplicationUserMessage(ctx);
 
     const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));

@@ -175,7 +175,7 @@ export class UtilityEvaluator implements AxisEvaluator {
 
     // --- Phase 2: at least one symbol needs LLM — send the full file ---
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildUtilitySystemPrompt();
+    const systemPrompt = resolveSystemPrompt('utility', ctx.task.language, ctx.task.framework);
     let userMessage = buildUtilityUserMessage(ctx);
 
     const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));

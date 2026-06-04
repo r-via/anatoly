@@ -176,7 +176,7 @@ export class TestsEvaluator implements AxisEvaluator {
 
   async evaluate(ctx: AxisContext, abortController: AbortController): Promise<AxisResult> {
     const model = resolveAxisModel(this, ctx.config);
-    const systemPrompt = buildTestsSystemPrompt();
+    const systemPrompt = resolveSystemPrompt('tests', ctx.task.language, ctx.task.framework);
     let userMessage = buildTestsUserMessage(ctx);
 
     const fileSymbols = new Set(ctx.task.symbols.map(s => s.name));
