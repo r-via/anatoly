@@ -95,6 +95,21 @@ export interface User {
     expect(symbols.find((s) => s.name === 'App')?.is_default).toBe(true);
   });
 
+  it('should mark symbols exported via a trailing export clause (shadcn pattern)', async () => {
+    const source = `function Button() { return null; }\nconst buttonVariants = () => '';\nexport { Button, buttonVariants };\n`;
+    const { symbols } = await parseFile('button.tsx', source);
+    expect(symbols.find((s) => s.name === 'Button')?.exported).toBe(true);
+    expect(symbols.find((s) => s.name === 'buttonVariants')?.exported).toBe(true);
+  });
+
+  it('should not mark a local symbol exported from a re-export with a source', async () => {
+    const source = `function Local() {}\nexport { Other } from './other.js';\nexport { Local };\n`;
+    const { symbols } = await parseFile('barrel.ts', source);
+    // Local is exported via the trailing clause; Other is a re-export (no local decl).
+    expect(symbols.find((s) => s.name === 'Local')?.exported).toBe(true);
+    expect(symbols.some((s) => s.name === 'Other')).toBe(false);
+  });
+
   it('should handle mixed declarations', async () => {
     const source = `
 export function doWork() {}

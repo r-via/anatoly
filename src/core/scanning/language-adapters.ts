@@ -323,6 +323,10 @@ export class TypeScriptAdapter implements LanguageAdapter {
 
   extractSymbols(rootNode: TSNode): SymbolInfo[] {
     const symbols: SymbolInfo[] = [];
+    // Names exported via a trailing `export { Button, buttonVariants }` clause
+    // that lists locally-declared bindings (the shadcn/ui pattern). Collected
+    // here and applied after the loop, since the clause follows the decls.
+    const clauseExported = new Set<string>();
 
     for (const node of rootNode.namedChildren) {
       if (node.type === 'export_statement') {
@@ -335,6 +339,21 @@ export class TypeScriptAdapter implements LanguageAdapter {
           // also consults the synthetic `default` import edge.
           const isDefault = (node.children ?? []).some((c: TSNode) => c.type === 'default');
           extractDeclaration(declaration, true, symbols, isDefault);
+          continue;
+        }
+        // No declaration: `export { A, B }` (export clause of local bindings) or
+        // `export { A } from './x'` (re-export). A re-export carries a `source`
+        // field and declares no local symbol — skip it. An export clause without
+        // a source promotes already-declared local symbols to exported.
+        if (!node.childForFieldName('source')) {
+          const clause = node.namedChildren.find((c: TSNode) => c.type === 'export_clause');
+          if (clause) {
+            for (const spec of clause.namedChildren) {
+              if (spec.type !== 'export_specifier') continue;
+              const nameNode = spec.childForFieldName('name');
+              if (nameNode) clauseExported.add(nameNode.text);
+            }
+          }
         }
         continue;
       }
@@ -343,6 +362,13 @@ export class TypeScriptAdapter implements LanguageAdapter {
         extractDeclaration(node, false, symbols);
       } else if (node.type === 'lexical_declaration') {
         extractDeclaration(node, false, symbols);
+      }
+    }
+
+    // Promote locally-declared symbols named in a trailing `export { ... }` clause.
+    if (clauseExported.size > 0) {
+      for (const sym of symbols) {
+        if (!sym.exported && clauseExported.has(sym.name)) sym.exported = true;
       }
     }
 
