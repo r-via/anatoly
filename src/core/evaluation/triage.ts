@@ -161,7 +161,7 @@ export function generateSkipReview(
 
     if (utilityActive && usageGraph && s.exported) {
       const resolved = resolveExportedSymbolUtility(
-        { name: s.name, exported: s.exported },
+        { name: s.name, exported: s.exported, is_default: s.is_default },
         usageGraph,
         task.file,
       );

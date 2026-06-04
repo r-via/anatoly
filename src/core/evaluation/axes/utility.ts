@@ -66,8 +66,17 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
     parts.push('');
     for (const sym of ctx.task.symbols) {
       if (sym.exported) {
-        const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
-        const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        // Default exports are imported under the synthetic name `default`, so
+        // fold that key in for default-exported symbols.
+        const dedupe = (xs: string[]): string[] => [...new Set(xs)].sort();
+        const importers = dedupe([
+          ...getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file),
+          ...(sym.is_default ? getSymbolUsage(ctx.usageGraph, 'default', ctx.task.file) : []),
+        ]);
+        const typeImporters = dedupe([
+          ...getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file),
+          ...(sym.is_default ? getTypeOnlySymbolUsage(ctx.usageGraph, 'default', ctx.task.file) : []),
+        ]);
         if (importers.length === 0 && typeImporters.length === 0) {
           const transitiveRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
           if (transitiveRefs.length > 0) {
@@ -107,7 +116,7 @@ type AutoVerdict = { value: 'USED' | 'DEAD'; confidence: number; detail: string 
  * non-exported symbols that require local code analysis.
  */
 function autoResolveSymbol(
-  sym: { name: string; exported: boolean },
+  sym: { name: string; exported: boolean; is_default?: boolean },
   ctx: AxisContext,
 ): AutoVerdict {
   if (!ctx.usageGraph) return null;

@@ -6,11 +6,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildUsageGraph, getSymbolUsage, getTypeOnlySymbolUsage } from './usage-graph.js';
+import {
+  buildUsageGraph,
+  getSymbolUsage,
+  getTypeOnlySymbolUsage,
+  resolveExportedSymbolUtility,
+} from './usage-graph.js';
 import { detectTsPathAliases, resolveAliasCandidates } from './ts-path-aliases.js';
 import type { Task } from '../../schemas/task.js';
 
-function makeTask(file: string, symbols: Array<{ name: string; exported: boolean; kind?: string }>): Task {
+function makeTask(
+  file: string,
+  symbols: Array<{ name: string; exported: boolean; kind?: string; is_default?: boolean }>,
+): Task {
   return {
     version: 1,
     file,
@@ -19,6 +27,7 @@ function makeTask(file: string, symbols: Array<{ name: string; exported: boolean
       name: s.name,
       kind: (s.kind ?? 'function') as Task['symbols'][0]['kind'],
       exported: s.exported,
+      ...(s.is_default ? { is_default: true } : {}),
       line_start: i * 10 + 1,
       line_end: i * 10 + 10,
     })),
@@ -598,6 +607,67 @@ describe('buildUsageGraph — TypeScript path aliases', () => {
 
     const graph = buildUsageGraph(testDir, tasks);
     expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/core/scanner.ts']);
+  });
+});
+
+describe('buildUsageGraph — default exports', () => {
+  it('resolves a default-exported symbol imported via default import (relative)', () => {
+    createFile('src/App.tsx', 'export default function App() { return null; }\n');
+    createFile('src/main.tsx', "import App from './App';\n");
+
+    const tasks = [
+      makeTask('src/App.tsx', [{ name: 'App', exported: true, is_default: true }]),
+      makeTask('src/main.tsx', [{ name: 'main', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    const verdict = resolveExportedSymbolUtility(
+      { name: 'App', exported: true, is_default: true },
+      graph,
+      'src/App.tsx',
+    );
+    expect(verdict?.value).toBe('USED');
+  });
+
+  it('still flags the symbol DEAD when is_default is not set (proves the flag matters)', () => {
+    createFile('src/App.tsx', 'export default function App() { return null; }\n');
+    createFile('src/main.tsx', "import App from './App';\n");
+
+    const tasks = [
+      makeTask('src/App.tsx', [{ name: 'App', exported: true }]),
+      makeTask('src/main.tsx', [{ name: 'main', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    // The importer edge is recorded under `default`, not `App`; without the
+    // is_default flag the name-keyed lookup misses it.
+    const verdict = resolveExportedSymbolUtility(
+      { name: 'App', exported: true },
+      graph,
+      'src/App.tsx',
+    );
+    expect(verdict?.value).toBe('DEAD');
+  });
+
+  it('resolves a default export imported via an aliased default import', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/components/AppLayout.tsx', 'export default function AppLayout() { return null; }\n');
+    createFile('src/App.tsx', "import AppLayout from '@/components/AppLayout';\n");
+
+    const tasks = [
+      makeTask('src/components/AppLayout.tsx', [{ name: 'AppLayout', exported: true, is_default: true }]),
+      makeTask('src/App.tsx', [{ name: 'App', exported: true, is_default: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    const verdict = resolveExportedSymbolUtility(
+      { name: 'AppLayout', exported: true, is_default: true },
+      graph,
+      'src/components/AppLayout.tsx',
+    );
+    expect(verdict?.value).toBe('USED');
   });
 });
 

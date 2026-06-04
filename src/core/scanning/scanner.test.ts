@@ -81,6 +81,20 @@ export interface User {
     expect(symbols[0]).toMatchObject({ name: 'formatName', kind: 'function' });
   });
 
+  it('should mark a default-exported function with is_default', async () => {
+    const source = `export default function App() { return null; }`;
+    const { symbols } = await parseFile('test.tsx', source);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]).toMatchObject({ name: 'App', exported: true, is_default: true });
+  });
+
+  it('should not set is_default on named exports', async () => {
+    const source = `export function helper() {}\nexport default function App() {}\n`;
+    const { symbols } = await parseFile('test.tsx', source);
+    expect(symbols.find((s) => s.name === 'helper')?.is_default).toBeUndefined();
+    expect(symbols.find((s) => s.name === 'App')?.is_default).toBe(true);
+  });
+
   it('should handle mixed declarations', async () => {
     const source = `
 export function doWork() {}

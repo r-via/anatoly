@@ -241,6 +241,7 @@ function extractDeclaration(
   node: TSNode,
   exported: boolean,
   symbols: SymbolInfo[],
+  isDefault = false,
 ): void {
   if (node.type === 'lexical_declaration') {
     for (const child of node.namedChildren) {
@@ -267,6 +268,7 @@ function extractDeclaration(
           name,
           kind,
           exported,
+          ...(isDefault ? { is_default: true } : {}),
           line_start: node.startPosition.row + 1,
           line_end: node.endPosition.row + 1,
         });
@@ -288,6 +290,7 @@ function extractDeclaration(
     name,
     kind: finalKind,
     exported,
+    ...(isDefault ? { is_default: true } : {}),
     line_start: node.startPosition.row + 1,
     line_end: node.endPosition.row + 1,
   });
@@ -327,7 +330,11 @@ export class TypeScriptAdapter implements LanguageAdapter {
           (c: TSNode) => c.type in TS_DECLARATION_KINDS || c.type === 'lexical_declaration',
         );
         if (declaration) {
-          extractDeclaration(declaration, true, symbols);
+          // `export default function App()` carries a `default` keyword token
+          // as a direct (anonymous) child. Mark the symbol so usage resolution
+          // also consults the synthetic `default` import edge.
+          const isDefault = (node.children ?? []).some((c: TSNode) => c.type === 'default');
+          extractDeclaration(declaration, true, symbols, isDefault);
         }
         continue;
       }

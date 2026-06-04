@@ -772,6 +772,12 @@ export function getTransitiveUsage(
   }).sort();
 }
 
+/** Merge two importer lists into a sorted, de-duplicated list. */
+function mergeUsage(a: string[], b: string[]): string[] {
+  if (b.length === 0) return a;
+  return [...new Set([...a, ...b])].sort();
+}
+
 /**
  * Pure utility-axis verdict from the usage graph alone — no LLM call.
  *
@@ -786,13 +792,18 @@ export function getTransitiveUsage(
  * accurate utility verdict instead of a blanket `USED`).
  */
 export function resolveExportedSymbolUtility(
-  sym: { name: string; exported: boolean },
+  sym: { name: string; exported: boolean; is_default?: boolean },
   graph: UsageGraph,
   ownFile: string,
 ): { value: 'USED' | 'DEAD'; confidence: number; detail: string } | null {
   if (!sym.exported) return null;
 
-  const importers = getSymbolUsage(graph, sym.name, ownFile);
+  // Default exports are imported under the synthetic name `default`, so a
+  // default-exported symbol must also count importers recorded under that key.
+  const importers = mergeUsage(
+    getSymbolUsage(graph, sym.name, ownFile),
+    sym.is_default ? getSymbolUsage(graph, 'default', ownFile) : [],
+  );
   if (importers.length > 0) {
     return {
       value: 'USED',
@@ -801,7 +812,10 @@ export function resolveExportedSymbolUtility(
     };
   }
 
-  const typeImporters = getTypeOnlySymbolUsage(graph, sym.name, ownFile);
+  const typeImporters = mergeUsage(
+    getTypeOnlySymbolUsage(graph, sym.name, ownFile),
+    sym.is_default ? getTypeOnlySymbolUsage(graph, 'default', ownFile) : [],
+  );
   if (typeImporters.length > 0) {
     return {
       value: 'USED',

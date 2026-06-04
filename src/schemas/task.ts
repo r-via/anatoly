@@ -19,6 +19,13 @@ const SymbolInfoSchema = z.object({
   name: z.string(),
   kind: SymbolKindSchema,
   exported: z.boolean(),
+  /**
+   * True when the symbol is the file's default export (`export default ...`).
+   * Default imports record their usage edge under the synthetic symbol name
+   * `default`, so usage resolution must also consult that key for these
+   * symbols. Optional for backward compatibility with older task caches.
+   */
+  is_default: z.boolean().optional(),
   line_start: z.int().min(1),
   line_end: z.int().min(1),
 });
