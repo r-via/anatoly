@@ -173,7 +173,8 @@ describe('universal registry — new domain keys', () => {
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
       'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.updater',
-      'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails', 'correction.verification',
+      'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails',
+      'correction.typescript', 'correction.verification',
       'refinement.tier3-investigation',
     ];
     for (const key of expectedKeys) {
@@ -301,6 +302,7 @@ describe('Story 33.4 — registry coherence', () => {
         "best_practices.sql",
         "best_practices.yaml",
         "correction",
+        "correction.typescript",
         "correction.verification",
         "deliberation",
         "doc-generation",

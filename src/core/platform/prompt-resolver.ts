@@ -30,6 +30,7 @@ import bpReactPrompt from '../../prompts/axes/best-practices.react.system.md';
 import bpNextjsPrompt from '../../prompts/axes/best-practices.nextjs.system.md';
 import docReactPrompt from '../../prompts/axes/documentation.react.system.md';
 import docNextjsPrompt from '../../prompts/axes/documentation.nextjs.system.md';
+import correctionTypescriptPrompt from '../../prompts/axes/correction.typescript.system.md';
 import correctionVerificationPrompt from '../../prompts/axes/correction.verification.system.md';
 import deliberationPrompt from '../../prompts/deliberation/deliberation.system.md';
 import docWriterPrompt from '../../prompts/doc-generation/doc-internal-writer.system.md';
@@ -86,6 +87,7 @@ function registerDefaults(): void {
   register('best_practices.nextjs', bpNextjsPrompt);
   register('documentation.react', docReactPrompt);
   register('documentation.nextjs', docNextjsPrompt);
+  register('correction.typescript', correctionTypescriptPrompt);
   register('correction.verification', correctionVerificationPrompt);
 
   // --- Deliberation ---
