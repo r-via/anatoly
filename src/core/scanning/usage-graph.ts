@@ -8,6 +8,11 @@ import type { Task } from '../../schemas/task.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
 import { detectPythonSourceRoots } from './python-source-roots.js';
+import {
+  detectTsPathAliases,
+  resolveAliasCandidates,
+  type TsPathAliasMap,
+} from './ts-path-aliases.js';
 
 export interface UsageGraph {
   /** "symbolName::filePath" → Set<files that import this symbol from this file> (runtime imports) */
@@ -57,26 +62,19 @@ const INLINE_IMPORT_TYPE_RE =
   /import\(\s*['"]([^'"]+)['"]\s*\)\.(\w+)/g;
 
 /**
- * Resolve a relative import specifier to a project-relative file path.
- * Handles: .js → .ts, bare → .ts or /index.ts.
- * Returns null for node_modules or unresolvable imports.
+ * Resolve an absolute base path (no extension) to a concrete project-relative
+ * TypeScript file. Handles: .js → .ts (ESM convention), direct .ts/.tsx, and
+ * /index.ts(x) barrels. Returns null when nothing exists on disk.
  */
-function resolveImportPath(
-  specifier: string,
-  importerAbsPath: string,
-  projectRoot: string,
-): string | null {
-  // Skip node_modules / bare specifiers
-  if (!specifier.startsWith('.') && !specifier.startsWith('/')) {
-    return null;
-  }
-
-  const importerDir = dirname(importerAbsPath);
-  let base = resolve(importerDir, specifier);
-
+function resolveTsFile(base: string, projectRoot: string): string | null {
   // Strip .js extension (ESM convention in TS projects)
   if (base.endsWith('.js')) {
     base = base.slice(0, -3);
+  }
+
+  // Exact file already on disk (alias targets may carry a .ts/.tsx extension)
+  if ((base.endsWith('.ts') || base.endsWith('.tsx')) && existsSync(base)) {
+    return relative(projectRoot, base);
   }
 
   // Try direct .ts / .tsx
@@ -97,6 +95,35 @@ function resolveImportPath(
 }
 
 /**
+ * Resolve a relative or path-aliased import specifier to a project-relative
+ * file path. Handles relative (`./`, `../`) imports and TypeScript / Vite path
+ * aliases (e.g. `@/lib/api`) when an `aliasMap` is supplied.
+ * Returns null for node_modules / unresolvable imports.
+ */
+function resolveImportPath(
+  specifier: string,
+  importerAbsPath: string,
+  projectRoot: string,
+  aliasMap?: TsPathAliasMap,
+): string | null {
+  // Relative imports: resolve against the importer directory.
+  if (specifier.startsWith('.') || specifier.startsWith('/')) {
+    const base = resolve(dirname(importerAbsPath), specifier);
+    return resolveTsFile(base, projectRoot);
+  }
+
+  // Non-relative: try path aliases before giving up (bare node_modules).
+  if (aliasMap && aliasMap.length > 0) {
+    for (const candidate of resolveAliasCandidates(specifier, aliasMap)) {
+      const resolved = resolveTsFile(candidate, projectRoot);
+      if (resolved) return resolved;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extract import relationships from a single file's source code.
  *
  * Parses named, default, namespace, and re-export statements (including
@@ -109,6 +136,8 @@ function resolveImportPath(
  * @param projectRoot - Absolute path to the project root (for computing relative paths).
  * @param allExportsByFile - Map of project-relative file paths to their exported symbol names;
  *   used to expand namespace (`import * as`) and star (`export *`) imports.
+ * @param aliasMap - Optional TypeScript / Vite path-alias rules used to resolve
+ *   non-relative specifiers (e.g. `@/lib/api`) to files on disk.
  * @returns Array of resolved import edges, each containing the symbol name, source file,
  *   importer file, and whether the import is type-only.
  */
@@ -117,6 +146,7 @@ function extractImports(
   importerAbsPath: string,
   projectRoot: string,
   allExportsByFile: Map<string, Set<string>>,
+  aliasMap?: TsPathAliasMap,
 ): Array<{ symbol: string; sourceFile: string; importerFile: string; typeOnly: boolean }> {
   const results: Array<{
     symbol: string;
@@ -131,7 +161,7 @@ function extractImports(
   function parseNamedSymbols(
     namesStr: string, specifier: string, typeOnly: boolean,
   ): void {
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot, aliasMap);
     if (!resolved) return;
     for (const part of namesStr.split(',')) {
       let trimmed = part.trim();
@@ -165,14 +195,14 @@ function extractImports(
   // Default imports: import X from './path'
   for (const match of source.matchAll(DEFAULT_IMPORT_RE)) {
     if (match[0].includes('{') || match[0].includes('*')) continue;
-    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot, aliasMap);
     if (!resolved) continue;
     results.push({ symbol: 'default', sourceFile: resolved, importerFile, typeOnly: false });
   }
 
   // Namespace imports: import * as X from './path'
   for (const match of source.matchAll(NAMESPACE_IMPORT_RE)) {
-    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot, aliasMap);
     if (!resolved) continue;
     const exports = allExportsByFile.get(resolved);
     if (exports) {
@@ -194,7 +224,7 @@ function extractImports(
 
   // Star re-exports: export * from './path' — all exports of source marked as used
   for (const match of source.matchAll(STAR_REEXPORT_RE)) {
-    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot, aliasMap);
     if (!resolved) continue;
     const exports = allExportsByFile.get(resolved);
     if (exports) {
@@ -206,7 +236,7 @@ function extractImports(
 
   // Inline import-type queries: import('./path').Type
   for (const match of source.matchAll(INLINE_IMPORT_TYPE_RE)) {
-    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot);
+    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot, aliasMap);
     if (!resolved) continue;
     results.push({ symbol: match[2], sourceFile: resolved, importerFile, typeOnly: true });
   }
@@ -581,6 +611,16 @@ export function buildUsageGraph(
   const hasPythonFiles = allImporters.some((t) => extname(t.file) === '.py');
   const pythonSourceRoots = hasPythonFiles ? detectPythonSourceRoots(projectRoot) : undefined;
 
+  // Detect TypeScript / Vite path aliases once per build so non-relative
+  // specifiers (`@/lib/api` → `client/src/lib/api.ts`) resolve. Without this,
+  // alias imports look like bare node_modules specifiers and every aliased
+  // import target is falsely flagged DEAD. Skipped when no TS file is present.
+  const hasTsFiles = allImporters.some((t) => {
+    const e = extname(t.file);
+    return e === '.ts' || e === '.tsx';
+  });
+  const tsPathAliases = hasTsFiles ? detectTsPathAliases(projectRoot) : undefined;
+
   for (const task of allImporters) {
     const ext = extname(task.file);
     const language = task.language ?? resolveAdapter(ext)?.languageId;
@@ -608,6 +648,7 @@ export function buildUsageGraph(
         absPath,
         projectRoot,
         allExportsByFile,
+        tsPathAliases,
       );
 
       for (const imp of imports) {

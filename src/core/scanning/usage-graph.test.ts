@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildUsageGraph, getSymbolUsage, getTypeOnlySymbolUsage } from './usage-graph.js';
+import { detectTsPathAliases, resolveAliasCandidates } from './ts-path-aliases.js';
 import type { Task } from '../../schemas/task.js';
 
 function makeTask(file: string, symbols: Array<{ name: string; exported: boolean; kind?: string }>): Task {
@@ -473,6 +474,157 @@ describe('buildUsageGraph — multi-language', () => {
     const graph = buildUsageGraph(testDir, tasks);
     expect(graph.noImportFiles.has('config.json')).toBe(true);
     expect(graph.noImportFiles.has('schema.sql')).toBe(true);
+  });
+});
+
+describe('buildUsageGraph — TypeScript path aliases', () => {
+  it('resolves an aliased import (@/*) so the target is not falsely DEAD', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/lib/api.ts', 'export function fetchData() {}\n');
+    createFile('src/pages/Home.tsx', "import { fetchData } from '@/lib/api';\n");
+
+    const tasks = [
+      makeTask('src/lib/api.ts', [{ name: 'fetchData', exported: true }]),
+      makeTask('src/pages/Home.tsx', [{ name: 'Home', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'fetchData', 'src/lib/api.ts')).toEqual(['src/pages/Home.tsx']);
+  });
+
+  it('handles baseUrl at root with code under client/src (the Vite trap)', () => {
+    // tsconfig at root: baseUrl '.', paths map @/ to client/src, but the code
+    // lives under client/src — the alias base must come from baseUrl, not the
+    // auto-detected source root, otherwise the prefix doubles.
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['client/src/*'] } },
+      include: ['client/src'],
+    }));
+    createFile('client/src/lib/api.ts', 'export function getPatients() {}\n');
+    createFile('client/src/components/AppLayout.tsx', "import { getPatients } from '@/lib/api';\n");
+
+    const tasks = [
+      makeTask('client/src/lib/api.ts', [{ name: 'getPatients', exported: true }]),
+      makeTask('client/src/components/AppLayout.tsx', [{ name: 'AppLayout', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'getPatients', 'client/src/lib/api.ts'))
+      .toEqual(['client/src/components/AppLayout.tsx']);
+  });
+
+  it('resolves an aliased index barrel (@/components → @/components/index.ts)', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/components/index.ts', 'export function Button() {}\n');
+    createFile('src/App.tsx', "import { Button } from '@/components';\n");
+
+    const tasks = [
+      makeTask('src/components/index.ts', [{ name: 'Button', exported: true }]),
+      makeTask('src/App.tsx', [{ name: 'App', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'Button', 'src/components/index.ts')).toEqual(['src/App.tsx']);
+  });
+
+  it('resolves a non-wildcard exact alias pointing at a file', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@config': ['src/config/env.ts'] } },
+    }));
+    createFile('src/config/env.ts', 'export const ENV = "prod";\n');
+    createFile('src/main.ts', "import { ENV } from '@config';\n");
+
+    const tasks = [
+      makeTask('src/config/env.ts', [{ name: 'ENV', exported: true, kind: 'constant' }]),
+      makeTask('src/main.ts', [{ name: 'main', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'ENV', 'src/config/env.ts')).toEqual(['src/main.ts']);
+  });
+
+  it('reads aliases from a referenced tsconfig.app.json (Vite scaffold split)', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      references: [{ path: './tsconfig.app.json' }],
+    }));
+    createFile('tsconfig.app.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/lib/api.ts', 'export function fetchData() {}\n');
+    createFile('src/pages/Home.tsx', "import { fetchData } from '@/lib/api';\n");
+
+    const tasks = [
+      makeTask('src/lib/api.ts', [{ name: 'fetchData', exported: true }]),
+      makeTask('src/pages/Home.tsx', [{ name: 'Home', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'fetchData', 'src/lib/api.ts')).toEqual(['src/pages/Home.tsx']);
+  });
+
+  it('does not resolve bare node_modules specifiers as aliases', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/a.ts', 'export const X = 1;\n');
+    // A bare import that shares no alias prefix must stay unresolved (no crash).
+    createFile('src/b.ts', "import { useState } from 'react';\nimport { X } from '@/a';\n");
+
+    const tasks = [
+      makeTask('src/a.ts', [{ name: 'X', exported: true, kind: 'constant' }]),
+      makeTask('src/b.ts', [{ name: 'B', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    // The alias import is tracked; the bare 'react' import contributes nothing.
+    expect(getSymbolUsage(graph, 'X', 'src/a.ts')).toEqual(['src/b.ts']);
+  });
+
+  it('still resolves relative imports when an alias map is present', () => {
+    createFile('tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } },
+    }));
+    createFile('src/utils/cache.ts', 'export function computeHash() {}\n');
+    createFile('src/core/scanner.ts', "import { computeHash } from '../utils/cache.js';\n");
+
+    const tasks = [
+      makeTask('src/utils/cache.ts', [{ name: 'computeHash', exported: true }]),
+      makeTask('src/core/scanner.ts', [{ name: 'scanProject', exported: true }]),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/core/scanner.ts']);
+  });
+});
+
+describe('detectTsPathAliases', () => {
+  it('returns an empty list when no tsconfig is present', () => {
+    expect(detectTsPathAliases(testDir)).toEqual([]);
+  });
+
+  it('tolerates JSONC comments and trailing commas', () => {
+    createFile('tsconfig.json', [
+      '{',
+      '  // project config',
+      '  "compilerOptions": {',
+      '    "baseUrl": ".", /* root */',
+      '    "paths": { "@/*": ["src/*"], }',
+      '  },',
+      '}',
+    ].join('\n'));
+
+    const aliases = detectTsPathAliases(testDir);
+    expect(aliases).toHaveLength(1);
+    expect(aliases[0]!.prefix).toBe('@/');
+    expect(aliases[0]!.wildcard).toBe(true);
+
+    const candidates = resolveAliasCandidates('@/lib/api', aliases);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.endsWith('/src/lib/api')).toBe(true);
   });
 });
 
