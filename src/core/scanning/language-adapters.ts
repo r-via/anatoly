@@ -19,6 +19,16 @@ import type { DocCommentKind } from '../../schemas/config.js';
 export interface ImportRef {
   source: string;
   type: 'import' | 'source' | 'require';
+  /**
+   * Imported binding names (the exported names in the source module).
+   * `['default']` for a default import. Absent for a side-effect import
+   * (`import './x'`) or a namespace import (see `namespace`).
+   */
+  symbols?: string[];
+  /** Type-only import/re-export (`import type`, `import { type X }`, `export type`). */
+  typeOnly?: boolean;
+  /** Namespace import (`import * as X`) or star re-export (`export * from`): consumes all of the source's exports. */
+  namespace?: boolean;
 }
 
 /** Structured doc-comment extracted by a LanguageAdapter. */
@@ -379,32 +389,104 @@ export class TypeScriptAdapter implements LanguageAdapter {
     return extractTsImports(source);
   }
 
+  /**
+   * Extract imports at SYMBOL granularity from the AST. Each {@link ImportRef}
+   * carries the imported binding names (`symbols`), whether it is type-only,
+   * and whether it is a namespace/star form. This is what lets the usage graph
+   * build per-export edges (which named export is used by whom) entirely from
+   * the tree-sitter grammar, with no regex.
+   *
+   * Covered forms: default / named / namespace / side-effect imports
+   * (including inline `{ type X }` and whole-clause `import type`), named and
+   * star re-exports (`export { ... } from`, `export * from`, `export type`),
+   * inline import-type queries (`import('./x').T`), and `require('x')`.
+   */
   extractImportsFromAst(rootNode: TSNode): ImportRef[] {
     const imports: ImportRef[] = [];
+    const unquote = (s: string): string => s.replace(/^['"`]|['"`]$/g, '');
 
-    // Recursive traversal to catch require() at any depth
+    const handleImport = (node: TSNode): void => {
+      const sourceNode = node.childForFieldName('source');
+      if (!sourceNode) return;
+      const source = unquote(sourceNode.text);
+      const clause = node.namedChildren.find((c: TSNode) => c.type === 'import_clause');
+      if (!clause) {
+        // `import './x'` — side-effect import: no named edges.
+        imports.push({ source, type: 'import' });
+        return;
+      }
+      // Whole-clause type-only: `import type { ... }`.
+      const wholeTypeOnly = (node.children ?? []).some((c: TSNode) => c.type === 'type');
+      const valueNames: string[] = [];
+      const typeNames: string[] = [];
+      let hasNamespace = false;
+      for (const part of clause.namedChildren) {
+        if (part.type === 'identifier') {
+          valueNames.push('default'); // `import Default from ...`
+        } else if (part.type === 'namespace_import') {
+          hasNamespace = true; // `import * as X from ...`
+        } else if (part.type === 'named_imports') {
+          for (const spec of part.namedChildren) {
+            if (spec.type !== 'import_specifier') continue;
+            const nameNode = spec.childForFieldName('name');
+            if (!nameNode) continue;
+            // Inline `{ type X }` carries a leading `type ` in the specifier text.
+            const inlineType = /^type\s/.test(spec.text);
+            (wholeTypeOnly || inlineType ? typeNames : valueNames).push(nameNode.text);
+          }
+        }
+      }
+      if (hasNamespace) imports.push({ source, type: 'import', namespace: true, typeOnly: wholeTypeOnly });
+      if (valueNames.length) imports.push({ source, type: 'import', symbols: valueNames });
+      if (typeNames.length) imports.push({ source, type: 'import', symbols: typeNames, typeOnly: true });
+    };
+
+    const handleReExport = (node: TSNode): void => {
+      const sourceNode = node.childForFieldName('source');
+      if (!sourceNode) return; // local export, not a re-export — handled by extractSymbols
+      const source = unquote(sourceNode.text);
+      const typeOnly = (node.children ?? []).some((c: TSNode) => c.type === 'type');
+      const clause = node.namedChildren.find((c: TSNode) => c.type === 'export_clause');
+      if (!clause) {
+        // `export * from './x'` — star re-export.
+        imports.push({ source, type: 'import', namespace: true, typeOnly });
+        return;
+      }
+      const names: string[] = [];
+      for (const spec of clause.namedChildren) {
+        if (spec.type !== 'export_specifier') continue;
+        const nameNode = spec.childForFieldName('name');
+        if (nameNode) names.push(nameNode.text);
+      }
+      if (names.length) imports.push({ source, type: 'import', symbols: names, typeOnly });
+    };
+
+    // Recursive traversal: top-level imports/exports plus deeper require() and
+    // inline import-type queries.
     const visit = (node: TSNode): void => {
       if (node.type === 'import_statement') {
-        const sourceNode = node.childForFieldName('source');
-        if (sourceNode) {
-          imports.push({ source: sourceNode.text.replace(/^['"]|['"]$/g, ''), type: 'import' });
-        }
+        handleImport(node);
       } else if (node.type === 'export_statement') {
-        // re-exports: export { ... } from '...'
-        const sourceNode = node.childForFieldName('source');
-        if (sourceNode) {
-          imports.push({ source: sourceNode.text.replace(/^['"]|['"]$/g, ''), type: 'import' });
+        if (node.childForFieldName('source')) handleReExport(node);
+      } else if (node.type === 'member_expression') {
+        // `import('./x').Member` — inline import-type query (always type position).
+        const obj = node.childForFieldName('object');
+        if (obj && obj.type === 'call_expression') {
+          const fn = obj.childForFieldName('function');
+          if (fn && fn.type === 'import') {
+            const firstArg = obj.childForFieldName('arguments')?.namedChildren[0];
+            const prop = node.childForFieldName('property');
+            if (firstArg && (firstArg.type === 'string' || firstArg.type === 'template_string') && prop) {
+              imports.push({ source: unquote(firstArg.text), type: 'import', symbols: [prop.text], typeOnly: true });
+            }
+          }
         }
       } else if (node.type === 'call_expression') {
-        // require('module') calls
         const fn = node.childForFieldName('function');
-        if (fn && fn.text === 'require') {
-          const args = node.childForFieldName('arguments');
-          if (args) {
-            const firstArg = args.namedChildren[0];
-            if (firstArg && (firstArg.type === 'string' || firstArg.type === 'template_string')) {
-              imports.push({ source: firstArg.text.replace(/^['"`]|['"`]$/g, ''), type: 'require' });
-            }
+        if (fn && fn.text === 'require' && fn.type !== 'import') {
+          const firstArg = node.childForFieldName('arguments')?.namedChildren[0];
+          if (firstArg && (firstArg.type === 'string' || firstArg.type === 'template_string')) {
+            imports.push({ source: unquote(firstArg.text), type: 'require' });
           }
         }
       }
@@ -413,7 +495,6 @@ export class TypeScriptAdapter implements LanguageAdapter {
       }
     };
 
-    // Only visit top-level for imports/exports, but search deeper for require()
     for (const node of rootNode.namedChildren) {
       visit(node);
     }

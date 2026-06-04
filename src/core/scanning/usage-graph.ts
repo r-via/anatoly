@@ -25,41 +25,22 @@ export interface UsageGraph {
   noImportFiles: Set<string>;
 }
 
-/**
- * Regex patterns for extracting imports from TypeScript source.
- * Matches:
- * - import { A, B as C } from './path'
- * - import Default from './path'
- * - import * as X from './path'
- * - export { A, B } from './path'
- * - import type { A } from './path' (type-only — tracked separately)
- * - export type { A } from './path' (type-only — tracked separately)
- */
-const NAMED_IMPORT_RE =
-  /import\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
-
-const DEFAULT_IMPORT_RE =
-  /import\s+(?!type\s)(\w+)\s+from\s+['"]([^'"]+)['"]/g;
-
-const TYPE_NAMED_IMPORT_RE =
-  /import\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
-
-const TYPE_REEXPORT_RE =
-  /export\s+type\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
-
-const NAMESPACE_IMPORT_RE =
-  /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g;
-
-const REEXPORT_RE =
-  /export\s+(?!type\s)\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
-
-const STAR_REEXPORT_RE =
-  /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
-
-// Inline import-type query: `import('./path').Type` (TS type position). The
-// member is the used export; always type-only.
-const INLINE_IMPORT_TYPE_RE =
-  /import\(\s*['"]([^'"]+)['"]\s*\)\.(\w+)/g;
+/** Record that `importer` uses `symbol` exported from `sourceFile`. */
+function addUsageEdge(
+  map: Map<string, Set<string>>,
+  symbol: string,
+  sourceFile: string,
+  importer: string,
+): void {
+  if (importer === sourceFile) return;
+  const key = `${symbol}::${sourceFile}`;
+  let set = map.get(key);
+  if (!set) {
+    set = new Set<string>();
+    map.set(key, set);
+  }
+  set.add(importer);
+}
 
 /**
  * Resolve an absolute base path (no extension) to a concrete project-relative
@@ -121,127 +102,6 @@ function resolveImportPath(
   }
 
   return null;
-}
-
-/**
- * Extract import relationships from a single file's source code.
- *
- * Parses named, default, namespace, and re-export statements (including
- * type-only variants) and resolves each specifier to a project-relative path.
- * For namespace imports and star re-exports, `allExportsByFile` is used to
- * expand the wildcard into individual symbol entries.
- *
- * @param source - Raw source code of the importing file.
- * @param importerAbsPath - Absolute path of the importing file (used for specifier resolution).
- * @param projectRoot - Absolute path to the project root (for computing relative paths).
- * @param allExportsByFile - Map of project-relative file paths to their exported symbol names;
- *   used to expand namespace (`import * as`) and star (`export *`) imports.
- * @param aliasMap - Optional TypeScript / Vite path-alias rules used to resolve
- *   non-relative specifiers (e.g. `@/lib/api`) to files on disk.
- * @returns Array of resolved import edges, each containing the symbol name, source file,
- *   importer file, and whether the import is type-only.
- */
-function extractImports(
-  source: string,
-  importerAbsPath: string,
-  projectRoot: string,
-  allExportsByFile: Map<string, Set<string>>,
-  aliasMap?: TsPathAliasMap,
-): Array<{ symbol: string; sourceFile: string; importerFile: string; typeOnly: boolean }> {
-  const results: Array<{
-    symbol: string;
-    sourceFile: string;
-    importerFile: string;
-    typeOnly: boolean;
-  }> = [];
-
-  const importerFile = relative(projectRoot, importerAbsPath);
-
-  /** Helper to extract named symbols from a comma-separated capture group */
-  function parseNamedSymbols(
-    namesStr: string, specifier: string, typeOnly: boolean,
-  ): void {
-    const resolved = resolveImportPath(specifier, importerAbsPath, projectRoot, aliasMap);
-    if (!resolved) return;
-    for (const part of namesStr.split(',')) {
-      let trimmed = part.trim();
-      if (!trimmed) continue;
-      // Inline type specifier inside a value import: `{ foo, type Bar }`.
-      // Strip the per-specifier `type ` prefix so the symbol is `Bar`, not
-      // `type Bar`, and mark just that specifier type-only.
-      let specifierTypeOnly = typeOnly;
-      const typeMatch = /^type\s+/.exec(trimmed);
-      if (typeMatch) {
-        trimmed = trimmed.slice(typeMatch[0].length);
-        specifierTypeOnly = true;
-      }
-      const originalName = trimmed.split(/\s+as\s+/)[0].trim();
-      if (originalName) {
-        results.push({ symbol: originalName, sourceFile: resolved, importerFile, typeOnly: specifierTypeOnly });
-      }
-    }
-  }
-
-  // Named imports: import { A, B as C } from './path'
-  for (const match of source.matchAll(NAMED_IMPORT_RE)) {
-    parseNamedSymbols(match[1], match[2], false);
-  }
-
-  // Type-only named imports: import type { A, B } from './path'
-  for (const match of source.matchAll(TYPE_NAMED_IMPORT_RE)) {
-    parseNamedSymbols(match[1], match[2], true);
-  }
-
-  // Default imports: import X from './path'
-  for (const match of source.matchAll(DEFAULT_IMPORT_RE)) {
-    if (match[0].includes('{') || match[0].includes('*')) continue;
-    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot, aliasMap);
-    if (!resolved) continue;
-    results.push({ symbol: 'default', sourceFile: resolved, importerFile, typeOnly: false });
-  }
-
-  // Namespace imports: import * as X from './path'
-  for (const match of source.matchAll(NAMESPACE_IMPORT_RE)) {
-    const resolved = resolveImportPath(match[2], importerAbsPath, projectRoot, aliasMap);
-    if (!resolved) continue;
-    const exports = allExportsByFile.get(resolved);
-    if (exports) {
-      for (const sym of exports) {
-        results.push({ symbol: sym, sourceFile: resolved, importerFile, typeOnly: false });
-      }
-    }
-  }
-
-  // Re-exports: export { A, B } from './path'
-  for (const match of source.matchAll(REEXPORT_RE)) {
-    parseNamedSymbols(match[1], match[2], false);
-  }
-
-  // Type-only re-exports: export type { A, B } from './path'
-  for (const match of source.matchAll(TYPE_REEXPORT_RE)) {
-    parseNamedSymbols(match[1], match[2], true);
-  }
-
-  // Star re-exports: export * from './path' — all exports of source marked as used
-  for (const match of source.matchAll(STAR_REEXPORT_RE)) {
-    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot, aliasMap);
-    if (!resolved) continue;
-    const exports = allExportsByFile.get(resolved);
-    if (exports) {
-      for (const sym of exports) {
-        results.push({ symbol: sym, sourceFile: resolved, importerFile, typeOnly: false });
-      }
-    }
-  }
-
-  // Inline import-type queries: import('./path').Type
-  for (const match of source.matchAll(INLINE_IMPORT_TYPE_RE)) {
-    const resolved = resolveImportPath(match[1], importerAbsPath, projectRoot, aliasMap);
-    if (!resolved) continue;
-    results.push({ symbol: match[2], sourceFile: resolved, importerFile, typeOnly: true });
-  }
-
-  return results;
 }
 
 /**
@@ -633,35 +493,47 @@ export function buildUsageGraph(
 
     const isTs = ext === '.ts' || ext === '.tsx';
 
-    // Only read file from disk when needed (TS fine-grained path or fallback)
     if (isTs) {
-      const absPath = resolve(projectRoot, task.file);
-      let source: string;
-      try {
-        source = readFileSync(absPath, 'utf-8');
-      } catch {
-        continue;
-      }
-      // TypeScript: fine-grained per-symbol import tracking
-      const imports = extractImports(
-        source,
-        absPath,
-        projectRoot,
-        allExportsByFile,
-        tsPathAliases,
-      );
+      const importerAbs = resolve(projectRoot, task.file);
 
-      for (const imp of imports) {
-        if (imp.importerFile === imp.sourceFile) continue;
-
-        const key = `${imp.symbol}::${imp.sourceFile}`;
-        const targetMap = imp.typeOnly ? typeOnlyUsages : usages;
-        let set = targetMap.get(key);
-        if (!set) {
-          set = new Set<string>();
-          targetMap.set(key, set);
+      if (task.imports_enriched) {
+        // Precise per-symbol edges from AST-extracted imports (no regex).
+        for (const ref of task.imports ?? []) {
+          const resolved = resolveImportPath(ref.source, importerAbs, projectRoot, tsPathAliases);
+          if (!resolved || resolved === task.file) continue;
+          const targetMap = ref.typeOnly ? typeOnlyUsages : usages;
+          if (ref.namespace) {
+            // `import * as X` / `export * from` → consumes all of the target's exports.
+            const exports = allExportsByFile.get(resolved);
+            if (exports) for (const sym of exports) addUsageEdge(targetMap, sym, resolved, task.file);
+          } else if (ref.symbols) {
+            for (const sym of ref.symbols) addUsageEdge(targetMap, sym, resolved, task.file);
+          }
+          // A bare ref (side-effect `import './x'`) contributes no symbol edge.
         }
-        set.add(imp.importerFile);
+      } else {
+        // Un-enriched: a pre-enrichment cache or a no-grammar (heuristic) parse.
+        // Fall back to COARSE module-level expansion — mark every export of the
+        // resolved target used. This over-marks USED (never produces a false
+        // DEAD) and self-heals once the file is re-scanned with AST enrichment.
+        let refs = task.imports;
+        if (!refs) {
+          const adapter = resolveAdapter(ext);
+          if (!adapter) continue;
+          let source: string;
+          try {
+            source = readFileSync(importerAbs, 'utf-8');
+          } catch {
+            continue;
+          }
+          refs = adapter.extractImports(source);
+        }
+        for (const ref of refs) {
+          const resolved = resolveImportPath(ref.source, importerAbs, projectRoot, tsPathAliases);
+          if (!resolved || resolved === task.file) continue;
+          const exports = allExportsByFile.get(resolved);
+          if (exports) for (const sym of exports) addUsageEdge(usages, sym, resolved, task.file);
+        }
       }
     } else {
       // Non-TS: use persisted imports from scan phase, fall back to regex extraction

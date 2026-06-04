@@ -126,6 +126,45 @@ let counter = 0;
   });
 });
 
+describe('parseFile — enriched AST imports', () => {
+  it('marks imports enriched and extracts default + named + alias', async () => {
+    const { imports, importsEnriched } = await parseFile('a.ts', `import D from './d';\nimport { Named, Other as O } from './n';\n`);
+    expect(importsEnriched).toBe(true);
+    expect(imports).toContainEqual({ source: './d', type: 'import', symbols: ['default'] });
+    // alias keeps the EXPORTED name (Other), not the local alias (O)
+    expect(imports).toContainEqual({ source: './n', type: 'import', symbols: ['Named', 'Other'] });
+  });
+
+  it('splits inline type specifiers and whole-clause type imports', async () => {
+    const mix = await parseFile('a.ts', `import { v, type T } from './m';\n`);
+    expect(mix.imports).toContainEqual({ source: './m', type: 'import', symbols: ['v'] });
+    expect(mix.imports).toContainEqual({ source: './m', type: 'import', symbols: ['T'], typeOnly: true });
+    const whole = await parseFile('b.ts', `import type { OnlyT } from './t';\n`);
+    expect(whole.imports).toContainEqual({ source: './t', type: 'import', symbols: ['OnlyT'], typeOnly: true });
+  });
+
+  it('flags namespace imports and star re-exports', async () => {
+    const ns = await parseFile('a.ts', `import * as NS from './e';\n`);
+    expect(ns.imports).toContainEqual({ source: './e', type: 'import', namespace: true, typeOnly: false });
+    const star = await parseFile('b.ts', `export * from './h';\n`);
+    expect(star.imports).toContainEqual({ source: './h', type: 'import', namespace: true, typeOnly: false });
+  });
+
+  it('extracts named and type re-exports', async () => {
+    const r = await parseFile('a.ts', `export { Re1, Re2 } from './f';\nexport type { RT } from './g';\n`);
+    expect(r.imports).toContainEqual({ source: './f', type: 'import', symbols: ['Re1', 'Re2'], typeOnly: false });
+    expect(r.imports).toContainEqual({ source: './g', type: 'import', symbols: ['RT'], typeOnly: true });
+  });
+
+  it('extracts inline import-type queries and records side-effect imports without symbols', async () => {
+    const q = await parseFile('a.ts', `type X = import('./i').Thing;\n`);
+    expect(q.imports).toContainEqual({ source: './i', type: 'import', symbols: ['Thing'], typeOnly: true });
+    const side = await parseFile('b.ts', `import './side';\n`);
+    expect(side.imports).toContainEqual({ source: './side', type: 'import' });
+    expect(side.imports.find((i) => i.source === './side')?.symbols).toBeUndefined();
+  });
+});
+
 describe('scanProject', () => {
   let tempDir: string;
   let config: Config;
@@ -200,6 +239,34 @@ describe('scanProject', () => {
     const result = await scanProject(tempDir, config);
     expect(result.filesCached).toBe(2);
     expect(result.filesNew).toBe(0);
+  });
+
+  it('re-enriches a cached un-enriched TS task without re-evaluating it', async () => {
+    writeFileSync(
+      join(tempDir, 'src', 'index.ts'),
+      `import { helper } from './utils.js';\nexport function main() { return helper(); }\n`,
+    );
+    writeFileSync(join(tempDir, 'src', 'utils.ts'), `export function helper() { return 1; }\n`);
+    await scanProject(tempDir, config);
+
+    // Simulate a pre-enrichment cache: strip enrichment from the persisted task,
+    // and mark the file DONE so it would be served from cache on re-scan.
+    const taskPath = join(tempDir, '.anatoly', 'cache', 'tasks', 'src-index.task.json');
+    const stale = JSON.parse(readFileSync(taskPath, 'utf-8'));
+    delete stale.imports_enriched;
+    stale.imports = [{ source: './utils.js', type: 'import' }]; // module-level (old format)
+    writeFileSync(taskPath, JSON.stringify(stale));
+    const progressPath = join(tempDir, '.anatoly', 'cache', 'progress.json');
+    const progress = JSON.parse(readFileSync(progressPath, 'utf-8'));
+    for (const key of Object.keys(progress.files)) progress.files[key].status = 'DONE';
+    writeFileSync(progressPath, JSON.stringify(progress));
+
+    // Re-scan: file unchanged → stays cached (no re-eval), but the task is re-enriched.
+    const result = await scanProject(tempDir, config);
+    expect(result.filesCached).toBe(2);
+    const reenriched = JSON.parse(readFileSync(taskPath, 'utf-8'));
+    expect(reenriched.imports_enriched).toBe(true);
+    expect(reenriched.imports).toContainEqual({ source: './utils.js', type: 'import', symbols: ['helper'] });
   });
 
   it('should re-scan files that changed', async () => {

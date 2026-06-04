@@ -3,14 +3,16 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { join, extname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parseFile } from './scanner.js';
 import {
   buildUsageGraph,
   getSymbolUsage,
   getTypeOnlySymbolUsage,
   resolveExportedSymbolUtility,
+  type UsageGraph,
 } from './usage-graph.js';
 import { detectTsPathAliases, resolveAliasCandidates } from './ts-path-aliases.js';
 import type { Task } from '../../schemas/task.js';
@@ -53,6 +55,26 @@ function createFile(relPath: string, content: string): void {
   writeFileSync(absPath, content);
 }
 
+/**
+ * Build the usage graph the way the real pipeline does: parse each TS task's
+ * on-disk file to populate symbol-level (enriched) `task.imports`, then build.
+ * Use this for tests that assert fine-grained edges (default / type-only /
+ * namespace / re-export). Tests that do not enrich exercise the coarse
+ * module-level fallback instead.
+ */
+async function graphOf(tasks: Task[], importerTasks: Task[] = []): Promise<UsageGraph> {
+  for (const t of [...tasks, ...importerTasks]) {
+    const e = extname(t.file);
+    if (e !== '.ts' && e !== '.tsx') continue;
+    try {
+      const r = await parseFile(t.file, readFileSync(join(testDir, t.file), 'utf-8'));
+      if (r.imports.length > 0) t.imports = r.imports;
+      if (r.importsEnriched) t.imports_enriched = true;
+    } catch { /* task may have no on-disk file */ }
+  }
+  return buildUsageGraph(testDir, tasks, importerTasks);
+}
+
 describe('buildUsageGraph', () => {
   it('tracks named imports', () => {
     createFile('src/utils/cache.ts', 'export function computeHash() {}\nexport function readProgress() {}\n');
@@ -87,7 +109,7 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'bold', 'src/utils/format.ts')).toEqual(['src/core/reporter.ts']);
   });
 
-  it('tracks default imports', () => {
+  it('tracks default imports', async () => {
     createFile('src/utils/format.ts', 'export default function format() {}\n');
     createFile('src/core/reporter.ts', "import format from '../utils/format.js';\n");
 
@@ -96,7 +118,7 @@ describe('buildUsageGraph', () => {
       makeTask('src/core/reporter.ts', [{ name: 'generateReport', exported: true }]),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     expect(getSymbolUsage(graph, 'default', 'src/utils/format.ts')).toEqual(['src/core/reporter.ts']);
   });
 
@@ -117,7 +139,7 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'B', 'src/schemas/review.ts')).toEqual(['src/core/reviewer.ts']);
   });
 
-  it('tracks re-exports', () => {
+  it('tracks re-exports', async () => {
     createFile('src/utils/cache.ts', 'export function computeHash() {}\n');
     createFile('src/utils/index.ts', "export { computeHash } from './cache.js';\n");
 
@@ -126,11 +148,11 @@ describe('buildUsageGraph', () => {
       makeTask('src/utils/index.ts', []),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
   });
 
-  it('tracks star re-exports — all exports marked used', () => {
+  it('tracks star re-exports — all exports marked used', async () => {
     createFile('src/utils/cache.ts', 'export function computeHash() {}\nexport function readProgress() {}\n');
     createFile('src/utils/index.ts', "export * from './cache.js';\n");
 
@@ -142,7 +164,7 @@ describe('buildUsageGraph', () => {
       makeTask('src/utils/index.ts', []),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     expect(getSymbolUsage(graph, 'computeHash', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
     expect(getSymbolUsage(graph, 'readProgress', 'src/utils/cache.ts')).toEqual(['src/utils/index.ts']);
   });
@@ -224,7 +246,7 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'unused', 'src/utils/cache.ts')).toEqual([]);
   });
 
-  it('tracks type-only imports separately from runtime imports', () => {
+  it('tracks type-only imports separately from runtime imports', async () => {
     createFile('src/schemas/task.ts', 'export type Task = { file: string };\n');
     createFile('src/core/scanner.ts', "import type { Task } from '../schemas/task.js';\n");
 
@@ -233,14 +255,14 @@ describe('buildUsageGraph', () => {
       makeTask('src/core/scanner.ts', [{ name: 'scanProject', exported: true }]),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     // type-only imports should NOT count as runtime usage
     expect(getSymbolUsage(graph, 'Task', 'src/schemas/task.ts')).toEqual([]);
     // but they should be tracked in typeOnlyUsages
     expect(getTypeOnlySymbolUsage(graph, 'Task', 'src/schemas/task.ts')).toEqual(['src/core/scanner.ts']);
   });
 
-  it('tracks an inline type specifier in a mixed named import (import { x, type Y })', () => {
+  it('tracks an inline type specifier in a mixed named import (import { x, type Y })', async () => {
     createFile('src/rag/prefetch.ts', 'export function prefetch() {}\nexport type Progress = { pct: number };\n');
     createFile('src/cli/setup.ts', "import { prefetch, type Progress } from '../rag/prefetch.js';\n");
 
@@ -249,14 +271,14 @@ describe('buildUsageGraph', () => {
       makeTask('src/cli/setup.ts', [{ name: 'run', exported: true }]),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     expect(getSymbolUsage(graph, 'prefetch', 'src/rag/prefetch.ts')).toEqual(['src/cli/setup.ts']);
     // `type Progress` must resolve to symbol `Progress` (not `type Progress`),
     // tracked as a type-only importer — this is the bug that flagged it DEAD.
     expect(getTypeOnlySymbolUsage(graph, 'Progress', 'src/rag/prefetch.ts')).toEqual(['src/cli/setup.ts']);
   });
 
-  it("tracks an inline import-type query (import('./path').Type)", () => {
+  it("tracks an inline import-type query (import('./path').Type)", async () => {
     createFile('src/schemas/review.ts', 'export type DocsCoverage = { pct: number };\n');
     createFile('src/core/merger.ts', "function f(x?: import('../schemas/review.js').DocsCoverage) { return x; }\n");
 
@@ -265,7 +287,7 @@ describe('buildUsageGraph', () => {
       makeTask('src/core/merger.ts', [{ name: 'f', exported: true }]),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     expect(getTypeOnlySymbolUsage(graph, 'DocsCoverage', 'src/schemas/review.ts')).toEqual(['src/core/merger.ts']);
   });
 
@@ -629,7 +651,7 @@ describe('buildUsageGraph — default exports', () => {
     expect(verdict?.value).toBe('USED');
   });
 
-  it('still flags the symbol DEAD when is_default is not set (proves the flag matters)', () => {
+  it('still flags the symbol DEAD when is_default is not set (proves the flag matters)', async () => {
     createFile('src/App.tsx', 'export default function App() { return null; }\n');
     createFile('src/main.tsx', "import App from './App';\n");
 
@@ -638,7 +660,7 @@ describe('buildUsageGraph — default exports', () => {
       makeTask('src/main.tsx', [{ name: 'main', exported: true }]),
     ];
 
-    const graph = buildUsageGraph(testDir, tasks);
+    const graph = await graphOf(tasks);
     // The importer edge is recorded under `default`, not `App`; without the
     // is_default flag the name-keyed lookup misses it.
     const verdict = resolveExportedSymbolUtility(

@@ -44,6 +44,17 @@ const CoverageDataSchema = z.object({
 const ImportRefSchema = z.object({
   source: z.string(),
   type: z.enum(['import', 'source', 'require']),
+  /**
+   * Imported binding names (the exported names in the source module).
+   * `['default']` for a default import. Absent for a side-effect import
+   * (`import './x'`) or a namespace import (see `namespace`). Populated by
+   * AST extraction so the usage graph can build per-symbol edges.
+   */
+  symbols: z.array(z.string()).optional(),
+  /** Type-only import/re-export (`import type`, `import { type X }`, `export type`). */
+  typeOnly: z.boolean().optional(),
+  /** Namespace import (`import * as X`) or star re-export (`export * from`): consumes all exports of the source. */
+  namespace: z.boolean().optional(),
 });
 
 /**
@@ -59,6 +70,14 @@ export const TaskSchema = z.object({
   hash: z.string(),
   symbols: z.array(SymbolInfoSchema),
   imports: z.array(ImportRefSchema).optional(),
+  /**
+   * True when `imports` were extracted via AST at symbol-level granularity
+   * (per-symbol names + type-only + namespace). The usage graph uses the
+   * precise per-symbol path when set; otherwise it falls back to coarse
+   * module-level expansion (marks all of the target's exports used). Absent on
+   * pre-enrichment caches and heuristic (no-grammar) parses.
+   */
+  imports_enriched: z.boolean().optional(),
   coverage: CoverageDataSchema.optional(),
   language: z.string().optional(),
   parse_method: z.enum(['ast', 'heuristic']).optional(),

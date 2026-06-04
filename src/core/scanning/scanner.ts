@@ -98,6 +98,8 @@ async function loadLanguage(wasmModule: string): Promise<Language> {
 export interface ParseResult {
   symbols: SymbolInfo[];
   imports: ImportRef[];
+  /** True when imports were extracted via AST (symbol-level), not heuristic regex. */
+  importsEnriched: boolean;
 }
 
 /**
@@ -139,12 +141,12 @@ export async function parseFile(
   const adapter = resolveAdapter(ext);
 
   if (!adapter) {
-    return { symbols: heuristicParse(source, filePath), imports: [] };
+    return { symbols: heuristicParse(source, filePath), imports: [], importsEnriched: false };
   }
 
   // Adapters without a WASM module (e.g. JSON, YAML) use heuristic extraction only
   if (!adapter.wasmModule) {
-    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source) };
+    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source), importsEnriched: false };
   }
 
   const parser = await getParser();
@@ -153,18 +155,20 @@ export async function parseFile(
     lang = await loadLanguage(adapter.wasmModule);
   } catch {
     // Grammar unavailable (download failed, network offline) — fall back to heuristic
-    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source) };
+    return { symbols: heuristicParse(source, filePath), imports: adapter.extractImports(source), importsEnriched: false };
   }
   parser.setLanguage(lang);
   const tree = parser.parse(source);
-  if (!tree) return { symbols: [], imports: [] };
+  if (!tree) return { symbols: [], imports: [], importsEnriched: false };
 
   const symbols = adapter.extractSymbols(tree.rootNode);
+  // AST import extraction is symbol-level (enriched); the regex fallback is not.
+  const enriched = !!adapter.extractImportsFromAst;
   const imports = adapter.extractImportsFromAst
     ? adapter.extractImportsFromAst(tree.rootNode)
     : adapter.extractImports(source);
 
-  return { symbols, imports };
+  return { symbols, imports, importsEnriched: enriched };
 }
 
 /**
@@ -317,10 +321,12 @@ export async function scanUsageImporters(
 
     let symbols: SymbolInfo[] = [];
     let imports: ImportRef[] = [];
+    let importsEnriched = false;
     try {
       const result = await parseFile(relPath, source);
       symbols = result.symbols;
       imports = result.imports;
+      importsEnriched = result.importsEnriched;
     } catch {
       // Silent: importer-only files that fail to parse just contribute no imports.
     }
@@ -331,6 +337,7 @@ export async function scanUsageImporters(
       hash: computeFileHash(absPath),
       symbols,
       ...(imports.length > 0 ? { imports } : {}),
+      ...(importsEnriched ? { imports_enriched: true } : {}),
       language: detectedLang?.toLowerCase() ?? 'unknown',
       parse_method: parseMethod as 'ast' | 'heuristic',
       scanned_at: now,
@@ -499,6 +506,34 @@ export async function scanProject(
       (existing?.axes && requestedAxes.every((a) => existing.axes!.includes(a)));
     const evalDone = existing?.status === 'DONE' || existing?.status === 'CACHED';
     if (existing && existing.hash === hash) {
+      // The content is unchanged, so we keep the cached evaluation status (no
+      // LLM re-spend). But if this is a TS task that predates symbol-level
+      // import enrichment (or earlier symbol-extraction fixes), re-parse it
+      // locally and rewrite the task: the usage graph needs enriched
+      // per-symbol imports to avoid coarse over-marking. This is a one-time,
+      // LLM-free migration per file — once written enriched, later runs skip it.
+      const cacheExt = extname(relPath);
+      if (cacheExt === '.ts' || cacheExt === '.tsx') {
+        const taskPath = join(tasksDir, `${toOutputName(relPath)}.task.json`);
+        let persisted: Task | undefined;
+        try {
+          persisted = JSON.parse(readFileSync(taskPath, 'utf-8')) as Task;
+        } catch {
+          persisted = undefined;
+        }
+        if (persisted && persisted.imports_enriched !== true) {
+          try {
+            const r = await parseFile(relPath, readFileSync(absPath, 'utf-8'));
+            const enriched: Task = { ...persisted, hash, symbols: r.symbols };
+            if (r.imports.length > 0) enriched.imports = r.imports;
+            else delete enriched.imports;
+            if (r.importsEnriched) enriched.imports_enriched = true;
+            atomicWriteJson(taskPath, enriched);
+          } catch {
+            // Leave the persisted task as-is; the graph falls back to coarse.
+          }
+        }
+      }
       progress.files[relPath] = {
         file: relPath,
         hash,
@@ -522,10 +557,12 @@ export async function scanProject(
 
     let symbols: SymbolInfo[];
     let imports: ImportRef[] = [];
+    let importsEnriched = false;
     try {
       const result = await parseFile(relPath, source);
       symbols = result.symbols;
       imports = result.imports;
+      importsEnriched = result.importsEnriched;
     } catch (err) {
       contextLogger().warn({ file: relPath, err }, 'AST parse error, skipping symbols');
       symbols = [];
@@ -538,6 +575,7 @@ export async function scanProject(
       hash,
       symbols,
       ...(imports.length > 0 ? { imports } : {}),
+      ...(importsEnriched ? { imports_enriched: true } : {}),
       language: detectedLang?.toLowerCase() ?? 'unknown',
       parse_method: parseMethod as 'ast' | 'heuristic',
       scanned_at: now,
