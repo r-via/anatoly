@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as childProcess from 'node:child_process';
-import { sendDesktopNotification } from './desktop.js';
+import { sendDesktopNotification, escapeAppleScript } from './desktop.js';
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
@@ -76,5 +76,21 @@ describe('desktop notifications', () => {
         expect.objectContaining({ stdio: 'ignore' }),
       );
     });
+  });
+});
+
+describe('escapeAppleScript', () => {
+  it('escapes literal newlines and carriage returns (the multi-line-body bug)', () => {
+    const out = escapeAppleScript('line one\nline two\r\nend');
+    expect(out).not.toMatch(/\n|\r/); // no raw newlines survive into the literal
+    expect(out).toBe('line one\\nline two\\r\\nend');
+  });
+
+  it('escapes quotes and backslashes, backslash first (no double-escaping)', () => {
+    expect(escapeAppleScript('a "quote" and a \\ slash')).toBe('a \\"quote\\" and a \\\\ slash');
+  });
+
+  it('leaves plain text untouched', () => {
+    expect(escapeAppleScript('Review complete: 3 findings')).toBe('Review complete: 3 findings');
   });
 });

@@ -32,7 +32,19 @@ export function sendDesktopNotification(title: string, body: string): void {
   }
 }
 
-/** Escape double-quotes and backslashes for AppleScript string literals. */
-function escapeAppleScript(str: string): string {
-  return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+/**
+ * Escape a string for embedding inside an AppleScript double-quoted literal
+ * (modern macOS osascript supports the `\\`, `\"`, `\n`, `\r`, `\t` escapes).
+ * Backslash is escaped first so the escapes inserted afterwards are not
+ * re-doubled. Newlines/carriage returns MUST be escaped: a literal newline
+ * inside a double-quoted AppleScript string is a parse error, which made
+ * osascript exit non-zero and silently drop any multi-line notification body.
+ */
+export function escapeAppleScript(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
 }
