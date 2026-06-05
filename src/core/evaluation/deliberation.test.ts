@@ -332,6 +332,59 @@ describe('applyDeliberation', () => {
     expect(result.actions).toHaveLength(0);
   });
 
+  it('purges stale per-defect findings when correction is reclassified to OK', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 72, detail: 'Possible bug here', duplicate_target: undefined,
+          findings: [{ axis: 'correction', line_start: 2, line_end: 3, detail: 'wrong-sign multiplier defect' }] },
+      ],
+    });
+
+    const deliberation = makeDeliberationResponse({
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'doWork',
+          original: { correction: 'NEEDS_FIX', confidence: 72 },
+          deliberated: { correction: 'OK', confidence: 90 },
+          reasoning: 'The pattern is safe in this context',
+        },
+      ],
+    });
+
+    const result = applyDeliberation(review, deliberation);
+    expect(result.symbols[0].correction).toBe('OK');
+    // An OK symbol must not expose stale correction findings.
+    expect(result.symbols[0].findings).toBeUndefined();
+  });
+
+  it('keeps findings of an axis that is still flagged after deliberation', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 72, detail: 'Two bugs', duplicate_target: undefined,
+          findings: [{ axis: 'correction', line_start: 2, line_end: 3, detail: 'still a real defect' }] },
+      ],
+    });
+
+    const deliberation = makeDeliberationResponse({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        {
+          name: 'doWork',
+          original: { correction: 'NEEDS_FIX', confidence: 72 },
+          deliberated: { correction: 'NEEDS_FIX', confidence: 80 },
+          reasoning: 'Confirmed, still a defect',
+        },
+      ],
+    });
+
+    const result = applyDeliberation(review, deliberation);
+    expect(result.symbols[0].correction).toBe('NEEDS_FIX');
+    expect(result.symbols[0].findings).toHaveLength(1);
+  });
+
   it('should protect ERROR when Opus confidence < 95', () => {
     const review = makeReview({
       verdict: 'CRITICAL',

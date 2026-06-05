@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
-import type { ReviewFile } from '../../schemas/review.js';
+import type { ReviewFile, SymbolFinding } from '../../schemas/review.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { recordReclassification, type AxisReclassification } from '../platform/index.js';
 import { resolveSystemPrompt } from '../platform/index.js';
@@ -259,6 +259,15 @@ export function applyDeliberation(
       setAxisValue(updated, axis, deliberated);
     }
 
+    // Prune per-defect findings whose axis verdict is no longer flagged after
+    // reclassification. Without this, a symbol deliberated NEEDS_FIX → OK keeps
+    // its stale correction findings (the `...sym` spread copied them), leaving
+    // an OK symbol that still exposes error findings to the reporter and scorer.
+    if (updated.findings) {
+      const kept = updated.findings.filter((f) => axisStillFlagged(updated, f.axis));
+      updated.findings = kept.length > 0 ? kept : undefined;
+    }
+
     // Record all axis reclassifications as a single symbol entry.
     // Truncate original_detail to only the axes that were reclassified —
     // the full multi-axis detail string is too verbose for memory storage.
@@ -358,6 +367,25 @@ export function applyDeliberation(
       reasoning: deliberation.reasoning,
     },
   };
+}
+
+/**
+ * Whether an axis still carries a non-clean (flagged) verdict on a symbol.
+ * Used to drop per-defect findings whose axis was reclassified to a clean
+ * value. Unknown axes (e.g. best_practices, which has no SymbolReview verdict
+ * field) are kept conservatively — dropping a finding we should keep is silent
+ * data loss, keeping one we could drop is harmless.
+ */
+function axisStillFlagged(sym: ReviewFile['symbols'][number], axis: SymbolFinding['axis']): boolean {
+  switch (axis) {
+    case 'correction': return sym.correction === 'NEEDS_FIX' || sym.correction === 'ERROR';
+    case 'utility': return sym.utility === 'DEAD' || sym.utility === 'LOW_VALUE';
+    case 'duplication': return sym.duplication === 'DUPLICATE';
+    case 'overengineering': return sym.overengineering === 'OVER';
+    case 'tests': return sym.tests === 'WEAK' || sym.tests === 'NONE';
+    case 'documentation': return sym.documentation === 'UNDOCUMENTED' || sym.documentation === 'PARTIAL';
+    default: return true;
+  }
 }
 
 /** Type-safe setter for axis values on a SymbolReview, avoiding `as Record<string, unknown>`. */
