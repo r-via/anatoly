@@ -2,7 +2,7 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import type { ReviewFile, SymbolReview, Action } from '../../schemas/review.js';
+import type { ReviewFile, SymbolReview, SymbolFinding, Action } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
 import { setAxisSegment, getAxisSegmentText } from '../evaluation/refinement/detail-segment.js';
 
@@ -196,9 +196,9 @@ function mergeSymbol(
   // axes warranted.
   merged.confidence = Math.min(cached.confidence, fresh.confidence);
 
-  // findings: each finding is axis-tagged; keep cached for non-refreshed
-  // axes, take fresh for refreshed axes.
-  const cachedFindings = (cached.findings ?? []).filter((f) => !isFindingFromAxis(f.detail, refreshed));
+  // findings: each finding carries its own `axis`; keep cached for
+  // non-refreshed axes, take fresh for refreshed axes.
+  const cachedFindings = (cached.findings ?? []).filter((f) => !isFindingFromAxis(f, refreshed));
   const freshFindings = fresh.findings ?? [];
   const allFindings = [...cachedFindings, ...freshFindings];
   merged.findings = allFindings.length > 0 ? allFindings : undefined;
@@ -236,34 +236,14 @@ function rebuildDetail(cached: SymbolReview, fresh: SymbolReview, refreshed: Set
 }
 
 /**
- * Best-effort axis attribution for a SymbolFinding by its detail prefix.
- * Findings are not strictly axis-tagged in the schema; this is used only
- * to drop cached findings that the refresh has presumably replaced. False
- * negatives (keep a finding we should have dropped) are harmless dupes;
- * false positives (drop a finding we should have kept) are silent data
- * loss, so we err on the side of keeping.
+ * Whether a cached finding belongs to one of the refreshed axes, so the
+ * merge can drop it in favour of the fresh equivalent. Each finding carries
+ * its own `axis` (SymbolFindingSchema, defaulted to 'correction' on parse),
+ * so attribution is exact — no detail-string parsing.
  */
-function isFindingFromAxis(detail: string, refreshed: Set<AxisId>): boolean {
-  for (const axis of refreshed) {
-    // multi-defect findings carry the axis verdict tag at the start, same
-    // format as the merged detail segments
-    const verdicts = AXIS_VERDICT_TAGS[axis];
-    for (const v of verdicts) {
-      if (detail.startsWith(`[${v}] `)) return true;
-    }
-  }
-  return false;
+function isFindingFromAxis(finding: SymbolFinding, refreshed: Set<AxisId>): boolean {
+  return refreshed.has(finding.axis);
 }
-
-const AXIS_VERDICT_TAGS: Record<AxisId, readonly string[]> = {
-  correction: ['OK', 'NEEDS_FIX', 'ERROR'],
-  overengineering: ['LEAN', 'OVER', 'ACCEPTABLE'],
-  utility: ['USED', 'DEAD', 'LOW_VALUE'],
-  duplication: ['UNIQUE', 'DUPLICATE'],
-  tests: ['GOOD', 'WEAK', 'NONE'],
-  documentation: ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'],
-  best_practices: [],
-};
 
 function mergeActions(
   cached: Action[],

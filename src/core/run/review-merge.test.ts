@@ -214,6 +214,64 @@ describe('mergeRefreshedReview', () => {
     merged = mergeRefreshedReview(cached, fresh, ['documentation']);
     expect(merged.docs_coverage?.score_pct).toBe(90);
   });
+
+  // Regression: per-defect findings are attributed by their own `axis` field,
+  // not by parsing a verdict tag out of `detail` (which findings never carry).
+  // Before the fix, a refreshed axis's cached finding survived the dedup filter
+  // and was concatenated with its fresh equivalent → exact 2× duplication.
+  describe('findings dedup by axis', () => {
+    it('drops the cached finding of a refreshed axis and keeps the fresh one (no duplication)', () => {
+      const cached = review({
+        symbols: [sym({
+          name: 'foo', line_start: 10, correction: 'NEEDS_FIX',
+          findings: [{ axis: 'correction', line_start: 11, line_end: 12, detail: 'bug A — wrong sign' }],
+        })],
+      });
+      const fresh = review({
+        symbols: [sym({
+          name: 'foo', line_start: 10, correction: 'NEEDS_FIX',
+          findings: [{ axis: 'correction', line_start: 11, line_end: 12, detail: 'bug A — wrong sign' }],
+        })],
+      });
+      const merged = mergeRefreshedReview(cached, fresh, ['correction']);
+      expect(merged.symbols[0].findings).toHaveLength(1);
+    });
+
+    it('keeps a cached finding whose axis was NOT refreshed', () => {
+      const cached = review({
+        symbols: [sym({
+          name: 'foo', line_start: 10, correction: 'NEEDS_FIX',
+          findings: [{ axis: 'correction', line_start: 11, line_end: 12, detail: 'cached correction defect' }],
+        })],
+      });
+      const fresh = review({
+        symbols: [sym({ name: 'foo', line_start: 10, utility: 'DEAD' })],
+      });
+      // refresh utility only — the cached correction finding must survive
+      const merged = mergeRefreshedReview(cached, fresh, ['utility']);
+      expect(merged.symbols[0].findings).toHaveLength(1);
+      expect(merged.symbols[0].findings?.[0].detail).toBe('cached correction defect');
+    });
+
+    it('stays at 1× across repeated merges (no unbounded accumulation)', () => {
+      let acc = review({
+        symbols: [sym({
+          name: 'foo', line_start: 10, correction: 'NEEDS_FIX',
+          findings: [{ axis: 'correction', line_start: 11, line_end: 12, detail: 'same bug' }],
+        })],
+      });
+      const fresh = () => review({
+        symbols: [sym({
+          name: 'foo', line_start: 10, correction: 'NEEDS_FIX',
+          findings: [{ axis: 'correction', line_start: 11, line_end: 12, detail: 'same bug' }],
+        })],
+      });
+      for (let i = 0; i < 3; i++) {
+        acc = mergeRefreshedReview(acc, fresh(), ['correction']);
+      }
+      expect(acc.symbols[0].findings).toHaveLength(1);
+    });
+  });
 });
 
 describe('computeMergedAxesCoverage', () => {
