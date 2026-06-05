@@ -587,7 +587,9 @@ export function renderAxisShard(axis: ReportAxisId, shard: ShardInfo): string {
         const summary = [noneSymbols.length > 0 ? `${noneSymbols.length} untested` : '', weakSymbols.length > 0 ? `${weakSymbols.length} weak` : ''].filter(Boolean).join(', ');
 
         const extMatch = review.file.match(/(\.\w+)$/);
-        const testFile = extMatch ? review.file.replace(extMatch[0], `.test${extMatch[0]}`) : `${review.file}.test.ts`;
+        // Replace the trailing extension only: a plain-string replace hits the
+        // first occurrence, mangling paths like `src/utils.ts/foo.ts`.
+        const testFile = extMatch ? review.file.replace(/(\.\w+)$/, `.test$1`) : `${review.file}.test.ts`;
         const hasTestFile = review.symbols.some((s) => s.tests === 'GOOD' || s.tests === 'WEAK');
         const action = hasTestFile ? `Improve \`${testFile}\`` : `Create \`${testFile}\``;
 

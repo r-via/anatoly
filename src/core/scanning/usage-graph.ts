@@ -135,15 +135,59 @@ function escapeRegExp(s: string): string {
  * Known limitation: nested template literals (e.g. `outer ${`inner`}`) are not
  * handled correctly by regex alone — residual content may cause false positives.
  */
+/**
+ * Replace each template literal with just the contents of its `${...}`
+ * interpolations (space-separated), dropping the static text and backticks.
+ *
+ * This keeps identifier references that live inside interpolations — so a
+ * symbol used only as `` `...${doStuff()}...` `` is still seen as referenced
+ * (no false DEAD) — while removing static prose that could otherwise be
+ * mistaken for a symbol reference (a false USED). The previous regex left any
+ * template containing `${` fully intact, so neither property held. Handles
+ * nested braces and nested template literals.
+ */
+export function stripTemplateLiterals(source: string): string {
+  let out = '';
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    if (ch !== '`') { out += ch; i++; continue; }
+
+    i++; // skip opening backtick
+    while (i < n) {
+      const c = source[i];
+      if (c === '\\') { i += 2; continue; }   // escaped char in static text
+      if (c === '`') { i++; break; }          // closing backtick
+      if (c === '$' && source[i + 1] === '{') {
+        i += 2;
+        let depth = 1;
+        let expr = '';
+        while (i < n && depth > 0) {
+          const e = source[i];
+          if (e === '{') depth++;
+          else if (e === '}') { depth--; if (depth === 0) { i++; break; } }
+          expr += e;
+          i++;
+        }
+        out += ` ${stripTemplateLiterals(expr)} `; // recurse for nested templates
+        continue;
+      }
+      i++; // drop static character
+    }
+    out += ' '; // separator where the template was
+  }
+  return out;
+}
+
 function stripCommentsAndStrings(source: string): string {
-  return source
+  const noComments = source
     // Remove single-line comments
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    // Remove template literal static parts but keep ${...} expressions:
-    // Replace `text ${expr} text` → ` ${expr} ` (strip static text, keep interpolations)
-    .replace(/`(?:[^`\\$]|\\.|\$(?!\{))*`/g, '""')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  // Template literals: keep ${...} interpolations, drop static text.
+  return stripTemplateLiterals(noComments)
     // Remove double-quoted strings
     .replace(/"(?:[^"\\]|\\.)*"/g, '""')
     // Remove single-quoted strings

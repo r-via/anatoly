@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { applyTier1 } from './tier1.js';
+import { applyTier1, hasJsDocBefore } from './tier1.js';
 import type { Tier1Context } from './tier1.js';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { UsageGraph } from '../../scanning/index.js';
@@ -699,5 +699,49 @@ describe('applyTier1', () => {
     expect(d).toContain('[LEAN] Auto-resolved: function ≤');
     expect(d).toContain('[OK] No bug');
     expect(d).toContain('[USED] Imported by 5 files');
+  });
+});
+
+describe('hasJsDocBefore', () => {
+  // line numbers are 1-based; the symbol is on the last line of each fixture.
+  it('returns true when a JSDoc block directly precedes the symbol', () => {
+    const src = [
+      '/**',
+      ' * Does the important work for the pipeline.',
+      ' */',
+      'function foo() {}',
+    ].join('\n');
+    expect(hasJsDocBefore(src, 4)).toBe(true);
+  });
+
+  it('returns true for a long single-line JSDoc', () => {
+    const src = '/** Documents foo thoroughly enough. */\nfunction foo() {}';
+    expect(hasJsDocBefore(src, 2)).toBe(true);
+  });
+
+  it('looks past decorators between the JSDoc and the symbol', () => {
+    const src = [
+      '/**',
+      ' * A documented, decorated class.',
+      ' */',
+      '@Component()',
+      'class Foo {}',
+    ].join('\n');
+    expect(hasJsDocBefore(src, 5)).toBe(true);
+  });
+
+  it('does NOT count a JSDoc that belongs to an earlier symbol (the bug)', () => {
+    const src = [
+      '/** Documentation for foo function here. */',
+      'function foo() {}',
+      '',
+      'function bar() {}', // bar has no JSDoc of its own
+    ].join('\n');
+    expect(hasJsDocBefore(src, 4)).toBe(false);
+  });
+
+  it('returns false when there is no JSDoc at all', () => {
+    const src = '// a plain line comment\nfunction foo() {}';
+    expect(hasJsDocBefore(src, 2)).toBe(false);
   });
 });

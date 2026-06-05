@@ -3,10 +3,10 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { executeDocPrompts } from './doc-llm-executor.js';
+import { executeDocPrompts, reviewDocStructure } from './doc-llm-executor.js';
 import type { PagePrompt } from './doc-generator.js';
 import { TransportRouter, type LlmTransport, type LlmResponse } from '../../transports/index.js';
 
@@ -285,5 +285,26 @@ describe('executeDocPrompts', () => {
 
     const content = readFileSync(join(outputDir, '02-Architecture/03-Data-Flow.md'), 'utf-8');
     expect(content).toBe('# Data Flow\n\nDiagram here.');
+  });
+});
+
+describe('reviewDocStructure — heading hierarchy (no skipped levels)', () => {
+  let dir: string;
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'doc-struct-')); });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  it('flags an h1 → h3 jump as a skipped heading level', () => {
+    writeFileSync(join(dir, 'page.md'), '# Title\n\n### Deep section without an h2\n\nbody\n');
+    const result = reviewDocStructure(dir, dir, dir);
+    const skipped = result.issues.filter((i) => i.rule === 'heading-hierarchy' && /skipped level/.test(i.detail));
+    expect(skipped.length).toBe(1);
+    expect(skipped[0].detail).toContain('h1 to h3');
+  });
+
+  it('does not flag a well-formed h1 → h2 → h3 sequence', () => {
+    writeFileSync(join(dir, 'page.md'), '# Title\n\n## Section\n\n### Subsection\n\nbody\n');
+    const result = reviewDocStructure(dir, dir, dir);
+    const skipped = result.issues.filter((i) => i.rule === 'heading-hierarchy' && /skipped level/.test(i.detail));
+    expect(skipped.length).toBe(0);
   });
 });

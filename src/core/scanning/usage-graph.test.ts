@@ -12,6 +12,7 @@ import {
   getSymbolUsage,
   getTypeOnlySymbolUsage,
   resolveExportedSymbolUtility,
+  stripTemplateLiterals,
   type UsageGraph,
 } from './usage-graph.js';
 import { detectTsPathAliases, resolveAliasCandidates } from './ts-path-aliases.js';
@@ -735,5 +736,32 @@ describe('getSymbolUsage', () => {
     const graph = buildUsageGraph(testDir, tasks);
     // Should be sorted alphabetically
     expect(getSymbolUsage(graph, 'X', 'src/a.ts')).toEqual(['src/b.ts', 'src/c.ts']);
+  });
+});
+
+describe('stripTemplateLiterals', () => {
+  it('drops static text but keeps ${...} interpolation contents (no false USED, no false DEAD)', () => {
+    const out = stripTemplateLiterals('`Loading ${doStuff()} for processPayment now`');
+    expect(out).toContain('doStuff'); // interpolation ref preserved
+    expect(out).not.toContain('Loading'); // static prose dropped
+    expect(out).not.toContain('processPayment'); // static prose dropped
+  });
+
+  it('drops an interpolation-free template entirely', () => {
+    const out = stripTemplateLiterals('const s = `just static processPayment text`;');
+    expect(out).not.toContain('processPayment');
+    expect(out).toContain('const s =');
+  });
+
+  it('handles nested template literals, keeping every interpolation identifier', () => {
+    const out = stripTemplateLiterals('`a ${inner(`x ${deep()} y`)} b`');
+    expect(out).toContain('inner');
+    expect(out).toContain('deep');
+    expect(out).not.toMatch(/\ba\b|\bx\b|\by\b|\bb\b/); // static single-letter words dropped
+  });
+
+  it('leaves non-template code untouched', () => {
+    const src = 'function foo() { return bar(); }';
+    expect(stripTemplateLiterals(src)).toBe(src);
   });
 });

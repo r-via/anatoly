@@ -517,7 +517,11 @@ function verifyArrayBounds(
         else if (ch === ',' && d === 0) elemCount++;
         if (!hasContent && ch.trim()) hasContent = true;
       }
-      if (hasContent) elemCount++; // Last element has no trailing comma (or does — either way +1 for content)
+      // Bump for the final element only when there is NO trailing comma. With a
+      // trailing comma the loop already counted it, so an unconditional +1
+      // over-counts by one — making a trailing-comma array and its comma-free
+      // twin compare unequal and defeating the equal-sizes check below.
+      if (hasContent && !arrayContent.trimEnd().endsWith(',')) elemCount++;
       arraySizes.set(name, elemCount);
     }
   }
@@ -552,40 +556,44 @@ function verifyArrayBounds(
  * Check if a JSDoc block (> 20 chars) exists in the lines immediately before
  * the symbol's start line.
  */
-function hasJsDocBefore(content: string, symbolLineStart: number): boolean {
+export function hasJsDocBefore(content: string, symbolLineStart: number): boolean {
   const lines = content.split('\n');
-  // Look backwards from the line before the symbol (up to 30 lines back)
-  const startIdx = Math.max(0, symbolLineStart - 2); // 0-indexed, line before symbol
-  const searchStart = Math.max(0, startIdx - 30);
+  const startIdx = Math.max(0, symbolLineStart - 2); // 0-indexed, line directly above the symbol
 
-  let inBlock = false;
-  let blockContent = '';
-
-  for (let i = searchStart; i <= startIdx; i++) {
+  // Walk up past blank lines and decorators (which legitimately sit between a
+  // JSDoc block and the symbol it documents) to the first meaningful line.
+  let i = startIdx;
+  while (i >= 0) {
     const line = lines[i]?.trim() ?? '';
-    if (line.startsWith('/**')) {
-      inBlock = true;
-      blockContent = line;
-      // Handle single-line JSDoc: /** @deprecated Use foo instead. */
-      if (line.includes('*/')) {
-        if (blockContent.length > JSDOC_MIN_LENGTH) return true;
-        inBlock = false;
-        blockContent = '';
-        continue;
-      }
-    } else if (inBlock) {
-      blockContent += line;
-      if (line.includes('*/')) {
-        // Found end of JSDoc block — check length
-        if (blockContent.length > JSDOC_MIN_LENGTH) {
-          return true;
-        }
-        inBlock = false;
-        blockContent = '';
-      }
-    }
+    if (line === '' || line.startsWith('@')) { i--; continue; }
+    break;
+  }
+  if (i < 0) return false;
+
+  // That line MUST close a JSDoc block, otherwise the symbol is not directly
+  // preceded by one — a JSDoc belonging to an earlier symbol in the window must
+  // not count it as documented (the old forward scan did, a false positive).
+  const closing = lines[i]!.trim();
+  if (!closing.endsWith('*/')) return false;
+
+  // Single-line JSDoc: /** ... */
+  if (closing.startsWith('/**')) {
+    return closing.length > JSDOC_MIN_LENGTH;
   }
 
+  // Multi-line: accumulate upward to the opening `/**` (bounded to 30 lines).
+  let blockContent = closing;
+  const lowerBound = Math.max(0, i - 30);
+  for (let j = i - 1; j >= lowerBound; j--) {
+    const l = lines[j]?.trim() ?? '';
+    blockContent = l + blockContent;
+    if (l.startsWith('/**')) {
+      return blockContent.length > JSDOC_MIN_LENGTH;
+    }
+    // A non-comment, non-blank line before reaching `/**` means this is not a
+    // JSDoc block (e.g. a line comment or stray `*/`).
+    if (l !== '' && !l.startsWith('*')) return false;
+  }
   return false;
 }
 

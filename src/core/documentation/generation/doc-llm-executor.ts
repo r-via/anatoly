@@ -319,6 +319,22 @@ export function reviewDocStructure(
     } else if (h1Count > 1) {
       issues.push({ path: relPath, rule: 'heading-hierarchy', detail: `${h1Count} h1 headings (expected 1)`, fixed: false });
     }
+
+    // No skipped levels: a heading must not be more than one level deeper than
+    // the previous one (e.g. an h1 followed directly by an h3). The `headings`
+    // array is already collected above; the comment promised this check but it
+    // was never implemented.
+    for (let k = 1; k < headings.length; k++) {
+      if (headings[k] > headings[k - 1] + 1) {
+        issues.push({
+          path: relPath,
+          rule: 'heading-hierarchy',
+          detail: `heading level jumps from h${headings[k - 1]} to h${headings[k]} (skipped level)`,
+          fixed: false,
+        });
+        break; // one report per file is enough
+      }
+    }
   }
   callbacks?.onCheck?.('heading-hierarchy', issues.length - headingBefore);
 
