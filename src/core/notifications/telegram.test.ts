@@ -85,6 +85,15 @@ describe('renderTelegramMessage', () => {
     expect(msg).toContain('report\\.md');
   });
 
+  it('escapes the H/M scorecard separator exactly once (no double-escape)', () => {
+    // dead axis has high:3 medium:5 → "3H - 5M". The separator must be a plain
+    // hyphen so escapeMarkdownV2 escapes it once to "\-"; a pre-escaped "\-"
+    // separator would be double-escaped to "\\\-" and render as a literal "\-".
+    const msg = renderTelegramMessage(basePayload);
+    expect(msg).toContain('3H \\- 5M');
+    expect(msg).not.toContain('\\\\-'); // no doubled backslash before the hyphen
+  });
+
   it('should respect the 4096 character limit', () => {
     const largeScorecard: NotificationPayload['axisScorecard'] = {};
     for (let i = 0; i < 20; i++) {

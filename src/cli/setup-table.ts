@@ -136,7 +136,9 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
       for (const r of data.forecast) console.log(`    ${r.key.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.value}`);
     }
     console.log(chalk.dim('  Pipeline Summary'));
-    for (const r of data.pipeline) console.log(`    ✔ ${r.phase.padEnd(singleKeyWidth)}${' '.repeat(gap)}${r.detail}`);
+    // Subtract the "✔ " prefix width so the detail column lines up with the
+    // other value columns (which have no prefix), matching fancy-mode pipelineRow.
+    for (const r of data.pipeline) console.log(`    ✔ ${r.phase.padEnd(Math.max(0, singleKeyWidth - checkPrefix))}${' '.repeat(gap)}${r.detail}`);
     console.log('');
     return;
   }
@@ -146,7 +148,9 @@ export function renderSetupTable(data: SetupTableData, plain: boolean): void {
 
   const sectionBorder = (label: string, color: (s: string) => string, left: string, right: string) => {
     const labelPart = ` ${label} `;
-    const dashes = innerWidth - labelPart.length;
+    // Clamp: a label wider than innerWidth (e.g. 'Pipeline Summary' with very
+    // narrow content) would make repeat() throw RangeError on a negative count.
+    const dashes = Math.max(0, innerWidth - labelPart.length);
     return d(`  ${left}`) + color(labelPart) + d(`${line('─', dashes)}${right}`);
   };
 
