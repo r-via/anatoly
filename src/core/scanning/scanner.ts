@@ -538,8 +538,13 @@ export async function scanProject(
         file: relPath,
         hash,
         // Preserve CACHED status only when prior eval covered the requested
-        // axes. Otherwise stay PENDING so run knows it still needs work.
-        status: evalDone && axesCovered ? 'CACHED' : (existing.status ?? 'PENDING'),
+        // axes. Otherwise stay PENDING so run knows it still needs work — a
+        // prior DONE/CACHED status must not survive when new axes were
+        // requested (the review phase re-derives staleness per axis, but the
+        // persisted status should match that intent rather than lie).
+        status: evalDone && axesCovered
+          ? 'CACHED'
+          : (axesCovered ? (existing.status ?? 'PENDING') : 'PENDING'),
         updated_at: now,
         axes: existing.axes,
       };

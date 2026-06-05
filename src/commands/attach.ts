@@ -696,6 +696,11 @@ export function registerAttachCommand(parent: Command): void {
         onEvent: (ev) => {
           clearStatusLine();
           handleEvent(ev);
+          // Redraw unconditionally: silent events (estimate_total, rag_progress,
+          // unknown) update state but emit no history line, so onLineEmitted
+          // never fires and the cleared status line would otherwise stay blank
+          // until the next 1s timer tick (visibly stale during RAG indexing).
+          drawStatusLine();
         },
         onError: (err) => {
           clearStatusLine();

@@ -89,35 +89,39 @@ export async function indexProjectStandalone(opts: StandaloneRagOptions): Promis
   const readyFlag = readEmbeddingsReadyFlag(projectRoot);
   let effectiveBackend: EmbeddingBackend = determineBackend(readyFlag, hardware, config);
 
-  // Start GGUF containers if advanced mode
-  if (effectiveBackend === 'advanced-gguf') {
-    onLog('starting GGUF Docker containers…');
-    const started = await startGgufContainers(projectRoot, 'lazy', onLog);
-    if (!started) {
-      if (rebuild) {
-        onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
-        effectiveBackend = 'lite';
-      } else {
-        throw new Error(
-          'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
-          + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
-          + 'Please either:\n'
-          + '  1. Start Docker and retry, or\n'
-          + '  2. Run with --rebuild to re-index everything in lite mode',
-        );
+  // Everything after a successful startGgufContainers must run inside the try
+  // so the finally always stops the containers — including when model
+  // resolution (resolveEmbeddingModels) throws, which previously leaked the
+  // started GGUF containers because it ran before the try.
+  try {
+    // Start GGUF containers if advanced mode
+    if (effectiveBackend === 'advanced-gguf') {
+      onLog('starting GGUF Docker containers…');
+      const started = await startGgufContainers(projectRoot, 'lazy', onLog);
+      if (!started) {
+        if (rebuild) {
+          onLog('GGUF containers failed — falling back to ONNX lite (rebuild mode: full re-index)');
+          effectiveBackend = 'lite';
+        } else {
+          throw new Error(
+            'Docker is unavailable but this project was set up with advanced-gguf embeddings. '
+            + 'Falling back to lite mode would produce incompatible embedding dimensions and corrupt the vector store. '
+            + 'Please either:\n'
+            + '  1. Start Docker and retry, or\n'
+            + '  2. Run with --rebuild to re-index everything in lite mode',
+          );
+        }
       }
     }
-  }
 
-  // Resolve embedding models
-  const effectiveFlag = readyFlag
-    ? { ...readyFlag, backend: effectiveBackend }
-    : { device: 'cpu', backend: effectiveBackend } as EmbeddingsReadyFlag;
-  const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag, getV3Source(config));
+    // Resolve embedding models
+    const effectiveFlag = readyFlag
+      ? { ...readyFlag, backend: effectiveBackend }
+      : { device: 'cpu', backend: effectiveBackend } as EmbeddingsReadyFlag;
+    const resolvedModels = await resolveEmbeddingModels(config.rag, hardware, onLog, effectiveFlag, getV3Source(config));
 
-  const ragMode = backendToRagMode(effectiveBackend);
+    const ragMode = backendToRagMode(effectiveBackend);
 
-  try {
     return await indexProject({
       projectRoot,
       tasks,
