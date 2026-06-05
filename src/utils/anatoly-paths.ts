@@ -340,8 +340,11 @@ function migrateLegacyUserWideCaches(uwRoot: string): void {
     const legacyPath = join(legacyDir, name);
     const targetPath = join(targetDir, name);
     if (existsSync(targetPath)) {
-      // Already in canonical location — drop the duplicate.
-      try { rmSync(legacyPath, { force: true }); } catch { /* best-effort */ }
+      // Already in canonical location — drop the duplicate. This still counts
+      // as touching the legacy dir, so the empty-dir cleanup below runs even
+      // when every grammar was a duplicate (otherwise the now-empty legacy dir
+      // lingers and is re-scanned on every future run).
+      try { rmSync(legacyPath, { force: true }); movedAny = true; } catch { /* best-effort */ }
       continue;
     }
     try {

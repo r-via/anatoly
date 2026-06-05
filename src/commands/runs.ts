@@ -178,6 +178,14 @@ export function registerRunsCommand(program: Command): Command {
       } else if (opts.all) {
         toDelete = allRuns;
       } else if (opts.keep !== undefined) {
+        // commander coerces --keep via parseInt, so a non-numeric value yields
+        // NaN; without this guard NaN propagates through Math.max/slice and
+        // silently deletes nothing ("Nothing to remove") instead of erroring.
+        if (!Number.isFinite(opts.keep)) {
+          console.error(chalk.red('--keep requires a non-negative integer.'));
+          process.exitCode = 1;
+          return;
+        }
         const keep = Math.max(0, opts.keep);
         toDelete = allRuns.slice(0, Math.max(0, allRuns.length - keep));
       } else if (runIds.length > 0) {

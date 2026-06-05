@@ -26,7 +26,10 @@ import type { RunContext } from '../../commands/run.js';
  * reaches the top-level catch (failed status, exit code 2, actionable hint).
  */
 export function requestFatalStop(ctx: RunContext, err: unknown): void {
-  if (ctx.fatalError) return;
+  // Latch on presence, not truthiness: a falsy thrown value (undefined, 0, '')
+  // would otherwise leave fatalError falsy and let a later call overwrite the
+  // first error. `undefined` is the unset sentinel for ctx.fatalError.
+  if (ctx.fatalError !== undefined) return;
   ctx.fatalError = err;
   ctx.interrupted = true;
   for (const ac of ctx.activeAborts) ac.abort();

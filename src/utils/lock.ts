@@ -50,7 +50,21 @@ export function acquireLock(projectRoot: string): string {
     started_at: new Date().toISOString(),
   };
 
-  writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + '\n');
+  // Exclusive create ('wx') closes the TOCTOU window between the existsSync
+  // check above and this write: if another process created the lock in
+  // between, the write throws EEXIST rather than both silently "acquiring" it.
+  try {
+    writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + '\n', { flag: 'wx' });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new AnatolyError(
+        "Another instance just acquired the lock. Wait for it to finish or run 'anatoly reset' to force clear.",
+        ERROR_CODES.LOCK_EXISTS,
+        false,
+      );
+    }
+    throw error;
+  }
   return lockPath;
 }
 
