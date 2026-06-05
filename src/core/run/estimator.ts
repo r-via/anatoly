@@ -228,7 +228,14 @@ export function estimateProject(projectRoot: string): EstimateResult {
     return { files: 0, symbols: 0, inputTokens: 0, outputTokens: 0, estimatedMinutes: 0, estimatedCalls: 0 };
   }
 
-  const { inputTokens, outputTokens, symbols } = estimateTasksTokens(projectRoot, tasks);
+  // estimateTasksTokens models a single pass over all files (one axis). A real
+  // run evaluates every file across all axes, so scale the token totals by
+  // AXIS_COUNT to match estimatedCalls — otherwise inputTokens/outputTokens
+  // report 1/AXIS_COUNT of the run while estimatedCalls reports the full count.
+  const single = estimateTasksTokens(projectRoot, tasks);
+  const inputTokens = single.inputTokens * AXIS_COUNT;
+  const outputTokens = single.outputTokens * AXIS_COUNT;
+  const symbols = single.symbols;
 
   const estimatedMinutes = Math.ceil(estimateSequentialSeconds(tasks) / 60);
   const estimatedCalls = tasks.length * AXIS_COUNT;

@@ -587,7 +587,11 @@ export function autoFixStructuralIssues(
 
       // Find the section for this directory and append
       const dir = actualPath.split('/')[0];
-      const sectionRe = new RegExp(`^(## .*${dir.replace(/^\d+-/, '')}.*\n)`, 'im');
+      // Escape regex metacharacters before interpolating into RegExp — a dir
+      // like `04-C++(Core)` would otherwise become an invalid/wrong pattern
+      // (same guard the dead-path replace below already uses).
+      const dirPattern = dir.replace(/^\d+-/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const sectionRe = new RegExp(`^(## .*${dirPattern}.*\n)`, 'im');
       const sectionMatch = indexContent.match(sectionRe);
       if (sectionMatch && sectionMatch.index !== undefined) {
         // Find the end of the link list under this section

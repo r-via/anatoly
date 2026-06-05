@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { loadConfig } from '../utils/config-loader.js';
 import { resolveUsernameToChatId } from '../core/notifications/index.js';
+import { escapeMarkdownV2 } from '../core/notifications/telegram.js';
 
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
@@ -236,7 +237,9 @@ export async function runTelegramSetup(
 
         const welcomeText =
           `🎉 *Houston, we have liftoff\\!*\n\n` +
-          `Comms are live for *@${username}* 📡\n\n` +
+          // Escape the raw username: an unescaped '_' (e.g. john_doe) is a
+          // MarkdownV2 italic delimiter and makes Telegram reject the send (400).
+          `Comms are live for *@${escapeMarkdownV2(username)}* 📡\n\n` +
           `After every \\\`anatoly run\\\`, I'll beam you:\n` +
           `  🔍 The verdict \\— CLEAN, NEEDS\\_REFACTOR, or CRITICAL\n` +
           `  📊 Health bars for all 7 axes\n` +
@@ -244,12 +247,18 @@ export async function runTelegramSetup(
           `  💰 Cost \\& duration\n\n` +
           `You're all set\\. Go break some code, I'll watch\\. 🫡`;
 
-        await botApi('sendMessage', {
+        const welcomeResp = await botApi('sendMessage', {
           chat_id: chatId,
           text: welcomeText,
           parse_mode: 'MarkdownV2',
         });
-        welcomeSpinner.stop('Welcome message sent! 🚀');
+        // fetch() does not throw on 4xx; without this check a rejected send
+        // (e.g. a MarkdownV2 parse error) would still report success.
+        if (welcomeResp.ok) {
+          welcomeSpinner.stop('Welcome message sent! 🚀');
+        } else {
+          welcomeSpinner.stop(`Welcome message not sent (Telegram returned ${welcomeResp.status}).`);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         welcomeSpinner.stop(`Failed: ${msg}`);

@@ -16,7 +16,7 @@
  * 2. Handoff golden (PR 8b): a one-file fixture whose unused exports the
  *    usage graph resolves DEAD with no LLM, so the run is still hermetic but
  *    produces non-zero, deterministic handoff values (filesReviewed=1,
- *    evaluated=1, findings=6). Guards the setup -> review -> report handoff
+ *    evaluated=1, findings=2). Guards the setup -> review -> report handoff
  *    that PR 8c inverted from `ctx` mutation to the typed `Handoff` object
  *    (proven to catch a §4 regression, see the PR 8b commit message).
  *
@@ -135,7 +135,12 @@ describe('orchestration goldens', () => {
         phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan'],
         filesReviewed: 1,
         evaluated: 1,
-        findings: 6,
+        // 2 DEAD exports → 2 findings. Only the `utility` axis is enabled in the
+        // fixture config, so tests/documentation resolve to the '-' (skipped)
+        // sentinel and must NOT be fabricated into NONE/UNDOCUMENTED findings
+        // (axis-merger coherence guard). Pre-guard this was 6 (2 DEAD + 2 bogus
+        // tests=NONE + 2 bogus doc=UNDOCUMENTED on axes that never ran).
+        findings: 2,
       });
     },
     240_000,

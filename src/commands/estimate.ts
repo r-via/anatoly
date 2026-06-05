@@ -708,7 +708,10 @@ export function registerEstimateCommand(program: Command): void {
             concurrency,
             cache: !ignoreCache,
             rag: {
-              mode: (enableRag ? (resolvedEmbed?.backend ?? 'lite') : 'off') as EstimateJsonPayload['config']['rag']['mode'],
+              // Use resolvedRagSuffix (already normalises 'advanced-gguf'→'advanced')
+              // rather than the raw backend: the payload contract has no
+              // 'advanced-gguf' member, so the old cast emitted an invalid mode.
+              mode: enableRag ? resolvedRagSuffix : 'off',
               ...(enableRag && embedForecast
                 ? { files: ragFiles, fns: embedForecast.codeUnits, chunks: embedForecast.nlpUnits }
                 : {}),

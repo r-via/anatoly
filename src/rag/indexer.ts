@@ -389,11 +389,10 @@ export function computeBodyHash(body: string): string {
  * Load the NLP summary cache from disk.
  * Returns a fresh empty cache if file doesn't exist or is corrupted.
  *
- * If only legacy mode-suffixed files exist (from before the cache was
- * unified), they are merged into the canonical `nlp_summary_cache.json`
  * The cache is mode-agnostic because summaries depend only on the
  * function body and the configured `models.fast` LLM, not on the RAG
- * embedding backend.
+ * embedding backend. (No legacy mode-suffixed migration is performed; a
+ * pre-unification cache is regenerated on the next index.)
  */
 export function loadNlpSummaryCache(projectRoot: string): NlpSummaryCache {
   const path = nlpCachePath(projectRoot);
