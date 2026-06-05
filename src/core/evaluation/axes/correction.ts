@@ -57,7 +57,7 @@ export const CorrectionResponseSchema = z.object({
   doc_divergences: z.array(DocDivergenceSchema).optional(),
 });
 
-type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;
+export type CorrectionResponse = z.infer<typeof CorrectionResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Prompt builders
@@ -131,7 +131,7 @@ export const VerificationResponseSchema = z.object({
   symbols: z.array(VerificationSymbolSchema),
 });
 
-type VerificationResponse = z.infer<typeof VerificationResponseSchema>;
+export type VerificationResponse = z.infer<typeof VerificationResponseSchema>;
 
 function buildVerificationSystemPrompt(): string {
   return resolveSystemPrompt('correction.verification');
@@ -243,7 +243,7 @@ function findingsNeedVerification(
  * Records false positives in the correction memory for future runs and filters
  * out actions whose lines fall within symbols reclassified to OK.
  */
-function applyVerification(
+export function applyVerification(
   pass1: CorrectionResponse,
   verification: VerificationResponse,
   ctx: AxisContext,
@@ -273,6 +273,11 @@ function applyVerification(
         correction: v.verified_correction as 'OK' | 'NEEDS_FIX' | 'ERROR',
         confidence: v.confidence,
         detail: `${v.reason} (verified against documentation)`,
+        // The per-defect findings belong to the pre-verification verdict; once
+        // the symbol is reclassified they no longer apply and must not be
+        // carried over by the `...sym` spread (else an OK symbol still exposes
+        // stale error findings to the reporter and bench scorer).
+        findings: undefined,
       };
     }
 
@@ -291,6 +296,81 @@ function applyVerification(
   });
 
   return { symbols: updatedSymbols, actions: filteredActions, doc_divergences: pass1.doc_divergences };
+}
+
+/**
+ * Conclusion-shaped phrases that mean "after analysis, the code is correct".
+ * Tight on purpose: each is a verdict-level conclusion, not a hedge. Bare
+ * softeners ("this is fine", "harmless") are excluded to avoid suppressing a
+ * real bug that merely contains reassuring prose. Extend with care.
+ */
+const SELF_EXONERATION =
+  /\b(no bug here|not (a |an )?(real |actual )?bug\b|isn'?t (a |an )?bug\b|no (real|actual) (bug|issue|problem|defect)|not actually (a |an )?(bug|issue|problem|defect)|accidentally works|semantics rescue)/i;
+
+function isSelfExonerating(text: string | undefined): boolean {
+  return !!text && SELF_EXONERATION.test(text);
+}
+
+/**
+ * Deterministic coherence guard: reconcile a flagged verdict with its own
+ * evidence. The LLM occasionally emits `NEEDS_FIX`/`ERROR` while its `detail`
+ * or `findings` reason their way to "no bug here" (e.g. `resolveCliBinName`,
+ * run 2026-06-04). Prompt rule 13 forbids this, but this is the safety net:
+ *
+ *  - drop any individual finding whose text exonerates the code;
+ *  - if EVERY backing finding exonerated (or, for a single-defect symbol with
+ *    no findings, the `detail` itself exonerates), the verdict is unsupported
+ *    by its own analysis → downgrade the symbol to `OK`.
+ *
+ * Conservative by construction: a symbol keeps `NEEDS_FIX` as long as one real
+ * (non-exonerating) finding remains, so a mixed symbol never loses its bug.
+ * Actions anchored inside a downgraded symbol are dropped, mirroring
+ * {@link applyVerification}.
+ */
+export function reconcileSelfContradictions(data: CorrectionResponse): CorrectionResponse {
+  const downgraded: Array<{ start: number; end: number }> = [];
+
+  const symbols = data.symbols.map((sym) => {
+    if (sym.correction !== 'NEEDS_FIX' && sym.correction !== 'ERROR') return sym;
+
+    const findings = sym.findings ?? [];
+    if (findings.length > 0) {
+      const kept = findings.filter((f) => !isSelfExonerating(f.detail));
+      if (kept.length === 0) {
+        // Every backing finding cleared the code — verdict is unsupported.
+        downgraded.push({ start: sym.line_start, end: sym.line_end });
+        return {
+          ...sym,
+          correction: 'OK' as const,
+          detail: `${sym.detail} (reconciled to OK: the finding's own analysis concludes there is no defect)`,
+          findings: undefined,
+        };
+      }
+      if (kept.length !== findings.length) {
+        return { ...sym, findings: kept };
+      }
+      return sym;
+    }
+
+    // Single-defect symbol carried only by `detail`.
+    if (isSelfExonerating(sym.detail)) {
+      downgraded.push({ start: sym.line_start, end: sym.line_end });
+      return {
+        ...sym,
+        correction: 'OK' as const,
+        detail: `${sym.detail} (reconciled to OK: the analysis concludes there is no defect)`,
+      };
+    }
+    return sym;
+  });
+
+  if (downgraded.length === 0) return { ...data, symbols };
+
+  const actions = data.actions.filter((a) => {
+    if (!a.line) return true;
+    return !downgraded.some((r) => a.line! >= r.start && a.line! <= r.end);
+  });
+  return { ...data, symbols, actions };
 }
 
 /**
@@ -398,6 +478,10 @@ export class CorrectionEvaluator implements AxisEvaluator {
         transcript += '\n\n---\n\n## Verification Pass — FAILED (keeping pass 1 results)\n';
       }
     }
+
+    // Deterministic coherence guard: a flagged verdict whose own evidence
+    // concludes "no bug" is reconciled to OK (safety net behind prompt rule 13).
+    finalData = reconcileSelfContradictions(finalData);
 
     const symbols: AxisSymbolResult[] = finalData.symbols.map((s) => ({
       name: s.name,

@@ -3,8 +3,12 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, CorrectionResponseSchema } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, CorrectionResponseSchema } from './correction.js';
+import type { CorrectionResponse, VerificationResponse } from './correction.js';
 import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
@@ -277,5 +281,131 @@ describe('buildCorrectionSystemPrompt — numerical-claim verification with self
     // when the sanity check fails.
     expect(prompt.toLowerCase()).toMatch(/order.of.magnitude|order-of-magnitude|bound/);
     expect(prompt.toLowerCase()).toMatch(/silence|do not flag|abstain/);
+  });
+});
+
+describe('applyVerification', () => {
+  function pass1WithFindings(): CorrectionResponse {
+    return {
+      symbols: [{
+        name: 'parseConfig', line_start: 1, line_end: 20, confidence: 80,
+        correction: 'NEEDS_FIX', detail: 'flagged for a possible bug',
+        findings: [{ line_start: 2, line_end: 3, detail: 'unchecked JSON.parse can throw' }],
+      }],
+      actions: [],
+    };
+  }
+
+  it('clears stale findings when a symbol is reclassified NEEDS_FIX → OK', () => {
+    const root = mkdtempSync(join(tmpdir(), 'anatoly-corr-'));
+    try {
+      const verification: VerificationResponse = {
+        symbols: [{
+          name: 'parseConfig', original_correction: 'NEEDS_FIX', verified_correction: 'OK',
+          confidence: 95, reason: 'README documents that callers pre-validate the input',
+        }],
+      };
+      const out = applyVerification(pass1WithFindings(), verification, createCtx({ projectRoot: root }));
+      const s = out.symbols[0];
+      expect(s.correction).toBe('OK');
+      // An OK symbol must not carry the pre-verification error findings.
+      expect(s.findings).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps findings when verification confirms the finding (verdict unchanged)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'anatoly-corr-'));
+    try {
+      const verification: VerificationResponse = {
+        symbols: [{
+          name: 'parseConfig', original_correction: 'NEEDS_FIX', verified_correction: 'NEEDS_FIX',
+          confidence: 88, reason: 'Confirmed: the throw path is reachable',
+        }],
+      };
+      const out = applyVerification(pass1WithFindings(), verification, createCtx({ projectRoot: root }));
+      const s = out.symbols[0];
+      expect(s.correction).toBe('NEEDS_FIX');
+      expect(s.findings).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('reconcileSelfContradictions', () => {
+  function flagged(findings: Array<{ detail: string }>, detail = 'flagged headline that claims a defect'): CorrectionResponse {
+    return {
+      symbols: [{
+        name: 'foo', line_start: 10, line_end: 20, confidence: 85,
+        correction: 'NEEDS_FIX', detail,
+        findings: findings.map((f, i) => ({ line_start: 11 + i, line_end: 11 + i, detail: f.detail })),
+      }],
+      actions: [{ description: 'fix foo', severity: 'MAJOR', line: 12 }],
+    };
+  }
+
+  it('downgrades to OK when the only finding exonerates the code', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'path.resolve discards the first arg, so this accidentally works correctly. No bug here.' },
+    ]));
+    expect(out.symbols[0].correction).toBe('OK');
+    expect(out.symbols[0].findings).toBeUndefined();
+    // the action anchored inside the now-OK symbol is dropped
+    expect(out.actions).toHaveLength(0);
+  });
+
+  it('downgrades when ALL findings exonerate (duplicate-style self-clearing)', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'the semantics rescue it on POSIX, no real issue' },
+      { detail: 'not a bug — the type guard already covers this case' },
+    ]));
+    expect(out.symbols[0].correction).toBe('OK');
+  });
+
+  it('keeps NEEDS_FIX and drops only the exonerating finding when a real one remains', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'off-by-one: loop runs past the last index and throws at runtime' },
+      { detail: 'this branch accidentally works, no bug here' },
+    ]));
+    expect(out.symbols[0].correction).toBe('NEEDS_FIX');
+    expect(out.symbols[0].findings).toHaveLength(1);
+    expect(out.symbols[0].findings?.[0].detail).toContain('off-by-one');
+    // verdict stands → action preserved
+    expect(out.actions).toHaveLength(1);
+  });
+
+  it('does NOT suppress a real bug whose prose merely contains reassuring words', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'works correctly on POSIX but on Windows the backslash path breaks and throws' },
+    ]));
+    expect(out.symbols[0].correction).toBe('NEEDS_FIX');
+    expect(out.symbols[0].findings).toHaveLength(1);
+  });
+
+  it('does NOT match an escalation phrased with "not just a bug"', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'this is not just a bug, it is a data-loss crash on the hot path' },
+    ]));
+    expect(out.symbols[0].correction).toBe('NEEDS_FIX');
+  });
+
+  it('downgrades a single-defect symbol carried only by an exonerating detail', () => {
+    const data: CorrectionResponse = {
+      symbols: [{ name: 'bar', line_start: 1, line_end: 5, confidence: 80, correction: 'NEEDS_FIX', detail: 'on reflection this is not a bug; the call is unreachable' }],
+      actions: [],
+    };
+    const out = reconcileSelfContradictions(data);
+    expect(out.symbols[0].correction).toBe('OK');
+  });
+
+  it('leaves OK symbols untouched', () => {
+    const data: CorrectionResponse = {
+      symbols: [{ name: 'ok', line_start: 1, line_end: 5, confidence: 95, correction: 'OK', detail: 'no issues found here' }],
+      actions: [],
+    };
+    const out = reconcileSelfContradictions(data);
+    expect(out.symbols[0].correction).toBe('OK');
   });
 });

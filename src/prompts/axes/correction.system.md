@@ -108,6 +108,14 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     by an order of magnitude. NEEDS_FIX."
     ```
 
+13. **Verdict-evidence coherence.** The verdict MUST agree with your own
+    written analysis. If your `detail` or ANY `findings` entry concludes the
+    code is in fact correct — "no bug here", "accidentally works correctly",
+    "no real issue", "the semantics rescue it", "handled correctly after all" —
+    then the verdict for that symbol MUST be `OK`. Never emit `NEEDS_FIX` or
+    `ERROR` while your evidence text concludes there is no defect. A finding
+    that reasons its way to "this is actually fine" is an OK, not a bug.
+
 ## Output format
 
 Output ONLY a raw JSON object (no markdown fences, no explanation):

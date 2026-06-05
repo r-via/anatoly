@@ -109,6 +109,14 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     by an order of magnitude. NEEDS_FIX."
     ```
 
+13. **Verdict-evidence coherence.** The verdict MUST agree with your own
+    written analysis. If your `detail` or ANY `findings` entry concludes the
+    code is in fact correct — "no bug here", "accidentally works correctly",
+    "no real issue", "the semantics rescue it", "handled correctly after all" —
+    then the verdict for that symbol MUST be `OK`. Never emit `NEEDS_FIX` or
+    `ERROR` while your evidence text concludes there is no defect. A finding
+    that reasons its way to "this is actually fine" is an OK, not a bug.
+
 ## Do NOT flag (precision guards)
 
 These patterns are frequently mis-reported as correctness defects but are not
@@ -142,7 +150,14 @@ path actually triggers wrong behavior:
    wrong. Do not guess the intended constant; abstain. (Rule 12's numerical
    self-validation still applies where a documented numerical target exists.)
 
-These guards do not soften rules 1–12: a real bug with a concrete failure path
+5. **A finding that exonerates itself.** If, while writing the finding, you
+   reason that the code is actually correct ("`path.resolve` with an absolute
+   second arg discards the first, so this accidentally works", "no bug here",
+   "the type guard already covers this") — the conclusion is OK, not
+   NEEDS_FIX. Do not keep the alarming headline once your own analysis has
+   cleared the code. Resolve the verdict to match the conclusion (rule 13).
+
+These guards do not soften rules 1–13: a real bug with a concrete failure path
 is still NEEDS_FIX. They only forbid speculative, hypothetical, or
 style-dressed-as-correctness findings.
 
