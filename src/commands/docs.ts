@@ -29,6 +29,52 @@ import { createCliRouter } from '../core/transports/cli-router.js';
 
 import type { PipelineContext } from '../cli/pipeline-runner.js';
 
+/** A new documentation page the gap detector scheduled for creation, paired
+ * with the domain functions it must document. */
+export interface CreatePageWork {
+  path: string;
+  domain: string;
+  functions: Array<{ name: string; file: string; docSummary: string }>;
+}
+
+/**
+ * Select the pages the gap report wants created (NOT_FOUND domains) and pair
+ * each with the functions it must document. The bare `pagesToCreate` paths
+ * carry no function data, so the path is matched back to its domain report by
+ * filename. Domains with nothing to document are skipped.
+ */
+export function selectPagesToCreate(gapReport: {
+  domains: Array<{ domain: string; classification: string; functionsMissing: Array<{ name: string; file: string; docSummary: string }> }>;
+  pagesToCreate: string[];
+}): CreatePageWork[] {
+  const out: CreatePageWork[] = [];
+  for (const d of gapReport.domains) {
+    if (d.classification !== 'NOT_FOUND' || d.functionsMissing.length === 0) continue;
+    const path = gapReport.pagesToCreate.find(p => p === `${d.domain}.md` || p.endsWith(`/${d.domain}.md`));
+    if (!path) continue;
+    out.push({ path, domain: d.domain, functions: d.functionsMissing });
+  }
+  return out;
+}
+
+/** Build the writer-prompt user message for a brand-new module page. */
+export function buildCreatePageMessage(
+  domain: string,
+  functions: Array<{ name: string; file: string; docSummary: string }>,
+): string {
+  const lines: string[] = [
+    `## New page for module: ${domain}`,
+    '',
+    'No documentation page exists for this module yet. Document the following functions:',
+    '',
+  ];
+  for (const fn of functions) {
+    lines.push(`- ${fn.name} (${fn.file})`);
+    lines.push(`  Summary: ${fn.docSummary || 'no summary available'}`);
+  }
+  return lines.join('\n');
+}
+
 async function runDocUpdate(
   ctx: PipelineContext,
   outputDir: string,
@@ -95,6 +141,32 @@ async function runDocUpdate(
   ctx.state.updateTask(updateTaskId, `${totalGaps} gaps found, updating…`);
   ctx.renderer.logPlain(`[update] ${gapReport.pagesToCreate.length} pages to create, ${pagesWithWork.length} pages to update, ${gapReport.conceptsToDocument.length} concepts missing`);
 
+  // Create the brand-new module pages first, so they exist before the lint /
+  // coherence pass below links them from the index (orphan detection). Each
+  // NOT_FOUND domain gets one writer pass documenting its functions.
+  let pagesCreated = 0;
+  const createWork = selectPagesToCreate(gapReport);
+  for (const work of createWork) {
+    const fullPath = join(outputDir, work.path);
+    if (existsSync(fullPath)) continue; // never clobber an existing page via the create path
+    const system = resolveSystemPrompt('doc-generation');
+    const user = buildCreatePageMessage(work.domain, work.functions);
+    try {
+      ctx.state.trackFile(work.path);
+      const result = await ctx.executor({ system, user, model: 'sonnet' });
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, result.text, 'utf-8');
+      ctx.addCost(result.costUsd);
+      pagesCreated++;
+      ctx.state.untrackFile(work.path);
+      ctx.state.updateTask(updateTaskId, `${pagesCreated}/${createWork.length} pages created`);
+      ctx.renderer.logPlain(`[create] ${pagesCreated}/${createWork.length} ${work.path}`);
+    } catch (err) {
+      ctx.state.untrackFile(work.path);
+      ctx.renderer.logPlain(`[create] ${chalk.red('×')} ${work.path} — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   let pagesUpdated = 0;
   for (const work of pagesWithWork) {
     const pagePath = work.page;
@@ -130,7 +202,7 @@ async function runDocUpdate(
     }
   }
 
-  ctx.state.completeTask(updateTaskId, `${pagesUpdated} pages updated (${totalGaps} gaps)`);
+  ctx.state.completeTask(updateTaskId, `${pagesCreated} created, ${pagesUpdated} updated (${totalGaps} gaps)`);
 
   // Pass 1: Structural coherence (lint + auto-fix + Sonnet review)
   ctx.state.startTask(coherenceTaskId, 'linting…');
