@@ -172,6 +172,12 @@ export async function runHints(ctx: HintContext): Promise<void> {
       const result = spawnSync(process.argv[0]!, [process.argv[1]!, ...hint.command.argv], {
         stdio: 'inherit',
       });
+      // spawnSync sets `error` (and leaves `status` null) when the child fails
+      // to spawn; `status ?? 0` would mask that as success. Surface it.
+      if (result.error) {
+        p.log.error(`Failed to launch command: ${result.error.message}`);
+        process.exit(1);
+      }
       process.exit(result.status ?? 0);
     }
   }

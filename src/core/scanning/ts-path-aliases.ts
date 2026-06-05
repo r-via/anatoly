@@ -146,8 +146,17 @@ function gatherConfigFiles(projectRoot: string): string[] {
     if (!parsed) continue;
     const configDir = dirname(configPath);
 
-    if (typeof parsed['extends'] === 'string') {
-      const ext = resolveConfigRef(configDir, parsed['extends']);
+    // `extends` is a string in classic tsconfig and an array since TS 5.0
+    // (later entries override earlier ones). Enqueue every referenced config
+    // so aliases declared in any parent are discovered.
+    const extendsField = parsed['extends'];
+    const extendsRefs = typeof extendsField === 'string'
+      ? [extendsField]
+      : Array.isArray(extendsField)
+        ? extendsField.filter((e): e is string => typeof e === 'string')
+        : [];
+    for (const ref of extendsRefs) {
+      const ext = resolveConfigRef(configDir, ref);
       if (ext && !visited.has(ext)) queue.push(ext);
     }
 

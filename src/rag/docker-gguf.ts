@@ -292,7 +292,10 @@ export async function startGgufContainers(
     ).trim();
     if (zombies) {
       onLog?.('cleaning up leftover GGUF containers...');
-      execSync(`docker rm -f ${zombies}`, { stdio: 'ignore', timeout: 10_000 });
+      // `docker ps -aq` returns one ID per line; join them on spaces so a
+      // single `docker rm -f` removes them all. Leaving the newlines makes the
+      // shell split into N statements where only the first ID is removed.
+      execSync(`docker rm -f ${zombies.split('\n').join(' ')}`, { stdio: 'ignore', timeout: 10_000 });
     }
   } catch {
     // ignore cleanup errors
