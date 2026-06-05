@@ -419,5 +419,17 @@ describe('runPhase', () => {
       expect(result).toBe('clean');
       expect(ctx.fatalError).toBeUndefined();
     });
+
+    it('fires exit effects exactly once when a fatal is latched on the success path', async () => {
+      // Regression: throwing the latched fatal used to be inside the try, so it
+      // re-entered the catch and fired exit effects (and the error log) twice.
+      const fatal = new Error('auth failed');
+      const ctx = createMockCtx();
+      await expect(
+        runPhase(ctx, 'review', async () => { ctx.fatalError = fatal; return 'ok'; }),
+      ).rejects.toBe(fatal);
+      const phaseEnds = ctx.timeline.filter((e) => e.event === 'phase_end');
+      expect(phaseEnds).toHaveLength(1);
+    });
   });
 });

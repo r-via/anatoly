@@ -244,10 +244,17 @@ export function applyDeliberation(
     for (const axis of DELIBERATION_AXES) {
       const orig = delib.original[axis];
       const deliberated = delib.deliberated[axis];
-      if (!orig || !deliberated) continue;
+      // Skip when either side is missing, or when the deliberated value is the
+      // '-' sentinel (a valid schema enum but meaningless as a deliberation
+      // result): applying it would set e.g. correction='-', silently dropping a
+      // real NEEDS_FIX/ERROR finding from recomputeVerdict.
+      if (!orig || !deliberated || deliberated === '-') continue;
 
-      // Protect ERROR corrections: only allow downgrade if confidence ≥ 95
-      if (axis === 'correction' && orig === 'ERROR' && deliberated !== 'ERROR' && newConfidence < 95) {
+      // Protect ERROR corrections: only allow downgrade if confidence ≥ 95.
+      // Check the symbol's ACTUAL current value, not delib.original (what Opus
+      // claims it saw) — a hallucinated original would otherwise bypass the
+      // guard and silently downgrade a real ERROR.
+      if (axis === 'correction' && updated.correction === 'ERROR' && deliberated !== 'ERROR' && newConfidence < 95) {
         changes.push(`${axis}: ERROR protected (confidence ${newConfidence} < 95)`);
         continue;
       }

@@ -135,24 +135,9 @@ export async function runPhase<T>(
   ctx.pipelineState?.setPhase(name);
 
   // (e) wrap fn in runWithContext
+  let result: T;
   try {
-    const result = await runWithContext({ phase: name }, fn);
-
-    // --- Exit effects (f–h) on success ---
-    fireExitEffects(ctx, log, name, phaseStartedAt);
-
-    // Orchestrator fail-fast: a phase may have latched a run-fatal error
-    // (e.g. provider-auth 401) while still returning normally because the
-    // failure was isolated per file/page. Surface it here so the whole run
-    // stops instead of proceeding to the next phase.
-    if (ctx.fatalError) {
-      const fatal = ctx.fatalError;
-      if (fatal instanceof Error) Object.assign(fatal, { phase: name });
-      log.error({ err: fatal, phase: name, runId: ctx.runId }, `phase "${name}" aborted (fatal)`);
-      throw fatal;
-    }
-
-    return result;
+    result = await runWithContext({ phase: name }, fn);
   } catch (err) {
     // --- Exit effects (f–h) on error ---
     fireExitEffects(ctx, log, name, phaseStartedAt);
@@ -171,6 +156,24 @@ export async function runPhase<T>(
 
     throw toThrow;
   }
+
+  // --- Exit effects (f–h) on success: fire exactly once ---
+  fireExitEffects(ctx, log, name, phaseStartedAt);
+
+  // Orchestrator fail-fast: a phase may have latched a run-fatal error
+  // (e.g. provider-auth 401) while still returning normally because the
+  // failure was isolated per file/page. Surface it here so the whole run
+  // stops instead of proceeding to the next phase. Thrown AFTER the try/catch
+  // so it does not re-enter the catch — that re-entry was firing the exit
+  // effects (phase_end timeline push, duration, log) and the error log twice.
+  if (ctx.fatalError) {
+    const fatal = ctx.fatalError;
+    if (fatal instanceof Error) Object.assign(fatal, { phase: name });
+    log.error({ err: fatal, phase: name, runId: ctx.runId }, `phase "${name}" aborted (fatal)`);
+    throw fatal;
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

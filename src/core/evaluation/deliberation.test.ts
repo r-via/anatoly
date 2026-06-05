@@ -359,6 +359,56 @@ describe('applyDeliberation', () => {
     expect(result.symbols[0].findings).toBeUndefined();
   });
 
+  it('ignores a deliberated "-" sentinel (keeps the original verdict, not drops it)', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'NEEDS_FIX', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 72, detail: 'Possible bug', duplicate_target: undefined },
+      ],
+    });
+    const deliberation = makeDeliberationResponse({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        {
+          name: 'doWork',
+          original: { correction: 'NEEDS_FIX', confidence: 72 },
+          deliberated: { correction: '-', confidence: 80 },
+          reasoning: 'Model emitted the not-evaluated sentinel',
+        },
+      ],
+    });
+    const result = applyDeliberation(review, deliberation);
+    // '-' must not be applied; the finding stays NEEDS_FIX rather than silently
+    // becoming '-' (which recomputeVerdict would drop entirely).
+    expect(result.symbols[0].correction).toBe('NEEDS_FIX');
+  });
+
+  it('protects a real ERROR even when the model misreports the original verdict', () => {
+    const review = makeReview({
+      verdict: 'CRITICAL',
+      symbols: [
+        { name: 'doWork', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'ERROR', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: '-', confidence: 90, detail: 'Critical', duplicate_target: undefined },
+      ],
+    });
+    const deliberation = makeDeliberationResponse({
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'doWork',
+          // Model hallucinates the original as NEEDS_FIX (it was actually ERROR)
+          // and tries to downgrade with low confidence.
+          original: { correction: 'NEEDS_FIX', confidence: 90 },
+          deliberated: { correction: 'OK', confidence: 88 },
+          reasoning: 'I think this is fine',
+        },
+      ],
+    });
+    const result = applyDeliberation(review, deliberation);
+    // The guard reads the ACTUAL current value (ERROR), so the <95-confidence
+    // downgrade is rejected and ERROR is preserved.
+    expect(result.symbols[0].correction).toBe('ERROR');
+  });
+
   it('keeps findings of an axis that is still flagged after deliberation', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',

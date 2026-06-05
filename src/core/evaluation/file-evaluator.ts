@@ -572,8 +572,12 @@ function discoverImportingTestFiles(
       continue;
     }
     for (const entry of entries) {
-      if (!isTestFilePath(entry)) continue;
       const relPath = `${relDir}/${entry}`;
+      // Pass the composed relPath, not the bare filename: isTestFilePath's
+      // directory checks (/tests/, /__tests__/) only match when a path
+      // separator is present, so a non-conventionally-named file in a test
+      // dir was otherwise skipped.
+      if (!isTestFilePath(relPath)) continue;
 
       // --- Match A: filename convention ---
       // `<base>.test.*`, `<base>.spec.*`, `<base>_test.*`, `test_<base>.*`
