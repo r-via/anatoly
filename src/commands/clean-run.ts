@@ -12,8 +12,6 @@ import { isLockActive } from '../utils/lock.js';
 
 /** Currently running Claude child process — killed on SIGINT/SIGTERM. */
 let activeChild: ChildProcess | null = null;
-/** Branch the user was on before the clean run switched to the clean branch. */
-let originalBranch: string | null = null;
 
 function killActiveChild(): void {
   if (activeChild && !activeChild.killed) {
@@ -25,27 +23,13 @@ function killActiveChild(): void {
   }
 }
 
-function restoreOriginalBranch(): void {
-  if (!originalBranch) return;
-  try {
-    const cwd = process.cwd();
-    // Stash any uncommitted changes so checkout doesn't fail
-    const status = execSync('git status --porcelain', { cwd, stdio: 'pipe' }).toString().trim();
-    if (status) {
-      execSync('git stash --include-untracked -m "anatoly clean-run: interrupted"', { cwd, stdio: 'pipe' });
-    }
-    execSync(`git checkout ${originalBranch}`, { cwd, stdio: 'pipe' });
-    // Pop stash on the original branch so changes are preserved
-    if (status) {
-      execSync('git stash pop', { cwd, stdio: 'pipe' });
-    }
-  } catch {
-    // Best effort — don't crash the exit handler
-  }
-}
-
-process.on('SIGINT', () => { killActiveChild(); restoreOriginalBranch(); process.exit(130); });
-process.on('SIGTERM', () => { killActiveChild(); restoreOriginalBranch(); process.exit(143); });
+// On interrupt we only stop the child and exit — we leave the working tree on
+// the clean-run branch, exactly as a normal completion does. clean-run creates
+// a branch, cleans on it, and nothing else: it must not switch branches or
+// stash/transplant work-in-progress back onto the user's original branch.
+// Deciding what to merge is the user's job, not the program's.
+process.on('SIGINT', () => { killActiveChild(); process.exit(130); });
+process.on('SIGTERM', () => { killActiveChild(); process.exit(143); });
 import { DISCOVERED_ACT_ID } from './clean.js';
 import { REPORT_AXIS_IDS } from '../core/reporting/index.js';
 import { PipelineState } from '../cli/pipeline-state.js';
@@ -285,7 +269,6 @@ export function registerCleanRunCommand(program: Command): void {
       }
 
       const currentBranch = execSync('git branch --show-current', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
-      originalBranch = currentBranch !== branchName ? currentBranch : null;
       if (currentBranch !== branchName) {
         try {
           // Try to checkout existing branch, or create from current HEAD
