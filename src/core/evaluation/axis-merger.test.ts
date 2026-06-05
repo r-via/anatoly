@@ -127,6 +127,35 @@ describe('mergeAxisResults', () => {
     expect(review.symbols[0].tests).toBe('NONE');
   });
 
+  it('does NOT rewrite a skipped (-) tests/doc axis to NONE/UNDOCUMENTED for DEAD symbols', () => {
+    // --axes utility: tests and documentation are filtered out → resolve to '-'.
+    // The DEAD coherence rules must leave the '-' sentinel intact (not claim the
+    // skipped axes ran and found NONE / UNDOCUMENTED).
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [makeSymbol('doWork', { value: 'DEAD' })]),
+    ];
+    const review = mergeAxisResults(mockTask, results, undefined, [], ['utility']);
+    expect(review.symbols[0].utility).toBe('DEAD');
+    expect(review.symbols[0].tests).toBe('-');
+    expect(review.symbols[0].documentation).toBe('-');
+  });
+
+  it('keeps DEAD coherence (NONE/UNDOCUMENTED) on a private small symbol — no revert', () => {
+    const tinyTask: Task = {
+      ...mockTask,
+      symbols: [{ name: 'tiny', kind: 'function', exported: false, line_start: 1, line_end: 5 }],
+    };
+    const results: AxisResult[] = [
+      makeAxisResult('utility', [makeSymbol('tiny', { value: 'DEAD', line_end: 5 })]),
+      makeAxisResult('tests', [makeSymbol('tiny', { value: 'GOOD', line_end: 5 })]),
+      makeAxisResult('documentation', [makeSymbol('tiny', { value: 'DOCUMENTED', line_end: 5 })]),
+    ];
+    const review = mergeAxisResults(tinyTask, results);
+    // The private-small noise-reduction must not undo the DEAD rules.
+    expect(review.symbols[0].tests).toBe('NONE');
+    expect(review.symbols[0].documentation).toBe('UNDOCUMENTED');
+  });
+
   it('should apply coherence rule: ERROR correction → overengineering=ACCEPTABLE', () => {
     const results: AxisResult[] = [
       makeAxisResult('correction', [makeSymbol('doWork', { value: 'ERROR' })]),

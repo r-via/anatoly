@@ -262,8 +262,10 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
 function applyCoherenceRules(sym: SymbolReview): SymbolReview {
   let result = sym;
 
-  // DEAD code doesn't need tests
-  if (result.utility === 'DEAD' && result.tests !== 'NONE') {
+  // DEAD code doesn't need tests. Guard against the '-' sentinel: a skipped
+  // tests axis must stay '-', not be rewritten to 'NONE' (which would claim the
+  // axis ran and found no tests).
+  if (result.utility === 'DEAD' && result.tests !== 'NONE' && result.tests !== '-') {
     result = { ...result, tests: 'NONE' };
   }
 
@@ -272,16 +274,18 @@ function applyCoherenceRules(sym: SymbolReview): SymbolReview {
     result = { ...result, overengineering: 'ACCEPTABLE' };
   }
 
-  // DEAD code doesn't need documentation
-  if (result.utility === 'DEAD' && result.documentation !== 'UNDOCUMENTED') {
+  // DEAD code doesn't need documentation. Same '-' guard as the tests rule.
+  if (result.utility === 'DEAD' && result.documentation !== 'UNDOCUMENTED' && result.documentation !== '-') {
     result = { ...result, documentation: 'UNDOCUMENTED' };
   }
 
   // Private small symbols don't need doc findings or strict test findings.
   // A non-exported symbol under 15 lines is typically a helper tested through
-  // its callers — flagging it UNDOCUMENTED or WEAK is noise.
+  // its callers — flagging it UNDOCUMENTED or WEAK is noise. Skip DEAD symbols:
+  // the DEAD rules above just set NONE/UNDOCUMENTED intentionally, and reverting
+  // them here to WEAK/DOCUMENTED would contradict the DEAD verdict.
   const symbolSize = result.line_end - result.line_start + 1;
-  if (!result.exported && symbolSize < 15) {
+  if (!result.exported && symbolSize < 15 && result.utility !== 'DEAD') {
     if (result.documentation === 'UNDOCUMENTED') {
       result = { ...result, documentation: 'DOCUMENTED', confidence: Math.min(result.confidence, 60) };
     }

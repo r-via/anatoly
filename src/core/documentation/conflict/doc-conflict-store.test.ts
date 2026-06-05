@@ -269,10 +269,19 @@ describe('hashCodeAnchor — clamp log level', () => {
     expect(debug).not.toHaveBeenCalled();
   });
 
-  it('warns when the start sits at/past EOF (fragment collapses to a stray line)', () => {
-    hashCodeAnchor([10, 20], tenLines);
+  it('warns when the start sits PAST EOF (fragment collapses to empty)', () => {
+    // start = 11 on a 10-line file → truly out of range.
+    hashCodeAnchor([11, 20], tenLines);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('treats a start ON the last line as a benign end-overshoot (debug, not warn)', () => {
+    // start = 10 on a 10-line file is the last VALID line, not out of range;
+    // the end-overshoot to 20 clamps to 10 and anchors to that line.
+    hashCodeAnchor([10, 20], tenLines);
+    expect(warn).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledTimes(1);
   });
 });
 

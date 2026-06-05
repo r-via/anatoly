@@ -162,10 +162,11 @@ function extractLines(content: string, lineRange: [number, number]): string {
   const end = Math.min(lines.length, lineRange[1]);
   if (start !== lineRange[0] || end !== lineRange[1]) {
     // Material when the start was clamped up (negative/zero) or the requested
-    // start sits at/past EOF (slice collapses to empty or the last stray line).
-    // A pure end-overshoot with a valid in-range start still anchors to the
-    // real file tail, so it is benign.
-    const material = lineRange[0] < 1 || lineRange[0] >= lines.length;
+    // start sits PAST EOF (slice collapses to empty). A start ON the last line
+    // (lineRange[0] === lines.length) is still a valid anchor, and a pure
+    // end-overshoot with an in-range start anchors to the real file tail, so
+    // both are benign. Use `>` not `>=` to avoid a spurious WARN on the last line.
+    const material = lineRange[0] < 1 || lineRange[0] > lines.length;
     const payload = { requested: lineRange, clamped: [start, end], fileLines: lines.length };
     if (material) {
       getLogger().warn(
