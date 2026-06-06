@@ -426,4 +426,46 @@ describe('runRefinementPhase', () => {
     expect(queryFn).not.toHaveBeenCalled();
     expect(result.tier3Stats.investigated).toBe(0);
   });
+
+  // --- A.1: written review reconciles a grouped barrel action after tier1 ---
+
+  it('rewrites a grouped dead-code action to only the still-DEAD export before writing', async () => {
+    // Reproduces the osteovienne Card barrel: tier1 flips 5 exports USED via the
+    // usage graph, CardFooter has no importers and stays DEAD. The review carries
+    // ONE grouped "Remove dead code: Card, ..., CardFooter" action — the write
+    // loop must reconcile it down to CardFooter, not surface the USED exports.
+    const file = 'src/components/ui/card.tsx';
+    const names = ['Card', 'CardHeader', 'CardTitle', 'CardDescription', 'CardContent', 'CardFooter'];
+    const usages = new Map<string, Set<string>>();
+    for (const n of names) {
+      if (n !== 'CardFooter') usages.set(`${n}::${file}`, new Set(['src/pages/Page.tsx']));
+    }
+
+    const review = makeReview({
+      file,
+      symbols: names.map((n) => ({ name: n, exported: true, utility: 'DEAD', confidence: 70, detail: `No importers found for ${n}` })),
+      actions: [{
+        id: 1,
+        description: 'Remove dead code: `Card` is exported but unused `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`',
+        severity: 'medium', effort: 'trivial', category: 'refactor',
+        source: 'utility', target_symbol: names.join(', '), target_lines: 'L1-L3',
+      }],
+    });
+
+    const written: ReviewFile[] = [];
+    const ctx = makeCtx({
+      usageGraph: makeUsageGraph(usages),
+      loadReviewsFn: vi.fn().mockReturnValue([review]),
+      writeReviewFn: vi.fn((r: ReviewFile) => written.push(r)),
+      queryFn: vi.fn(), // no escalations expected once 5/6 flip USED + 1 DEAD; tier3 may skip
+    });
+
+    await runRefinementPhase(ctx);
+
+    expect(written).toHaveLength(1);
+    const utility = written[0].actions.filter((a) => a.source === 'utility');
+    expect(utility).toHaveLength(1);
+    expect(utility[0].target_symbol).toBe('CardFooter');
+    expect(utility[0].description).not.toContain('CardHeader');
+  });
 });

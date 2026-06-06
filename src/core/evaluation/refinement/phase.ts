@@ -10,6 +10,7 @@ import type { PreResolvedRag, AxisId } from '../contract.js';
 import { mergeRefreshedReview } from '../../run/review-merge.js';
 import type { ReclassificationEntry } from '../../platform/index.js';
 import { applyTier1, type Tier1Context, type Tier1Stats } from './tier1.js';
+import { reconcileActionsWithVerdicts } from './action-reconcile.js';
 import { applyTier2, detectCrossFilePatterns, type EscalatedFinding, type Tier2Stats } from './tier2.js';
 import { buildShards, runTier3, type Tier3Context } from './tier3.js';
 import { computeContentHash } from '../../../utils/cache.js';
@@ -291,9 +292,18 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   // review), so non-selected axes stay byte-identical to the cache the user
   // chose not to refresh.
   for (const review of finalReviews.values()) {
+    // Reconcile synthesized/LLM actions against the post-tier verdicts: a
+    // symbol resolved DEAD→USED or NEEDS_FIX→OK must not keep its stale
+    // "Remove dead code"/"Audit ..." action, and a grouped barrel action must
+    // drop the exports that were reclassified USED. Done here (the single
+    // write point, after every flip) so no tier needs per-action bookkeeping.
+    const reconciled: ReviewFile = {
+      ...review,
+      actions: reconcileActionsWithVerdicts(review.actions, review.symbols, review.language),
+    };
     const toWrite = axesFilter
-      ? mergeRefreshedReview(preDeliberationByFile?.get(review.file) ?? null, review, axesFilter)
-      : review;
+      ? mergeRefreshedReview(preDeliberationByFile?.get(review.file) ?? null, reconciled, axesFilter)
+      : reconciled;
     ctx.writeReviewFn(toWrite);
   }
 

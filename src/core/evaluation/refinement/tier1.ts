@@ -246,6 +246,26 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
       }
     }
 
+    // --- Duplication: DUPLICATE → UNIQUE when the LLM contradicts itself ---
+    //
+    // The block above protects a populated `duplicate_target`, trusting the
+    // LLM's semantic match where embeddings underperform. That trust is void
+    // when the LLM's OWN rationale negates its verdict: a stated similarity
+    // below the documented 0.82 threshold together with "differs"/"below
+    // threshold"/"not a duplicate" language (the osteovienne Stat↔Metric false
+    // positive: RAG 0.744, "actual code differs significantly"). Demote AND
+    // clear the target — the schema invariant (duplicate_target ⇒ DUPLICATE)
+    // would otherwise re-promote the verdict from the surviving target.
+    if (s.duplication === 'DUPLICATE' && s.duplicate_target
+        && isSelfContradictingDuplicate(s.detail, s.duplicate_target.similarity)) {
+      s.duplication = 'UNIQUE';
+      s.duplicate_target = undefined;
+      s.confidence = 90;
+      s.detail = setAxisSegment(s.detail, 'DUPLICATE', 'UNIQUE', 'Auto-resolved: flagged DUPLICATE but the rationale is below the 0.82 threshold and notes the code differs');
+      stats.resolved++;
+      stats.breakdown.duplicateToUnique++;
+    }
+
     // --- Overengineering: OVER → LEAN ---
     if (s.overengineering === 'OVER') {
       const symLines = s.line_end - s.line_start + 1;
@@ -369,6 +389,31 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/** Phrases an LLM uses when its rationale negates its own DUPLICATE verdict. */
+const DUPLICATE_NEGATION = /\b(?:below (?:the )?[\d.]*\s*(?:duplicate )?threshold|differs?\s+(?:significantly|substantially|materially)|not\s+(?:a\s+|truly\s+)?(?:real\s+|true\s+)?duplicate|(?:different|distinct)\s+(?:api|contract|props|implementation|purpose))\b/i;
+/** The symbol's own stated similarity score (e.g. "RAG score 0.744"), not the threshold it cites. */
+const DUPLICATE_SCORE = /(?:rag\s*score|similarity\s*score|score|similarity)\D{0,15}(0?\.\d+)/i;
+
+/**
+ * Whether a DUPLICATE verdict is contradicted by its own rationale.
+ *
+ * A populated `duplicate_target` normally protects DUPLICATE from tier1's
+ * cheap demotions (embeddings underperform on semantic refactors). But the
+ * LLM sometimes flags DUPLICATE while its detail/similarity text negates it:
+ * a stated similarity below the documented 0.82 threshold AND explicit
+ * "differs"/"below threshold"/"not a duplicate"/"different API" language.
+ * That self-contradiction is a false positive, not a match embeddings missed.
+ * Both signals are required, so a confident low-RAG semantic match (no
+ * sub-0.82 score stated, no negation language) is left untouched.
+ */
+export function isSelfContradictingDuplicate(detail: string, similarity?: string): boolean {
+  const text = `${detail} ${similarity ?? ''}`;
+  if (!DUPLICATE_NEGATION.test(text)) return false;
+  const m = text.match(DUPLICATE_SCORE);
+  if (!m) return false;
+  return parseFloat(m[1]) < 0.82;
+}
 
 /**
  * Verify that a "missing import" correction finding is a false positive

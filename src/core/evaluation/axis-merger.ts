@@ -317,7 +317,7 @@ function mergeActions(results: AxisResult[]): Action[] {
  * @returns An array of synthesized actions (with placeholder id=0, to be
  *   reassigned by the caller).
  */
-function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string): Action[] {
+export function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string): Action[] {
   const actions: Action[] = [];
 
   for (const sym of symbols) {
@@ -418,7 +418,7 @@ function synthesizeActionsFromSymbols(symbols: SymbolReview[], language?: string
  * template (differing only in the target symbol name), they are merged
  * into one action listing all affected symbols.
  */
-function groupIdenticalActions(actions: Action[]): Action[] {
+export function groupIdenticalActions(actions: Action[]): Action[] {
   // Build a fingerprint for each action: source + category + description with ONLY target symbol replaced.
   // Preserve other backtick content (dup targets, file paths) to avoid merging distinct findings.
   const groups = new Map<string, Action[]>();

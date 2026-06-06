@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { applyTier1, hasJsDocBefore } from './tier1.js';
+import { applyTier1, hasJsDocBefore, isSelfContradictingDuplicate } from './tier1.js';
 import type { Tier1Context } from './tier1.js';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { UsageGraph } from '../../scanning/index.js';
@@ -295,6 +295,58 @@ describe('applyTier1', () => {
     expect(result.symbols[0].duplication).toBe('DUPLICATE');
     expect(result.symbols[0].duplicate_target?.symbol).toBe('pickFromWeighted');
     expect(result.symbols[0].detail).toBe('Identical weighted random selection algorithm.');
+  });
+
+  it('demotes a self-contradicting DUPLICATE (below 0.82 + "differs") and clears the target', () => {
+    // osteovienne Stat↔Metric: the LLM emitted DUPLICATE with a populated
+    // target, but its own rationale says 0.744 (below 0.82) and the code
+    // "differs significantly". That self-contradiction is a false positive.
+    const review = makeReview({
+      file: 'client/src/components/ImportDialog.tsx',
+      symbols: [{
+        name: 'Stat',
+        line_start: 1,
+        line_end: 12,
+        duplication: 'DUPLICATE',
+        confidence: 82,
+        detail: '[DUPLICATE] RAG score 0.744 against Metric in PatientsPage.tsx — below the 0.82 duplicate threshold. Actual code differs significantly: Stat accepts an icon prop and renders a card.',
+        duplicate_target: {
+          file: 'client/src/pages/PatientsPage.tsx',
+          symbol: 'Metric',
+          similarity: 'shared label+value pattern, but Stat adds icon rendering and card styling',
+        },
+      }],
+      actions: [{
+        id: 1, description: 'Deduplicate: `Stat` duplicates `Metric` in `client/src/pages/PatientsPage.tsx`',
+        severity: 'high', effort: 'small', category: 'refactor',
+        source: 'duplication', target_symbol: 'Stat', target_lines: 'L1-L12',
+      }],
+    });
+
+    const result = applyTier1(review, makeContext());
+
+    expect(result.symbols[0].duplication).toBe('UNIQUE');
+    expect(result.symbols[0].duplicate_target).toBeUndefined();
+    // the now-stale deduplicate action must be purged
+    expect(result.actions.some((a) => a.source === 'duplication' && a.target_symbol === 'Stat')).toBe(false);
+  });
+
+  it('does NOT demote a confident low-RAG DUPLICATE that lacks self-contradiction language', () => {
+    // The protection must survive: low embedding score + populated target, but
+    // the rationale asserts a real match (no "differs"/"below threshold").
+    const review = makeReview({
+      symbols: [{
+        name: 'doWork', line_start: 1, line_end: 20,
+        duplication: 'DUPLICATE', confidence: 95,
+        detail: 'Same control flow and identical branching as helper; variables renamed.',
+        duplicate_target: { file: 'src/other.ts', symbol: 'helper', similarity: 'same algorithm, renamed locals' },
+      }],
+    });
+
+    const result = applyTier1(review, makeContext());
+
+    expect(result.symbols[0].duplication).toBe('DUPLICATE');
+    expect(result.symbols[0].duplicate_target?.symbol).toBe('helper');
   });
 
   it('should NOT reclassify DUPLICATE when duplicate_target is populated on a trivial (≤2 line) function', () => {
@@ -743,5 +795,27 @@ describe('hasJsDocBefore', () => {
   it('returns false when there is no JSDoc at all', () => {
     const src = '// a plain line comment\nfunction foo() {}';
     expect(hasJsDocBefore(src, 2)).toBe(false);
+  });
+});
+
+describe('isSelfContradictingDuplicate', () => {
+  it('true: stated score below 0.82 AND negation language', () => {
+    expect(isSelfContradictingDuplicate('RAG score 0.744 — below the 0.82 duplicate threshold. Actual code differs significantly.')).toBe(true);
+  });
+
+  it('true: negation comes from the similarity text, score from the detail', () => {
+    expect(isSelfContradictingDuplicate('similarity 0.71 against Metric', 'shared pattern, but adds an icon — not a duplicate')).toBe(true);
+  });
+
+  it('false: negation language but no stated score', () => {
+    expect(isSelfContradictingDuplicate('The two components differ significantly in their props.')).toBe(false);
+  });
+
+  it('false: low score but no negation language (genuine low-RAG semantic match)', () => {
+    expect(isSelfContradictingDuplicate('RAG score 0.42 but identical control flow; variables renamed.')).toBe(false);
+  });
+
+  it('false: negation language but the stated score is >= 0.82 (trust the high score)', () => {
+    expect(isSelfContradictingDuplicate('RAG score 0.91 against Metric, though the surface differs significantly')).toBe(false);
   });
 });
