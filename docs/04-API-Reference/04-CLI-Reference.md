@@ -309,7 +309,7 @@ Manages internal documentation under `.anatoly/docs/`. All subcommands orchestra
 
 #### `docs scaffold [scope]`
 
-Scaffolds documentation in three phases: parallel Sonnet generation → Opus coherence review → RAG index. `scope` is `internal` (default, writes `.anatoly/docs/`) or `project` (copies internal docs to `docs/`).
+Scaffolds documentation in three phases: parallel Sonnet generation → Sonnet coherence review → RAG index. `scope` is `internal` (default, writes `.anatoly/docs/`) or `project` (copies internal docs to `docs/`).
 
 ```bash
 anatoly docs scaffold [internal|project] [--yes] [--plain]
@@ -325,7 +325,7 @@ anatoly docs lint
 
 #### `docs coherence`
 
-Runs deterministic lint followed by an Opus coherence review with audit-fix-verify loops.
+Runs deterministic lint followed by a Sonnet coherence review with audit-fix-verify loops.
 
 ```bash
 anatoly docs coherence [--max-loops <n>] [--lint-only]
@@ -334,7 +334,7 @@ anatoly docs coherence [--max-loops <n>] [--lint-only]
 | Option | Description |
 |--------|-------------|
 | `--max-loops <n>` | Maximum audit-fix-verify loops (default: `3`) |
-| `--lint-only` | Skip Opus review; run only deterministic lint |
+| `--lint-only` | Skip the Sonnet review; run only deterministic lint |
 
 #### `docs index`
 
