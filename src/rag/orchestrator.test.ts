@@ -62,7 +62,6 @@ vi.mock('./indexer.js', () => ({
   buildFunctionId: vi.fn((_file: string, start: number, end: number) => `mock-${start}-${end}`),
   needsReindex: vi.fn().mockReturnValue(true),
   embedCards: vi.fn().mockResolvedValue([]),
-  applyNlpSummaries: vi.fn().mockResolvedValue({ enrichedCards: [], nlpEmbeddings: [] }),
   enrichCardsWithSummaries: vi.fn().mockImplementation((cards: unknown[]) => ({ enrichedCards: cards, nlpFailedIds: new Set() })),
   generateNlpEmbeddings: vi.fn().mockResolvedValue([]),
   generateDocEmbeddings: vi.fn().mockResolvedValue([]),

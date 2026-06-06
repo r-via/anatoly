@@ -7,7 +7,7 @@ import { anatolyPath } from '../utils/anatoly-paths.js';
 import { createHash } from 'node:crypto';
 import type { Task, SymbolInfo } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
-import { embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
+import { embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, getNlpDim } from './embeddings.js';
 import { atomicWriteJson } from '../utils/cache.js';
 import { writeCacheWithMeta, loadCacheWithMeta } from '../utils/cache-meta.js';
 import type { NlpSummary } from './nlp-summarizer.js';
@@ -189,48 +189,6 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
     }
   }
   return embedCodeBatch(texts);
-}
-
-/**
- * Apply NLP summaries to function cards and generate NLP embeddings.
- * Cards without a corresponding NLP summary get a zero-vector so they
- * don't falsely trigger hybrid search (only real NLP embeddings count).
- */
-export async function applyNlpSummaries(
-  cards: FunctionCard[],
-  nlpSummaries: Map<string, NlpSummary>,
-): Promise<{ enrichedCards: FunctionCard[]; nlpEmbeddings: number[][]; docEmbeddings: number[][]; nlpFailedIds: Set<string> }> {
-  const enrichedCards: FunctionCard[] = [];
-  const nlpEmbeddings: number[][] = [];
-  const docEmbeddings: number[][] = [];
-  const nlpFailedIds = new Set<string>();
-  const nlpDimSize = getNlpDim();
-  const zeroVector = new Array(nlpDimSize).fill(0);
-
-  for (const card of cards) {
-    const summary = nlpSummaries.get(card.id);
-    if (summary) {
-      enrichedCards.push({
-        ...card,
-        summary: summary.summary,
-        docSummary: summary.docSummary,
-        keyConcepts: summary.keyConcepts,
-        behavioralProfile: summary.behavioralProfile,
-      });
-      const nlpText = buildEmbedNlp(card.name, summary.summary, summary.keyConcepts, summary.behavioralProfile ?? '');
-      nlpEmbeddings.push(await embedNlp(nlpText));
-      // Embed docSummary in doc-oriented semantic space for gap detection
-      const docText = summary.docSummary || summary.summary;
-      docEmbeddings.push(await embedNlp(docText));
-    } else {
-      enrichedCards.push(card);
-      nlpEmbeddings.push([...zeroVector]);
-      docEmbeddings.push([...zeroVector]);
-      nlpFailedIds.add(card.id);
-    }
-  }
-
-  return { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds };
 }
 
 /**

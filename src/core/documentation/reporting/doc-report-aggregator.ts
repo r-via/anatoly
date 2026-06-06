@@ -84,8 +84,12 @@ export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const docPages = scanUserDocs(docsDir);
   const userDocPlan = resolveUserDocPlan(docPages, docsPath);
 
+  // Per-module LOC map, derived once from tasks and shared by scoring input and
+  // report stats (both previously rebuilt it from the same loop).
+  const moduleDirs = buildModuleDirs(input.tasks);
+
   // 2. Compute scoring input from reviews
-  const scoringInput = buildScoringInput(input, docPages);
+  const scoringInput = buildScoringInput(input, docPages, moduleDirs);
   const score = scoreDocumentation(scoringInput);
 
   // 3. Build gaps from reviews and score
@@ -93,7 +97,7 @@ export function aggregateDocReport(input: DocReportInput): DocReportResult {
   const recommendations = buildDocRecommendations(gaps, userDocPlan, { docsPath });
 
   // 4. Render report section
-  const reportStats = buildReportStats(input, scoringInput, recommendations);
+  const reportStats = buildReportStats(input, scoringInput, recommendations, docPages, moduleDirs);
   const renderedSection = renderDocReferenceSection(reportStats);
 
   return { score, recommendations, renderedSection, reportStats, userDocPlan };
@@ -151,9 +155,26 @@ function scanDir(baseDir: string, currentDir: string, pages: DocPageEntry[]): vo
  * @param userDocPages - Doc page entries scanned from the user's docs/ directory.
  * @returns A {@link DocScoringInput} ready for {@link scoreDocumentation}.
  */
+/**
+ * Build the per-module LOC map from task symbol line ranges. Extracted so the
+ * scoring input and the report stats share one computation instead of running
+ * the identical loop twice.
+ */
+function buildModuleDirs(tasks: DocReportInput['tasks']): Map<string, number> {
+  const moduleDirs = new Map<string, number>();
+  for (const task of tasks) {
+    const dirName = extractModuleName(task.file);
+    if (!dirName) continue;
+    const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
+    moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
+  }
+  return moduleDirs;
+}
+
 function buildScoringInput(
   input: DocReportInput,
   userDocPages: DocPageEntry[],
+  moduleDirs: Map<string, number>,
 ): DocScoringInput {
   let projectExportsDocumented = 0;
   let internalExportsDocumented = 0;
@@ -175,15 +196,7 @@ function buildScoringInput(
     }
   }
 
-  // Count modules > 200 LOC from tasks
-  const moduleDirs = new Map<string, number>();
-  for (const task of input.tasks) {
-    const dirName = extractModuleName(task.file);
-    if (!dirName) continue;
-    const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
-    moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
-  }
-
+  // Count modules > 200 LOC from the shared per-module LOC map
   const totalModules = Array.from(moduleDirs.values()).filter(loc => loc >= 200).length;
 
   // Count modules >= 200 LOC that have a doc page
@@ -308,30 +321,21 @@ function buildReportStats(
   input: DocReportInput,
   scoringInput: DocScoringInput,
   recommendations: DocRecommendation[],
+  userDocPages: DocPageEntry[],
+  moduleDirs: Map<string, number>,
 ): DocReportStats {
   const newPages = input.newPageSources ?? [];
   const refreshedPages = input.cacheResult?.stale ?? [];
   const cachedPages = input.cacheResult?.fresh ?? [];
 
-  const docsDir = resolve(input.projectRoot, input.docsPath ?? 'docs');
-  let userDocsPageCount = 0;
-  if (existsSync(docsDir)) {
-    userDocsPageCount = countMdFiles(docsDir);
-  }
+  // Reuse the already-scanned user docs/ pages (count + paths) — no rescan.
+  const userDocsPageCount = userDocPages.length;
 
   // Internal docs module coverage: check .anatoly/docs/ pages against module names
   const anatolyDocsDir = anatolyPath(input.projectRoot, 'state/internal-docs');
   const internalDocPages = scanUserDocs(anatolyDocsDir);
   let internalModulesDocumented = 0;
   if (scoringInput.totalModules > 0) {
-    // Re-derive moduleDirs from tasks to check against internal pages
-    const moduleDirs = new Map<string, number>();
-    for (const task of input.tasks) {
-      const dirName = extractModuleName(task.file);
-      if (!dirName) continue;
-      const maxLine = Math.max(0, ...task.symbols.map(s => s.line_end));
-      moduleDirs.set(dirName, (moduleDirs.get(dirName) ?? 0) + maxLine);
-    }
     for (const [dirName, loc] of moduleDirs) {
       if (loc < 200) continue;
       const hasPage = internalDocPages.some(p =>
@@ -342,9 +346,7 @@ function buildReportStats(
   }
 
   // Detect if docs/ is a mirror of .anatoly/docs/ (deduplicated)
-  const userDocPaths = new Set(
-    scanUserDocs(resolve(input.projectRoot, input.docsPath ?? 'docs')).map(p => p.path.toLowerCase()),
-  );
+  const userDocPaths = new Set(userDocPages.map(p => p.path.toLowerCase()));
   const internalPaths = internalDocPages.map(p => p.path.toLowerCase());
   const docsSynced = internalPaths.length > 0
     && userDocPaths.size > 0

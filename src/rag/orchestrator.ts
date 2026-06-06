@@ -8,7 +8,7 @@ import picomatch from 'picomatch';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, applyNlpSummaries, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
+import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
 import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
@@ -230,7 +230,12 @@ export async function processFileForDualIndex(
     nlpSummaryCache, conversationDir, router, timeoutMs,
   );
 
-  const { enrichedCards, nlpEmbeddings, docEmbeddings, nlpFailedIds } = await applyNlpSummaries(built.toIndex, mergedSummaries);
+  // Enrich then batch-embed (NLP + doc spaces), mirroring the deferred path
+  // below. Replaces the superseded `applyNlpSummaries` monolith, which fused
+  // these three steps and embedded one card at a time instead of batching.
+  const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries(built.toIndex, mergedSummaries);
+  const nlpEmbeddings = await generateNlpEmbeddings(enrichedCards);
+  const docEmbeddings = await generateDocEmbeddings(enrichedCards);
 
   return {
     task,

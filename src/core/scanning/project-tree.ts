@@ -33,7 +33,7 @@ export function buildProjectTree(filePaths: string[], maxDepth = 4): string {
   condenseDeep(root, maxDepth, 0);
 
   const lines: string[] = [];
-  renderNode(root, '', true, lines);
+  renderChildren(root, '', lines);
 
   return lines.join('\n');
 }
@@ -143,17 +143,6 @@ function collapseChain(parent: TreeNode, key: string, node: TreeNode): void {
 // ---------------------------------------------------------------------------
 // Internal: rendering
 // ---------------------------------------------------------------------------
-
-function renderNode(node: TreeNode, prefix: string, isRoot: boolean, lines: string[]): void {
-  if (isRoot) {
-    // Render root's children directly
-    renderChildren(node, prefix, lines);
-    return;
-  }
-
-  lines.push(`${node.name}${node.isFile ? '' : '/'}`);
-  renderChildren(node, prefix, lines);
-}
 
 function renderChildren(node: TreeNode, prefix: string, lines: string[]): void {
   const sorted = sortChildren(node.children);
