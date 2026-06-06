@@ -503,8 +503,12 @@ describe('renderIndex', () => {
     expect(md).toContain('Tests');
     expect(md).toContain('Documentation');
     expect(md).toContain('Best Practices');
-    expect(md).toContain('haiku');
+    // The model column is derived from each evaluator's defaultModel (single
+    // source of truth), not a hardcoded map. All seven axes currently default
+    // to the sonnet tier, so the table shows sonnet and never a stale haiku
+    // cell (the old hardcoded map wrongly labelled 5 axes haiku).
     expect(md).toContain('sonnet');
+    expect(md).not.toContain('| haiku |');
     expect(md).toContain('See each axis folder for detailed rating criteria');
   });
 

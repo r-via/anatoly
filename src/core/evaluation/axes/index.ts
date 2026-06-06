@@ -68,3 +68,14 @@ export function getEnabledEvaluators(config: Config, axesFilter?: AxisId[]): Axi
  * Get the full list of axis IDs (derived from ALL_EVALUATORS — single source of truth).
  */
 export const ALL_AXIS_IDS: readonly AxisId[] = ALL_EVALUATORS.map((e) => e.id);
+
+/**
+ * Per-axis default model tier (`haiku` | `sonnet`), derived from each
+ * evaluator's `defaultModel` — single source of truth. The report uses this to
+ * label which tier evaluated each axis. It replaces a hardcoded map that lived
+ * in the reporting layer and had drifted out of sync (it claimed `haiku` for
+ * axes that actually run on `sonnet`). Note: a per-axis `axes.<id>.model`
+ * config override is not reflected here; this reports the evaluator default.
+ */
+export const AXIS_DEFAULT_MODELS: Record<AxisId, 'haiku' | 'sonnet'> =
+  Object.fromEntries(ALL_EVALUATORS.map((e) => [e.id, e.defaultModel])) as Record<AxisId, 'haiku' | 'sonnet'>;

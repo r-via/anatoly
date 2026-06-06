@@ -5,6 +5,7 @@
 import type { ReviewFile } from '../../schemas/review.js';
 import type { Action } from '../../schemas/review.js';
 import type { AxisId } from '../evaluation/contract.js';
+import { AXIS_DEFAULT_MODELS } from '../evaluation/axes/index.js';
 import { CRASH_SENTINEL, computeFileVerdict, sortFindingFiles } from './review-data.js';
 import type { ReportData, ShardInfo } from './review-data.js';
 
@@ -81,18 +82,15 @@ export function axisIntro(axis: ReportAxisId): string {
   return intros[axis];
 }
 
-/** Model used by each axis. */
+/**
+ * Model tier used by each axis, derived from the evaluator's `defaultModel`
+ * (single source of truth in {@link AXIS_DEFAULT_MODELS}). Previously a
+ * hardcoded duplicate map that had drifted: it reported `haiku` for axes that
+ * actually run on `sonnet` (overengineering, utility, duplication, tests,
+ * documentation), which mislabelled every report.
+ */
 export function axisModel(axis: ReportAxisId): string {
-  const models: Record<ReportAxisId, string> = {
-    correction: 'sonnet',
-    utility: 'haiku',
-    duplication: 'haiku',
-    overengineering: 'haiku',
-    tests: 'haiku',
-    documentation: 'haiku',
-    'best-practices': 'sonnet',
-  };
-  return models[axis];
+  return AXIS_DEFAULT_MODELS[toAxisId(axis)];
 }
 
 /** Map language to its doc comment convention name. */

@@ -9,7 +9,7 @@ import {
 import type { ReportData, TriageStats, RunStats } from './review-data.js';
 import {
   REPORT_AXIS_IDS,
-  axisDisplayName, axisEmoji, axisHealthPercent, bestPracticesLabel,
+  axisDisplayName, axisEmoji, axisHealthPercent, axisModel, bestPracticesLabel,
   crashedAxisIds, derivePrimaryLanguage, docCommentTerm,
 } from './axis-registry.js';
 import type { ReportAxisId, AxisReport } from './axis-registry.js';
@@ -362,16 +362,16 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   lines.push('');
   lines.push('| Axis | Model | Ratings | Description |');
   lines.push('|------|-------|---------|-------------|');
-  lines.push('| Utility | haiku | USED / DEAD / LOW_VALUE | Is this symbol actually used in the codebase? |');
-  lines.push('| Duplication | haiku | UNIQUE / DUPLICATE | Is this symbol a copy of logic that exists elsewhere? |');
-  lines.push('| Correction | sonnet | OK / NEEDS_FIX / ERROR | Does this symbol contain bugs or correctness issues? |');
-  lines.push('| Overengineering | haiku | LEAN / OVER / ACCEPTABLE | Is the implementation unnecessarily complex? |');
-  lines.push('| Tests | haiku | GOOD / WEAK / NONE | Does this symbol have adequate test coverage? |');
+  lines.push(`| Utility | ${axisModel('utility')} | USED / DEAD / LOW_VALUE | Is this symbol actually used in the codebase? |`);
+  lines.push(`| Duplication | ${axisModel('duplication')} | UNIQUE / DUPLICATE | Is this symbol a copy of logic that exists elsewhere? |`);
+  lines.push(`| Correction | ${axisModel('correction')} | OK / NEEDS_FIX / ERROR | Does this symbol contain bugs or correctness issues? |`);
+  lines.push(`| Overengineering | ${axisModel('overengineering')} | LEAN / OVER / ACCEPTABLE | Is the implementation unnecessarily complex? |`);
+  lines.push(`| Tests | ${axisModel('tests')} | GOOD / WEAK / NONE | Does this symbol have adequate test coverage? |`);
   const lang = derivePrimaryLanguage(data.reviews);
   const bpLabel = bestPracticesLabel(lang);
   const docTerm = docCommentTerm(lang);
-  lines.push(`| Best Practices | sonnet | Score 0–10 | Does the file follow ${bpLabel} best practices? |`);
-  lines.push(`| Documentation | haiku | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with ${docTerm}? |`);
+  lines.push(`| Best Practices | ${axisModel('best-practices')} | Score 0–10 | Does the file follow ${bpLabel} best practices? |`);
+  lines.push(`| Documentation | ${axisModel('documentation')} | DOCUMENTED / PARTIAL / UNDOCUMENTED | Are exported symbols properly documented with ${docTerm}? |`);
   lines.push('');
   lines.push('See each axis folder for detailed rating criteria and methodology.');
   lines.push('');
