@@ -58,6 +58,40 @@ const TYPE_KINDS: ReadonlySet<string> = new Set(['type', 'enum']);
 const OVER_ABSTRACTION_MIN_LINES = 15;
 /** Names that are legitimately imported from a single site (entry points). */
 const ENTRY_POINT_NAMES: ReadonlySet<string> = new Set(['main', 'index', 'app', 'bootstrap', 'setup', 'init', 'run', 'start']);
+
+/**
+ * Lazy-load a project-relative file's content, caching it on the context. Shared
+ * by the over-engineering heritage check and the documentation JSDoc check. When
+ * `projectRoot` is absent or the file cannot be read, returns `undefined` (the
+ * callers degrade to their prior, content-free behaviour).
+ */
+function loadFileContent(ctx: Tier1Context, file: string): string | undefined {
+  let content = ctx.fileContents.get(file);
+  if (!content && ctx.projectRoot) {
+    try {
+      content = readFileSync(resolve(ctx.projectRoot, file), 'utf-8');
+      ctx.fileContents.set(file, content);
+    } catch { /* file may have been deleted */ }
+  }
+  return content;
+}
+
+/**
+ * Whether `className`'s declaration in `source` carries a heritage clause
+ * (`extends`/`implements`). A class fulfilling a shared contract is a
+ * Strategy/Adapter/plug-in implementation, legitimately registered through a
+ * single registry, so a ≤1-importer count is not evidence of a single-client
+ * over-abstraction. Guards the LEAN→OVER auto-promotion against the
+ * polymorphic-family false positive. Returns `false` when the source is
+ * unavailable (the guard becomes inert, preserving prior behaviour).
+ */
+export function classHasHeritageClause(source: string | undefined, className: string): boolean {
+  if (!source) return false;
+  const name = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // `class Name [<generics>] (extends|implements) ...`, scanning only up to the
+  // class body `{` so an unrelated later `extends`/`implements` cannot match.
+  return new RegExp(`\\bclass\\s+${name}\\b[^{]*\\b(?:extends|implements)\\b`).test(source);
+}
 const GENERATED_MARKERS = ['@generated', 'DO NOT EDIT', 'AUTO-GENERATED', 'BEGIN GENERATED', 'auto-generated'];
 const MISSING_IMPORT_PATTERNS = /\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b.*\b(?:function|import|module|export|method|symbol)\b|\b(?:function|import|module|export|method|symbol)\b.*\b(?:missing|undefined|not (?:defined|found|exported)|does not exist|cannot find)\b/i;
 const BOUNDS_PATTERNS = /\b(?:out[- ]of[- ]bounds|array.*(?:has|only|contains)\s+\d+.*(?:but|while|however).*\d+|index\s+\d+.*(?:but|while).*length\s+\d+)\b/i;
@@ -295,7 +329,18 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
         const importers = getSymbolUsage(ctx.usageGraph, s.name, review.file);
         const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, s.name, review.file);
         const totalImporters = importers.length + typeImporters.length;
-        if (totalImporters <= 1) {
+        // A class that implements an interface or extends a base class fulfils a
+        // shared contract — a Strategy/Adapter/plug-in implementation. Such a
+        // family is legitimately registered through a SINGLE registry file, so
+        // each member reads as "imported by 1 file" without being a
+        // single-client over-abstraction. Skipping promotion here kills the
+        // polymorphic-family false positive (e.g. the 10 language adapters all
+        // implementing LanguageAdapter, the axis evaluators implementing
+        // AxisEvaluator, the transports implementing LlmTransport — each listed
+        // under one registry yet flagged OVER on importer count alone). The
+        // LLM's LEAN verdict stands. Heritage is read from source; when the file
+        // is unavailable the guard is inert and prior behaviour is preserved.
+        if (totalImporters <= 1 && !classHasHeritageClause(loadFileContent(ctx, review.file), s.name)) {
           s.overengineering = 'OVER';
           s.confidence = 80;
           s.detail = setAxisSegment(s.detail, 'LEAN', 'OVER', `Auto-promoted: exported class imported by ${totalImporters} file${totalImporters === 1 ? '' : 's'} — abstraction built for a single client`);
@@ -308,14 +353,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
 
     // --- Documentation: UNDOCUMENTED → DOCUMENTED ---
     if (s.documentation === 'UNDOCUMENTED' && s.exported) {
-      // Lazy-load file content if not pre-populated
-      let content = ctx.fileContents.get(review.file);
-      if (!content && ctx.projectRoot) {
-        try {
-          content = readFileSync(resolve(ctx.projectRoot, review.file), 'utf-8');
-          ctx.fileContents.set(review.file, content);
-        } catch { /* file may have been deleted */ }
-      }
+      const content = loadFileContent(ctx, review.file);
 
       if (content) {
         // Check for JSDoc block before the symbol's line

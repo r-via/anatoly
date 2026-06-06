@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { applyTier1, hasJsDocBefore, isSelfContradictingDuplicate } from './tier1.js';
+import { applyTier1, hasJsDocBefore, isSelfContradictingDuplicate, classHasHeritageClause } from './tier1.js';
 import type { Tier1Context } from './tier1.js';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { UsageGraph } from '../../scanning/index.js';
@@ -517,6 +517,56 @@ describe('applyTier1', () => {
     expect(result.symbols[0].detail).toContain('imported by 1 file');
   });
 
+  it('does NOT promote a class that implements an interface (polymorphic family, ≤1 importer)', () => {
+    const graph = makeUsageGraph({
+      usages: new Map([['TypeScriptAdapter::src/core/example.ts', new Set(['src/core/registry.ts'])]]),
+    });
+    const fileContents = new Map([
+      ['src/core/example.ts', 'export class TypeScriptAdapter implements LanguageAdapter {\n  parse() { return []; }\n}'],
+    ]);
+    const review = makeReview({
+      symbols: [{
+        name: 'TypeScriptAdapter', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Clean adapter',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ usageGraph: graph, fileContents }));
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+    expect(result.actions).toHaveLength(0);
+  });
+
+  it('does NOT promote a class that extends a base class (≤1 importer)', () => {
+    const fileContents = new Map([
+      ['src/core/example.ts', 'export class JsonAdapter extends BaseAdapter {\n  parse() { return {}; }\n}'],
+    ]);
+    const review = makeReview({
+      symbols: [{
+        name: 'JsonAdapter', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Clean adapter',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ fileContents }));
+    expect(result.symbols[0].overengineering).toBe('LEAN');
+  });
+
+  it('still promotes a standalone class with no heritage clause (≤1 importer)', () => {
+    const fileContents = new Map([
+      ['src/core/example.ts', 'export class ConfigManager {\n  load() { return 1; }\n}'],
+    ]);
+    const review = makeReview({
+      symbols: [{
+        name: 'ConfigManager', kind: 'class', exported: true,
+        line_start: 1, line_end: 40,
+        overengineering: 'LEAN', confidence: 80, detail: 'Single-client wrapper',
+      }],
+    });
+    const result = applyTier1(review, makeContext({ fileContents }));
+    expect(result.symbols[0].overengineering).toBe('OVER');
+    expect(result.symbols[0].detail).toContain('imported by 0 files');
+  });
+
   // --- Documentation axis: UNDOCUMENTED → DOCUMENTED ---
 
   it('AC: reclassifies UNDOCUMENTED→DOCUMENTED when JSDoc exists (> 20 chars)', () => {
@@ -817,5 +867,35 @@ describe('isSelfContradictingDuplicate', () => {
 
   it('false: negation language but the stated score is >= 0.82 (trust the high score)', () => {
     expect(isSelfContradictingDuplicate('RAG score 0.91 against Metric, though the surface differs significantly')).toBe(false);
+  });
+});
+
+describe('classHasHeritageClause', () => {
+  it('detects an implements clause', () => {
+    expect(classHasHeritageClause('export class Foo implements Bar {}', 'Foo')).toBe(true);
+  });
+
+  it('detects an extends clause', () => {
+    expect(classHasHeritageClause('class Foo extends Base {}', 'Foo')).toBe(true);
+  });
+
+  it('detects heritage on a generic class', () => {
+    expect(classHasHeritageClause('export class Foo<T> extends Base<T> implements I {}', 'Foo')).toBe(true);
+  });
+
+  it('returns false for a standalone class', () => {
+    expect(classHasHeritageClause('export class Foo {\n  do() {}\n}', 'Foo')).toBe(false);
+  });
+
+  it('does not match a different class that has heritage', () => {
+    expect(classHasHeritageClause('class Other implements X {}\nexport class Foo {}', 'Foo')).toBe(false);
+  });
+
+  it('does not collide on a name prefix (FooBar vs Foo)', () => {
+    expect(classHasHeritageClause('export class FooBar implements X {}', 'Foo')).toBe(false);
+  });
+
+  it('returns false when the source is unavailable', () => {
+    expect(classHasHeritageClause(undefined, 'Foo')).toBe(false);
   });
 });
