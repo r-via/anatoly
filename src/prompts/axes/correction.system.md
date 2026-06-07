@@ -115,6 +115,28 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     then the verdict for that symbol MUST be `OK`. Never emit `NEEDS_FIX` or
     `ERROR` while your evidence text concludes there is no defect. A finding
     that reasons its way to "this is actually fine" is an OK, not a bug.
+14. **Correctness, not usage — never resurrect dead code.** Whether a symbol is
+    USED is the Utility axis's concern, not yours. If a symbol's only issue is
+    that nothing calls it (it is unused, dead, or not exported), emit `OK` and
+    add NO action. Never propose to export it, wire it up, or otherwise "make
+    it used so callers can…": that resurrects dead code and contradicts the
+    project's zero-dead-code policy (the correct disposition of truly dead code
+    is deletion, which the Utility axis owns). Flag a symbol only when invoking
+    it would actually misbehave — the bug is in what the code DOES when run,
+    never in the fact that it is not run.
+15. **Accurate mechanism, feasible and non-breaking remediation.** A correct
+    verdict with a wrong explanation or an impossible fix still misleads.
+    - **Name the real failure mechanism.** Recursion or a retry that runs
+      AFTER an `await` does NOT grow the synchronous call stack — the stack
+      unwinds at each suspension point — so characterize it as an unbounded
+      async retry / poll loop, NOT a "stack overflow" or "unbounded call
+      stack".
+    - **Every action must be feasible with inputs that actually exist** and
+      must not silently break existing consumers. Do not offer an either/or
+      remediation whose branches you cannot substantiate — e.g. "implement the
+      creation" when there is no data to create the entity from, or "remove the
+      field" when callers read it. When the only safe fix is to correct
+      misleading documentation or JSDoc rather than the code, say exactly that.
 
 ## Output format
 

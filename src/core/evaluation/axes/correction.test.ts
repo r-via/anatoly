@@ -7,8 +7,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, CorrectionResponseSchema } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, stripResurrectionActions, CorrectionResponseSchema } from './correction.js';
 import type { CorrectionResponse, VerificationResponse } from './correction.js';
+import { resolveSystemPrompt } from '../../platform/index.js';
 import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
@@ -408,4 +409,85 @@ describe('reconcileSelfContradictions', () => {
     const out = reconcileSelfContradictions(data);
     expect(out.symbols[0].correction).toBe('OK');
   });
+});
+
+describe('stripResurrectionActions', () => {
+  function withActions(descriptions: string[]): CorrectionResponse {
+    return {
+      symbols: [{ name: 'foo', line_start: 1, line_end: 30, confidence: 85, correction: 'OK', detail: 'evaluated' }],
+      actions: descriptions.map((description, i) => ({ description, severity: 'MAJOR' as const, line: 10 + i })),
+    };
+  }
+
+  it('drops "export the dead curve logic so callers can use it" (theraphonia getOscillatorCompensation)', () => {
+    const out = stripResurrectionActions(withActions([
+      'Export `getOscillatorCompensation` (and optionally its helpers) so callers can apply Fletcher-Munson compensation as documented. Currently the entire compensation curve logic is dead code.',
+    ]));
+    expect(out.actions).toHaveLength(0);
+  });
+
+  it('drops a "wire it up" remediation for an admittedly unused symbol', () => {
+    const out = stripResurrectionActions(withActions([
+      'Wire up the validateInput helper — it is currently unused, never called from anywhere.',
+    ]));
+    expect(out.actions).toHaveLength(0);
+  });
+
+  it('keeps a real "export the type the public API requires" fix (missing export, not dead code)', () => {
+    // Resurrection verb present ("export") but NO deadness admission: a
+    // genuinely-missing export that breaks an intended public type is a real
+    // correctness fix and must survive.
+    const out = stripResurrectionActions(withActions([
+      'Export the `SessionResult` type: it is referenced by the public API surface but not exported, so consumers get a type error.',
+    ]));
+    expect(out.actions).toHaveLength(1);
+  });
+
+  it('keeps a behavioral fix that merely mentions dead code in passing', () => {
+    // Deadness words present but NO resurrection verb: the remediation changes
+    // behavior, it does not propose making unused code run.
+    const out = stripResurrectionActions(withActions([
+      'Guard the loop bound so the unused-slot branch cannot read past the array end and crash.',
+    ]));
+    expect(out.actions).toHaveLength(1);
+  });
+
+  it('drops only the resurrection action, preserving co-located real fixes', () => {
+    const out = stripResurrectionActions(withActions([
+      'Export the helper so callers can use it; it is dead code today.',
+      'Fix the off-by-one in the index computation that throws at runtime.',
+    ]));
+    expect(out.actions).toHaveLength(1);
+    expect(out.actions[0].description).toContain('off-by-one');
+  });
+
+  it('returns the same object when nothing matches (no needless copy)', () => {
+    const data = withActions(['Fix the wrong-sign multiplier on the payout line.']);
+    expect(stripResurrectionActions(data)).toBe(data);
+  });
+});
+
+describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => {
+  for (const [label, prompt] of [
+    ['base', buildCorrectionSystemPrompt()],
+    ['typescript', resolveSystemPrompt('correction', 'typescript')],
+  ] as const) {
+    it(`${label} variant forbids resurrecting dead code (rule 14)`, () => {
+      const lower = prompt.toLowerCase();
+      expect(lower).toMatch(/dead code|unused/);
+      expect(lower).toContain('utility');
+      // The behavioral boundary: flag wrong behavior when run, not non-use.
+      expect(lower).toMatch(/never (resurrect|propose to export)|make it used|so callers can/);
+    });
+
+    it(`${label} variant requires accurate mechanism + feasible remediation (rule 15)`, () => {
+      const lower = prompt.toLowerCase();
+      // Mechanism accuracy: async-after-await is not a stack overflow.
+      expect(lower).toMatch(/await/);
+      expect(lower).toMatch(/stack overflow|call stack/);
+      // Feasible / non-breaking remediation.
+      expect(lower).toMatch(/feasible|inputs that (?:actually )?exist/);
+      expect(lower).toMatch(/break (?:existing )?consumers|callers read it/);
+    });
+  }
 });

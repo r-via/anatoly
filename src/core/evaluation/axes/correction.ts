@@ -374,6 +374,43 @@ export function reconcileSelfContradictions(data: CorrectionResponse): Correctio
 }
 
 /**
+ * Remediation VERB that turns an unused symbol into live code: export it,
+ * re-export it, wire it up, or "make it used/reachable/callable". Matched on
+ * the proposed fix, not on any justification.
+ */
+const RESURRECTION_VERB =
+  /\b(re-?export|exports?|exporting|exported|wire(?:\s|-)?(?:it|them|this)?\s*up|make\s+(?:it|them|this)\s+(?:used|reachable|callable|live|active))\b/i;
+
+/**
+ * Explicit deadness justification: the action admits the symbol is not run.
+ * Tight on purpose — "not exported" alone is excluded, because fixing a
+ * genuinely-missing export that breaks an intended public type IS a real
+ * correctness fix; only an admission that the code is DEAD/UNUSED qualifies.
+ */
+const DEADNESS_JUSTIFICATION =
+  /\b(dead code|currently (?:dead|unused)|is (?:dead|unused)|unused (?:code|function|method|export|symbol|helper|logic)|never (?:called|used|invoked|imported|referenced)|not (?:called|used|invoked|referenced))\b/i;
+
+/**
+ * Deterministic backstop behind correction rule 14: drop any action whose
+ * remediation is to resurrect dead code (export / wire-up an admittedly unused
+ * symbol "so callers can…"). Such an action is never a correctness fix — making
+ * unused code run is the Utility axis's territory (delete), and proposing it
+ * contradicts the zero-dead-code policy. Fires only when BOTH a resurrection
+ * verb AND an explicit deadness admission are present, so a real fix (e.g.
+ * "export the type the public API requires") is preserved. Verdict handling is
+ * left to rule 14 and the tier-2 DEAD coherence mute; this only removes the
+ * misleading "Quick Win" artifact (cf. theraphonia getOscillatorCompensation,
+ * run 2026-06-07).
+ */
+export function stripResurrectionActions(data: CorrectionResponse): CorrectionResponse {
+  const actions = data.actions.filter(
+    (a) => !(RESURRECTION_VERB.test(a.description) && DEADNESS_JUSTIFICATION.test(a.description)),
+  );
+  if (actions.length === data.actions.length) return data;
+  return { ...data, actions };
+}
+
+/**
  * Detect which dependency is implicated in a finding detail by name match.
  * @returns The matched dependency name, or `undefined` if no dependency is mentioned or fileDeps is absent.
  */
@@ -482,6 +519,11 @@ export class CorrectionEvaluator implements AxisEvaluator {
     // Deterministic coherence guard: a flagged verdict whose own evidence
     // concludes "no bug" is reconciled to OK (safety net behind prompt rule 13).
     finalData = reconcileSelfContradictions(finalData);
+
+    // Deterministic backstop behind rule 14: drop "export this dead code so
+    // callers can use it" actions — resurrecting unused code is never a
+    // correction fix and violates the zero-dead-code policy.
+    finalData = stripResurrectionActions(finalData);
 
     const symbols: AxisSymbolResult[] = finalData.symbols.map((s) => ({
       name: s.name,
