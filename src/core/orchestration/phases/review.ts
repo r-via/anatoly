@@ -58,6 +58,35 @@ import type { RagContext, Handoff } from '../handoff.js';
 import type { OrchestrationEventName } from '../events.js';
 import type { RunContext } from '../../../commands/run.js';
 
+/**
+ * The axis evaluators that will actually run on a file this run. Single source
+ * of truth shared by the `evaluateTotal` denominator and the review handler's
+ * per-file dispatch: a file is "evaluated" (one completedCount++) iff this
+ * returns a non-empty list; an empty list means the handler takes the
+ * pure-skip path (synthetic review, no LLM call, no count).
+ *
+ * Only STALE axes run (reusable axes come from the cached blob via the merge);
+ * a skip-tier file further narrows to its per-reason partial-axes policy. The
+ * counter denominator MUST derive its per-file decision from the same function
+ * — when the two computations drifted (denominator testing the full evaluator
+ * set, handler testing only stale ∩ partial), a skip-tier file whose
+ * partial-policy axes were all cache-reusable was counted but never completed,
+ * stranding the progress line at "9/10".
+ */
+export function selectFileEvaluators<E extends { id: AxisId }>(
+  evaluators: readonly E[],
+  staleAxes: readonly AxisId[],
+  triageEnabled: boolean,
+  triage: { tier: string; reason: string } | undefined,
+): E[] {
+  const staleSet = new Set<AxisId>(staleAxes);
+  const staleEvaluators = evaluators.filter((e) => staleSet.has(e.id));
+  const isSkipTier = triageEnabled && triage?.tier === 'skip';
+  if (!isSkipTier) return staleEvaluators;
+  const partialAxes = evaluatorAxesForSkip(triage.reason);
+  return staleEvaluators.filter((e) => partialAxes.has(e.id));
+}
+
 export async function runReviewPhase(
   ctx: RunContext,
   handoff: Handoff,
@@ -251,8 +280,9 @@ export async function runReviewPhase(
   // A file counts toward evaluateTotal when at least one axis evaluator
   // actually runs on it. Skip-tier files with a partial-axes policy
   // (e.g. trivial files keeping correction/duplication/utility via
-  // evaluatorAxesForSkip) DO trigger completedCount++ in the handler,
-  // so they must be included here — otherwise completedCount can exceed
+  // evaluatorAxesForSkip) trigger completedCount++ in the handler ONLY when
+  // at least one of those partial axes is STALE — so they must be counted
+  // here under the SAME condition, otherwise completedCount can exceed
   // evaluateTotal and produce displays like "13/12". Files with zero stale
   // axes are fully cache-served and excluded. doc: the pre-doc-15 bug where
   // cache-miss-fallthrough files re-evaluated but were never counted (the
@@ -260,13 +290,13 @@ export async function runReviewPhase(
   // both the decision and the count.
   const evaluateTotal = reviewItems.filter((item) => {
     if (item.cached) return false;
-    if (!ctx.triageEnabled) return true;
     const triage = triageMap.get(item.filePath);
-    if (triage?.tier !== 'skip') return true;
-    // Skip-tier file: include only if the partial-axes policy keeps at
-    // least one axis running for this skip reason.
-    const partialAxes = evaluatorAxesForSkip(triage.reason);
-    return evaluators.some((e) => partialAxes.has(e.id));
+    const staleAxes = resolutions.get(item.filePath)?.staleAxes ?? axisIds;
+    // SAME per-file decision the handler makes: counted iff at least one
+    // evaluator actually runs. Deriving both from selectFileEvaluators is
+    // what keeps the denominator and the handler from drifting (the drift
+    // that stranded the counter at "9/10" — see selectFileEvaluators).
+    return selectFileEvaluators(evaluators, staleAxes, ctx.triageEnabled, triage).length > 0;
   }).length;
   const state = ctx.pipelineState!;
   state.setPhase('review');
@@ -336,16 +366,11 @@ export async function runReviewPhase(
       // while barrel-export / type-only / constants-only fall through
       // to the pure synthetic-review path.
       const isSkipTier = ctx.triageEnabled && triage?.tier === 'skip';
-      const partialAxesOnSkip = isSkipTier
-        ? evaluatorAxesForSkip(triage.reason)
-        : null;
       // Only the STALE axes run; reusable axes come from the cached blob via
       // the merge below. Skip-tier further narrows to the partial-axes policy.
-      const staleSet = new Set<AxisId>(staleAxes);
-      const staleEvaluators = evaluators.filter((e) => staleSet.has(e.id));
-      const fileEvaluators = partialAxesOnSkip
-        ? staleEvaluators.filter((e) => partialAxesOnSkip.has(e.id))
-        : staleEvaluators;
+      // Same helper drives the evaluateTotal denominator, so the counter
+      // cannot drift from what actually runs here.
+      const fileEvaluators = selectFileEvaluators(evaluators, staleAxes, ctx.triageEnabled, triage);
 
       // Pure-skip path: triage decided no axis should run on this file.
       // Generate a synthetic review; the usage graph still resolves the
