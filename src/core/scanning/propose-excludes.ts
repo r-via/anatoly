@@ -45,15 +45,22 @@ export const ProposeExcludesResponseSchema = z.object({
 
 const SYSTEM_PROMPT = `You decide which parts of a repository should be EXCLUDED from a code audit because they are not product surface.
 
+You see ONLY the file/directory tree (paths, not contents), so recognize non-product code by well-known naming and directory conventions.
+
 Eligible categories:
 - fixture: deliberately bad/dead/sample code used to calibrate tools or tests (__fixtures__, __mocks__, gold-set / golden dirs, testdata).
-- generated: machine-emitted code not authored by hand (codegen, protobuf .pb, compiled or bundled output).
+- generated: machine-emitted code not authored by hand. Beyond obvious codegen and build output (codegen, protobuf .pb, compiled or bundled output), this includes type/client definitions emitted by schema, BaaS, or ORM tooling, recognizable by convention, e.g.:
+    - Supabase generated database types: "**/integrations/supabase/types.ts", "**/supabase/types.ts", "**/database.types.ts", "**/supabase/database.types.ts".
+    - GraphQL / API codegen output: "**/__generated__/**", "**/*.generated.ts", "**/gql/**".
+    - Prisma / ORM clients, OpenAPI/Swagger generated SDK clients, generated router trees (e.g. "**/routeTree.gen.ts").
 - example: standalone demos / examples / samples that are not shipped product.
-- vendored: third-party code copied into the repo.
+- vendored: third-party code copied into the repo, including UI primitive libraries scaffolded by a copy-in CLI rather than hand-authored, recognizable by convention, e.g.:
+    - shadcn/ui primitives: "**/components/ui/**" (a directory of many small components each wrapping Radix / headless primitives, added by \`npx shadcn add\`; false-positive heavy, not product logic).
 
 Rules:
-- Propose GLOBS that match directories or file groups (e.g. "src/__fixtures__/**", "**/generated/**"), never individual product files.
-- A wrongly-excluded real file is a silently-missed bug, far worse than auditing some noise. When unsure, DO NOT propose it. Bias hard toward fewer, high-confidence exclusions.
+- Propose GLOBS that match directories or file groups (e.g. "src/__fixtures__/**", "**/components/ui/**", "**/supabase/types.ts"), never an individual product file you hand-pick. The named single-file generated conventions above (e.g. the Supabase types file) are an exception: propose them as their convention glob.
+- The named ecosystem conventions above (Supabase generated types, shadcn/ui under components/ui) ARE high-confidence: propose them whenever the tree matches, even under src/.
+- For anything NOT a named convention: a wrongly-excluded real file is a silently-missed bug, far worse than auditing some noise. When unsure, DO NOT propose it. Bias hard toward fewer, high-confidence exclusions.
 - Never propose product source, configuration, or anything you are not confident is non-product.
 - Do NOT propose test files (*.test.*, *.spec.*) or standard vendor/build dirs (node_modules, dist, build, coverage): those are handled elsewhere.
 - Return an empty list if nothing clearly qualifies.`;

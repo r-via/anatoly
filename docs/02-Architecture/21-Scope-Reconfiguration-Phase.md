@@ -167,10 +167,20 @@ proposeExcludes(params: {
 The phase composes `autoDetectScanGlobs` (always) with `proposeExcludes`
 (TTY only), unions the globs, and feeds them to `mergeScanIntoYaml`. The
 in-scope file list is rendered to a condensed tree via `buildProjectTree`
-for the prompt; the model is told that a wrongly-excluded real file is a
-silently-missed bug and to bias hard toward fewer, high-confidence
-exclusions. The category and reason are shown in the confirm preview so
-the human judges each entry. `queryFn` injection keeps it mockable; the
+for the prompt; the model sees only the path tree (no file contents), so
+it recognizes non-product code by naming and directory convention. The
+prompt is told that a wrongly-excluded real file is a silently-missed bug
+and to bias hard toward fewer, high-confidence exclusions, with one
+carve-out: a short list of named, path-recognizable ecosystem conventions
+that are high-confidence even under `src/`. Those named conventions are
+Supabase generated database types (`**/supabase/types.ts`,
+`**/database.types.ts`, and the `**/integrations/supabase/types.ts`
+layout) under the `generated` category, and shadcn/ui primitives
+(`**/components/ui/**`, scaffolded by `npx shadcn add`, false-positive
+heavy) under the `vendored` category, alongside generic codegen output
+(`**/__generated__/**`, `**/*.generated.ts`, `**/routeTree.gen.ts`). The
+category and reason are shown in the confirm preview so the human judges
+each entry. `queryFn` injection keeps it mockable; the
 deterministic path needs no model, and `config.models.deliberation`
 (Opus) drives the call.
 

@@ -79,6 +79,20 @@ describe('proposeExcludes', () => {
     expect(captured?.callId).toBe('propose-excludes');
   });
 
+  it('names the supabase + shadcn/ui ecosystem conventions in the system prompt', async () => {
+    let captured: { systemPrompt?: string } | undefined;
+    const capturing = ((params: { systemPrompt?: string }) => {
+      captured = params;
+      return Promise.resolve({
+        data: { excludes: [] }, costUsd: 0, durationMs: 0,
+        inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, transcript: '',
+      });
+    }) as unknown as typeof runSingleTurnQuery;
+    await proposeExcludes({ projectRoot: '/x', config: cfg, router, files, queryFn: capturing });
+    expect(captured?.systemPrompt).toContain('**/supabase/types.ts');
+    expect(captured?.systemPrompt).toContain('**/components/ui/**');
+  });
+
   it('dedupes repeated globs within the response', async () => {
     const out = await proposeExcludes({
       projectRoot: '/x', config: cfg, router, files,
