@@ -7,10 +7,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, stripResurrectionActions, CorrectionResponseSchema } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, renderCallersContext, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, stripResurrectionActions, CorrectionResponseSchema } from './correction.js';
 import type { CorrectionResponse, VerificationResponse } from './correction.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import type { AxisContext } from '../contract.js';
+import type { UsageGraph } from '../../scanning/index.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
 
@@ -92,6 +93,71 @@ describe('buildCorrectionUserMessage', () => {
       fileDeps: { deps: [] },
     }));
     expect(msg).not.toContain('## Project Dependencies');
+  });
+
+  it('should include the Callers section when a usage graph is provided', () => {
+    const msg = buildCorrectionUserMessage(createCtx({
+      usageGraph: emptyUsageGraph(),
+    }));
+    expect(msg).toContain('## Callers (reverse usage graph)');
+  });
+
+  it('should omit the Callers section when no usage graph is provided', () => {
+    const msg = buildCorrectionUserMessage(createCtx());
+    expect(msg).not.toContain('## Callers');
+  });
+});
+
+/** Build an empty usage graph (all symbols read as having no callers). */
+function emptyUsageGraph(): UsageGraph {
+  return {
+    usages: new Map(),
+    typeOnlyUsages: new Map(),
+    intraFileRefs: new Map(),
+    noImportFiles: new Set(),
+  };
+}
+
+describe('renderCallersContext', () => {
+  it('returns empty string when no usage graph is present', () => {
+    expect(renderCallersContext(createCtx())).toBe('');
+  });
+
+  it('lists importers for a symbol with live callers (rule 15 caller awareness)', () => {
+    const graph = emptyUsageGraph();
+    graph.usages.set('parseConfig::src/core/parser.ts', new Set(['src/index.ts']));
+    const out = renderCallersContext(createCtx({ usageGraph: graph }));
+    expect(out).toContain('`parseConfig`: imported by 1 file — src/index.ts');
+  });
+
+  it('flags a symbol with no importers or in-file callers (rule 14 unused signal)', () => {
+    const out = renderCallersContext(createCtx({ usageGraph: emptyUsageGraph() }));
+    expect(out).toContain('`parseConfig`: no importers or in-file callers found (static import graph)');
+    expect(out).toContain('`validateInput`: no importers or in-file callers found (static import graph)');
+  });
+
+  it('reports in-file referencers via the transitive graph', () => {
+    const graph = emptyUsageGraph();
+    // parseConfig is alive (imported elsewhere) and references validateInput in-file.
+    graph.usages.set('parseConfig::src/core/parser.ts', new Set(['src/index.ts']));
+    graph.intraFileRefs.set('validateInput::src/core/parser.ts', new Set(['parseConfig']));
+    const out = renderCallersContext(createCtx({ usageGraph: graph }));
+    expect(out).toContain('`validateInput`: referenced in-file by parseConfig');
+  });
+
+  it('truncates long importer lists with a "+N more" suffix', () => {
+    const graph = emptyUsageGraph();
+    const importers = Array.from({ length: 11 }, (_, i) => `src/c${i}.ts`);
+    graph.usages.set('parseConfig::src/core/parser.ts', new Set(importers));
+    const out = renderCallersContext(createCtx({ usageGraph: graph }));
+    expect(out).toContain('imported by 11 files');
+    expect(out).toMatch(/\+3 more/);
+  });
+
+  it('states the static-import caveat so zero importers is not read as a verdict', () => {
+    const out = renderCallersContext(createCtx({ usageGraph: emptyUsageGraph() }));
+    expect(out.toLowerCase()).toContain('static imports only');
+    expect(out.toLowerCase()).toMatch(/entry point|framework-invoked/);
   });
 });
 
@@ -488,6 +554,14 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
       // Feasible / non-breaking remediation.
       expect(lower).toMatch(/feasible|inputs that (?:actually )?exist/);
       expect(lower).toMatch(/break (?:existing )?consumers|callers read it/);
+    });
+
+    it(`${label} variant grounds caller claims in the Callers section (Gap 1)`, () => {
+      const lower = prompt.toLowerCase();
+      expect(lower).toContain('callers (reverse usage graph)');
+      // Both directions: importers ⇒ live consumers; zero ⇒ unused, with caveat.
+      expect(lower).toMatch(/live consumers|has live/);
+      expect(lower).toMatch(/entry point|framework-invoked/);
     });
   }
 });

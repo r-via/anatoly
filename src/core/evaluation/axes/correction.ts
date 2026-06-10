@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../contract.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import type { Action } from '../../../schemas/review.js';
-import { extractRelevantReadmeSections } from '../../scanning/index.js';
+import { extractRelevantReadmeSections, getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage } from '../../scanning/index.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis, recordReclassification } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
@@ -68,6 +68,77 @@ export function buildCorrectionSystemPrompt(): string {
   return resolveSystemPrompt('correction');
 }
 
+/** Max importer files listed per symbol before the list is truncated with a "+N more". */
+const MAX_CALLERS_LISTED = 8;
+
+/**
+ * Render a "Callers" section from the reverse usage graph, one line per
+ * evaluated symbol. Supplies the call-site data that rules 14 and 15 already
+ * ask the model to reason about but were never given: a symbol WITH live
+ * callers must not have its signature/return shape changed by a remediation
+ * unless that change is safe for them (rule 15: no "remove the field" when
+ * callers read it); a symbol with NO callers anywhere is an unused-code matter
+ * for the Utility axis (rule 14), not a correction defect.
+ *
+ * Recall-safe by construction: the graph tracks STATIC import edges only, so a
+ * framework-invoked / dynamically-imported / entry-point symbol can legitimately
+ * show zero importers. The section says so and frames the data as evidence, not
+ * a verdict — it never instructs the model to suppress a bug, only to keep
+ * remediations consistent with the callers that demonstrably exist.
+ *
+ * Returns '' when no usage graph is available (e.g. lite mode without scan).
+ */
+export function renderCallersContext(ctx: AxisContext): string {
+  const graph = ctx.usageGraph;
+  if (!graph) return '';
+
+  const lines: string[] = [];
+  for (const s of ctx.task.symbols) {
+    const importers = getSymbolUsage(graph, s.name, ctx.task.file);
+    const typeOnly = getTypeOnlySymbolUsage(graph, s.name, ctx.task.file);
+    const intraFile = getTransitiveUsage(graph, s.name, ctx.task.file);
+
+    if (importers.length === 0 && typeOnly.length === 0 && intraFile.length === 0) {
+      lines.push(`- \`${s.name}\`: no importers or in-file callers found (static import graph)`);
+      continue;
+    }
+
+    const parts: string[] = [];
+    if (importers.length > 0) {
+      const shown = importers.slice(0, MAX_CALLERS_LISTED);
+      const extra = importers.length - shown.length;
+      parts.push(
+        `imported by ${importers.length} file${importers.length === 1 ? '' : 's'} — ${shown.join(', ')}${extra > 0 ? `, +${extra} more` : ''}`,
+      );
+    }
+    if (typeOnly.length > 0) {
+      parts.push(`${typeOnly.length} type-only importer${typeOnly.length === 1 ? '' : 's'}`);
+    }
+    if (intraFile.length > 0) {
+      parts.push(`referenced in-file by ${intraFile.join(', ')}`);
+    }
+    lines.push(`- \`${s.name}\`: ${parts.join('; ')}`);
+  }
+
+  if (lines.length === 0) return '';
+
+  return [
+    '## Callers (reverse usage graph)',
+    '',
+    'Live call sites of each evaluated symbol, resolved across the project from',
+    'static import edges. Use this to keep remediations consistent with reality',
+    '(rules 14 and 15): do not propose changing or removing part of a symbol\'s',
+    'signature/return shape when callers read it, and treat a symbol with no',
+    'callers as an unused-code matter (Utility axis), not a correction defect.',
+    'Caveat: the graph sees static imports only — an entry point, a',
+    'framework-invoked handler, or a dynamic import can show zero importers',
+    'without being dead, so use this as evidence, never as a standalone verdict.',
+    '',
+    ...lines,
+    '',
+  ].join('\n');
+}
+
 /** Assembles the user message for the correction axis, including source code and symbol list. */
 export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
@@ -86,6 +157,11 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
     parts.push(`- ${s.exported ? 'export ' : ''}${s.kind} ${s.name} (L${s.line_start}–L${s.line_end})`);
   }
   parts.push('');
+
+  const callersSection = renderCallersContext(ctx);
+  if (callersSection) {
+    parts.push(callersSection);
+  }
 
   const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.arbitratedFragments);
   if (referenceDocsSection) {

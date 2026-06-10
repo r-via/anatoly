@@ -138,6 +138,13 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       creation" when there is no data to create the entity from, or "remove the
       field" when callers read it. When the only safe fix is to correct
       misleading documentation or JSDoc rather than the code, say exactly that.
+    - **Ground every caller claim in the `## Callers (reverse usage graph)`
+      section when present.** It lists, per symbol, the files that actually
+      import it. A symbol shown there with importers HAS live consumers — do not
+      assert "nothing calls this" or propose a signature/return-shape change as
+      safe. A symbol shown with no importers and no in-file callers is unused
+      (rule 14), not a correction bug. Heed its caveat: zero importers can mean
+      an entry point or framework-invoked handler, so it is evidence, not proof.
 
 ## Do NOT flag (precision guards)
 
