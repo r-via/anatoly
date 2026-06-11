@@ -387,7 +387,7 @@ export function applyVerification(
  * additions are verdict-level conclusions, not mid-analysis hedges.
  */
 const SELF_EXONERATION =
-  /\b(no bug here|not (a |an )?(real |actual )?bug\b|isn'?t (a |an )?bug\b|no (real|actual) (bug|issue|problem|defect)|no defect\b|not (a |an )?defect\b|no issue here|ok on this\b|not actually (a |an )?(bug|issue|problem|defect)|accidentally works|semantics rescue)/i;
+  /\b(no bug here|not (a |an )?(real |actual )?bug\b|isn'?t (a |an )?bug\b|no (real|actual) (bug|issue|problem|defect)|no defect\b|not (a |an )?defect\b|no issue here|ok on this (sub-?)?point\b|not actually (a |an )?(bug|issue|problem|defect)|accidentally works|semantics rescue)/i;
 
 function isSelfExonerating(text: string | undefined): boolean {
   return !!text && SELF_EXONERATION.test(text);

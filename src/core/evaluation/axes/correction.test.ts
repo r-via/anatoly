@@ -486,6 +486,15 @@ describe('reconcileSelfContradictions', () => {
     expect(out.symbols[0].correction).toBe('NEEDS_FIX');
   });
 
+  it('does NOT mute a partial "ok on this <path>" that still flags another case', () => {
+    // "ok on this point" is a conclusion; "ok on this path/branch" is partial —
+    // the lexicon is anchored to point/sub-point to avoid muting the latter.
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'ok on this path, but on the empty-array branch it throws at runtime' },
+    ]));
+    expect(out.symbols[0].correction).toBe('NEEDS_FIX');
+  });
+
   it('downgrades a single-defect symbol carried only by an exonerating detail', () => {
     const data: CorrectionResponse = {
       symbols: [{ name: 'bar', line_start: 1, line_end: 5, confidence: 80, correction: 'NEEDS_FIX', detail: 'on reflection this is not a bug; the call is unreachable' }],
