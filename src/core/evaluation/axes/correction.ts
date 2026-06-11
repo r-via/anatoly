@@ -379,9 +379,15 @@ export function applyVerification(
  * Tight on purpose: each is a verdict-level conclusion, not a hedge. Bare
  * softeners ("this is fine", "harmless") are excluded to avoid suppressing a
  * real bug that merely contains reassuring prose. Extend with care.
+ *
+ * Widened from the theraphonia shard-11 BaseAudioController FP (run 2026-06-08):
+ * a NEEDS_FIX whose sub-findings each concluded "No defect" / "OK on this
+ * sub-point" survived because the lexicon required a "real/actual" qualifier
+ * before "defect" and had no entry for the "ok on this …" conclusion. Both
+ * additions are verdict-level conclusions, not mid-analysis hedges.
  */
 const SELF_EXONERATION =
-  /\b(no bug here|not (a |an )?(real |actual )?bug\b|isn'?t (a |an )?bug\b|no (real|actual) (bug|issue|problem|defect)|not actually (a |an )?(bug|issue|problem|defect)|accidentally works|semantics rescue)/i;
+  /\b(no bug here|not (a |an )?(real |actual )?bug\b|isn'?t (a |an )?bug\b|no (real|actual) (bug|issue|problem|defect)|no defect\b|not (a |an )?defect\b|no issue here|ok on this\b|not actually (a |an )?(bug|issue|problem|defect)|accidentally works|semantics rescue)/i;
 
 function isSelfExonerating(text: string | undefined): boolean {
   return !!text && SELF_EXONERATION.test(text);

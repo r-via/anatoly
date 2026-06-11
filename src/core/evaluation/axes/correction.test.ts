@@ -460,6 +460,32 @@ describe('reconcileSelfContradictions', () => {
     expect(out.symbols[0].correction).toBe('NEEDS_FIX');
   });
 
+  // theraphonia shard-11 BaseAudioController FP (run 2026-06-08): the lexicon
+  // missed bare "No defect" and the "OK on this sub-point" conclusion.
+  it('downgrades when sub-findings conclude "No defect" / "OK on this sub-point"', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'stopTimeTracking sets _rafId to null before return, so the guard does not block a restart — OK on this sub-point.' },
+      { detail: 'the final state is notified via setStatus(complete) -> notifyStateChange. No defect.' },
+    ]));
+    expect(out.symbols[0].correction).toBe('OK');
+    expect(out.actions).toHaveLength(0);
+  });
+
+  it('downgrades a single-detail symbol that concludes "no defect found"', () => {
+    const data: CorrectionResponse = {
+      symbols: [{ name: 'baz', line_start: 1, line_end: 5, confidence: 78, correction: 'NEEDS_FIX', detail: 'traced the RAF restart path; the null-guard is reset on stop, no defect found' }],
+      actions: [],
+    };
+    expect(reconcileSelfContradictions(data).symbols[0].correction).toBe('OK');
+  });
+
+  it('does NOT downgrade a real defect whose prose mentions a "defect" without clearing it', () => {
+    const out = reconcileSelfContradictions(flagged([
+      { detail: 'this defect drops every retrigger spin so free spins chain without bound' },
+    ]));
+    expect(out.symbols[0].correction).toBe('NEEDS_FIX');
+  });
+
   it('downgrades a single-defect symbol carried only by an exonerating detail', () => {
     const data: CorrectionResponse = {
       symbols: [{ name: 'bar', line_start: 1, line_end: 5, confidence: 80, correction: 'NEEDS_FIX', detail: 'on reflection this is not a bug; the call is unreachable' }],
