@@ -32,6 +32,7 @@ export {
   getTypeOnlySymbolUsage,
   getTransitiveUsage,
   getImportedSymbolsBySource,
+  getTransitiveImporters,
   resolveExportedSymbolUtility,
   resolveNonExportedSymbolUtility,
 } from './usage-graph.js';

@@ -8,6 +8,7 @@ import { buildOverengineeringSystemPrompt, buildOverengineeringUserMessage } fro
 import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { Config } from '../../../schemas/config.js';
+import type { UsageGraph } from '../../scanning/index.js';
 
 const mockTask: Task = {
   version: 1,
@@ -101,5 +102,67 @@ describe('buildOverengineeringUserMessage', () => {
       fileDeps: { deps: [] },
     }));
     expect(msg).not.toContain('Installed Dependencies');
+  });
+});
+
+describe('buildOverengineeringUserMessage — pre-computed usage analysis', () => {
+  const classTask: Task = {
+    version: 1,
+    file: 'src/engine/synth.ts',
+    hash: 'synthhash',
+    symbols: [
+      { name: 'Synth', kind: 'class', exported: true, line_start: 1, line_end: 50 },
+      { name: 'createSynth', kind: 'function', exported: true, line_start: 52, line_end: 54 },
+    ],
+    scanned_at: '2026-02-25T00:00:00Z',
+  };
+  function ctxWith(graph: UsageGraph): AxisContext {
+    return {
+      task: classTask,
+      fileContent: 'export class Synth {}\nexport const createSynth = () => new Synth();\n',
+      config: mockConfig,
+      projectRoot: '/tmp/test',
+      usageGraph: graph,
+    };
+  }
+
+  it('counts barrel-transitive importers, not just the direct barrel (SyntheticSourceModule FP)', () => {
+    const graph: UsageGraph = {
+      usages: new Map([
+        ['Synth::src/engine/synth.ts', new Set(['src/engine/index.ts'])],
+        ['Synth::src/engine/index.ts', new Set(['src/mixer.ts', 'src/session.ts'])],
+      ]),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map(),
+      noImportFiles: new Set(),
+    };
+    const msg = buildOverengineeringUserMessage(ctxWith(graph));
+    expect(msg).toContain('## Pre-computed Usage Analysis');
+    expect(msg).toContain('class Synth: 3 runtime + 0 type-only = 3 importers');
+  });
+
+  it('flags a class with no external importers but used in-file by a live symbol (YamlBuilder FP)', () => {
+    const graph: UsageGraph = {
+      // The factory createSynth is imported elsewhere; the class Synth itself is
+      // never imported directly — it is instantiated only inside createSynth.
+      usages: new Map([['createSynth::src/engine/synth.ts', new Set(['src/app.ts'])]]),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map([['Synth::src/engine/synth.ts', new Set(['createSynth'])]]),
+      noImportFiles: new Set(),
+    };
+    const msg = buildOverengineeringUserMessage(ctxWith(graph));
+    expect(msg).toContain('class Synth: 0 external importers, but consumed in-file by createSynth');
+    expect(msg).not.toContain('class Synth: 0 importers');
+  });
+
+  it('shows a plain 0 importers for a class with no importers and no in-file use', () => {
+    const graph: UsageGraph = {
+      usages: new Map(),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map(),
+      noImportFiles: new Set(),
+    };
+    const msg = buildOverengineeringUserMessage(ctxWith(graph));
+    expect(msg).toContain('class Synth: 0 importers');
   });
 });

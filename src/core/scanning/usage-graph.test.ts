@@ -12,6 +12,7 @@ import {
   getSymbolUsage,
   getTypeOnlySymbolUsage,
   getImportedSymbolsBySource,
+  getTransitiveImporters,
   resolveExportedSymbolUtility,
   resolveNonExportedSymbolUtility,
   stripTemplateLiterals,
@@ -762,6 +763,95 @@ describe('buildUsageGraph — separately default-exported bindings (theraphonia 
     expect(sym.is_default).toBe(true);
     const verdict = resolveExportedSymbolUtility(sym, graph, 'src/SmartErrorBoundary.tsx');
     expect(verdict?.value).toBe('USED');
+  });
+});
+
+describe('getTransitiveImporters (barrel-aware importer closure)', () => {
+  async function realTask(relPath: string): Promise<Task> {
+    const r = await parseFile(relPath, readFileSync(join(testDir, relPath), 'utf-8'));
+    return {
+      version: 1,
+      file: relPath,
+      hash: 'realhash',
+      symbols: r.symbols,
+      ...(r.imports.length > 0 ? { imports: r.imports } : {}),
+      ...(r.importsEnriched ? { imports_enriched: true } : {}),
+      scanned_at: new Date().toISOString(),
+    };
+  }
+
+  it('follows a barrel re-export to the real consumers (the SyntheticSourceModule FP)', async () => {
+    createFile('src/engine/synth.ts', 'export class Synth {}\n');
+    createFile('src/engine/index.ts', "export { Synth } from './synth';\n");
+    createFile('src/mixer.ts', "import { Synth } from './engine/index';\nexport const m = () => new Synth();\n");
+    createFile('src/session.ts', "import { Synth } from './engine/index';\nexport const s = () => new Synth();\n");
+
+    const tasks = [
+      await realTask('src/engine/synth.ts'),
+      await realTask('src/engine/index.ts'),
+      await realTask('src/mixer.ts'),
+      await realTask('src/session.ts'),
+    ];
+    const graph = buildUsageGraph(testDir, tasks);
+
+    // Direct count undercounts (only the barrel); transitive count sees all 3.
+    expect(getSymbolUsage(graph, 'Synth', 'src/engine/synth.ts')).toEqual(['src/engine/index.ts']);
+    expect(getTransitiveImporters(graph, 'Synth', 'src/engine/synth.ts')).toEqual([
+      'src/engine/index.ts',
+      'src/mixer.ts',
+      'src/session.ts',
+    ]);
+  });
+
+  it('chases multi-hop barrel chains', async () => {
+    createFile('src/a/widget.ts', 'export class Widget {}\n');
+    createFile('src/a/index.ts', "export { Widget } from './widget';\n");
+    createFile('src/index.ts', "export { Widget } from './a/index';\n");
+    createFile('src/app.ts', "import { Widget } from './index';\nexport const go = () => new Widget();\n");
+
+    const tasks = [
+      await realTask('src/a/widget.ts'),
+      await realTask('src/a/index.ts'),
+      await realTask('src/index.ts'),
+      await realTask('src/app.ts'),
+    ];
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getTransitiveImporters(graph, 'Widget', 'src/a/widget.ts')).toEqual([
+      'src/a/index.ts',
+      'src/app.ts',
+      'src/index.ts',
+    ]);
+  });
+
+  it('equals direct importers when there is no barrel, and excludes the source', async () => {
+    createFile('src/util.ts', 'export class Helper {}\n');
+    createFile('src/one.ts', "import { Helper } from './util';\nexport const a = () => new Helper();\n");
+
+    const tasks = [await realTask('src/util.ts'), await realTask('src/one.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getTransitiveImporters(graph, 'Helper', 'src/util.ts')).toEqual(['src/one.ts']);
+  });
+
+  it('returns empty for a symbol nobody imports', async () => {
+    createFile('src/lonely.ts', 'export class Unused {}\n');
+    const tasks = [await realTask('src/lonely.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getTransitiveImporters(graph, 'Unused', 'src/lonely.ts')).toEqual([]);
+  });
+
+  it('terminates on a re-export cycle (cycle-safe)', () => {
+    // Pathological: a.ts and b.ts each re-export Foo from the other.
+    const graph: UsageGraph = {
+      usages: new Map([
+        ['Foo::src/a.ts', new Set(['src/b.ts'])],
+        ['Foo::src/b.ts', new Set(['src/a.ts', 'src/leaf.ts'])],
+      ]),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map(),
+      noImportFiles: new Set(),
+    };
+    // Should not loop forever; resolves the reachable set minus the source.
+    expect(getTransitiveImporters(graph, 'Foo', 'src/a.ts')).toEqual(['src/b.ts', 'src/leaf.ts']);
   });
 });
 

@@ -728,6 +728,48 @@ export function getImportedSymbolsBySource(
   return out;
 }
 
+/**
+ * Transitive runtime importers of a symbol, chasing through barrel re-exports.
+ *
+ * A direct importer that ITSELF re-exports the symbol (other files import the
+ * same name from it) is a barrel; its own importers are the real consumers and
+ * are folded in, recursively. Returns the union of every file that reaches the
+ * symbol (barrels included — harmless when the question is "how many clients"),
+ * sorted, excluding the source file. Cycle-safe.
+ *
+ * Use this wherever the EXACT client count matters — chiefly the
+ * over-abstraction "≤1 importer" signal: plain {@link getSymbolUsage} counts
+ * only DIRECT importers, so a class consumed by N files through a barrel
+ * (`export { X } from './X'`) looks like a single-client abstraction and is
+ * mis-flagged OVER. (For mere alive/dead questions, getSymbolUsage suffices: a
+ * barrel re-export already yields ≥1 direct importer.)
+ *
+ * Limitation: keys are symbol-name-based, so a re-export and a distinct local
+ * binding sharing a name in the same barrel are not disambiguated (rare).
+ */
+export function getTransitiveImporters(
+  graph: UsageGraph,
+  symbolName: string,
+  sourceFile: string,
+): string[] {
+  const result = new Set<string>();
+  const visited = new Set<string>([sourceFile]);
+  const queue: string[] = [sourceFile];
+  while (queue.length > 0) {
+    const src = queue.shift()!;
+    for (const importer of getSymbolUsage(graph, symbolName, src)) {
+      result.add(importer);
+      // `importer` re-exports the symbol (others import it from there) → barrel.
+      if (!visited.has(importer) && graph.usages.has(`${symbolName}::${importer}`)) {
+        visited.add(importer);
+        queue.push(importer);
+      }
+    }
+  }
+  result.delete(sourceFile);
+  return [...result].sort();
+}
+
 /** Merge two importer lists into a sorted, de-duplicated list. */
 function mergeUsage(a: string[], b: string[]): string[] {
   if (b.length === 0) return a;

@@ -16,7 +16,7 @@ import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, Re
 import type { TransportRouter } from '../transports/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
-import { extractFileDeps, getImportedSymbolsBySource, getSymbolUsage } from '../scanning/index.js';
+import { extractFileDeps, getImportedSymbolsBySource, getTransitiveImporters } from '../scanning/index.js';
 import type { VectorStore } from '../../rag/vector-store.js';
 import { buildFunctionId } from '../../rag/indexer.js';
 import { retrieveRelevantDocsForFile } from '../../rag/per-file-doc-retrieval.js';
@@ -563,11 +563,13 @@ const MAX_CONSUMER_FILES_SCANNED = 8;
 /**
  * Resolve the cross-file consumers of this file's EXPORTED symbols, at function
  * granularity. Joins two sources, neither re-implemented here: the usage graph
- * gives the consumer FILES (it already resolved every import specifier), and RAG
- * card `referencedImports` says which functions in those files actually
- * reference the symbol. Result: the precise consumer functions (signature +
- * behavioral summary) of each export, for every axis to reason about downstream
- * usage. RAG-off (no vector store) → undefined.
+ * gives the consumer FILES (it already resolved every import specifier; barrel
+ * re-exports are followed to the real consumers so a symbol re-exported through
+ * an index is not mistaken for unused/single-client), and RAG card
+ * `referencedImports` says which functions in those files actually reference the
+ * symbol. Result: the precise consumer functions (signature + behavioral
+ * summary) of each export, for every axis to reason about downstream usage.
+ * RAG-off (no vector store) → undefined.
  *
  * Default-exported symbols are not matched at function granularity: their
  * consumer-side binding name differs from the source name, so `referencedImports`
@@ -586,7 +588,7 @@ async function resolveConsumerContext(
     if (!sym.exported) continue;
     if (out.length >= MAX_CONSUMER_SYMBOLS) break;
 
-    const consumerFiles = getSymbolUsage(usageGraph, sym.name, task.file);
+    const consumerFiles = getTransitiveImporters(usageGraph, sym.name, task.file);
     if (consumerFiles.length === 0) continue;
 
     const consumers: ConsumerFunctionRef[] = [];

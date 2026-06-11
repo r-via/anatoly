@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../contract.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage } from '../../scanning/index.js';
+import { getTypeOnlySymbolUsage, getTransitiveImporters, getTransitiveUsage } from '../../scanning/index.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
@@ -80,20 +80,33 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
   // Usage analysis: classes/types with ≤1 importer are candidates for
   // over-abstraction (factory/strategy/emitter built for a single client).
   // We expose raw counts so the LLM can judge — promotion is then backed
-  // deterministically in tier1.
+  // deterministically in tier1. Counts are barrel-transitive (a class consumed
+  // by N files through a re-export barrel is N clients, not 1) and an
+  // abstraction with no external importers but used in-file by a live symbol
+  // (e.g. a class instantiated only by its own exported factory) is flagged as
+  // internally consumed, not as a dead/single-client abstraction.
   if (ctx.usageGraph && ctx.task.symbols.length > 0) {
     const abstractionKinds = new Set(['class', 'type']);
     const abstractionSymbols = ctx.task.symbols.filter((s) => s.exported && abstractionKinds.has(s.kind));
     if (abstractionSymbols.length > 0) {
       parts.push('## Pre-computed Usage Analysis');
       parts.push('');
-      parts.push('_Importer counts for exported abstractions. ≤1 importer is a strong signal of over-abstraction (abstraction built for a single client)._');
+      parts.push('_Importer counts for exported abstractions (barrel re-exports followed to the real consumers). ≤1 importer is a strong signal of over-abstraction (abstraction built for a single client)._');
       parts.push('');
       for (const sym of abstractionSymbols) {
-        const importers = getSymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        const importers = getTransitiveImporters(ctx.usageGraph, sym.name, ctx.task.file);
         const typeImporters = getTypeOnlySymbolUsage(ctx.usageGraph, sym.name, ctx.task.file);
         const total = importers.length + typeImporters.length;
-        parts.push(`- ${sym.kind} ${sym.name}: ${importers.length} runtime + ${typeImporters.length} type-only = ${total} importer${total === 1 ? '' : 's'}`);
+        if (total === 0) {
+          const inFileRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
+          if (inFileRefs.length > 0) {
+            parts.push(`- ${sym.kind} ${sym.name}: 0 external importers, but consumed in-file by ${inFileRefs.join(', ')} (which ${inFileRefs.length > 1 ? 'are' : 'is'} imported elsewhere) — internally used (e.g. via its own factory), not an unused abstraction`);
+          } else {
+            parts.push(`- ${sym.kind} ${sym.name}: 0 importers`);
+          }
+        } else {
+          parts.push(`- ${sym.kind} ${sym.name}: ${importers.length} runtime + ${typeImporters.length} type-only = ${total} importer${total === 1 ? '' : 's'}`);
+        }
       }
       parts.push('');
     }
