@@ -154,7 +154,11 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     an imported symbol whose return shape is not shown (the source may not
     expose it); do not rest a finding on a platform/library API behavior you are
     not highly confident of from rule 11. Prefer OK / no action, or say the fix
-    first requires confirming the unseen dependency.
+    first requires confirming the unseen dependency. This does NOT relax rules
+    4, 11 and 12: a suspicious in-file constant, formula, or logic you can
+    challenge from domain knowledge or numerical self-validation is still a
+    finding — abstention here applies only to claims about unseen *external*
+    context, never to in-file values you can reason about directly.
 
 ## Output format
 

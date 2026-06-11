@@ -574,6 +574,8 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
       expect(lower).toMatch(/platform\/library api|external api/);
       // The disposition: abstain rather than assert.
       expect(lower).toMatch(/prefer ok|abstain/);
+      // Recall guard: rule 16 must not relax in-file domain/numerical reasoning.
+      expect(lower).toMatch(/does not relax rules 4, 11 and 12|never to in-file values/);
     });
   }
 });
